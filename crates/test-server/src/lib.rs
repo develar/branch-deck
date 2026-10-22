@@ -114,6 +114,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/review-requests", post(set_review_requests).get(get_review_request_fixture))
     .route("/repositories/{id}/patronus-progress", post(remote_fixtures::set_patronus_progress))
     .route("/repositories/{id}/patronus-profiles", post(remote_fixtures::set_patronus_profiles))
+    .route("/repositories/{id}/patronus-start-refusal", post(remote_fixtures::set_patronus_start_refusal))
     .route("/repositories/{id}/review-answers", post(set_review_answers).get(get_review_answers_fixture))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))

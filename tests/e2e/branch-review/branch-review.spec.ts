@@ -1,6 +1,6 @@
 // @spec spec/branch/branch-review.spec.md
 import type { Page } from "@playwright/test"
-import type { PatronusStartOptions } from "../../../src/lib/bindings"
+import type { PatronusProfile } from "../../../src/lib/bindings"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
@@ -54,13 +54,8 @@ async function openReviewOf(page: Page, branch: string): Promise<BranchReviewWin
   return showReviewWindow(page, await openReviewWindow(page, branch))
 }
 
-const START_OPTIONS: PatronusStartOptions = {
-  targetBranch: "master",
-  supported: true,
-  profiles: [{ id: "lsc", name: "Large Scale Change", description: "All the tests", allowedPushModes: [], skipsReview: null }],
-  emergencyProfiles: [],
-  defaultProfileId: null,
-}
+/** The merge profiles Patronus offers on master (`patronusProfiles`) besides the default checks */
+const PROFILES = { profiles: [{ id: "lsc", name: "Large Scale Change", description: "All the tests", allowedPushModes: [], skipsReview: null }] satisfies PatronusProfile[] }
 
 const LOGIN_PULL_REQUEST = pullRequest("login", 42)
 
@@ -73,11 +68,14 @@ async function setupAuthWithoutPullRequest(
   await rewriteNextRemoteStatus(page, status =>
     status.branchName === "auth" ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
   )
-  const repo = await setupRepo("stacked_ownership", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
+  const repo = await setupRepo("stacked_ownership", {
+    patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+    pullRequests: availablePullRequests(),
+    patronusProfiles: PROFILES,
+  })
   await repo.setReviewAnswers({ answers: { auth: AWAITING_CODE_OWNER } })
   await syncAndWaitForBranches()
   await expect(findBranchRow(page, "auth").getByTestId("next-step-slot")).toHaveAttribute("data-step", "createPullRequest")
-  await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
 }
 
 /** What the main window says of each branch: the ids of its actions, a disabled one with its reason */
@@ -389,7 +387,7 @@ test.describe("Branch review window", () => {
   })
 
   test("should act on the branch of the part from the title bar, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("stacked_ownership", { patronus: availableRobots(), pullRequests: availablePullRequests(LOGIN_PULL_REQUEST) })
+    const repo = await setupRepo("stacked_ownership", { patronus: availableRobots(), pullRequests: availablePullRequests(LOGIN_PULL_REQUEST), patronusProfiles: PROFILES })
     // no approval needed: the Safe Push of each part is offered
     await repo.setReviewAnswers({ answers: { auth: NO_REVIEW_NEEDED, login: NO_REVIEW_NEEDED } })
     await syncAndWaitForBranches()
@@ -505,7 +503,6 @@ test.describe("Branch review window", () => {
     await syncAndWaitForBranches()
     await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toBeVisible()
     const pushes = await routePush(page, {})
-    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
     // a repository the main window can't switch to: refused with the reason, in the window
     await emitTauriEvent(page, "branch-review/request", { ...requests[2]!, id: "elsewhere", repositoryPath: "/elsewhere" })
     await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "elsewhere", ok: false }])

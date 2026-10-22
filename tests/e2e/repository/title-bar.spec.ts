@@ -9,7 +9,7 @@ import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-he
 import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
-import { routeCommand, waitForConflictViewer } from "../helpers/wait-helpers"
+import { waitForConflictViewer } from "../helpers/wait-helpers"
 
 /** The empty part of the main window's row, between the repository and the actions: it drags the window */
 async function emptyPartOfRow(page: Page): Promise<{ x: number; y: number }> {
@@ -133,8 +133,7 @@ test.describe("Title bar of a sub-window", () => {
   })
 
   test("should hold the decisions of a pull request review on its one line, and its diff view at the end of the tabs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // Patronus merges into master: Approve and Safe Push… is the third decision
-    await routeCommand(page, "get_patronus_target_branch", () => "master")
+    // Patronus merges into master (the baseline of the repository): Approve and Safe Push… is the third decision
     await setupRepo("issue_links", {
       reviewRequests: availableReviewRequests([reviewRequest("ABC-123", 101, 2, { title: "Rework the session store" })]),
       patronus: availableRobots(),

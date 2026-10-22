@@ -50,8 +50,7 @@ async function setupRequests(
  * page, GitHub showing `head` (by default the commit the user approved). Returns the recorded calls.
  */
 async function setupSafePush(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>, requests: ReturnType<typeof reviewRequest>[], head?: string) {
-  // the card reads it once it shows: the menus of its rows say which pull requests Patronus merges into it
-  await routeCommand(page, "get_patronus_target_branch", () => "master")
+  // the card reads it (master, the baseline) once it shows: the menus of its rows say which pull requests Patronus merges into it
   await setupRepo("issue_links", { reviewRequests: availableReviewRequests(requests), patronus: availableRobots() })
   await syncAndWaitForBranches()
   await expect(getYourTurnCard(page)).toBeVisible()

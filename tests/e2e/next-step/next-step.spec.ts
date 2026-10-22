@@ -1,11 +1,21 @@
 // @spec spec/branch/next-step.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { PatronusReviewRequirement, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
+import type { PatronusProfile, PatronusReviewRequirement, PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { waitForTransitionsSettled } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
-import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, NOT_EVALUATED, availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
+import {
+  APPROVED_BY_CODE_OWNER,
+  AWAITING_CODE_OWNER,
+  NO_REVIEW_NEEDED,
+  NOT_EVALUATED,
+  availableRobots,
+  codeOwner,
+  evaluatedGroup,
+  robot,
+  startRequest,
+} from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
@@ -17,8 +27,6 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, routeCommand } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
-
-const START_OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
 
 /** The pull request of the screenshot of 2026-10-17: the bot approved, the code owner is asked */
 /** IJPL Code Platform has to approve, Ilya Korennoy is suggested and not asked */
@@ -51,7 +59,6 @@ async function setup(
   await repo.setReviewAnswers({ answers: { [BRANCH]: answer } })
   await syncAndWaitForBranches()
   await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
-  await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
   return repo
 }
 
@@ -412,27 +419,25 @@ test.describe("Next step", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [])
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [])
     await routeNewPullRequest(page)
-    const started = robot(BRANCH, "started-robot", { sourceRevision: null })
-    const starts = await routeCommand(page, "start_patronus_robot", () => started)
-    const cancels = await routeCommand(page, "cancel_patronus_robot", () => ({ ...started, status: "canceling" }))
 
     // S: the popover says that no review is needed
     const popover = await openSafePushWithKey(page, BRANCH)
     await expect(popover.getByTestId("safe-push-review")).toHaveText("No code-owner review needed.")
     await popover.getByRole("button", { name: "Cancel" }).click()
     await expect(popover).toHaveCount(0)
-    expect(starts).toEqual([])
+    expect((await repo.getPatronusLog()).starts).toEqual([])
 
     // the click has nothing to say: it starts at once, with the default checks; the toast cancels it
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
     await slotSafePush(page, BRANCH).click()
     await expectStartedToast(page)
     await expect(safePushPopover(page)).toHaveCount(0)
-    expect(starts).toEqual([expect.objectContaining({ branchName: BRANCH, mode: "rebaseAutosquash", profileId: null })])
+    expect((await repo.getPatronusLog()).starts).toEqual([startRequest(BRANCH)])
     await page.locator("[data-slot=toast]", { hasText: "Safe Push started" }).getByRole("button", { name: "Cancel Safe Push" }).click()
-    await expect.poll(() => cancels.length).toBe(1)
+    // the robot Patronus started
+    await expect.poll(async () => (await repo.getPatronusLog()).cancels).toEqual(["started-1"])
 
     // the pull request is the menu's
     const menu = await openMenu(page)
@@ -638,7 +643,6 @@ test.describe("Next step", () => {
     const repo = await setupRepo("issue_links", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(approved) })
     await repo.setReviewAnswers({ answers: { [BRANCH]: APPROVED_BY_CODE_OWNER } })
     await syncAndWaitForBranches()
-    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
     await routeCommand(page, "get_branch_rules", () => ({ dismissStaleReviewsOnPush: true }))
     // the remote still lacks a commit after each push: both surfaces can push
     const pushes = await routePush(page, { [BRANCH]: { unpushedCommits: ["c1"] } })
@@ -686,21 +690,24 @@ test.describe("Next step", () => {
       allowedPushModes: [],
       skipsReview: null,
     }
-    const OPTIONS: PatronusStartOptions = {
-      targetBranch: "master",
-      supported: true,
-      // the last robot's options said optional checks the review: it isn't offered
-      profiles: [LSC, { id: "optional", name: "Optional Checks", description: null, allowedPushModes: [], skipsReview: false }],
-      emergencyProfiles: [{ id: "emergency", name: "Emergency", description: "For EMERGENCY USE ONLY, skips ALL checks", allowedPushModes: [], skipsReview: true }],
-      defaultProfileId: null,
+    const EMERGENCY: PatronusProfile[] = [{ id: "emergency", name: "Emergency", description: "For EMERGENCY USE ONLY, skips ALL checks", allowedPushModes: [], skipsReview: true }]
+    /**
+     * The merge profiles Patronus offers on master (`patronusProfiles`). Whether a regular one skips the review only the
+     * options of the branch's last robot say (none here); a profile they say checks it is left out (`getBypassProfiles`)
+     */
+    const PROFILES = { profiles: [LSC], emergencyProfiles: EMERGENCY }
+
+    /** Row 7 for JIRA-456 (the code owner must approve in a pull request it doesn't have), with `PROFILES`; the repository */
+    async function setupRow7(page: Page, setupRepo: Parameters<typeof setup>[1], syncAndWaitForBranches: () => Promise<unknown>): Promise<TestRepositoryBuilder> {
+      const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { patronusProfiles: PROFILES })
+      await routeNewPullRequest(page)
+      return repo
     }
 
-    /** Row 7 for JIRA-456 (the code owner must approve in a pull request it doesn't have), with `OPTIONS`; the starts */
-    async function setupRow7(page: Page, setupRepo: Parameters<typeof setup>[1], syncAndWaitForBranches: () => Promise<unknown>) {
-      await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [])
-      await routeNewPullRequest(page)
-      await routeCommand(page, "get_patronus_start_options", () => OPTIONS)
-      return routeCommand(page, "start_patronus_robot", () => robot(BRANCH, "started-robot", { sourceRevision: null }))
+    /** The toast of the started Safe Push, after Patronus got one start of JIRA-456 with the merge profile `profileId` */
+    async function expectStartedWith(page: Page, repo: TestRepositoryBuilder, profileId: string) {
+      await expectStartedToast(page)
+      expect((await repo.getPatronusLog()).starts).toEqual([startRequest(BRANCH, { mergeProfileId: profileId })])
     }
 
     /** The dialog of the pull request from the slot of row 7, and its Safe Push Without Review… */
@@ -712,7 +719,7 @@ test.describe("Next step", () => {
     }
 
     test("should start from the pull request dialog with the profile the user chooses", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const starts = await setupRow7(page, setupRepo, syncAndWaitForBranches)
+      const repo = await setupRow7(page, setupRepo, syncAndWaitForBranches)
 
       const { dialog, withoutReview } = await openWithoutReview(page)
       await withoutReview.hover()
@@ -728,7 +735,7 @@ test.describe("Next step", () => {
       await expect(start).toHaveText("Safe Push Without Review")
       await expect(start).toBeDisabled()
       await start.click({ force: true })
-      expect(starts).toEqual([])
+      expect((await repo.getPatronusLog()).starts).toEqual([])
 
       // the profiles that may skip the review, the emergency one apart; no default checks
       await popover.getByTestId("safe-push-profile").click()
@@ -741,8 +748,7 @@ test.describe("Next step", () => {
       await expect(popover).toHaveAttribute("data-decision", "confirm")
       await start.click()
       await expect(popover).toHaveCount(0)
-      await expectStartedToast(page)
-      expect(starts).toEqual([expect.objectContaining({ branchName: BRANCH, mode: "rebaseAutosquash", profileId: "lsc" })])
+      await expectStartedWith(page, repo, "lsc")
     })
 
     test("should keep the pull request dialog's footer in one line inside the dialog", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -790,7 +796,7 @@ test.describe("Next step", () => {
     })
 
     test("should say that an emergency profile skips all checks, and start with it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const starts = await setupRow7(page, setupRepo, syncAndWaitForBranches)
+      const repo = await setupRow7(page, setupRepo, syncAndWaitForBranches)
 
       await (await openWithoutReview(page)).withoutReview.click()
       const popover = safePushPopover(page)
@@ -803,16 +809,15 @@ test.describe("Next step", () => {
       await expect(popoverStart(page)).toBeEnabled()
       await popoverStart(page).focus()
       await page.keyboard.press("Enter")
-      await expectStartedToast(page)
-      expect(starts).toEqual([expect.objectContaining({ profileId: "emergency" })])
+      await expectStartedWith(page, repo, "emergency")
     })
 
     test("should start with the profile of the last robot when its options said it skips the review", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // a Large Scale Change that failed on its tests: the approvals still missing don't hold its profile back
       const failed = robot(BRANCH, "lsc-robot", { status: "failure", finishTime: 1704142800, profile: { id: "lsc", name: "Large Scale Change", skipsReview: true } })
-      await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(failed))
-      await routeCommand(page, "get_patronus_start_options", () => ({ ...OPTIONS, profiles: [{ ...LSC, skipsReview: true }], defaultProfileId: "lsc" }))
-      const starts = await routeCommand(page, "start_patronus_robot", () => robot(BRANCH, "started-robot", { sourceRevision: null }))
+      const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(failed), {
+        patronusProfiles: PROFILES,
+      })
       // the menu is built when it opens: Patronus has answered with the failed robot first
       await expect(findBranchRow(page, BRANCH).getByTestId("patronus-chip")).toBeVisible()
 
@@ -826,8 +831,7 @@ test.describe("Next step", () => {
       await expect(popover.getByTestId("safe-push-review")).toHaveText("Starts without the approvals of IJPL Code Platform: Large Scale Change skips the code-owner review.")
       await popoverStart(page).click()
       await expect(popover).toHaveCount(0)
-      await expectStartedToast(page)
-      expect(starts).toEqual([expect.objectContaining({ profileId: "lsc" })])
+      await expectStartedWith(page, repo, "lsc")
     })
 
     test("should not offer it in the dialog of a branch whose Safe Push needs no pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {

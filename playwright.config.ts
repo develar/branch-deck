@@ -44,8 +44,9 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       env: {
-        // not RUST_LOG: .cargo/config.toml forces it to debug for `cargo run`
-        TEST_SERVER_LOG: debugE2E ? "test_server=debug,tower_http=debug" : "warn",
+        // not RUST_LOG: .cargo/config.toml forces it to debug for `cargo run`. A failed request of the Patronus client
+        // is an answer a fixture of the fake scripted (a refused start, an unknown robot), which the page shows
+        TEST_SERVER_LOG: debugE2E ? "test_server=debug,tower_http=debug" : "warn,patronus::client=error",
         E2E_PORT: String(TEST_SERVER_PORT),
         RUST_BACKTRACE: "1",
       },

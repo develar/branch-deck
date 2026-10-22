@@ -3,9 +3,8 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { DAY_ROBOTS, availableRobots, robot, setupRobots } from "../helpers/patronus-helpers"
+import { DAY_ROBOTS, availableRobots, setupRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { routeCommand } from "../helpers/wait-helpers"
 
 test.describe("Branch graph", () => {
   test("should give every branch of a table without stacks its node, and keep the push on the dot of the status", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -57,8 +56,7 @@ test.describe("Branch graph", () => {
     syncAndWaitForBranches,
   }) => {
     const failed = DAY_ROBOTS.failed
-    await setupRobots(page, setupRepo, syncAndWaitForBranches, failed)
-    const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("ABC-123", "restarted-robot"))
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, failed)
     const row = findBranchRow(page, "ABC-123")
     await expect(row.getByTestId("lane-node")).toHaveAttribute("data-kind", "needsFix")
     await expect(row).toHaveAttribute("data-state", "closed")
@@ -77,8 +75,8 @@ test.describe("Branch graph", () => {
     await robotRow.getByRole("button", { name: "Copy Prompt for Agent of ABC-123" }).click()
     await expect.poll(() => readClipboard(page)).toContain(`Safe Push of \`ABC-123\` into \`master\` failed: ${failed.url}`)
     await robotRow.getByRole("button", { name: "Restart Safe Push of ABC-123" }).click()
-    expect(restarts).toEqual([expect.objectContaining({ robotId: "failed-robot" })])
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()
+    expect((await repo.getPatronusLog()).restarts).toEqual(["failed-robot"])
     await expect(row).toHaveAttribute("data-state", "closed")
   })
 

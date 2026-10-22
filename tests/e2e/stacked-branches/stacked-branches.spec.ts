@@ -20,18 +20,21 @@ import {
   AWAITING_CODE_OWNER,
   NO_REVIEW_NEEDED,
   availableRobots,
+  expectPatronusStarts,
   mergeRunningRobot,
   mergeRunningRobots,
   robot,
   routeReviewRequirement,
   setupRunningRobot,
   setupTakenRobot,
+  startRequest,
+  wholeStackStartRequest,
 } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import type { PushRequest } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
 import {
-  DEFAULT_CHECKS_ONLY,
   closeRefusal,
   expectDisabledItems,
   expectLandedActions,
@@ -46,6 +49,7 @@ import {
 import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, holdCommandCalls, routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/JetBrains/ultimate/compare"
@@ -857,18 +861,28 @@ test.describe("Stacked branches", () => {
   })
 
   test.describe("Safe Push", () => {
-    const START_OPTIONS = DEFAULT_CHECKS_ONLY
     /** What the one robot of the whole stack of auth lands (`describeWholeStackLanding`) */
     const WHOLE_AUTH_STACK = "Lands 4 branches · 4 commits into master in one Safe Push: auth, login, oauth and session"
 
-    /** stacked_branches on Space, synced: the pushes answered in the page (returned), no code-owner review needed */
-    async function setupStack(page: Page, setupRepo: (template: string, options: object) => Promise<unknown>, syncAndWaitForBranches: () => Promise<unknown>) {
-      await setupRepo("stacked_branches", { patronus: availableRobots() })
+    /**
+     * stacked_branches on Space, synced, the default checks: the pushes answered in the page (returned), no code-owner
+     * review needed; the repository, whose fake Patronus logs the starts. `refuseStarts`: Patronus refuses every start,
+     * so no robot holds the start of the next surface
+     */
+    async function setupStack(
+      page: Page,
+      setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+      syncAndWaitForBranches: () => Promise<unknown>,
+      refuseStarts = false,
+    ): Promise<{ pushes: PushRequest[]; repo: TestRepositoryBuilder }> {
+      const repo = await setupRepo("stacked_branches", { patronus: availableRobots() })
       await syncAndWaitForBranches()
       const pushes = await routePush(page, {})
-      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
-      return pushes
+      if (refuseStarts) {
+        await repo.refusePatronusStarts("Patronus is restarting")
+      }
+      return { pushes, repo }
     }
 
     /**
@@ -902,17 +916,17 @@ test.describe("Stacked branches", () => {
 
     /**
      * Hovers `start` (an item or a button of the Safe Push of the whole auth stack), which says what it lands, and clicks
-     * it: its popover at the root's row, and Enter starts the robot from the stack branch (`starts`, the recorded starts)
+     * it: its popover at the root's row, and Enter starts the robot from the stack branch (one more start the fake
+     * Patronus of `repo` logs)
      */
-    async function startWholeAuthStack(page: Page, start: Locator, starts: readonly Record<string, unknown>[]): Promise<void> {
+    async function startWholeAuthStack(page: Page, start: Locator, repo: TestRepositoryBuilder): Promise<void> {
       await start.hover()
       await expect(page.getByRole("tooltip")).toHaveText(WHOLE_AUTH_STACK)
       await start.click()
       await expectWholeAuthStackPopover(page)
-      const before = starts.length
+      const before = (await repo.getPatronusLog()).starts
       await page.keyboard.press("Enter")
-      await expect.poll(() => starts.length).toBe(before + 1)
-      expect(starts.at(-1)).toMatchObject({ branchName: "auth", stack: true, mode: "rebaseAutosquash" })
+      await expectPatronusStarts(repo, [...before, wholeStackStartRequest("auth")])
     }
 
     test("should give the focus to the start of the popover once it can start", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -929,9 +943,8 @@ test.describe("Stacked branches", () => {
 
     test("should land a small stack with its side branch from the root's menu, its popover at the root", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // auth forks: login and oauth on one side, session on the other; one robot of its stack branch lands all four
-      await setupStack(page, setupRepo, syncAndWaitForBranches)
+      const { repo } = await setupStack(page, setupRepo, syncAndWaitForBranches, true)
       const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("auth"), 45)
-      const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
       // the facts the start decides on, and the start itself, wait: what the slot shows meanwhile
       const releaseOptions = await holdCommand(page, "get_patronus_start_options")
       const releaseStart = await holdCommand(page, "start_patronus_robot")
@@ -973,10 +986,9 @@ test.describe("Stacked branches", () => {
       await expect(findBranchRow(page, "login").getByTestId("push-button")).toHaveCount(0)
       release()
       await expect(start).toHaveText("Starting…")
-      expect(starts).toEqual([])
+      expect((await repo.getPatronusLog()).starts).toEqual([])
       releaseStart()
-      await expect.poll(() => starts.length).toBe(1)
-      expect(starts[0]).toMatchObject({ branchName: "auth", stack: true, mode: "rebaseAutosquash" })
+      await expectPatronusStarts(repo, [wholeStackStartRequest("auth")])
       expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "auth", wholeStack: true, expectedRemote: null })]])
       // the root's own step again
       await expect(start).toHaveText("Safe Push")
@@ -993,8 +1005,7 @@ test.describe("Stacked branches", () => {
       )
       await expectPopoverAtSlot(popover, rootSlot)
       await popoverStart(page).click()
-      await expect.poll(() => starts.length).toBe(2)
-      expect(starts[1]).toMatchObject({ branchName: "auth", stack: true, mode: "dryRun" })
+      await expectPatronusStarts(repo, [wholeStackStartRequest("auth"), wholeStackStartRequest("auth", { mode: "DRY_RUN" })])
     })
 
     test("should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover", async ({
@@ -1002,9 +1013,8 @@ test.describe("Stacked branches", () => {
       setupRepo,
       syncAndWaitForBranches,
     }) => {
-      await setupStack(page, setupRepo, syncAndWaitForBranches)
+      const { repo } = await setupStack(page, setupRepo, syncAndWaitForBranches, true)
       await routePushBranches(page, {})
-      const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
       const popover = safePushPopover(page)
       const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
 
@@ -1014,7 +1024,7 @@ test.describe("Stacked branches", () => {
       const option = popover.getByTestId("safe-push-whole-stack-option")
       await expect(option).toContainText("Land the whole stack:")
       // its own popover, at the root's row: what the whole stack lands, Enter starts it from its stack branch
-      await startWholeAuthStack(page, option.getByRole("button", { name: "Safe Push Whole Stack" }), starts)
+      await startWholeAuthStack(page, option.getByRole("button", { name: "Safe Push Whole Stack" }), repo)
       await closeRefusal(page)
 
       // a side branch of the stack that forks offers it too
@@ -1024,8 +1034,7 @@ test.describe("Stacked branches", () => {
       await expect(popover).toHaveAttribute("aria-label", "Safe Push of the whole auth stack")
       await expectPopoverAtSlot(popover, rootSlot)
       await popoverStart(page).click()
-      await expect.poll(() => starts.length).toBe(2)
-      expect(starts[1]).toMatchObject({ branchName: "auth", stack: true })
+      await expectPatronusStarts(repo, [wholeStackStartRequest("auth"), wholeStackStartRequest("auth")])
     })
 
     test("should ask for the approvals of the whole stack of a small stack while its root's row shows, and offer its pull request where they are missing", async ({
@@ -1082,9 +1091,8 @@ test.describe("Stacked branches", () => {
     })
 
     test("should land a stacked branch with what it is built on in one Safe Push, Enter starts it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const pushes = await setupStack(page, setupRepo, syncAndWaitForBranches)
       // each start reaches Patronus and is refused: no robot holds the start of the next surface
-      const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
+      const { pushes, repo } = await setupStack(page, setupRepo, syncAndWaitForBranches, true)
       // without the trial build of oauth alone, the landing is the only way
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
       const oauthRow = findBranchRow(page, "oauth")
@@ -1092,8 +1100,10 @@ test.describe("Stacked branches", () => {
       const startWithEnter = async (count: number) => {
         const popover = await expectPopoverOf(page, "oauth")
         await page.keyboard.press("Enter")
-        await expect.poll(() => starts.length).toBe(count)
-        expect(starts[count - 1]).toMatchObject({ branchName: "oauth", mode: "rebaseAutosquash" })
+        await expectPatronusStarts(
+          repo,
+          Array.from({ length: count }, () => startRequest("oauth")),
+        )
         await expect(popover).toHaveCount(0)
         await closeRefusal(page)
       }
@@ -1185,7 +1195,6 @@ test.describe("Stacked branches", () => {
         pullRequests: availablePullRequests(pullRequest("oauth", 8)),
       })
       await syncAndWaitForBranches()
-      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
       const retargets = await routeCommand(page, "retarget_pull_request", () => null)
@@ -1237,11 +1246,9 @@ test.describe("Stacked branches", () => {
     })
 
     test("should wait for the Safe Push of an ancestor, which lands its commits", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupRepo("stacked_branches", { patronus: availableRobots(robot("login", "login-robot")) })
+      const repo = await setupRepo("stacked_branches", { patronus: availableRobots(robot("login", "login-robot")) })
       await syncAndWaitForBranches()
       const pushes = await routePush(page, {})
-      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      const starts = await routeCommand(page, "start_patronus_robot", () => robot("oauth", "oauth-dry-run", { pushMode: "dryRun", sourceRevision: null }))
       await expect(findBranchRow(page, "login").getByTestId("patronus-chip")).toBeVisible()
       const reason = "A Safe Push of login is running: wait until it merges"
 
@@ -1250,23 +1257,36 @@ test.describe("Stacked branches", () => {
       await expect(item).toHaveAttribute("aria-disabled", "true")
       await item.hover()
       await expect(page.locator("[data-slot=tooltip-content]", { hasText: reason })).toBeVisible()
+      await closeMenus(page)
+
+      // S says why the Safe Push waits, and opens nothing
+      const notice = page.locator("[data-slot=toast]", { hasText: "Safe Push of oauth" })
+      const refusal = notice.locator("[data-slot=toast-description]")
+      await findBranchRow(page, "oauth").focus()
+      await page.keyboard.press("s")
+      await expect(refusal).toHaveText(reason)
+      await expect(safePushPopover(page)).toHaveCount(0)
+      // Base UI hides the close button from the accessibility tree
+      await notice.locator("[data-slot=toast-close]").click()
+      await expect(notice).toHaveCount(0)
+
       // a dry run pushes nothing into master: it runs, with what oauth is built on
+      await openContextMenu(page, findBranchRow(page, "oauth"))
       await openSubmenu(page, "Patronus")
       await page.getByRole("menuitem", { name: "Dry Run" }).click()
       const popover = await expectPopoverOf(page, "oauth", "Dry Run")
       await expect(popover).toHaveAttribute("data-mode", "dryRun")
       await expect(popover.getByTestId("safe-push-lands")).toHaveText("Checks oauth with auth and login, which it is built on: 3 branches · 3 commits.")
       await page.keyboard.press("Enter")
-      await expect.poll(() => starts.length).toBe(1)
-      expect(starts[0]).toMatchObject({ branchName: "oauth", mode: "dryRun" })
+      await expectPatronusStarts(repo, [startRequest("oauth", { mode: "DRY_RUN" })])
       // the robot of login holds the pushes of auth and login: oauth goes alone, its branch has their commits
       expect(pushes.map(push => push.branchName)).toEqual(["oauth"])
       await expect(page.locator("[data-slot=toast]", { hasText: "Dry Run started" })).toBeVisible()
 
-      // S says why the Safe Push waits, and opens nothing
+      // the Dry Run Patronus started runs on the last commit of oauth: S names it now
       await findBranchRow(page, "oauth").focus()
       await page.keyboard.press("s")
-      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push of oauth" }).locator("[data-slot=toast-description]")).toHaveText(reason)
+      await expect(refusal).toHaveText("A Dry Run of the last commit is running")
       await expect(safePushPopover(page)).toHaveCount(0)
     })
 
@@ -1376,11 +1396,10 @@ test.describe("Stacked branches", () => {
       const repo = await setupRepo("stacked_branches", { patronus: availableRobots() })
       await syncAndWaitForBranches()
       await routePush(page, {})
-      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
       await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
-      const started = robot("oauth", "oauth-robot", { sourceRevision: null })
-      const starts = await routeCommand(page, "start_patronus_robot", () => started)
+      // the robot the fake Patronus starts
+      const started = robot("oauth", "started-1")
       const authRow = findBranchRow(page, "auth")
       const loginRow = findBranchRow(page, "login")
 
@@ -1392,7 +1411,7 @@ test.describe("Stacked branches", () => {
       await slotSafePush(page, "oauth").click()
       await expectPopoverOf(page, "oauth")
       await page.keyboard.press("Enter")
-      await expect.poll(() => starts.length).toBe(1)
+      await expectPatronusStarts(repo, [startRequest("oauth")])
       await expect(loginRow.getByTestId("landing-span")).toHaveText("lands with oauth")
 
       // it merged: the branches it landed say so, until the update archives them
@@ -1536,7 +1555,6 @@ test.describe("Stacked branches", () => {
       const running = robot("oauth", "oauth-robot")
       const repo = await setupRepo("stacked_branches", { patronus: availableRobots(failed, running) })
       await syncAndWaitForBranches()
-      const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("auth", "restarted"))
       const authRow = findBranchRow(page, "auth")
       await expect(authRow.getByTestId("landing-span")).toHaveText("lands with oauth")
       // while it runs, the restart of auth waits for it
@@ -1560,7 +1578,7 @@ test.describe("Stacked branches", () => {
       await restart.hover()
       await expect(page.getByRole("tooltip").filter({ hasText: reason })).toHaveText(reason)
       await restart.click({ force: true })
-      expect(restarts).toEqual([])
+      expect((await repo.getPatronusLog()).restarts).toEqual([])
     })
 
     test("should disable Create Pull Request… of a branch a merged Safe Push landed, in its menu, its preview and its review window: nothing of it is left to review", async ({
@@ -1623,8 +1641,7 @@ test.describe("Stacked branches", () => {
     })
 
     test("should offer to land only a stacked branch that applies alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const pushes = await setupStack(page, setupRepo, syncAndWaitForBranches)
-      const starts = await routeCommand(page, "start_patronus_robot", () => robot("oauth", "oauth-robot", { sourceRevision: null }))
+      const { pushes, repo } = await setupStack(page, setupRepo, syncAndWaitForBranches)
 
       // oauth adds a file of its own: it applies on the baseline without login, the second way after the landing
       await slotSafePush(page, "oauth").click()
@@ -1641,10 +1658,9 @@ test.describe("Stacked branches", () => {
       await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands oauth into master: 1 commit.")
       await expect(alone).toHaveCount(0)
       await expect.poll(() => tree(page)).toContain("oauth@0")
-      expect(starts).toHaveLength(0)
+      expect((await repo.getPatronusLog()).starts).toEqual([])
       await popoverStart(page).click()
-      await expect.poll(() => starts.length).toBe(1)
-      expect(starts[0]).toMatchObject({ branchName: "oauth", mode: "rebaseAutosquash" })
+      await expectPatronusStarts(repo, [startRequest("oauth")])
       await expect(popover).toHaveCount(0)
       // only oauth lands, so only oauth is pushed
       expect(pushes.map(push => push.branchName)).toEqual(["oauth"])
@@ -1658,7 +1674,6 @@ test.describe("Stacked branches", () => {
       // lane-ui is stacked on lane-core by the stack parents, with the symbols on; its commit calls laneDocument()
       await setupRepo("stack_uses_parent", { patronus: availableRobots() })
       await syncAndWaitForBranches()
-      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
 
       await slotSafePush(page, "lane-ui").click()
       const popover = await expectPopoverOf(page, "lane-ui")
@@ -1683,7 +1698,6 @@ test.describe("Stacked branches", () => {
       // perf-part-2 is stacked on IJPL-257337 by the stack parents; its commit needs one commit of IJPL-257337
       await setupRepo("stack_push_alone", { patronus: availableRobots() })
       await syncAndWaitForBranches()
-      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
 
       await slotSafePush(page, "perf-part-2").click()
       const popover = await expectPopoverOf(page, "perf-part-2")

@@ -183,6 +183,14 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * Makes the fake Patronus refuse every start from now on with `description` (HTTP 400, the message the app shows), or
+   * start again with `null`; a refused start is logged in `getPatronusLog().starts` as any other and lists no robot
+   */
+  async refusePatronusStarts(description: string | null): Promise<void> {
+    await this.setFixture("patronus-start-refusal", { description })
+  }
+
+  /**
    * Sets the TeamCity checks and the problems the fake Patronus answers for robots, by robot id, and the failed builds of
    * check attempts, by attempt id, in its wire form (`teamCityChecks`, `problems`, `builds`); none without them
    */

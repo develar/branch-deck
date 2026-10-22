@@ -382,6 +382,24 @@ async fn a_failed_start_is_never_repeated() {
 }
 
 #[tokio::test]
+async fn a_refused_start_shows_the_description_of_patronus_and_lists_no_robot() {
+  let (fake, client) = start_fake().await;
+  fake.state_only.store(true, Ordering::SeqCst);
+  *fake.robots.lock().unwrap() = Some(Vec::new());
+  *fake.start_refusal.lock().unwrap() = Some("Patronus is restarting".to_string());
+  let (service, _) = service(client, token("t"));
+  let error = service
+    .start("ultimate", "me", "refs/heads/me/stack/air", "master", PatronusPushMode::RebaseAutosquash, None, None)
+    .await
+    .unwrap_err();
+  assert_eq!(error, "Patronus is restarting");
+  assert_eq!(fake.last_start()["sourceBranch"], "refs/heads/me/stack/air");
+  // the refusal is no outage: the robots are still listed, none started
+  assert_eq!(fake.robots.lock().unwrap().as_ref().map(Vec::len), Some(0));
+  assert_eq!(service.cancel("me", "started-1").await.unwrap_err(), "no such robot");
+}
+
+#[tokio::test]
 async fn restart_answers_the_new_robot_and_cancel_the_canceling_one() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));

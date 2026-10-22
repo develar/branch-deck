@@ -1299,8 +1299,9 @@ explicit choice of the user, offered only where the approvals count in a pull re
   the real service against a fake Patronus of each test repository ([E2E Testing](../../docs/design/e2e-testing.md#remote-services)).
   `POST /repositories/{id}/patronus` sets its robots (an empty `sourceRevision` means the tip of the robot's branch
   when Patronus answers), `…/patronus-details` their checks and problems, `…/patronus-profiles` the merge profiles of
-  a start; a start lists a new running robot `started-<n>` on the commit its branch is at, a restart `restarted-<n>`,
-  a cancel makes the robot canceling. `GET …/patronus` (`getPatronusLog`) returns how often the app listed, polled and
+  a start, `…/patronus-start-refusal` a refusal of every start with the message the app shows; a start lists a new
+  running robot `started-<n>` on the commit its branch is at, a restart `restarted-<n>`, a cancel makes the robot
+  canceling. `GET …/patronus` (`getPatronusLog`) returns how often the app listed, polled and
   read details, and the start requests, the restarts, the cancels and the status reads the fake got, in order.
   `get_branch_review_readiness` answers per branch what `POST /repositories/{id}/review-answers` sets, else "not
   required". The `/patronus` comment and its reply are still answered in the page (`page.route`). The E2E repositories

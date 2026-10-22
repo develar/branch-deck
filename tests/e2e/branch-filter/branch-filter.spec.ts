@@ -1,24 +1,19 @@
 // @spec spec/branch/branch-filter.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { PatronusRobot, PatronusStartOptions } from "../../../src/lib/bindings"
+import type { PatronusProfile, PatronusRobot } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
-import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { availableRobots, expectPatronusStarts, robot, startRequest } from "../helpers/patronus-helpers"
 import { expectPushedToast, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
-import { routeCommand } from "../helpers/wait-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own
 const ROW_ORDER = ["deps", "lint", "search", "IJPL-102", "IJPL-101", "ci", "docs", "core", "cli", "api", "web"]
 
-const START_OPTIONS: PatronusStartOptions = {
-  targetBranch: "master",
-  supported: true,
-  profiles: [{ id: "lsc", name: "Large Scale Change", description: null, allowedPushModes: [], skipsReview: null }],
-  emergencyProfiles: [],
-  defaultProfileId: null,
-}
+/** The merge profile Patronus offers on master besides the default checks */
+const PROFILES: PatronusProfile[] = [{ id: "lsc", name: "Large Scale Change", description: null, allowedPushModes: [], skipsReview: null }]
 
 /** The shown branch rows, `~` after a dimmed one */
 async function shownRows(page: Page): Promise<string[]> {
@@ -43,16 +38,17 @@ async function nodeKinds(page: Page): Promise<string[]> {
 /** The `branch_filter` repository with these robots, synced; the unassigned commits card renders after the branches */
 async function setup(
   page: Page,
-  setupRepo: (template: string, options?: { patronus: unknown }) => Promise<unknown>,
+  setupRepo: (template: string, options?: { patronus: unknown }) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<void>,
   ...robots: PatronusRobot[]
-) {
-  await setupRepo("branch_filter", robots.length === 0 ? undefined : { patronus: availableRobots(...robots) })
+): Promise<TestRepositoryBuilder> {
+  const repo = await setupRepo("branch_filter", robots.length === 0 ? undefined : { patronus: availableRobots(...robots) })
   await syncAndWaitForBranches()
   await expect(page.getByTestId("branch-row")).toHaveCount(ROW_ORDER.length)
   for (const it of robots) {
     await expect(findBranchRow(page, it.branchName!).getByTestId("patronus-chip")).toBeVisible()
   }
+  return repo
 }
 
 /** Focuses a row from the keyboard: a click on the table header gives the table the focus, ↓ the rows from the first */
@@ -337,10 +333,9 @@ test.describe("Branch filter", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setup(page, setupRepo, syncAndWaitForBranches, robot("web", "running-robot"))
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, robot("web", "running-robot"))
+    await repo.setPatronusProfiles({ profiles: PROFILES })
     const { pushes, release } = await routeHeldPush(page, "lint", 100)
-    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-    const starts = await routeCommand(page, "start_patronus_robot", () => robot("lint", "started-robot", { sourceRevision: null }) satisfies PatronusRobot)
 
     // a robot runs on the commit web is at: S says why in a toast, and opens no popover
     await focusRow(page, "web")
@@ -353,7 +348,7 @@ test.describe("Branch filter", () => {
     await page.keyboard.press("s")
     await expect(safePushPopover(page)).toBeVisible()
     await expect(popoverStart(page)).toBeFocused()
-    expect(starts).toEqual([])
+    expect((await repo.getPatronusLog()).starts).toEqual([])
     await expect(findBranchRow(page, "lint").getByTestId("lane-node")).toHaveAttribute("data-kind", "yourStep")
     await expect(chip(page, "yourMove")).toHaveText("Your Move7")
     await expect(chip(page, "landing")).toHaveText("Landing3")
@@ -364,12 +359,12 @@ test.describe("Branch filter", () => {
     await expect(findBranchRow(page, "lint").getByTestId("lane-node")).toHaveAttribute("data-kind", "landing")
     await expect(chip(page, "yourMove")).toHaveText("Your Move6")
     await expect(chip(page, "landing")).toHaveText("Landing4")
-    expect(starts).toEqual([])
+    expect((await repo.getPatronusLog()).starts).toEqual([])
     release()
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
     await expect(chip(page, "yourMove")).toHaveText("Your Move6")
     await expect(chip(page, "landing")).toHaveText("Landing4")
-    expect(starts).toEqual([expect.objectContaining({ branchName: "lint", mode: "rebaseAutosquash" })])
+    await expectPatronusStarts(repo, [startRequest("lint")])
     expect(pushes.map(push => push.branchName)).toEqual(["lint"])
   })
 

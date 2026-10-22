@@ -257,7 +257,10 @@ the remote service; a test sets what the fake answers and reads what reached it.
   lists `restarted-<n>` with the branches, mode and options of the robot it restarts, on the newest commit of the
   branch; a cancel makes the robot `CANCELING`; the status of a robot is its listed status; an unknown robot answers 404.
   The robot pages are `https://patronus.labs.jb.gg/robot/<id>` (`robotUrl` in `patronus-helpers.ts`). A failure of
-  Patronus is the fixture's `availability` (`set_status`), never a route of the page.
+  Patronus is the fixture's `availability` (`set_status`), never a route of the page; a refused start is
+  `/patronus-start-refusal` (`refusePatronusStarts(description)`, `start_refusal`): every start answers 400 with that
+  description, which the app shows, is logged as any start and lists no robot, while the reads go on as before (a test
+  that starts from several surfaces refuses them, so no robot holds the next start).
 - **Fixtures** (`crates/test-server/src/remote_fixtures.rs`) keep the shapes the page knows and are written once into
   the wire form of the fake; `remote_fixtures_test.rs` reads each form back through the real parser (`to_robot`,
   `progress_of`) as the fixture. `POST /repositories/{id}/patronus` (a `PatronusRobotsResult`, `setPatronus`) sets the
@@ -272,13 +275,16 @@ the remote service; a test sets what the fake answers and reads what reached it.
   them has none. `/patronus-profiles` (`setPatronusProfiles`, the `patronusProfiles` setup option) sets the merge
   profiles of `robot-start-supported` in the shape of `PatronusStartOptions` (`profiles`, `emergencyProfiles`); until
   then a start offers only the default checks. The default profile is the real service's: the profile of the branch's
-  last robot, which a fixture robot names in `profile`
+  last robot, which a fixture robot names in `profile`; so are the profiles that skip the review (`skipsReview` of a
+  regular profile comes only from that robot's options, an emergency profile always skips it)
 - **Log**: `GET /repositories/{id}/patronus` (`getPatronusLog`) answers `listCalls`, `pollCalls`, `detailCalls`, the
   commands of the page (the caches of the service answer some of them: a test of the page's ask policy counts these),
   `requests`, what reached the fake: `list`, `updates`, `details` and `startOptions` counts, and the robot ids of
   `problems` and `progress` in order; and the actions in order: `starts`, the bodies of the start requests as Patronus
-  got them (`startRequest` in `patronus-helpers.ts` builds the expected one), `restarts`, `cancels` and `statusReads`,
-  robot ids. A Safe Push test asserts the start Patronus got, not the parameters the page sent; the order of a push
+  got them (`startRequest` in `patronus-helpers.ts` builds the expected one, `wholeStackStartRequest` the one from
+  `refs/heads/user-name/stack/<root>`, `expectPatronusStarts` waits for them), `restarts`, `cancels` and `statusReads`,
+  robot ids. A Safe Push test asserts the start Patronus got, not the parameters the page sent, and no test answers a
+  start, a restart, a cancel, the start options, a robot status or the target branch in the page; the order of a push
   answered in the page and the robot actions around it is the log the push's route reads when it comes
   (`routePushNotingPatronus` in `patronus-actions.spec.ts`)
 
@@ -310,7 +316,9 @@ the remote service; a test sets what the fake answers and reads what reached it.
   chunk above the table: it can render seconds after the rows and move them away from the pointer of a hover, so
   `syncBranches` waits until its fallback (`unassigned-commits-loading`) is gone
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
-  (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The console errors and
+  (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The warnings of the Patronus
+  client are left out (`patronus::client=error`): each failed request of the fake is an answer a fixture scripted (a
+  refused start, an unknown robot), and the page shows it. The console errors and
   uncaught exceptions of the pages are attached to a failed test only (`page errors` in `base-test.ts`): an
   error-path test makes the app log its expected errors. `DEBUG_E2E=1` prints the server's debug log and every
   console line live. The debug log was 60k lines (23 MB) per run through the pipe that the Playwright main process

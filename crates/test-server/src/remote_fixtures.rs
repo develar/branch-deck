@@ -10,6 +10,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
+use git_ops::revs::resolve_commit;
 use patronus::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, REVIEW_APPROVAL_CHECK_SKIP_OPTION};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -118,9 +119,7 @@ pub fn resolve_source_revision(git: &GitCommandExecutor, repository_path: &str, 
   if !(revision.is_empty() || revision.starts_with('~')) {
     return;
   }
-  let resolved = git
-    .execute_command(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{branch}{revision}")], repository_path)
-    .ok();
+  let resolved = resolve_commit(git, repository_path, &format!("{branch}{revision}")).ok().flatten();
   robot["sourceRevision"] = resolved.into();
 }
 
@@ -217,6 +216,20 @@ pub async fn set_patronus_progress(Path(id): Path<String>, State(state): State<A
 pub async fn set_patronus_profiles(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<PatronusProfilesFixture>) -> FixtureResult {
   let (host, _) = host_of(&state, &id)?;
   host.set_patronus_start_options(fixture_start_options(&fixture));
+  Ok(StatusCode::OK)
+}
+
+/// How Patronus answers a start from now on: `description` refuses every start with it (400), logged as any start;
+/// `null` starts again
+#[derive(Deserialize)]
+pub struct PatronusStartRefusalFixture {
+  pub description: Option<String>,
+}
+
+/// Sets whether Patronus refuses the starts (`PatronusStartRefusalFixture`); a start goes through until set
+pub async fn set_patronus_start_refusal(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<PatronusStartRefusalFixture>) -> FixtureResult {
+  let (host, _) = host_of(&state, &id)?;
+  *host.patronus().start_refusal.lock().expect("patronus start refusal lock") = fixture.description;
   Ok(StatusCode::OK)
 }
 

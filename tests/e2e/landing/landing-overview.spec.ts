@@ -4,7 +4,18 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expectActivityOpened } from "../helpers/activity-helpers"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
-import { AWAITING_CODE_OWNER, DAY_ROBOTS, NO_REVIEW_NEEDED, ROBOTS_NOW, availableRobots, minutes, robot, setupRobots } from "../helpers/patronus-helpers"
+import {
+  AWAITING_CODE_OWNER,
+  DAY_ROBOTS,
+  NO_REVIEW_NEEDED,
+  ROBOTS_NOW,
+  availableRobots,
+  expectPatronusStarts,
+  minutes,
+  robot,
+  setupRobots,
+  startRequest,
+} from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
@@ -98,20 +109,18 @@ test.describe("Landing overview", () => {
   })
 
   test("should cancel a running robot from the overview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
-    const cancels = await routeCommand(page, "cancel_patronus_robot", () => ({ ...RUNNING, status: "canceling" }))
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
     const popover = await openLandingOverview(page)
     await popover.getByRole("button", { name: "Cancel Safe Push of JIRA-456" }).click()
-    // the toast comes with the answer of the cancel: the request reached the backend by then
+    // the toast comes with the answer of the cancel: the request reached Patronus by then
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push is canceling" })).toBeVisible()
-    expect(cancels).toEqual([expect.objectContaining({ robotId: "running-robot" })])
+    expect((await repo.getPatronusLog()).cancels).toEqual(["running-robot"])
     await expect(popover.getByTestId("landing-running").getByTestId("robots-row-state")).toHaveText("Canceling")
   })
 
   test("should restart a failed robot from the overview, and open the pull request it was started from", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const pullRequest = { number: 7, url: "https://github.com/acme/monorepo/pull/7" }
-    await setupRobots(page, setupRepo, syncAndWaitForBranches, { ...FAILED, pullRequest })
-    const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("ABC-123", "restarted-robot", { startTime: NOW }))
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, { ...FAILED, pullRequest })
     const popover = await openLandingOverview(page)
     const row = popover.getByTestId("landing-your-move").getByTestId("robots-row")
     // the actions of the branch menu and the robot details, in their order and under their names
@@ -130,8 +139,8 @@ test.describe("Landing overview", () => {
     await row.getByRole("button", { name: "Open Safe Push of ABC-123 in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual([pullRequest.url, FAILED.url])
     await row.getByRole("button", { name: "Restart Safe Push of ABC-123" }).click()
-    expect(restarts).toEqual([expect.objectContaining({ robotId: "failed-robot" })])
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()
+    expect((await repo.getPatronusLog()).restarts).toEqual(["failed-robot"])
   })
 
   test("should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast", async ({
@@ -154,8 +163,7 @@ test.describe("Landing overview", () => {
           progress: { remainingSeconds: 1500, checkName: "IntelliJ Aggregator", checkPercent: 36, overtimeSeconds: null, queued: 0, probablyHanging: false },
         }) satisfies PatronusRobotDetails,
     )
-    const cancels = await routeCommand(page, "cancel_patronus_robot", () => ({ ...RUNNING, status: "canceling" }))
-    await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
     const toast = page.locator("[data-slot=toast]", { hasText: "A required check of JIRA-456 failed" })
     await expect(toast).toContainText("Bazel Community Build Aggregator · the Safe Push will fail")
     const indicator = page.getByTestId("landing-indicator")
@@ -173,8 +181,8 @@ test.describe("Landing overview", () => {
 
     // no use waiting for it: the toast cancels it
     await toast.getByRole("button", { name: "Cancel Safe Push" }).click()
-    expect(cancels).toEqual([expect.objectContaining({ robotId: "running-robot" })])
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push is canceling" })).toBeVisible()
+    expect((await repo.getPatronusLog()).cancels).toEqual(["running-robot"])
   })
 
   test("should run the next step of a move from the overview at its row: a Safe Push, a pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -184,7 +192,6 @@ test.describe("Landing overview", () => {
     await syncAndWaitForBranches()
     await routePush(page, {})
     await routeNewPullRequest(page)
-    const starts = await routeCommand(page, "start_patronus_robot", () => robot("docs", "docs-robot", { startTime: NOW }))
     let popover = await openLandingOverview(page)
     await expect(landingRow(popover, "auth").getByText("4 branches · 4 commits")).toBeVisible()
     await expect(landingRow(popover, "login")).toHaveCount(0)
@@ -196,7 +203,7 @@ test.describe("Landing overview", () => {
     await expect(docs).toHaveAttribute("data-kind", "ready")
     await docs.getByTestId("next-step").click()
     await expect(popover).toBeHidden()
-    await expect.poll(() => starts.length).toBe(1)
+    await expectPatronusStarts(repo, [startRequest("docs")])
     await expect(findBranchRow(page, "docs")).toBeInViewport()
     await page.mouse.move(0, 0)
 

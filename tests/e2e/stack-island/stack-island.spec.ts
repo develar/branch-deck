@@ -5,21 +5,31 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { columnLefts, expectColumnAligned } from "../helpers/column-helpers"
-import { NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, mergeRunningRobots, robot, routeReviewRequirement, setupRunningRobot } from "../helpers/patronus-helpers"
+import {
+  NO_REVIEW_NEEDED,
+  availableRobots,
+  expectPatronusStarts,
+  mergeRunningRobot,
+  mergeRunningRobots,
+  robot,
+  routeReviewRequirement,
+  setupRunningRobot,
+  startRequest,
+  wholeStackStartRequest,
+} from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
-import { DEFAULT_CHECKS_ONLY, closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
+import { closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { rewriteNextSyncEvents, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
-import { routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
   return page.locator(`[data-testid="stack-island"][data-stack-root="${root}"]`)
 }
-
-const START_OPTIONS = DEFAULT_CHECKS_ONLY
 
 /**
  * The popover of the Safe Push of the whole air stack at `slot` (above or below it), the only one: Enter starts it (its
@@ -34,15 +44,14 @@ async function expectWholeStackPopoverAt(popover: Locator, slot: Locator): Promi
 }
 
 /**
- * The starts of the island of air answered in the page: the default checks, no code-owner review, every start refused
- * by Patronus (recorded, no robot holds the next start); the island, the slot of its header and the popover
+ * The starts of the island of air: the default checks, no code-owner review, every start refused by the fake Patronus
+ * (logged, no robot holds the next start); the island, the slot of its header and the popover
  */
-async function routeIslandStarts(page: Page): Promise<{ starts: Record<string, unknown>[]; air: Locator; headerSlot: Locator; popover: Locator }> {
-  await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+async function refuseIslandStarts(page: Page, repo: TestRepositoryBuilder): Promise<{ air: Locator; headerSlot: Locator; popover: Locator }> {
   await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
-  const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
+  await repo.refusePatronusStarts("Patronus is restarting")
   const air = island(page, "air")
-  return { starts, air, headerSlot: air.getByTestId("stack-island-actions").getByTestId("next-step-slot"), popover: safePushPopover(page) }
+  return { air, headerSlot: air.getByTestId("stack-island-actions").getByTestId("next-step-slot"), popover: safePushPopover(page) }
 }
 
 /** The branch rows of a table or an island, in display order */
@@ -331,10 +340,11 @@ test.describe("Stack island", () => {
   })
 
   test("should land the whole stack in one Safe Push from the header, its popover at the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stack_island", { patronus: availableRobots() })
+    const repo = await setupRepo("stack_island", { patronus: availableRobots() })
     await syncAndWaitForBranches()
     const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
-    const { starts, air, headerSlot, popover } = await routeIslandStarts(page)
+    const { air, headerSlot, popover } = await refuseIslandStarts(page, repo)
+    const safePushOfAir = wholeStackStartRequest("air")
     const lands = "Lands 7 branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and side-test"
 
     // collapsed: the Safe Push of the whole stack, its stack branch, opens its popover at the header; the island stays
@@ -362,10 +372,9 @@ test.describe("Stack island", () => {
     const push = air.getByTestId("stack-island-push")
     await expect(push).toBeDisabled()
     await expect(push).not.toHaveAttribute("aria-busy", "true")
-    expect(starts).toEqual([])
+    expect((await repo.getPatronusLog()).starts).toEqual([])
     release()
-    await expect.poll(() => starts.length).toBe(1)
-    expect(starts[0]).toMatchObject({ branchName: "air", stack: true, mode: "rebaseAutosquash" })
+    await expectPatronusStarts(repo, [safePushOfAir])
     expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: null })]])
     await expect(popover).toHaveCount(0)
     await closeRefusal(page)
@@ -384,8 +393,7 @@ test.describe("Stack island", () => {
     await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
     await expectWholeStackPopoverAt(popover, headerSlot)
     await popoverStart(page).click()
-    await expect.poll(() => starts.length).toBe(2)
-    expect(starts[1]).toMatchObject({ branchName: "air", stack: true, mode: "rebaseAutosquash" })
+    await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir])
     await expect(popover).toHaveCount(0)
     await closeRefusal(page)
 
@@ -394,8 +402,7 @@ test.describe("Stack island", () => {
     await page.keyboard.press("s")
     await expectWholeStackPopoverAt(popover, headerSlot)
     await page.keyboard.press("Enter")
-    await expect.poll(() => starts.length).toBe(3)
-    expect(starts[2]).toMatchObject({ branchName: "air", stack: true, mode: "rebaseAutosquash" })
+    await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir, safePushOfAir])
     await closeRefusal(page)
 
     // Dry Run Whole Stack: checks the whole stack, its popover at the header too
@@ -405,8 +412,7 @@ test.describe("Stack island", () => {
     await expect(popover.getByTestId("safe-push-lands")).toHaveText("Checks 7 branches · 14 commits on master in one Dry Run: air, bazel, … side-fix and side-test.")
     await expectPopoverAtSlot(popover, headerSlot)
     await popoverStart(page).click()
-    await expect.poll(() => starts.length).toBe(4)
-    expect(starts[3]).toMatchObject({ branchName: "air", stack: true, mode: "dryRun" })
+    await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir, safePushOfAir, wholeStackStartRequest("air", { mode: "DRY_RUN" })])
     await expect(page.locator("[data-slot=toast]", { hasText: "Cannot start the Dry Run" })).toBeVisible()
 
     // the row of deploy keeps its own popover at its slot: the Safe Push of deploy and what it is built on
@@ -429,11 +435,11 @@ test.describe("Stack island", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setupRepo("stack_side_conflict", { patronus: availableRobots() })
+    const repo = await setupRepo("stack_side_conflict", { patronus: availableRobots() })
     await syncAndWaitForBranches()
     const pushes = await routePush(page, {})
     await routeCommandError(page, "get_stack_independence", "The trial build failed")
-    const { starts, air, headerSlot, popover } = await routeIslandStarts(page)
+    const { air, headerSlot, popover } = await refuseIslandStarts(page, repo)
     const conflict = /^The stack branch conflicts at [0-9a-f]{8} in config\.js: the stack lands in pieces$/
 
     // the button of the whole stack is there, disabled with the conflict of its stack branch
@@ -469,9 +475,8 @@ test.describe("Stack island", () => {
     await expect(popover).toHaveAttribute("aria-label", "Safe Push of deploy")
     await expectPopoverAtSlot(popover, headerSlot)
     await popoverStart(page).click()
-    await expect.poll(() => starts.length).toBe(1)
-    expect(starts[0]).toMatchObject({ branchName: "deploy", mode: "rebaseAutosquash" })
-    expect(starts[0]!.stack).toBeUndefined()
+    // the piece: the virtual branch of deploy, not the stack branch
+    await expectPatronusStarts(repo, [startRequest("deploy")])
     expect(pushes.map(push => push.branchName)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
   })
 

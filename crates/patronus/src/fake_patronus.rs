@@ -25,6 +25,9 @@ pub struct FakePatronus {
   pub start_supported_calls: AtomicU32,
   /// The bodies of the start requests, in order
   pub starts: Mutex<Vec<serde_json::Value>>,
+  /// Patronus refuses every start (400) with this description, after logging its body in `starts`; the other requests
+  /// are answered as before
+  pub start_refusal: Mutex<Option<String>>,
   /// The ids of the restarted robots, in order
   pub restarts: Mutex<Vec<String>>,
   /// The robots whose status was asked (`GET /robots/{id}/status`), in order
@@ -401,6 +404,10 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         };
         if *fake.status.lock().unwrap() != 200 {
           return fake.answer(serde_json::Value::Null);
+        }
+        let refusal = fake.start_refusal.lock().unwrap().clone();
+        if let Some(description) = refusal {
+          return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "INVALID_INPUT", "description": description}))).into_response();
         }
         if !fake.is_state_only() {
           return (StatusCode::CREATED, Json(serde_json::json!({"robotId": "started"}))).into_response();
