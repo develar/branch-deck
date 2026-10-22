@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import pDebounce from "p-debounce"
 import { BranchCreator } from "@/components/branch/BranchCreator"
 import { DragTargetBar } from "@/components/branch/DragTargetBar"
@@ -12,7 +12,9 @@ import { useBranchReviewLink } from "@/hooks/useBranchReviewLink"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useRepositoryConfigChanges } from "@/hooks/useRepositoryConfigChanges"
+import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
 import { useReviewWindowBridge } from "@/hooks/useReviewWindowBridge"
+import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { notifyError } from "@/lib/errors"
 import { SETTINGS_WINDOW } from "@/lib/settings-window"
@@ -20,7 +22,7 @@ import type { SettingsTarget } from "@/lib/settings-window"
 import { openSubWindow } from "@/lib/window-management"
 import { syncIfChanged } from "@/stores/branch-sync"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
-import { getSelectedProject } from "@/stores/repository"
+import { getSelectedProject, initRepository } from "@/stores/repository"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 
 /**
@@ -48,6 +50,12 @@ const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePul
  * title bar is and a row scrolled into view never lands under it.
  */
 export function IndexPage() {
+  // the repository of the window, its sync when the window opens it, and its review status: whichever view shows
+  useEffect(() => {
+    initRepository()
+  }, [])
+  useReviewStatusRefresh()
+  useSyncOnOpen()
   // "Auto-sync on Focus": the item of the native menu, and the sync when the window gets the focus
   useMenuSync()
   useWindowFocus(() => {

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react"
+import { lazy, Suspense } from "react"
 import { CircleXIcon, GitBranchIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
@@ -9,23 +9,18 @@ import { LandedCard } from "@/components/repository/LandedCard"
 import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { YourTurnCard } from "@/components/repository/YourTurnCard"
-import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
-import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
-import { initRepository, useEffectiveBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
+import { useEffectiveBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
 
-/** Root of the main window: configuration header, onboarding, errors and the branch tables. */
+/**
+ * The branches view of the main window: onboarding, errors and the branch tables. What keeps the repository current (its
+ * open, the sync on open, the review status) lives in `IndexPage`, so it goes on while another view shows.
+ */
 export function BranchCreator() {
-  useEffect(() => {
-    initRepository()
-  }, [])
-  useReviewStatusRefresh()
-  useSyncOnOpen()
-
   const isSyncing = useBranchSync(state => state.isSyncing)
   const syncError = useBranchSync(state => state.syncError)
   const syncedRepositoryPath = useBranchSync(state => state.syncedRepositoryPath)

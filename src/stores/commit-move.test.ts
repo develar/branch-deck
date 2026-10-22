@@ -1,7 +1,18 @@
 // @spec spec/branch/move-commits.spec.md
 import { beforeEach, describe, expect, it } from "vite-plus/test"
 import type { Commit } from "@/lib/bindings"
-import { BRANCH_TABLE_SOURCE, claimSelection, clearBranchSelection, commitMoveStore, isDroppableOn, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
+import {
+  BRANCH_TABLE_SOURCE,
+  claimSelection,
+  clearBranchSelection,
+  commitMoveStore,
+  isDroppableOn,
+  requestCommitForm,
+  requestReveal,
+  selectBranches,
+  setBranchTargetOpen,
+} from "@/stores/commit-move"
+import { mainViewStore, showMainView } from "@/stores/main-view"
 
 const order = ["auth", "IJPL-1", "IJPL-2", "docs"]
 
@@ -35,6 +46,17 @@ describe("commit move store", () => {
     setBranchTargetOpen(true)
     clearBranchSelection()
     expect(commitMoveStore.getState().isBranchTargetOpen).toBe(false)
+  })
+
+  it("shows the branches for a reveal and a form of commits, and keeps the view when a request is consumed", () => {
+    showMainView("landing")
+    requestReveal(null)
+    expect(mainViewStore.getState().view).toBe("landing")
+    requestReveal({ branchName: "auth", commitIds: [] })
+    expect(mainViewStore.getState().view).toBe("branches")
+    showMainView("landing")
+    requestCommitForm({ branchName: "auth", commitIds: ["a"], form: "move" })
+    expect(mainViewStore.getState().view).toBe("branches")
   })
 
   it("drops anywhere but on the one list a drag comes from", () => {
