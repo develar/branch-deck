@@ -571,6 +571,22 @@ Push started» с Open in Patronus.
 read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравнении с установленным `bd`; раздел
 [Прогресс](#прогресс) соответствует master.
 
+**Зависимости этапов.** Строка «Зависит от» каждого этапа называет его настоящие предпосылки: код, типы, crates, IPC
+или контракты, которые вводит другой этап; файлы, которые другой этап переносит или переименовывает (массовый перенос —
+предпосылка каждого этапа, который трогает перенесённое); поведение, которое проверяют его тесты. Граф после `s0b`:
+`s0c ∥ s2` → `s1` → `s3` → `s4 ∥ s5` → `s6` → `s7` → `s8` → `s9` → `s10` → `s11` → `s12 ∥ s13` → `s14`. Бок о бок
+идут три пары: `s0c` (таблица сценариев: данные, тесты и `pub(crate) fn plan`) и `s2` (переименование типов);
+`s4` (тип ошибки каждой команды, `errors.ts`) и `s5` (настройки, `app-settings`, параметр `branch_prefix` девяти
+команд: общие файлы только в `src-tauri/src/commands/`, строки разные); `s12` (`app-api`, тела команд, маршруты
+test-server) и `s13` (сохранённое представление, старт без ожидания sync: общий только `src-tauri/src/lib.rs`).
+Остальное — одна цепь: `s1` правит на месте функции, чьи сигнатуры меняет `s2` (`Subject`, gate) и чьи модули
+переносит `s3`; `s6` строит сессию в `repository-model` (имя из `s3`) с ключом по префиксу, который разрешает `s5`,
+и командами с ошибкой `s4`; `s7` кладёт факты в сессию `s6`; `s8` читает факты `s7`; `s9` отдаёт `plan.confirmations`
+того же `decide`, что `s8`, с `ApiError` `s4` и настройками `s5`; `s10` пишет реестр операций `s9`; `s11` регистрирует
+rewrites между процессами через файл `s10`; `s12` ждёт окончательной поверхности IPC `s11`; `s13` убирает стартовые
+чтения, последнее из которых (`auth`) становится фактом в `s11`; `s14` — после всех. Этапы одной пары трогают в
+основном разные файлы; пара приземляется в любом порядке, второй из них делает `git rebase master` и чинит импорты.
+
 ### Этап 0 — страховочная сеть
 
 Три этапа, каждый приземляется отдельно; поведение не меняется.
@@ -578,6 +594,7 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 #### s0a-safety-net
 
 - **Цель:** регенерация bindings без GUI, фиксация реестра команд, baseline'ы и каркас границ.
+- **Зависит от:** —
 - **Объём и файлы:**
   - `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` пишет
     `src/lib/bindings.ts` (`src-tauri/src/bindings_test.rs`); сообщение теста называет эту команду; экспорт в `run()`
@@ -633,6 +650,7 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 #### s0b-remote-bridge
 
 - **Цель:** e2e исполняет реальные Rust-пути Safe Push, Patronus, PR и sign-in за фальшивыми сервисами.
+- **Зависит от:** s0a-safety-net (реестр команд `PAGE_MOCKED`, который этап снижает).
 - **Объём и файлы** (шаги по семействам, каждый снижает `PAGE_MOCKED`): test-server поднимает `FakeGitHub`/
   `FakePatronus` и фальшивый YouTrack за **реальными** `GitHubService`/`PatronusService`/`YouTrackService`;
   (1) старт, restart, cancel, `post_patronus_command`, `read_patronus_command_reply`; (2) create, retarget, close PR,
@@ -686,6 +704,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 #### s0c-scenarios
 
 - **Цель:** таблица сценариев фиксирует сегодняшнее поведение обеих сторон и каждое расхождение по id.
+- **Зависит от:** s0b-remote-bridge (fakes, через которые Rust-тест гонит `plan()`); с `s2-types` идёт бок о бок:
+  новые файлы (`cases/`, тест в `bd-remote`, Vitest) и одна строка видимости `plan`.
 - **Объём и файлы:** `crates/domain-policy/cases/*.json` (crate пока только данные; Rust-тест живёт в `crates/bd-remote`,
   у которого уже есть dev-dependency на фикстуры `bd-cli`, Vitest — в `src/lib`): каждая строка
   Next Step, каждый Safe Push и Dry Run, ветка и whole stack, профиль, bypass, draft, другая база, виртуальная база,
@@ -700,6 +720,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s1-holes
 
 - **Цель:** закрыть известные дыры на месте, до переноса.
+- **Зависит от:** s0c-scenarios (приёмка — строки D1, D2, D9 таблицы), s2-types (правит `plan()`,
+  `start_patronus_robot` и вызовы gate, чьи типы — `Subject`, `ErrorCode`, пути `domain_types` — меняет s2).
 - **Объём и файлы:**
   - D1, D9: `bd` читает правила через `read_branch_rules` и отказывает `push_dismisses_approvals`; неудачное чтение в
     UI — ожидание или подтверждение `RulesUnknown`, не `false` ([Решения владельца](#решения-которые-подтверждает-владелец)).
@@ -719,6 +741,7 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s2-types
 
 - **Цель:** один crate типов без IO; `git-ops` зависит от него, а не наоборот.
+- **Зависит от:** — (только приземлённые s0a, s0b; идёт бок о бок с s0c-scenarios).
 - **Объём и файлы:** `sync-types` → `domain-types`; DTO из `git-ops` (`model.rs`, `commit_list::Commit`,
   `update_branch::UpdateCheck`, `CommitInfo`) переезжают, `git-ops → domain-types`; чистые `branch_names`
   (`BranchKind`, `to_final_branch_name`, `strip_branch_namespace`, `is_valid_branch_prefix` из
@@ -736,6 +759,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s3-crates
 
 - **Цель:** `sync-core` перестаёт быть мешком; правка в движке не пересобирает sync.
+- **Зависит от:** s2-types (`domain-types`, от которого зависят новые crates; allowlist без `sync-types`),
+  s1-holes (переносит `branch_rules`, `patronus_view`/`RepositoryViews` и guard'ы, которые s1 правит на месте).
 - **Объём и файлы** (по одному коммиту на выделение, `git mv`, затем импорты, `touch` против устаревших
   fingerprint'ов): `sync-core` → `sync-core`, `trial-check`, `update-core`, `lease-pool`, `remote-facts`;
   `repository-view` → `repository-model` (переименование, внутренности пока те же); `bd-remote` теряет `bd-rewrite`
@@ -760,6 +785,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s4-errors
 
 - **Цель:** один `ErrorCode` на IPC, в `bd` и в test-server.
+- **Зависит от:** s2-types (`ErrorCode` в `domain-types`, куда ложится `ApiError`), s3-crates (меняет сигнатуру
+  каждой команды `src-tauri/src/commands/*` и test-server, чьи импорты s3 переписывает). Бок о бок с s5-settings.
 - **Объём и файлы:** `ApiError` в `domain-types`; команды Tauri возвращают его; `errors.ts` и каждая проверка `kind`
   ветвятся по `code`; test-server отвечает тем же JSON; `e2e-testing.md` (ошибки команд), `agent-cli.md` (один реестр
   кодов). `bd` на wire не меняется.
@@ -772,6 +799,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s5-settings
 
 - **Цель:** один писатель `settings.json`, одни defaults в Rust и `bd`, префикс разрешается в Rust.
+- **Зависит от:** s2-types (схема `domain-types::settings`), s3-crates (`RepositoryViews` живёт в `repository-model`,
+  импорты команд). Бок о бок с s4-errors: общие только 9 файлов команд с `branch_prefix`, строки разные.
 - **Объём и файлы:** `app-settings` (схема, `SettingsFile`, defaults, `resolve_branch_prefix` с источником,
   `SettingsService`); окна вызывают `set_setting` и применяют версии; снимок внедряется из Rust в каждое окно;
   `restart_app` через писателя; `bd` читает через `app-settings`; команды теряют `branch_prefix` — Rust разрешает его
@@ -787,6 +816,9 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s6-session-table
 
 - **Цель:** сессия в Rust владеет таблицей, sync и remote tips; страница получает снимок и патчи.
+- **Зависит от:** s3-crates (`repository-model`), s5-settings (`SessionKey` по префиксу, который разрешает Rust;
+  общие `branch-sync.ts`, `sync_branches.rs`, `repository.ts`), s4-errors (новые команды сессии и SSE test-server
+  с `ApiError`).
 - **Объём и файлы:** `repository-model::{session, state, runtime (actor), sync_scheduler, patch}`; `Version { epoch,
   seq }`; `SessionKey` по разрешённому префиксу; `open_session`, `get_snapshot`, `subscribe_view(Channel<ViewPatch>)`,
   `set_window_focus`, `sync(reason)`; канал, очередь и flush (`branch-sync.ts:1325-1508`) и applier
@@ -808,6 +840,7 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s7-session-facts
 
 - **Цель:** факты о remote, matching, опрос и demand — в сессии.
+- **Зависит от:** s6-session-table (сессия, патчи, `Version`), s3-crates (`remote-facts` для планировщика).
 - **Объём и файлы** (шаги: роботы и matching; PR, readiness, правила, профили, review requests; demand и `Clock`):
   `Fact<T>` с `seq` и `inputs`; `domain-policy::robot_match` (первый файл правил; кейсы `robot-match-cases.json`
   становятся его тестом); `domain-policy::refresh` с сегодняшними константами; `remote-facts::scheduler` на `Clock` (`TestClock`,
@@ -828,6 +861,9 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s8-policy
 
 - **Цель:** правила в `domain-policy`, представление решает; хуки становятся презентерами.
+- **Зависит от:** s7-session-facts (`Fact<T>` readiness, роботов, правил и PR, над которыми считает `decide`;
+  `domain-policy` заведён), s0c-scenarios (таблица сценариев получает одно ожидание), s1-holes (D1, D2, D9 уже
+  сошлись).
 - **Объём и файлы** — один коммит на семейство, каждый переключает **обоих** потребителей (презентер и `bd`) и удаляет
   TS-правило в том же коммите: (1) remote и push action (R1, D4); (2) stack, whole stack, родитель (D8 по решению
   владельца), parked (R3); (3) holds и отказ в старте (R2, R4); (4) `land::decide`, `review`, `pull_request` (D1, D2,
@@ -855,6 +891,9 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s9-engine-remote
 
 - **Цель:** каждое remote-действие — intent через `prepare`/`execute`; in-process допуск; `bd` — адаптер.
+- **Зависит от:** s8-policy (`land::decide`, `LandDecision`, `admission`; TS-правила уже удалены), s4-errors
+  (`ApiError` в `EffectRecord`, `plan_changed` в `domain-types::error`), s5-settings (`operations → app-settings`:
+  настройки, которые читает план).
 - **Объём и файлы:** `operations` с `Land`, `Push*`, `RestartRobot`, `CancelRobot`, `Retarget`, `CreatePullRequest`
   (D6), `RequestReview` (D5), `ClosePullRequest`, `CloseLandedPullRequests` (D7), `SubmitReview`, `SetIssueState`;
   код **извлекается** из `bd-remote` (`plan`/`safe_push`/`push_locked` уже держат порядок и leases), не пишется
@@ -907,6 +946,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s10-registry-journal
 
 - **Цель:** допуск между процессами, сверка неизвестных стартов, журнал, Activity из журнала.
+- **Зависит от:** s9-engine-remote (`operations`, in-process реестр и `Land`, чьи `pending_start` сверяет
+  `reconcile`).
 - **Объём и файлы:** `operations::registry` (`operations.json`, `operations.lock`, heartbeat, start time, orphan,
   `reconcile`, `StartUnknown`, `comment_id` в `pending_start`, `ForgetStart` и `bd operation forget`); stamp-файл; `notify` с fallback; сессия
   наблюдает файл, чужие операции в представлении; span через `run_blocking`; `bd` печатает `operation_id`;
@@ -926,6 +967,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s11-engine-rewrites
 
 - **Цель:** rewrites, Update Project, предпросмотр группировки, валидация имён и sign-in через движок; один реестр.
+- **Зависит от:** s10-registry-journal (допуск rewrite между процессами и приёмка «приложение + `bd`» идут через
+  файл реестра), s9-engine-remote (движок, `Intent`, `Outcome.undo`).
 - **Объём и файлы:** `Rewrite(…)` и `UpdateProject`, `FetchBaseline`, `DismissLanded` оборачивают существующие
   `*_core`; «длится до своего sync» — в движке; undo-токены; допуск rewrite в процессе и между процессами (rewrites
   `bd` регистрируются — закрывает пробел решения 4 `operations.md`); `preview_group` (R8), тело PR (R9), валидация
@@ -952,6 +995,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s12-app-api
 
 - **Цель:** один реестр команд, когда IPC-поверхность окончательна (~45 команд вместо 111).
+- **Зависит от:** s11-engine-rewrites (последнее удаление IPC; через него s7 — `get_repository_view` ушёл — и s4).
+  Бок о бок с s13-warm-start: общий только `src-tauri/src/lib.rs`.
 - **Объём и файлы:** `app-api` с `AppContext`, `api_commands!` и транспортными traits; макрос порождает обёртки
   `#[tauri::command] #[specta::specta]` и `collect_commands!` в `src-tauri`, маршруты `/invoke/<name>` с SSE в
   `test-server`, `commands.json` для `tauri-mocks.ts`; тела `src-tauri/src/commands/*` переезжают по семействам
@@ -966,6 +1011,9 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s13-warm-start
 
 - **Цель:** первый кадр с данными без ожидания sync.
+- **Зависит от:** s11-engine-rewrites (статус auth — факт сессии, последнее из стартовых чтений), s8-policy
+  (`Disabled{Cached}` в `actions`), s6-session-table (сессия, которую сохраняет object cache), s5-settings
+  (`__TAURI_STORE__` внедряет Rust, рядом ложится `__BD_MODEL__`). Бок о бок с s12-app-api.
 - **Объём и файлы:** сессия сохраняет последнее зафиксированное представление на `SessionKey` в object cache (версия
   схемы в ключе); при старте Rust открывает сессию последнего репозитория и внедряет `window.__BD_MODEL__` рядом с
   `__TAURI_STORE__`; строки помечены `Cached`, мутации `Disabled{Cached}` до первой фиксации sync. По желанию: ETag PR
@@ -978,6 +1026,7 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 ### s14-fence
 
 - **Цель:** ограды и завершение.
+- **Зависит от:** s12-app-api, s13-warm-start (и через них все остальные: allowlist пустеет последним).
 - **Объём и файлы:** allowlist архитектурного теста пуст; `lint:arch` полный (мутирующие `commands.` только в
   `src/model/intents.ts`, нет модулей правил в `src/lib`, нет `getState()` view store в презентерах); scan-тесты git
   на всех crates; `targets:` каждой спецификации; AGENTS.md: Feature Index, File Structure, индекс правил, «Never» —
