@@ -4,10 +4,9 @@
 //! (`object_cache::conflict_chain`), so the next sync of the unchanged branch takes them instead of merging and writing
 //! them again. The copies are deterministic: the same originals on the same base give the same commits.
 
+use domain_types::commit::{Commit, NoteResolution};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::Commit;
 use git_ops::merge_memo::CONFLICT_CHAIN_VERSION;
-use git_ops::notes::NoteResolution;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::ref_tips;
 use git_ops::word_resolve::ResolveMode;

@@ -6,7 +6,7 @@ use bd_core::context::RepoContext;
 use bd_core::error::{CliError, ErrorCode};
 use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use clap::builder::RangedU64ValueParser;
-use git_ops::commit_list::Commit;
+use domain_types::commit::Commit;
 use history_rewrite::autosquash::{FixupKind, plan_autosquash};
 use history_rewrite::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
 use history_rewrite::commit_ids::{ResolvedIds, resolve_commit_ids};

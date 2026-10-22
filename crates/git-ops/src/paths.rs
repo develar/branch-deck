@@ -1,8 +1,8 @@
 //! Which paths differ between two trees, and which commits change some paths: the path facts of an update and its resolve rounds.
 
-use crate::update_branch::UpdateCommit;
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
+use domain_types::update_project::UpdateCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_utils::list_cut::kept;
 

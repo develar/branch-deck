@@ -1,5 +1,5 @@
 //! `conflict_info`: (version, resolve mode, commit, its parent, the commit it is applied onto) -> the conflict view a sync
-//! reports of that cherry-pick (`git_ops::model::MergeConflictInfo`), opaque here. Its analysis reads only those commits and what
+//! reports of that cherry-pick (`domain_types::conflict::MergeConflictInfo`), opaque here. Its analysis reads only those commits and what
 //! they reach, so a sync of an unchanged conflicting branch runs no git for its conflict. In the conflict environment
 //! (`Environment::Conflicts`), beside the chains of `conflict_chain`. The version of the view is part of each key, and
 //! the first write of a process with another version clears the store, as for `blob_summary`; a view above

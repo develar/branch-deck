@@ -10,58 +10,44 @@
 
 use crate::commit_writer::{EditedCommit, TreeEdit, WrittenEdit, discard_temp_refs, read_raw_commits, write_edited_commit};
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
-use crate::model::ResolvedFileSummary;
 use crate::replay::{first_conflict, replay_range_with_env};
 use crate::word_resolve::{RESOLVE_VERSION, WordResolution, WordResolveOutcome, resolve_by_words};
 use anyhow::{Result, anyhow, bail};
+use domain_types::conflict::ResolvedFileSummary;
+use domain_types::update_project::UpdateResolvedCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
-use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument};
 
-/// A local commit whose conflict of git an update resolved by words
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateResolvedCommit {
-  /// The local commit
-  pub commit: String,
-  pub subject: String,
-  /// The commit the update writes for it; a preview check writes it with a fixed committer date
-  pub new_id: String,
-  /// The conflicts of git that the words resolved: the `<<<<<<<` lines git would have left
-  pub conflicts: u32,
-  pub files: Vec<ResolvedFileSummary>,
+fn resolved_commit_of(commit: &str, resolved: &WordsResolved) -> UpdateResolvedCommit {
+  let WordsResolved { written, resolution, subject } = resolved;
+  UpdateResolvedCommit {
+    commit: commit.to_string(),
+    subject: subject.clone(),
+    new_id: written.commit.clone(),
+    conflicts: resolution.conflicts(),
+    files: resolution
+      .files
+      .iter()
+      .map(|file| ResolvedFileSummary {
+        path: file.path.clone(),
+        conflicts: file.conflicts,
+      })
+      .collect(),
+  }
 }
 
-impl UpdateResolvedCommit {
-  fn of(commit: &str, resolved: &WordsResolved) -> Self {
-    let WordsResolved { written, resolution, subject } = resolved;
-    Self {
-      commit: commit.to_string(),
-      subject: subject.clone(),
-      new_id: written.commit.clone(),
-      conflicts: resolution.conflicts(),
-      files: resolution
-        .files
-        .iter()
-        .map(|file| ResolvedFileSummary {
-          path: file.path.clone(),
-          conflicts: file.conflicts,
-        })
-        .collect(),
-    }
+/// The note on a resolved commit (`update_resolve::RESOLVE_NOTES_REF`): what it resolves and how, one line per file
+pub fn resolve_note(resolved: &UpdateResolvedCommit) -> String {
+  let mut note = format!(
+    "branch-deck resolve\ncommit: {}\nresolved-by-words: {RESOLVE_VERSION} {}\n",
+    resolved.commit, resolved.conflicts
+  );
+  for file in &resolved.files {
+    note.push_str("words\t");
+    note.push_str(&file.path);
+    note.push('\n');
   }
-
-  /// The note on the resolved commit (`update_resolve::RESOLVE_NOTES_REF`): what it resolves and how, one line per file
-  pub fn note(&self) -> String {
-    let mut note = format!("branch-deck resolve\ncommit: {}\nresolved-by-words: {RESOLVE_VERSION} {}\n", self.commit, self.conflicts);
-    for file in &self.files {
-      note.push_str("words\t");
-      note.push_str(&file.path);
-      note.push('\n');
-    }
-    note
-  }
+  note
 }
 
 /// A commit that the words resolved, written onto a temporary ref
@@ -206,7 +192,7 @@ fn replay_words(
     if resolved.written.tree == resolved.written.parent_tree {
       replay.tip = clean;
     } else {
-      replay.resolved.push(UpdateResolvedCommit::of(&local[index], &resolved));
+      replay.resolved.push(resolved_commit_of(&local[index], &resolved));
       replay.tip.clone_from(&resolved.written.commit);
     }
     written.push(resolved.written);

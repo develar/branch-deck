@@ -1,6 +1,6 @@
 use crate::add_issue_reference::{AddIssueReferenceParams, AddIssueReferenceResult, add_issue_reference_to_commits_core};
+use domain_types::commit::CommitInfo;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::CommitInfo;
 use history_rewrite::repository_lock::RewriteOptions;
 use test_utils::git_test_utils::TestRepo;
 

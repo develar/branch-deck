@@ -5,13 +5,13 @@
 use crate::commit_writer::{NewCommit, NewParent, current_committer, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
-use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{merge_trees, replay_onto};
 use crate::revs::{resolve_tree_id, short_id};
 use crate::rewrite_guard::{IndexUpdate, stage_worktree_files};
 use crate::rewrite_plan::{PreparedRewrite, check_target};
 use anyhow::anyhow;
+use domain_types::BranchError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument};

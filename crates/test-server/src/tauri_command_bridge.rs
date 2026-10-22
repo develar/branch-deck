@@ -1340,7 +1340,7 @@ pub struct GetArchivedBranchCommitsRequest {
 pub async fn get_archived_branch_commits(
   State(state): State<Arc<AppState>>,
   Json(request): Json<GetArchivedBranchCommitsRequest>,
-) -> CommandResult<Vec<git_ops::commit_list::Commit>> {
+) -> CommandResult<Vec<domain_types::commit::Commit>> {
   own_commits(
     &state,
     request,
@@ -1363,7 +1363,7 @@ pub async fn delete_unapplied_branch(State(state): State<Arc<AppState>>, Json(pa
 pub async fn get_unapplied_branch_commits(
   State(state): State<Arc<AppState>>,
   Json(request): Json<GetArchivedBranchCommitsRequest>,
-) -> CommandResult<Vec<git_ops::commit_list::Commit>> {
+) -> CommandResult<Vec<domain_types::commit::Commit>> {
   own_commits(
     &state,
     request,
@@ -1378,8 +1378,8 @@ async fn own_commits(
   state: &AppState,
   request: GetArchivedBranchCommitsRequest,
   what: &'static str,
-  read: fn(&git_executor::git_command_executor::GitCommandExecutor, &str, &str, &str, &str) -> anyhow::Result<Vec<git_ops::commit_list::Commit>>,
-) -> CommandResult<Vec<git_ops::commit_list::Commit>> {
+  read: fn(&git_executor::git_command_executor::GitCommandExecutor, &str, &str, &str, &str) -> anyhow::Result<Vec<domain_types::commit::Commit>>,
+) -> CommandResult<Vec<domain_types::commit::Commit>> {
   ensure_repository_exists(state, &request.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command(what, move || {

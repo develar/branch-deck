@@ -516,7 +516,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
       .chain(grouping.base.as_deref())
       .chain(std::iter::once(head_id.as_str())),
   );
-  let summary = |commit: &git_ops::commit_list::Commit| CommitSummary {
+  let summary = |commit: &domain_types::commit::Commit| CommitSummary {
     id: short.get(&commit.id).to_string(),
     subject: commit.stripped_subject.clone(),
     resolved_by_words: ResolvedByWords::of_commit(commit),

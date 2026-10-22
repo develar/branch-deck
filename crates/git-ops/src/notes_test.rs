@@ -1,4 +1,5 @@
-use crate::notes::{MappingNote, NoteSource, PREFIX, SOURCE_PREFIX, mapped_commit_id, mapped_source, mapping_lines, read_notes, write_commit_notes};
+use crate::notes::{MappingNote, PREFIX, SOURCE_PREFIX, mapped_commit_id, mapped_source, mapping_lines, read_notes, write_commit_notes};
+use domain_types::commit::NoteSource;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;

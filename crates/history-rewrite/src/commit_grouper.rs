@@ -3,8 +3,8 @@
 
 use crate::stack::{StackDeclarations, StackForest, leaf_of, stack_path};
 use crate::store_lines::StoreLines;
+use domain_types::commit::Commit;
 use git_ops::branch_names::sanitize_branch_name;
-use git_ops::commit_list::Commit;
 use indexmap::IndexMap;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};

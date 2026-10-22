@@ -2,14 +2,14 @@
 //! each file, and the analysis of `conflict_analysis.rs`, four processes whatever the number of files and commits. The
 //! views read the merges and the diffs from `file_diffs` (`get_file_merges`, `get_file_diffs`).
 
-use crate::commit_list::Commit;
 use crate::commit_utils::{find_commit, get_commits_info};
-use crate::conflict_analysis::{ConflictAnalysis, find_divergence, get_files_content_at_revisions, list_missing_commits};
+use crate::conflict_analysis::{find_divergence, get_files_content_at_revisions, list_missing_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::merge_memo::CherryCommits;
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
-use crate::model::{ConflictCommit, ConflictFile, MergeConflictInfo};
 use anyhow::anyhow;
+use domain_types::commit::Commit;
+use domain_types::conflict::{ConflictAnalysis, ConflictCommit, ConflictFile, MergeConflictInfo};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
 use std::path::PathBuf;

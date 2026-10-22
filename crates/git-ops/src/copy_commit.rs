@@ -4,12 +4,13 @@
 
 use crate::cherry_pick::PickedTree;
 use crate::commit_chain::{ChainCommit, CommitChain};
-use crate::commit_list::Commit;
-use crate::model::{BranchError, BranchSyncStatus, CommitSyncStatus, WordResolutionSummary};
-use crate::notes::{MappingNote, NoteResolution, NoteSource};
+use crate::notes::MappingNote;
 use crate::tree_id_cache::TreeIdCache;
 use crate::word_resolve::{RESOLVE_VERSION, ResolveMode, Resolved, note_resolution};
 use anyhow::anyhow;
+use domain_types::commit::{Commit, NoteResolution, NoteSource};
+use domain_types::conflict::WordResolutionSummary;
+use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::cell::RefCell;
 use std::collections::HashMap;

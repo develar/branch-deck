@@ -14,12 +14,14 @@
 
 use crate::commit_key::{CommitKey, subject_of};
 use anyhow::{Context, Result};
+use domain_types::commit::Commit;
 use domain_types::landed::{LandedBranch, LandedCommit};
+use domain_types::update_project::UpdateCheck;
 use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::{Commit, parse_single_commit};
+use git_ops::commit_list::parse_single_commit;
 use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
-use git_ops::update_branch::{LandedScope, UpdateCheck};
+use git_ops::update_branch::LandedScope;
 use history_rewrite::autosquash::plan_autosquash;
 use history_rewrite::commit_grouper::{GroupingInputs, parse_subject};
 use indexmap::IndexMap;

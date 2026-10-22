@@ -1,6 +1,6 @@
 use crate::branch_name_suggestion::{MAX_BRANCH_NAME_LENGTH, cap_input, claude_command, clean_branch_name, clean_names, find_claude_in, suggest_branch_names_with};
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
-use git_ops::model::CommitInfo;
+use domain_types::commit::CommitInfo;
 use pretty_assertions::assert_eq;
 use std::ffi::OsStr;
 use std::path::Path;

@@ -4,8 +4,8 @@
 
 use crate::check::{BranchCheck, CheckReport};
 use crate::diff_scan::CommitDiff;
-use git_ops::commit_list::Commit;
-use git_ops::model::BranchError;
+use domain_types::BranchError;
+use domain_types::commit::Commit;
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 

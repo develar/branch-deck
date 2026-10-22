@@ -4,9 +4,9 @@
 //! per repository; `bd` builds it from the report of its sync.
 
 use domain_types::GroupedBranchInfo;
+use domain_types::commit::Commit;
 use domain_types::stack::{BlockReason, StackBranchUpdate};
 use git_ops::branch_names::to_final_branch_name;
-use git_ops::commit_list::Commit;
 use std::collections::{BTreeSet, HashMap};
 use sync_core::robot_commits::mapped_virtual;
 use sync_core::sync::SyncReport;

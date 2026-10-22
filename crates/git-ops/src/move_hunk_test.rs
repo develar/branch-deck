@@ -1,8 +1,9 @@
 use super::move_hunk::{MoveHunkError, MoveHunkMode, MoveHunkOutcome, MoveHunkRequest, MovedChange, move_hunk};
-use super::notes::{MappingNote, NoteSource, write_commit_notes};
+use super::notes::{MappingNote, write_commit_notes};
 use super::rewrite_test_utils::{assert_no_temp_refs, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::restore_branch_head;
 use anyhow::Result;
+use domain_types::commit::NoteSource;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;

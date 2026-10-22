@@ -4,9 +4,9 @@
 
 use crate::check::{CheckOutcome, check_plan};
 use crate::sync::{SyncOptions, sync_branches};
-use domain_types::SyncEvent;
+use domain_types::conflict::{ResolvedFileSummary, WordResolutionSummary};
+use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, ResolvedFileSummary, WordResolutionSummary};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;

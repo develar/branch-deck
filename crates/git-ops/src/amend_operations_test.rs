@@ -261,7 +261,7 @@ fn test_amend_conflict_changes_nothing() -> Result<()> {
 
   let error = amend(&repo, &commit_to_amend, &["file1.txt"]).expect_err("amend should conflict");
 
-  let CopyCommitError::BranchError(crate::model::BranchError::Generic(message)) = &error else {
+  let CopyCommitError::BranchError(domain_types::BranchError::Generic(message)) = &error else {
     panic!("expected a conflict error, got {error:?}");
   };
   assert!(message.contains("conflict"), "{message}");

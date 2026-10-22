@@ -1,11 +1,12 @@
 use crate::merge_tree_output::parse_merge_tree_output;
 use crate::revs::current_worktree;
-use crate::update_branch::{CheckPurpose, UpdateKind, UpdateState, UpstreamRef, apply_update, check_update, no_landed_candidates};
+use crate::update_branch::{CheckPurpose, UpstreamRef, apply_update, check_update, no_landed_candidates};
 use crate::update_resolve::{
   ConflictFile, ConflictKind, Outcome, ResolveError, ResolvedRef, RoundInput, STATE_FILE, STATE_VERSION, SessionStart, SessionState, SessionStatus, Side, Step, conflict_files,
   continue_session, discard, follow_head, is_valid_tree_path, read_session, start_session, write_state,
 };
 use crate::word_resolve::ResolveMode;
+use domain_types::update_project::{UpdateKind, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;

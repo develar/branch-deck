@@ -1,6 +1,6 @@
 use crate::baseline_fetch::{FetchBaselineParams, FetchBaselineResult, fetch_baseline_core};
 use crate::update_project::check_baseline_update;
-use git_ops::update_branch::{UpdateKind, UpdateState};
+use domain_types::update_project::{UpdateKind, UpdateState};
 use pretty_assertions::assert_eq;
 use std::fs;
 use test_log::test;

@@ -1,6 +1,6 @@
 use crate::sync::{SyncOptions, sync_branches};
-use domain_types::SyncEvent;
-use git_ops::model::{BranchError, MergeConflictInfo};
+use domain_types::conflict::MergeConflictInfo;
+use domain_types::{BranchError, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::fmt::Write;
 use test_utils::git_test_utils::TestRepo;

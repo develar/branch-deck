@@ -1,6 +1,7 @@
 use crate::cherry_pick_test_utils::{cherry_pick, cherry_pick_scenario};
 use crate::copy_commit::CopyCommitError;
-use crate::model::{BranchError, MergeConflictInfo};
+use domain_types::BranchError;
+use domain_types::conflict::MergeConflictInfo;
 
 use test_log::test;
 use test_utils::git_test_utils::{ConflictTestBuilder, TestRepo};

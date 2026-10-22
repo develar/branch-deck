@@ -5,7 +5,7 @@ use crate::autosquash::{
 use crate::commit_grouper::GroupingInputs;
 use crate::repository_lock::RewriteOptions;
 use crate::test_commit::commit;
-use git_ops::commit_list::Commit;
+use domain_types::commit::Commit;
 use git_ops::rewrite_guard::HeadMoved;
 use pretty_assertions::assert_eq;
 use test_log::test;

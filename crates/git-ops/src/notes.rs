@@ -3,8 +3,8 @@
 //! notes are written with one `fast-import` (`commit_writer.rs`).
 
 use crate::commit_writer::{NewCommit, NotesOfWritten, StoreCommit, WrittenCommits, write_commits_with_notes, write_notes_to_refs};
+use domain_types::commit::{NoteResolution, NoteSource};
 use git_executor::git_command_executor::GitCommandExecutor;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use tracing::instrument;
@@ -16,22 +16,6 @@ pub const SOURCE_PREFIX: &str = "v-commit-source-v1:";
 /// The line of a mapping note whose virtual commit resolved a conflict of git by words (`word_resolve`):
 /// `<resolve version> <conflicts> <files>`
 pub const RESOLVED_PREFIX: &str = "v-commit-resolved-v1:";
-
-/// The trees a virtual commit was copied from: the original's parent tree and its tree
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NoteSource {
-  pub parent_tree: String,
-  pub tree: String,
-}
-
-/// The resolve by words that a virtual commit took (`RESOLVED_PREFIX`): the version of the resolve, the conflicts of
-/// git it resolved and in how many files
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NoteResolution {
-  pub version: u32,
-  pub conflicts: u32,
-  pub files: u32,
-}
 
 /// A mapping note to write: `original` is copied as `mapped` from `source`, with the resolve by words it took
 #[derive(Debug, Clone, PartialEq, Eq)]

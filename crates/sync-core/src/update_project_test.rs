@@ -4,11 +4,12 @@ use crate::update_project::{
   check_baseline_update, previous_tip_of_forced_update, undo_update_core, update_project_core, update_project_with,
 };
 use domain_types::SyncEvent;
+use domain_types::update_project::{UpdateCommit, UpdateKind, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::{
-  BranchSwitched, CheckPurpose, NotAnUpdate, UndoCheck, UpdateCommit, UpdateKind, UpdatePlan, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update,
-  check_update_undo, no_landed_candidates,
+  BranchSwitched, CheckPurpose, NotAnUpdate, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, blocked_state, check_update, check_update_undo,
+  no_landed_candidates,
 };
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::repository_lock::{RepositoryLocked, lock_repository};
@@ -194,7 +195,7 @@ fn dirty_touched_path_blocks_and_changes_nothing() {
   let reflog_before = reflog(&clone);
 
   let result = update(&clone).unwrap();
-  assert_eq!(result.check.state, UpdateState::blocked(vec!["shared.txt".to_string()]));
+  assert_eq!(result.check.state, blocked_state(vec!["shared.txt".to_string()]));
   assert!(result.applied.is_none());
   assert_eq!(clone.head(), head);
   assert_eq!(read(&clone, "shared.txt"), "one\ntwo\nthree\nlocal\n");
@@ -213,7 +214,7 @@ fn staged_touched_path_blocks() {
   let head = clone.head();
 
   let result = update(&clone).unwrap();
-  assert_eq!(result.check.state, UpdateState::blocked(vec!["shared.txt".to_string()]));
+  assert_eq!(result.check.state, blocked_state(vec!["shared.txt".to_string()]));
   assert_eq!(clone.head(), head);
   assert_eq!(git(&clone, &["show", ":shared.txt"]), "staged");
 }
@@ -227,7 +228,7 @@ fn untracked_file_that_upstream_adds_blocks() {
   let head = clone.head();
 
   let result = update(&clone).unwrap();
-  assert_eq!(result.check.state, UpdateState::blocked(vec!["dir/config.txt".to_string()]));
+  assert_eq!(result.check.state, blocked_state(vec!["dir/config.txt".to_string()]));
   assert_eq!(clone.head(), head);
   assert_eq!(read(&clone, "dir/config.txt"), "mine\n");
 }
@@ -242,7 +243,7 @@ fn ignored_file_that_upstream_adds_blocks() {
 
   let result = update(&clone).unwrap();
   // git would overwrite an ignored file silently
-  assert_eq!(result.check.state, UpdateState::blocked(vec!["build.out".to_string()]));
+  assert_eq!(result.check.state, blocked_state(vec!["build.out".to_string()]));
   assert_eq!(clone.head(), head);
   assert_eq!(read(&clone, "build.out"), "mine\n");
 }
@@ -564,7 +565,7 @@ fn e2e_templates_have_the_expected_update_states() {
   assert_eq!(landing, vec![(Some("feature-auth"), 1, 0), (Some("search"), 1, 1)]);
 
   let (_, state) = check("update_blocked", templates::update_blocked());
-  assert_eq!(state, UpdateState::blocked(vec!["src/app.txt".to_string()]));
+  assert_eq!(state, blocked_state(vec!["src/app.txt".to_string()]));
 }
 
 /// The state of the check inside a sync: the preview, without the network
@@ -573,7 +574,7 @@ fn preview(repo: &TestRepo) -> UpdateState {
 }
 
 fn blocked(paths: &[&str]) -> UpdateState {
-  UpdateState::blocked(paths.iter().map(|path| (*path).to_string()).collect())
+  blocked_state(paths.iter().map(|path| (*path).to_string()).collect())
 }
 
 #[test]

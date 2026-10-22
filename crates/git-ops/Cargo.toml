@@ -8,6 +8,8 @@ description = "Git operations and repository management for Branch Deck"
 [dependencies]
 # Core git functionality
 git-executor = { path = "../git-executor" }
+# the commits, conflicts and update checks it reads and reports
+domain-types = { path = "../domain-types" }
 object-cache = { path = "../object-cache" }
 # the cut of the lists a check reports (`list_cut::kept`)
 sync-utils = { path = "../sync-utils" }
@@ -43,7 +45,7 @@ tar = "0.4.46"
 
 [features]
 default = []
-specta = ["dep:specta", "object-cache/specta"]
+specta = ["dep:specta", "object-cache/specta", "domain-types/specta"]
 schemars = ["dep:schemars"]
 
 [lints]

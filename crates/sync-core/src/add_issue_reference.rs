@@ -1,8 +1,8 @@
 //! Add Issue Reference: an issue key into the subjects of commits, `(branch) message` to `(branch) ISSUE-123 message`,
 //! one reword of the checked out branch under the repository lock.
 
+use domain_types::commit::CommitInfo;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::CommitInfo;
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::RewriteOptions;

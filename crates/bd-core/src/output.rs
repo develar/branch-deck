@@ -1,5 +1,5 @@
-use git_ops::commit_list::Commit;
-use git_ops::model::WordResolutionSummary;
+use domain_types::commit::Commit;
+use domain_types::conflict::WordResolutionSummary;
 use git_ops::revs::short_id;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};

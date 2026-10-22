@@ -9,12 +9,12 @@ use crate::commit_writer::{NewCommit, NewParent, RawCommit, WrittenCommits, curr
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
 use crate::merge_memo::MergeOutcome;
-use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::replay::replay_onto;
 use crate::revs::{resolve_tree_id, short_id};
 use crate::rewrite_guard::{IndexUpdate, RewriteTarget};
 use anyhow::anyhow;
+use domain_types::BranchError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, instrument};

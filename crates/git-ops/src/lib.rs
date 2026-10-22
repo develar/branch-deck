@@ -6,18 +6,18 @@
 //! - `revs`: the worktree, HEAD and its branch, commits by name, ref tips, ancestry and merge bases, `short_id`,
 //!   `is_object_id`
 //! - `history`: the first-parent history of HEAD a rewrite works on, never the whole history
-//! - `commit_list`: the commits ahead of the baseline, streamed from one `log`
+//! - `commit_list`: the commits ahead of the baseline (`domain_types::commit::Commit`), streamed from one `log`
 //! - `commit_utils`: commits by id from one `log --no-walk --stdin`; the empty tree and blob ids without a process
 //! - `cat_file_batch`: many objects from one `cat-file --batch --buffer -Z`, streamed; types from `--batch-check`
 //! - `object_texts`: the bytes, texts and tree entries of many names, through `cat_file_batch`
 //! - `paths`: the paths two trees differ in, as bytes; the commits that change some paths
-//! - `notes`: the mapping notes of the sync (original commit -> its virtual copy) and the notes of many commits
+//! - `notes`: the mapping notes of the sync (original commit -> its virtual copy) and the notes of many commits; the
+//!   source and the resolve a note records are `domain_types::commit`'s
 //! - `attributes`: the git attributes of paths at a tree-ish, one `check-attr --stdin -z`
 //! - `branch_description`: `branch.<name>.description`, the pull request text of a virtual branch
 //! - `ownership`: the code owners of paths by the `OWNERSHIP` files of a tree
 //! - `commit_files`: the changed files of commits, their patches cut as they stream, blob contents for the diff view
 //! - `tree_archive`: the files of a commit's tree as a tar
-//! - `model`: the types of a sync and its conflicts
 //! - `branch_names`: the names of the branches under the prefix (`{prefix}/virtual/<name>`), the prefix, a valid name
 //!
 //! Writing objects and refs:
@@ -32,7 +32,8 @@
 //! - `merge_tree_output`: the `-z` output of `merge-tree --write-tree`, and one merge of a `--stdin` run
 //! - `merge_memo`: `MergeOutcome` and the `MergeMemo` of merges, commit trees and conflict views
 //! - `merge_conflict`: the report of a conflicting cherry-pick, its markers and its view
-//! - `conflict_analysis`: the missing commits, the divergence and the file contents of a conflict view
+//! - `conflict_analysis`: the missing commits, the divergence and the file contents of a conflict view (the types are
+//!   `domain_types::conflict`'s)
 //! - `word_resolve`: the resolve by words of a conflicting cherry-pick, all or nothing
 //!
 //! Rewrites of the checked out branch:
@@ -45,7 +46,8 @@
 //! - `move_hunk`: the change of a file from one commit into another (`bd move-hunk`)
 //!
 //! Update Project:
-//! - `update_branch`: the check and the apply of an update onto the upstream, and its undo
+//! - `update_branch`: the check and the apply of an update onto the upstream, and its undo (the types are
+//!   `domain_types::update_project`'s)
 //! - `worktree_update`: the one write of the working tree, guarded
 //! - `update_resolve`: the resolve sessions of `bd update`, one round per conflicting commit
 //! - `resolve_check`: the checks of a resolved file of a round
@@ -78,7 +80,6 @@ pub mod lease_slot;
 pub mod merge_conflict;
 pub mod merge_memo;
 pub mod merge_tree_output;
-pub mod model;
 pub mod move_hunk;
 pub mod notes;
 pub mod object_texts;

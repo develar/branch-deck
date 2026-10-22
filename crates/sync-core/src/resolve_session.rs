@@ -8,18 +8,18 @@ use crate::landed::landed_candidates;
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, display_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
 use crate::update_project::record_landed_update;
 use anyhow::{Result, anyhow};
+use domain_types::conflict::ResolvedFileSummary;
 use domain_types::landed::LandedBranch;
+use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
-use git_ops::model::ResolvedFileSummary;
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree};
-use git_ops::update_branch::{LandedScope, UpdateCheck, UpdateCommit, UpdateKind, UpdatePlan, UpdateState};
+use git_ops::update_branch::{LandedScope, UpdatePlan};
 use git_ops::update_resolve::{
   ConflictKind, EditCopy, RefusalKind, Resolution, ResolveError, RoundInput, RoundObjects, Session, SessionStart, SessionState, SessionStatus, Side, Stage, Step, abort_session,
   commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths, start_session,
 };
-use git_ops::word_replay::UpdateResolvedCommit;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::lock_repository;

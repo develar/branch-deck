@@ -407,7 +407,7 @@ fn check_does_not_reuse_a_stale_copy() {
       &git_ops::notes::MappingNote {
         original: String::new(),
         mapped: head.clone(),
-        source: git_ops::notes::NoteSource {
+        source: domain_types::commit::NoteSource {
           parent_tree: git(&["rev-parse", "HEAD~1^{tree}"]),
           tree: git(&["rev-parse", "HEAD^{tree}"]),
         },

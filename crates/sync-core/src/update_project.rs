@@ -10,11 +10,12 @@ use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_se
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use domain_types::landed::LandedBranch;
+use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{Worktree, current_branch, current_worktree, is_object_id};
 use git_ops::update_branch::{
-  AppliedUpdate, CheckPurpose, CheckedHead, LandedScope, UndoCheck, UpdateCheck, UpdatePlan, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update,
-  check_update_guards, check_update_of, check_update_undo, finish_pending_update,
+  CheckPurpose, CheckedHead, LandedScope, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_guards, check_update_of,
+  check_update_undo, finish_pending_update,
 };
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::detect_baseline_branch;

@@ -587,7 +587,7 @@ crates/
 ├── history-rewrite/ # The rewrites of the checked out branch (regroup, reword, squash, fold), the grouping, the stores, the repository lock
 ├── sync-core/       # Branch sync and the cores of the other operations
 ├── repository-view/ # What Rust derives of the branch table for the page and bd: the table of a sync, the Patronus section (one rule)
-├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app); serde, specta behind a feature, no IO
+├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app), the commits and conflicts of git-ops too; serde, specta behind a feature, no IO
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
 ├── bd-cli/          # `bd` agent CLI: the `Cli`, the dispatch, `bd schema`, the help texts, the process budgets (docs/guidelines/agent-cli.md)

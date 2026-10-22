@@ -1,9 +1,8 @@
 use crate::conflict_chain::{CONFLICT_REFS, conflict_ref, move_conflict_refs};
 use crate::process_budget_test::repo_with_a_conflict_after_a_clean_commit;
 use crate::sync::{SyncOptions, sync_branches};
-use domain_types::SyncEvent;
+use domain_types::{BranchError, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::BranchError;
 use git_ops::revs::ref_tips;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;

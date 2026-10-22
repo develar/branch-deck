@@ -3,7 +3,7 @@
 //! commit onto another always conflicts the same way
 
 use crate::merge_tree_output::BatchMerge;
-use crate::model::MergeConflictInfo;
+use domain_types::conflict::MergeConflictInfo;
 use object_cache::merge_result::MergeResult;
 use object_cache::word_resolution::WordResolutionResult;
 

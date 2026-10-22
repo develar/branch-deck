@@ -9,14 +9,11 @@ use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use domain_types::landed::LandedBranch;
+use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
-use git_ops::update_branch::{
-  BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, UpdateCheck, UpdateCommit, UpdateKind, UpdateState,
-  pending_update,
-};
+use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, pending_update};
 use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
-use git_ops::word_replay::UpdateResolvedCommit;
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::RepositoryLocked;
 use schemars::JsonSchema;

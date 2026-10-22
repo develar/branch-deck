@@ -11,10 +11,9 @@ use crate::stack_summary::StackSummary;
 use domain_types::branch_integration::BranchIntegrationStatus;
 use domain_types::landed::LandedBranch;
 use domain_types::stack::BranchStack;
-use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
+use domain_types::update_project::{UpdateKind, UpdateState};
+use domain_types::{BranchError, BranchSyncStatus, ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_ops::branch_names::to_final_branch_name;
-use git_ops::model::{BranchError, BranchSyncStatus};
-use git_ops::update_branch::{UpdateKind, UpdateState};
 use history_rewrite::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository_in};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -625,7 +624,7 @@ fn with_push_commands(mut branches: Vec<SyncedBranch>, bases: &HashMap<String, S
   branches
 }
 
-fn conflict_summary(info: &git_ops::model::MergeConflictInfo, short: &ShortIds) -> ConflictSummary {
+fn conflict_summary(info: &domain_types::conflict::MergeConflictInfo, short: &ShortIds) -> ConflictSummary {
   ConflictSummary {
     commit: short.get(&info.commit.hash).to_string(),
     subject: info.commit.message.lines().next().unwrap_or_default().to_string(),

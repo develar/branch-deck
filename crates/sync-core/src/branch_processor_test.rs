@@ -1,10 +1,10 @@
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch, process_single_branch};
 use crate::missing_commits::CommitOwners;
 use crate::sync::{SyncOptions, sync_branches};
-use domain_types::SyncEvent;
+use domain_types::commit::Commit;
+use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::{Commit, get_commit_list};
-use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
+use git_ops::commit_list::get_commit_list;
 use git_ops::notes::write_commit_notes;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;

@@ -6,54 +6,10 @@ use crate::commit_files::MAX_BLOB_BYTES;
 use crate::object_texts::read_texts;
 use crate::revs::{is_object_id, merge_base};
 use anyhow::{Result, anyhow};
+use domain_types::conflict::{DivergenceSummary, MissingCommit};
 use git_executor::git_command_executor::GitCommandExecutor;
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "specta")]
-use specta::Type;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, instrument};
-
-/// Represents a commit that exists in the source branch but is missing from the target branch.
-/// These commits might be causing merge conflicts. The view reads their diffs with `get_file_diffs`
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(Type))]
-#[serde(rename_all = "camelCase")]
-pub struct MissingCommit {
-  pub hash: String,
-  pub subject: String,
-  pub message: String,
-  pub author_time: u32,
-  pub committer_time: u32,
-  pub author: String,
-  /// The conflicting files the commit changes
-  pub files_touched: Vec<String>,
-  /// The branch the commit is in, `None` for an unassigned commit; set by the sync, which knows the grouping
-  pub branch: Option<String>,
-}
-
-/// Analysis results for a merge conflict, including missing commits and divergence information.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(Type))]
-#[serde(rename_all = "camelCase")]
-pub struct ConflictAnalysis {
-  pub missing_commits: Vec<MissingCommit>,
-  pub merge_base_hash: String,
-  pub merge_base_subject: String,
-  pub merge_base_message: String,
-  pub merge_base_time: u32,
-  pub merge_base_author: String,
-  pub divergence_summary: DivergenceSummary,
-}
-
-/// Summary of how two branches have diverged from their common ancestor.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(Type))]
-#[serde(rename_all = "camelCase")]
-pub struct DivergenceSummary {
-  pub commits_ahead_in_source: u32,  // How many commits the source branch is ahead
-  pub commits_ahead_in_target: u32,  // How many commits the target branch is ahead
-  pub common_ancestor_distance: u32, // How far back is the common ancestor
-}
 
 /// `\x01` starts a commit, NUL ends a field; `%B` is the last one, so a message may hold anything but NUL
 const MISSING_COMMIT_FORMAT: &str = "--format=%x01%H%x00%at%x00%ct%x00%an%x00%s%x00%B";

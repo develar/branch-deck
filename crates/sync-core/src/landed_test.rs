@@ -4,7 +4,7 @@ use crate::update_project::update_project_test::{Setup, git, path, setup, update
 use crate::update_project::{UpdateUndoToken, check_baseline_update, undo_update_core};
 use domain_types::SyncEvent;
 use domain_types::landed::LandedBranch;
-use git_ops::update_branch::{UpdateKind, UpdateState};
+use domain_types::update_project::{UpdateKind, UpdateState};
 use history_rewrite::commit_grouper::GroupingInputs;
 use pretty_assertions::assert_eq;
 use std::fs;

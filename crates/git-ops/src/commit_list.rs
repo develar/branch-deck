@@ -2,56 +2,12 @@
 //! `git log` streams (`COMMIT_RECORD_FORMAT`): what a sync and every read of the grouping start from.
 
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
-use crate::notes::{NoteResolution, NoteSource};
 use crate::revs::current_branch;
 use anyhow::{Result, anyhow};
+use domain_types::commit::Commit;
 use git_executor::git_command_executor::GitCommandExecutor;
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "specta")]
-use specta::Type;
 use std::ops::ControlFlow;
 use tracing::{debug, instrument};
-
-/// Struct to hold commit data returned by git CLI
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(Type))]
-#[serde(rename_all = "camelCase")]
-pub struct Commit {
-  #[serde(rename = "originalHash")]
-  pub id: String,
-  pub stripped_subject: String, // Subject with prefix removed (or same as subject if no prefix)
-  pub message: String,          // Full commit message (including subject)
-  #[serde(rename = "author")]
-  pub author_name: String,
-  #[serde(skip)]
-  pub author_email: String,
-  #[serde(rename = "authorTime")]
-  pub author_timestamp: u32,
-  #[serde(rename = "committerTime")]
-  pub committer_timestamp: u32,
-  /// Offset of the author date, as git stores it (`+0200`); empty if unknown
-  #[serde(skip)]
-  pub author_timezone: String,
-  /// Offset of the committer date (`+0200`); empty if unknown
-  #[serde(skip)]
-  pub committer_timezone: String,
-  #[serde(skip)]
-  pub subject: String, // Original first line of the commit message
-  #[serde(skip)]
-  pub parent_id: Option<String>,
-  #[serde(skip)]
-  pub tree_id: String,
-  #[serde(skip)]
-  pub note: Option<String>,
-  #[serde(skip)]
-  pub mapped_commit_id: Option<String>, // Extracted from note if it has the `notes::PREFIX` prefix
-  /// The trees the virtual commit of `mapped_commit_id` was copied from (`notes::SOURCE_PREFIX`); `None` for an older note
-  #[serde(skip)]
-  pub mapped_source: Option<NoteSource>,
-  /// The resolve by words the virtual commit of `mapped_commit_id` took (`notes::RESOLVED_PREFIX`)
-  #[serde(skip)]
-  pub mapped_resolution: Option<NoteResolution>,
-}
 
 /// Collects the commits ahead of `baseline_branch` into a Vec (prefer `get_commit_list_with_handler` for large ranges)
 pub fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Vec<Commit>> {

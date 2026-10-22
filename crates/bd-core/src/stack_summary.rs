@@ -7,9 +7,9 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::ShortIds;
 use crate::sync_command::{ConflictSummary, RemoteSummary};
 use domain_types::GroupedBranchInfo;
+use domain_types::commit::Commit;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use git_ops::branch_names::to_final_branch_name;
-use git_ops::commit_list::Commit;
 use schemars::JsonSchema;
 use serde::Serialize;
 

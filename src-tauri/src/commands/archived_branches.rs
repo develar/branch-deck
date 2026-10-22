@@ -1,8 +1,8 @@
 use crate::command_error::CommandError;
 use crate::operation::run_blocking;
 use branch_integration::archive::{get_archived_branch_commits as get_commits, get_unapplied_branch_commits as get_unapplied_commits};
+use domain_types::commit::Commit;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::Commit;
 use history_rewrite::baseline::detect_baseline_branch;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core, delete_unapplied_branch_core};
 use tracing::instrument;

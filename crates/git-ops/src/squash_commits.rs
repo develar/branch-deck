@@ -5,12 +5,12 @@
 use crate::commit_writer::complete_line;
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
-use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::revs::{is_object_id, short_id};
 use crate::rewrite_guard::check_rewrite_range;
 use crate::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan};
 use anyhow::anyhow;
+use domain_types::BranchError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
 use tracing::instrument;

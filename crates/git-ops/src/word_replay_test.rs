@@ -2,8 +2,9 @@
 //! a commit that does not resolve, and one that the words leave empty.
 
 use crate::commit_writer::current_committer;
-use crate::model::ResolvedFileSummary;
-use crate::word_replay::{UpdateResolvedCommit, WordsReplay, replay_resolving_words};
+use crate::word_replay::{WordsReplay, replay_resolving_words, resolve_note};
+use domain_types::conflict::ResolvedFileSummary;
+use domain_types::update_project::UpdateResolvedCommit;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -61,7 +62,7 @@ fn a_conflict_that_resolves_by_words_is_committed_and_the_rest_replays_onto_it()
   let format = "--format=%an <%ae> %at%n%B";
   assert_eq!(repo.git(&["log", "-1", format, &resolved_id]), repo.git(&["log", "-1", format, &local[1]]));
   assert_eq!(
-    replay.resolved[0].note(),
+    resolve_note(&replay.resolved[0]),
     format!("branch-deck resolve\ncommit: {}\nresolved-by-words: 1 1\nwords\tf.txt\n", local[1])
   );
   assert_eq!(temp_refs(&repo), "");

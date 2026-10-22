@@ -5,8 +5,8 @@
 use crate::paths::{COMMIT_FORMAT, commits_touching, parse_commits};
 use crate::replay::{conflicting_files, first_conflict, replay_range};
 use crate::revs::merge_base;
-use crate::update_branch::UpdateCommit;
 use anyhow::{Result, anyhow};
+use domain_types::update_project::UpdateCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_utils::list_cut::kept;
 use tracing::{debug, instrument};

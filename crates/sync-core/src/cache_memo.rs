@@ -3,10 +3,10 @@
 //! (`ConflictMemo`): its merges already run in the branch's one `merge-tree --stdin` process, but the view of a conflict
 //! costs a merge of its own and the analysis, again at every sync of the unchanged branch.
 
+use domain_types::conflict::MergeConflictInfo;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;
 use git_ops::merge_memo::{CONFLICT_INFO_VERSION, CherryCommits, MergeMemo, MergeOutcome, MergeTrees};
-use git_ops::model::MergeConflictInfo;
 use git_ops::word_resolve::{RESOLVE_VERSION, ResolveMode};
 use object_cache::cache::ObjectCache;
 use object_cache::conflict_info::ConflictKey;

@@ -18,13 +18,13 @@ use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, 
 use crate::revs::{Worktree, is_ancestor, resolve_commit, short_id};
 use crate::rewrite_guard::ensure_no_merges;
 use crate::update_branch::{
-  FileMove, HeadRef, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, check_update_guards, files_follow, index_left_behind, likely_blocking_paths,
-  move_branch_and_files_with,
+  FileMove, HeadRef, UPDATE_OPERATION, UpdatePlan, blocking_paths, check_update_guards, files_follow, index_left_behind, likely_blocking_paths, move_branch_and_files_with,
 };
 use crate::word_replay::resolve_merge_onto;
 use crate::word_resolve::{RESOLVE_VERSION, ResolveMode};
 use anyhow::{Result, anyhow, bail};
 use bstr::BStr;
+use domain_types::update_project::UpdateCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

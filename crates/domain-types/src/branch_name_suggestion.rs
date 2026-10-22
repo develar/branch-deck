@@ -1,6 +1,6 @@
 //! Branch name suggestions from the user's Claude Code (`spec/branch/branch-name-suggestions.spec.md`)
 
-use git_ops::model::CommitInfo;
+use crate::commit::CommitInfo;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

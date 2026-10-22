@@ -1,5 +1,6 @@
 use super::conflict_analysis::*;
 use anyhow::{Result, anyhow};
+use domain_types::conflict::MissingCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;

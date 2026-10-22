@@ -19,9 +19,8 @@ use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_t
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
 use crate::update_project::{UpdateProjectParams, check_baseline_update, update_project_core};
 use domain_types::robot_landing::RobotLandingRequest;
-use domain_types::{RemoteStatusUpdate, SyncEvent};
+use domain_types::{BranchError, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::BranchError;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::parked::{ParkLine, park_core, unpark_core};
 use history_rewrite::regroup::RegroupOptions;

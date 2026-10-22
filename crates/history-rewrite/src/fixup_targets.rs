@@ -8,7 +8,7 @@ use crate::commit_grouper::{GroupingInputs, parse_subject};
 use crate::regroup::{FixupRefusal, RegroupError};
 use crate::reword::keeps_virtual_commit;
 use crate::snapshot::Snapshot;
-use git_ops::commit_list::Commit;
+use domain_types::commit::Commit;
 use git_ops::revs::short_id;
 use std::collections::HashMap;
 

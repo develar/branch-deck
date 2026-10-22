@@ -5,7 +5,7 @@
 use crate::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
-use git_ops::model::CommitInfo;
+use domain_types::commit::CommitInfo;
 use git_ops::rewrite_guard::HeadMoved;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::regroup::RegroupOptions;

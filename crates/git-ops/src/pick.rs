@@ -12,11 +12,12 @@ use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
 use crate::revs::{RepositoryDirs, fork_point, is_ancestor, merge_base, repository_dirs, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges};
 use crate::update_branch::{
-  BranchSwitched, FileMove, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, UpdateCommit, blocking_paths, check_move_undo, check_update_guards, move_branch_and_files,
+  BranchSwitched, FileMove, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, check_move_undo, check_update_guards, move_branch_and_files,
   move_branch_and_files_carrying,
 };
 use crate::update_resolve::pair_by_patch_id;
 use anyhow::{Result, anyhow, bail};
+use domain_types::update_project::UpdateCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_utils::list_cut::kept;
 use tracing::{debug, info, instrument};

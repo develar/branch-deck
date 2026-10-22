@@ -3,9 +3,10 @@ use crate::conflict_analysis::get_files_content_at_revisions;
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::{conflict_files, merge_with_markers};
 use crate::merge_memo::CherryCommits;
-use crate::model::{BranchError, MergeConflictInfo};
 use crate::tree_id_cache::TreeIdCache;
 use crate::word_resolve::ResolveMode;
+use domain_types::BranchError;
+use domain_types::conflict::MergeConflictInfo;
 use test_utils::git_test_utils::{ConflictScenario, TestRepo};
 
 /// Cherry-picks `cherry_commit` onto `target_commit` with a fresh tree ID cache, without the resolve by words: the tests

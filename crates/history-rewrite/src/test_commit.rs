@@ -1,4 +1,4 @@
-use git_ops::commit_list::Commit;
+use domain_types::commit::Commit;
 
 /// A commit as the commit list reads it, with fixed metadata; the subject is the first line of `message`
 pub fn commit(id: &str, message: &str) -> Commit {

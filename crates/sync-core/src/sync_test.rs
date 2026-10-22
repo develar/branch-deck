@@ -1,10 +1,10 @@
 use crate::sync::{SyncDeferred, SyncOptions, prepare_branches_for_ui, sync_branches};
-use domain_types::SyncEvent;
+use domain_types::commit::Commit;
 use domain_types::stack::BlockReason;
+use domain_types::{BranchSyncStatus, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::process_stats::CommandStats;
-use git_ops::commit_list::{Commit, get_commit_list};
-use git_ops::model::BranchSyncStatus;
+use git_ops::commit_list::get_commit_list;
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits};
 use indexmap::IndexMap;
@@ -486,8 +486,8 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
   for event in events {
     if let SyncEvent::CommitSynced { status, .. } = event {
       match status {
-        git_ops::model::CommitSyncStatus::Created => created_count += 1,
-        git_ops::model::CommitSyncStatus::Unchanged => unchanged_count += 1,
+        domain_types::CommitSyncStatus::Created => created_count += 1,
+        domain_types::CommitSyncStatus::Unchanged => unchanged_count += 1,
         _ => {} // Ignore other statuses
       }
     }

@@ -64,7 +64,7 @@ Reuse one of these before writing a parser or a process of your own.
 | `replay_range`, `replay_range_with_env`, `merge_trees` | `git_ops::replay` | `git replay` of a range, a merge of three trees, objects only |
 | `read_notes`, `notes_ref`, `write_commit_notes` | `git_ops::notes` | the notes of many commits from one `log --no-walk --stdin`; the mapping notes |
 | `get_commits_info`, `find_commit`, `empty_tree`, `blob_id`, `object_id_of` | `git_ops::commit_utils` | commits by id from one `log --no-walk --stdin`; ids without a process |
-| `get_commit_list_with_handler` | `git_ops::commit_list` | the commits ahead of the baseline, streamed |
+| `get_commit_list_with_handler` | `git_ops::commit_list` | the commits ahead of the baseline (`domain_types::commit::Commit`), streamed |
 | `read_commit_files_cached`, `read_diff_files` | `git_ops::commit_files` | files and line counts of many commits from one `diff-tree --stdin`, of a range from one `diff-tree` |
 | `read_attributes` | `git_ops::attributes` | the attributes of many paths, one `check-attr --stdin -z` |
 | `resolve_by_words`, `RESOLVE_VERSION` | `git_ops::word_resolve` | a conflicting cherry-pick that its words resolve, all or nothing: the files and the tree |

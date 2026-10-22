@@ -1706,7 +1706,6 @@ name = "domain-types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "git-ops",
  "serde",
  "specta",
 ]
@@ -2376,6 +2375,7 @@ dependencies = [
  "anyhow",
  "bstr",
  "dashmap",
+ "domain-types",
  "git-executor",
  "gix-validate",
  "memchr",

@@ -1,12 +1,15 @@
 //! The types that cross a process or window boundary: what the cores hand to `bd` (JSON) and to the app (Tauri
 //! commands and events, `src/lib/bindings.ts`), and what the page sends back. Data only, no IO: serde, and `specta`
-//! behind the feature of the same name. The commits, branch errors and statuses of a sync still come from `git-ops`
-//! (`commit_list::Commit`, `model`, `update_branch::UpdateCheck`) until they move here.
+//! behind the feature of the same name. `git-ops` depends on this crate, never the other way round: it reads and
+//! reports these types, the functions that build them stay there.
 //!
-//! - the crate root: the events of a sync (`SyncEvent`, `ProgressReporter`), its grouped branches, the remote status
-//!   of a branch, the unapplied branches, the dropped commits and the landed remote commits
+//! - the crate root: the events of a sync (`SyncEvent`, `ProgressReporter`), the statuses of its branches and commits
+//!   (`BranchSyncStatus`, `CommitSyncStatus`, `BranchError`), its grouped branches, the remote status of a branch, the
+//!   unapplied branches, the dropped commits and the landed remote commits
 //! - `branch_integration`: the integration of a branch into the baseline (rebase, merge, squash)
 //! - `branch_name_suggestion`: branch names suggested by the user's Claude Code
+//! - `commit`: a commit of the branch as `git-ops` reads it (`Commit`, its mapping note), and as the page names it
+//! - `conflict`: the merge conflict of a sync, its analysis, and the conflicts a copy resolved by words
 //! - `issue_navigation`: the issue links of the IntelliJ IDEA configuration
 //! - `landed`: the landed commits and branches
 //! - `landing`: what refuses a Safe Push or a Dry Run before the push, and the fix of each refusal
@@ -18,18 +21,21 @@
 //! - `robot_landing`: what a merged robot landed and what a running one lands
 //! - `stack`: the stacked branches as a sync reports them
 //! - `update`: the update of the app
+//! - `update_project`: Update Project, the check of the branch against its upstream and the applied update
 //! - `upstream_commit`: a commit of the baseline that carries the user's work
 //! - `youtrack`: the YouTrack sign-in and issues
 
+use crate::commit::Commit;
+use crate::conflict::{MergeConflictInfo, WordResolutionSummary};
 use crate::issue_navigation::IssueNavigationConfig;
-use git_ops::commit_list::Commit;
-use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, WordResolutionSummary};
-use git_ops::update_branch::UpdateCheck;
-use serde::Serialize;
+use crate::update_project::UpdateCheck;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub mod branch_integration;
 pub mod branch_name_suggestion;
+pub mod commit;
+pub mod conflict;
 pub mod issue_navigation;
 pub mod landed;
 pub mod landing;
@@ -41,8 +47,42 @@ pub mod robot_failure;
 pub mod robot_landing;
 pub mod stack;
 pub mod update;
+pub mod update_project;
 pub mod upstream_commit;
 pub mod youtrack;
+
+/// Status of a branch synchronization operation.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum BranchSyncStatus {
+  Created,
+  Updated,
+  Unchanged,
+  Error,
+  MergeConflict,
+  AnalyzingConflict,
+  /// Not rebuilt: the parent branch of a stacked branch can't be built on
+  Blocked,
+}
+
+/// Status of a commit synchronization.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum CommitSyncStatus {
+  Pending,
+  Created,
+  Unchanged,
+  Error,
+  Blocked,
+}
+
+/// Branch operation errors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum BranchError {
+  Generic(String),
+  MergeConflict(Box<MergeConflictInfo>),
+}
 
 /// A branch an unapply kept: its commits are not in HEAD, it lands nothing until it is reapplied
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

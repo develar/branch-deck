@@ -35,7 +35,7 @@ struct Unreachable {
 const UNREACHABLE: &[Unreachable] = &[
   Unreachable {
     from: "domain-types",
-    forbidden: &["git-ops", "git-executor", "reqwest", "tokio", TAURI, "clap"],
+    forbidden: &["git-ops", "git-executor", "object-cache", "reqwest", "tokio", TAURI, "clap"],
     why: "the crate of the types does no IO",
   },
   Unreachable {
@@ -58,11 +58,6 @@ struct Allowed {
 }
 
 const ALLOWED: &[Allowed] = &[
-  Allowed {
-    from: "domain-types",
-    to: "git-ops",
-    removed_in: "s2-types",
-  },
   Allowed {
     from: "patronus",
     to: "git-ops",
