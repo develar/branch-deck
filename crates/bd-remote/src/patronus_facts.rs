@@ -7,7 +7,7 @@ use bd_core::context::RepoContext;
 use bd_core::sync_command::SyncOutput;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::patronus::PatronusRobot;
-use domain_types::repository_view::{BranchPatronus, PatronusView, RemoteFact, RemoteFacts, RobotMatch, RobotOf, StackPatronus, StartRefusal};
+use domain_types::repository_view::{BranchPatronus, PatronusView, RemoteFact, RemoteFacts, RobotMatch, StackPatronus, StartRefusal};
 use repository_view::branch_table::BranchTable;
 use repository_view::patronus_view::{ContentMemo, match_robots, patronus_view};
 use sync_core::patronus_start::{carried_ids, carried_words, push_mode_name};
@@ -49,11 +49,6 @@ impl PatronusFacts {
     self.view.stacks.get(root)
   }
 
-  /// "oauth", "the whole auth stack": the robot's branch, or the whole stack of its root
-  fn subject(by: &RobotOf) -> String {
-    if by.whole_stack { format!("the whole {} stack", by.branch) } else { by.branch.clone() }
-  }
-
   fn mode_of(&self, robot_id: &str) -> &'static str {
     self.robot(robot_id).map_or("Robot", |robot| push_mode_name(robot.push_mode))
   }
@@ -68,12 +63,12 @@ impl PatronusFacts {
         format!(
           "A {} of {} is running: it lands {} with it{}",
           self.mode_of(&span.by.robot_id),
-          Self::subject(&span.by),
+          span.by.subject().words(),
           carried_words(subject, carried),
           carried_ids(carried)
         )
       }
-      StartRefusal::Ancestor { landing } => format!("A {} of {} is running: wait until it merges", self.mode_of(&landing.robot_id), Self::subject(landing)),
+      StartRefusal::Ancestor { landing } => format!("A {} of {} is running: wait until it merges", self.mode_of(&landing.robot_id), landing.subject().words()),
     }
   }
 }

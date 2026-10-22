@@ -5,12 +5,13 @@
 //!
 //! `--no-deps` lists the dependencies of the workspace crates only: a reach goes through workspace crates and ends at
 //! the first external crate (`reqwest` is seen, the `tokio` that `reqwest` pulls in is not). An optional dependency is
-//! not followed: a feature adds it for the crate that enables the feature (the fake of a service for its tests, `specta`
-//! for the app), it is not what the crate is; the workspace's feature unification (`.cargo/config.toml`) is why
-//! `cargo tree -p <crate>` shows it all the same.
+//! followed as a plain one unless only the test features (`TEST_FEATURES`) activate it: a `default` feature or a
+//! feature a build of the app enables (`specta`, `schemars`) is what the crate is, the fake of a service that another
+//! crate's tests enable through a dev-dependency is not; the workspace's feature unification (`.cargo/config.toml`) is
+//! why `cargo tree -p <crate>` shows the fake's edge all the same.
 
 use serde_json::Value;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 use std::process::Command;
 
@@ -22,6 +23,10 @@ const BD_CORE: &str = "bd-core";
 const BD_CLI: &str = "bd-cli";
 /// The feature of `bd-cli` that a family's tests enable through a dev-dependency (a test cycle that cargo allows)
 const FIXTURES: &str = "fixtures";
+/// The features only the tests of other crates enable, through a dev-dependency: the in-process fake of a service
+/// (`fake`) and the fixtures of bd (`fixtures`). An optional dependency that only they activate is not followed; one
+/// that `default` or any other feature activates is
+const TEST_FEATURES: &[&str] = &["fake", FIXTURES];
 /// The crates named `bd-*` that are libraries below the CLI layer, not families (`bd-clustering` becomes
 /// `commit-clustering` in `s3-crates`)
 const BD_LIBRARIES: &[&str] = &["bd-clustering"];
@@ -114,8 +119,16 @@ struct Dependency {
   features: Vec<String>,
 }
 
-/// Every workspace crate and its dependencies, by name
-type Graph = BTreeMap<String, Vec<Dependency>>;
+/// One workspace crate: its dependencies and its features, each with the entries that enable it (`dep:x`, `x/f`, another
+/// feature), the implicit feature of an optional dependency included, as `cargo metadata` lists them
+#[derive(Default)]
+struct Package {
+  dependencies: Vec<Dependency>,
+  features: BTreeMap<String, Vec<String>>,
+}
+
+/// Every workspace crate, by name
+type Graph = BTreeMap<String, Package>;
 
 /// The graph of the workspace that `cargo metadata` reports, run by the cargo that runs the tests
 fn workspace_graph() -> Graph {
@@ -151,9 +164,42 @@ fn parse_metadata(metadata: &Value) -> Graph {
           features: dependency["features"].as_array().into_iter().flatten().map(|feature| text(feature, "feature")).collect(),
         })
         .collect();
-      (text(&package["name"], "name"), dependencies)
+      let features = package["features"]
+        .as_object()
+        .expect("no features in a package")
+        .iter()
+        .map(|(feature, entries)| {
+          (
+            feature.clone(),
+            entries.as_array().into_iter().flatten().map(|entry| text(entry, "feature entry")).collect(),
+          )
+        })
+        .collect();
+      (text(&package["name"], "name"), Package { dependencies, features })
     })
     .collect()
+}
+
+/// Whether `feature` of `package` activates the optional dependency `dependency`: by `dep:x`, by `x/f` (not `x?/f`), or
+/// through a feature it enables
+fn activates<'p>(package: &'p Package, feature: &'p str, dependency: &str, seen: &mut BTreeSet<&'p str>) -> bool {
+  seen.insert(feature)
+    && package.features.get(feature).into_iter().flatten().any(|entry| {
+      entry.strip_prefix("dep:") == Some(dependency)
+        || entry.split_once('/').is_some_and(|(name, _)| name == dependency)
+        || (package.features.contains_key(entry) && activates(package, entry, dependency, seen))
+    })
+}
+
+/// Whether a reach follows `dependency` of `package`: a plain dependency always, an optional one when `default` or a
+/// feature outside `TEST_FEATURES` activates it
+fn follows(package: &Package, dependency: &Dependency) -> bool {
+  !dependency.optional
+    || package
+      .features
+      .keys()
+      .filter(|feature| activates(package, feature, &dependency.name, &mut BTreeSet::new()))
+      .any(|feature| feature == "default" || !TEST_FEATURES.contains(&feature.as_str()))
 }
 
 /// Whether `name` is `pattern`, or starts with it when it ends in `*`
@@ -175,14 +221,18 @@ fn is_family(name: &str) -> bool {
   is_layer(name) && name != BD_CORE && name != BD_CLI
 }
 
-/// Every crate that `from` reaches over normal, non-optional edges outside `allowed`, with its path from `from`
+/// Every crate that `from` reaches over normal edges outside `allowed` (an optional edge as `follows` decides), with its
+/// path from `from`
 fn reach(graph: &Graph, allowed: &[&Allowed], from: &str) -> BTreeMap<String, Vec<String>> {
   let mut paths = BTreeMap::from([(from.to_owned(), vec![from.to_owned()])]);
   let mut queue = VecDeque::from([from.to_owned()]);
   while let Some(name) = queue.pop_front() {
     let path = paths[&name].clone();
-    for dependency in graph.get(&name).into_iter().flatten() {
-      if dependency.kind != Kind::Normal || dependency.optional || is_allowed(allowed, &name, &dependency.name) || paths.contains_key(&dependency.name) {
+    let Some(package) = graph.get(&name) else {
+      continue;
+    };
+    for dependency in &package.dependencies {
+      if dependency.kind != Kind::Normal || !follows(package, dependency) || is_allowed(allowed, &name, &dependency.name) || paths.contains_key(&dependency.name) {
         continue;
       }
       let mut next = path.clone();
@@ -227,8 +277,8 @@ fn violations(graph: &Graph, allowed: &[&Allowed]) -> Vec<String> {
       }
     }
   }
-  for (from, dependencies) in graph {
-    for dependency in dependencies.iter().filter(|dependency| !is_allowed(allowed, from, &dependency.name)) {
+  for (from, package) in graph {
+    for dependency in package.dependencies.iter().filter(|dependency| !is_allowed(allowed, from, &dependency.name)) {
       if let Some(rule) = direct_rule(from, dependency) {
         report.push(format!("  {from} depends on {} ({:?}): {rule}", dependency.name, dependency.kind));
       }
@@ -261,7 +311,7 @@ fn every_allowed_edge_exists_and_breaks_a_rule() {
   for entry in ALLOWED {
     let exists = graph
       .get(entry.from)
-      .is_some_and(|dependencies| dependencies.iter().any(|dependency| dependency.name == entry.to && dependency.kind == Kind::Normal));
+      .is_some_and(|package| package.dependencies.iter().any(|dependency| dependency.name == entry.to && dependency.kind == Kind::Normal));
     let others: Vec<&Allowed> = ALLOWED.iter().filter(|other| !std::ptr::eq(*other, entry)).collect();
     if !exists {
       report.push(format!("  {} -> {} (removed in {}) is gone: delete its entry", entry.from, entry.to, entry.removed_in));
@@ -283,11 +333,11 @@ fn the_rules_of_the_architecture_name_crates_of_the_workspace() {
   assert!(unknown.is_empty(), "the architecture rules name crates the workspace lacks (renamed?): {unknown:?}");
 }
 
-/// A graph of `(from, to, kind, features)` edges, none optional, each `from` a workspace crate
+/// A graph of `(from, to, kind, features)` edges, none optional, each `from` a workspace crate without features
 fn graph_of(edges: &[(&str, &str, Kind, &[&str])]) -> Graph {
   let mut graph = Graph::new();
   for (from, to, kind, features) in edges {
-    graph.entry((*from).to_owned()).or_default().push(Dependency {
+    graph.entry((*from).to_owned()).or_default().dependencies.push(Dependency {
       name: (*to).to_owned(),
       kind: *kind,
       optional: false,
@@ -296,6 +346,26 @@ fn graph_of(edges: &[(&str, &str, Kind, &[&str])]) -> Graph {
   }
   graph
 }
+
+/// `patronus` with its plain edge to `sync-utils` and an optional one to `test-utils`, which reaches git; `features`
+/// are the package's, as `cargo metadata` lists them
+fn patronus_with_optional_test_utils(features: &[(&str, &[&str])]) -> Graph {
+  let mut graph = graph_of(&[("test-utils", "git-executor", Kind::Normal, &[]), ("patronus", "sync-utils", Kind::Normal, &[])]);
+  let patronus = graph.get_mut("patronus").unwrap();
+  patronus.dependencies.push(Dependency {
+    name: "test-utils".to_owned(),
+    kind: Kind::Normal,
+    optional: true,
+    features: vec!["http".to_owned()],
+  });
+  patronus.features = features
+    .iter()
+    .map(|(feature, entries)| ((*feature).to_owned(), entries.iter().map(|entry| (*entry).to_owned()).collect()))
+    .collect();
+  graph
+}
+
+const PATRONUS_REACHES_GIT: &str = "  patronus reaches git-executor (patronus -> test-utils -> git-executor): the Patronus client runs no git";
 
 #[test]
 fn the_architecture_check_names_the_path_of_a_forbidden_reach() {
@@ -324,21 +394,48 @@ fn the_architecture_check_names_the_path_of_a_forbidden_reach() {
 }
 
 #[test]
-fn the_architecture_check_follows_no_optional_edge() {
+fn the_architecture_check_follows_no_optional_edge_only_a_test_feature_enables() {
   // the fake of a service, behind its `fake` feature, reaches the test utilities and git; the client does not
-  let mut graph = graph_of(&[("test-utils", "git-executor", Kind::Normal, &[]), ("patronus", "sync-utils", Kind::Normal, &[])]);
-  graph.get_mut("patronus").unwrap().push(Dependency {
-    name: "test-utils".to_owned(),
-    kind: Kind::Normal,
-    optional: true,
-    features: vec!["http".to_owned()],
-  });
+  let mut graph = patronus_with_optional_test_utils(&[("fake", &["dep:axum", "dep:test-utils"])]);
   assert_eq!(violations(&graph, &[]), Vec::<String>::new());
   // the same edge as a plain dependency is the reach it hides
-  graph.get_mut("patronus").unwrap().last_mut().unwrap().optional = false;
+  graph.get_mut("patronus").unwrap().dependencies.last_mut().unwrap().optional = false;
+  assert_eq!(violations(&graph, &[]), [PATRONUS_REACHES_GIT]);
+}
+
+#[test]
+fn the_architecture_check_follows_an_optional_edge_a_default_feature_enables() {
+  // every build of the crate enables `default`, so what it activates is what the crate is, a test feature included
+  let graph = patronus_with_optional_test_utils(&[("default", &["fake"]), ("fake", &["dep:axum", "dep:test-utils"])]);
+  assert_eq!(violations(&graph, &[]), [PATRONUS_REACHES_GIT]);
+  // through a chain of features, and by a feature of the dependency (`x/f` activates the optional `x`)
+  let graph = patronus_with_optional_test_utils(&[("default", &["full"]), ("full", &["fake"]), ("fake", &["test-utils/http"])]);
+  assert_eq!(violations(&graph, &[]), [PATRONUS_REACHES_GIT]);
+  // `x?/f` activates nothing, and a feature nothing enables is no reach
+  let graph = patronus_with_optional_test_utils(&[("default", &["fake"]), ("fake", &["test-utils?/http"]), ("other", &["dep:test-utils"])]);
+  assert_eq!(violations(&graph, &[]), [PATRONUS_REACHES_GIT]);
+  let graph = patronus_with_optional_test_utils(&[("default", &[]), ("fake", &["test-utils?/http"])]);
+  assert_eq!(violations(&graph, &[]), Vec::<String>::new());
+}
+
+#[test]
+fn the_architecture_check_follows_an_optional_edge_a_build_feature_enables() {
+  // `schemars` of domain-types, which bd-core enables for `bd schema`: an optional git-ops behind it is a reach
+  let mut graph = graph_of(&[("domain-types", "serde", Kind::Normal, &[]), ("git-ops", "git-executor", Kind::Normal, &[])]);
+  let types = graph.get_mut("domain-types").unwrap();
+  types.dependencies.push(Dependency {
+    name: "git-ops".to_owned(),
+    kind: Kind::Normal,
+    optional: true,
+    features: Vec::new(),
+  });
+  types.features = BTreeMap::from([("schemars".to_owned(), vec!["dep:schemars".to_owned(), "dep:git-ops".to_owned()])]);
   assert_eq!(
     violations(&graph, &[]),
-    ["  patronus reaches git-executor (patronus -> test-utils -> git-executor): the Patronus client runs no git"]
+    [
+      "  domain-types reaches git-executor (domain-types -> git-ops -> git-executor): the crate of the types does no IO",
+      "  domain-types reaches git-ops (domain-types -> git-ops): the crate of the types does no IO",
+    ]
   );
 }
 

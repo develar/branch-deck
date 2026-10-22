@@ -2,7 +2,7 @@
 //! "Repository view"): the Patronus section, what the robots land, landed and hold of the branches as they are now
 //! (`sync_core::patronus_view`). The page asks it with `get_repository_view` and reads it by branch.
 
-use crate::landing::LandingRefusal;
+use crate::landing::{LandingRefusal, Subject};
 use crate::patronus::PatronusRobot;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -59,6 +59,17 @@ pub struct RobotOf {
   pub robot_id: String,
   /// The robot of the whole stack of the root `branch`
   pub whole_stack: bool,
+}
+
+impl RobotOf {
+  /// What the robot ran on, as `Subject::robot_of` built it: the wire keeps the flag, the code the enum
+  pub fn subject(&self) -> Subject {
+    if self.whole_stack {
+      Subject::WholeStack { root: self.branch.clone() }
+    } else {
+      Subject::Branch { name: self.branch.clone() }
+    }
+  }
 }
 
 /// What a merged robot landed of a branch: the robot that left the fewest commits after it, of equals the first merge

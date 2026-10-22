@@ -64,7 +64,7 @@ use sync_core::landing_gate::check_landing_gate;
 use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
-use sync_core::patronus_start::{RobotSource, allows_push_mode, is_push_into_robot_risky, push_mode_name};
+use sync_core::patronus_start::{allows_push_mode, is_push_into_robot_risky, push_mode_name};
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
@@ -404,12 +404,20 @@ struct StackPush {
 }
 
 /// What a start lands, and from which branch: a branch with the branches it is built on starts from its virtual
-/// branch, the whole stack of a straight chain from its last branch, the whole stack of a stack that forks from its
-/// stack branch
-struct Start<'a> {
-  subject: Subject,
-  /// The stack branch the whole stack of a stack that forks starts from; the other starts have none
-  forking: Option<&'a StackBranchUpdate>,
+/// branch (the whole stack of a straight chain is its last branch), the whole stack of a stack that forks from its
+/// stack branch. One value, so the subject and the branch it starts from can't disagree
+enum Start<'a> {
+  Branch(String),
+  WholeStack(&'a StackBranchUpdate),
+}
+
+impl Start<'_> {
+  fn subject(&self) -> Subject {
+    match self {
+      Self::Branch(name) => Subject::Branch { name: name.clone() },
+      Self::WholeStack(update) => Subject::WholeStack { root: update.root.clone() },
+    }
+  }
 }
 
 /// What to do with an unapplied branch instead of its Safe Push
@@ -442,18 +450,9 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     None
   };
   let start = match &whole_stack {
-    None => Start {
-      subject: Subject::Branch { name: args.branch.clone() },
-      forking: None,
-    },
-    Some(WholeStack::Chain { leaf, .. }) => Start {
-      subject: Subject::Branch { name: leaf.clone() },
-      forking: None,
-    },
-    Some(WholeStack::Forking(update)) => Start {
-      subject: Subject::WholeStack { root: update.root.clone() },
-      forking: Some(update),
-    },
+    None => Start::Branch(args.branch.clone()),
+    Some(WholeStack::Chain { leaf, .. }) => Start::Branch(leaf.clone()),
+    Some(WholeStack::Forking(update)) => Start::WholeStack(update),
   };
   let plan = plan(context, args, &service, &github, runtime, &synced, mode, &start, target_fetch)?;
   let mut output = SafePushOutput {
@@ -505,7 +504,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     if refusal.code == ErrorCode::ApprovalsMissing {
       error.review = output.review.take().map(Box::new);
     }
-    if let (ErrorCode::StackConflict, Some(update)) = (refusal.code, start.forking)
+    if let (ErrorCode::StackConflict, Start::WholeStack(update)) = (refusal.code, &start)
       && let Some(conflict) = &update.conflict
     {
       error.commits = vec![context.short_ids(std::iter::once(conflict.commit.as_str())).get(&conflict.commit).to_string()];
@@ -697,7 +696,7 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, table: &Branch
     name: name.to_string(),
     subject: name.to_string(),
     full_name,
-    is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, RobotSource::Branch(name))),
+    is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, &Subject::Branch { name: name.to_string() })),
     local_tip,
     robot,
     start_blocked: facts_of.is_some_and(|branch| branch.start_blocked),
@@ -714,7 +713,8 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, table: &Branch
 /// of a branch of it lands a part of it and refuses the start, as the robot of the whole stack refuses theirs
 fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r PatronusFacts, update: &StackBranchUpdate, pushes: bool) -> Result<Landing<'r>, CliError> {
   let root = update.root.as_str();
-  let subject = RobotSource::WholeStack(root).subject();
+  let whole_stack = Subject::WholeStack { root: root.to_string() };
+  let subject = whole_stack.words();
   let mut refusals = Vec::new();
   match update.state {
     StackBranchState::Built => {}
@@ -762,7 +762,7 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r Patr
     name: root.to_string(),
     subject,
     full_name: update.branch_name.clone(),
-    is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, RobotSource::WholeStack(root))),
+    is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, &whole_stack)),
     local_tip,
     robot,
     start_blocked: facts_of.is_some_and(|stack| stack.start_blocked),
@@ -881,7 +881,8 @@ fn plan(
   start: &Start<'_>,
   target_fetch: Option<TargetFetch>,
 ) -> Result<Plan, CliError> {
-  if let Subject::Branch { name } = &start.subject {
+  let subject = start.subject();
+  if let Start::Branch(name) = start {
     let branch = synced
       .branches
       .iter()
@@ -897,12 +898,9 @@ fn plan(
   }
   // a parked branch stays local, and so does what carries its commits: a branch built on it, the whole stack
   let report = &synced.report;
-  let parked = match start.forking {
-    None => {
-      let name = start.subject.name();
-      parked_state(&report.branches, &report.grouping.parked.entries, name).map(|parked| parked.reason(name))
-    }
-    Some(update) => update
+  let parked = match start {
+    Start::Branch(name) => parked_state(&report.branches, &report.grouping.parked.entries, name).map(|parked| parked.reason(name)),
+    Start::WholeStack(update) => update
       .members
       .iter()
       .find_map(|member| parked_state(&report.branches, &report.grouping.parked.entries, member).map(|parked| parked.reason(member)))
@@ -933,9 +931,9 @@ fn plan(
   let facts = PatronusFacts::read(context, &table, &remote_of(context, synced), user_robots);
   let landed = landed_branches(&facts);
   let pushes = mode != PatronusPushMode::DryRun;
-  let landing = match start.forking {
-    None => branch_landing(context, synced, &table, &facts, start.subject.name(), pushes)?,
-    Some(update) => stack_landing(context, synced, &facts, update, pushes)?,
+  let landing = match start {
+    Start::Branch(name) => branch_landing(context, synced, &table, &facts, name, pushes)?,
+    Start::WholeStack(update) => stack_landing(context, synced, &facts, update, pushes)?,
   };
   let Landing {
     name,
@@ -990,7 +988,7 @@ fn plan(
   let session = session_of_sync(context, &synced.report)?;
   let built: Vec<&str> = lands.iter().map(String::as_str).collect();
   let landed_commits: HashSet<String> = landed.values().flat_map(|landed| landed.landed.iter().cloned()).collect();
-  let gate = check_landing_gate(&session, &start.subject, &landed_commits).map_err(regroup_error)?;
+  let gate = check_landing_gate(&session, &subject, &landed_commits).map_err(regroup_error)?;
   let (dangling, warnings) = dangling_references_in(context, &session, &gate.report, &built)?;
   if !dangling.is_empty() && !args.allow_dangling {
     // the whole stack is built on nothing: the branch that removes the declaration names it

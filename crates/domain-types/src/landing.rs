@@ -2,7 +2,6 @@
 //! builds it for `bd safe-push`, the start of the app and the landing needs of the repository view: typed, so the CLI
 //! and the app each name it in their own words, and each refusal carries the fix the user can run (`LandingFix`).
 
-use crate::patronus::PatronusRobot;
 use crate::repository_view::RobotOf;
 use serde::{Deserialize, Serialize};
 
@@ -29,12 +28,25 @@ impl Subject {
     }
   }
 
-  /// The robot that ran on this subject, as the repository view names it
-  pub fn robot_of(&self, robot: &PatronusRobot) -> RobotOf {
+  /// The whole stack of a root, not one branch
+  pub const fn is_whole_stack(&self) -> bool {
+    matches!(self, Self::WholeStack { .. })
+  }
+
+  /// "auth", or "the whole auth stack": the subject as a sentence names it, the one wording of `bd` and the app's errors
+  pub fn words(&self) -> String {
+    match self {
+      Self::Branch { name } => name.clone(),
+      Self::WholeStack { root } => format!("the whole {root} stack"),
+    }
+  }
+
+  /// The robot `robot_id` that ran on this subject, as the repository view names it
+  pub fn robot_of(&self, robot_id: &str) -> RobotOf {
     RobotOf {
       branch: self.name().to_string(),
-      robot_id: robot.id.clone(),
-      whole_stack: matches!(self, Self::WholeStack { .. }),
+      robot_id: robot_id.to_string(),
+      whole_stack: self.is_whole_stack(),
     }
   }
 }
@@ -153,10 +165,10 @@ impl LandingRefusal {
         ..
       } => {
         let landing = landing_in.as_ref().map_or_default(|robot| {
-          let of = match (robot.whole_stack, robot.branch == declared_by.branch) {
-            (true, _) => format!("the Safe Push of the whole {} stack", robot.branch),
-            (false, true) => "its Safe Push".to_string(),
-            (false, false) => format!("the Safe Push of {}", robot.branch),
+          let of = if !robot.whole_stack && robot.branch == declared_by.branch {
+            "its Safe Push".to_string()
+          } else {
+            format!("the Safe Push of {}", robot.subject().words())
           };
           format!("; {} is landing in {of}, which tests it without this start", declared_by.branch)
         });

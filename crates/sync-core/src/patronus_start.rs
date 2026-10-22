@@ -2,6 +2,7 @@
 //! as the app matches them (`src/lib/patronus.ts`), the words of a mode and of what a robot lands. Pure functions over
 //! the robots of the user; what they land, landed and hold is the repository view (`repository_view::patronus_view`).
 
+use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::Carried;
 
@@ -15,30 +16,12 @@ pub fn is_pushing_robot(robot: &PatronusRobot) -> bool {
   robot.push_mode != PatronusPushMode::DryRun
 }
 
-/// What a robot starts from: the virtual branch of a branch, or the stack branch of the whole stack of a root
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RobotSource<'a> {
-  /// The virtual branch `{prefix}/virtual/<name>`
-  Branch(&'a str),
-  /// The stack branch `{prefix}/stack/<root>`: every branch of the stack in one robot
-  WholeStack(&'a str),
-}
-
-impl RobotSource<'_> {
-  /// The robot was started on this source branch
-  pub fn is_started_on(self, robot: &PatronusRobot) -> bool {
-    match self {
-      Self::Branch(name) => robot.branch_name.as_deref() == Some(name),
-      Self::WholeStack(root) => robot.stack_root.as_deref() == Some(root),
-    }
-  }
-
-  /// "auth", or "the whole auth stack", as a sentence names it
-  pub fn subject(self) -> String {
-    match self {
-      Self::Branch(name) => name.to_string(),
-      Self::WholeStack(root) => format!("the whole {root} stack"),
-    }
+/// The robot was started on the branch of `subject`: the virtual branch `{prefix}/virtual/<name>` of a branch, the stack
+/// branch `{prefix}/stack/<root>` of the whole stack of a root (every branch of the stack in one robot)
+fn is_started_on(robot: &PatronusRobot, subject: &Subject) -> bool {
+  match subject {
+    Subject::Branch { name } => robot.branch_name.as_deref() == Some(name),
+    Subject::WholeStack { root } => robot.stack_root.as_deref() == Some(root),
   }
 }
 
@@ -48,18 +31,18 @@ impl RobotSource<'_> {
 /// then the first of the list. The page matches them the same way (`findBranchRobot`): both pass the cases of
 /// `src/test-support/robot-match-cases.json`, read by `patronus_start_test.rs` and `src/lib/patronus.test.ts`.
 pub fn find_branch_robot<'a>(robots: &'a [PatronusRobot], branch_name: &str, local_tip: Option<&str>, remote_tip: Option<&str>) -> Option<&'a PatronusRobot> {
-  find_robot(robots, RobotSource::Branch(branch_name), local_tip, remote_tip)
+  find_robot(robots, &Subject::Branch { name: branch_name.to_string() }, local_tip, remote_tip)
 }
 
 /// The robot of the whole stack of `root`: one started on its stack branch, or a Safe Push of a temporary ref on the
 /// local or the pushed tip of the stack branch; the same preference as `find_branch_robot`
 pub fn find_stack_robot<'a>(robots: &'a [PatronusRobot], root: &str, local_tip: Option<&str>, remote_tip: Option<&str>) -> Option<&'a PatronusRobot> {
-  find_robot(robots, RobotSource::WholeStack(root), local_tip, remote_tip)
+  find_robot(robots, &Subject::WholeStack { root: root.to_string() }, local_tip, remote_tip)
 }
 
-fn find_robot<'a>(robots: &'a [PatronusRobot], source: RobotSource<'_>, local_tip: Option<&str>, remote_tip: Option<&str>) -> Option<&'a PatronusRobot> {
+fn find_robot<'a>(robots: &'a [PatronusRobot], subject: &Subject, local_tip: Option<&str>, remote_tip: Option<&str>) -> Option<&'a PatronusRobot> {
   let on_source = |robot: &PatronusRobot| match (&robot.branch_name, &robot.stack_root, &robot.source_revision) {
-    (Some(_), _, _) | (_, Some(_), _) => source.is_started_on(robot),
+    (Some(_), _, _) | (_, Some(_), _) => is_started_on(robot, subject),
     (None, None, Some(revision)) => Some(revision.as_str()) == local_tip || Some(revision.as_str()) == remote_tip,
     (None, None, None) => false,
   };
@@ -78,8 +61,8 @@ const fn activity(robot: &PatronusRobot) -> u8 {
 
 /// A push into the source branch makes its running Safe Push fail at the end ("branch was modified"); a dry run is not
 /// affected
-pub fn is_push_into_robot_risky(robot: &PatronusRobot, source: RobotSource<'_>) -> bool {
-  is_robot_active(robot) && is_pushing_robot(robot) && source.is_started_on(robot)
+pub fn is_push_into_robot_risky(robot: &PatronusRobot, subject: &Subject) -> bool {
+  is_robot_active(robot) && is_pushing_robot(robot) && is_started_on(robot, subject)
 }
 
 /// A start waits while a robot runs on the commit the branch is at (Patronus refuses it), or on `pushed_tip`: the remote

@@ -22,6 +22,7 @@ use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::ErrorCode;
+use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{PullRequestState, PullRequestsResult};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
@@ -695,7 +696,7 @@ fn stack_branches_to_push<'a>(
       warnings.push(format!(
         "{} was not pushed: {}: nothing of it is left to push",
         stack.branch_name,
-        every_branch_landed(&format!("the whole {} stack", stack.root), &landed)
+        every_branch_landed(&Subject::WholeStack { root: stack.root.clone() }.words(), &landed)
       ));
     } else if let Some(reason) = holds.stack_hold_reason(&stack.root) {
       warnings.push(format!("{} was not pushed: {reason}", stack.branch_name));

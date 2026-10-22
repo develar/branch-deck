@@ -332,13 +332,9 @@ pub fn ensure_landing_starts(git_executor: &GitCommandExecutor, cache: &ObjectCa
   if check.refusals.is_empty() {
     return Ok(());
   }
-  let subject = match params.subject() {
-    Subject::Branch { name } => name,
-    Subject::WholeStack { root } => format!("the whole {root} stack"),
-  };
   Err(
     LandingRefused {
-      subject,
+      subject: params.subject().words(),
       refusals: check.refusals,
     }
     .into(),

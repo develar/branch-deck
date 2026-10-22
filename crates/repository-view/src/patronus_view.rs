@@ -290,7 +290,7 @@ fn merged_landings<'r>(
       };
       RobotLanded {
         robot,
-        by: subject.robot_of(robot),
+        by: subject.robot_of(&robot.id),
         subject_branch: match subject {
           Subject::Branch { name } => Some(name),
           Subject::WholeStack { .. } => None,
@@ -305,8 +305,7 @@ fn merged_landings<'r>(
 /// `carried` is None when only the stack as it is now tells
 struct RobotSpanFacts<'r> {
   robot: &'r PatronusRobot,
-  subject: String,
-  whole_stack: bool,
+  subject: Subject,
   names: Vec<String>,
   carried: Option<HashMap<String, Carried>>,
 }
@@ -423,14 +422,7 @@ fn running_spans<'r>(
         Some(carried) => candidates.into_iter().filter(|name| carried.contains_key(name)).collect(),
         None => candidates,
       };
-      let robot_of = subject.robot_of(robot);
-      RobotSpanFacts {
-        robot,
-        subject: robot_of.branch,
-        whole_stack: robot_of.whole_stack,
-        names,
-        carried,
-      }
+      RobotSpanFacts { robot, subject, names, carried }
     })
     .collect()
 }
@@ -443,11 +435,7 @@ fn spans_by_branch(spans: &[RobotSpanFacts<'_>], counts: impl Fn(&PatronusRobot)
   for facts in spans.iter().filter(|facts| counts(facts.robot)) {
     for name in &facts.names {
       by_branch.entry(name.clone()).or_insert_with(|| SpanView {
-        by: RobotOf {
-          branch: facts.subject.clone(),
-          robot_id: facts.robot.id.clone(),
-          whole_stack: facts.whole_stack,
-        },
+        by: facts.subject.robot_of(&facts.robot.id),
         carried: facts.carried.as_ref().and_then(|carried| carried.get(name).cloned()),
       });
     }
@@ -526,7 +514,7 @@ pub fn patronus_view(
       }),
       (_, Some(robot)) if holds(robot) && robot.branch_name.as_deref() == Some(name) => Some(HoldView {
         kind: HoldKind::Own,
-        by: Subject::Branch { name: name.to_string() }.robot_of(robot),
+        by: Subject::Branch { name: name.to_string() }.robot_of(&robot.id),
         carried: None,
       }),
       _ => hold_span_of.get(name).map(|span| HoldView {
@@ -542,7 +530,7 @@ pub fn patronus_view(
       .iter()
       .rev()
       .find_map(|ancestor| match robot_of(ancestor).filter(|robot| lands(robot)) {
-        Some(robot) => Some(Subject::Branch { name: ancestor.clone() }.robot_of(robot)),
+        Some(robot) => Some(Subject::Branch { name: ancestor.clone() }.robot_of(&robot.id)),
         None => span_of.get(ancestor).filter(|span| span.by.branch != name).map(|span| span.by.clone()),
       });
     let start_blocked = robot.is_some_and(|robot| {
@@ -580,7 +568,7 @@ pub fn patronus_view(
     let landing_member = stack.members.iter().find_map(|member| {
       robot_of(member)
         .filter(|robot| lands(robot))
-        .map(|robot| Subject::Branch { name: member.clone() }.robot_of(robot))
+        .map(|robot| Subject::Branch { name: member.clone() }.robot_of(&robot.id))
     });
     let hold_robot_id = robot
       .filter(|robot| holds(robot) && robot.stack_root.as_deref() == Some(root))

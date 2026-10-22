@@ -14,6 +14,7 @@ use bd_core::error::CliError;
 use bd_core::sync_command::SyncOutput;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
+use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{Carried, HoldKind};
 use patronus::service::PatronusService;
@@ -23,11 +24,10 @@ use sync_core::patronus_start::{carried_ids, carried_words, push_mode_name};
 /// The robot that holds the push of a branch
 #[derive(Debug, Clone)]
 pub struct PushHold {
-  /// The branch of the robot: the held branch itself, a branch built on it, or the root of the whole stack
-  pub branch: String,
+  /// What the robot runs on: the held branch itself, a branch built on it, or the whole stack of a root (on its stack
+  /// branch: it lands every branch of the stack)
+  pub by: Subject,
   pub robot: PatronusRobot,
-  /// The robot of the whole stack of the root `branch`, on its stack branch: it lands every branch of the stack
-  pub whole_stack: bool,
   /// The robot merged and landed all of the branch: refused as `landed`, never restarted
   pub landed: Option<LandedBranch>,
   /// The commits of the held branch a robot of another branch lands, as its content told; None for its own robot, or
@@ -40,7 +40,7 @@ pub struct PushHold {
 impl PushHold {
   /// The robot runs on the held branch itself: `--restart-running` cancels it, pushes and restarts it
   pub fn is_own(&self, name: &str) -> bool {
-    self.branch == name && !self.whole_stack && self.landed.is_none()
+    matches!(&self.by, Subject::Branch { name: by } if by == name) && self.landed.is_none()
   }
 
   /// "A Safe Push of auth is running: …", in the words of the app
@@ -56,14 +56,10 @@ impl PushHold {
         self.robot.url
       )
     } else {
-      let of = if self.whole_stack {
-        format!("the whole {} stack", self.branch)
-      } else {
-        self.branch.clone()
-      };
       let carried = self.carried.as_ref();
       format!(
-        "A {mode} of {of} is running: it lands {} with it{}, a push won't land ({})",
+        "A {mode} of {} is running: it lands {} with it{}, a push won't land ({})",
+        self.by.words(),
         carried_words(name, carried),
         carried_ids(carried),
         self.robot.url
@@ -157,9 +153,8 @@ pub(crate) fn push_holds(context: &RepoContext, facts: &PatronusFacts, service: 
       Some((
         name.clone(),
         PushHold {
-          branch: hold.by.branch.clone(),
+          by: hold.by.subject(),
           robot,
-          whole_stack: hold.by.whole_stack,
           landed: if hold.kind == HoldKind::Landed { landed.remove(name) } else { None },
           carried: hold.carried.clone(),
           source_branch: (hold.kind == HoldKind::Own).then(|| to_final_branch_name(&context.prefix, name).ok()).flatten(),

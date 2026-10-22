@@ -1,4 +1,5 @@
-use crate::patronus_start::{RobotSource, allows_push_mode, carried_ids, carried_words, find_branch_robot, find_stack_robot, is_push_into_robot_risky, is_start_blocked};
+use crate::patronus_start::{allows_push_mode, carried_ids, carried_words, find_branch_robot, find_stack_robot, is_push_into_robot_risky, is_start_blocked};
+use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::Carried;
 use pretty_assertions::assert_eq;
@@ -29,6 +30,14 @@ fn stack_robot(id: &str, root: &str, status: PatronusRobotStatus, revision: &str
     source_revision: Some(revision.to_string()),
     ..robot(id, None, status, 1)
   }
+}
+
+fn branch(name: &str) -> Subject {
+  Subject::Branch { name: name.to_string() }
+}
+
+fn whole_stack(root: &str) -> Subject {
+  Subject::WholeStack { root: root.to_string() }
 }
 
 fn dry_run(robot: PatronusRobot) -> PatronusRobot {
@@ -68,14 +77,14 @@ fn a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe
   // the robot took the remote branch, which has the same commits, rebuilt since on a newer baseline
   assert!(is_start_blocked(&running, Some("rebuilt"), Some("tip")));
 
-  assert!(is_push_into_robot_risky(&running, RobotSource::Branch("IJPL-1")));
-  assert!(!is_push_into_robot_risky(&dry_run(running.clone()), RobotSource::Branch("IJPL-1")));
-  assert!(!is_push_into_robot_risky(&robot("r", None, PatronusRobotStatus::Running, 1), RobotSource::Branch("IJPL-1")));
+  assert!(is_push_into_robot_risky(&running, &branch("IJPL-1")));
+  assert!(!is_push_into_robot_risky(&dry_run(running.clone()), &branch("IJPL-1")));
+  assert!(!is_push_into_robot_risky(&robot("r", None, PatronusRobotStatus::Running, 1), &branch("IJPL-1")));
   // a push of the stack branch fails the robot of the whole stack, and only it
   let whole = stack_robot("s", "IJPL-1", PatronusRobotStatus::Running, "stack-tip");
-  assert!(is_push_into_robot_risky(&whole, RobotSource::WholeStack("IJPL-1")));
-  assert!(!is_push_into_robot_risky(&whole, RobotSource::Branch("IJPL-1")));
-  assert!(!is_push_into_robot_risky(&running, RobotSource::WholeStack("IJPL-1")));
+  assert!(is_push_into_robot_risky(&whole, &whole_stack("IJPL-1")));
+  assert!(!is_push_into_robot_risky(&whole, &branch("IJPL-1")));
+  assert!(!is_push_into_robot_risky(&running, &whole_stack("IJPL-1")));
 }
 
 /// The robot of the whole stack starts from the stack branch: it is the stack's, never a branch's, even at a tip a

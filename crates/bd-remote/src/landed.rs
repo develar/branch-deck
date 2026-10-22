@@ -8,6 +8,7 @@ use crate::patronus_facts::PatronusFacts;
 use crate::safe_push_command::{RobotSummary, join_names, robot_summary};
 use bd_core::context::RepoContext;
 use bd_core::output::ShortIds;
+use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -17,10 +18,8 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct LandedBranch {
   pub robot: PatronusRobot,
-  /// The branch of the robot (the landed branch itself for its own robot), or the root of the whole stack
-  pub by: String,
-  /// The robot of the whole stack of the root `by` landed it
-  pub whole_stack: bool,
+  /// What the robot ran on: the branch (the landed branch itself for its own robot), or the whole stack of a root
+  pub by: Subject,
   /// The commits of the branch it landed, newest first
   pub landed: Vec<String>,
   /// The commits added after them, newest first: the only work left; empty when all of it landed
@@ -33,18 +32,18 @@ impl LandedBranch {
     self.after.is_empty()
   }
 
-  /// "oauth", "the whole air stack": what landed it
-  pub fn subject(&self) -> String {
-    if self.whole_stack { format!("the whole {} stack", self.by) } else { self.by.clone() }
+  /// The robot of the landed branch itself
+  fn is_own(&self, name: &str) -> bool {
+    matches!(&self.by, Subject::Branch { name: by } if by == name)
   }
 
   /// "auth landed in master with the Safe Push of oauth (<url>)", of its own robot "oauth merged into master (<url>)"
   pub fn reason(&self, name: &str) -> String {
     let target = &self.robot.target_branch;
-    if !self.whole_stack && self.by == name {
+    if self.is_own(name) {
       format!("{name} merged into {target} with its Safe Push ({})", self.robot.url)
     } else {
-      format!("{name} landed in {target} with the Safe Push of {} ({})", self.subject(), self.robot.url)
+      format!("{name} landed in {target} with the Safe Push of {} ({})", self.by.words(), self.robot.url)
     }
   }
 }
@@ -56,7 +55,7 @@ pub fn every_branch_landed(what: &str, landed: &[&LandedBranch]) -> String {
   let mut merged: Vec<&LandedBranch> = landed.to_vec();
   merged.sort_by_key(|landed| landed.robot.finish_time.unwrap_or(0));
   let mut by: Vec<String> = Vec::new();
-  for subject in merged.iter().map(|landed| landed.subject()) {
+  for subject in merged.iter().map(|landed| landed.by.words()) {
     if !by.contains(&subject) {
       by.push(subject);
     }
@@ -87,8 +86,8 @@ pub struct LandedBySummary {
 impl LandedBySummary {
   pub fn new(context: &RepoContext, landed: &LandedBranch, short: &ShortIds) -> Self {
     Self {
-      branch: landed.by.clone(),
-      whole_stack: landed.whole_stack,
+      branch: landed.by.name().to_string(),
+      whole_stack: landed.by.is_whole_stack(),
       robot: robot_summary(context, &landed.robot),
       commits: landed.landed.iter().map(|id| short.get(id).to_string()).collect(),
       after: landed.after.iter().map(|id| short.get(id).to_string()).collect(),
@@ -110,8 +109,7 @@ pub fn landed_branches(facts: &PatronusFacts) -> HashMap<String, LandedBranch> {
         name.clone(),
         LandedBranch {
           robot: robot.clone(),
-          by: landed.by.branch.clone(),
-          whole_stack: landed.by.whole_stack,
+          by: landed.by.subject(),
           landed: landed.landed.clone(),
           after: landed.after.clone(),
         },
