@@ -147,12 +147,18 @@ Mock implementation:
   `origin`, so a rejected or moved remote has nowhere to come from) are the one exception among the writes. An answer
   counts where it is given: a helper that answers (a declared `function` at the outermost level, exported from
   `helpers/` or a spec's own, through the helpers it calls) counts its answers once per call, not once per definition,
-  so the pinned pushes are the calls of the push helpers. Every other place that could answer more often than the scan
-  counts is refused: an answer, or a call of an answering helper, at the top level outside a test (`test(…)`,
-  `test.describe`, `test.beforeEach`, a fixture's `testWith…`), which is how a function kept in a `const` looks in any
-  of its forms (an arrow with a block or an expression body, with or without types, a function expression, a method of
-  an object); a function declared inside a helper that answers; and a second declaration of an answering helper's
-  name, in another file or the same. A route handler that fulfills with an answer of its own on any branch is an
+  so the pinned pushes are the calls of the push helpers. Inside a test the count is of the places that answer, not
+  of the runs: a `beforeEach` answers for every test of its describe, a loop or a local arrow function runs its answer
+  more often, and the ratchet counts each once, because it pins which commands the page answers and where, not how
+  often a run answers them. The places whose count is wrong by construction and whose fix is a declared helper are
+  refused: an answer, or a call of an answering helper, at the top level outside a test (`test(…)`, `test.describe`,
+  `test.beforeEach`, `test.step`, a fixture's `testWith…`; the members of the test API, never `test.extend`), which is
+  how a function kept in a `const` looks in any of its forms (an arrow with a block or an expression body, with or
+  without types, a function expression, a method of an object); an answer in the definition of a fixture
+  (`test.extend({…})`, with or without a type argument), which runs once per test that uses it; a function declared
+  inside a helper that answers; and a second declaration of an answering helper's name, in another file or the same.
+  An overload signature of a helper is read as the formatter writes it (no `;`, the declaration on the next line). A
+  route handler that fulfills with an answer of its own on any branch is an
   answer, even when another branch forwards the server's `response`. A new page answer fails, a removed one lowers its
   number; `routeCommand` and a fulfilling route name their command by a string literal.
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`

@@ -33,7 +33,7 @@ git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
 github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
-test-utils = { path = "../test-utils" }
+test-utils = { path = "../test-utils", features = ["http"] }
 sync-core = { path = "../sync-core" }
 history-rewrite = { path = "../history-rewrite" }
 sync-types = { path = "../sync-types" }

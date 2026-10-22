@@ -548,9 +548,9 @@ fn passes_fetched_response(fulfill: &str, fetched: &[String]) -> bool {
   })
 }
 
-/// `text` with every `//` and `/* */` comment and every regex literal (`/…/`, after `(`, `,`, `=`, `:`, `[`, `!`,
-/// `&`, `|`, `?`, `{`, `}`, `;` or `return`) blanked, each of its characters a space, the newlines kept: a quote in
-/// a regex would unbalance the brackets
+/// `text` with every `//` and `/* */` comment and every regex literal (`/…/` where `regex_follows`: after an
+/// operator, an arrow, an opening bracket, a separator or `return`) blanked, each of its characters a space, the
+/// newlines kept: a quote in a regex would unbalance the brackets
 fn without_comments(text: &str) -> String {
   let mut out = String::with_capacity(text.len());
   let mut rest = text;
@@ -592,11 +592,17 @@ fn without_comments(text: &str) -> String {
   out
 }
 
-/// Whether a `/` after the text `before` opens a regex literal rather than a division: it follows an operator, an
-/// opening bracket, a separator or `return`
+/// Whether a `/` after the text `before` opens a regex literal rather than a division: it follows an operator (an
+/// arrow `=>` too), an opening bracket, a separator or a keyword that takes a value (`return`, `await`, …)
 fn regex_follows(before: &str) -> bool {
+  const KEYWORDS: [&str; 7] = ["return", "await", "yield", "throw", "typeof", "case", "in"];
   let before = before.trim_end();
-  before.is_empty() || before.ends_with(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';']) || before.ends_with("return")
+  before.is_empty()
+    || before.ends_with(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%'])
+    || before.ends_with("=>")
+    || KEYWORDS
+      .iter()
+      .any(|keyword| before.strip_suffix(keyword).is_some_and(|rest| !is_identifier_char(rest.chars().next_back())))
 }
 
 /// The end (exclusive) of the regex literal at the start of `text`, `None` when no unescaped `/` closes it on the line
@@ -617,8 +623,9 @@ fn regex_end(text: &str) -> Option<usize> {
   None
 }
 
-/// The declared functions of `text` (comments blanked), the nested ones marked; an overload signature (`…): void;`)
-/// without a body is none, and a signature whose body the scan cannot find fails
+/// The declared functions of `text` (comments blanked), the nested ones marked; an overload signature (`…): void;`,
+/// or `…): void` alone on its line as the formatter writes it, the next line a declaration) without a body is none,
+/// and a signature whose body the scan cannot find fails
 fn declarations(text: &str) -> Vec<Declaration> {
   let mut found: Vec<Declaration> = Vec::new();
   for (at, _) in text.match_indices("function ") {
@@ -659,7 +666,8 @@ fn declarations(text: &str) -> Vec<Declaration> {
 enum Body {
   /// The body opens at this brace
   Opens(usize),
-  /// An overload signature, ended by `;`
+  /// An overload signature, ended by `;` or by the end of its line when the next line declares (`export`,
+  /// `function`, `async`, `declare`): the formatter (`semi: false`) writes no `;`
   Overload,
   /// A signature the scan cannot read
   Unread,
@@ -670,6 +678,7 @@ enum Body {
 /// is skipped whole; the body's brace follows the `)` of the parameters, a `>`, a `]`, a `}` of a type literal or a
 /// type name
 fn body_open(text: &str, cursor: usize) -> Body {
+  const DECLARES: [&str; 4] = ["export ", "function ", "async ", "declare "];
   let mut previous = ')';
   let mut at = cursor;
   while let Some(c) = text[at..].chars().next() {
@@ -681,6 +690,7 @@ fn body_open(text: &str, cursor: usize) -> Body {
       }
       '{' => return Body::Opens(at),
       ';' => return Body::Overload,
+      '\n' if DECLARES.iter().any(|word| text[at..].trim_start().starts_with(word)) => return Body::Overload,
       '}' => return Body::Unread,
       c if c.is_whitespace() => {
         at += c.len_utf8();
@@ -720,6 +730,8 @@ fn balanced_end(text: &str, open: usize) -> usize {
     }
     match c {
       '"' | '\'' | '`' => quote = Some(c),
+      // the `>` of an arrow in a type argument (`<{ f: () => void }>`) closes no angle bracket
+      '>' if closer == '>' && text[..open + offset].ends_with('=') => {}
       c if c == opener => depth += 1,
       c if c == closer => {
         depth -= 1;
@@ -794,8 +806,9 @@ fn helper_names(sources: &[Source]) -> BTreeSet<&str> {
 
 /// How often the E2E tests answer each command in the page: the answers of the tests themselves, and those of every
 /// helper per call. A helper is a declared function at the outermost level; an answer anywhere else at the top level,
-/// an arrow function or a function expression kept in a `const` in any form, or a function declared inside a
-/// helper, is refused, because its calls would not be counted
+/// an arrow function or a function expression kept in a `const` in any form, a fixture definition (`test.extend`),
+/// or a function declared inside a helper, is refused, because its calls would not be counted. Inside a test the
+/// count is of the places that answer: a `beforeEach`, a loop or a local function runs an answer more often
 fn page_answers_of(sources: &[Source]) -> std::collections::BTreeMap<String, usize> {
   let mut counts = std::collections::BTreeMap::new();
   let mut count = |names: Vec<String>, times: usize| {
@@ -839,16 +852,17 @@ fn refuse_nested_answering_functions(source: &Source, answering: &[(&str, Vec<St
 }
 
 /// An answer at the top level of `source` (a direct one, or a call of an answering helper) lies inside a test
-/// (`test("…", …)`, `test.describe(…)`, `test.beforeEach(…)`, a fixture's `testWith…(…)`): anything else, an arrow
-/// function or a function expression kept in a `const` in any of its forms, a method, fails, because its calls would
-/// not be counted
+/// (`test("…", …)`, `test.describe(…)`, `test.beforeEach(…)`, a fixture's `testWith…(…)`): anything else fails,
+/// because its calls would not be counted: an arrow function or a function expression kept in a `const` in any of
+/// its forms, a method, and the definition of a fixture (`test.extend({…})`, `test.use({…})`, typed or not), which
+/// answers once per test that uses it
 fn refuse_answers_outside_tests(source: &Source, answering: &[(&str, Vec<String>)]) {
   let text = &source.text;
-  let tests = test_ranges(text);
+  let calls = test_calls(text);
   let answers = source.direct_answers(|at| source.is_top_level(at)).into_iter().map(|answer| answer.at);
-  let calls = answering.iter().flat_map(|(helper, _)| source.calls_at(helper, source.whole(), true));
-  for at in answers.chain(calls) {
-    if tests.iter().any(|test| test.contains(&at)) {
+  let helper_calls = answering.iter().flat_map(|(helper, _)| source.calls_at(helper, source.whole(), true));
+  for at in answers.chain(helper_calls) {
+    if calls.iter().any(|call| !call.fixture && call.range.contains(&at)) {
       continue;
     }
     let holder = text[..at]
@@ -857,18 +871,47 @@ fn refuse_answers_outside_tests(source: &Source, answering: &[(&str, Vec<String>
       .map(|rest| &rest[..rest.find(|c: char| !is_identifier_char(Some(c))).unwrap_or(0)])
       .find(|name| !name.is_empty())
       .unwrap_or("<name>");
+    let line = line_of(text, at);
+    assert!(
+      !calls.iter().any(|call| call.fixture && call.range.contains(&at)),
+      "{}:{line}: an answer inside the fixture `{holder}` (`test.extend`), which answers once per test that uses it: give it in each test or in a `beforeEach` of their describe, where the ratchet pins it",
+      source.file
+    );
     panic!(
-      "{}:{}: an answer outside a test and a function declaration (`const {holder} = …`): declare it as `function {holder}(…)`, so that the ratchet counts its calls",
-      source.file,
-      line_of(text, at)
+      "{}:{line}: an answer outside a test and a function declaration (`const {holder} = …`): declare it as `function {holder}(…)`, so that the ratchet counts its calls",
+      source.file
     );
   }
 }
 
-/// The ranges of the test calls of `text`: `test(…)`, `test.describe(…)`, `test.beforeEach(…)`, a fixture's
-/// `testWithConflicts(…)` or `baseTest(…)` (an identifier that starts with `test` or ends with `Test`, with any
-/// member chain), nested or not, each from its name through the closing parenthesis
-fn test_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+/// A call of the test object: a test or a fixture definition (`test_calls`)
+struct TestCall {
+  /// `test.extend(…)` or `test.use(…)`: a fixture, whose answers run once per test
+  fixture: bool,
+  /// From the name through the closing parenthesis
+  range: std::ops::Range<usize>,
+}
+
+/// The calls of the test object in `text`: an identifier that starts with `test` or ends with `Test` (`test`, a
+/// fixture's `testWithConflicts`, `baseTest`) through a member chain of the test API (`describe`, `beforeEach`, `step`,
+/// `only`, `serial`, …) to the opening parenthesis, nested or not; `extend` and `use` make a fixture (their type
+/// argument skipped); any other member (`info`, `setTimeout`, `describe.configure`) is no call of a test
+fn test_calls(text: &str) -> Vec<TestCall> {
+  const MEMBERS: [&str; 13] = [
+    "describe",
+    "serial",
+    "parallel",
+    "only",
+    "skip",
+    "fixme",
+    "fail",
+    "slow",
+    "beforeEach",
+    "afterEach",
+    "beforeAll",
+    "afterAll",
+    "step",
+  ];
   ["test", "Test"]
     .into_iter()
     .flat_map(|word| text.match_indices(word))
@@ -880,10 +923,26 @@ fn test_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
         return None;
       }
       let mut cursor = name_end;
+      let mut fixture = false;
       loop {
         match text[cursor..].chars().next()? {
-          '.' => cursor += 1 + text[cursor + 1..].find(|c: char| !is_identifier_char(Some(c)))?,
-          '(' => return Some(start..balanced_end(text, cursor)),
+          '.' => {
+            let member_end = cursor + 1 + text[cursor + 1..].find(|c: char| !is_identifier_char(Some(c)))?;
+            let member = &text[cursor + 1..member_end];
+            match member {
+              "extend" | "use" => fixture = true,
+              member if MEMBERS.contains(&member) => {}
+              _ => return None,
+            }
+            cursor = member_end;
+          }
+          '<' if fixture => cursor = balanced_end(text, cursor),
+          '(' => {
+            return Some(TestCall {
+              fixture,
+              range: start..balanced_end(text, cursor),
+            });
+          }
           _ => return None,
         }
       }
@@ -1004,15 +1063,17 @@ fn the_page_answer_scan_reads_routes_and_refuses_a_computed_name() {
   let message = panic_message(&*std::panic::catch_unwind(|| answers_of(&[("tests/e2e/b.spec.ts", computed)])).unwrap_err());
   assert!(message.contains("tests/e2e/b.spec.ts:1") && message.contains("string literal"), "{message}");
 
-  // a fixture's test under another name, a regex with a quote in it and an overload signature are no answers outside a test
+  // a fixture's test under another name, a regex with a quote in it (after `(` and after an arrow) and an overload
+  // signature as the formatter writes it (no `;`) are no answers outside a test
   let fixture = r#"
-    export function overloaded(page: Page): void;
+    export function overloaded(page: Page): void
     export function overloaded(page: Page) {
       return routeCommand(page, "get_commit_files", () => [])
     }
     baseTest.describe("a", () => {
       baseTest("b", async ({ page }) => {
         await expect(page.getByText(/doesn't have (them)/)).toBeVisible()
+        const n = names.filter(x => /doesn't (them)/.test(x))
         await routeCommand(page, "get_patronus_robots", () => [])
         overloaded(page)
       })
@@ -1062,8 +1123,9 @@ fn the_page_answer_scan_counts_a_helper_once_per_call_through_the_helpers_it_cal
       })
       return { pushes: [] }
     }
+    /** overload signatures: one ended by `;`, one by its line end as the formatter leaves it */
     export function overloaded(page: Page): void;
-    export function overloaded(page: Page, more: string): void;
+    export function overloaded(page: Page, more: string): void
     export function overloaded(page: Page, more?: string) {
       return routeCommand(page, "get_commit_files", () => [])
     }
@@ -1122,6 +1184,21 @@ fn the_page_answer_scan_refuses_an_answering_arrow_constant_and_a_helper_declare
     assert!(
       message.contains("tests/e2e/a.spec.ts:") && message.contains("function routeRobots("),
       "{constant}\n{message}"
+    );
+  }
+
+  // a fixture answers once per test that uses it: refused in both spellings, also when it calls an answering helper
+  let fixtures = [
+    "export const testWithRobots = test.extend({\n  page: async ({ page }, use) => {\n    await routeCommand(page, \"get_patronus_robots\", () => [])\n    await use(page)\n  },\n})",
+    "export const testWithRobots = test.extend<{ robots: () => void }>({\n  robots: async ({ page }, use) => {\n    await routeCommand(page, \"get_patronus_robots\", () => [])\n    await use(() => {})\n  },\n})",
+    "function routeRobots(page: Page) {\n  return routeCommand(page, \"get_patronus_robots\", () => [])\n}\nexport const testWithRobots = test.extend({\n  page: async ({ page }, use) => {\n    await routeRobots(page)\n    await use(page)\n  },\n})",
+  ];
+  for fixture in fixtures {
+    let source = format!("{fixture}\ntestWithRobots(\"a\", async ({{ page }}) => {{\n  await page.reload()\n}})");
+    let message = panic_message(&*std::panic::catch_unwind(|| answers_of(&[("tests/e2e/a.spec.ts", &source)])).unwrap_err());
+    assert!(
+      message.contains("tests/e2e/a.spec.ts:") && message.contains("inside the fixture `testWithRobots`"),
+      "{fixture}\n{message}"
     );
   }
 
