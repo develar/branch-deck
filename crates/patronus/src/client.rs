@@ -537,6 +537,8 @@ struct ErrorDto {
 pub struct PatronusClient {
   http: reqwest::Client,
   base_url: String,
+  /// The host of the web UI, the one of the REST API but for a fake (`with_web_url`)
+  web_url: String,
 }
 
 impl PatronusClient {
@@ -547,7 +549,20 @@ impl PatronusClient {
       .user_agent(user_agent)
       .build()
       .expect("the HTTP client of Patronus");
-    Self { http, base_url: base_url.into() }
+    let base_url = base_url.into();
+    Self {
+      http,
+      web_url: base_url.clone(),
+      base_url,
+    }
+  }
+
+  /// The client with the robot pages on `web_url`: a fake serves only the REST API, while the pages are where Patronus
+  /// has them
+  #[must_use]
+  pub fn with_web_url(mut self, web_url: impl Into<String>) -> Self {
+    self.web_url = web_url.into();
+    self
   }
 
   pub fn base_url(&self) -> &str {
@@ -556,7 +571,7 @@ impl PatronusClient {
 
   /// The robot page in the web UI
   pub fn robot_url(&self, robot_id: &str) -> String {
-    format!("{}/robot/{robot_id}", self.base_url)
+    format!("{}/robot/{robot_id}", self.web_url)
   }
 
   /// The robots of the token's owner in the repository started since `start` (Unix seconds), newest first

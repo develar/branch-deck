@@ -18,22 +18,32 @@ use object_cache::cache::ObjectCache;
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::branch_name_suggestion::clean_names;
 use sync_core::branch_prefix::GitBranchPrefix;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
+use sync_core::patronus::{SpaceRepository, find_target_branch};
+use sync_core::pull_requests::resolve_github_repository;
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
   write_global_config, write_repository_config,
 };
+use sync_core::robot_commits::robot_failure_report;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
+use sync_types::patronus::{
+  GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusFailingRobotsParams, PatronusProblem, PatronusRobotDetails, PatronusRobotParams,
+  PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams,
+};
+use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
+use crate::remote_host::RemoteHost;
 use crate::state::AppState;
 
 use crate::state::TestRepository;
@@ -161,23 +171,24 @@ pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>
   }
   ensure_repository_exists(&state, &request.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("read the branch prefix", move || {
-    let repo_path = &request.repository_path;
-    let (output, exit_code) = git_executor.execute_command_with_status(&["config", "--local", "branchdeck.branchPrefix"], repo_path)?;
-    match exit_code {
-      0 => Ok(GitBranchPrefix {
-        prefix: output.trim().to_string(),
-        repository_scoped: true,
-      }),
-      1 => Ok(GitBranchPrefix::default()),
-      128 => Err(anyhow::anyhow!("Repository not accessible: {repo_path}")),
-      code => {
-        tracing::warn!(code, repo_path, "Unexpected exit code reading local branch prefix");
-        Ok(GitBranchPrefix::default())
-      }
+  run_command("read the branch prefix", move || read_local_branch_prefix(&git_executor, &request.repository_path)).await
+}
+
+/// `branchdeck.branchPrefix` of the repository's local config (`get_branch_prefix_from_git_config`)
+pub fn read_local_branch_prefix(git_executor: &git_executor::git_command_executor::GitCommandExecutor, repo_path: &str) -> anyhow::Result<GitBranchPrefix> {
+  let (output, exit_code) = git_executor.execute_command_with_status(&["config", "--local", "branchdeck.branchPrefix"], repo_path)?;
+  match exit_code {
+    0 => Ok(GitBranchPrefix {
+      prefix: output.trim().to_string(),
+      repository_scoped: true,
+    }),
+    1 => Ok(GitBranchPrefix::default()),
+    128 => Err(anyhow::anyhow!("Repository not accessible: {repo_path}")),
+    code => {
+      tracing::warn!(code, repo_path, "Unexpected exit code reading local branch prefix");
+      Ok(GitBranchPrefix::default())
     }
-  })
-  .await
+  }
 }
 
 /// The git of the config commands of a test repository: its global config is the repository's own file
@@ -646,7 +657,7 @@ pub async fn get_pull_requests(
 ) -> CommandResult<sync_types::pull_request::PullRequestsResult> {
   let mut result = {
     let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.pull_request_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    repo.pull_request_calls.fetch_add(1, Ordering::SeqCst);
     repo.pull_requests.read().expect("pull request fixture lock").clone()
   };
   let git_executor = state.git_executor.clone();
@@ -701,7 +712,7 @@ pub async fn get_review_requests(
   Json(params): Json<sync_types::review_request::GetReviewRequestsParams>,
 ) -> CommandResult<sync_types::review_request::ReviewRequestsResult> {
   let repo = repository_by_path(&state, &params.repository_path)?;
-  repo.review_request_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+  repo.review_request_calls.fetch_add(1, Ordering::SeqCst);
   Ok(Json(repo.review_requests.read().expect("review request fixture lock").result.clone()))
 }
 
@@ -715,7 +726,7 @@ pub async fn fetch_review_head(
 ) -> CommandResult<sync_types::review_request::ReviewRange> {
   let fetch_error = {
     let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.review_fetch_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    repo.review_fetch_calls.fetch_add(1, Ordering::SeqCst);
     repo.review_requests.read().expect("review request fixture lock").fetch_error.clone()
   };
   if let Some(message) = fetch_error {
@@ -812,118 +823,61 @@ pub async fn get_file_owners(State(state): State<Arc<AppState>>, Json(params): J
   .await
 }
 
-/// The fixture set by `POST /repositories/{id}/patronus`; Patronus is never called in E2E
-pub async fn get_patronus_robots(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::patronus::GetPatronusRobotsParams>,
-) -> CommandResult<sync_types::patronus::PatronusRobotsResult> {
-  let result = {
-    let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.patronus_list_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    repo.patronus.read().expect("patronus fixture lock").clone()
-  };
-  let git_executor = state.git_executor.clone();
-  run_command("list Patronus robots", move || {
-    anyhow::Ok(resolve_patronus_revisions(&git_executor, &params.repository_path, &params.branch_prefix, result))
-  })
-  .await
+/// The fake services of the repository at `path` (`remote_host.rs`), started now if not yet; the repository is not held
+fn remote_of(state: &AppState, path: &str) -> Result<Arc<RemoteHost>, CommandFailure> {
+  Ok(repository_by_path(state, path)?.remote(&state.git_executor))
 }
 
-/// The fixture robots whose status differs from the one the app knows, as Patronus `fetch-updates` answers
-pub async fn poll_patronus_robots(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::patronus::PollPatronusRobotsParams>,
-) -> CommandResult<sync_types::patronus::PatronusRobotsResult> {
-  let mut result = {
-    let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.patronus_poll_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    repo.patronus.read().expect("patronus fixture lock").clone()
-  };
-  result
-    .robots
-    .retain(|robot| params.robots.iter().any(|known| known.id == robot.id && known.status != robot.status));
-  let git_executor = state.git_executor.clone();
-  run_command("poll Patronus robots", move || {
-    anyhow::Ok(resolve_patronus_revisions(&git_executor, &params.repository_path, &params.branch_prefix, result))
-  })
-  .await
+/// The Space repository of the repository at `path`, None while no Patronus fixture put it on Space
+fn space_of(state: &AppState, path: &str) -> Result<Option<(Arc<RemoteHost>, SpaceRepository)>, CommandFailure> {
+  let host = repository_by_path(state, path)?.existing_remote();
+  Ok(host.and_then(|host| host.space_repository().map(|space| (host, space))))
 }
 
-/// The robot of the Patronus fixture with its revisions resolved in the test repository
-fn find_fixture_robot(
-  git_executor: &git_executor::git_command_executor::GitCommandExecutor,
-  repository_path: &str,
-  branch_prefix: &str,
-  fixture: sync_types::patronus::PatronusRobotsResult,
-  robot_id: &str,
-) -> anyhow::Result<sync_types::patronus::PatronusRobot> {
-  resolve_patronus_revisions(git_executor, repository_path, branch_prefix, fixture)
-    .robots
-    .into_iter()
-    .find(|robot| robot.id == robot_id)
-    .ok_or_else(|| anyhow::anyhow!("No robot {robot_id}"))
+/// The user's robots as the app lists them (`commands/patronus.rs`): the real service asks the fake Patronus of the
+/// repository, which answers the fixture of `POST /repositories/{id}/patronus`
+pub async fn get_patronus_robots(State(state): State<Arc<AppState>>, Json(params): Json<GetPatronusRobotsParams>) -> CommandResult<PatronusRobotsResult> {
+  repository_by_path(&state, &params.repository_path)?.patronus_list_calls.fetch_add(1, Ordering::SeqCst);
+  let Some((host, space)) = space_of(&state, &params.repository_path)? else {
+    return Ok(Json(PatronusRobotsResult::from(PatronusAvailability::NotPatronus)));
+  };
+  let mut result = host
+    .patronus_service()
+    .robots(&space.name, &params.branch_prefix, params.since, params.background, params.new_api)
+    .await;
+  let git = config_git(&state, &params.repository_path)?;
+  let Json(github) = run_command("resolve the GitHub repository", move || resolve_github_repository(&git, &params.repository_path)).await?;
+  result.github_repository = github.map(|github| github.full_name());
+  Ok(Json(result))
 }
 
-/// The failure of a fixture robot: one failed check with a TeamCity build, an error problem, and in the full version a
-/// failed build with a failed test; the commit map is the real one of the test repository. A test that needs another
-/// failure routes the command in the page.
-pub async fn get_robot_failure(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::robot_failure::GetRobotFailureParams>,
-) -> CommandResult<sync_types::robot_failure::RobotFailureReport> {
-  use sync_types::robot_failure::{FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailure, RobotFailureKind, RobotFailureProblem};
-  let result = {
-    let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.patronus.read().expect("patronus fixture lock").clone()
-  };
+/// The robots whose status changed since the page saw it, as the app polls them
+pub async fn poll_patronus_robots(State(state): State<Arc<AppState>>, Json(params): Json<PollPatronusRobotsParams>) -> CommandResult<PatronusRobotsResult> {
+  repository_by_path(&state, &params.repository_path)?.patronus_poll_calls.fetch_add(1, Ordering::SeqCst);
+  let host = remote_of(&state, &params.repository_path)?;
+  Ok(Json(host.patronus_service().poll(&params.branch_prefix, &params.robots).await))
+}
+
+/// The robot with its profile, checks, problems and progress, as the app reads them
+pub async fn get_patronus_robot_details(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobotDetails> {
+  repository_by_path(&state, &params.repository_path)?.patronus_detail_calls.fetch_add(1, Ordering::SeqCst);
+  let host = remote_of(&state, &params.repository_path)?;
+  let details = host.patronus_service().robot_details(&params.branch_prefix, &params.robot_id, params.new_api).await;
+  details.map(Json).map_err(|e| CommandFailure::error("read the Patronus robot", e))
+}
+
+/// Why the robot failed, with the commit map of its branch, as the app reads it; there is no `teamcity` CLI
+pub async fn get_robot_failure(State(state): State<Arc<AppState>>, Json(params): Json<GetRobotFailureParams>) -> CommandResult<RobotFailureReport> {
+  let service = remote_of(&state, &params.repository_path)?.patronus_service();
+  let failure = if params.full {
+    service.robot_failure_full(&params.branch_prefix, &params.robot_id, None).await
+  } else {
+    service.robot_failure(&params.branch_prefix, &params.robot_id).await
+  }
+  .map_err(|e| CommandFailure::error("read the failure of the Patronus robot", e))?;
   let git_executor = state.git_executor.clone();
   run_command("read the failure of the Patronus robot", move || {
-    let robot = find_fixture_robot(&git_executor, &params.repository_path, &params.branch_prefix, result, &params.robot_id)?;
-    let running = robot.status == sync_types::patronus::PatronusRobotStatus::Running;
-    let build_id = "1095220100".to_string();
-    let failure = RobotFailure {
-      running,
-      test_revision: None,
-      target_revision: None,
-      kind: RobotFailureKind::Checks,
-      checks: vec![FailedCheck {
-        name: "Fast Tests".to_string(),
-        build_configuration_id: Some("Fast_Aggregator".to_string()),
-        attempt: 1,
-        attempt_limit: Some(2),
-        build_id: build_id.clone(),
-        build_url: Some(format!("https://ci.example/build/{build_id}")),
-        failed_tests: Some(1),
-        failed_builds: Some(1),
-        failed_to_start: None,
-        running,
-      }],
-      problems: vec![RobotFailureProblem {
-        title: "Fast Tests failed".to_string(),
-        subsystem: Some("TEAMCITY_CHECKS".to_string()),
-        details: None,
-      }],
-      builds: params.full.then(|| {
-        vec![FailedBuild {
-          name: "Unit Tests".to_string(),
-          project: Some("Example".to_string()),
-          build_id: "1095220101".to_string(),
-          build_url: Some("https://ci.example/build/1095220101".to_string()),
-          failed_to_start: false,
-          problems: Vec::new(),
-          failed_tests: vec![FailedTest {
-            name: "com.example.AuthTest.testLogin".to_string(),
-            url: None,
-            message: Some("expected: <true> but was: <false>".to_string()),
-            first_failed_before: Some(false),
-          }],
-          log_tail: None,
-        }]
-      }),
-      omitted: OmittedFailures::default(),
-      robot,
-    };
-    sync_core::robot_commits::robot_failure_report(
+    robot_failure_report(
       &git_executor,
       &params.repository_path,
       &params.branch_prefix,
@@ -935,44 +889,18 @@ pub async fn get_robot_failure(
   .await
 }
 
-/// The fixture robot without checks, problems or profile; a test that needs them routes the command in the page
-pub async fn get_patronus_robot_details(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::patronus::PatronusRobotParams>,
-) -> CommandResult<sync_types::patronus::PatronusRobotDetails> {
-  // the repository is not held across the await
-  let (result, progress) = {
-    let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.patronus_detail_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let progress = repo.patronus_progress.read().expect("patronus progress lock").get(&params.robot_id).cloned();
-    (repo.patronus.read().expect("patronus fixture lock").clone(), progress)
-  };
-  let git_executor = state.git_executor.clone();
-  run_command("read the Patronus robot", move || {
-    let robot = find_fixture_robot(&git_executor, &params.repository_path, &params.branch_prefix, result, &params.robot_id)?;
-    // the profile of the fixture robot, as the options of `GET /robots/{id}` name it
-    let profile = robot.profile.clone();
-    anyhow::Ok(sync_types::patronus::PatronusRobotDetails {
-      robot,
-      profile_id: profile.as_ref().and_then(|profile| profile.id.clone()),
-      profile_name: profile.and_then(|profile| profile.name),
-      checks: None,
-      problems: Vec::new(),
-      failing: false,
-      progress,
-    })
-  })
-  .await
+/// The error problems of a finished robot, as the app reads them
+pub async fn get_patronus_robot_problems(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<Vec<PatronusProblem>> {
+  let host = remote_of(&state, &params.repository_path)?;
+  let problems = host.patronus_service().robot_problems(&params.robot_id).await;
+  problems.map(Json).map_err(|e| CommandFailure::error("read the problems of the Patronus robot", e))
 }
 
-/// No problems: a test that needs some routes the command in the page
-pub async fn get_patronus_robot_problems(Json(_params): Json<sync_types::patronus::PatronusRobotParams>) -> Json<Vec<sync_types::patronus::PatronusProblem>> {
-  Json(Vec::new())
-}
-
-/// No robot will fail: a test that needs one routes the command in the page
-pub async fn get_patronus_failing_robots(Json(_params): Json<sync_types::patronus::PatronusFailingRobotsParams>) -> Json<Vec<String>> {
-  Json(Vec::new())
+/// The running robots a failed required check dooms, as the app reads them
+pub async fn get_patronus_failing_robots(State(state): State<Arc<AppState>>, Json(params): Json<PatronusFailingRobotsParams>) -> CommandResult<Vec<String>> {
+  let host = remote_of(&state, &params.repository_path)?;
+  let failing = host.patronus_service().failing_robots(&params.robot_ids).await;
+  failing.map(Json).map_err(|e| CommandFailure::error("read the failing Patronus robots", e))
 }
 
 /// The readiness of each branch from the answer of the fixture (`POST /repositories/{id}/review-answers`), computed as
@@ -1067,53 +995,22 @@ fn ownership_requirement(
   })
 }
 
-/// The target branch the app finds for the baseline, supported, without profiles: a test that needs profiles routes the
-/// command in the page
-pub async fn get_patronus_start_options(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::patronus::GetPatronusStartOptionsParams>,
-) -> CommandResult<sync_types::patronus::PatronusStartOptions> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+/// The branch a start pushes to and the merge profiles Patronus answers for it, as the app reads them
+pub async fn get_patronus_start_options(State(state): State<Arc<AppState>>, Json(params): Json<GetPatronusStartOptionsParams>) -> CommandResult<PatronusStartOptions> {
+  let operation = "read the Safe Push options";
+  let (host, space) = space_of(&state, &params.repository_path)?.ok_or_else(|| CommandFailure::error(operation, "The repository is not on Space: Patronus can't push it"))?;
   let git_executor = state.git_executor.clone();
-  run_command("read the Safe Push options", move || {
-    let baseline = &params.baseline_branch;
-    let target_branch = sync_core::patronus::find_target_branch(&git_executor, &params.repository_path, baseline)?
-      .ok_or_else(|| anyhow::anyhow!("The baseline {baseline} is not a branch of origin: Patronus pushes into a branch of origin"))?;
-    anyhow::Ok(sync_types::patronus::PatronusStartOptions {
-      target_branch,
-      supported: true,
-      profiles: Vec::new(),
-      emergency_profiles: Vec::new(),
-      default_profile_id: None,
-    })
+  let (path, baseline) = (params.repository_path.clone(), params.baseline_branch.clone());
+  let Json(target) = run_command(operation, move || {
+    find_target_branch(&git_executor, &path, &baseline)?
+      .ok_or_else(|| anyhow::anyhow!("The baseline {baseline} is not a branch of origin: Patronus pushes into a branch of origin"))
   })
-  .await
-}
-
-/// An empty `sourceRevision` of a fixture robot is the local tip of its virtual branch, or of the stack branch of a
-/// robot of the whole stack (`stackRoot`); `~N` is the Nth first parent of that tip
-fn resolve_patronus_revisions(
-  git_executor: &git_executor::git_command_executor::GitCommandExecutor,
-  repository_path: &str,
-  branch_prefix: &str,
-  mut result: sync_types::patronus::PatronusRobotsResult,
-) -> sync_types::patronus::PatronusRobotsResult {
-  for robot in &mut result.robots {
-    let suffix = match robot.source_revision.as_deref() {
-      Some("") => String::new(),
-      Some(revision) if revision.starts_with('~') => revision.to_string(),
-      _ => continue,
-    };
-    let full_ref = match (robot.stack_root.as_deref(), robot.branch_name.as_deref()) {
-      (Some(root), _) => format!("refs/heads/{branch_prefix}/stack/{root}"),
-      (None, Some(branch_name)) => format!("refs/heads/{branch_prefix}/virtual/{branch_name}"),
-      (None, None) => continue,
-    };
-    robot.source_revision = git_executor
-      .execute_command(&["rev-parse", "--verify", "--quiet", &format!("{full_ref}{suffix}")], repository_path)
-      .ok();
-  }
-  result
+  .await?;
+  let options = host
+    .patronus_service()
+    .start_options(&space.project_key, &space.name, &target, params.last_robot_id.as_deref(), params.last_robot_profile)
+    .await;
+  options.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
 
 pub async fn browse_repository(
@@ -1147,7 +1044,7 @@ pub async fn browse_repository(
 pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(params): Json<SuggestBranchNamesParams>) -> CommandResult<BranchNameSuggestionOutcome> {
   let fixture = {
     let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.branch_name_suggestion_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    repo.branch_name_suggestion_calls.fetch_add(1, Ordering::SeqCst);
     repo.branch_name_suggestions.read().expect("branch name suggestion fixture lock").clone()
   };
   tokio::time::sleep(std::time::Duration::from_millis(fixture.delay_ms)).await;
@@ -1389,7 +1286,7 @@ fn requesting_repository<'a>(state: &'a AppState, headers: &axum::http::HeaderMa
 pub async fn install_agent_cli(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<serde_json::Value> {
   let path = {
     let repository = requesting_repository(&state, &headers)?;
-    repository.agent_cli_installed.store(true, std::sync::atomic::Ordering::SeqCst);
+    repository.agent_cli_installed.store(true, Ordering::SeqCst);
     repository.path.clone()
   };
   let git_executor = config_git(&state, &path)?;
@@ -1409,7 +1306,7 @@ pub async fn install_agent_cli(State(state): State<Arc<AppState>>, headers: axum
 
 /// The skills once `install_agent_cli` ran for the test repository, else none
 pub async fn agent_cli_status(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<serde_json::Value> {
-  let installed = requesting_repository(&state, &headers)?.agent_cli_installed.load(std::sync::atomic::Ordering::SeqCst);
+  let installed = requesting_repository(&state, &headers)?.agent_cli_installed.load(Ordering::SeqCst);
   Ok(Json(if installed {
     serde_json::json!({ "bd": AGENT_CLI, "skills": AGENT_SKILLS })
   } else {

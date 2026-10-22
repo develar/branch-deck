@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicU32;
 use sync_types::branch_name_suggestion::BranchNameSuggestionOutcome;
-use sync_types::patronus::{PatronusReviewRequirement, PatronusRobotsResult};
+use sync_types::patronus::PatronusReviewRequirement;
 use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use sync_types::review_request::ReviewRequestsResult;
 
@@ -47,15 +47,13 @@ pub struct TestRepository {
   pub review_fetch_calls: AtomicU32,
   /// The `keep` of every `prune_review_refs`, in call order
   pub review_prune_keeps: std::sync::Mutex<Vec<Vec<u32>>>,
-  /// What `get_patronus_robots` answers (E2E never calls Patronus); not on Space until a test sets it
-  pub patronus: RwLock<PatronusRobotsResult>,
-  /// How often the app listed and polled the robots, so a test can check the request policy
+  /// The fake services behind the real ones (`remote_host.rs`), started on the first need; stopped with the repository
+  pub remote: std::sync::OnceLock<std::sync::Arc<crate::remote_host::RemoteHost>>,
+  /// How often the page listed and polled the robots, so a test can check its request policy
   pub patronus_list_calls: AtomicU32,
   pub patronus_poll_calls: AtomicU32,
   /// How often the app asked for the details of a robot: the build progress of its checks comes only with them
   pub patronus_detail_calls: AtomicU32,
-  /// What the details answer as the progress of a running robot, by robot id (`POST /repositories/{id}/patronus-progress`)
-  pub patronus_progress: RwLock<std::collections::HashMap<String, sync_types::patronus::PatronusRobotProgress>>,
   /// What Patronus answers the review pre-check of `get_branch_review_readiness` with (E2E never calls Patronus)
   pub review_answers: RwLock<ReviewAnswersFixture>,
   /// The `get_branch_review_readiness` calls, in order: the branches asked and whether it was a recheck
@@ -66,6 +64,18 @@ pub struct TestRepository {
   pub branch_name_suggestion_calls: AtomicU32,
   /// The Agent CLI was installed (`install_agent_cli`): `agent_cli_status` names the skills then
   pub agent_cli_installed: std::sync::atomic::AtomicBool,
+}
+
+impl TestRepository {
+  /// The fake services of the repository, started now if not yet
+  pub fn remote(&self, git: &GitCommandExecutor) -> std::sync::Arc<crate::remote_host::RemoteHost> {
+    std::sync::Arc::clone(self.remote.get_or_init(|| std::sync::Arc::new(crate::remote_host::RemoteHost::start(git, &self.path))))
+  }
+
+  /// The fake services once started
+  pub fn existing_remote(&self) -> Option<std::sync::Arc<crate::remote_host::RemoteHost>> {
+    self.remote.get().cloned()
+  }
 }
 
 #[derive(Clone, Debug, Deserialize)]

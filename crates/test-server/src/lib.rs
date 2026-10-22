@@ -13,11 +13,12 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use sync_types::patronus::{PatronusAvailability, PatronusRobotsResult};
 use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+pub mod remote_fixtures;
+pub mod remote_host;
 pub mod state;
 pub mod static_files;
 pub mod tauri_command_bridge;
@@ -39,6 +40,9 @@ mod review_readiness_test;
 
 #[cfg(test)]
 mod review_requests_test;
+
+#[cfg(test)]
+mod remote_fixtures_test;
 
 #[cfg(test)]
 mod reword_test;
@@ -102,9 +106,13 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       "/repositories/{id}/branch-name-suggestions",
       post(set_branch_name_suggestions).get(get_branch_name_suggestion_fixture),
     )
-    .route("/repositories/{id}/patronus", post(set_patronus).get(get_patronus_fixture))
+    .route(
+      "/repositories/{id}/patronus",
+      post(remote_fixtures::set_patronus).get(remote_fixtures::get_patronus_fixture),
+    )
+    .route("/repositories/{id}/patronus-details", post(remote_fixtures::set_patronus_details))
     .route("/repositories/{id}/review-requests", post(set_review_requests).get(get_review_request_fixture))
-    .route("/repositories/{id}/patronus-progress", post(set_patronus_progress))
+    .route("/repositories/{id}/patronus-progress", post(remote_fixtures::set_patronus_progress))
     .route("/repositories/{id}/review-answers", post(set_review_answers).get(get_review_answers_fixture))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
@@ -565,11 +573,10 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     review_request_calls: std::sync::atomic::AtomicU32::new(0),
     review_fetch_calls: std::sync::atomic::AtomicU32::new(0),
     review_prune_keeps: std::sync::Mutex::default(),
-    patronus: std::sync::RwLock::new(PatronusRobotsResult::from(PatronusAvailability::NotPatronus)),
+    remote: std::sync::OnceLock::new(),
     patronus_list_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_poll_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_detail_calls: std::sync::atomic::AtomicU32::new(0),
-    patronus_progress: std::sync::RwLock::new(std::collections::HashMap::new()),
     review_answers: std::sync::RwLock::default(),
     review_readiness_calls: std::sync::Mutex::default(),
     branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),
@@ -682,29 +689,6 @@ pub async fn get_branch_name_suggestion_fixture(
   Ok(Json(serde_json::json!({ "calls": repo.branch_name_suggestion_calls.load(Ordering::SeqCst) })))
 }
 
-/// Sets what `get_patronus_robots` answers; an empty `sourceRevision` means the local tip of the robot's branch (of the
-/// stack branch for a robot of the whole stack), `~N` its Nth first parent
-pub async fn set_patronus(
-  axum::extract::Path(id): axum::extract::Path<String>,
-  State(state): State<Arc<AppState>>,
-  Json(result): Json<PatronusRobotsResult>,
-) -> Result<StatusCode, StatusCode> {
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  *repo.patronus.write().expect("patronus fixture lock") = result;
-  Ok(StatusCode::OK)
-}
-
-/// Sets the progress the details of running robots answer, by robot id
-pub async fn set_patronus_progress(
-  axum::extract::Path(id): axum::extract::Path<String>,
-  State(state): State<Arc<AppState>>,
-  Json(progress): Json<std::collections::HashMap<String, sync_types::patronus::PatronusRobotProgress>>,
-) -> Result<StatusCode, StatusCode> {
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  *repo.patronus_progress.write().expect("patronus progress lock") = progress;
-  Ok(StatusCode::OK)
-}
-
 /// Sets what the Patronus pre-check of `get_branch_review_readiness` answers, by branch
 pub async fn set_review_answers(
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -721,17 +705,6 @@ pub async fn get_review_answers_fixture(axum::extract::Path(id): axum::extract::
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   let calls = repo.review_readiness_calls.lock().expect("review readiness calls lock").clone();
   Ok(Json(serde_json::json!({ "calls": calls })))
-}
-
-/// How often the app listed and polled the robots and asked for their details
-pub async fn get_patronus_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  let ordering = Ordering::SeqCst;
-  Ok(Json(serde_json::json!({
-    "listCalls": repo.patronus_list_calls.load(ordering),
-    "pollCalls": repo.patronus_poll_calls.load(ordering),
-    "detailCalls": repo.patronus_detail_calls.load(ordering),
-  })))
 }
 
 /// Sets what `get_review_requests` answers for the repository and how `fetch_review_head` fails (`fetchError`)

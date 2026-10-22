@@ -3,9 +3,8 @@ import type { PatronusRobotsResult } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
-import { DAY_ROBOTS, availableRobots, robot, setupRobots } from "../helpers/patronus-helpers"
+import { DAY_ROBOTS, availableRobots, robot, setupRobots, setupRobotsWith, willFail } from "../helpers/patronus-helpers"
 import { emitTauriEvent, rewriteNextSyncEvents, runAndWaitForSync } from "../helpers/sync-helpers"
-import { routeCommand } from "../helpers/wait-helpers"
 
 const { running: RUNNING, failed: FAILED, merged: MERGED } = DAY_ROBOTS
 
@@ -29,8 +28,7 @@ test.describe("Dock", () => {
   })
 
   test("should count a running robot that will fail in the badge, and not show its progress", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await routeCommand(page, "get_patronus_failing_robots", () => ["running-robot"])
-    await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
+    await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: willFail("running-robot") }, RUNNING)
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ badgeCount: 1 })
     expect((await getDockCalls(page)).filter(call => "progressBar" in call).at(-1) ?? { progressBar: { status: "none" } }).toMatchObject({ progressBar: { status: "none" } })
   })

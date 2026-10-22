@@ -138,8 +138,8 @@ Mock implementation:
   plugins, the sub-window and updater handlers) do not. `pnpm perf:table` reads it
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view))
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
-  functions; an answer that Patronus, GitHub or claude would give comes from a fixture of the repository, or from a route
-  of the test
+  functions; Patronus is asked through the app's own service behind a fake ([Remote services](#remote-services)); an
+  answer that GitHub or claude would give comes from a fixture of the repository, or from a route of the test
 - **Review requests**: `get_review_requests` answers `NotGitHub` until a test posts a fixture to
   `/repositories/{id}/review-requests` (a `ReviewRequestsResult` plus an optional `fetchError`; `GET` returns the
   counts of asks and fetches, and the `keep` of every prune). `fetch_review_head` never fetches: an empty `headRefOid`
@@ -229,6 +229,40 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
   waits until no commit list (`table`, the `ol` of the branch preview) is `aria-busy`: a list is busy while the file
   counts of its meta lines are read ([Commit Files](../../spec/commit/commit-files.spec.md)).
 - **Update**: `pnpm e2e-up` rewrites snapshots. Review the diff, a changed snapshot can hide a regression.
+
+### Remote services
+
+A remote command of the page runs the app's real client and service, which ask a fake on a loopback port instead of
+the remote service; a test sets what the fake answers and reads what reached it.
+
+- **Host** (`crates/test-server/src/remote_host.rs`): each test repository gets its `RemoteHost` on the first need
+  (`TestRepository::remote`), stopped when the repository is deleted (`FakeServer` aborts its listener on drop). It
+  holds `FakePatronus` (`crates/patronus/src/fake_patronus.rs`, `state_only`: nothing built in) and the
+  `PatronusService` of the app on it, with a fixed token, no `teamcity` CLI, and the robot pages on `PATRONUS_URL`
+  (`PatronusClient::with_web_url`), so a robot links where the app links it. The service is replaced on each Patronus
+  fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
+  so the host holds whether the repository is on Space (`space_repository`, project `e2e`, repository `repository`).
+- **Bridge**: `get_patronus_robots`, `poll_patronus_robots`, `get_patronus_robot_details`, `get_robot_failure`,
+  `get_patronus_robot_problems`, `get_patronus_failing_robots` and `get_patronus_start_options` call the service as
+  `src-tauri/src/commands/patronus.rs` does: the list answers `notPatronus` while the repository is not on Space and
+  names the GitHub repository by the real `resolve_github_repository`; the start options need Space and the target
+  branch of the baseline (`find_target_branch`).
+- **Fixtures** (`crates/test-server/src/remote_fixtures.rs`) keep the shapes the page knows and are written once into
+  the wire form of the fake; `remote_fixtures_test.rs` reads each form back through the real parser (`to_robot`,
+  `progress_of`) as the fixture. `POST /repositories/{id}/patronus` (a `PatronusRobotsResult`, `setPatronus`) sets the
+  robots of the list, of a poll (the listed robots whose status differs from the last known one) and of the details;
+  `notPatronus` takes the repository off Space, `notLoggedIn` answers 401, `error` 500, and a `githubRepository` is
+  written as `branchdeck.githubRepository`. A robot's source branch is the full ref of its virtual branch or of the
+  stack branch of its whole stack under the repository's `branchdeck.branchPrefix`, its profile in the options; an
+  empty `sourceRevision` is resolved when Patronus answers (`robots_hook`) to the tip of that ref, `~N` to its Nth first
+  parent. `/patronus-progress` sets what `robots/progress` folds per robot (the new API of Settings → Patronus), and
+  `/patronus-details` the TeamCity checks and problems per robot and the failed builds per check attempt in the wire
+  form (`setPatronusDetails`, `failedFastTests` in `patronus-helpers.ts`); a robot without them has none. Robot start
+  options answer supported without merge profiles until a test routes them
+- **Counters**: `GET /repositories/{id}/patronus` answers `listCalls`, `pollCalls`, `detailCalls`, the commands of the
+  page (the caches of the service answer some of them: a test of the page's ask policy counts these), and `requests`,
+  what reached the fake: `list`, `updates`, `details` and `startOptions` counts, and the robot ids of `problems` and
+  `progress` in order (`getPatronusCalls`)
 
 ## Alternatives Considered
 

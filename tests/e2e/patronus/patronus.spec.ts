@@ -205,7 +205,11 @@ baseTest.describe("Patronus robot timing", () => {
   baseTest("should read the estimate of the CI only while the details of a running robot are open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // two Safe Pushes of 40 minutes this week; JIRA-456 started 18 minutes ago, its Unit Tests have 9 minutes left
     const history = weekHistory()
-    const repo = await setupRepo("issue_links", { patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: NOW - 18 * 60 }), ...history) })
+    // the new API of Settings → Patronus: Patronus folds the progress of the robot in one request
+    const repo = await setupRepo("issue_links", {
+      patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: NOW - 18 * 60 }), ...history),
+      initialStoreValues: { appSettings: { patronusNewApi: true } },
+    })
     await repo.setPatronusProgress({
       "running-robot": { remainingSeconds: 540, checkName: "Unit Tests", checkPercent: 93, overtimeSeconds: null, queued: 1, probablyHanging: false },
     })

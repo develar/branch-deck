@@ -6427,6 +6427,7 @@ dependencies = [
  "serde_json",
  "sync-core",
  "sync-types",
+ "sync-utils",
  "tempfile",
  "test-utils",
  "tokio",

@@ -10,6 +10,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// Rewrites a robot of an answer in place (`FakePatronus::robots_hook`)
+pub type RobotsHook = Box<dyn Fn(&mut serde_json::Value) + Send + Sync>;
+
 /// Answers `status` (200 = the robots) and counts the requests
 #[derive(Default)]
 pub struct FakePatronus {
@@ -77,11 +80,98 @@ pub struct FakePatronus {
   pub max_test_runs_in_flight: AtomicU32,
   /// Runs on each request of the start options, before the answer: what the client holds meanwhile
   pub on_start_options: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+  /// The answer of `robot-start-supported` instead of the built-in one (supported, three profiles)
+  pub start_options: Mutex<Option<serde_json::Value>>,
+  /// By robot id: what `robots/progress` folds for it instead of the built-in progress
+  pub progress: Mutex<HashMap<String, serde_json::Value>>,
+  /// Rewrites each robot of a list, a fetch-updates and a `GET /robots/{id}` answer right before it is sent: the test
+  /// server resolves the revision of a robot from its branch as the branch is then
+  pub robots_hook: Mutex<Option<RobotsHook>>,
+  /// Answers only the state that was set, nothing built in, as the test server needs it: the list is `robots` (none
+  /// until set), fetch-updates answers the listed robots whose status differs from the last known one, as Patronus does,
+  /// `GET /robots/{id}` the listed robot (404 for another), and a robot without its own checks, problems or progress (an
+  /// attempt without its builds) has none
+  pub state_only: std::sync::atomic::AtomicBool,
+}
+
+/// A fake served on a loopback port of its own; the server stops when this is dropped
+pub struct FakeServer {
+  /// `http://127.0.0.1:{port}`, the base URL of a client
+  pub url: String,
+  task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl FakeServer {
+  /// Serves `router` on a new loopback port; call inside a Tokio runtime
+  pub fn serve(router: axum::Router) -> Self {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port for the fake");
+    listener.set_nonblocking(true).expect("a non-blocking listener");
+    Self::serve_on(tokio::net::TcpListener::from_std(listener).expect("a Tokio listener"), router)
+  }
+
+  /// `serve`, bound without blocking the runtime
+  pub async fn start(router: axum::Router) -> Self {
+    Self::serve_on(tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a loopback port for the fake"), router)
+  }
+
+  fn serve_on(listener: tokio::net::TcpListener, router: axum::Router) -> Self {
+    let url = format!("http://{}", listener.local_addr().expect("the address of the fake"));
+    let task = tokio::spawn(async move { axum::serve(listener, router).await.expect("the fake server") });
+    Self { url, task: Some(task) }
+  }
+
+  /// Keeps the server running until the runtime ends
+  pub fn detach(mut self) {
+    self.task.take();
+  }
+}
+
+impl Drop for FakeServer {
+  fn drop(&mut self) {
+    if let Some(task) = self.task.take() {
+      task.abort();
+    }
+  }
 }
 
 impl FakePatronus {
   pub fn set_status(&self, status: u16) {
     *self.status.lock().unwrap() = status;
+  }
+
+  fn is_state_only(&self) -> bool {
+    self.state_only.load(Ordering::SeqCst)
+  }
+
+  /// `robot` as `robots_hook` rewrites it
+  fn hooked(&self, mut robot: serde_json::Value) -> serde_json::Value {
+    if let Some(hook) = self.robots_hook.lock().unwrap().as_ref() {
+      hook(&mut robot);
+    }
+    robot
+  }
+
+  /// The robots of the list; none until set when `state_only`
+  fn listed_robots(&self) -> Vec<serde_json::Value> {
+    self.robots.lock().unwrap().clone().unwrap_or_else(|| {
+      if self.is_state_only() {
+        return Vec::new();
+      }
+      vec![
+        robot_json("older", "FAILURE", "refs/heads/me/virtual/IJPL-1", "2026-10-13T09:30:00Z"),
+        robot_json("newer", "RUNNING", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00.5Z"),
+      ]
+    })
+  }
+
+  /// The listed robots whose status differs from the `lastKnownStatus` of the fetch-updates `body`
+  fn changed_robots(&self, body: &serde_json::Value) -> Vec<serde_json::Value> {
+    let known = body["robots"].as_array().cloned().unwrap_or_default();
+    self
+      .listed_robots()
+      .into_iter()
+      .filter(|robot| known.iter().any(|known| known["id"] == robot["id"] && known["lastKnownStatus"] != robot["status"]))
+      .collect()
   }
 
   fn answer(&self, body: serde_json::Value) -> Response {
@@ -214,21 +304,26 @@ fn default_attempt_builds() -> serde_json::Value {
   ])
 }
 
+/// A fake answering 200 on a port of its own and a client of it; served until the runtime ends
 pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
   let fake = Arc::new(FakePatronus::default());
   fake.set_status(200);
-  let app = axum::Router::new()
+  let server = FakeServer::start(router(Arc::clone(&fake))).await;
+  let client = PatronusClient::new(server.url.clone(), "Branch Deck test");
+  server.detach();
+  (fake, client)
+}
+
+/// The routes of Patronus that `fake` answers
+#[expect(clippy::too_many_lines, reason = "one route table, each route a few lines")]
+pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
+  axum::Router::new()
     .route(
       "/app/rest/v1/robots",
       get(|State(fake): State<Arc<FakePatronus>>, Query(query): Query<HashMap<String, String>>| async move {
         fake.list_calls.fetch_add(1, Ordering::SeqCst);
         *fake.last_query.lock().unwrap() = query;
-        let mut robots = fake.robots.lock().unwrap().clone().unwrap_or_else(|| {
-          vec![
-            robot_json("older", "FAILURE", "refs/heads/me/virtual/IJPL-1", "2026-10-13T09:30:00Z"),
-            robot_json("newer", "RUNNING", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00.5Z"),
-          ]
-        });
+        let mut robots: Vec<serde_json::Value> = fake.listed_robots().into_iter().map(|robot| fake.hooked(robot)).collect();
         if fake.list_profiles.load(Ordering::SeqCst) {
           // the older robot ran with the Large Scale Change profile, the newer one without a profile
           for robot in &mut robots {
@@ -264,7 +359,16 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
             .into_response();
         }
         // a finished robot is left out; the others run: Unit Tests end last, in 9 minutes, one check waits
-        let robots: Vec<serde_json::Value> = ids.iter().filter(|id| !id.starts_with("finished")).map(|id| robot_progress_json(id)).collect();
+        let progress = fake.progress.lock().unwrap().clone();
+        let state_only = fake.is_state_only();
+        let robots: Vec<serde_json::Value> = ids
+          .iter()
+          .filter_map(|id| match progress.get(id) {
+            Some(progress) => Some(progress.clone()),
+            None if state_only || id.starts_with("finished") => None,
+            None => Some(robot_progress_json(id)),
+          })
+          .collect();
         fake.answer(serde_json::json!({"robots": robots}))
       }),
     )
@@ -272,12 +376,17 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       "/app/rest/v1/robots/fetch-updates",
       post(|State(fake): State<Arc<FakePatronus>>, Json(body): Json<serde_json::Value>| async move {
         fake.update_calls.fetch_add(1, Ordering::SeqCst);
-        *fake.last_updates.lock().unwrap() = body;
-        let robots = fake.updates.lock().unwrap().clone().unwrap_or_else(|| {
+        let updates = fake.updates.lock().unwrap().clone();
+        let robots = updates.unwrap_or_else(|| {
+          if fake.is_state_only() {
+            return fake.changed_robots(&body);
+          }
           let mut robot = robot_json("newer", "SUCCESS", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00Z");
           robot["options"] = profile_options();
           vec![robot]
         });
+        *fake.last_updates.lock().unwrap() = body;
+        let robots: Vec<serde_json::Value> = robots.into_iter().map(|robot| fake.hooked(robot)).collect();
         fake.answer(serde_json::json!({"robots": robots}))
       }),
     )
@@ -285,8 +394,18 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       "/app/rest/v1/robots/{id}",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
         fake.detail_calls.fetch_add(1, Ordering::SeqCst);
-        let robot = fake.details.lock().unwrap().get(&id).cloned().unwrap_or_else(|| robot_detail_json(&id));
-        fake.answer(robot)
+        let detail = fake.details.lock().unwrap().get(&id).cloned();
+        let robot = match detail {
+          Some(robot) => robot,
+          None if fake.is_state_only() => {
+            let Some(robot) = fake.listed_robots().into_iter().find(|robot| robot["id"] == id.as_str()) else {
+              return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "NOT_FOUND", "description": "no such robot"}))).into_response();
+            };
+            robot
+          }
+          None => robot_detail_json(&id),
+        };
+        fake.answer(fake.hooked(robot))
       }),
     )
     .route(
@@ -296,7 +415,8 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
     .route(
       "/app/rest/v1/robots/{id}/teamcity-checks",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
-        let checks = fake.checks.lock().unwrap().get(&id).cloned().unwrap_or_else(default_checks);
+        let checks = fake.checks.lock().unwrap().get(&id).cloned();
+        let checks = checks.unwrap_or_else(|| if fake.is_state_only() { serde_json::json!([]) } else { default_checks() });
         fake.answer(serde_json::json!({"robotId": id, "teamCityChecks": checks}))
       }),
     )
@@ -304,7 +424,8 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       "/app/rest/v1/teamcity-checks/attempts/{id}",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
         fake.attempt_detail_calls.lock().unwrap().push(id.clone());
-        let builds = fake.attempt_builds.lock().unwrap().get(&id).cloned().unwrap_or_else(default_attempt_builds);
+        let builds = fake.attempt_builds.lock().unwrap().get(&id).cloned();
+        let builds = builds.unwrap_or_else(|| if fake.is_state_only() { serde_json::json!([]) } else { default_attempt_builds() });
         fake.answer(serde_json::json!({"id": id, "number": 0, "buildId": "100", "buildUrl": "https://ci.example/build/100", "status": "FAILURE", "failedTests": [], "builds": builds}))
       }),
     )
@@ -337,6 +458,9 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
         let problems = fake.problems.lock().unwrap().get(&id).cloned();
         if let Some(problems) = problems {
           return fake.answer(serde_json::json!({"robotId": id, "problems": problems}));
+        }
+        if fake.is_state_only() {
+          return fake.answer(serde_json::json!({"robotId": id, "problems": []}));
         }
         let mut problems = vec![serde_json::json!({"id": "p", "uniqueId": null, "title": "Changes require review approval", "detailsMarkdown": null, "severity": "ERROR", "subsystem": "OWNERSHIP_REVIEW_APPROVAL_CHECK"})];
         // a required check of the running robot failed: it runs on, but it will fail
@@ -371,6 +495,10 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
         fake.start_supported_calls.fetch_add(1, Ordering::SeqCst);
         if let Some(hook) = fake.on_start_options.lock().unwrap().as_ref() {
           hook();
+        }
+        let options = fake.start_options.lock().unwrap().clone();
+        if let Some(options) = options {
+          return fake.answer(options);
         }
         fake.answer(serde_json::json!({"supported": true, "emergencySupported": true, "profiles": [
           {"id": "default", "name": "Default", "allowedPushModes": []},
@@ -410,9 +538,5 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
         fake.answer(serde_json::json!({"mergeRequests": found, "repositories": []}))
       }),
     )
-    .with_state(Arc::clone(&fake));
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-  let address = listener.local_addr().unwrap();
-  tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-  (fake, PatronusClient::new(format!("http://{address}"), "Branch Deck test"))
+    .with_state(fake)
 }

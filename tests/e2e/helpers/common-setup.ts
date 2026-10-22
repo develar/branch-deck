@@ -26,6 +26,9 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   if (parsedOptions.patronus !== undefined) {
     await repoBuilder.setPatronus(parsedOptions.patronus)
   }
+  if (parsedOptions.patronusDetails !== undefined) {
+    await repoBuilder.setPatronusDetails(parsedOptions.patronusDetails)
+  }
   if (parsedOptions.branchNameSuggestions !== undefined) {
     await repoBuilder.setBranchNameSuggestions(parsedOptions.branchNameSuggestions)
   }

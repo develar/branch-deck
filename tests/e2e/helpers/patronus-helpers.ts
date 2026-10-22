@@ -72,6 +72,99 @@ export async function mergeRunningRobots(
   return merged
 }
 
+/**
+ * What Patronus answers of a robot whose Fast Tests failed (`TestRepositoryBuilder.setPatronusDetails`): the check
+ * (`Fast_Aggregator`, build 1095220100, attempt 1 of 2, one failed test), its error problem, and the failed Unit Tests
+ * build of the attempt with the failed test `com.example.AuthTest.testLogin`
+ */
+export function failedFastTests(robotId: string) {
+  const attemptId = `${robotId}-fast-1`
+  return {
+    checks: {
+      [robotId]: [
+        {
+          id: "1",
+          name: "Fast Tests",
+          buildConfigurationId: "Fast_Aggregator",
+          buildConfigurationName: "Fast Tests Aggregator",
+          status: "FAILURE",
+          attemptLimit: 2,
+          attempts: [
+            {
+              id: attemptId,
+              number: 0,
+              buildId: "1095220100",
+              buildUrl: "https://ci.example/build/1095220100",
+              status: "FAILURE",
+              failedTestsNumber: 1,
+              failedBuildsNumber: 1,
+              failedToStartBuildsNumber: 0,
+            },
+          ],
+        },
+      ],
+    },
+    problems: { [robotId]: [{ id: "p", uniqueId: null, title: "Fast Tests failed", detailsMarkdown: null, severity: "ERROR", subsystem: "TEAMCITY_CHECKS" }] },
+    attemptBuilds: {
+      [attemptId]: [
+        {
+          buildId: "1095220101",
+          buildUrl: "https://ci.example/build/1095220101",
+          buildConfigurationId: "UnitTests",
+          buildConfigurationUrl: "https://ci.example/UnitTests",
+          buildConfigurationName: "Unit Tests",
+          fullProjectName: "Example",
+          status: "FAILURE",
+          isFailedToStart: false,
+          isComposite: false,
+          isFailedTestsOnlyFailure: true,
+          problems: [],
+          failedTests: [
+            {
+              name: "com.example.AuthTest.testLogin",
+              url: null,
+              isIgnoredFailure: false,
+              ignoreReason: null,
+              buildId: "1095220101",
+              testId: "1",
+              testRunId: "1",
+              oldUiUrl: null,
+              testHistoryUrl: null,
+            },
+          ],
+        },
+      ],
+    },
+  }
+}
+
+/** The warning Patronus registers on a running robot once a required check failed: the robot will fail */
+export function willFail(robotId: string) {
+  return {
+    problems: {
+      [robotId]: [
+        {
+          id: "w",
+          uniqueId: "robot_is_failing",
+          title: "This Safe Push will fail because required checks have already failed",
+          detailsMarkdown: null,
+          severity: "WARNING",
+          subsystem: "TEAMCITY_CHECKS",
+        },
+      ],
+    },
+  }
+}
+
+/** The error problem of a robot that failed for missing code-owner approvals */
+export function missingApprovals(robotId: string) {
+  return {
+    problems: {
+      [robotId]: [{ id: "p", uniqueId: null, title: "Changes require review approval", detailsMarkdown: null, severity: "ERROR", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }],
+    },
+  }
+}
+
 /** The answer of `get_patronus_robots` for these robots */
 export function availableRobots(...robots: PatronusRobot[]): PatronusRobotsResult {
   return { availability: { status: "available" }, robots }
@@ -122,17 +215,29 @@ export async function setupTakenRobot(
 }
 
 /** The issue_links repository with these robots */
-export async function setupRobots(
+export function setupRobots(
   page: Page,
-  setupRepo: (template: string, options: { patronus: unknown }) => Promise<unknown>,
+  setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
   ...robots: PatronusRobot[]
-): Promise<void> {
-  await setupRepo("issue_links", { patronus: availableRobots(...robots) })
+): Promise<TestRepositoryBuilder> {
+  return setupRobotsWith(page, setupRepo, syncAndWaitForBranches, {}, ...robots)
+}
+
+/** `setupRobots` with more `options` of the repository (`patronusDetails`) */
+export async function setupRobotsWith(
+  page: Page,
+  setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  options: SetupRepoOptions,
+  ...robots: PatronusRobot[]
+): Promise<TestRepositoryBuilder> {
+  const repo = await setupRepo("issue_links", { ...options, patronus: availableRobots(...robots) })
   await syncAndWaitForBranches()
   // the robots load after the sync, with the answer that shows the Safe Push slots (empty while a robot runs): a push
   // before they did would not know that one runs
   await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
+  return repo
 }
 
 /**

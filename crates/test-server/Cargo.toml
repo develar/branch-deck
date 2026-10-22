@@ -31,11 +31,12 @@ git-ops = { path = "../git-ops" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
-patronus = { path = "../patronus" }
+patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils" }
 sync-core = { path = "../sync-core" }
 history-rewrite = { path = "../history-rewrite" }
 sync-types = { path = "../sync-types" }
+sync-utils = { path = "../sync-utils" }
 tempfile.workspace = true
 fs_extra = "1.3.0"
 dashmap.workspace = true

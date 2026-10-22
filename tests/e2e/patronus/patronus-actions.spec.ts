@@ -14,7 +14,7 @@ import type {
 } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getLandingNode, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
-import { APPROVED_BY_CODE_OWNER, availableRobots, robot, routeReviewRequirement, setupRobots } from "../helpers/patronus-helpers"
+import { APPROVED_BY_CODE_OWNER, availableRobots, missingApprovals, robot, routeReviewRequirement, setupRobots } from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
   createdPullRequest,
@@ -31,6 +31,7 @@ import { hoverStatusChip, openBranchPreview, pushBranchFromRow } from "../helper
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { closeMenus, openSubmenu } from "../helpers/selection-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
+import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { rewriteNextRemoteStatus, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -129,7 +130,7 @@ async function recordReplacingStart(page: Page, older: PatronusRobot) {
 /** The issue_links repository with `robots`, the pushes answered, the profiles, and a start of any branch answered */
 async function setupStarts(
   page: Page,
-  setupRepo: (template: string, options: object) => Promise<unknown>,
+  setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
   ...robots: PatronusRobot[]
 ): Promise<Record<string, unknown>[]> {
@@ -137,6 +138,11 @@ async function setupStarts(
   await routePush(page, {})
   await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
   return routeCommand(page, "start_patronus_robot", params => robot(params.branchName as string, `${params.branchName as string}-robot`, { sourceRevision: null }))
+}
+
+/** `setupRepo` with Patronus answering that `FAILED` failed for missing code-owner approvals */
+function withMissingApprovals(setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>) {
+  return (template: string, options: SetupRepoOptions) => setupRepo(template, { ...options, patronusDetails: missingApprovals(FAILED.id) })
 }
 
 /** "Create Pull Request…" of the slot of JIRA-456, whose approvals count only in a pull request it doesn't have: its dialog */
@@ -751,9 +757,8 @@ test.describe("Patronus actions", () => {
     })
 
     test("should open the pull request a robot that failed for missing approvals was started from, from its details", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await routeCommand(page, "get_patronus_robot_problems", () => [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }])
       const pullRequestUrl = "https://github.com/acme/monorepo/pull/7"
-      await setupStarts(page, setupRepo, syncAndWaitForBranches, { ...FAILED, pullRequest: { number: 7, url: pullRequestUrl } })
+      await setupStarts(page, withMissingApprovals(setupRepo), syncAndWaitForBranches, { ...FAILED, pullRequest: { number: 7, url: pullRequestUrl } })
       await expect(chip(page, "ABC-123")).toHaveText("Needs review")
       const popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
       const text = popover.getByTestId("patronus-needs-review")
@@ -765,8 +770,7 @@ test.describe("Patronus actions", () => {
     })
 
     test('should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it', async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await routeCommand(page, "get_patronus_robot_problems", () => [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }])
-      const starts = await setupStarts(page, setupRepo, syncAndWaitForBranches, FAILED)
+      const starts = await setupStarts(page, withMissingApprovals(setupRepo), syncAndWaitForBranches, FAILED)
       await expect(chip(page, "ABC-123")).toHaveText("Needs review")
       await expect(chip(page, "ABC-123")).toHaveAttribute("data-color", "warning")
 
@@ -782,8 +786,7 @@ test.describe("Patronus actions", () => {
     })
 
     test("should close the branch preview for the Safe Push of its Patronus section", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await routeCommand(page, "get_patronus_robot_problems", () => [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }])
-      const starts = await setupStarts(page, setupRepo, syncAndWaitForBranches, FAILED)
+      const starts = await setupStarts(page, withMissingApprovals(setupRepo), syncAndWaitForBranches, FAILED)
       await expect(chip(page, "ABC-123")).toHaveText("Needs review")
 
       const preview = await openBranchPreview(page, "ABC-123")

@@ -47,6 +47,13 @@ export const SetupRepoOptionsSchema = z.object({
    * Default: undefined - the repository is not on Space
    */
   patronus: z.any().optional(),
+
+  /**
+   * The TeamCity checks and problems the fake Patronus answers for robots (see `TestRepositoryBuilder.setPatronusDetails`),
+   * set before the first sync
+   * Default: undefined - no robot has checks or problems
+   */
+  patronusDetails: z.any().optional(),
 })
 
 /**

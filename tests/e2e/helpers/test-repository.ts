@@ -8,6 +8,9 @@ import type {
 } from "../../../src/lib/bindings"
 import { TEST_SERVER_URL } from "./test-server-url"
 
+/** What reached the fake Patronus: the requests by kind, the robots whose problems and progress were asked, in order */
+export type PatronusRequests = { list: number; updates: number; details: number; problems: string[]; progress: string[]; startOptions: number }
+
 export class TestRepositoryBuilder {
   private baseUrl = TEST_SERVER_URL
   public id: string = ""
@@ -124,21 +127,37 @@ export class TestRepositoryBuilder {
     return (await this.getFixture<{ calls: number }>("branch-name-suggestions")).calls
   }
 
-  /** Sets what `get_patronus_robots` and `poll_patronus_robots` answer from now on (E2E never calls Patronus) */
+  /**
+   * Sets what the fake Patronus of the repository answers from now on: the robots of the list, of a poll (those whose
+   * status changed) and of the details, read by the real service (docs/design/e2e-testing.md#remote-services). The
+   * `url` of a robot is the one the client derives from its id; an empty `sourceRevision` is the tip of the robot's
+   * branch when Patronus answers, `~N` its Nth first parent
+   */
   async setPatronus(result: PatronusRobotsResult): Promise<void> {
     await this.setFixture("patronus", result)
   }
 
   /**
-   * Sets the estimate of the CI the details of running robots answer, by robot id; in the app it is the build progress of
-   * their running checks, asked only with the details
+   * Sets the estimate of the CI that Patronus folds for running robots (`robots/progress`, read by the details with the
+   * new API of Settings → Patronus), by robot id, as of now
    */
   async setPatronusProgress(progress: Record<string, PatronusRobotProgress>): Promise<void> {
     await this.setFixture("patronus-progress", progress)
   }
 
-  /** How often the app listed and polled the Patronus robots and asked for their details */
-  async getPatronusCalls(): Promise<{ listCalls: number; pollCalls: number; detailCalls: number }> {
+  /**
+   * Sets the TeamCity checks and the problems the fake Patronus answers for robots, by robot id, and the failed builds of
+   * check attempts, by attempt id, in its wire form (`teamCityChecks`, `problems`, `builds`); none without them
+   */
+  async setPatronusDetails(fixture: { checks?: Record<string, unknown[]>; problems?: Record<string, unknown[]>; attemptBuilds?: Record<string, unknown[]> }): Promise<void> {
+    await this.setFixture("patronus-details", fixture)
+  }
+
+  /**
+   * How often the page listed and polled the Patronus robots and asked for their details (its commands, which the caches
+   * of the service may answer), and what reached the fake Patronus (`requests`)
+   */
+  async getPatronusCalls(): Promise<{ listCalls: number; pollCalls: number; detailCalls: number; requests: PatronusRequests }> {
     return this.getFixture("patronus")
   }
 
