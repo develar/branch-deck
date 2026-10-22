@@ -119,12 +119,12 @@ Mock implementation:
   `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and `COMMAND_HANDLERS` of `tauri-mocks.ts`. The mock
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
-  entry with its reason (a page handler for the windows, the window menu and the updater; a `routeCommand` of the test
-  for the YouTrack sign-in and YouTrack), never both; a stale entry, or a route or a handler without its command, fails;
-  the six handlers over a route (`get_file_diffs`, `get_file_merges` and `sync_branches` adapt a channel;
-  `set_repository_config`, `wait_github_sign_in` and `sign_out_of_github` emit the event the backend emits after
-  them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (111) and `PAGE_MOCKED` (15) are pinned; `PAGE_MOCKED` only goes down: a new command
+  entry with its reason (a page handler for the windows, the window menu and the updater; no E2E test installs an
+  update or restarts the app), never both; a stale entry, or a route or a handler without its command, fails; the nine
+  handlers over a route (`get_file_diffs`, `get_file_merges` and `sync_branches` adapt a channel;
+  `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
+  and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
+  bytes). The number of commands (111) and `PAGE_MOCKED` (8) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock.
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
   (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
@@ -349,6 +349,32 @@ the remote service; a test sets what the fake answers and reads what reached it.
   the page clock until the app read the bot's reply), not the parameters the page sent; it records the page's
   parameters on their way to the server where they matter (`recordCommand`), and no test answers a pull request
   command, a review, a `/patronus` comment or the text of a new pull request in the page.
+- **YouTrack**: the host holds `FakeYouTrack` (`crates/youtrack/src/fake_youtrack.rs`), a YouTrack with its Hub
+  built in at `/hub`, on its own port (`youTrackUrlOf(repo)`, `http://127.0.0.1:<port>`: a test links the issue keys
+  there, `linkIssuesToYouTrack(page, url)`), and the app's `YouTrackService` on the token file of the host's app data
+  directory (no `YOUTRACK_TOKEN`, no keychain). `get_youtrack_auth_status`, `start_youtrack_sign_in`,
+  `wait_youtrack_sign_in`, `cancel_youtrack_sign_in`, `save_youtrack_token`, `sign_out_of_youtrack` (the session of
+  `crates/youtrack/src/sign_in_session.rs`, the core of the app's commands), `get_youtrack_issue` and
+  `set_youtrack_issue_state` (the service) run for the page's repository (`X-Repository-Id`). The fake answers as
+  YouTrack does: `api/config` names the Hub; the Hub page of `localhost-auth` (`api/rest/oauth2/auth`) redirects back to
+  the app's listener with a code at once, a user who approved before, and a client or a redirect it does not accept to
+  `/hub/auth/oauth/error`; `api/rest/oauth2/token` trades a code once for the verifier of its challenge and renews with
+  a refresh token it issued, else `invalid_grant`; the API takes the tokens its Hub issued and the ones a fixture
+  created (401 for another): `api/users/me` (Jane Doe, `jane`), `api/issues/<key>` with the state field `State`
+  (Open, In Progress, Fixed, Duplicate, Verified, the last three resolved) and the single-value fields of the fixture,
+  the values of the state field, and `api/commands` (`State <value>` sets it and its resolved time, the page's clock;
+  another command is a 400 with YouTrack's message). The browser of a sign-in is `completeYouTrackSignIn(page)`: Node
+  fetches the Hub page the app opened and follows its redirect to the listener, as the browser does. The page mock
+  emits `youtrack-auth-changed` to every page after a wait, a saved token or a sign-out succeeded, as the backend does.
+- **YouTrack fixture and log**: `POST /repositories/{id}/youtrack` (`setYouTrack`, the `youtrack` setup option, set
+  before the page opens so the window starts with its sign-in) takes `issues` (`openIssue`, `resolvedIssue` in
+  `youtrack-helpers.ts`), `me`, `tokens` (created in Account Security) and `signedIn`: the token file holds a browser
+  sign-in (`signIn`, tokens the Hub issued), a pasted token (`pastedToken`), a browser sign-in whose access token
+  expired and whose refresh token the Hub no longer knows (`expired`, which the next lookup finds out), or none
+  (`signedOut`); the service reads the file again. `GET` (`getYouTrack`) answers `url`, `pending` (a sign-in started
+  and not ended, as the session holds it), and what reached the fake in order: `commands` (`query`, `issues`), the keys
+  of the issue `lookups`, and `meTokens`, the token of each `GET api/users/me`. A test asserts these, and no test
+  answers a YouTrack command in the page.
 
 ## Alternatives Considered
 
@@ -379,8 +405,9 @@ the remote service; a test sets what the fake answers and reads what reached it.
   `syncBranches` waits until its fallback (`unassigned-commits-loading`) is gone
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The warnings of the Patronus
-  client are left out (`patronus::client=error`): each failed request of the fake is an answer a fixture scripted (a
-  refused start, an unknown robot), and the page shows it. The console errors and
+  and the YouTrack client and service are left out (`patronus::client=error`, `youtrack=error`): each failed request
+  of a fake is an answer a fixture scripted (a refused start, an unknown robot, a token YouTrack does not know, an
+  expired sign-in), and the page shows it. The console errors and
   uncaught exceptions of the pages are attached to a failed test only (`page errors` in `base-test.ts`): an
   error-path test makes the app log its expected errors. `DEBUG_E2E=1` prints the server's debug log and every
   console line live. The debug log was 60k lines (23 MB) per run through the pipe that the Playwright main process

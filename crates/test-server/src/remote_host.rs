@@ -3,7 +3,9 @@
 //! Started on the first need of the repository, stopped when it is deleted; nothing of the developer is reached (a
 //! fixed Space token, no `teamcity` CLI; the GitHub token is only the token file of the host's own app data directory
 //! and a fake `gh` a fixture writes there: no `GH_TOKEN`, no `gh` of the developer, no git credentials, no keychain).
-//! The app's GitHub sign-in runs the real session (`github::sign_in_session`) against the device flow of the fake.
+//! The app's GitHub sign-in runs the real session (`github::sign_in_session`) against the device flow of the fake;
+//! the YouTrack sign-in its session (`youtrack::sign_in_session`) against the Hub of the fake YouTrack, whose page a
+//! test fetches as the browser would.
 
 use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
 use crate::review_fixtures::review_check_answer;
@@ -25,6 +27,11 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
 use sync_core::patronus::SpaceRepository;
+use youtrack::client::YouTrackClient;
+use youtrack::fake_youtrack::FakeYouTrack;
+use youtrack::service::YouTrackService;
+use youtrack::sign_in_session::YouTrackSignInSession;
+use youtrack::token_store::StoredToken as YouTrackToken;
 
 /// The Space project and repository of a test repository on Space (its origin is a local path, so the host holds it)
 pub const SPACE_PROJECT: &str = "e2e";
@@ -61,6 +68,12 @@ pub struct RemoteHost {
   review_answers: Arc<RwLock<HashMap<String, serde_json::Value>>>,
   /// The pull requests of the review requests: GitHub keeps them beside the ones of a GitHub fixture
   review_pulls: Mutex<Vec<FakePull>>,
+  /// The YouTrack of the issue links a test names, with its built-in Hub
+  youtrack: Arc<FakeYouTrack>,
+  youtrack_server: FakeServer,
+  /// The app's YouTrack service on the token file of `app_data`; a fixture of the sign-in makes it read the file again
+  youtrack_service: YouTrackService,
+  youtrack_sign_in: YouTrackSignInSession,
   git: GitCommandExecutor,
 }
 
@@ -102,6 +115,14 @@ impl RemoteHost {
     let app_data = tempfile::tempdir().expect("the app data directory of the test repository");
     let github_service = RwLock::new(Arc::new(new_github_service(&github_server.url, app_data.path(), GhSource::None, &git)));
     let github_sign_in = GitHubSignInSession::new(Some(token_file(app_data.path())));
+    let youtrack = Arc::new(FakeYouTrack::default());
+    youtrack.set_clock(PAGE_CLOCK_START);
+    let youtrack_server = FakeServer::serve(youtrack::fake_youtrack::router(Arc::clone(&youtrack)));
+    let youtrack_service = YouTrackService::new(
+      YouTrackClient::new("Branch Deck test server"),
+      None,
+      Some(youtrack::token_store::token_file(app_data.path())),
+    );
     let host = Self {
       patronus,
       patronus_server,
@@ -116,6 +137,10 @@ impl RemoteHost {
       gh: RwLock::new(GhSource::None),
       review_answers,
       review_pulls: Mutex::default(),
+      youtrack,
+      youtrack_server,
+      youtrack_service,
+      youtrack_sign_in: YouTrackSignInSession::default(),
       git,
     };
     host.set_github_signed_in(true);
@@ -254,6 +279,36 @@ impl RemoteHost {
   /// Ends the wait of a sign-in in progress: the repository is deleted, and no command may outlive it
   pub fn end_sign_ins(&self) {
     self.github_sign_in.cancel();
+    self.youtrack_sign_in.cancel();
+  }
+
+  /// The fake YouTrack of the repository and its URL, the YouTrack of the issue links of a test
+  pub fn youtrack(&self) -> &FakeYouTrack {
+    &self.youtrack
+  }
+
+  pub fn youtrack_url(&self) -> &str {
+    &self.youtrack_server.url
+  }
+
+  pub const fn youtrack_service(&self) -> &YouTrackService {
+    &self.youtrack_service
+  }
+
+  /// The app's sign-in to YouTrack, run by the real session
+  pub const fn youtrack_sign_in(&self) -> &YouTrackSignInSession {
+    &self.youtrack_sign_in
+  }
+
+  /// The token file holds `token` from now on, or none; the service reads it again
+  pub async fn set_youtrack_token(&self, token: Option<YouTrackToken>) -> std::io::Result<()> {
+    let file = youtrack::token_store::token_file(self.app_data.path());
+    match token {
+      Some(token) => sync_utils::secret_store::write_secret_json(&file, &token)?,
+      None => sync_utils::secret_store::remove_secret(&file)?,
+    }
+    self.youtrack_service.forget().await;
+    Ok(())
   }
 
   fn renew_github_service(&self) {

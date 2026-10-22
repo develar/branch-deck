@@ -9,6 +9,7 @@ import type {
 } from "../../../src/lib/bindings"
 import type { GitHubFixture, GitHubLog } from "./pull-request-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
+import type { YouTrackFixture, YouTrackLog } from "./youtrack-helpers"
 
 /** What reached the fake Patronus: the requests by kind, the robots whose problems and progress were asked, in order */
 export type PatronusRequests = { list: number; updates: number; details: number; problems: string[]; progress: string[]; startOptions: number }
@@ -141,6 +142,19 @@ export class TestRepositoryBuilder {
   /** The sign-in as the backend holds it (`pending`: one waits for its code) and the codes and polls that reached GitHub */
   async getGitHubSignIn(): Promise<{ pending: boolean; codes: number; polls: number }> {
     return this.getFixture("github-sign-in")
+  }
+
+  /**
+   * What the fake YouTrack of the repository holds from now on (`YouTrackFixture`), read and written by the real service
+   * and sign-in session (docs/design/e2e-testing.md#remote-services); a field left out changes nothing
+   */
+  async setYouTrack(fixture: YouTrackFixture): Promise<void> {
+    await this.setFixture("youtrack", fixture)
+  }
+
+  /** The URL of the fake YouTrack, whether a sign-in is in progress, and what reached the fake */
+  async getYouTrack(): Promise<YouTrackLog> {
+    return this.getFixture<YouTrackLog>("youtrack")
   }
 
   /** How often the app asked for pull requests */

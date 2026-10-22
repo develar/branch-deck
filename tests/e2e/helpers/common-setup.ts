@@ -32,6 +32,9 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   if (parsedOptions.reviewAnswers !== undefined) {
     await repoBuilder.setReviewAnswers({ answers: parsedOptions.reviewAnswers })
   }
+  if (parsedOptions.youtrack !== undefined) {
+    await repoBuilder.setYouTrack(parsedOptions.youtrack)
+  }
   if (parsedOptions.patronusDetails !== undefined) {
     await repoBuilder.setPatronusDetails(parsedOptions.patronusDetails)
   }

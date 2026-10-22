@@ -14,7 +14,6 @@ const COMMAND_COUNT: usize = 112;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 const UPDATER: &str = "the test server has no updater: the page mock answers that the app is up to date (`NO_UPDATE`)";
-const YOUTRACK: &str = "YouTrack: a test answers it with `routeCommand` (youtrack-helpers.ts); unrouted it fails with 405";
 const NOT_TESTED: &str = "no E2E test installs an update or restarts the app: a call fails with 405";
 
 /// The commands that have no route of this server, each with its reason. The number only goes down: a command moves
@@ -27,14 +26,6 @@ const PAGE_MOCKED: &[(&str, &str)] = &[
   ("show_window_menu", "the window manager's menu: the page mock records it with the window calls"),
   ("check_for_updates", UPDATER),
   ("get_update_status", UPDATER),
-  // reached only through `routeCommand` of a test
-  ("start_youtrack_sign_in", YOUTRACK),
-  ("wait_youtrack_sign_in", YOUTRACK),
-  ("cancel_youtrack_sign_in", YOUTRACK),
-  ("save_youtrack_token", YOUTRACK),
-  ("sign_out_of_youtrack", YOUTRACK),
-  ("get_youtrack_issue", YOUTRACK),
-  ("set_youtrack_issue_state", YOUTRACK),
   ("install_update", NOT_TESTED),
   ("restart_app", NOT_TESTED),
 ];
@@ -210,10 +201,13 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
     [
       "get_file_diffs",
       "get_file_merges",
+      "save_youtrack_token",
       "set_repository_config",
       "sign_out_of_github",
+      "sign_out_of_youtrack",
       "sync_branches",
-      "wait_github_sign_in"
+      "wait_github_sign_in",
+      "wait_youtrack_sign_in"
     ],
     "the handlers of COMMAND_HANDLERS that wrap a route"
   );
@@ -223,7 +217,7 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
 fn page_mocked_only_goes_down() {
   assert_eq!(
     PAGE_MOCKED.len(),
-    15,
+    8,
     "PAGE_MOCKED may only shrink: a new command gets a route of the test server, not a page mock; when a command gets its route, lower this number"
   );
 }

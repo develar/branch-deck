@@ -6,6 +6,8 @@ targets:
   - ../../crates/youtrack/src/url.rs
   - ../../crates/youtrack/src/client.rs
   - ../../crates/youtrack/src/sign_in.rs
+  - ../../crates/youtrack/src/sign_in_session.rs
+  - ../../crates/youtrack/src/fake_youtrack.rs
   - ../../crates/youtrack/src/issue.rs
   - ../../crates/youtrack/src/service.rs
   - ../../crates/youtrack/src/token_store.rs
@@ -14,6 +16,7 @@ targets:
   - ../../src-tauri/src/commands/youtrack.rs
   - ../../src-tauri/src/lib.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
+  - ../../crates/test-server/src/youtrack_fixtures.rs
   - ../../src/lib/youtrack.ts
   - ../../src/stores/youtrack.ts
   - ../../src/components/settings/YouTrackSettings.tsx
@@ -92,9 +95,14 @@ client takes a pasted token.
   (`grant_type=authorization_code`, the verifier, `client_id`), then `GET <url>/api/users/me?fields=login,fullName`
   names the user.
   [@test] ../../crates/youtrack/src/sign_in_test.rs (`only_the_answer_of_this_sign_in_is_taken`, `the_browser_answer_is_traded_for_tokens_with_the_verifier_of_the_challenge`)
+  [@test] ../../crates/youtrack/src/sign_in_session_test.rs (`the_browser_sign_in_keeps_the_tokens_of_the_hub_and_marks_an_issue_fixed_with_them`)
 - One sign-in at a time (`start_youtrack_sign_in`, then `wait_youtrack_sign_in`); a newer one, Cancel and a sign-out
-  end the wait of an older one with "canceled", which is no error (a generation counter, as for GitHub).
+  end the wait of an older one with "canceled", which is no error (a generation counter, as for GitHub). The session
+  (`youtrack::sign_in_session`: start, wait, cancel, a pasted token, sign-out) is the core of the app's commands,
+  which only tell the windows (`youtrack-auth-changed`), and of the E2E test server's routes.
   [@test] ../../crates/youtrack/src/sign_in_test.rs (`a_canceled_sign_in_stops_waiting`)
+  [@test] ../../crates/youtrack/src/sign_in_session_test.rs (`a_canceled_sign_in_ends_its_wait_and_a_pasted_token_is_kept_once_youtrack_accepts_it`)
+  [@test] ../../crates/test-server/src/youtrack_host_test.rs (`the_youtrack_commands_run_the_real_session_and_service_against_the_fake`)
   [@test] ../../src/stores/youtrack.test.ts (`says nothing when canceled, and why when the Hub refused`)
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should cancel the browser sign-in, and paste a token instead`)
 
@@ -130,6 +138,7 @@ client takes a pasted token.
   again until the next sign-in (`forget`): Settings says "Your YouTrack sign-in expired: sign in again" or "YouTrack
   rejected the token: sign in again" above the sign-in, with the URL of the token.
   [@test] ../../crates/youtrack/src/service_test.rs (`a_refused_refresh_token_is_an_expired_sign_in`, `a_rejected_pasted_token_is_not_sent_again`)
+  [@test] ../../crates/youtrack/src/sign_in_session_test.rs (`a_sign_in_whose_refresh_token_the_hub_does_not_know_is_expired`)
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should ask to sign in again once the sign-in expired`)
 
 ### Requests
@@ -227,10 +236,16 @@ client takes a pasted token.
 
 ## Testing / Local Run
 
-- `cargo nextest run -p youtrack`: the URL policy, the sign-in against a fake YouTrack with a built-in Hub (the fake of
-  `github::fake_github`), the issue answers, the renewal and the rejection (`service_test.rs`).
+- `cargo nextest run -p youtrack`: the URL policy, the sign-in, the issue answers, the renewal and the rejection against
+  scripted answers (the fake of `github::fake_github`), and the session against `FakeYouTrack` (`fake_youtrack.rs`, the
+  `fake` feature: a YouTrack with a built-in Hub that redirects its page back with a code, trades it for the verifier
+  of its challenge, and keeps issues and the commands that change them; `sign_in_session_test.rs`).
 - `pnpm test:unit`: `src/lib/youtrack.test.ts`, `src/stores/youtrack.test.ts`.
-- `pnpm e2e`: `tests/e2e/youtrack/` (the sign-in, the popover). The test server answers `get_youtrack_auth_status` as signed out; a test answers
-  the sign-in commands in the page (`routeCommand`, `tests/e2e/helpers/youtrack-helpers.ts`) and links the keys of the
-  template to `https://youtrack.example.com/issue/$0` for one sync (`linkIssuesToYouTrack`).
+- `pnpm e2e`: `tests/e2e/youtrack/` (the sign-in, the popover). Every YouTrack command runs the real session and service
+  of the test server against the `FakeYouTrack` of the test repository ([E2E Testing → Remote
+  services](../../docs/design/e2e-testing.md#remote-services)); a test sets its issues and the sign-in of the token file
+  (`setYouTrack`, the `youtrack` setup option), links the keys of the template to its URL for one sync
+  (`linkIssuesToYouTrack(page, url)`), plays the browser of a sign-in (`completeYouTrackSignIn`: the Hub page redirects
+  back to the app's listener) and asserts what reached the fake (`getYouTrack`: the commands, the lookups, the tokens
+  of `users/me`); no test answers a YouTrack command in the page (`tests/e2e/helpers/youtrack-helpers.ts`).
 - By hand: `pnpm tauri dev`, Settings → YouTrack → Sign In to YouTrack with `https://youtrack.jetbrains.com`.

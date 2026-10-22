@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+axum = { workspace = true, optional = true }
 base64 = "0.22.1"
 getrandom.workspace = true
 moka.workspace = true
@@ -18,7 +19,12 @@ tokio = { workspace = true, features = ["time", "io-util"] }
 tracing.workspace = true
 url = "2.5.8"
 
+[features]
+# the in-process YouTrack of the tests (`fake_youtrack`), for the tests of other crates
+fake = ["dep:axum"]
+
 [dev-dependencies]
+axum.workspace = true
 github = { path = "../github", features = ["fake"] }
 pretty_assertions.workspace = true
 tempfile.workspace = true

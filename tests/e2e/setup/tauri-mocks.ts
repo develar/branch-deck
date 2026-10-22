@@ -620,6 +620,10 @@ export const tauriMockScript = () => {
     // `GITHUB_AUTH_CHANGED_EVENT` of src-tauri), this one and the other pages of a linked sub-window
     wait_github_sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "github-auth-changed"),
     sign_out_of_github: async (cmd: string, payload: any) => emitAfter(cmd, payload, "github-auth-changed"),
+    // the app's YouTrack sign-in, likewise (`youtrack-auth-changed`, the `YOUTRACK_AUTH_CHANGED_EVENT` of src-tauri)
+    wait_youtrack_sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
+    save_youtrack_token: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
+    sign_out_of_youtrack: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
 
     // Updater commands: the test server has no updater, the app is always up to date
     // (the main window runs a silent check a few seconds after startup)

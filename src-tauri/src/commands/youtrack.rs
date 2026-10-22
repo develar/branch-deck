@@ -1,31 +1,22 @@
 use crate::command_error::CommandError;
 use crate::commands::github::app_user_agent;
-use crate::operation::{operation, run_blocking};
+use crate::operation::operation;
 use std::path::Path;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 use sync_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
-use sync_utils::secret_store::{remove_secret, write_secret_json};
-use sync_utils::timestamp::unix_now;
 use tauri::{AppHandle, Emitter, State};
-use tracing::{info, instrument};
+use tracing::instrument;
 use youtrack::client::YouTrackClient;
-use youtrack::issue::fetch_me;
-use youtrack::service::{EnvironmentToken, YouTrackService, expires_at};
-use youtrack::sign_in::{PendingSignIn, finish_sign_in, start_sign_in};
-use youtrack::token_store::{RefreshGrant, StoredToken, token_file};
-use youtrack::url::normalize_base_url;
+use youtrack::service::{EnvironmentToken, YouTrackService};
+use youtrack::sign_in_session::YouTrackSignInSession;
+use youtrack::token_store::token_file;
 
 /// Sent to every window when the YouTrack sign-in changed: the popovers ask again
 pub const YOUTRACK_AUTH_CHANGED_EVENT: &str = "youtrack-auth-changed";
 
-/// The YouTrack of the app, shared by the windows, and the browser sign-in in progress
+/// The YouTrack of the app, shared by the windows, and its own sign-in (`youtrack::sign_in_session`)
 pub struct YouTrackState {
   pub service: YouTrackService,
-  /// The sign-in waiting for the browser, with its generation and its YouTrack
-  sign_in: Mutex<Option<(u64, String, PendingSignIn)>>,
-  /// A newer sign-in, a cancel or a sign-out ends the wait of an older one
-  generation: AtomicU64,
+  sign_in: YouTrackSignInSession,
 }
 
 impl YouTrackState {
@@ -36,21 +27,8 @@ impl YouTrackState {
         EnvironmentToken::from_process(),
         app_data_dir.map(token_file),
       ),
-      sign_in: Mutex::new(None),
-      generation: AtomicU64::new(0),
+      sign_in: YouTrackSignInSession::default(),
     }
-  }
-
-  async fn keep(&self, app: &AppHandle, token: StoredToken) -> Result<(), CommandError> {
-    let file = self
-      .service
-      .token_file()
-      .cloned()
-      .ok_or_else(|| CommandError::new("The app has no data directory to keep the YouTrack token in"))?;
-    run_blocking(move || write_secret_json(&file, &token).map_err(|e| CommandError::new(format!("Cannot keep the YouTrack token: {e}")))).await?;
-    self.service.forget().await;
-    app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;
-    Ok(())
   }
 }
 
@@ -68,17 +46,7 @@ pub async fn get_youtrack_auth_status(youtrack: State<'_, YouTrackState>) -> Res
 #[instrument(skip(youtrack))]
 #[specta::specta]
 pub async fn start_youtrack_sign_in(youtrack: State<'_, YouTrackState>, url: String) -> Result<YouTrackSignIn, CommandError> {
-  operation(async move {
-    let base = normalize_base_url(&url).map_err(CommandError::new)?;
-    let pending = start_sign_in(&youtrack.service.client, &base).await.map_err(|e| CommandError::new(e.to_string()))?;
-    let generation = youtrack.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let answer = YouTrackSignIn {
-      authorize_url: pending.authorize_url.clone(),
-    };
-    *youtrack.sign_in.lock().unwrap() = Some((generation, base, pending));
-    Ok(answer)
-  })
-  .await
+  operation(async move { youtrack.sign_in.start(&youtrack.service, &url).await.map_err(CommandError::new) }).await
 }
 
 /// Waits until the browser came back from the Hub page of `start_youtrack_sign_in`, then keeps the tokens and tells
@@ -88,38 +56,8 @@ pub async fn start_youtrack_sign_in(youtrack: State<'_, YouTrackState>, url: Str
 #[specta::specta]
 pub async fn wait_youtrack_sign_in(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<YouTrackUser, CommandError> {
   operation(async move {
-    let (generation, base, pending) = youtrack
-      .sign_in
-      .lock()
-      .unwrap()
-      .take()
-      .ok_or_else(|| CommandError::new("No YouTrack sign-in is in progress"))?;
-    let hub = pending.hub.clone();
-    let client = &youtrack.service.client;
-    let tokens = finish_sign_in(client, pending, || youtrack.generation.load(Ordering::SeqCst) != generation)
-      .await
-      .map_err(|e| CommandError::new(e.to_string()))?;
-    let user = fetch_me(client, &base, &tokens.access_token).await.map_err(|e| CommandError::new(e.message()))?;
-    let refresh = tokens.refresh_token.map(|refresh_token| RefreshGrant {
-      hub_url: hub.url,
-      service_id: hub.service_id,
-      refresh_token,
-    });
-    youtrack
-      .keep(
-        &app,
-        StoredToken {
-          url: base,
-          login: user.login.clone(),
-          full_name: user.full_name.clone(),
-          access_token: tokens.access_token,
-          access_expires_at: tokens.expires_in.map(expires_at),
-          refresh,
-          created_at: unix_now(),
-        },
-      )
-      .await?;
-    info!(login = %user.login, "signed in to YouTrack");
+    let user = youtrack.sign_in.wait(&youtrack.service).await.map_err(CommandError::new)?;
+    app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;
     Ok(user)
   })
   .await
@@ -131,8 +69,7 @@ pub async fn wait_youtrack_sign_in(app: AppHandle, youtrack: State<'_, YouTrackS
 #[specta::specta]
 pub async fn cancel_youtrack_sign_in(youtrack: State<'_, YouTrackState>) -> Result<(), CommandError> {
   operation(async move {
-    youtrack.generation.fetch_add(1, Ordering::SeqCst);
-    youtrack.sign_in.lock().unwrap().take();
+    youtrack.sign_in.cancel();
     Ok(())
   })
   .await
@@ -144,26 +81,8 @@ pub async fn cancel_youtrack_sign_in(youtrack: State<'_, YouTrackState>) -> Resu
 #[specta::specta]
 pub async fn save_youtrack_token(app: AppHandle, youtrack: State<'_, YouTrackState>, url: String, token: String) -> Result<YouTrackUser, CommandError> {
   operation(async move {
-    let base = normalize_base_url(&url).map_err(CommandError::new)?;
-    let token = token.trim().to_string();
-    if token.is_empty() {
-      return Err(CommandError::new("Paste the token YouTrack created"));
-    }
-    let user = fetch_me(&youtrack.service.client, &base, &token).await.map_err(|e| CommandError::new(e.message()))?;
-    youtrack
-      .keep(
-        &app,
-        StoredToken {
-          url: base,
-          login: user.login.clone(),
-          full_name: user.full_name.clone(),
-          access_token: token,
-          access_expires_at: None,
-          refresh: None,
-          created_at: unix_now(),
-        },
-      )
-      .await?;
+    let user = youtrack.sign_in.save_token(&youtrack.service, &url, &token).await.map_err(CommandError::new)?;
+    app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;
     Ok(user)
   })
   .await
@@ -176,11 +95,7 @@ pub async fn save_youtrack_token(app: AppHandle, youtrack: State<'_, YouTrackSta
 #[specta::specta]
 pub async fn sign_out_of_youtrack(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<(), CommandError> {
   operation(async move {
-    youtrack.generation.fetch_add(1, Ordering::SeqCst);
-    if let Some(file) = youtrack.service.token_file().cloned() {
-      run_blocking(move || remove_secret(&file).map_err(|e| CommandError::new(format!("Cannot remove the YouTrack token: {e}")))).await?;
-    }
-    youtrack.service.forget().await;
+    youtrack.sign_in.sign_out(&youtrack.service).await.map_err(CommandError::new)?;
     app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;
     Ok(())
   })

@@ -23,6 +23,7 @@ pub mod review_fixtures;
 pub mod state;
 pub mod static_files;
 pub mod tauri_command_bridge;
+pub mod youtrack_fixtures;
 
 #[cfg(test)]
 mod command_registry_test;
@@ -59,6 +60,9 @@ mod sse_test;
 
 #[cfg(test)]
 mod sync_event_bytes_test;
+
+#[cfg(test)]
+mod youtrack_host_test;
 
 use state::{AppState, TestRepository};
 use static_files::{serve_static_files, workspace_root};
@@ -113,6 +117,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       "/repositories/{id}/github-sign-in",
       post(remote_fixtures::set_github_sign_in).get(remote_fixtures::get_github_sign_in),
     )
+    .route("/repositories/{id}/youtrack", post(youtrack_fixtures::set_youtrack).get(youtrack_fixtures::get_youtrack))
     .route(
       "/repositories/{id}/branch-name-suggestions",
       post(set_branch_name_suggestions).get(get_branch_name_suggestion_fixture),
@@ -177,6 +182,13 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/cancel_github_sign_in", post(tauri_command_bridge::cancel_github_sign_in))
     .route("/invoke/sign_out_of_github", post(tauri_command_bridge::sign_out_of_github))
     .route("/invoke/get_youtrack_auth_status", post(tauri_command_bridge::get_youtrack_auth_status))
+    .route("/invoke/start_youtrack_sign_in", post(tauri_command_bridge::start_youtrack_sign_in))
+    .route("/invoke/wait_youtrack_sign_in", post(tauri_command_bridge::wait_youtrack_sign_in))
+    .route("/invoke/cancel_youtrack_sign_in", post(tauri_command_bridge::cancel_youtrack_sign_in))
+    .route("/invoke/save_youtrack_token", post(tauri_command_bridge::save_youtrack_token))
+    .route("/invoke/sign_out_of_youtrack", post(tauri_command_bridge::sign_out_of_youtrack))
+    .route("/invoke/get_youtrack_issue", post(tauri_command_bridge::get_youtrack_issue))
+    .route("/invoke/set_youtrack_issue_state", post(tauri_command_bridge::set_youtrack_issue_state))
     .route("/invoke/get_branch_rules", post(tauri_command_bridge::get_branch_rules))
     .route("/invoke/retarget_pull_request", post(tauri_command_bridge::retarget_pull_request))
     .route("/invoke/close_pull_request", post(tauri_command_bridge::close_pull_request))

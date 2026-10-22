@@ -6436,6 +6436,7 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
+ "youtrack",
 ]
 
 [[package]]
@@ -8173,6 +8174,7 @@ dependencies = [
 name = "youtrack"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "base64 0.22.1",
  "getrandom 0.3.4",
  "github",

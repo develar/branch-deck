@@ -68,6 +68,13 @@ export const SetupRepoOptionsSchema = z.object({
    * Default: undefined - the owners of the files a branch changes by the `OWNERSHIP` files of the target
    */
   reviewAnswers: z.any().optional(),
+
+  /**
+   * What the fake YouTrack holds (a `YouTrackFixture`, see `youtrack-helpers.ts`), set before the page opens, so the
+   * window starts with its sign-in
+   * Default: undefined - no issue, signed out
+   */
+  youtrack: z.any().optional(),
 })
 
 /**

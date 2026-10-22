@@ -57,6 +57,7 @@ use sync_types::pull_request::{
   CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
 };
 use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
+use sync_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -845,16 +846,85 @@ pub async fn search_github_users(State(state): State<Arc<AppState>>, Json(params
   users.map(Json).map_err(|failure| CommandFailure::error(operation, failure_message(&failure)))
 }
 
-/// Not signed in to YouTrack: a test of the sign-in or the issue popover answers it in the page (`routeCommand`)
-pub async fn get_youtrack_auth_status() -> CommandResult<sync_types::youtrack::YouTrackAuthStatus> {
-  Ok(Json(sync_types::youtrack::YouTrackAuthStatus {
-    url: None,
-    signed_in_as: None,
-    source: None,
-    problem: None,
-    signed_in_at: None,
-    manage_url: None,
-  }))
+/// The YouTrack sign-in of the requesting page's repository, as the app reads it
+pub async fn get_youtrack_auth_status(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<YouTrackAuthStatus> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  Ok(Json(host.youtrack_service().status().await))
+}
+
+#[derive(Deserialize)]
+pub struct YouTrackUrlParams {
+  url: String,
+}
+
+/// Starts the browser sign-in to the YouTrack at `url` (the fake's), as the app does: the Hub page a test fetches
+pub async fn start_youtrack_sign_in(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap, Json(params): Json<YouTrackUrlParams>) -> CommandResult<YouTrackSignIn> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  let started = host.youtrack_sign_in().start(host.youtrack_service(), &params.url).await;
+  started.map(Json).map_err(|e| CommandFailure::error("start the YouTrack sign-in", e))
+}
+
+/// Waits for the browser to come back from the Hub page and keeps the tokens, as the app does; the page mock tells the
+/// windows (`youtrack-auth-changed`)
+pub async fn wait_youtrack_sign_in(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<YouTrackUser> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  let user = host.youtrack_sign_in().wait(host.youtrack_service()).await;
+  user.map(Json).map_err(|e| CommandFailure::error("sign in to YouTrack", e))
+}
+
+/// Ends the wait of the sign-in in progress, as the app does
+pub async fn cancel_youtrack_sign_in(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<()> {
+  requesting_repository(&state, &headers)?.remote(&state.git_executor).youtrack_sign_in().cancel();
+  Ok(Json(()))
+}
+
+#[derive(Deserialize)]
+pub struct SaveYouTrackTokenParams {
+  url: String,
+  token: String,
+}
+
+/// Keeps a pasted token once the fake YouTrack accepted it, as the app does; the page mock tells the windows
+pub async fn save_youtrack_token(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap, Json(params): Json<SaveYouTrackTokenParams>) -> CommandResult<YouTrackUser> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  let user = host.youtrack_sign_in().save_token(host.youtrack_service(), &params.url, &params.token).await;
+  user.map(Json).map_err(|e| CommandFailure::error("keep the YouTrack token", e))
+}
+
+/// Removes the token of the sign-in, as the app does; the page mock tells the windows
+pub async fn sign_out_of_youtrack(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<()> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  let signed_out = host.youtrack_sign_in().sign_out(host.youtrack_service()).await;
+  signed_out.map(Json).map_err(|e| CommandFailure::error("sign out of YouTrack", e))
+}
+
+#[derive(Deserialize)]
+pub struct YouTrackIssueParams {
+  key: String,
+}
+
+/// The issue of `key` from the fake YouTrack, as the app reads it
+pub async fn get_youtrack_issue(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap, Json(params): Json<YouTrackIssueParams>) -> CommandResult<YouTrackIssueAnswer> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  Ok(Json(host.youtrack_service().issue(&params.key).await))
+}
+
+#[derive(Deserialize)]
+pub struct SetYouTrackIssueStateParams {
+  key: String,
+  state: String,
+  expected: Option<String>,
+}
+
+/// Sets the state field of the issue in the fake YouTrack, as the app does (Mark Fixed and its undo)
+pub async fn set_youtrack_issue_state(
+  State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
+  Json(params): Json<SetYouTrackIssueStateParams>,
+) -> CommandResult<YouTrackStateChange> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  let change = host.youtrack_service().set_state(&params.key, &params.state, params.expected.as_deref()).await;
+  change.map(Json).map_err(|e| CommandFailure::error("set the state of the issue", e))
 }
 
 /// The fixture set by `POST /repositories/{id}/review-requests`; GitHub is never asked in E2E

@@ -38,6 +38,7 @@ sync-core = { path = "../sync-core" }
 history-rewrite = { path = "../history-rewrite" }
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
+youtrack = { path = "../youtrack", features = ["fake"] }
 tempfile.workspace = true
 fs_extra = "1.3.0"
 dashmap.workspace = true
