@@ -2267,6 +2267,11 @@ sync, before anything is asked of Patronus.
    changes of the commits; a start runs no trial.
    The target conflict check replays the tip of the branch (or of the stack branch) onto the baseline commit that the
    sync read after the fetch (`check_target`, one `replay` when it applies).
+   A Safe Push that pushes new commits into the pull request the robot starts from, which someone approved, asks
+   GitHub for the rules of the target: one `GET rules/branches/<target>` (`sync_core::branch_rules::read_branch_rules`,
+   the function of the app's `get_branch_rules`), HTTP, no process. Rules that dismiss stale reviews on push refuse
+   the start where the approvals count (`push_dismisses_approvals`), and rules GitHub doesn't answer refuse it as
+   `rules_unknown` (`--allow-unknown-rules`), never "keeps the approvals" (`rules_check`).
 3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
    minute for the answer of Patronus.
    With `--whole-stack` the robot starts from the stack branch of the root (a straight chain: from its leaf, as
@@ -2293,7 +2298,7 @@ sync, before anything is asked of Patronus.
    pull request of its head.
 
 Code: `crates/bd-remote/src/safe_push_command.rs`, `crates/sync-core/src/review_readiness.rs`,
-`crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`,
+`crates/sync-core/src/branch_rules.rs`, `crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`,
 `crates/sync-core/src/stack_pull_request.rs`.
 
 #### Target conflict check

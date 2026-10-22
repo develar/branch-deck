@@ -2,13 +2,14 @@
   {
     "id": "push-dismisses-the-counted-approvals",
     "group": "discrepancies",
-    "title": "a push of a new commit into #7, whose approvals Patronus counts, while the rules of the repository dismiss stale reviews: the app refuses and offers the push, bd starts",
+    "title": "a push of a new commit into #7, whose approvals Patronus counts, while the rules of the repository dismiss stale reviews: the app refuses and offers the push, bd started; both refuse now, bd with push_dismisses_approvals",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
     "discrepancy": "D1",
+    "closed": "s1-holes",
     "given": {
       "readiness": "approved",
       "pullRequest": {
@@ -29,12 +30,13 @@
     },
     "bd": {
       "check": {
-        "refusals": [],
+        "refusals": ["push_dismisses_approvals"],
         "push_needed": true,
-        "pull_request": 7
+        "pull_request": 7,
+        "rules": true
       },
       "start": {
-        "started_via": "pull_request"
+        "error": "push_dismisses_approvals"
       }
     }
   },
@@ -160,7 +162,7 @@
   {
     "id": "rules-unknown-keep-the-approvals",
     "group": "discrepancies",
-    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read: the app reads it as \"keeps the approvals\", bd never asks",
+    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read: the app reads it as \"keeps the approvals\" and starts, bd refuses rules_unknown unless --allow-unknown-rules",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
@@ -186,15 +188,19 @@
     },
     "bd": {
       "check": {
-        "refusals": [],
+        "refusals": ["rules_unknown"],
         "push_needed": true,
-        "pull_request": 7
+        "pull_request": 7,
+        "rules": null
+      },
+      "start": {
+        "error": "rules_unknown"
       }
     },
     "today": {
       "app": ["src/hooks/useDismissesStaleReviews.ts#.then(result => (result.status === \"ok\" ? result.data.dismissStaleReviewsOnPush : forget()), forget)"],
-      "bd": ["src-tauri/src/commands/pull_requests.rs#read_branch_rules"],
-      "why": "both start: the app because it reads a failed read of the rules as \"keeps the approvals\" (a GitHub error is `false`), bd because it never reads the rules; the only caller of read_branch_rules is the app's"
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#code: ErrorCode::RulesUnknown,"],
+      "why": "the app starts, because it reads a failed read of the rules as \"keeps the approvals\" (a GitHub error is `false`); bd refuses rules_unknown, which --allow-unknown-rules lifts"
     }
   },
   {

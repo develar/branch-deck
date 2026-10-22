@@ -211,6 +211,12 @@ Workflow: the commits into pull requests
      outside it adds (`missing_declarations` of `bd check`); the message names the restack that lands that branch too
      (`bd restack <root> <branch>`, after the user approves) or the commit to move. When the user says it is a false
      alarm, `bd safe-push --allow-missing`.
+   - `push_dismisses_approvals` (exit 4, also in `refusals`): the push of new commits into the approved pull request the
+     robot starts from dismisses the approvals Patronus counts (`rules`): push first (`bd push <branch>`), then ask for
+     the review again (`bd request-review <branch>`). A push that dismisses approvals Patronus doesn't count starts;
+     tell the user `rules.message`.
+   - `rules_unknown` (exit 4, also in `refusals`): GitHub didn't answer the rules of the target, so the push may dismiss
+     the approvals: ask the user; `bd safe-push --allow-unknown-rules` starts anyway, beside --allow-missing.
    - `target_conflict` (exit 4, `error.commits`, `error.paths`, also in `refusals`): Patronus can't rebase what lands
      onto the newest target; the message names the commits of the target that change the files. `bd update` resolves
      it locally (after the user approves), then run the Safe Push again.

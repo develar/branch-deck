@@ -87,7 +87,8 @@ knows every group of the files).
   `reasons`, `what` or `offersPush`. Without it the step decides the class, so `app.step` names the blocker of the mode
   (`safePushBlocker`, of a Dry Run `dryRunBlocker`): `hidden` or a blocker refuses, else it starts.
 - `bd.check`: a subset of the `--check` output: `refusals` (the codes, in order), `push_needed`, `profile` (the id or
-  `null`), `pull_request` (the number or `null`), `readiness` (`review.readiness` or `null`), `lands`, `retargeted`
+  `null`), `pull_request` (the number or `null`), `readiness` (`review.readiness` or `null`), `rules`
+  (`rules.dismiss_stale_reviews_on_push`: `true`, `false`, or `null` when GitHub didn't answer or bd didn't ask), `lands`, `retargeted`
   (the numbers); or `{ "error": code }` when `plan()` fails.
 - `bd.start` (optional): the same command without `--check`: `{ "started_via": "api" | "pull_request", "canceled" }`
   (`canceled`: it canceled the running Safe Push of an older commit first) or `{ "error": code }`.
@@ -96,8 +97,8 @@ The outcomes compare by class: an app `refuse` and a `bd` refusal or error refus
 `choose` and a `bd` start start (the agent asks the user what the popover asks, after `--check`); `wait` is neither.
 The class of `bd` is that of `start` when given, else of `check`. Sides of different classes carry a `discrepancy` or
 an `asymmetry`; an `asymmetry` stands only there. A `discrepancy` may stand where the classes agree: both start, one of
-them for a reason the registry names wrong (D9: the app reads a failed read of the rules as "keeps the approvals", bd
-never reads them). The Vitest checks it for every case.
+them for a reason the registry names wrong (D9 until s1-holes: the app read a failed read of the rules as "keeps the
+approvals", bd never read them). The Vitest checks it for every case.
 
 ## The registry: `discrepancies.json`
 
@@ -109,14 +110,15 @@ the repository root: the text must be in the file, with a line on that line, so 
 bare `path:line` is refused). A recorded entry has no `given`, `app` or `bd`. `twins` names the exercised cases of other
 groups with the same `discrepancy` (D3b: `row-5-prime-another-base`, D11: the three row 5 cases, D15:
 `dry-run-while-a-safe-push-of-a-child-lands-the-branch`): a case outside the registry carries a discrepancy only as a
-twin of its entry. An exercised case whose classes agree carries `today.why`, what differs (D9: both start, the app by a
-failed read of the rules, `bd` because it never reads them).
+twin of its entry. An exercised case whose classes agree carries `today.why`, what differs (D9 until s1-holes: both
+started, the app by a failed read of the rules, `bd` because it never read them; now `bd` refuses `rules_unknown`).
 
 A discrepancy that a stage closed keeps its entry, the key of its id, with `closed: "<stage>"` (a `### <stage>` of the
 design doc, whose register row says «закрыт»): its former twins answer alike now and carry `discrepancy: null`, so the
 entry has no `twins`; `today` of a recorded entry names where each side does it now, and an exercised one whose sides
 agree needs no `today.why` (D2, `closed: "s1-holes"`: both sides skip the approvals for a profile that skips the review,
-its former twin `skips-review-profile`). Only an entry of the registry is closed.
+its former twin `skips-review-profile`; D1, exercised: both refuse a push that dismisses the approvals Patronus counts,
+`bd` with `push_dismisses_approvals`). Only an entry of the registry is closed.
 
 Both tests check the registry: each id once, the twins, no recorded or closed case outside it, no twins of a closed
 entry; the Rust one also that every pointer of `today` resolves and that a closed entry names a stage whose row says
@@ -151,8 +153,8 @@ request of a whole stack #12.
 | `stackPullRequest` | `true` | the open #12 of `{prefix}/stack/<root>` in the search | `stackPullRequest`; of the whole stack its `pullRequest` |
 | `readiness` | `notRequired` · `approved` · `missing` · `unknown` · `unavailable` · `unlisted` · `space` · `notAsked` [`notRequired`] | the pre-check answer, see below | the answer of the facts (Rust asked as the app's scan asks, `readinessInputOf`) in the review-readiness store under the key of the branch's input, the availability of the pull requests |
 | `profile` | `{ chosen: <id>·none, lastRobot: lsc, skipsReview, newApi }` | `--profile`; the last robot's options | `ask.profileId`; `options` |
-| `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` | the flags of the same names | `withoutApprovals` = `ask.bypassReview`; the others have no input of the decision |
-| `rules` | `keep` · `dismiss` · `unknown` · `loading` [`keep`] | — (`bd` reads no branch rules: D1, D9) | what `get_branch_rules` answered `readDismissesStaleReviews` of the target: `unknown` a failed answer (read as `false`, D9), `loading` no answer yet |
+| `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` | the flags of the same names | `withoutApprovals` = `ask.bypassReview`; the others have no input of the decision |
+| `rules` | `keep` · `dismiss` · `unknown` · `loading` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none (`fake_github`), `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500; `loading` is `keep` (bd waits for its own read) | what `get_branch_rules` answered `readDismissesStaleReviews` of the target: `unknown` a failed answer (read as `false`, D9), `loading` no answer yet |
 | `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named | `parked`; of the whole stack `wholeStackParkedState` |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) | the stack branch `Blocked` by it |
 | `landed` | `inBaseline` · `byContent` | `origin/master` at HEAD; `land_auth_by_content` after `bd push` (`LANDED_SUBJECTS` only) | the landing report of the baseline check (`inBaseline`); one commit left (`byContent`) |

@@ -59,6 +59,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use sync_core::branch_rules::{BranchRules, read_branch_rules};
 use sync_core::check::{CheckSession, StackIndependence};
 use sync_core::landing_gate::check_landing_gate;
 use sync_core::parked::parked_state;
@@ -127,6 +128,11 @@ pub struct SafePushArgs {
   /// the build fails unless the name is a false alarm
   #[arg(long)]
   pub allow_missing: bool,
+  /// Start although GitHub didn't answer the rules of the target (`rules_unknown`: no token, no access, an error) for a
+  /// push of new commits into a pull request someone approved: the push may dismiss the approvals Patronus counts, and
+  /// the robot fails without them
+  #[arg(long)]
+  pub allow_unknown_rules: bool,
   /// Land the whole stack of the branch in one robot: from the stack branch `{prefix}/stack/<root>` of its top-level
   /// root, which the sync builds of every commit of the stack, and only it is pushed; its pull request is the stack's. A
   /// straight chain has none: its last branch carries the whole stack, and the robot starts from it
@@ -161,6 +167,10 @@ pub struct SafePushOutput {
   pub profiles: Vec<ProfileSummary>,
   /// The code-owner review the Safe Push needs; `null` for a dry run
   pub review: Option<ReviewSummary>,
+  /// What the GitHub rules of the target do to the approvals of the pull request the robot starts from: read only for a
+  /// Safe Push that pushes new commits into a pull request someone approved, else absent
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub rules: Option<RulesSummary>,
   /// The remote lacks commits of the branch or of the branches it is built on, by content: the start pushes them
   /// first. False for a remote branch with the same commits, only rebuilt on an older baseline: the robot takes it as it
   /// is (Patronus rebases it), nothing is pushed
@@ -343,6 +353,15 @@ pub struct PullRequestStart {
   pub warnings: Vec<String>,
 }
 
+/// What the rules of the target do to the approvals of the pull request a Safe Push pushes new commits into
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct RulesSummary {
+  /// The rules dismiss the approvals of a pull request on a push of new commits; `null` when GitHub didn't answer
+  pub dismiss_stale_reviews_on_push: Option<bool>,
+  /// What it means for the start, in words: tell the user when the push dismisses approvals or the rules are unknown
+  pub message: String,
+}
+
 /// The answer of the pre-check and what it means for the start
 pub(crate) struct Review {
   pub(crate) requirement: PatronusReviewRequirement,
@@ -363,6 +382,8 @@ struct Plan {
   profiles: Vec<PatronusProfile>,
   profile: Option<PatronusProfile>,
   review: Option<Review>,
+  /// The rules of the target for a push into the approved pull request the robot starts from
+  rules: Option<RulesSummary>,
   /// Why the approvals don't hold the start back; `None` when a `missing` readiness refuses it
   approvals_skipped_by: Option<ApprovalsSkippedBy>,
   /// The open pull request the robot starts from: into the target, or for a branch into a virtual branch (retargeted
@@ -635,6 +656,7 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
       .review
       .as_ref()
       .map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref(), plan.approvals_skipped_by)),
+    rules: plan.rules.clone(),
     push_needed: plan.push_needed,
     remotes: plan.remotes.clone(),
     refusals: Vec::new(),
@@ -1230,6 +1252,29 @@ fn plan(
   if args.create_pull_request && github.is_none() {
     return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
   }
+  // a push of new commits into a pull request someone approved, which the robot starts from: the rules of the target may
+  // dismiss the approvals with the push, as the app's popover asks; one GET, only here
+  let approved = pull_request
+    .as_ref()
+    .filter(|pull_request| pushes && push_needed && !args.create_pull_request && pull_request.reviewers.iter().any(|reviewer| reviewer.state == ReviewerState::Approved));
+  let rules = match (approved, &github) {
+    (Some(pull_request), Some(repository)) => {
+      let read = runtime.block_on(read_branch_rules(github_service, &context.repository, repository, &target));
+      let counted = review.as_ref().is_some_and(|review| matches!(review.readiness, ReviewReadiness::Approved { .. }));
+      let fix = if stack_push.is_some() {
+        format!(
+          "push first (`bd push {name} --with-children`), then ask the code owners for the review of #{} again",
+          pull_request.number
+        )
+      } else {
+        format!("push first (`bd push {name}`), then ask for the review again (`bd request-review {name}`)")
+      };
+      let (summary, refusal) = rules_check(read, pull_request.number, &target, counted, args.allow_unknown_rules, &fix);
+      refusals.extend(refusal);
+      Some(summary)
+    }
+    _ => None,
+  };
 
   Ok(Plan {
     name: name.to_string(),
@@ -1241,6 +1286,7 @@ fn plan(
     profiles,
     profile,
     review,
+    rules,
     approvals_skipped_by,
     pull_request,
     other_base_pull_request,
@@ -1259,6 +1305,58 @@ fn plan(
     stack: stack_push,
     target_check,
   })
+}
+
+/// What the rules of `target` mean for a push of new commits into the approved pull request #`number`: the approvals
+/// Patronus counts (`counted`) dismissed by it refuse the start (`push_dismisses_approvals`, `fix` says what to do),
+/// other approvals dismissed are said; rules GitHub didn't answer refuse it (`rules_unknown`) unless `allow_unknown`,
+/// never read as "keeps the approvals"
+fn rules_check(read: Result<BranchRules, GitHubFailure>, number: u32, target: &str, counted: bool, allow_unknown: bool, fix: &str) -> (RulesSummary, Option<Refusal>) {
+  match read {
+    Ok(rules) if rules.dismiss_stale_reviews_on_push && counted => {
+      let message = format!(
+        "Nothing was pushed or started: the push dismisses the approvals of pull request #{number} that Patronus counts (the rules of {target} dismiss stale reviews on push), and the robot would fail without them; {fix}"
+      );
+      let summary = RulesSummary {
+        dismiss_stale_reviews_on_push: Some(true),
+        message: message.clone(),
+      };
+      (
+        summary,
+        Some(Refusal {
+          code: ErrorCode::PushDismissesApprovals,
+          message,
+        }),
+      )
+    }
+    Ok(rules) => {
+      let message = if rules.dismiss_stale_reviews_on_push {
+        format!("The push dismisses the approvals of pull request #{number} (the rules of {target} dismiss stale reviews on push); Patronus counts none of them")
+      } else {
+        format!("The push keeps the approvals of pull request #{number}: the rules of {target} don't dismiss stale reviews")
+      };
+      let summary = RulesSummary {
+        dismiss_stale_reviews_on_push: Some(rules.dismiss_stale_reviews_on_push),
+        message,
+      };
+      (summary, None)
+    }
+    Err(failure) => {
+      let unknown = format!(
+        "Cannot check whether the push keeps the approvals of pull request #{number}: GitHub didn't answer the rules of {target} ({})",
+        failure_message(&failure)
+      );
+      let summary = RulesSummary {
+        dismiss_stale_reviews_on_push: None,
+        message: unknown.clone(),
+      };
+      let refusal = (!allow_unknown).then(|| Refusal {
+        code: ErrorCode::RulesUnknown,
+        message: format!("Nothing was pushed or started: {unknown}; ask the user, --allow-unknown-rules starts anyway"),
+      });
+      (summary, refusal)
+    }
+  }
 }
 
 /// What the target conflict check found, in words: the conflicting commit by the id of the checked out branch, its

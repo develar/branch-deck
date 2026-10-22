@@ -1,8 +1,8 @@
 use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_in, run_json, write};
 use bd_cli::remote_fixture_test::{
-  AUTH, LANDED_SUBJECTS, STACK, Space, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, minutes_ago, pull_request_json,
-  push_from_elsewhere_to, rebuild_on_a_newer_baseline, reviewed_on_github, robot, safe_push, search_answer, stack_robot,
+  AUTH, LANDED_SUBJECTS, MASTER_RULES, STACK, Space, dismissing_rules, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, minutes_ago,
+  pull_request_json, push_from_elsewhere_to, rebuild_on_a_newer_baseline, reviewed_on_github, robot, safe_push, search_answer, stack_robot,
 };
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub};
@@ -561,6 +561,109 @@ fn patronus_judges_the_approvals_of_the_pull_request() {
   assert_eq!(output["review"]["readiness"], json!("approved"));
   assert_eq!(output["review"]["approved_on_github"], json!(["ikorennoy"]));
   assert_eq!(output["started_via"], json!("pull_request"));
+}
+
+/// auth with its open pull request #7, approved by Ilya Korennoy, whose approval Patronus counts when `counted` (else
+/// the changes need no approval); the rules of master answer `rules`; never pushed, so a start pushes new commits
+fn approved_pull_request_with_rules(counted: bool, rules: FakeAnswer) -> (Space, Arc<FakeGitHub>, Environment) {
+  let space = Space::new(&["(auth) Add auth"]);
+  if counted {
+    space.fake.review_required.store(true, Ordering::SeqCst);
+    *space.fake.pull_request_review.lock().unwrap() = Some(evaluated_review(true, "APPROVED"));
+  }
+  let (github, url) = fake_github(&space, &[pull_request_json(&["ikorennoy"])]);
+  github.answer("GET", MASTER_RULES, rules);
+  let environment = reviewed_on_github(&space, &url);
+  (space, github, environment)
+}
+
+/// The comments the start posted on pull request #7
+fn comments_on_seven(github: &FakeGitHub) -> usize {
+  github.requests_to("POST", "/repos/acme/monorepo/issues/7/comments").len()
+}
+
+/// `bd safe-push <args>`, which starts from a comment on pull request #7
+fn started_from_the_pull_request(environment: &Environment, args: &[&str]) -> Value {
+  let (exit_code, output) = safe_push(environment, args);
+  assert_eq!((exit_code, &output["started_via"]), (0, &json!("pull_request")), "{output}");
+  output
+}
+
+/// The approvals Patronus counts would be gone with the push: the robot would start without them and fail, so the
+/// Safe Push is refused before anything is pushed, as the app's popover refuses it, with the way out
+#[test_log::test]
+fn a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push() {
+  let (space, github, environment) = approved_pull_request_with_rules(true, FakeAnswer::ok(dismissing_rules()));
+
+  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(refusal_codes(&output), vec![json!("push_dismisses_approvals")]);
+  assert_eq!(output["rules"]["dismiss_stale_reviews_on_push"], json!(true));
+  assert_eq!(output["review"]["readiness"], json!("approved"));
+
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
+  assert_error(&output, exit_code, (4, "push_dismisses_approvals"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("pull request #7"), "{message}");
+  assert!(message.contains("`bd push auth`") && message.contains("`bd request-review auth`"), "{message}");
+  assert_eq!(space.remote_tip(AUTH), "", "nothing is pushed");
+  assert_eq!(comments_on_seven(&github), 0, "nothing is started");
+  // one GET of the rules of the target per run
+  assert_eq!(github.requests_to("GET", MASTER_RULES).len(), 2);
+}
+
+/// A push that dismisses approvals Patronus doesn't count (the changes need none) takes nothing the robot needs: it
+/// starts, and `rules` says what the push takes away
+#[test_log::test]
+fn a_push_that_dismisses_approvals_patronus_does_not_count_starts_and_says_so() {
+  let (_space, github, environment) = approved_pull_request_with_rules(false, FakeAnswer::ok(dismissing_rules()));
+
+  let output = started_from_the_pull_request(&environment, &["auth"]);
+  assert_eq!(output["rules"]["dismiss_stale_reviews_on_push"], json!(true));
+  let message = output["rules"]["message"].as_str().unwrap();
+  assert!(message.contains("The push dismisses the approvals of pull request #7"), "{message}");
+  assert_eq!(comments_on_seven(&github), 1);
+}
+
+/// Rules GitHub doesn't answer are never "keeps the approvals": the start is refused unless the user said to start
+/// anyway, and then `rules` says what is not known
+#[test_log::test]
+fn rules_github_does_not_answer_refuse_the_safe_push_unless_allowed() {
+  let (space, github, environment) = approved_pull_request_with_rules(true, FakeAnswer::status(500, json!({"message": "Server Error"})));
+
+  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(refusal_codes(&output), vec![json!("rules_unknown")]);
+  assert_eq!(output["rules"]["dismiss_stale_reviews_on_push"], Value::Null);
+
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
+  assert_error(&output, exit_code, (4, "rules_unknown"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("--allow-unknown-rules"), "{message}");
+  assert_eq!(space.remote_tip(AUTH), "", "nothing is pushed");
+  assert_eq!(comments_on_seven(&github), 0, "nothing is started");
+
+  let output = started_from_the_pull_request(&environment, &["auth", "--allow-unknown-rules"]);
+  assert_eq!(output["rules"]["dismiss_stale_reviews_on_push"], Value::Null);
+  let message = output["rules"]["message"].as_str().unwrap();
+  assert!(message.starts_with("Cannot check whether the push keeps the approvals of pull request #7"), "{message}");
+}
+
+/// Rules that keep the approvals start; the rules are asked only for a push of new commits into an approved pull request
+/// the robot starts from, never for a pull request nobody approved
+#[test_log::test]
+fn the_rules_are_read_only_for_a_push_into_an_approved_pull_request() {
+  let (_space, github, environment) = approved_pull_request_with_rules(true, FakeAnswer::ok(json!([])));
+  let output = started_from_the_pull_request(&environment, &["auth"]);
+  assert_eq!(output["rules"]["dismiss_stale_reviews_on_push"], json!(false));
+  assert_eq!(github.requests_to("GET", MASTER_RULES).len(), 1);
+
+  let space = Space::new(&["(auth) Add auth"]);
+  let (github, url) = fake_github(&space, &[pull_request_json(&[])]);
+  let environment = reviewed_on_github(&space, &url);
+  let output = started_from_the_pull_request(&environment, &["auth"]);
+  assert_eq!(output.get("rules"), None);
+  assert!(github.requests_to("GET", MASTER_RULES).is_empty());
 }
 
 #[test_log::test]

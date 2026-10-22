@@ -706,5 +706,37 @@
         "error": "approvals_missing"
       }
     }
+  },
+  {
+    "id": "rules-dismiss-not-counted",
+    "group": "review",
+    "title": "a push of a new commit into #7, which someone approved, while the rules dismiss stale reviews and the changes need no approval: the approvals Patronus doesn't count are gone with the push; the app confirms it, bd says it in rules",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "notRequired",
+      "remote": "unpushed",
+      "rules": "dismiss",
+      "pullRequest": {
+        "approvers": ["ikorennoy"]
+      }
+    },
+    "app": {
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["dismisses"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true,
+        "pull_request": 7,
+        "rules": true
+      },
+      "start": {
+        "started_via": "pull_request"
+      }
+    }
   }
 ]

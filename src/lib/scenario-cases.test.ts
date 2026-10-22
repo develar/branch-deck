@@ -143,7 +143,7 @@ describe("scenario cases", () => {
     for (const scenario of cases.filter(isExercised)) {
       const differs = appOutcome(scenario) !== bdOutcome(scenario)
       const explained = scenario.discrepancy !== null || scenario.asymmetry !== undefined
-      // a discrepancy may stand where the classes agree: both sides start, one of them for a wrong reason (D9)
+      // a discrepancy may stand where the classes agree: both sides start, one of them for a wrong reason (D9 until s1-holes)
       expect({ id: scenario.id, differs, explained: differs && explained, asymmetry: scenario.asymmetry !== undefined && !differs }).toEqual({
         id: scenario.id,
         differs,
@@ -175,7 +175,7 @@ describe("scenario cases", () => {
     // a closed discrepancy stays the key of its id in the registry only, with no twins
     expect(cases.filter(scenario => scenario.closed !== undefined && scenario.group !== "discrepancies").map(scenario => scenario.id)).toEqual([])
     expect(registry.filter(entry => entry.closed !== undefined && entry.kind === "recorded" && entry.twins.length > 0).map(entry => entry.id)).toEqual([])
-    // a discrepancy whose classes agree says what differs (D9: both start, the app by a failed read of the rules); a
+    // a discrepancy whose classes agree says what differs (D9 until s1-holes: both started, the app by a failed read); a
     // closed one has nothing left to say
     const unexplained = cases
       .filter(isExercised)

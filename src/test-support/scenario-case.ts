@@ -57,8 +57,8 @@ export const given = z.strictObject({
       newApi: z.boolean().default(false),
     })
     .optional(),
-  flags: z.array(z.enum(["withoutApprovals", "cancelRunning", "createPullRequest", "allowMissing", "allowDangling"])).default([]),
-  /** What the GitHub rules of the target answer the app (bd reads none): `unknown` is a failed read, `loading` no answer yet */
+  flags: z.array(z.enum(["withoutApprovals", "cancelRunning", "createPullRequest", "allowMissing", "allowDangling", "allowUnknownRules"])).default([]),
+  /** What the GitHub rules of the target answer: `unknown` is a failed read, `loading` no answer yet (bd waits for its read: `keep`) */
   rules: z.enum(["keep", "dismiss", "unknown", "loading"]).default("keep"),
   /** `self`: the branch is parked; `builtOn`: its parent is; a branch of the stack: that one is */
   parked: z.union([z.enum(["self", "builtOn"]), branchName]).optional(),
@@ -107,6 +107,8 @@ const bdCheck = z.union([
     profile: z.string().nullable().optional(),
     pull_request: z.number().nullable().optional(),
     readiness: z.string().nullable().optional(),
+    /** `rules.dismiss_stale_reviews_on_push`: null when GitHub didn't answer or bd didn't ask */
+    rules: z.boolean().nullable().optional(),
     lands: z.array(z.string()).optional(),
     retargeted: z.array(z.number()).optional(),
   }),

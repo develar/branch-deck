@@ -975,6 +975,20 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
+- A Safe Push that pushes new commits into the open pull request the robot starts from, which someone approved, must
+  read the GitHub rules of the target first, as the app's start does ([Patronus](../branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run)):
+  one `GET rules/branches/<target>` (`read_branch_rules`), never for a dry run, `--create-pull-request`, a start
+  without a push or a pull request nobody approved. Rules that dismiss stale reviews on push with the readiness
+  `approved` must refuse it with `push_dismisses_approvals` (exit 4, nothing pushed or started), whose message says to
+  push first (`bd push <branch>`), then to ask for the review again (`bd request-review <branch>`); with another
+  readiness they must let it start, the dismissed approvals said in `rules.message`. Rules GitHub doesn't answer (no
+  token, no access, an error) must never read as "keeps the approvals": `rules_unknown` (exit 4) refuses the start
+  unless `--allow-unknown-rules`, which starts with `rules.message` saying what is not known. `rules` carries
+  `dismiss_stale_reviews_on_push` (`true`, `false`, `null` when GitHub didn't answer) and `message`, absent when the
+  rules were not read; `--check` lists the refusal in `refusals`.
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`, `a_push_that_dismisses_approvals_patronus_does_not_count_starts_and_says_so`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`, `the_rules_are_read_only_for_a_push_into_an_approved_pull_request`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
   `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `bd push`
   prints would (with its `title` and `body`), assigned to the user (`--no-assign` leaves it unassigned) and with the

@@ -129,13 +129,23 @@ pub fn robot(id: &str, status: &str, name: &str, revision: &str) -> Value {
   robot
 }
 
+/// The rules of master as GitHub answers them (`GET rules/branches/master`); `fake_github` answers none
+pub const MASTER_RULES: &str = "/repos/acme/monorepo/rules/branches/master";
+
+/// The rules of a branch whose pull request rule dismisses the approvals on a push of new commits, as GitHub answers them
+pub fn dismissing_rules() -> Value {
+  json!([{"type": "pull_request", "parameters": {"dismiss_stale_reviews_on_push": true, "required_approving_review_count": 1}}])
+}
+
 /// A fake GitHub of the repository `acme/monorepo` and its URL: the token is of `me`, the search lists
 /// `pull_requests`, a created pull request is #7 of auth (assigned and reviewed as asked), the `/patronus` comment is
-/// accepted at once
+/// accepted at once, master has no rules (`MASTER_RULES`)
 pub fn fake_github(space: &Space, pull_requests: &[Value]) -> (Arc<FakeGitHub>, String) {
   let (fake, client) = space.runtime.block_on(start_fake_github());
   list_pull_requests(&fake, pull_requests);
   fake.answer("GET", "/user", FakeAnswer::ok(json!({"login": "me"})));
+  // master has no rules: a push keeps the approvals
+  fake.answer("GET", MASTER_RULES, FakeAnswer::ok(json!([])));
   fake.answer(
     "POST",
     "/repos/acme/monorepo/pulls",

@@ -580,6 +580,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   approvals away. When the approvals the push dismisses are the ones Patronus counts (the readiness is `approved`), the
   robot would start without them: the start is refused with "The push dismisses the approvals of #7: push first, then
   ask for the review again", and "Push" alone is offered (the action of the `info` toast, the button of the popover).
+  `bd safe-push` reads the same rules with the same function before the same start, refuses
+  `push_dismisses_approvals` where the app refuses, says the dismissed approvals Patronus doesn't count in `rules`, and
+  refuses rules GitHub doesn't answer with `rules_unknown` unless `--allow-unknown-rules`
+  ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`, `rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should offer only the push when it dismisses the approvals Patronus counts`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should wait for the rules before a push into an approved pull request: Enter must not dismiss its approvals`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse the click with the push alone in its toast`, `should say in the popover why it can't start, and push alone from it`)

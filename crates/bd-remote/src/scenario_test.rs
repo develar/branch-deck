@@ -9,8 +9,8 @@ use crate::robot_list::list_robots;
 use crate::safe_push_command::{SafePushArgs, SafePushOutput, github_service, open_pull_requests, patronus_service, safe_push as safe_push_command};
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
 use bd_cli::remote_fixture_test::{
-  LANDED_SUBJECTS, Space, evaluated_review, fake_github, land_auth_by_content, minutes_ago, pull_request_json, push_from_elsewhere_to, rebuild_on_a_newer_baseline,
-  reviewed_on_github, robot, safe_push, stack_robot,
+  LANDED_SUBJECTS, MASTER_RULES, Space, dismissing_rules, evaluated_review, fake_github, land_auth_by_content, minutes_ago, pull_request_json, push_from_elsewhere_to,
+  rebuild_on_a_newer_baseline, reviewed_on_github, robot, safe_push, stack_robot,
 };
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
@@ -134,8 +134,8 @@ struct Given {
   readiness: Readiness,
   profile: Option<GivenProfile>,
   flags: Vec<Flag>,
-  /// `bd` reads no branch rules (D1, D9)
-  rules: Option<IgnoredAny>,
+  /// What GitHub answers `GET rules/branches/master`
+  rules: Rules,
   /// `self`, `builtOn` (its parent), or the name of a branch of the stack
   parked: Option<String>,
   stack_branch: Option<StackBranch>,
@@ -164,7 +164,7 @@ impl Default for Given {
       readiness: Readiness::NotRequired,
       profile: None,
       flags: Vec::new(),
-      rules: None,
+      rules: Rules::Keep,
       parked: None,
       stack_branch: None,
       landed: None,
@@ -172,6 +172,20 @@ impl Default for Given {
       dangling: None,
     }
   }
+}
+
+/// The rules of the target as GitHub answers them
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum Rules {
+  /// No rule dismisses the approvals on a push
+  Keep,
+  /// The pull request rule dismisses stale reviews on a push
+  Dismiss,
+  /// GitHub fails the read (500)
+  Unknown,
+  /// The app has no answer yet; bd waits for its read, which answers `keep`
+  Loading,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -337,6 +351,7 @@ enum Flag {
   CreatePullRequest,
   AllowMissing,
   AllowDangling,
+  AllowUnknownRules,
 }
 
 impl Given {
@@ -435,6 +450,7 @@ impl Given {
       cancel_running: self.has(Flag::CancelRunning),
       allow_dangling: self.has(Flag::AllowDangling),
       allow_missing: self.has(Flag::AllowMissing),
+      allow_unknown_rules: self.has(Flag::AllowUnknownRules),
       whole_stack: self.subject == GivenSubject::WholeStack,
       ..SafePushArgs::default()
     }
@@ -451,6 +467,7 @@ impl Given {
       (args.cancel_running, "--cancel-running"),
       (args.allow_dangling, "--allow-dangling"),
       (args.allow_missing, "--allow-missing"),
+      (args.allow_unknown_rules, "--allow-unknown-rules"),
       (args.whole_stack, "--whole-stack"),
     ];
     line.extend(flags.into_iter().filter(|(on, _)| *on).map(|(_, flag)| flag.to_string()));
@@ -663,6 +680,11 @@ impl Situation {
           github.answer("POST", "/graphql", FakeAnswer::status(500, json!({"message": "Server Error"})));
         }
       }
+    }
+    match (given.rules, &github) {
+      (Rules::Keep | Rules::Loading, _) | (_, None) => {}
+      (Rules::Dismiss, Some(github)) => github.answer("GET", MASTER_RULES, FakeAnswer::ok(dismissing_rules())),
+      (Rules::Unknown, Some(github)) => github.answer("GET", MASTER_RULES, FakeAnswer::status(500, json!({"message": "Server Error"}))),
     }
     if given.target == Target::Unprotected {
       *space.fake.start_options.lock().unwrap() = Some(json!({"supported": false, "emergencySupported": false, "profiles": []}));
@@ -1094,6 +1116,7 @@ fn projection(output: &Value) -> Value {
     "profile": output["profile"]["id"],
     "pull_request": output["pull_request"]["number"],
     "readiness": output["review"]["readiness"],
+    "rules": output["rules"]["dismiss_stale_reviews_on_push"],
     "lands": output["lands"],
     "retargeted": codes("retargeted", "number"),
   })

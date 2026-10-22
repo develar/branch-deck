@@ -119,6 +119,15 @@ pub enum ErrorCode {
   /// `bd safe-push`: the code owners haven't approved the branch, and a Safe Push fails without their approvals; nothing
   /// was pushed or started. `review` lists the groups, their reviewers and files, and the merge request; ask the user
   ApprovalsMissing,
+  /// `bd safe-push`: the push of new commits into the pull request the robot starts from dismisses its approvals, which
+  /// Patronus counts (the rules of the target dismiss stale reviews on push): the robot would start without them and
+  /// fail; nothing was pushed or started. Push first (`bd push <branch>`), then ask for the review again
+  /// (`bd request-review <branch>`)
+  PushDismissesApprovals,
+  /// `bd safe-push`: GitHub didn't answer the rules of the target (no token, no access, an error) for a push of new
+  /// commits into a pull request someone approved: the push may dismiss the approvals Patronus counts; nothing was
+  /// pushed or started. Ask the user; `--allow-unknown-rules` starts anyway
+  RulesUnknown,
   /// `bd safe-push`: a robot runs on the last commit of the branch, on a branch it is built on, or on a branch built on
   /// it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`). `bd push`: a Safe Push
   /// runs on the branch or lands it with a branch built on it: a push won't land (`--restart-running`)
@@ -224,6 +233,8 @@ impl ErrorCode {
       | Self::NoRemote
       | Self::InstallRefused
       | Self::ApprovalsMissing
+      | Self::PushDismissesApprovals
+      | Self::RulesUnknown
       | Self::RobotRunning
       | Self::Landed
       | Self::Parked

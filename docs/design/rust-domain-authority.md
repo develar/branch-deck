@@ -73,7 +73,7 @@ D — одинаковый ввод даёт разный результат в 
 
 | id | Что | Приложение / `bd` (или вторая копия) | Одно правило |
 | --- | --- | --- | --- |
-| D1 | Push сбрасывает approvals, которые считает Patronus | UI отказывает (`safe-push-decision.ts:161-165`); `bd` не вызывает `read_branch_rules` (его единственный вызов — `src-tauri/src/commands/pull_requests.rs:230`) | `domain-policy::review`: отказ `push_dismisses_approvals { pr }`, исправление `push_then_request_review` |
+| D1 | Push сбрасывает approvals, которые считает Patronus | **закрыт (s1)**: UI отказывает (`safe-push-decision.ts:171-173`); `bd` не вызывал `read_branch_rules`, теперь `plan()` читает правила target одним GET там, где их читает приложение, и отказывает `push_dismisses_approvals` (`rules_check`, поле `rules`) | `domain-policy::review`: отказ `push_dismisses_approvals { pr }`, исправление `push_then_request_review` |
 | D2 | Профиль с `skipsReview` | **закрыт (s1)**: UI пропускает проверку approvals (`:110-112`); `bd` отказывал при `Missing`, если нет `--without-approvals`/`--create-pull-request`, теперь пропускает её для профиля, который пропускает review, на API-маршруте (`ApprovalsSkippedBy::of`, `review.skipped_by`) | `skips_approvals = mode == SafePush && !create_pull_request && (without_approvals \|\| route == Api && profile.skips_review)`; у comment-маршрута профиля нет; `--without-approvals` у `bd` — «стартовать всё равно» на любом маршруте, как до s1 |
 | D3a | Порядок retarget при push | приложение до push, `bd push` после, `bd safe-push` до | `Retarget` в плане всегда **перед** `Push`; отказ GitHub на retarget собственного PR останавливает `Land`, а в `Push` только попадает в outcome |
 | D3b | PR в другую базу (release-ветка) | UI блокирует Safe Push (`branch-next-step.ts:505-524` → `safe-push-decision.ts:124`); `bd` стартует через API и игнорирует PR (`:1084`, `other_base_pull_request_start` `:527`) | `OtherBase` блокирует только старт, чьи approvals считаются (Safe Push по default checks); Dry Run, старт без review и профиль `skips_review` не блокирует; молча не retarget'ит — `Retarget` предлагается как исправление; `bd` получает отказ `pull_request_other_base { number, base }` |
@@ -82,7 +82,7 @@ D — одинаковый ввод даёт разный результат в 
 | D6 | Create PR | приложение: push → `wait_for_github_branch` → `create_pull_request` (`create-pull-request-context.ts:183-295`); `bd`: `safe-push --create-pull-request` с `wait_for_mirror` | один intent `CreatePullRequest` с `wait_for_mirror`; IPC `wait_for_github_branch` удаляется |
 | D7 | Закрытие PR, которые перенёс слившийся робот | только TS (`landed-stack.ts:45-90`) по опросу роботов (`stores/patronus.ts:910-925`) | правило `domain-policy::landed::pull_requests_to_close`; intent `CloseLandedPullRequests` из сессии приложения; `bd` по-прежнему не закрывает (решение landing.md), но `bd robot`/`bd status` перечисляют `closes` той же функцией |
 | D8 | Родитель для состава whole stack | TS `effectiveBase ?? declaredParent` (`useStackNextStep.ts:51-108`, `branch-sync.ts:355`); Rust `effective_base ?? blocked_by.parent` (`bd-core/src/stack_summary.rs:176`) | одна функция в Rust; конкретный случай (`s0c-scenarios`): A с проблемой стека (`(A/A)`) ← B без коммитов, сохранённый родитель B → A (`bd restack`) ← C `(B/C)`; у C нет effective base, объявленный родитель B, `blocked_by.parent` A: whole stack `bd` — цепочка A → C (корень A), у приложения C — корень своего стека (корень C), а у A whole stack нет; правило выбирает владелец ([Решения владельца](#решения-которые-подтверждает-владелец)) |
-| D9 | Неудачное чтение правил GitHub читается как `false` | `useDismissesStaleReviews.ts:19-26` (до следующего вопроса) | `Fact::Unavailable` никогда не превращается в разрешение; см. D1 и решение владельца о случае без токена |
+| D9 | Неудачное чтение правил GitHub читается как `false` | `useDismissesStaleReviews.ts:19-26` (до следующего вопроса); `bd` с s1 отказывает `rules_unknown`, который снимает `--allow-unknown-rules` | `Fact::Unavailable` никогда не превращается в разрешение; см. D1 и решение владельца о случае без токена |
 | D10 | Прямой IPC обходит проверки | `start_patronus_robot`, `restart_`, `cancel_patronus_robot`, `push_branch(es)` без lock | вся допустимость — в движке операций; низкоуровневый IPC удаляется в `s9-engine-remote`; до того `s1-holes` добавляет проверки в Rust |
 | D11 | PR в виртуальную базу (ветка родителя, другая ветка таблицы, приземлённая) | приложение отказывает в Safe Push и предлагает retarget как шаг (строка 5, `branch-next-step.ts`: `baseIsVirtualBranch`); `bd safe-push` делает retarget шагом старта и стартует от этого PR (`virtual_base_retargets`) | `Retarget` — шаг плана `Land` у обеих сторон, подтверждаемый там же, где `Push`; приложение перестаёт отказывать; решает владелец ([Решения владельца](#решения-которые-подтверждает-владелец)) |
 | D12 | Push поверх чужого коммита на remote (`dropped_commits` непуст) | решение Safe Push в приложении не читает чужие коммиты: старт делает force push (спрашивает только кнопка push); `bd` отказывает `push_refused` | `domain-policy::push`: отказ `drops_remote_commits` у обеих сторон, подтверждение — явный шаг плана, не кнопка |
@@ -113,9 +113,13 @@ D — одинаковый ввод даёт разный результат в 
 стороны `bd` и у D10 теста поведения нет: `bd` ничего не закрывает, прямой IPC никто не проверяет, их держит только
 указатель.
 
-- **D1.** Сегодняшнее поведение закреплено:
+- **D1.** Закрыт в s1-holes (`closed: "s1-holes"`, обе стороны отказывают; `rules-dismiss-not-counted` — сброс
+  approvals, которых Patronus не считает: подтверждение и предупреждение `rules`):
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
 - **D2.** Закрыт в s1-holes (`closed: "s1-holes"`, бывший twin `skips-review-profile` — `discrepancy: null`):
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
@@ -143,7 +147,9 @@ D — одинаковый ввод даёт разный результат в 
 - **D8.** Сегодняшнее поведение закреплено:
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the whole stack of a blocked branch with an inactive declared parent is d8`)
-- **D9.** Сегодняшнее поведение закреплено:
+- **D9.** Сегодняшнее поведение закреплено (`bd` с s1-holes отказывает `rules_unknown`, приложение ещё стартует до
+  s1-3):
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
 - **D10.** Сегодняшнее поведение закреплено:
@@ -834,7 +840,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
     отказ `push_dismisses_approvals` (exit 4, исправление `bd push`, затем `bd request-review`); `dismiss` при другой
     readiness — предупреждение в `rules`; неудачное чтение — отказ `rules_unknown` (exit 4), который снимает
     `--allow-unknown-rules` (решение владельца 6: приложение подтверждает `rulesUnknown`, `bd` — флагом, как
-    `--allow-missing`). Один GET правил, тем же `read_branch_rules`.
+    `--allow-missing`). Один GET правил, тем же `read_branch_rules`. Сделано (`rules_check`, поле `rules` вывода
+    `{dismiss_stale_reviews_on_push: bool | null, message}`); fake GitHub фикстур `bd` отвечает правилам `master`
+    `[]` («keep»), `given.rules` сценария — `dismiss` (правило `pull_request`), `unknown` (500), `loading` = `keep`.
   - D2: `skips_approvals = pushes && !create_pull_request && (without_approvals || pull_request.is_none() &&
     profile.skips_review == Some(true))` над выбранным профилем (`--profile` или профиль последнего робота;
     `ApprovalsSkippedBy::of` в `safe_push_command.rs`); `--without-approvals` и со стартом из PR остаётся «стартовать
