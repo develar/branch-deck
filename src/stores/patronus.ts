@@ -1273,23 +1273,6 @@ export function pollPatronus(): Promise<void> {
 // ---- actions ----
 
 /** The repository and the branch prefix of the selected repository; throws without one */
-/**
- * The commits (original ids) merged Safe Pushes landed, as the repository view names them (`landedBy`): the landing gate
- * of a start (`check_landing_gate`) counts the names they add as in the target
- */
-export function getLandedCommits(): string[] {
-  const key = currentKey()
-  const repository = key === null ? undefined : patronusStore.getState().repositories[key]
-  const view = repository?.view ?? null
-  if (repository === undefined || view === null) {
-    return []
-  }
-  return Object.values(view.branches).flatMap(facts => {
-    const robot = facts.landedBy === null ? undefined : repository.robots[facts.landedBy.by.robotId]
-    return facts.landedBy !== null && robot?.status === "success" ? facts.landedBy.landed : []
-  })
-}
-
 export function patronusRequest(): { repositoryPath: string; branchPrefix: string } {
   const key = currentKey()
   if (key === null) {

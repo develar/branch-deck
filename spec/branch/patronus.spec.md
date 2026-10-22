@@ -602,7 +602,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   2026-10-17 and 2026-10-21). So a start first asks the landing gate, the rule of `bd safe-push` in Rust
   (`checkLandingBeforeStart`, `check_landing_gate`, `sync_core::landing_gate`): a trial check of what lands, with the
   proven dangling references and, with `branchdeck.symbols on`, the missing declarations, the uses by a commit of what
-  lands of a name that a commit outside it adds, which no merged Safe Push landed (`landedBy`). Meanwhile the slot
+  lands of a name that a commit outside it adds, which no merged Safe Push landed (the commits the repository view
+  names landed, on the robots Rust reads: the same input as the start's own gate, never the page's robots). Meanwhile the slot
   button says "Checking…". A refusal starts nothing and pushes nothing: the error toast "Cannot start the Safe Push"
   says "“Show each scenario” of JIRA-456 uses Stills (src/lane/BuildLog.kt:7), which “Name lossy stills” of ABC-123
   adds: git merges it, but the build of JIRA-456 fails. Stack JIRA-456 on ABC-123 to land it too." (one more refusal:
@@ -1248,16 +1249,25 @@ explicit choice of the user, offered only where the approvals count in a pull re
   target. Nothing asks: no dialog.
   [@test] ../../src/lib/git/push.test.ts (`refuses the push: it won't land, and the Safe Push would fail at the end`, `pushes when the Safe Push finished meanwhile: the status is read fresh`, `refuses a branch a Safe Push of a branch built on it lands`, `refuses a branch a merged Safe Push of a branch built on it landed, without reading its status`)
 - The app's push itself (`push_branch`, `push_branches`, the E2E server's routes of them) checks the same in Rust
-  before it pushes, by the rules of `bd push` (`repository_view::push_guard`): under the repository lock it reads the
-  user's robots (one full list; none off Space, without a token or an answer, as `bd push` reads its holds) and refuses
-  a branch a merged Safe Push landed whole ("… merged into master with its Safe Push (…): nothing of it is left to
-  push"), a branch whose own Safe Push runs, one a Safe Push of a branch built on it or of its whole stack lands, and the
-  stack branch of a whole stack while its robot runs on it or every branch of it landed whole: "Nothing was pushed: …",
-  shown in the error toast of the push. A robot the page canceled before its restart is canceling and holds nothing (a
-  start, a restart and a cancel make the next list ask Patronus). A push raced with a start, or one that came by IPC
+  before it pushes, by the rules of `bd push` (`repository_view::push_guard`, one sequence of both hosts,
+  `PushActions`): it reads the user's robots first (one full list, a background request: none off Space, without a
+  token, while Patronus fails or its requests back off, as `bd push` reads its holds; no network request runs under
+  the repository lock), then under the lock refuses a branch the last sync has no row of ("… is no branch of the last
+  sync"), a branch a merged Safe Push landed whole ("… merged into master with its Safe Push (…): nothing of it is left
+  to push"), a branch whose own Safe Push runs, one a Safe Push of a branch built on it or of its whole stack lands,
+  and the stack branch of a whole stack while its robot runs on it, every branch of it landed whole or it is not
+  `built` (a sync since the page's decision left it conflicted or stale): "Nothing was pushed: …", shown in the error
+  toast of the push ("Cannot push auth"). The robots are the ones Rust read, never the page's: a robot the page
+  canceled before its restart is canceling and holds nothing (a start, a restart and a cancel make the next list ask
+  Patronus, and a list in flight then is not kept), and a poll that sees a robot finish brings the kept list up to
+  date, so a finished robot holds nothing within the reuse window. A push raced with a start, or one that came by IPC
   without the page's checks, pushes nothing then.
   [@test] ../../crates/repository-view/src/push_guard_test.rs (`a_branch_a_merged_safe_push_landed_whole_is_refused`, `a_branch_whose_own_safe_push_runs_is_refused_until_it_is_canceled`, `a_branch_a_running_safe_push_lands_and_a_stack_branch_its_robot_runs_on_are_refused`)
+  [@test] ../../crates/repository-view/src/push_guard_test.rs (`a_stack_branch_that_is_not_built_is_refused`, `a_branch_the_last_sync_has_no_row_of_is_refused`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_start_a_restart_and_a_cancel_forget_the_full_list`)
+  [@test] ../../crates/patronus/src/service_test.rs (`a_poll_updates_the_full_list_the_checks_reuse`, `the_checks_send_nothing_while_the_requests_back_off`, `a_full_list_in_flight_when_the_robots_changed_is_not_kept`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push nothing into a branch whose Safe Push started after the page's list: Rust refuses it, and the toast says why`)
 - The one push into a held branch is a robot action: "Restart Safe Push" of a running robot whose branch
   changed since (the menu, the robot details, the landing overview; "Cancels the run on 1a2b3c4, pushes auth and starts
   it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit. The restart is the action: its

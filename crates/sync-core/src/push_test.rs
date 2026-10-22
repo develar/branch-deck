@@ -1,4 +1,4 @@
-use crate::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, push_branch, push_branches};
+use crate::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, push_branches};
 use crate::remote_status::compute_remote_status_for_branch;
 use crate::transfer_progress::TransferProgress;
 use domain_types::RemoteStatusUpdate;
@@ -9,6 +9,16 @@ use test_log::test;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
 
 const BRANCH: &str = "prefix/virtual/feature";
+
+/// The push of one branch, as the app's push of one branch pushes the stack of it alone (`PushOutcome::of_stack`)
+fn push_branch(
+  git_executor: &git_executor::git_command_executor::GitCommandExecutor,
+  params: &PushBranchParams,
+  not_built: &HashMap<String, BlockReason>,
+  on_progress: &mut dyn FnMut(TransferProgress),
+) -> anyhow::Result<PushOutcome> {
+  PushOutcome::of_stack(push_branches(git_executor, &params.as_stack(), not_built, on_progress)?)
+}
 
 fn path(repo: &TestRepo) -> &str {
   repo.path().to_str().unwrap()

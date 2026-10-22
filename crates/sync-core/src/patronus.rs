@@ -82,10 +82,9 @@ pub fn prepare_robot_start(
     branch_prefix: params.branch_prefix.clone(),
     branch_name: params.branch_name.clone(),
     stack: params.stack,
-    landed_commits,
     allow: params.allow,
   };
-  ensure_landing_starts(git_executor, cache, &gate)?;
+  ensure_landing_starts(git_executor, cache, &gate, &landed_commits.into_iter().collect())?;
   let target_branch = required_target_branch(git_executor, &params.repository_path, &params.baseline_branch)?;
   let source = if params.stack {
     to_stack_branch_name(&params.branch_prefix, &params.branch_name)?

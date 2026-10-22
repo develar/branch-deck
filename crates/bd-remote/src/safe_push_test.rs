@@ -650,7 +650,8 @@ fn rules_github_does_not_answer_refuse_the_safe_push_unless_allowed() {
 }
 
 /// Rules that keep the approvals start; the rules are asked only for a push of new commits into an approved pull request
-/// the robot starts from, never for a pull request nobody approved
+/// the robot starts from, never for a pull request nobody approved, a dry run, `--create-pull-request` or a start
+/// without a push: with rules GitHub can't answer, each of those starts without a read
 #[test_log::test]
 fn the_rules_are_read_only_for_a_push_into_an_approved_pull_request() {
   let (_space, github, environment) = approved_pull_request_with_rules(true, FakeAnswer::ok(json!([])));
@@ -664,6 +665,27 @@ fn the_rules_are_read_only_for_a_push_into_an_approved_pull_request() {
   let output = started_from_the_pull_request(&environment, &["auth"]);
   assert_eq!(output.get("rules"), None);
   assert!(github.requests_to("GET", MASTER_RULES).is_empty());
+
+  let not_read = |output: &Value, github: &FakeGitHub| {
+    assert_eq!(output.get("rules"), None, "{output}");
+    assert!(github.requests_to("GET", MASTER_RULES).is_empty(), "the rules were read");
+  };
+  let unknown_rules = || approved_pull_request_with_rules(true, FakeAnswer::status(500, json!({"message": "Server Error"})));
+  // a dry run lands nothing: the approvals don't matter to it
+  let (_space, github, environment) = unknown_rules();
+  let (exit_code, output) = safe_push(&environment, &["auth", "--patronus-dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  not_read(&output, &github);
+  // --create-pull-request: the pull request gets its approvals after this push
+  let (_space, github, environment) = unknown_rules();
+  not_read(&create_pull_request(&environment), &github);
+  // a start without a push dismisses nothing
+  let (_space, github, environment) = unknown_rules();
+  let (exit_code, output) = run_json(&environment, &["--prefix", PREFIX, "push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let output = started_from_the_pull_request(&environment, &["auth"]);
+  assert_eq!(output["push_needed"], json!(false));
+  not_read(&output, &github);
 }
 
 #[test_log::test]

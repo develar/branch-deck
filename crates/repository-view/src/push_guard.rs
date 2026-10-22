@@ -1,31 +1,37 @@
 //! The checks of the app's push (`push_branch`, `push_branches` and the E2E server's routes of them) in Rust, by the rules
-//! of `bd push` over the repository view (`patronus_view`): under the repository lock, a parked branch and a branch built
-//! on one stay local, a branch a merged Safe Push landed whole has nothing left to push, and a branch a running Safe Push
-//! holds (its own robot, one of a branch built on it, the whole stack on its stack branch) is not pushed: the push won't
-//! land, and a push into the robot's own branch fails it at the end. An unapplied branch takes only the lock. The page
-//! checks the same before it pushes and says it in its words; these refuse a push that raced with a start (the IDE,
-//! `bd`) or came by IPC. The robots are the ones Rust read itself, never the page's: a robot the page canceled before
-//! Push and Restart is canceling and holds nothing.
+//! of `bd push` over the repository view (`patronus_view`): under the repository lock, a branch the last sync has no row
+//! of is no branch to push, a parked branch and a branch built on one stay local, a branch a merged Safe Push landed
+//! whole has nothing left to push, a branch a running Safe Push holds (its own robot, one of a branch built on it, the
+//! whole stack on its stack branch) is not pushed (the push won't land, and a push into the robot's own branch fails it
+//! at the end), and the stack branch of a whole stack that is not `built` is no build of its commits. An unapplied
+//! branch takes only the lock. The page checks the same before it pushes and says it in its words; these refuse a push
+//! that raced with a start (the IDE, `bd`) or came by IPC. The robots are the ones Rust read itself, never the page's: a
+//! robot the page canceled before Push and Restart is canceling and holds nothing.
 //!
-//! The words of the holds are `bd`'s too (`bd push`, `bd safe-push`): `landed_words`, `every_branch_landed`,
-//! `own_hold_words`, `span_hold_words`, `stack_hold_words`.
+//! `PushActions` is the whole sequence of both hosts: the user's robots (one full list, best effort), then, in a blocking
+//! step, the lock, the checks and the core push. The words of the holds are `bd`'s too (`bd push`, `bd safe-push`):
+//! `landed_words`, `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`.
 
 use crate::branch_table::BranchTable;
+use crate::start_guard::{stack_conflict_words, stack_not_built_words};
 use crate::views::{RepositoryViews, SyncedTable};
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{Carried, HoldKind, PatronusView};
+use domain_types::stack::StackBranchState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository_in};
-use std::path::Path;
+use patronus::service::PatronusService;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::parked::parked_state;
 use sync_core::patronus_start::{carried_ids, carried_words, join_names, push_mode_name};
 use sync_core::push::{NOT_SYNCED_YET, PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, push_branches};
 use sync_core::transfer_progress::TransferProgress;
+use sync_utils::span::in_current_span;
 use tracing::instrument;
 
 /// What the app's own robot hold offers instead of a push: its Push and Restart
@@ -89,15 +95,27 @@ pub fn check_push(facts: &GuardFacts, branches: &[StackPushBranch]) -> Result<()
   }
 }
 
-/// Parked or built on parked, else landed whole, else held by a running Safe Push
-fn branch_refusal(facts: &GuardFacts, name: &str) -> Option<String> {
+/// The refusals the push and the start of a branch share: no row of the last sync, parked or built on parked, landed
+/// whole ("nothing of it is left to `left`": "push", "land")
+pub(crate) fn row_refusal(facts: &GuardFacts, name: &str, left: &str) -> Option<String> {
   let table = facts.table();
+  if table.branch(name).is_none() {
+    return Some(format!("{name} is no branch of the last sync"));
+  }
   if let Some(parked) = parked_state(&table.branches, &table.parked, name) {
     return Some(format!("{}; it stays local until the user unparks it", parked.reason(name)));
   }
-  if let Some((by, robot)) = facts.landed_whole(name) {
-    return Some(format!("{}: nothing of it is left to push", landed_words(name, &by, robot)));
+  let (by, robot) = facts.landed_whole(name)?;
+  Some(format!("{}: nothing of it is left to {left}", landed_words(name, &by, robot)))
+}
+
+/// No row of the last sync, else parked or built on parked, else landed whole (`row_refusal`), else held by a running
+/// Safe Push
+fn branch_refusal(facts: &GuardFacts, name: &str) -> Option<String> {
+  if let Some(refusal) = row_refusal(facts, name, "push") {
+    return Some(refusal);
   }
+  let table = facts.table();
   let hold = facts.view.branches.get(name)?.hold.as_ref()?;
   let robot = facts.robot(&hold.by.robot_id)?;
   Some(match hold.kind {
@@ -111,18 +129,32 @@ fn branch_refusal(facts: &GuardFacts, name: &str) -> Option<String> {
 }
 
 /// The stack branch of the whole stack of `root`: it holds the commits of every member, so a parked member keeps it
-/// local; every member landed whole leaves nothing to push; the robot of the whole stack runs on it
+/// local; every member landed whole leaves nothing to push; the robot of the whole stack runs on it; and one that is not
+/// `built` is no build of its commits (`bd push` pushes only a built one), as the start of the whole stack refuses it
 fn stack_refusal(facts: &GuardFacts, root: &str) -> Option<String> {
-  let stack = facts.table().stack(root)?;
+  let table = facts.table();
+  let Some(stack) = table.stack(root) else {
+    return Some(format!("{} has no stack branch of the last sync", Subject::whole_stack(root).words()));
+  };
   let branch = &stack.branch_name;
-  if let Some(parked) = stack.members.iter().find(|member| facts.table().parked.contains_key(*member)) {
+  if let Some(parked) = stack.members.iter().find(|member| table.parked.contains_key(*member)) {
     return Some(format!("{branch} holds parked {parked}; land the stack in pieces"));
   }
   if let Some(landed) = facts.stack_landed_whole(root) {
     return Some(format!("{branch}: {landed}: nothing of it is left to push"));
   }
-  let robot = facts.robot(facts.view.stacks.get(root)?.hold_robot_id.as_deref()?)?;
-  Some(format!("{branch}: {}", stack_hold_words(root, robot)))
+  let hold = facts.view.stacks.get(root).and_then(|stack| stack.hold_robot_id.as_deref()).and_then(|id| facts.robot(id));
+  if let Some(robot) = hold {
+    return Some(format!("{branch}: {}", stack_hold_words(root, robot)));
+  }
+  match stack.state {
+    StackBranchState::Built if stack.tip.is_some() => None,
+    StackBranchState::Conflict => Some(format!(
+      "{branch}: {}",
+      stack_conflict_words(&table.branches, stack, &|id| git_ops::revs::short_id(id).to_string())
+    )),
+    StackBranchState::Built | StackBranchState::Blocked | StackBranchState::Stale => Some(format!("{branch}: {}", stack_not_built_words(stack))),
+  }
 }
 
 /// "auth landed in master with the Safe Push of oauth (<url>)", of its own robot "auth merged into master with its Safe
@@ -227,16 +259,44 @@ fn push_guarded_within(
   push_branches(git_executor, params, &facts.table().not_built, on_progress)
 }
 
-/// The app's push of one branch, as `push_guarded` pushes the stack of it alone
-pub fn push_branch_guarded(
-  git_executor: &GitCommandExecutor,
-  git_common_dir: &Path,
-  views: &RepositoryViews,
-  robots: Vec<PatronusRobot>,
-  params: &PushBranchParams,
-  on_progress: &mut dyn FnMut(TransferProgress),
-) -> Result<PushOutcome> {
-  PushOutcome::of_stack(push_guarded(git_executor, git_common_dir, views, robots, &params.as_stack(), on_progress)?)
+/// What the app's push runs on, the same for the app's commands and the E2E server's routes; the landing check of the
+/// popover (`start_guard::check_landing`) runs on the same, as a check that holds nothing up
+pub struct PushActions<'a> {
+  /// The Patronus service and the Space repository Patronus names the repository by (`ultimate`); `None` off Space: no
+  /// robot holds anything
+  pub patronus: Option<(&'a PatronusService, &'a str)>,
+  pub git_executor: &'a GitCommandExecutor,
+  pub views: &'a RepositoryViews,
+}
+
+impl PushActions<'_> {
+  /// The user's robots for the checks: one full list (`robots_for_checks`), read before the lock, as no network request
+  /// runs under it; none off Space
+  pub(crate) async fn robots(&self, branch_prefix: &str) -> Vec<PatronusRobot> {
+    match self.patronus {
+      Some((service, repository)) => service.robots_for_checks(repository, branch_prefix).await,
+      None => Vec::new(),
+    }
+  }
+
+  /// The app's push of a stack: the robots, then, in a blocking step, `push_guarded` under the repository lock of
+  /// `git_common_dir` (`$GIT_COMMON_DIR` of the repository, which the host knows), its progress sent to `on_progress`
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
+  pub async fn push_branches(
+    &self,
+    git_common_dir: PathBuf,
+    params: PushBranchesParams,
+    mut on_progress: impl FnMut(TransferProgress) + Send + 'static,
+  ) -> Result<PushBranchesOutcome> {
+    let robots = self.robots(&params.branch_prefix).await;
+    let (git, views) = (self.git_executor.clone(), self.views.clone());
+    tokio::task::spawn_blocking(in_current_span(move || push_guarded(&git, &git_common_dir, &views, robots, &params, &mut on_progress))).await?
+  }
+
+  /// The app's push of one branch, as `push_branches` pushes the stack of it alone
+  pub async fn push_branch(&self, git_common_dir: PathBuf, params: &PushBranchParams, on_progress: impl FnMut(TransferProgress) + Send + 'static) -> Result<PushOutcome> {
+    PushOutcome::of_stack(self.push_branches(git_common_dir, params.as_stack(), on_progress).await?)
+  }
 }
 
 /// "Nothing was pushed: `bd sync` (pid 4242, for 3 s) holds the repository; try again when it is done"

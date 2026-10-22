@@ -280,10 +280,6 @@ pub struct LandingGateParams {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack: bool,
-  /// The commits (original ids) merged Safe Pushes landed (`landedBy` of the repository view)
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub landed_commits: Vec<String>,
   /// What the user starts anyway
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
@@ -314,12 +310,13 @@ pub struct LandingRefused {
   pub refusals: Vec<LandingRefusal>,
 }
 
-/// The check of the start `params` asks, in a session of the current grouping
-#[instrument(skip(git_executor, cache))]
-pub fn landing_check(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &LandingGateParams) -> anyhow::Result<LandingCheck> {
+/// The check of the start `params` asks, in a session of the current grouping; `landed` are the commits (original ids)
+/// merged Safe Pushes landed as the repository view names them (`repository_view::patronus_view::landed_commits`, on the
+/// robots Rust reads), whose names the target has
+#[instrument(skip(git_executor, cache, landed), fields(landed = landed.len()))]
+pub fn landing_check(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &LandingGateParams, landed: &HashSet<String>) -> anyhow::Result<LandingCheck> {
   let session = CheckSession::open(git_executor, &params.repository_path, &params.branch_prefix, cache)?;
-  let landed: HashSet<String> = params.landed_commits.iter().cloned().collect();
-  let gate = check_landing_gate(&session, &params.subject(), &landed)?;
+  let gate = check_landing_gate(&session, &params.subject(), landed)?;
   Ok(LandingCheck {
     refusals: gate.blocking(&session, params.allow),
   })
@@ -327,8 +324,8 @@ pub fn landing_check(git_executor: &GitCommandExecutor, cache: &ObjectCache, par
 
 /// `landing_check`, refused as `LandingRefused` when a refusal holds the start back: the start of the app runs it before
 /// it asks Patronus
-pub fn ensure_landing_starts(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &LandingGateParams) -> anyhow::Result<()> {
-  let check = landing_check(git_executor, cache, params)?;
+pub fn ensure_landing_starts(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &LandingGateParams, landed: &HashSet<String>) -> anyhow::Result<()> {
+  let check = landing_check(git_executor, cache, params, landed)?;
   if check.refusals.is_empty() {
     return Ok(());
   }

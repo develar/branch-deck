@@ -283,3 +283,59 @@ async fn polls_only_running_robots_with_their_known_status() {
     serde_json::json!({"robots": [{"id": "newer", "lastKnownStatus": "RUNNING"}]})
   );
 }
+
+/// A poll that sees a robot finish brings the kept full list up to date: the checks of the app's push, which reuse the
+/// list (`robots_for_checks`), see it finished and hold nothing for it, without a second list
+#[tokio::test]
+async fn a_poll_updates_the_full_list_the_checks_reuse() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let status_of = |robots: &[PatronusRobot], id: &str| robots.iter().find(|robot| robot.id == id).unwrap().status;
+
+  let listed = service.robots_for_checks("ultimate", "me").await;
+  assert_eq!(status_of(&listed, "newer"), PatronusRobotStatus::Running);
+  let known = [KnownRobotStatus {
+    id: "newer".to_string(),
+    status: PatronusRobotStatus::Running,
+  }];
+  assert_eq!(status_of(&service.poll("me", &known).await.robots, "newer"), PatronusRobotStatus::Success);
+
+  let checked = service.robots_for_checks("ultimate", "me").await;
+  assert_eq!(status_of(&checked, "newer"), PatronusRobotStatus::Success);
+  assert_eq!(status_of(&checked, "older"), PatronusRobotStatus::Failure, "the rest of the list stays");
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1, "the list was not asked again");
+}
+
+/// The robots of a check are a background request: while the requests back off after a failure of Patronus, the check
+/// sends nothing and holds nothing, so a Patronus that is down does not hold the push up
+#[tokio::test]
+async fn the_checks_send_nothing_while_the_requests_back_off() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  fake.set_status(503);
+  service.robots("ultimate", "me", Some(1), true, false).await;
+  let sent = fake.list_calls.load(Ordering::SeqCst);
+
+  fake.set_status(200);
+  assert_eq!(service.robots_for_checks("ultimate", "me").await, Vec::new());
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), sent, "no request while backing off");
+}
+
+/// A full list in flight when the robots changed (a cancel in another window) is not kept: it would show the canceled
+/// robot running, and the checks would refuse the push into its branch
+#[tokio::test]
+async fn a_full_list_in_flight_when_the_robots_changed_is_not_kept() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let service = Arc::new(service);
+  // the robots change while Patronus answers the list
+  let changing = Arc::clone(&service);
+  *fake.robots_hook.lock().unwrap() = Some(Arc::new(move |_| changing.forget_full_lists()));
+  service.robots("ultimate", "me", None, false, false).await;
+  *fake.robots_hook.lock().unwrap() = None;
+
+  service.robots_for_checks("ultimate", "me").await;
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the list of before the change is not reused");
+  service.robots_for_checks("ultimate", "me").await;
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the list of after it is");
+}

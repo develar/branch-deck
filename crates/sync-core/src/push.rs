@@ -1,5 +1,5 @@
 //! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the app's push of
-//! one branch (`push_branch`) and of a stack (`push_branches`), and `bd push`, all through one leased push
+//! one branch and of a stack (`push_branches`, `repository_view::push_guard`), and `bd push`, all through one leased push
 //! (`push_leased`). A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched
 //! and reported, never overwritten. The stack branch of a whole stack (`{prefix}/stack/<root>`, `whole_stack`) goes the
 //! same way.
@@ -84,19 +84,6 @@ pub fn not_built_refusal(not_built: &HashMap<String, BlockReason>, branches: &[S
     .filter_map(|branch| not_built.get(&branch.branch_name).map(|reason| not_synced_refusal(&branch.branch_name, *reason)))
     .collect();
   (!refusals.is_empty()).then(|| format!("Nothing was pushed: {}", refusals.join(", ")))
-}
-
-/// Force-pushes the virtual branch to `origin`, leased on the remote head the user saw (`push_lease`): the stack push of
-/// one branch (`push_branches`). A remote that moved meanwhile is fetched, not overwritten: the outcome then carries the
-/// new remote status, which a push can replace once the user saw it. `on_progress` gets how far the push is.
-#[instrument(skip(git_executor, not_built, on_progress), fields(repository_path = %params.repository_path, branch_name = %params.branch_name))]
-pub fn push_branch(
-  git_executor: &GitCommandExecutor,
-  params: &PushBranchParams,
-  not_built: &HashMap<String, BlockReason>,
-  on_progress: &mut dyn FnMut(TransferProgress),
-) -> Result<PushOutcome> {
-  PushOutcome::of_stack(push_branches(git_executor, &params.as_stack(), not_built, on_progress)?)
 }
 
 impl PushBranchParams {

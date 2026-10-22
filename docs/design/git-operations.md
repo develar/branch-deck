@@ -2351,7 +2351,9 @@ the branches it is built on (`CheckSession::check_landing`), every branch for a 
 
 - the dangling references a commit proves (`dangling_references`), and
 - with `branchdeck.symbols on`, the missing declarations (`missing_declarations`): the edges by symbols from a commit
-  of what lands to a commit outside it, which no merged Safe Push landed (the commits `landedBy` names). An edge to a
+  of what lands to a commit outside it, which no merged Safe Push landed (the commits the view names landed,
+  `landed_commits`, on the robots Rust reads: the start's gate and the popover's check, `start_guard::check_landing`,
+  take the same input, never the page's robots). An edge to a
   branch of the landing stack is none, a sibling's of a whole stack that forks too: one robot lands both.
 
 The result is typed (`LandingRefusal`, with `LandingFix`: the restack of the root of what lands onto the branch that
@@ -2580,18 +2582,23 @@ lacks, and its pull request showing the parent's commits.
    on the branches as they are (`stackPushOrder`, `stackChildrenPushOrder`, the steps of Push Up to Here). The holds
    are checked per branch (`checkPushHold`; a held one refuses the whole push, the robot a Safe Push start replaces is
    canceled once), and an open pull request that needs a retarget is retargeted, as before a push of one branch.
-2. The Tauri commands (`push_branch`, `push_branches`) and the E2E server's routes of them go through one function,
-   `repository_view::push_guard::push_guarded`. Before it, the user's robots are read (one full list of Patronus,
-   `robots_for_checks`; none off Space, without a token or an answer, logged: best effort, as `bd push` reads its
-   holds); a start, a restart or a cancel makes the next list ask Patronus, so a robot the page canceled before its
-   restart is canceling and holds nothing. Then the repository lock (`lock_repository_in` on the `$GIT_COMMON_DIR` the
-   app keeps per repository, `RepositoryStateCache`: no git process), bounded by `DEFAULT_LOCK_TIMEOUT` ("Nothing was
-   pushed: `bd sync` (…) holds the repository; try again when it is done"), and under it the checks of `bd push` on the
-   table of `RepositoryViews` and the Patronus view of the robots (`guard_facts`, through the memo of the views): a
-   parked branch or one built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (its own,
-   of a branch built on it, of its whole stack), the stack branch of a whole stack with a parked member, landed whole
-   or whose robot runs on it; an unapplied branch only takes the lock. The page checks the same before (step 1) and
-   says it in its words; these refuse what raced with a start or came by IPC.
+2. The Tauri commands (`push_branch`, `push_branches`) and the E2E server's routes of them go through one sequence,
+   `repository_view::push_guard::PushActions` (`push_branches`, `push_branch`): first the user's robots (one full list
+   of Patronus, `robots_for_checks`, a background request: none off Space, without a token, without an answer or while
+   the requests back off after a failure, logged: best effort, as `bd push` reads its holds, and a Patronus that is
+   down holds no push up), read before the lock, as no network request runs under it; a start, a restart or a cancel
+   makes the next list ask Patronus and drops a list in flight (`forget_full_lists`, a generation), so a robot the page
+   canceled before its restart is canceling and holds nothing, and a poll that sees a robot finish brings the kept list
+   up to date (`update_full_lists`). Then, in a blocking step (`push_guarded`), the repository lock
+   (`lock_repository_in` on the `$GIT_COMMON_DIR` the host knows, the app per repository from `RepositoryStateCache`:
+   no git process), bounded by `DEFAULT_LOCK_TIMEOUT` ("Nothing was pushed: `bd sync` (…) holds the repository; try
+   again when it is done"), and under it the checks of `bd push` on the table of `RepositoryViews` and the Patronus
+   view of the robots (`guard_facts`, through the memo of the views): a branch the table has no row of, a parked
+   branch or one built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (its own, of a
+   branch built on it, of its whole stack), the stack branch of a whole stack with a parked member, landed whole, whose
+   robot runs on it or that is not `built` (the page decided on a built one; a sync since takes no lock); an unapplied
+   branch only takes the lock. The page checks the same before (step 1) and says it in its words; these refuse what
+   raced with a start or came by IPC.
 3. `push_branches` first refuses a branch the last sync did not build (`not_built_refusal`, by `SyncReport::not_built`,
    which the Tauri commands take from the table of `RepositoryViews` and `bd` from its own sync): a conflict, an error
    or a ref another process moved leaves the virtual branch at an older build, of commits the branch may no longer
@@ -2765,8 +2772,11 @@ robot's branch into a branch that is no ancestor of it, as the robot landing doe
 
 ### Repository view
 
-Read-only. What Rust derives of the branch table for the page and for `bd`, so both read one rule: the crate
-`repository-view`. `BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the
+What Rust derives of the branch table for the page and for `bd`, so both read one rule, and the checks of the app's
+actions on it: the crate `repository-view`. Its views are read-only; its guards (`push_guard`, the app's push, and
+`start_guard`, the start, restart and cancel of a robot and the landing check of the popover) are the whole sequence of
+the Tauri command and of the E2E server's route, the robots read by `PatronusService` and the git work in a blocking
+step. `BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the
 table, their virtual tips, the copies the sync wrote (`SyncReport::copies`, recorded from its `CommitSynced` events: a
 mapping note read at the sync's start names the copy of before), the stack branches, the parked branches and the remote
 facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the remote tip of each branch from

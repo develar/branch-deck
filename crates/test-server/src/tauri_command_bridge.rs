@@ -32,9 +32,8 @@ use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::{RewordRequest, RewordResult, reword_request_core};
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
-use repository_view::push_guard::{push_branch_guarded, push_guarded};
-use repository_view::start_guard::{RobotActions, cancel_robot, restart_robot, start_robot};
-use repository_view::views::RepositoryViews;
+use repository_view::push_guard::PushActions;
+use repository_view::start_guard::{RobotActions, cancel_robot, check_landing, restart_robot, start_robot};
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -454,17 +453,18 @@ pub async fn undo_reapply_branch(
   .await
 }
 
-/// `check_landing_gate` of the app: the same core, without the object cache
+/// `check_landing_gate` of the app: the same check (`start_guard::check_landing`, on the robots of the fake Patronus),
+/// without the object cache
 pub async fn check_landing_gate(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::landing_gate::LandingGateParams>,
 ) -> CommandResult<sync_core::landing_gate::LandingCheck> {
   ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("check the landing gate", move || {
-    sync_core::landing_gate::landing_check(&git_executor, &ObjectCache::disabled(), &params)
-  })
-  .await
+  let space = space_of(&state, &params.repository_path)?;
+  let service = space.as_ref().map(|(host, _)| host.patronus_service());
+  let actions = push_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let check = check_landing(&actions, ObjectCache::disabled, &params).await;
+  check.map(Json).map_err(|e| CommandFailure::error("check the landing gate", e))
 }
 
 /// Without the object cache, as every command of the mock server
@@ -653,42 +653,46 @@ pub async fn check_target_conflict(
   .await
 }
 
-/// The app's push of one branch, through the same guarded push (`push_guard`: the repository lock, the refusals of
-/// parked, landed and held branches on the robots of the fake Patronus, then the core). A test of a push answers it in
-/// the page (`routePush`) unless it tests the push itself
+/// The app's push of one branch, through the same guarded push (`push_guard`: the robots of the fake Patronus, then the
+/// repository lock and the refusals of parked, landed, held and not built branches, then the core). A test of a push
+/// answers it in the page (`routePush`) unless it tests the push itself
 pub async fn push_branch(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::push::PushBranchParams>) -> CommandResult<sync_core::push::PushOutcome> {
-  let (git_executor, views, robots) = push_inputs(&state, &params.repository_path, &params.branch_prefix).await?;
-  run_command("push the branch", move || {
-    let common_dir = git_common_dir(&git_executor, &params.repository_path)?;
-    push_branch_guarded(&git_executor, &common_dir, &views, robots, &params, &mut |_| {})
-  })
-  .await
+  let operation = "push the branch";
+  let (common_dir, space) = push_inputs(&state, &params.repository_path, operation).await?;
+  let service = space.as_ref().map(|(host, _)| host.patronus_service());
+  let actions = push_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let pushed = actions.push_branch(common_dir, &params, |_| {}).await;
+  pushed.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
 
 /// The app's stack push, through the same guarded push. Most templates name the repository itself as `origin` (`.`), so
 /// a test of a push answers it in the page (`routePushBranches`); the progress stays there too
 pub async fn push_branches(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::push::PushBranchesParams>) -> CommandResult<sync_core::push::PushBranchesOutcome> {
-  let (git_executor, views, robots) = push_inputs(&state, &params.repository_path, &params.branch_prefix).await?;
-  run_command("push the branches", move || {
-    let common_dir = git_common_dir(&git_executor, &params.repository_path)?;
-    push_guarded(&git_executor, &common_dir, &views, robots, &params, &mut |_| {})
-  })
-  .await
+  let operation = "push the branches";
+  let (common_dir, space) = push_inputs(&state, &params.repository_path, operation).await?;
+  let service = space.as_ref().map(|(host, _)| host.patronus_service());
+  let actions = push_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let pushed = actions.push_branches(common_dir, params, |_| {}).await;
+  pushed.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
 
-/// What the guarded push of the repository at `path` reads, as the app's command reads it: the git, the views and the
-/// user's robots of the fake Patronus (`robots_for_checks`; none off Space)
-async fn push_inputs(
-  state: &AppState,
-  path: &str,
-  branch_prefix: &str,
-) -> Result<(git_executor::git_command_executor::GitCommandExecutor, RepositoryViews, Vec<PatronusRobot>), CommandFailure> {
+/// What the push of the repository at `path` needs of the server, as the app's command has it: `$GIT_COMMON_DIR` (where
+/// the lock lives, in a blocking step) and the fake services of its Space repository, None while no Patronus fixture
+/// put it on Space
+async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> Result<(std::path::PathBuf, Option<(Arc<RemoteHost>, SpaceRepository)>), CommandFailure> {
   ensure_repository_exists(state, path)?;
-  let robots = match space_of(state, path)? {
-    Some((host, space)) => host.patronus_service().robots_for_checks(&space.name, branch_prefix).await,
-    None => Vec::new(),
-  };
-  Ok((state.git_executor.clone(), state.repository_views.clone(), robots))
+  let (git, repository_path) = (state.git_executor.clone(), path.to_string());
+  let Json(common_dir) = run_command(operation, move || git_common_dir(&git, &repository_path)).await?;
+  Ok((common_dir, space_of(state, path)?))
+}
+
+/// What the app's push runs on (`push_guard`): the fake's service, the views of the server
+fn push_actions<'a>(state: &'a AppState, service: Option<&'a PatronusService>, space: Option<&'a SpaceRepository>) -> PushActions<'a> {
+  PushActions {
+    patronus: service.zip(space.map(|space| space.name.as_str())),
+    git_executor: &state.git_executor,
+    views: &state.repository_views,
+  }
 }
 
 /// `$GIT_COMMON_DIR` of the repository at `path`, where the repository lock lives

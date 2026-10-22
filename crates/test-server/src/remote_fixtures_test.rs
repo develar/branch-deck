@@ -155,6 +155,15 @@ async fn repository_with_branch(name: &str, start: &str) -> (std::net::SocketAdd
   (addr, client, id, repository_path, tip)
 }
 
+/// The Patronus fixture of one robot `r1` running on `branch`, its commit the tip of the branch when Patronus answers
+fn running_on(branch: &str) -> serde_json::Value {
+  json!({"availability": {"status": "available"}, "robots": [{
+    "id": "r1", "name": format!("Safe Push of {branch}"), "status": "running", "pushMode": "rebaseAutosquash", "branchName": branch,
+    "sourceRevision": "", "targetBranch": "master", "startTime": 1_704_139_200, "finishTime": null, "cancellationReason": null,
+    "url": "ignored",
+  }]})
+}
+
 /// The robots of the fixture come through the real service from the fake Patronus of the repository: an empty
 /// `sourceRevision` is the tip of the robot's branch when Patronus answers, and the fake counts the requests that
 /// reached it
@@ -166,12 +175,7 @@ async fn the_robots_of_the_fixture_come_through_the_real_service() {
   let before = post(&client, addr, "/invoke/get_patronus_robots", params.clone()).await;
   assert_eq!(before["availability"], json!({"status": "notPatronus"}));
 
-  let fixture = json!({"availability": {"status": "available"}, "robots": [{
-    "id": "r1", "name": "Safe Push of feature", "status": "running", "pushMode": "rebaseAutosquash", "branchName": "feature",
-    "sourceRevision": "", "targetBranch": "master", "startTime": 1_704_139_200, "finishTime": null, "cancellationReason": null,
-    "url": "ignored",
-  }]});
-  post(&client, addr, &format!("/repositories/{id}/patronus"), fixture).await;
+  post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("feature")).await;
   let listed = post(&client, addr, "/invoke/get_patronus_robots", params).await;
   assert_eq!(listed["availability"], json!({"status": "available"}));
   assert_eq!(listed["robots"][0]["branchName"], "feature");
@@ -294,4 +298,32 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
       json!(["restarted-1"]),
     )
   );
+}
+
+/// A push the IPC asks for a branch whose own Safe Push runs is refused in Rust, by the checks of the app's command on
+/// the robots the fake lists (the page knew of none: the robot started after its list), before git pushes anything
+#[tokio::test]
+async fn a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes() {
+  let (addr, client, id, repository_path) = synced_on_space(&[]).await;
+  post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("test-branch")).await;
+
+  let push = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "test-branch", "myEmail": null,
+    "baselineBranch": "origin/master", "parentBranch": null, "expectedRemote": null, "tip": null});
+  let answer = post(&client, addr, "/invoke/push_branch", push).await;
+  assert_eq!(answer["status"], "error");
+  let refusal = answer["error"]["message"].as_str().unwrap();
+  assert!(
+    refusal.contains(
+      "Nothing was pushed: A Safe Push of test-branch is running on user-name/virtual/test-branch: a push moves the branch it took its commit from, so it won't land and fails the Safe Push at the end. Wait until it merges, or restart it on the current branch ("
+    ),
+    "{refusal}"
+  );
+  let remote = git_command()
+    .args(["for-each-ref", "--format=%(refname)", "refs/remotes/origin/user-name/"])
+    .current_dir(&repository_path)
+    .output()
+    .unwrap();
+  assert_eq!(String::from_utf8(remote.stdout).unwrap(), "", "nothing reached the remote");
+  let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
+  assert_eq!(log["requests"]["list"], 1, "one full list of the user's robots");
 }

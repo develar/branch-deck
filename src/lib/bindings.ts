@@ -18,8 +18,8 @@ export const commands = {
 	 *  Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
 	 *  branch only as the user saw it, and returns their new remote statuses; a remote branch that moved is named, with the
 	 *  statuses fetched after it. Under the repository lock, refused in Rust as `push_branch` is for any of its branches; the
-	 *  stack branch of a whole stack also while a member is parked, every member landed whole or its robot runs on it; an
-	 *  unapplied branch takes only the lock. `progress` receives how far the push is.
+	 *  stack branch of a whole stack also while a member is parked, every member landed whole, its robot runs on it or it is
+	 *  not built; an unapplied branch takes only the lock. `progress` receives how far the push is.
 	 */
 	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<PushBranchesOutcome, CommandError>(__TAURI_INVOKE("push_branches", { params, progress })),
 	/**
@@ -181,7 +181,9 @@ export const commands = {
 	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("start_patronus_robot", { params })),
 	/**
 	 *  What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`sync_core::landing_gate`): the
-	 *  refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository
+	 *  refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository, with
+	 *  the commits merged Safe Pushes landed as the repository view names them on the robots Rust reads
+	 *  (`start_guard::check_landing`; none off Space, or when the Space repository can't be read)
 	 */
 	checkLandingGate: (params: LandingGateParams) => typedError<LandingCheck, CommandError>(__TAURI_INVOKE("check_landing_gate", { params })),
 	/**
@@ -1845,8 +1847,6 @@ export type LandingGateParams = {
 	/**  The branch that starts; with `stack` the root of the whole stack */
 	branchName: string,
 	stack?: boolean,
-	/**  The commits (original ids) merged Safe Pushes landed (`landedBy` of the repository view) */
-	landedCommits?: string[],
 	/**  What the user starts anyway */
 	allow?: LandingAllowances,
 };

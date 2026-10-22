@@ -1,4 +1,5 @@
 import type { BranchRulesAnswer } from "@/hooks/useDismissesStaleReviews"
+import { isRulesUnknown } from "@/hooks/useDismissesStaleReviews"
 import type { LandingRefusal, PatronusProfile, PatronusStartOptions, ReviewReadiness } from "@/lib/bindings"
 import type { NextStepKind } from "@/lib/branch-next-step"
 import type { PullRequestStart, StartPush } from "@/lib/patronus"
@@ -203,7 +204,7 @@ export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
     reasons.push("dismisses")
   }
   // a failed read of the rules is never "keeps them": the approvals of the pull request may be gone with the push
-  if (dismiss !== null && dismiss.dismisses !== null && typeof dismiss.dismisses === "object") {
+  if (dismiss !== null && dismiss.dismisses !== null && isRulesUnknown(dismiss.dismisses)) {
     reasons.push("rulesUnknown")
   }
   if (facts.bypassReview) {

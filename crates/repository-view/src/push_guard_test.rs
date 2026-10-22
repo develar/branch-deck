@@ -1,9 +1,9 @@
 use crate::branch_table::BranchTable;
-use crate::patronus_view::patronus_view_test::{chain, merged, robot, running, stack_robot};
+use crate::patronus_view::patronus_view_test::{chain, merged, robot, running, stack_robot, table};
 use crate::push_guard::{check_push, push_guarded, push_guarded_within};
 use crate::views::RepositoryViews;
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
-use domain_types::stack::{StackBranchState, StackBranchUpdate};
+use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::lock_repository_in;
 use pretty_assertions::assert_eq;
@@ -129,6 +129,57 @@ fn a_branch_a_running_safe_push_lands_and_a_stack_branch_its_robot_runs_on_are_r
   );
 }
 
+/// The stack branch of a whole stack is pushed only `built`, as `bd push` pushes it and as the start of the whole stack
+/// refuses it: a conflicted one names the commit, a stale or blocked one names what kept it from being rebuilt. The page
+/// decided to push it while it was built; a sync since (which takes no lock) may have left it otherwise
+#[test]
+fn a_stack_branch_that_is_not_built_is_refused() {
+  let stacked = |state: StackBranchState, tip: Option<&str>| {
+    let mut table = stacked_chain();
+    let stack = &mut table.stack_branches[0];
+    stack.state = state;
+    stack.tip = tip.map(str::to_string);
+    table
+  };
+  let mut conflict = stacked(StackBranchState::Conflict, Some("stack-tip"));
+  conflict.stack_branches[0].conflict = Some(StackBranchConflict {
+    commit: "l1".to_string(),
+    files: vec!["a.rs".to_string()],
+  });
+  assert_eq!(
+    check(conflict, &[], &[whole_stack("auth")]),
+    Err("Nothing was pushed: test/stack/auth: the whole auth stack doesn't build as one branch: l1 (l1, of login) conflicts in a.rs with the commits of the stack before it, though each branch builds".to_string())
+  );
+  let mut stale = stacked(StackBranchState::Stale, Some("stack-tip"));
+  stale.stack_branches[0].blocked_by = Some(StackMemberBlock {
+    member: "login".to_string(),
+    reason: BlockReason::Conflict,
+  });
+  assert_eq!(
+    check(stale, &[], &[whole_stack("auth")]),
+    Err("Nothing was pushed: test/stack/auth: the stack branch of auth is not the build of its commits: login conflicts, so the stack branch was not rebuilt".to_string())
+  );
+  assert_eq!(
+    check(stacked(StackBranchState::Built, None), &[], &[whole_stack("auth")]),
+    Err("Nothing was pushed: test/stack/auth: the stack branch of auth is not the build of its commits: the stack branch was not rebuilt".to_string())
+  );
+  assert_eq!(check(stacked(StackBranchState::Built, Some("stack-tip")), &[], &[whole_stack("auth")]), Ok(()));
+}
+
+/// A branch the table of the last sync has no row of is no branch to push (archived, renamed, a name by IPC), as the
+/// start refuses it and `bd push` answers `unknown_branch`; a whole stack without a stack branch likewise
+#[test]
+fn a_branch_the_last_sync_has_no_row_of_is_refused() {
+  assert_eq!(
+    check(chain(), &[], &[branch("gone")]),
+    Err("Nothing was pushed: gone is no branch of the last sync".to_string())
+  );
+  assert_eq!(
+    check(chain(), &[], &[whole_stack("auth")]),
+    Err("Nothing was pushed: the whole auth stack has no stack branch of the last sync".to_string())
+  );
+}
+
 /// An unapplied branch is no branch of the table: its push takes only the lock, also under the name of a parked one
 #[test]
 fn an_unapplied_branch_is_checked_by_nothing_but_the_lock() {
@@ -160,6 +211,11 @@ fn pushable() -> (TestRepo, PushBranchesParams) {
   (repo, params)
 }
 
+/// The table a sync of `stack_ahead_of_bare_origin` leaves: `alpha` and `beta` built on it, as the checks need a row
+fn synced_alpha_beta() -> BranchTable {
+  table(&[("beta", Some("alpha"), &[("b1", "vb1")]), ("alpha", None, &[("a1", "va1")])])
+}
+
 /// The guarded push of a stack runs the git processes of the core push (`an_atomic_push_of_a_stack`) and nothing more:
 /// the lock is a file of the known common dir, the checks read the kept table; before the first sync it is refused
 #[test]
@@ -171,7 +227,7 @@ fn a_guarded_push_runs_the_processes_of_the_core_push() {
   let refused = push_guarded(&git, &common_dir, &views, Vec::new(), &params, &mut |_| {}).unwrap_err();
   assert_eq!(refused.to_string(), NOT_SYNCED_YET);
 
-  views.keep(repo.path_str(), "test", BranchTable::default());
+  views.keep(repo.path_str(), "test", synced_alpha_beta());
   let outcome = push_guarded(&git, &common_dir, &views, Vec::new(), &params, &mut |_| {}).unwrap();
   assert!(
     matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses } if remote_statuses.len() == 2),
@@ -189,7 +245,7 @@ fn a_push_while_another_operation_holds_the_lock_is_refused() {
   let (repo, params) = pushable();
   let common_dir = repo.path().join(".git");
   let views = RepositoryViews::default();
-  views.keep(repo.path_str(), "test", BranchTable::default());
+  views.keep(repo.path_str(), "test", synced_alpha_beta());
   let held = lock_repository_in(&common_dir, Duration::ZERO, &|| {}).unwrap();
   let git = GitCommandExecutor::new();
   let refused = push_guarded_within(Duration::from_millis(100), &git, &common_dir, &views, Vec::new(), &params, &mut |_| {}).unwrap_err();

@@ -15,7 +15,7 @@
 //! of Patronus. The words of the robot refusals are `bd`'s too (`start_refusal_text`).
 
 use crate::patronus_view::{branch_start_refusal, landed_commits, stack_start_refusal};
-use crate::push_guard::{GuardFacts, landed_words};
+use crate::push_guard::{GuardFacts, PushActions, row_refusal};
 use crate::views::RepositoryViews;
 use anyhow::{Result, anyhow, bail};
 use domain_types::GroupedBranchInfo;
@@ -26,6 +26,8 @@ use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
+use std::collections::HashSet;
+use sync_core::landing_gate::{LandingCheck, LandingGateParams, landing_check};
 use sync_core::parked::parked_state;
 use sync_core::patronus::prepare_robot_start;
 use sync_core::patronus_start::{carried_ids, carried_words, is_robot_active, join_names, push_mode_name};
@@ -118,16 +120,10 @@ fn without(last_commit: Option<&StartRefusal>, excluded: Option<&str>) -> Option
 }
 
 fn branch_refusal(facts: &GuardFacts, name: &str, dry_run: bool, excluded: Option<&str>) -> Option<String> {
+  if let Some(refusal) = row_refusal(facts, name, "land") {
+    return Some(refusal);
+  }
   let table = facts.table();
-  if table.branch(name).is_none() {
-    return Some(format!("{name} is no branch of the last sync"));
-  }
-  if let Some(parked) = parked_state(&table.branches, &table.parked, name) {
-    return Some(format!("{}; it stays local until the user unparks it", parked.reason(name)));
-  }
-  if let Some((by, robot)) = facts.landed_whole(name) {
-    return Some(format!("{}: nothing of it is left to land", landed_words(name, &by, robot)));
-  }
   if let Some(reason) = table.not_built.get(name) {
     return Some(not_synced_refusal(name, *reason));
   }
@@ -289,6 +285,23 @@ pub async fn start_robot(actions: &RobotActions<'_>, cache: impl FnOnce() -> Obj
     )
     .await
     .map_err(|e| anyhow!(e))
+}
+
+/// The landing gate as the popover asks it before a start (`check_landing_gate`), with the commits merged Safe Pushes
+/// landed as the view names them (`landed_commits`) on the robots Rust reads, the same input the start gives its own gate
+/// (`start_robot`): the page's robots never decide it. Best effort, as the start checks again: off Space, before the
+/// first sync or without an answer of Patronus nothing landed; `cache` opens the object cache, in the blocking step
+#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack))]
+pub async fn check_landing(actions: &PushActions<'_>, cache: impl FnOnce() -> ObjectCache + Send + 'static, params: &LandingGateParams) -> Result<LandingCheck> {
+  let robots = actions.robots(&params.branch_prefix).await;
+  let (git, views, params) = (actions.git_executor.clone(), actions.views.clone(), params.clone());
+  tokio::task::spawn_blocking(in_current_span(move || {
+    let landed: HashSet<String> = views
+      .guard_facts(&git, &params.repository_path, &params.branch_prefix, robots)
+      .map_or_default(|facts| landed_commits(&facts.view));
+    landing_check(&git, &cache(), &params, &landed)
+  }))
+  .await?
 }
 
 /// Restarts the robot of `params` as the app does: the checks (`check_restart`), then the restart

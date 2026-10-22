@@ -1239,4 +1239,30 @@ test.describe("Patronus actions", () => {
       expect(pushes.map(push => push.expectedRemote)).toEqual([null, "moved-tip"])
     })
   })
+
+  test.describe("a push the page's checks did not see", () => {
+    test("should push nothing into a branch whose Safe Push started after the page's list: Rust refuses it, and the toast says why", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      // the page loaded with no robot; one started since (the IDE, bd), which the page learns of at its next poll
+      const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+      await repo.setPatronus(availableRobots(RUNNING))
+      const row = findBranchRow(page, "JIRA-456")
+      const notPushed = row.getByRole("cell", { name: "not pushed" })
+      await expect(notPushed).toBeVisible()
+
+      // the push goes to the backend, which reads the user's robots itself before it pushes
+      await pushFromRowMenu(page, "JIRA-456")
+      const toast = page.locator("[data-slot=toast]", { hasText: "Cannot push JIRA-456" })
+      await expect(toast).toContainText(
+        "Nothing was pushed: A Safe Push of JIRA-456 is running on user-name/virtual/JIRA-456: a push moves the branch it took its commit from, so it won't land and fails the Safe Push at the end. Wait until it merges, or restart it on the current branch",
+      )
+      // nothing reached the remote: the branch is still not pushed; the backend asked one full list for the push, after
+      // the page's one at load
+      await expect(notPushed).toBeVisible()
+      expect((await repo.getPatronusLog()).requests.list).toBe(2)
+    })
+  })
 })

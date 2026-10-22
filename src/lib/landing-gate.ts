@@ -2,7 +2,7 @@ import type { LandingAllowances, LandingCheck, LandingFix, LandingRefusal, Robot
 import { commands } from "@/lib/bindings"
 import { getErrorDetails } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
-import { getLandedCommits, patronusRequest } from "@/stores/patronus"
+import { patronusRequest } from "@/stores/patronus"
 
 /**
  * What the landing gate means for a start: `refuse` when a refusal holds it back (the build of what lands would fail),
@@ -15,8 +15,9 @@ export type LandingDecision =
 
 /**
  * Asks what refuses the start of `branchName`, or of the whole stack of the root `wholeStack` (`check_landing_gate`, the
- * rule of `bd safe-push`): a dangling reference a commit proves, a name a branch outside what lands adds. `allow` holds
- * what the user started anyway. A failed check holds nothing back: the note says so, and the start command checks again.
+ * rule of `bd safe-push`): a dangling reference a commit proves, a name a branch outside what lands adds; the commits
+ * merged Safe Pushes landed count as in the target, as Rust names them on the robots it reads. `allow` holds what the user
+ * started anyway. A failed check holds nothing back: the note says so, and the start command checks again.
  */
 export async function checkLandingBeforeStart(branchName: string, wholeStack: string | null, allow: LandingAllowances): Promise<LandingDecision> {
   const subject = wholeStack === null ? branchName : `the whole ${wholeStack} stack`
@@ -25,7 +26,6 @@ export async function checkLandingBeforeStart(branchName: string, wholeStack: st
       ...patronusRequest(),
       branchName: wholeStack ?? branchName,
       ...(wholeStack !== null && { stack: true }),
-      landedCommits: getLandedCommits(),
       allow,
     })
     if (result.status === "error") {

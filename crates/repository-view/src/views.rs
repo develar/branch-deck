@@ -1,7 +1,8 @@
 //! What the app keeps to answer `get_repository_view` (and the E2E server, with the same code): the branch table of the
 //! last sync of each repository and branch prefix, the memo of what its views asked by content, and the landing needs
 //! of its branches. A sync that fails keeps the table of the one before: a view is of the last table a sync finished.
-//! The checks of the app's push read the same table and memo with the robots Rust read itself (`guard_facts`).
+//! The checks of the app's push and of its robot actions (`push_guard`, `start_guard`) read the same table and memo with
+//! the robots Rust read itself (`guard_facts`).
 //!
 //! The landing needs (`sync_core::landing_gate::landing_needs`) are a fact with its inputs: the baseline, the tips of
 //! the table and the commits merged Safe Pushes landed. A view whose inputs have no answer yet says `unknown` and starts
@@ -14,12 +15,11 @@ use crate::push_guard::GuardFacts;
 use domain_types::landing::LandingRefusal;
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{GetRepositoryViewParams, PatronusView, RepositoryView, WaitLandingNeedsParams};
-use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
 use object_cache::cache::ObjectCache;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -103,15 +103,6 @@ impl RepositoryViews {
     self
       .tables
       .insert((repository_path.to_string(), branch_prefix.to_string()), Arc::new(SyncedTable { generation, table }));
-  }
-
-  /// The branches the last sync of `repository_path` under `branch_prefix` did not build (`BranchTable::not_built`), which
-  /// no push takes; `None` before the first sync
-  pub fn not_built(&self, repository_path: &str, branch_prefix: &str) -> Option<HashMap<String, BlockReason>> {
-    self
-      .tables
-      .get(&(repository_path.to_string(), branch_prefix.to_string()))
-      .map(|synced| synced.table.not_built.clone())
   }
 
   /// The view of the kept table with the asker's robots, matches and remote facts; empty before the first sync. Runs

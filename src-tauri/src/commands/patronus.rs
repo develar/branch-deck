@@ -17,11 +17,12 @@ use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
-use repository_view::start_guard::{RobotActions, cancel_robot, restart_robot, start_robot};
+use repository_view::push_guard::PushActions;
+use repository_view::start_guard::{RobotActions, cancel_robot, check_landing, restart_robot, start_robot};
 use repository_view::views::RepositoryViews;
 use std::sync::Arc;
 use std::time::Duration;
-use sync_core::landing_gate::{LandingCheck, LandingGateParams, landing_check};
+use sync_core::landing_gate::{LandingCheck, LandingGateParams};
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, required_target_branch};
 use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
@@ -80,17 +81,9 @@ impl PatronusState {
     Ok(space)
   }
 
-  /// The user's robots for the checks of an action (the app's push, `PatronusService::robots_for_checks`): none off Space,
-  /// or when the Space repository can't be read
-  pub(crate) async fn robots_for_checks(&self, git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Vec<PatronusRobot> {
-    match self.space_repository(git_executor, repository_path).await {
-      Ok(Some(space)) => self.service.robots_for_checks(&space.name, branch_prefix).await,
-      Ok(None) => Vec::new(),
-      Err(error) => {
-        warn!(error = ?error, "no robots for the checks: the Space repository is unknown");
-        Vec::new()
-      }
-    }
+  /// The service, for the actions of `repository_view` (`push_guard`)
+  pub(crate) const fn service(&self) -> &PatronusService {
+    &self.service
   }
 
   /// The Space repository, for an action: not on Space is an error
@@ -319,19 +312,33 @@ fn robot_actions<'a>(patronus: &'a PatronusState, repository: &'a SpaceRepositor
 }
 
 /// What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`sync_core::landing_gate`): the
-/// refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository
+/// refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository, with
+/// the commits merged Safe Pushes landed as the repository view names them on the robots Rust reads
+/// (`start_guard::check_landing`; none off Space, or when the Space repository can't be read)
 #[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack, landed_commits = params.landed_commits.len()))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack))]
 #[specta::specta]
 pub async fn check_landing_gate(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
+  patronus: State<'_, PatronusState>,
+  views: State<'_, RepositoryViews>,
   params: LandingGateParams,
 ) -> Result<LandingCheck, CommandError> {
-  let (git, repository_state) = ((*git_executor).clone(), (*repository_state).clone());
-  run_blocking(move || {
-    let cache = repository_state.object_cache(&git, &params.repository_path);
-    landing_check(&git, &cache, &params)
+  operation(async {
+    let space = patronus.space_repository(&git_executor, &params.repository_path).await.unwrap_or_else(|error| {
+      warn!(error = ?error, "no robots for the landing check: the Space repository is unknown");
+      None
+    });
+    let actions = PushActions {
+      patronus: space.as_ref().map(|space| (&patronus.service, space.name.as_str())),
+      git_executor: &git_executor,
+      views: &views,
+    };
+    let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
+    check_landing(&actions, move || repository_state.object_cache(&git, &path), &params)
+      .await
+      .map_err(CommandError::from)
   })
   .await
 }
