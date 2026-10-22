@@ -16,6 +16,8 @@ mod bindings_test;
 #[cfg(test)]
 mod command_scan_test;
 #[cfg(test)]
+mod log_rotation_test;
+#[cfg(test)]
 mod menu_test;
 #[cfg(test)]
 mod range_files_test;
@@ -208,14 +210,22 @@ fn specta_builder() -> Builder<tauri::Wry> {
   ])
 }
 
-/// The size over which `tauri_plugin_log` rotates the app's log file when the app starts (it rotates only then; within a
-/// session the file grows past it), and how many files stay: the current one and the two before it. A sync of a large
-/// repository logs about 100 KB at debug level, and the lines an `operation_id` of Activity names must still be there a
-/// day later
+/// The retention of the app's log, the one place that describes it (the docs and the spec point here). `tauri_plugin_log`
+/// (`LOG_PLUGIN_VERSION`, its `RotatingFile`) rotates when a write would push the file past `LOG_FILE_BYTES`, within a
+/// session too, and when it opens a file already that large: the file is renamed with its date and a new one starts.
+/// `KeepSome(n)` keeps `n` dated files beside the current one (`new` removes down to `n`, `rotate` down to `n - 1` and
+/// then renames), so the log dir holds the current file and the `LOG_FILES_KEPT` before it, up to 40 MB of lines. A sync
+/// of a large repository logs about 100 KB at debug level, so the lines an `operation_id` of Activity names are still
+/// there days later. The plugin's default would be 40 KB and `KeepOne`, which deletes the file at the rotation: a few
+/// commands' worth. `log_rotation_test.rs` pins the version this describes
 #[cfg(not(feature = "devtools"))]
 const LOG_FILE_BYTES: u128 = 10 * 1024 * 1024;
 #[cfg(not(feature = "devtools"))]
 const LOG_FILES_KEPT: usize = 3;
+/// The version of `tauri_plugin_log` whose rotation the comment above describes; after an update, read `RotatingFile::new`,
+/// `rotate` and `flush` of the new one, correct the comment and move this
+#[cfg(test)]
+const LOG_PLUGIN_VERSION: &str = "2.10.1";
 
 /// What the window-state plugin restores: the size, the position, maximized and fullscreen; not the decorations (the page
 /// draws the title bar) and not the visibility (`finish_title_bar` shows a window)
@@ -239,8 +249,7 @@ pub fn run() {
   // the devtools plugin sets a subscriber of its own
   #[cfg(not(feature = "devtools"))]
   tracing_log::install();
-  // the log an `operation_id` leads to: the plugin's default, 40 KB and `KeepOne` (deleted at the next start), held a
-  // few commands
+  // the log an `operation_id` leads to, kept as `LOG_FILE_BYTES` describes
   #[cfg(not(feature = "devtools"))]
   let builder = builder.plugin(
     tauri_plugin_log::Builder::new()

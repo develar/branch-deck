@@ -144,11 +144,10 @@ of every `bd` process never collide and sort by time). `src-tauri/src/command_sc
 - `tracing_log` (`src-tauri/src/tracing_log.rs`) makes the spans reach the log at all: without a subscriber the `log`
   feature of `tracing` hands an event to `log` without its spans. The subscriber formats each event with its spans,
   plus a line when a span starts (`FmtSpan::NEW`, as `tracing` wrote one per span before), and gives the line to `log`
-  with the event's level and target, which `tauri_plugin_log` writes. The plugin rotates only when it starts: a file
-  over 10 MB is renamed with its date then, and `KeepSome(3)` keeps the current file and the two before it, so the
-  lines an `operation_id` of Activity names are still there a few starts later (within a session the file grows past the
-  size); the plugin's default, 40 KB and `KeepOne`, deleted the whole log at the next start, a few commands' worth. The
-  devtools build keeps the subscriber of its plugin.
+  with the event's level and target, which `tauri_plugin_log` writes. The plugin rotates the file at a write past
+  10 MB and keeps the three before it (the comment of `LOG_FILE_BYTES` in `src-tauri/src/lib.rs` is the one description
+  of the retention, pinned to the plugin's version by `log_rotation_test.rs`), so the lines an `operation_id` of
+  Activity names are still there days later. The devtools build keeps the subscriber of its plugin.
 - `bd` opens the root span `operation{op, operation_id}` in `bd_cli::run` before the dispatch, `op` the words of the
   command (`lease get`); every `-v` line carries it, the lines of the sync's threads too
   (`crates/bd-cli/src/operation_test.rs`, under a global subscriber that sees every thread).
