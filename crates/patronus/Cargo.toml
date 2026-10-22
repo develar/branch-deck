@@ -26,7 +26,8 @@ fake = ["dep:axum", "dep:test-utils"]
 axum.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
-test-utils = { path = "../test-utils" }
+# `fake_patronus` serves through `test_utils::fake_server` under `cfg(test)` too, without the workspace's feature unification
+test-utils = { path = "../test-utils", features = ["http"] }
 tokio = { workspace = true, features = ["time"] }
 
 [lints]

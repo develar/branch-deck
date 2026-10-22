@@ -648,9 +648,10 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   или сдвиг remote взять неоткуда; его число тоже закреплено и только падает. R12 (переизобретения в test-server)
   удаляется из реестра расхождений.
 - **Модель размещения (уточнено по коду при планировании):**
-  - fakes — по одному на `TestRepository`, лениво, каждый на своём loopback-порту (`start_fake` crates `github`,
-    `patronus`, новый `fake` feature crate `youtrack`), сервисы `PatronusService`/`GitHubService`/`YouTrackService` —
-    тоже на репозиторий, с данными приложения в `test_root_dir/{id}.app-data` (token files; рядом с репозиторием, как
+  - fakes — по одному на `TestRepository`, лениво, каждый на своём loopback-порту через общий
+    `test_utils::fake_server::FakeServer` (crate `test-utils`, feature `http`; его же поднимает `remote_host.rs`
+    test-server), который и запускают `start_fake` crates `github`, `patronus`, новый `fake` feature crate
+    `youtrack`), сервисы `PatronusService`/`GitHubService`/`YouTrackService` — тоже на репозиторий, с данными приложения в `test_root_dir/{id}.app-data` (token files; рядом с репозиторием, как
     его `{id}.gitconfig`, не внутри рабочего дерева), без keychain, без `teamcity`; всё гасится вместе с репозиторием. Один общий слушатель невозможен: обработчики fakes держат
     `State<Arc<FakeX>>`, а префикс пути для репозитория потребовал бы Router на репозиторий.
   - Space и GitHub репозитории тестового репозитория — факты хоста, а не templates: origin шаблонов — `.`, так что

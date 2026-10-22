@@ -605,7 +605,7 @@ crates/
 ├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
 ├── youtrack/        # YouTrack REST client, the sign-in through its Hub (OAuth, PKCE, refresh token), issues and commands
 ├── test-server/     # E2E mock server
-├── test-utils/      # Test repositories and fixture git (`git_command`)
+├── test-utils/      # Test repositories, fixture git (`git_command`) and, with the feature `http`, `fake_server`: the loopback HTTP server of the fakes of patronus, github, youtrack and the test server
 ├── sync-test-utils/ # Test helpers of the sync and the integration detection
 ├── integration-detection-tests/ # Tests of the integration detection
 └── …

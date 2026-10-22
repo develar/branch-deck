@@ -30,6 +30,8 @@ github = { path = "../github", features = ["fake"] }
 pretty_assertions.workspace = true
 tempfile.workspace = true
 test-log.workspace = true
+# `fake_youtrack` serves through `test_utils::fake_server` under `cfg(test)` too, without the workspace's feature unification
+test-utils = { path = "../test-utils", features = ["http"] }
 tokio = { workspace = true, features = ["time", "io-util"] }
 
 [lints]

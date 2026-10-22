@@ -134,21 +134,27 @@ Mock implementation:
   updater (`updater.rs`).
 - **The ratchet of page answers**: the fourth source of the registry test is the E2E tests themselves
   (`tests/e2e/**/*.ts`). It counts every answer a test gives in the page: each `routeCommand(page, "<name>", …)` and
-  each `.route("**/invoke/<name>", …)` whose handler fulfills without `route.fetch()` (a hold, a record and a rewrite
-  of the server's answer, `rewriteNextSyncEvents`, let the command run on the server). A write (`MUTATING`: the
-  Patronus, GitHub and YouTrack writes, the sign-ins, the git writes, the app's settings) has no page answer: the test
-  server runs it behind the fake of its service and the test asserts the fake's log ([Remote services](#remote-services));
-  its failure stays `routeCommandError`, the one page answer that is no route count. The page answers of the read
-  commands are pinned per command (`ROUTED_IN_PAGE`, ten commands: a robot a `/patronus` comment started, the
-  build progress of a running robot's details, a refused landing gate, …), and the pushes (`PUSHES_IN_PAGE`,
-  `routePush`/`routePushBranches`/`routeHeldPush`: the templates name the repository itself as `origin`, so a rejected
-  or moved remote has nowhere to come from) are the one exception among the writes. An answer counts where it is
-  given: a helper that answers (a declared `function`, exported from `helpers/` or a spec's own, through the helpers it
-  calls) counts its answers once per call, not once per definition, so the pinned pushes are the calls of the push
-  helpers; an answering arrow function kept in a `const` is refused, as is a second declaration of an answering
-  helper's name. A route handler that fulfills with an answer of its own on any branch is an answer, even when
-  another branch forwards the server's `response`. A new page answer fails, a removed one lowers its number;
-  `routeCommand` and a fulfilling route name their command by a string literal.
+  each `.route("**/invoke/<name>", …)` whose handler fulfills with an answer of its own (a hold, a record and a
+  rewrite of the server's answer, `rewriteNextSyncEvents`, let the command run on the server: a rewrite binds
+  `const response = await route.fetch()` and passes that binding as the `response` of its `fulfill`; a `fulfill` of
+  any other value, also one named `response`, is an answer, and a fetch bound any other way fails the scan). A write
+  (`MUTATING`: the Patronus, GitHub and YouTrack writes, the sign-ins, the git writes, the app's settings) has no page
+  answer: the test server runs it behind the fake of its service and the test asserts the fake's log
+  ([Remote services](#remote-services)); its failure stays `routeCommandError`, the one page answer that is no route
+  count. The page answers of the read commands are pinned per command (`ROUTED_IN_PAGE`, ten commands: a robot a
+  `/patronus` comment started, the build progress of a running robot's details, a refused landing gate, …), and the pushes
+  (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`/`routeHeldPush`: the templates name the repository itself as
+  `origin`, so a rejected or moved remote has nowhere to come from) are the one exception among the writes. An answer
+  counts where it is given: a helper that answers (a declared `function` at the outermost level, exported from
+  `helpers/` or a spec's own, through the helpers it calls) counts its answers once per call, not once per definition,
+  so the pinned pushes are the calls of the push helpers. Every other place that could answer more often than the scan
+  counts is refused: an answer, or a call of an answering helper, at the top level outside a test (`test(…)`,
+  `test.describe`, `test.beforeEach`, a fixture's `testWith…`), which is how a function kept in a `const` looks in any
+  of its forms (an arrow with a block or an expression body, with or without types, a function expression, a method of
+  an object); a function declared inside a helper that answers; and a second declaration of an answering helper's
+  name, in another file or the same. A route handler that fulfills with an answer of its own on any branch is an
+  answer, even when another branch forwards the server's `response`. A new page answer fails, a removed one lowers its
+  number; `routeCommand` and a fulfilling route name their command by a string literal.
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
   (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
   and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the
@@ -269,7 +275,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
 ([the ratchet of page answers](#implementation-notes)).
 
 - **Host** (`crates/test-server/src/remote_host.rs`): each test repository gets its `RemoteHost` on the first need
-  (`TestRepository::remote`), stopped when the repository is deleted (`FakeServer` aborts its listener on drop). It
+  (`TestRepository::remote`), stopped when the repository is deleted (`test_utils::fake_server::FakeServer`, the
+  loopback server of every fake, feature `http` of `test-utils`, aborts its listener on drop). It
   holds a fake GitHub (below) and `FakePatronus` (`crates/patronus/src/fake_patronus.rs`, `state_only`: nothing built in) and the
   `PatronusService` of the app on it, with a fixed token, no `teamcity` CLI, and the robot pages on `PATRONUS_URL`
   (`PatronusClient::with_web_url`), so a robot links where the app links it. The service is replaced on each Patronus
