@@ -1440,8 +1440,10 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   `approved`, `not_required`, or `unknown` while Patronus doesn't evaluate pull requests and the pull request has an
   approval (the start goes on: the robot decides). `review.waiting_for` names the code owners asked who haven't
   approved, `review.not_counted` the approvals Patronus doesn't count (a bot), `review.approved_on_github` the ones
-  that count. `--without-approvals` starts anyway, only when the user says so. A branch of more than 500 commits is not
-  checked (`review.skipped`).
+  that count. A start through the API whose merge profile is known to skip the code-owner review (the last robot's,
+  or `--profile`) is not refused for `missing` approvals, as the app's start is not: `review.skipped_by` is `profile`.
+  `--without-approvals` starts anyway, only when the user says so (`review.skipped_by`: `without_approvals`). A branch
+  of more than 500 commits is not checked (`review.skipped`).
 - The branch is pushed first, as `bd push <branch>` pushes it (`pushed`; the branches it is built on that have
   commits for the remote go along, parents first, with the lease and the refusals of `bd push`), under the repository
   lock with the sync and the checks; the start runs after the lock. A start is never repeated.

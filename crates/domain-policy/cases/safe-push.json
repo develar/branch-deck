@@ -536,7 +536,7 @@
     "group": "review",
     "title": "the profile of the last robot, which failed on an older commit, skips the review; the approvals missing",
     "spec": ["spec/branch/patronus.spec.md#safe-push-without-review", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D2",
+    "discrepancy": null,
     "given": {
       "readiness": "missing",
       "robot": {
@@ -560,11 +560,11 @@
     },
     "bd": {
       "check": {
-        "refusals": ["approvals_missing"],
+        "refusals": [],
         "profile": "lsc"
       },
       "start": {
-        "error": "approvals_missing"
+        "started_via": "api"
       }
     }
   },

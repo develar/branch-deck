@@ -133,6 +133,11 @@ const header = {
   group: z.string(),
   title: z.string(),
   spec: z.array(z.string()).min(1),
+  /**
+   * Of an entry of the registry: the stage of the design doc that closed the discrepancy; the entry stays the key of its
+   * id, `today` says where each side does it now, and no case is its twin any longer
+   */
+  closed: z.string().optional(),
 }
 
 /** Both sides answer `given` */

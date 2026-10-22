@@ -42,13 +42,13 @@
     "id": "skips-review-profile-of-the-api-start",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "a profile that skips the code-owner review: the app skips the approvals, bd refuses approvals_missing without --without-approvals or --create-pull-request",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#safe-push-without-review"],
+    "title": "a profile that skips the code-owner review: the app skipped the approvals, bd refused approvals_missing without --without-approvals or --create-pull-request; both skip them on the API route now",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#safe-push-without-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D2",
-    "twins": ["skips-review-profile"],
+    "closed": "s1-holes",
     "today": {
       "app": ["src/lib/safe-push-decision.ts#function skipsApprovals"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#code: ErrorCode::ApprovalsMissing,"]
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#} else if pull_request.is_none() && profile.is_some_and(|profile| profile.skips_review == Some(true)) {"]
     }
   },
   {

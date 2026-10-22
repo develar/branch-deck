@@ -172,10 +172,14 @@ describe("scenario cases", () => {
     const outside = cases.filter(scenario => scenario.group !== "discrepancies" && scenario.discrepancy !== null)
     expect(outside.map(scenario => scenario.id).filter(id => !twins.has(id))).toEqual([])
     expect(cases.filter(scenario => scenario.kind === "recorded" && scenario.group !== "discrepancies").map(scenario => scenario.id)).toEqual([])
-    // a discrepancy whose classes agree says what differs (D9: both start, the app by a failed read of the rules)
+    // a closed discrepancy stays the key of its id in the registry only, with no twins
+    expect(cases.filter(scenario => scenario.closed !== undefined && scenario.group !== "discrepancies").map(scenario => scenario.id)).toEqual([])
+    expect(registry.filter(entry => entry.closed !== undefined && entry.kind === "recorded" && entry.twins.length > 0).map(entry => entry.id)).toEqual([])
+    // a discrepancy whose classes agree says what differs (D9: both start, the app by a failed read of the rules); a
+    // closed one has nothing left to say
     const unexplained = cases
       .filter(isExercised)
-      .filter(scenario => scenario.discrepancy !== null && appOutcome(scenario) === bdOutcome(scenario) && scenario.today?.why === undefined)
+      .filter(scenario => scenario.discrepancy !== null && scenario.closed === undefined && appOutcome(scenario) === bdOutcome(scenario) && scenario.today?.why === undefined)
     expect(unexplained.map(scenario => scenario.id)).toEqual([])
   })
 

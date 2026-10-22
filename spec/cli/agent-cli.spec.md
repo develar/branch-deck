@@ -962,12 +962,17 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   the robot starts from, always asked again ([Patronus](../branch/patronus.spec.md#code-owner-review)), and a
   `missing` readiness must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review`
   naming the groups, their reviewers and files, as the app refuses the start (`getSafePushDecision`: "Patronus checks
-  the approvals when the robot starts and fails without them") and its next step disables Safe Push. `--without-approvals` must start anyway,
-  the counterpart of the app's Safe Push without review: with a `--profile` that skips the review (`--profile lsc`). The
-  `review` says `readiness` (`not_required`, `approved`, `missing`, `unknown`) with its `readiness_reason`, the code
-  owners asked who haven't approved (`waiting_for`), the approvals Patronus doesn't count (`not_counted`), and per
-  group `approved` and `needed`, per reviewer `approval_state`, when Patronus evaluated the pull request.
+  the approvals when the robot starts and fails without them") and its next step disables Safe Push. A start through the
+  API (no open pull request to start from) whose merge profile is known to skip the review (the options of the last
+  robot say `patronus.review.approval.check.skip`, or the list names it with the new API) must start without them, as
+  the app's start does (`skipsApprovals`); `--without-approvals` must start anyway on either route, the counterpart of
+  the app's Safe Push without review: with a `--profile` that skips the review (`--profile lsc`). The `review` says
+  `readiness` (`not_required`, `approved`, `missing`, `unknown`) with its `readiness_reason`, `skipped_by` (`profile` or
+  `without_approvals`) when the approvals don't hold the start back, the code owners asked who haven't approved
+  (`waiting_for`), the approvals Patronus doesn't count (`not_counted`), and per group `approved` and `needed`, per
+  reviewer `approval_state`, when Patronus evaluated the pull request.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):

@@ -22,15 +22,19 @@ pub struct ReviewSummary {
   /// when it evaluated the pull request, else every approver (an older Patronus doesn't say whose count)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub approved_on_github: Vec<String>,
-  /// What the review means for the start: `not_required`, `approved`, `missing` (refused as `approvals_missing`), or
-  /// `unknown` (Patronus doesn't say whether the approvals of the pull request count, or the branch is too long: the
-  /// robot decides)
+  /// What the review means for the start: `not_required`, `approved`, `missing` (refused as `approvals_missing` unless
+  /// `skipped_by`), or `unknown` (Patronus doesn't say whether the approvals of the pull request count, or the branch
+  /// is too long: the robot decides)
   pub readiness: String,
   /// Why: `approvals_missing`, `no_pull_request_context` (a start through the API counts no approval of a pull
   /// request), `no_eligible_reviewer` (a group has nobody who can approve) for `missing`; `approvals_not_evaluated` or
   /// `skipped` for `unknown`
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub readiness_reason: Option<String>,
+  /// Why the approvals don't hold the Safe Push back, so that a `missing` readiness is no refusal: `profile` (a start
+  /// through the API with a merge profile known to skip the code-owner review) or `without_approvals`
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub skipped_by: Option<String>,
   /// The code owners of the missing groups asked to review the pull request who haven't approved: the start waits for
   /// them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -201,7 +201,8 @@ Workflow: the commits into pull requests
      pushes and opens the pull request where they approve, assigned to the user (--no-assign leaves it unassigned;
      --reviewer <login>, repeatable, asks a `github_login` of `review.groups[].reviewers` that the user chose;
      `pull_request.warnings` says whom GitHub refused). Once they approved (`review.approved_on_github`), run it
-     again. --without-approvals starts anyway, only when the user says so: Patronus fails it.
+     again. --without-approvals starts anyway, only when the user says so: Patronus fails it. A merge profile known
+     to skip the review starts without them (`review.skipped_by`: `profile`).
    - `robot_running` (exit 4): a robot runs on the last commit, lands the branch with a branch of its stack or with the
      whole stack, or lands a branch it is built on; --cancel-running cancels a Safe Push of an older commit.
    - `dangling_reference` (exit 4, also in `refusals`): what the check of step 2 reports for the branch or a branch it

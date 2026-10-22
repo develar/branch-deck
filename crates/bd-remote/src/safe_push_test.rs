@@ -82,6 +82,39 @@ fn missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway() {
 }
 
 #[test_log::test]
+fn a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.fake.review_required.store(true, Ordering::SeqCst);
+  // the last robot of the branch ran with Large Scale Change, whose options say it skips the code-owner review
+  space.add_robot("older", "FAILURE", "auth", "0000");
+  space.fake.details.lock().unwrap().get_mut("older").unwrap()["options"]["patronus.review.approval.check.skip"] = json!("true");
+
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["profile"]["id"].clone(), output.get("refusals")), (json!("lsc"), None));
+  assert_eq!(
+    (output["review"]["readiness"].clone(), output["review"]["skipped_by"].clone()),
+    (json!("missing"), json!("profile"))
+  );
+
+  // the default checks don't skip it: the flag does
+  let (exit_code, output) = space.run(&["auth", "--profile", "none", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["refusals"][0]["code"].clone(), output["review"].get("skipped_by")),
+    (json!("approvals_missing"), None)
+  );
+  let (exit_code, output) = space.run(&["auth", "--profile", "none", "--without-approvals", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output.get("refusals"), output["review"]["skipped_by"].clone()), (None, json!("without_approvals")));
+
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["started_via"], json!("api"));
+  assert_eq!(space.last_start()["mergeProfileId"], json!("lsc"));
+}
+
+#[test_log::test]
 fn a_dry_run_takes_a_profile_by_name_and_checks_no_review() {
   let space = Space::new(&["(auth) Add auth"]);
   space.fake.review_required.store(true, Ordering::SeqCst);

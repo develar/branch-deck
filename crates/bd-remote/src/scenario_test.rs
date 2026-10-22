@@ -66,6 +66,9 @@ struct Case {
   /// Of an entry of the registry: the exercised cases of other groups that record the same discrepancy
   #[serde(default)]
   twins: Vec<String>,
+  /// Of an entry of the registry: the stage of the design doc that closed the discrepancy; the entry stays the key of
+  /// its id, `today` says where each side does it now, and no case is its twin any longer
+  closed: Option<String>,
   /// Where each side does it today: `path#text` or `path:line#text` (a test, a function, a line), from the repository root
   today: Option<Today>,
   #[expect(dead_code, reason = "the Vitest compares the classes of the outcomes")]
@@ -1351,6 +1354,11 @@ fn registry_failures(cases: &[Case]) -> Vec<String> {
           .map(|broken| format!("{}: {broken}", entry.id)),
       );
     }
+    if let Some(stage) = &entry.closed
+      && !entry.twins.is_empty()
+    {
+      failures.push(format!("{}: closed in {stage}, it has no twins", entry.id));
+    }
     for twin in &entry.twins {
       match cases.iter().find(|case| case.id == *twin) {
         Some(case) if case.group != "discrepancies" && case.discrepancy.as_deref() == Some(id) => {}
@@ -1367,8 +1375,11 @@ fn registry_failures(cases: &[Case]) -> Vec<String> {
     if case.kind == CaseKind::Recorded {
       failures.push(format!("{}: only the registry records a case", case.id));
     }
+    if case.closed.is_some() {
+      failures.push(format!("{}: only an entry of the registry is closed", case.id));
+    }
   }
-  failures.extend(design_doc_failures());
+  failures.extend(design_doc_failures(&registry));
   failures
 }
 
@@ -1415,8 +1426,8 @@ fn numbered_items(text: &str) -> Vec<String> {
 
 /// The design doc keeps up with the registry: every id has its row of the register and its entry under «Тесты каждой
 /// строки D», and a row that leaves the rule to the owner («владелец») has a numbered item of «Решения, которые
-/// подтверждает владелец» naming the id
-fn design_doc_failures() -> Vec<String> {
+/// подтверждает владелец» naming the id; the row of a closed entry says «закрыт», and its stage is a heading of the doc
+fn design_doc_failures(registry: &[&Case]) -> Vec<String> {
   let doc = std::fs::read_to_string(format!("{ROOT}/docs/design/rust-domain-authority.md")).unwrap();
   let register = section(&doc, "### Реестр расхождений");
   let decisions = numbered_items(section(&doc, "## Решения, которые подтверждает владелец"));
@@ -1433,6 +1444,17 @@ fn design_doc_failures() -> Vec<String> {
         ));
       }
       Some(_) => {}
+    }
+  }
+  for entry in registry {
+    let (Some(id), Some(stage)) = (entry.discrepancy.as_deref(), entry.closed.as_deref()) else {
+      continue;
+    };
+    if !doc.contains(&format!("\n### {stage}\n")) {
+      failures.push(format!("{id}: closed in {stage}, which is no stage `### {stage}` of the design doc"));
+    }
+    if register.lines().any(|line| line.starts_with(&format!("| {id} |")) && !line.contains("закрыт")) {
+      failures.push(format!("{id}: closed in {stage}, its row of the register doesn't say «закрыт»"));
     }
   }
   failures

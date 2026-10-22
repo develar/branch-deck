@@ -363,6 +363,8 @@ struct Plan {
   profiles: Vec<PatronusProfile>,
   profile: Option<PatronusProfile>,
   review: Option<Review>,
+  /// Why the approvals don't hold the start back; `None` when a `missing` readiness refuses it
+  approvals_skipped_by: Option<ApprovalsSkippedBy>,
   /// The open pull request the robot starts from: into the target, or for a branch into a virtual branch (retargeted
   /// first, `retargets`)
   pull_request: Option<PullRequest>,
@@ -387,6 +389,39 @@ struct Plan {
   stack: Option<StackPush>,
   /// The replay onto the newest target and what it means; `None` with `--create-pull-request`
   target_check: Option<(TargetCheck, TargetCheckSummary)>,
+}
+
+/// Why the approvals don't hold a Safe Push back, the `skipped_by` of the `review`
+#[derive(Debug, Clone, Copy)]
+enum ApprovalsSkippedBy {
+  /// A start through the API with a merge profile known to skip the code-owner review (the options of the last robot,
+  /// or the list with the new API), as the app's Safe Push without review starts; a `/patronus` comment has no profile
+  Profile,
+  /// `--without-approvals`
+  WithoutApprovals,
+}
+
+impl ApprovalsSkippedBy {
+  /// What a Safe Push skips the approvals for, if anything: never a dry run (no review) or a pull request it opens
+  /// (no start)
+  fn of(args: &SafePushArgs, pushes: bool, pull_request: Option<&PullRequest>, profile: Option<&PatronusProfile>) -> Option<Self> {
+    if !pushes || args.create_pull_request {
+      None
+    } else if args.without_approvals {
+      Some(Self::WithoutApprovals)
+    } else if pull_request.is_none() && profile.is_some_and(|profile| profile.skips_review == Some(true)) {
+      Some(Self::Profile)
+    } else {
+      None
+    }
+  }
+
+  const fn name(self) -> &'static str {
+    match self {
+      Self::Profile => "profile",
+      Self::WithoutApprovals => "without_approvals",
+    }
+  }
 }
 
 /// The stack branch a Safe Push of the whole stack pushes and starts from
@@ -596,7 +631,10 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
     whole_stack: whole_stack.map(|whole| whole.summary(&context.prefix)),
     profile: plan.profile.as_ref().map(profile_summary),
     profiles: plan.profiles.iter().map(profile_summary).collect(),
-    review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref())),
+    review: plan
+      .review
+      .as_ref()
+      .map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref(), plan.approvals_skipped_by)),
     push_needed: plan.push_needed,
     remotes: plan.remotes.clone(),
     refusals: Vec::new(),
@@ -1159,6 +1197,7 @@ fn plan(
         .iter()
         .all(|refusal| refusal.code != ErrorCode::StackConflict && refusal.code != ErrorCode::StackNotBuilt)
   });
+  let approvals_skipped_by = ApprovalsSkippedBy::of(args, pushes, pull_request.as_ref(), profile.as_ref());
   let review = if pushes && reviewable {
     let repository = ReadinessRepository {
       space: &space,
@@ -1176,8 +1215,9 @@ fn plan(
     );
     let review = review_readiness(context, service, runtime, &repository, &branch)?;
     // Patronus judges the approvals of the pull request the robot starts from; an older Patronus that doesn't say
-    // whose count leaves the start to the robot
-    if matches!(review.readiness, ReviewReadiness::Missing { .. }) && !args.without_approvals && !args.create_pull_request {
+    // whose count leaves the start to the robot. A profile that skips the review starts without them, as the app's
+    // Safe Push without review does
+    if matches!(review.readiness, ReviewReadiness::Missing { .. }) && approvals_skipped_by.is_none() && !args.create_pull_request {
       refusals.push(Refusal {
         code: ErrorCode::ApprovalsMissing,
         message: approvals_missing_message(&what, &rerun, &review, github.as_ref(), pull_request.as_ref()),
@@ -1201,6 +1241,7 @@ fn plan(
     profiles,
     profile,
     review,
+    approvals_skipped_by,
     pull_request,
     other_base_pull_request,
     retargets,
@@ -1756,7 +1797,7 @@ fn merge_request_summary(merge_request: &PatronusMergeRequest) -> MergeRequestSu
   }
 }
 
-fn review_summary(review: &Review, reviewed_on_github: bool, pull_request: Option<&PullRequest>) -> ReviewSummary {
+fn review_summary(review: &Review, reviewed_on_github: bool, pull_request: Option<&PullRequest>, skipped_by: Option<ApprovalsSkippedBy>) -> ReviewSummary {
   let requirement = &review.requirement;
   let missing_groups: &[MissingReviewGroup] = match &review.readiness {
     ReviewReadiness::Missing { groups, .. } => groups,
@@ -1794,6 +1835,7 @@ fn review_summary(review: &Review, reviewed_on_github: bool, pull_request: Optio
     approved_on_github: pull_request.map_or_else(Vec::new, |pull_request| github_approvers(requirement, pull_request)),
     readiness: readiness.to_string(),
     readiness_reason: readiness_reason.map(str::to_string),
+    skipped_by: skipped_by.map(|skipped_by| skipped_by.name().to_string()),
     waiting_for: missing_groups.iter().flat_map(|group| &group.requested).map(person_summary).collect(),
     not_counted: match &review.readiness {
       ReviewReadiness::Missing { not_counted, .. } => not_counted.iter().map(person_summary).collect(),

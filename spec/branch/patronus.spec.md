@@ -1064,8 +1064,11 @@ explicit choice of the user, offered only where the approvals count in a pull re
   with the warning triangle: "Emergency skips all checks of the Safe Push, not only the code-owner review: Patronus
   pushes into the target without testing it." The start is the REST start, announced and recorded in Activity as any;
   a profile that checks the review fails it before any build, told as [failed](#failed) with the profile named. Once a
-  pull request is open or the approvals are no longer missing, the popover is the usual one.
+  pull request is open or the approvals are no longer missing, the popover is the usual one. `bd safe-push` decides the
+  same: a start through the API with a profile known to skip the review (`--profile`, or the last robot's) starts
+  without the approvals, its `review.skipped_by` `profile` ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
   [@test] ../../src/lib/patronus.test.ts (`offers a Safe Push without review the profiles known to skip it, the unknown ones and the emergency ones apart`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`, `should say that an emergency profile skips all checks, and start with it`, `should start with the profile of the last robot when its options said it skips the review`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)

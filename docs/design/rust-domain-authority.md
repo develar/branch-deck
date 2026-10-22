@@ -74,7 +74,7 @@ D — одинаковый ввод даёт разный результат в 
 | id | Что | Приложение / `bd` (или вторая копия) | Одно правило |
 | --- | --- | --- | --- |
 | D1 | Push сбрасывает approvals, которые считает Patronus | UI отказывает (`safe-push-decision.ts:161-165`); `bd` не вызывает `read_branch_rules` (его единственный вызов — `src-tauri/src/commands/pull_requests.rs:230`) | `domain-policy::review`: отказ `push_dismisses_approvals { pr }`, исправление `push_then_request_review` |
-| D2 | Профиль с `skipsReview` | UI пропускает проверку approvals (`:110-112`); `bd` отказывает при `Missing`, если нет `--without-approvals`/`--create-pull-request` (`safe_push_command.rs:1170`) | `skips_approvals = mode == SafePush && route == Api && (without_approvals \|\| profile.skips_review)`; у comment-маршрута профиля нет (`:1099-1109`) |
+| D2 | Профиль с `skipsReview` | **закрыт (s1)**: UI пропускает проверку approvals (`:110-112`); `bd` отказывал при `Missing`, если нет `--without-approvals`/`--create-pull-request`, теперь пропускает её для профиля, который пропускает review, на API-маршруте (`ApprovalsSkippedBy::of`, `review.skipped_by`) | `skips_approvals = mode == SafePush && !create_pull_request && (without_approvals \|\| route == Api && profile.skips_review)`; у comment-маршрута профиля нет; `--without-approvals` у `bd` — «стартовать всё равно» на любом маршруте, как до s1 |
 | D3a | Порядок retarget при push | приложение до push, `bd push` после, `bd safe-push` до | `Retarget` в плане всегда **перед** `Push`; отказ GitHub на retarget собственного PR останавливает `Land`, а в `Push` только попадает в outcome |
 | D3b | PR в другую базу (release-ветка) | UI блокирует Safe Push (`branch-next-step.ts:505-524` → `safe-push-decision.ts:124`); `bd` стартует через API и игнорирует PR (`:1084`, `other_base_pull_request_start` `:527`) | `OtherBase` блокирует только старт, чьи approvals считаются (Safe Push по default checks); Dry Run, старт без review и профиль `skips_review` не блокирует; молча не retarget'ит — `Retarget` предлагается как исправление; `bd` получает отказ `pull_request_other_base { number, base }` |
 | D4 | Push поверх remote, который сдвинулся, но не имеет коммитов, которых нет у ветки | приложение повторяет push один раз (`push.ts:139-145`); `bd` отвечает `lease_rejected` | `domain-policy::push::over_moved_remote`: один повтор, только если `dropped_commits` пуст и у ветки есть работа; `bd` сообщает `pushed_over`; remote с чужими коммитами — `lease_rejected` у обоих |
@@ -116,7 +116,8 @@ D — одинаковый ввод даёт разный результат в 
 - **D1.** Сегодняшнее поведение закреплено:
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
-- **D2.** Сегодняшнее поведение закреплено:
+- **D2.** Закрыт в s1-holes (`closed: "s1-holes"`, бывший twin `skips-review-profile` — `discrepancy: null`):
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
 - **D3a.** Сегодняшнее поведение закреплено:
@@ -834,9 +835,11 @@ rewrites между процессами через файл `s10`; `s12` ждё
     readiness — предупреждение в `rules`; неудачное чтение — отказ `rules_unknown` (exit 4), который снимает
     `--allow-unknown-rules` (решение владельца 6: приложение подтверждает `rulesUnknown`, `bd` — флагом, как
     `--allow-missing`). Один GET правил, тем же `read_branch_rules`.
-  - D2: `skips_approvals = pushes && pull_request.is_none() && !create_pull_request && (without_approvals ||
-    profile.skips_review == Some(true))` над выбранным профилем (`--profile` или профиль последнего робота);
-    `review.skipped_by` (`profile` | `without_approvals`) говорит агенту, почему `readiness: missing` не отказ.
+  - D2: `skips_approvals = pushes && !create_pull_request && (without_approvals || pull_request.is_none() &&
+    profile.skips_review == Some(true))` над выбранным профилем (`--profile` или профиль последнего робота;
+    `ApprovalsSkippedBy::of` в `safe_push_command.rs`); `--without-approvals` и со стартом из PR остаётся «стартовать
+    всё равно», как до s1. `review.skipped_by` (`profile` | `without_approvals`) говорит агенту, почему
+    `readiness: missing` не отказ.
   - D10, факты remote: `BranchTable` получает `remote: RemoteFacts` из sync'а (tips из `SyncReport::remote_tips`,
     `up_to_date` из `RemoteStatusUpdate`, которые sync излучает; `remote_of` из `bd-remote/patronus_facts.rs`
     переезжает в `repository-view` одной функцией для обеих сторон). Guard'ы строят `patronus_view` из таблицы,
@@ -1427,7 +1430,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s0a-safety-net | приземлён |
 | s0b-remote-bridge | приземлён |
 | s0c-scenarios | приземлён |
-| s1-holes | не начат |
+| s1-holes | в работе |
 | s2-types | приземлён |
 | s3-crates | не начат |
 | s4-errors | не начат |

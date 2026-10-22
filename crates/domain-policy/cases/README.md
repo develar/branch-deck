@@ -67,10 +67,10 @@ knows every group of the files).
   "group": "review",
   "title": "the profile of the last robot, which failed on an older commit, skips the review; the approvals missing",
   "spec": ["spec/branch/patronus.spec.md#safe-push-without-review"],
-  "discrepancy": "D2",
+  "discrepancy": null,
   "given": { "readiness": "missing", "robot": { "state": "failure", "on": "older" }, "profile": { "lastRobot": "lsc", "skipsReview": true } },
-  "app": { "step": { "kind": "restart" }, "decision": { "kind": "confirm", "reasons": ["profile"] } },
-  "bd": { "check": { "refusals": ["approvals_missing"], "profile": "lsc" }, "start": { "error": "approvals_missing" } }
+  "app": { "step": { "kind": "createPullRequest" }, "decision": { "kind": "confirm", "reasons": ["profile"] } },
+  "bd": { "check": { "refusals": [], "profile": "lsc" }, "start": { "started_via": "api" } }
 }
 ```
 
@@ -107,13 +107,20 @@ either side reaches (the order of a retarget and a push, a retry, a request, the
 where each side does it today, each a list of `path#text` or `path:line#text` (a test, a function, a line of text) from
 the repository root: the text must be in the file, with a line on that line, so a pointer never goes stale silently (a
 bare `path:line` is refused). A recorded entry has no `given`, `app` or `bd`. `twins` names the exercised cases of other
-groups with the same `discrepancy` (D2: `skips-review-profile`, D3b: `row-5-prime-another-base`, D11: the three row 5
-cases, D15: `dry-run-while-a-safe-push-of-a-child-lands-the-branch`): a case outside the registry carries a discrepancy
-only as a twin of its entry. An exercised case whose classes agree carries `today.why`, what differs (D9: both start, the
-app by a failed read of the rules, `bd` because it never reads them).
+groups with the same `discrepancy` (D3b: `row-5-prime-another-base`, D11: the three row 5 cases, D15:
+`dry-run-while-a-safe-push-of-a-child-lands-the-branch`): a case outside the registry carries a discrepancy only as a
+twin of its entry. An exercised case whose classes agree carries `today.why`, what differs (D9: both start, the app by a
+failed read of the rules, `bd` because it never reads them).
 
-Both tests check the registry: each id once, the twins, no recorded case outside it; the Rust one also that every
-pointer of `today` resolves, the Vitest that a discrepancy whose classes agree says why. Both check every `spec` anchor
+A discrepancy that a stage closed keeps its entry, the key of its id, with `closed: "<stage>"` (a `### <stage>` of the
+design doc, whose register row says «закрыт»): its former twins answer alike now and carry `discrepancy: null`, so the
+entry has no `twins`; `today` of a recorded entry names where each side does it now, and an exercised one whose sides
+agree needs no `today.why` (D2, `closed: "s1-holes"`: both sides skip the approvals for a profile that skips the review,
+its former twin `skips-review-profile`). Only an entry of the registry is closed.
+
+Both tests check the registry: each id once, the twins, no recorded or closed case outside it, no twins of a closed
+entry; the Rust one also that every pointer of `today` resolves and that a closed entry names a stage whose row says
+«закрыт», the Vitest that a discrepancy whose classes agree says why. Both check every `spec` anchor
 of every case: the file exists, the slug after `#` is a heading of it (GitHub's slug: lower case, letters, digits and
 hyphens), a `#the-table:<row>` names a row of the table. D8 is recorded: the vocabulary has no stored stack parent, so its case is a test of each side
 of its own, `the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8` (Rust: the placement, the
