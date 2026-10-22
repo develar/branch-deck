@@ -596,7 +596,11 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   - `architecture_test.rs` над `cargo metadata` с правилами [Crates](#crates-и-направление-зависимостей) и allowlist
     сегодняшних нарушений: `sync-types → git-ops`, `patronus → git-ops`, `sync-core → github/patronus/youtrack/
     file-diffs/code-symbols`, `bd-remote → bd-rewrite`, `src-tauri → bd-lease`. `bd-clustering` до переименования
-    тест считает библиотекой, не семейством; dev-dependency на `bd-cli` с `fixtures` правила разрешают.
+    тест считает библиотекой, не семейством; dev-dependency на `bd-cli` с `fixtures` правила разрешают. Сделано:
+    правила и allowlist — данные (`UNREACHABLE`, `ALLOWED` с этапом, который убирает запись); достижимость — по
+    normal-рёбрам без записей allowlist, прямые правила (`branch-deck`, `tauri*`, слой `bd-*`) — по рёбрам любого вида;
+    запись, чьего ребра нет или без которой ничего не ломается, роняет тест; `--no-deps` видит внешние crates только
+    как прямые зависимости crates workspace.
   - Span на каждую команду Tauri и `bd` с `operation_id`: тип `OperationId` (ULID, `sync-utils`) пока создаётся на
     каждый вызов (корневой span `operation{op, operation_id}` в `bd_cli::run`, child span в `run_blocking`, который
     переносит `Span::current()` в `spawn_blocking`); с `s10` его создаёт допуск. `CommandError` несёт `operation_id`

@@ -99,7 +99,7 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 
 | You changed | Run |
 |---|---|
-| Rust | `pnpm lint:backend`, then `cargo nextest run --workspace` (`-p <crate>` or `-E 'test(/…/)'` while iterating) |
+| Rust | `pnpm lint:backend`, then `cargo nextest run --workspace` (`-p <crate>` or `-E 'test(/…/)'` while iterating); a new cross-crate edge fails the architecture test (`crates/bd-cli/src/architecture_test.rs`: the rules of [Crates](docs/design/rust-domain-authority.md#crates-и-направление-зависимостей) on `cargo metadata`, an allowlist that only shrinks) |
 | a git operation | also its test in `process_budget_test.rs` and the scan tests (`worktree_safety_test.rs`, `git_usage_scan_test.rs`) |
 | a Tauri command or a type it passes | `src/lib/bindings.ts`: `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` writes it, headless; without the variable the test fails on a stale one |
 | frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code |

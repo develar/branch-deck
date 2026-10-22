@@ -366,6 +366,8 @@ fn io_error(error: std::io::Error) -> CliError {
 #[cfg(test)]
 mod agent_help_test;
 #[cfg(test)]
+mod architecture_test;
+#[cfg(test)]
 mod context_test;
 #[cfg(test)]
 mod error_test;
