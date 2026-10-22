@@ -1,0 +1,77 @@
+{
+  "given": {"branch": "suspend", "commits": [], "dangling": "changed"},
+  "readiness": {
+    "suspend": {
+      "pullRequest": null,
+      "readiness": {"kind": "notRequired"},
+      "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
+      "tip": "suspend-tip"
+    }
+  },
+  "remoteTips": {},
+  "robots": [
+    {
+      "branchName": "other",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "from-comment",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/from-comment"
+    }
+  ],
+  "stackTips": {},
+  "tips": {"journey": "journey-tip", "suspend": "suspend-tip"},
+  "view": {
+    "branches": {
+      "journey": {
+        "dryRun": null,
+        "hold": null,
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      },
+      "suspend": {
+        "dryRun": null,
+        "hold": null,
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {
+          "refusals": [
+            {
+              "branch": "suspend",
+              "file": "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt",
+              "fix": {
+                "commit": {"branch": "journey", "id": "journey-c0", "subject": "IJAI-4182 The journey support goes with its tests"},
+                "into": "suspend",
+                "kind": "moveCommit"
+              },
+              "fixedBy": {"branch": "journey", "id": "journey-c0", "subject": "IJAI-4182 The journey support goes with its tests"},
+              "identifier": "cleanup",
+              "kind": "danglingReference",
+              "line": 8,
+              "reference": "changed",
+              "removedBy": {"branch": "suspend", "id": "suspend-c0", "subject": "IJAI-4185 The cleanups may suspend"}
+            }
+          ],
+          "state": "known"
+        },
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      }
+    },
+    "landedByRobot": {},
+    "stacks": {}
+  }
+}

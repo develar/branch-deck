@@ -1,33 +1,20 @@
-// The app's side of a scenario case (`crates/domain-policy/cases/README.md`): `given` seeded into the stores as the
-// sync, the repository view, Patronus, GitHub and the review scan leave them (`seedScenario`), then the app's own
-// readers answer: `getBranchNextStepOf` and `getStackNextStepNow` for the step, `readSafePush` for the decision. The
-// adapter maps `given` to store-shaped facts and computes no rule of the app; a value the README doesn't map fails
-// with "not mapped yet"
+// The app's side of a scenario case (`crates/domain-policy/cases/README.md`): the stores seeded as the sync, the
+// repository view, Patronus, GitHub and the review scan leave them (`seedScenario`), then the app's own readers answer:
+// `getBranchNextStepOf` and `getStackNextStepNow` for the step, `readSafePush` for the decision. What the Rust core
+// computes of the case's repository (the tips, the robots, the repository view, the review readiness) comes from
+// `cases/facts/<id>.json`, which the Rust scenario test writes from the same `given`; the adapter maps the rest of
+// `given` to store-shaped facts and computes no rule of either side. A value the README doesn't map fails with "not
+// mapped yet"
 import { vi } from "vite-plus/test"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
 import { readDismissesStaleReviews, resetDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
 import type { SafePushRead } from "@/hooks/useSafePush"
 import { readSafePush } from "@/hooks/useSafePush"
 import { getStackNextStepNow } from "@/hooks/useStackNextStep"
-import type {
-  BranchPatronus,
-  LandedByView,
-  LandingRefusal,
-  PatronusProfile,
-  PatronusRobot,
-  PatronusStartOptions,
-  PatronusView,
-  PullRequest,
-  ReviewReadiness,
-  RobotOf,
-  SpanView,
-  StackPatronus,
-} from "@/lib/bindings"
+import type { PatronusProfile, PatronusReviewRequirement, PatronusRobot, PatronusStartOptions, PatronusView, PullRequest, ReviewReadiness } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
-import { group, ilya, missing } from "@/lib/test-next-step-facts"
-import { robotsById, testRobot } from "@/lib/test-robot"
-import { stackReadinessKey } from "@/lib/whole-stack"
+import { robotsById } from "@/lib/test-robot"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { landedStore } from "@/stores/landed"
@@ -36,7 +23,7 @@ import { pullRequestsStore } from "@/stores/pull-requests"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { readinessInputOf, reviewReadinessStore } from "@/stores/review-readiness"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
-import { branchFacts, testPatronusRepository } from "@/test-support/patronus-repository"
+import { testPatronusRepository } from "@/test-support/patronus-repository"
 import type { Given, GivenRobot } from "@/test-support/scenario-case"
 import { robotsOf } from "@/test-support/scenario-case"
 
@@ -47,25 +34,57 @@ const KEY = `${REPOSITORY_PATH}\n${PREFIX}`
 const TARGET = "master"
 const BASELINE = "origin/master"
 const GITHUB_REPOSITORY = "acme/monorepo"
-/** The GitHub login of Ilya Korennoy, the member of IJPL Code Platform Patronus suggests */
-const ILYA = "ikorennoy"
 /** The commit of a conflict of the stack branch, as the sync names it */
 const CONFLICT_COMMIT = "0caf9066d2a4c3b1e5f7a9b8c6d4e2f1a3b5c7d9"
-/** The stack branch's tip as the sync built it */
-const STACK_TIP = "stack-tip"
+
+/** The command that rewrites the facts files */
+export const UPDATE_FACTS = "UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/facts_of/)'"
+
+/** An answer of the review scan as the facts hold it: what Rust answered for a key of the review-readiness store */
+interface ReadinessFact {
+  readonly readiness: ReviewReadiness
+  readonly requirement: PatronusReviewRequirement | null
+  readonly tip: string
+  readonly pullRequest: number | null
+}
+
+/**
+ * What the Rust core computes of the case's repository, written by the `the_facts_of_the_<group>_cases_are_what_the_fixtures_leave` tests
+ * (`crates/bd-remote/src/scenario_test.rs`) from the fixtures of the same `given`: the tips of the virtual branches, of
+ * their remote branches and of the stack branches (`<branch>-tip`, `<branch>-remote`, `stack-<root>-tip`), the robots
+ * as the list answers them, the repository view (`patronus_view` with the landing needs) and the review readiness of
+ * the branch and of its whole stack, by the keys of the review-readiness store
+ */
+export interface ScenarioFacts {
+  /** `given` the facts were computed from, as the case file has it */
+  readonly given: unknown
+  readonly tips: Readonly<Record<string, string>>
+  readonly remoteTips: Readonly<Record<string, string>>
+  readonly stackTips: Readonly<Record<string, string>>
+  readonly robots: readonly PatronusRobot[]
+  readonly view: PatronusView
+  readonly readiness: Readonly<Record<string, ReadinessFact>>
+}
+
+const FACTS_DIRECTORY = "/crates/domain-policy/cases/facts"
+const factsFiles = import.meta.glob<ScenarioFacts>("/crates/domain-policy/cases/facts/*.json", { eager: true, import: "default" })
+
+/** The facts of the case `id`; a case without its file fails: the Rust test writes it */
+export function factsOf(id: string): ScenarioFacts {
+  const facts = factsFiles[`${FACTS_DIRECTORY}/${id}.json`]
+  if (facts === undefined) {
+    throw new Error(`no facts of ${id}: ${UPDATE_FACTS} writes them`)
+  }
+  return facts
+}
 
 function notMapped(what: string): never {
   throw new Error(`given.${what} is not mapped yet`)
 }
 
-/** The tip of `name` as the sync built it */
-function tipOf(name: string): string {
-  return `${name}-tip`
-}
-
-/** The commit `bd push` pushed of `name`, which the remote branch has */
-function pushedOf(name: string): string {
-  return `${name}-pushed`
+/** The tip of `name` as the sync built it, as the facts name it */
+function tipOf(facts: ScenarioFacts, name: string): string {
+  return facts.tips[name] ?? `${name}-tip`
 }
 
 // ---- the branches of the commits ----
@@ -136,11 +155,13 @@ function parkedBranchOf(given: Given): string | undefined {
  * ancestors of the branch are on the remote with it; a commit added since (`unpushed`) and a commit of someone else
  * (`behind`) are the branch's own; a stack rebuilt on a newer baseline has its commits by content on the remote
  */
-function remoteStatusOf(given: Given, name: string): RemoteStatus {
+function remoteStatusOf(given: Given, facts: ScenarioFacts, name: string): RemoteStatus {
   const own = name === given.branch
   const inStack = own || ancestorsOf(given, given.branch).includes(name)
   const commits = branchesOf(given).get(name)?.commits ?? 0
-  const unpushed = testRemoteStatus({ exists: false, commitsAhead: commits, myCommitsAhead: commits, unpushedCommits: [tipOf(name)], remoteTip: null })
+  const tip = tipOf(facts, name)
+  const remoteTip = facts.remoteTips[name] ?? null
+  const unpushed = testRemoteStatus({ exists: false, commitsAhead: commits, myCommitsAhead: commits, unpushedCommits: [tip], remoteTip: null })
   if (!inStack) {
     return unpushed
   }
@@ -148,45 +169,46 @@ function remoteStatusOf(given: Given, name: string): RemoteStatus {
     case "none":
       return unpushed
     case "upToDate":
-      return testRemoteStatus({ remoteTip: tipOf(name) })
+      return testRemoteStatus({ remoteTip })
     case "unpushed":
-      return own
-        ? testRemoteStatus({ remoteTip: pushedOf(name), commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: [tipOf(name)] })
-        : testRemoteStatus({ remoteTip: tipOf(name) })
+      return own ? testRemoteStatus({ remoteTip, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: [tip] }) : testRemoteStatus({ remoteTip })
     case "behind":
       return own
         ? testRemoteStatus({
-            remoteTip: "theirs",
+            remoteTip,
             commitsBehind: 1,
-            droppedCommits: [{ id: "theirs", subject: "Someone else", author: "Other", authorTime: 0 }],
+            droppedCommits: [{ id: remoteTip ?? "theirs", subject: "Someone else", author: "Other", authorTime: 0 }],
             fastForward: false,
           })
-        : testRemoteStatus({ remoteTip: tipOf(name) })
+        : testRemoteStatus({ remoteTip })
     case "rebuiltOnNewerBaseline":
       // the same commits by content, rebuilt on a newer baseline: not a fast-forward of the remote branch
-      return testRemoteStatus({ remoteTip: pushedOf(name), fastForward: false })
+      return testRemoteStatus({ remoteTip, fastForward: false })
   }
 }
 
 /** The branch `name` as the sync left it: its tip, its count, failed (`conflicts`) or blocked by the branch that did */
-function branchOf(given: Given, name: string, parent: string | null, commits: number): Branch {
+function branchOf(given: Given, facts: ScenarioFacts, name: string, parent: string | null, commits: number): Branch {
   const failed = given.conflicts === name
   const blockedBy = given.conflicts !== undefined && ancestorsOf(given, name).includes(given.conflicts) ? given.conflicts : null
   const status = given.sync === "running" ? "Syncing" : failed ? "Error" : blockedBy !== null ? "Blocked" : "Unchanged"
   const base = testBranch(name, parent)
   return testBranch(name, parent, {
-    commits: commits === 0 ? [] : [{ originalHash: `${name}-original`, hash: tipOf(name), strippedSubject: name, message: name, author: "Ann", authorTime: 0, committerTime: 0 }],
+    commits:
+      commits === 0
+        ? []
+        : [{ originalHash: `${name}-c${commits - 1}`, hash: tipOf(facts, name), strippedSubject: name, message: name, author: "Ann", authorTime: 0, committerTime: 0 }],
     // the baseline landed the commits rebuilt (`byContent`): one is left
     commitCount: given.landed === "byContent" && name === given.branch ? 1 : commits,
     status,
     hasError: failed,
-    remoteStatus: remoteStatusOf(given, name),
+    remoteStatus: remoteStatusOf(given, facts, name),
     stack: { ...base.stack!, blockedBy: blockedBy === null ? null : { parent: blockedBy, reason: "Error" } },
   })
 }
 
 /** The stack branch of the stack of `root` as the sync left it */
-function stackBranchOf(given: Given, root: string, members: string[]): StackBranch {
+function stackBranchOf(given: Given, facts: ScenarioFacts, root: string, members: string[]): StackBranch {
   const conflicts = given.conflicts !== undefined && members.includes(given.conflicts)
   const blocked = given.stackBranch === "notBuilt"
   return {
@@ -195,7 +217,7 @@ function stackBranchOf(given: Given, root: string, members: string[]): StackBran
     members,
     commitCount: members.reduce((count, member) => count + (branchesOf(given).get(member)?.commits ?? 0), 0),
     state: conflicts ? "Conflict" : blocked ? "Blocked" : "Built",
-    tip: conflicts || blocked ? null : STACK_TIP,
+    tip: conflicts || blocked ? null : (facts.stackTips[root] ?? null),
     blockedBy: blocked ? { member: members.at(-1)!, reason: "Problem" } : null,
     conflict: conflicts ? { commit: CONFLICT_COMMIT, files: ["config.txt"] } : null,
     error: null,
@@ -204,11 +226,11 @@ function stackBranchOf(given: Given, root: string, members: string[]): StackBran
 }
 
 /** The table of the sync: the branches, the stack branches of the stacks that fork, the parked notes, the baseline */
-function seedSync(given: Given): void {
+function seedSync(given: Given, facts: ScenarioFacts): void {
   const structure = branchesOf(given)
-  const branches = Object.fromEntries([...structure].map(([name, { parent, commits }]) => [name, branchOf(given, name, parent, commits)]))
+  const branches = Object.fromEntries([...structure].map(([name, { parent, commits }]) => [name, branchOf(given, facts, name, parent, commits)]))
   const roots = [...structure.keys()].filter(name => structure.get(name)?.parent === null)
-  const stackBranches = Object.fromEntries(roots.filter(root => isForking(given, root)).map(root => [root, stackBranchOf(given, root, membersOf(given, root))]))
+  const stackBranches = Object.fromEntries(roots.filter(root => isForking(given, root)).map(root => [root, stackBranchOf(given, facts, root, membersOf(given, root))]))
   const parked = parkedBranchOf(given)
   branchSyncStore.setState({
     branches,
@@ -226,140 +248,27 @@ function seedSync(given: Given): void {
 
 // ---- the robots and the repository view ----
 
-/** A robot of `given` with the branch it ran on (null: the stack branch of the root) */
-interface ScenarioRobot {
-  readonly given: GivenRobot
-  readonly robot: PatronusRobot
-  readonly subject: string | null
-}
-
-/** The robots `given` describes: on the tip of the branch, an older commit (`0000`), its remote branch, another branch, the stack branch */
-function robotsIn(given: Given): ScenarioRobot[] {
-  const branch = given.branch
-  const profile = given.profile
-  return robotsOf(given).map((robot, index) => {
-    const status = robot.state
-    const finishTime = status === "running" ? null : 1704189600 + index
-    const [where, other] = robot.on.split(":") as [string, string | undefined]
-    const own = where === "tip" || where === "older" || where === "remote"
-    const common: Partial<PatronusRobot> = {
-      status,
-      finishTime,
-      pullRequest: robot.fromPullRequest ? { number: 7, url: "https://github.com/acme/monorepo/pull/7" } : null,
-      // with the new API the list names the profile of the robot; the options of its start name the one of the last robot
-      profile: own && profile?.newApi === true && profile.lastRobot === "lsc" ? { id: "lsc", name: "Large Scale Change", skipsReview: profile.skipsReview } : null,
-    }
-    const id = `robot-${index}`
-    switch (where) {
-      case "tip":
-        return { given: robot, robot: testRobot(id, branch, common), subject: branch }
-      case "older":
-        return { given: robot, robot: testRobot(id, branch, { ...common, sourceRevision: "0000" }), subject: branch }
-      case "remote":
-        return { given: robot, robot: testRobot(id, branch, { ...common, sourceRevision: pushedOf(branch) }), subject: branch }
-      case "stack":
-        return { given: robot, robot: testRobot(id, null, { ...common, sourceRevision: STACK_TIP, stackRoot: rootOf(given, branch) }), subject: null }
-      default:
-        return { given: robot, robot: testRobot(id, other!, common), subject: other! }
-    }
-  })
-}
-
-/** What the robot ran on, as the view names it: its branch, or the root of the whole stack */
-function robotOf(given: Given, robot: ScenarioRobot): RobotOf {
-  return robot.subject === null
-    ? { branch: rootOf(given, given.branch), robotId: robot.robot.id, wholeStack: true }
-    : { branch: robot.subject, robotId: robot.robot.id, wholeStack: false }
-}
-
-/** The branches the robot lands (its merge landed): its branch and those it is built on, of the whole stack every member */
-function landsOf(given: Given, robot: ScenarioRobot): string[] {
-  return robot.subject === null ? membersOf(given, rootOf(given, given.branch)) : [...ancestorsOf(given, robot.subject), robot.subject]
+/** The id the fixtures give the robot at `index` of `given.robot` (`add_robots` of the Rust side): `older` for the one on an older commit */
+function robotIdOf(index: number, robot: GivenRobot): string {
+  return robot.on === "older" ? "older" : `robot-${index}`
 }
 
 /**
- * The facts of `name` as the repository view computes them of the robots (`patronus_view`): a merged robot that landed
- * it and those it is built on (of an older commit of the branch itself, its tip is the commit after); the span of a
- * running robot of a branch built on it, or of its whole stack; the hold: landed whole, else its own running robot,
- * else the span; the nearest ancestor whose own robot runs, or that a robot of a side branch lands. `start`, `dryRun`
- * and `startBlocked` are what `bd` reads of the view; the page decides them itself (`canStartRobot`)
+ * Patronus as the store holds it: the robots as the list answers them and the repository view as `patronus_view`
+ * computes it of them (the facts), the GitHub repository, the robots that failed for the approvals (`needsReview`, what
+ * the poll of a failed robot's problems says, by the robot's id)
  */
-function branchViewOf(given: Given, name: string, robots: readonly ScenarioRobot[]): BranchPatronus {
-  const running = robots.filter(robot => robot.given.state === "running")
-  let landedBy: LandedByView | null = null
-  for (const robot of robots.filter(robot => robot.given.state === "success" && landsOf(given, robot).includes(name))) {
-    const own = robot.subject === name
-    const after = own && robot.given.on === "older" ? [tipOf(name)] : []
-    if (landedBy === null || after.length < landedBy.after.length) {
-      landedBy = { by: robotOf(given, robot), own, landed: [], after }
-    }
-  }
-  const spanOf = (of: string): SpanView | null => {
-    const robot = running.find(robot => robot.subject !== of && landsOf(given, robot).includes(of))
-    return robot === undefined ? null : { by: robotOf(given, robot), carried: null }
-  }
-  const span = spanOf(name)
-  const ownRunning = running.find(robot => robot.subject === name)
-  const hold =
-    landedBy !== null && landedBy.after.length === 0
-      ? { kind: "landed" as const, by: landedBy.by, carried: null }
-      : ownRunning !== undefined
-        ? { kind: "own" as const, by: robotOf(given, ownRunning), carried: null }
-        : span === null
-          ? null
-          : { kind: "span" as const, by: span.by, carried: null }
-  const landingAncestor = ancestorsOf(given, name)
-    .toReversed()
-    .map(ancestor => {
-      const ownRobot = running.find(robot => robot.subject === ancestor)
-      if (ownRobot !== undefined) {
-        return robotOf(given, ownRobot)
-      }
-      const ancestorSpan = spanOf(ancestor)
-      return ancestorSpan !== null && ancestorSpan.by.branch !== name ? ancestorSpan.by : null
-    })
-    .find(landing => landing !== null)
-  return branchFacts({
-    landedBy,
-    span,
-    landingAncestor: landingAncestor ?? null,
-    hold,
-    landingNeeds: { state: "known", refusals: landingNeedsOf(given, name) },
-  })
-}
-
-/** The facts of the whole stack of `root` in the view: the first member whose own robot runs, the running robot of the stack branch */
-function stackViewOf(given: Given, root: string, robots: readonly ScenarioRobot[]): StackPatronus {
-  const running = robots.filter(robot => robot.given.state === "running")
-  const member = membersOf(given, root)
-    .map(member => running.find(robot => robot.subject === member))
-    .find(robot => robot !== undefined)
-  const stackRobot = running.find(robot => robot.subject === null)
-  return {
-    landingMember: member === undefined ? null : robotOf(given, member),
-    holdRobotId: stackRobot?.robot.id ?? null,
-    startBlocked: false,
-    start: null,
-    dryRun: null,
-  }
-}
-
-/** Patronus as the store holds it: the robots, what the view says of the branches, the GitHub repository, the failed-for-approvals robots */
-function seedPatronus(given: Given): void {
-  const robots = robotsIn(given)
-  const names = [...branchesOf(given).keys()]
-  const view: PatronusView = {
-    branches: Object.fromEntries(names.map(name => [name, branchViewOf(given, name, robots)])),
-    stacks: Object.fromEntries(names.filter(name => rootOf(given, name) === name && isForking(given, name)).map(root => [root, stackViewOf(given, root, robots)])),
-    landedByRobot: {},
-  }
+function seedPatronus(given: Given, facts: ScenarioFacts): void {
+  const needsReview = robotsOf(given)
+    .map((robot, index) => [robotIdOf(index, robot), robot.reason === "approvals"] as const)
+    .filter(([, failedForApprovals]) => failedForApprovals)
   patronusStore.setState({
     repositories: {
       [KEY]: {
-        ...testPatronusRepository(robotsById(...robots.map(robot => robot.robot)), view),
+        ...testPatronusRepository(robotsById(...facts.robots), facts.view),
         availability: given.notOnSpace === true ? { status: "notPatronus" } : { status: "available" },
         githubRepository: given.readiness === "space" ? null : GITHUB_REPOSITORY,
-        needsReview: Object.fromEntries(robots.filter(robot => robot.given.reason === "approvals").map(robot => [robot.robot.id, true])),
+        needsReview: Object.fromEntries(needsReview),
       },
     },
   })
@@ -372,7 +281,7 @@ function isListed(given: Given): boolean {
 }
 
 /** The pull request #7 of `branch` as GitHub lists it: of `pullRequest.of` only, when it names a branch */
-function pullRequestOf(given: Given, branch: string): PullRequest | undefined {
+function pullRequestOf(given: Given, facts: ScenarioFacts, branch: string): PullRequest | undefined {
   const pullRequest = given.pullRequest
   if (pullRequest === undefined || (pullRequest.of !== undefined && pullRequest.of !== branch)) {
     return undefined
@@ -387,7 +296,7 @@ function pullRequestOf(given: Given, branch: string): PullRequest | undefined {
     headRefName: `${PREFIX}/virtual/${branch}`,
     baseRefName: pullRequest.base,
     // GitHub merged it with the commits the branch has
-    headRefOid: pullRequest.state === "merged" ? tipOf(branch) : "1111",
+    headRefOid: pullRequest.state === "merged" ? tipOf(facts, branch) : "1111",
     checks: null,
     updatedAt: 0,
     reviewers: [
@@ -400,7 +309,7 @@ function pullRequestOf(given: Given, branch: string): PullRequest | undefined {
 }
 
 /** The open pull request #12 of the stack branch of `root` */
-function stackPullRequestOf(root: string): PullRequest {
+function stackPullRequestOf(facts: ScenarioFacts, root: string): PullRequest {
   return {
     number: 12,
     title: `The whole ${root} stack`,
@@ -410,7 +319,7 @@ function stackPullRequestOf(root: string): PullRequest {
     reviewDecision: null,
     headRefName: `${PREFIX}/stack/${root}`,
     baseRefName: TARGET,
-    headRefOid: STACK_TIP,
+    headRefOid: facts.stackTips[root] ?? "stack-tip",
     checks: null,
     updatedAt: 0,
     reviewers: [],
@@ -419,10 +328,10 @@ function stackPullRequestOf(root: string): PullRequest {
 }
 
 /** GitHub as the store holds it: the pull requests of the branches and of the stack branches, or why none is listed */
-function seedGitHub(given: Given): void {
+function seedGitHub(given: Given, facts: ScenarioFacts): void {
   const listed = isListed(given)
   const branch = given.pullRequest?.of ?? given.branch
-  const pullRequest = listed ? pullRequestOf(given, branch) : undefined
+  const pullRequest = listed ? pullRequestOf(given, facts, branch) : undefined
   const root = rootOf(given, given.branch)
   pullRequestsStore.setState({
     repositories: {
@@ -434,7 +343,7 @@ function seedGitHub(given: Given): void {
               ? { status: "error", message: "GitHub answered 500" }
               : { status: "available", owner: "acme", name: "monorepo" },
         pullRequests: pullRequest === undefined ? {} : { [branch]: pullRequest },
-        stackPullRequests: given.stackPullRequest === true && listed ? { [root]: stackPullRequestOf(root) } : {},
+        stackPullRequests: given.stackPullRequest === true && listed ? { [root]: stackPullRequestOf(facts, root) } : {},
         fetchedAt: 1,
         isRefreshing: false,
       },
@@ -442,107 +351,32 @@ function seedGitHub(given: Given): void {
   })
 }
 
-/** What Rust answers for the branch (`to_branch_readiness`), as the review-readiness store holds it; null: not asked yet */
-function readinessOf(given: Given, pullRequest: PullRequest | undefined): ReviewReadiness | null {
-  const asked = (login: string) => pullRequest?.reviewers.some(reviewer => reviewer.requested && reviewer.login === login) === true
-  const changed = (login: string) => pullRequest?.reviewers.some(reviewer => reviewer.state === "changesRequested" && reviewer.login === login) === true
-  switch (given.readiness) {
-    case "notAsked":
-      return null
-    case "notRequired":
-    case "unlisted":
-      return { kind: "notRequired" }
-    case "approved":
-      return { kind: "approved", groups: [{ name: "IJPL Code Platform", approvedBy: [ilya] }] }
-    case "missing": {
-      const missingGroup = group({ requested: asked(ILYA) ? [ilya] : [], changesRequestedBy: changed(ILYA) ? [ilya] : [] })
-      return missing([missingGroup], { notCounted: [], reason: pullRequest === undefined ? "noPullRequestContext" : "approvalsMissing" })
-    }
-    case "space":
-      return missing([group({ requested: [] })], { notCounted: [], reason: "approvalsMissing" })
-    case "unknown":
-      return { kind: "unknown", reason: "approvalsNotEvaluated" }
-    case "unavailable":
-      return { kind: "unavailable", reason: "error", message: "Patronus answered 500" }
-  }
-}
-
 /**
- * The answers of the review scan for the branch and for the whole stack of its root, each under the key of the input
- * the branch has now (`readinessInputOf`, so a start reads them as fresh); a repository only on Space carries the
- * requirement of its merge request. Seeded after the branches and the pull requests, which the key is computed from
+ * The answers of the review scan as the facts hold them (Rust asked Patronus and GitHub for the branch, and for the
+ * whole stack of its root while the sync built its stack branch), each under the key of the input the branch has now
+ * (`readinessInputOf`, so a start reads them as fresh); none while the app hasn't asked (`notAsked`). Seeded after the
+ * branches and the pull requests, which the key is computed from
  */
-function seedReadiness(given: Given): void {
+function seedReadiness(facts: ScenarioFacts): void {
   const entries: Record<string, ReadinessEntry> = {}
-  const add = (key: string, tip: string, pullRequest: PullRequest | undefined): void => {
-    const readiness = readinessOf(given, pullRequest)
+  for (const [key, answer] of Object.entries(facts.readiness)) {
     const input = readinessInputOf(key)
-    if (readiness === null || input === null) {
-      return
+    if (input === null) {
+      continue
     }
     entries[key] = {
       key: input.key,
-      readiness,
-      requirement: given.readiness === "space" ? { required: true, mergeRequest: null, groups: [], skipped: false } : null,
+      readiness: answer.readiness,
+      requirement: answer.requirement,
       stale: false,
       answeredAt: 0,
-      tip,
-      pullRequest: pullRequest?.number ?? null,
+      tip: answer.tip,
+      pullRequest: answer.pullRequest,
       waitingFor: [],
       approvedBy: [],
     }
   }
-  const branch = given.branch
-  add(branch, tipOf(branch), isListed(given) ? pullRequestOf(given, branch) : undefined)
-  const root = rootOf(given, branch)
-  if (isForking(given, root)) {
-    add(stackReadinessKey(root), STACK_TIP, given.stackPullRequest === true && isListed(given) ? stackPullRequestOf(root) : undefined)
-  }
   reviewReadinessStore.setState({ repositories: { [KEY]: entries } })
-}
-
-/** The refusal of the landing gate: `branch` uses `controlUrl`, which `codec`, outside what it lands, adds */
-function landingRefusalOf(branch: string): LandingRefusal {
-  return {
-    kind: "missingDeclaration",
-    branch,
-    identifier: "controlUrl",
-    file: "src/b/Use.kt",
-    line: 3,
-    usedBy: { id: "1111111111111111111111111111111111111111", subject: "Start with controlUrl", branch },
-    declaredBy: { id: "2222222222222222222222222222222222222222", subject: "Add controlUrl", branch: "codec" },
-    fix: { kind: "restack", branch, onto: "codec" },
-  }
-}
-
-/** The refusal of the landing gate of a dangling reference: `removed` of fake-agent (`commit_dangling_reference`), `changed` of suspend (`commit_changed_declaration`) */
-function danglingRefusalOf(branch: string, reference: "removed" | "changed"): LandingRefusal {
-  const removed = reference === "removed"
-  const fixedBy = removed
-    ? { id: "3333333333333333333333333333333333333333", subject: "IJAI-3878 Use the control protocol", branch: "lane-document" }
-    : { id: "3333333333333333333333333333333333333333", subject: "IJAI-4182 The journey support goes with its tests", branch: "journey" }
-  return {
-    kind: "danglingReference",
-    branch,
-    reference,
-    identifier: removed ? "CONTROL_URL_ENV" : "cleanup",
-    file: removed ? "src/acp/AcpHost.kt" : "src/contract/AcpJourneyLifecycleTest.kt",
-    line: removed ? 7 : 8,
-    removedBy: { id: "4444444444444444444444444444444444444444", subject: removed ? "IJAI-3880 Move the control constants" : "IJAI-4185 The cleanups may suspend", branch },
-    fixedBy,
-    fix: { kind: "moveCommit", commit: fixedBy, into: branch },
-  }
-}
-
-/** What the landing gate refuses of `branch` after the sync, as the repository view holds it: of the case's branch only */
-function landingNeedsOf(given: Given, branch: string): LandingRefusal[] {
-  if (branch !== given.branch) {
-    return []
-  }
-  if (given.dangling !== undefined) {
-    return [danglingRefusalOf(branch, given.dangling)]
-  }
-  return given.landingNeeds === true ? [landingRefusalOf(branch)] : []
 }
 
 /** The landing report of the baseline check: `inBaseline` has every commit of the branch */
@@ -583,9 +417,6 @@ async function seedRules(given: Given): Promise<void> {
 // ---- the answers ----
 
 function checkMapped(given: Given): void {
-  if (given.subject === "wholeStack" && given.robot !== undefined && robotsOf(given).some(robot => robot.state !== "success")) {
-    notMapped("robot of the whole stack other than merged")
-  }
   if (given.profile?.lastRobot !== undefined && given.robot === undefined) {
     throw new Error("given.profile.lastRobot needs given.robot")
   }
@@ -614,13 +445,14 @@ function startOptions(given: Given): PatronusStartOptions {
   }
 }
 
-/** Every store as the case's situation leaves it; the next read of the app answers for it */
-export async function seedScenario(given: Given): Promise<void> {
+/** Every store as the situation of the case `id` leaves it, with its facts; the next read of the app answers for it */
+export async function seedScenario(id: string, given: Given): Promise<void> {
   checkMapped(given)
-  seedSync(given)
-  seedPatronus(given)
-  seedGitHub(given)
-  seedReadiness(given)
+  const facts = factsOf(id)
+  seedSync(given, facts)
+  seedPatronus(given, facts)
+  seedGitHub(given, facts)
+  seedReadiness(facts)
   seedLanded(given)
   await seedRules(given)
 }

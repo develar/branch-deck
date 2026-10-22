@@ -1,0 +1,26 @@
+{
+  "given": {"landed": "inBaseline"},
+  "readiness": {},
+  "remoteTips": {},
+  "robots": [
+    {
+      "branchName": "other",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "from-comment",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/from-comment"
+    }
+  ],
+  "stackTips": {},
+  "tips": {},
+  "view": {"branches": {}, "landedByRobot": {}, "stacks": {}}
+}

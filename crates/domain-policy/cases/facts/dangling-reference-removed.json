@@ -1,0 +1,111 @@
+{
+  "given": {"branch": "fake-agent", "commits": [], "dangling": "removed"},
+  "readiness": {
+    "fake-agent": {
+      "pullRequest": null,
+      "readiness": {"kind": "notRequired"},
+      "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
+      "tip": "fake-agent-tip"
+    }
+  },
+  "remoteTips": {},
+  "robots": [
+    {
+      "branchName": "other",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "from-comment",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/from-comment"
+    }
+  ],
+  "stackTips": {},
+  "tips": {"fake-agent": "fake-agent-tip", "lane-document": "lane-document-tip"},
+  "view": {
+    "branches": {
+      "fake-agent": {
+        "dryRun": null,
+        "hold": null,
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {
+          "refusals": [
+            {
+              "branch": "fake-agent",
+              "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+              "fix": {
+                "commit": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"},
+                "into": "fake-agent",
+                "kind": "moveCommit"
+              },
+              "fixedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"},
+              "identifier": "CONTROL_URL_ENV",
+              "kind": "danglingReference",
+              "line": 7,
+              "reference": "removed",
+              "removedBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"}
+            }
+          ],
+          "state": "known"
+        },
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      },
+      "lane-document": {
+        "dryRun": null,
+        "hold": null,
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {
+          "refusals": [
+            {
+              "branch": "lane-document",
+              "declaredBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+              "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+              "fix": {
+                "commit": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+                "into": "lane-document",
+                "kind": "moveCommit"
+              },
+              "identifier": "AcpControlProtocol",
+              "kind": "missingDeclaration",
+              "landingIn": null,
+              "line": 3,
+              "usedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"}
+            },
+            {
+              "branch": "lane-document",
+              "declaredBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+              "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+              "fix": {
+                "commit": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+                "into": "lane-document",
+                "kind": "moveCommit"
+              },
+              "identifier": "CONTROL_URL_ENV",
+              "kind": "missingDeclaration",
+              "landingIn": null,
+              "line": 7,
+              "usedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"}
+            }
+          ],
+          "state": "known"
+        },
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      }
+    },
+    "landedByRobot": {},
+    "stacks": {}
+  }
+}

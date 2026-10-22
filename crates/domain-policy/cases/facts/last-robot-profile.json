@@ -1,0 +1,64 @@
+{
+  "given": {"profile": {"lastRobot": "lsc"}, "robot": {"on": "older", "state": "failure"}},
+  "readiness": {
+    "auth": {
+      "pullRequest": null,
+      "readiness": {"kind": "notRequired"},
+      "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
+      "tip": "auth-tip"
+    }
+  },
+  "remoteTips": {},
+  "robots": [
+    {
+      "branchName": "other",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "from-comment",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/from-comment"
+    },
+    {
+      "branchName": "auth",
+      "cancellationReason": null,
+      "finishTime": 1704189600,
+      "id": "older",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": null,
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "failure",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/older"
+    }
+  ],
+  "stackTips": {},
+  "tips": {"auth": "auth-tip"},
+  "view": {
+    "branches": {
+      "auth": {
+        "dryRun": null,
+        "hold": null,
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      }
+    },
+    "landedByRobot": {},
+    "stacks": {}
+  }
+}

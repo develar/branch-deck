@@ -1,0 +1,73 @@
+{
+  "given": {"landingNeeds": true},
+  "readiness": {
+    "auth": {
+      "pullRequest": null,
+      "readiness": {"kind": "notRequired"},
+      "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
+      "tip": "auth-tip"
+    }
+  },
+  "remoteTips": {},
+  "robots": [
+    {
+      "branchName": "other",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "from-comment",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/from-comment"
+    }
+  ],
+  "stackTips": {},
+  "tips": {"auth": "auth-tip", "codec": "codec-tip"},
+  "view": {
+    "branches": {
+      "auth": {
+        "dryRun": null,
+        "hold": null,
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {
+          "refusals": [
+            {
+              "branch": "auth",
+              "declaredBy": {"branch": "codec", "id": "codec-c0", "subject": "Add controlUrl"},
+              "file": "src/b/Use.kt",
+              "fix": {"branch": "auth", "kind": "restack", "onto": "codec"},
+              "identifier": "controlUrl",
+              "kind": "missingDeclaration",
+              "landingIn": null,
+              "line": 3,
+              "usedBy": {"branch": "auth", "id": "auth-c1", "subject": "Start with controlUrl"}
+            }
+          ],
+          "state": "known"
+        },
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      },
+      "codec": {
+        "dryRun": null,
+        "hold": null,
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      }
+    },
+    "landedByRobot": {},
+    "stacks": {}
+  }
+}

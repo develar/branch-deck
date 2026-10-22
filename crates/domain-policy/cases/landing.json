@@ -79,7 +79,7 @@
     "app": {
       "step": {
         "kind": "none",
-        "safePushBlocker": "A Safe Push of session is running: it lands login with it"
+        "safePushBlocker": "A Safe Push of session is running: it lands 1 commit of login with it"
       }
     },
     "bd": {
@@ -443,12 +443,12 @@
     "app": {
       "step": {
         "kind": "none",
-        "safePushBlocker": "A Safe Push of session is running: it lands login with it",
+        "safePushBlocker": "A Safe Push of session is running: it lands 1 commit of login with it",
         "dryRunBlocker": null
       },
       "decision": {
         "kind": "refuse",
-        "reason": "A Safe Push of session is running: it lands login with it"
+        "reason": "A Safe Push of session is running: it lands 1 commit of login with it"
       }
     },
     "bd": {
@@ -459,6 +459,74 @@
       },
       "start": {
         "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "merged-robot-of-the-remote-branch-with-a-commit-added-since",
+    "group": "landing",
+    "title": "a Safe Push of the remote branch merged, and the branch has a commit added since the push: the merge landed the pushed commit, the rest is still to land",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "remote": "unpushed",
+      "robot": {
+        "state": "success",
+        "on": "remote"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true,
+        "lands": ["auth"]
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "robot-of-the-whole-stack-and-of-a-branch-built-on-the-root",
+    "group": "landing",
+    "title": "a Safe Push of the whole auth stack and one of login, built on auth, run at once: the branch robot holds auth before the whole stack's, and the reason names login",
+    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/branch/whole-stack.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/oauth) Add oauth"],
+      "robot": [
+        {
+          "state": "running",
+          "on": "stack"
+        },
+        {
+          "state": "running",
+          "on": "child:login"
+        }
+      ]
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "A Safe Push of login is running: it lands 1 commit of auth with it"
+      },
+      "decision": {
+        "kind": "refuse",
+        "reason": "A Safe Push of login is running: it lands 1 commit of auth with it"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"]
       }
     }
   }

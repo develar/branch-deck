@@ -551,7 +551,7 @@
     "app": {
       "step": {
         "kind": "createPullRequest",
-        "safePushBlocker": "Code owners must approve in a pull request: IJPL Code Platform"
+        "safePushBlocker": "Code owners must approve in a pull request: Air Plugin Release Team"
       },
       "decision": {
         "kind": "confirm",

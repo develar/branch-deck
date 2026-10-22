@@ -24,7 +24,7 @@ pub struct Space {
   pub remote: TempDir,
   pub home: TempDir,
   pub fake: Arc<FakePatronus>,
-  patronus_url: String,
+  pub patronus_url: String,
   /// Serves the fake Patronus (and a fake GitHub) while the test runs
   pub runtime: Runtime,
 }

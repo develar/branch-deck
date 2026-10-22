@@ -1413,7 +1413,7 @@ fn needs_push(remote: Option<&RemoteSummary>) -> bool {
 /// Push starts from the open one of the branch (or of the stack branch) into the target (the approvals of a pull request count only for a robot its comment started), or into a
 /// virtual branch once it is retargeted; one into another base starts through the API, as Patronus would merge it
 /// there. Without a GitHub token or an answer of GitHub, through the API too.
-fn open_pull_requests(context: &RepoContext, github: &GitHubService, runtime: &Runtime, repository: &GitHubRepository) -> PullRequestsResult {
+pub(crate) fn open_pull_requests(context: &RepoContext, github: &GitHubService, runtime: &Runtime, repository: &GitHubRepository) -> PullRequestsResult {
   let result = runtime.block_on(list_pull_requests(github, &context.repository, repository, &context.prefix));
   if result.pull_requests.is_empty() && result.stack_pull_requests.is_empty() {
     tracing::debug!(availability = ?result.availability, "no pull requests of the branches");

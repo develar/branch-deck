@@ -1,0 +1,103 @@
+{
+  "given": {
+    "branch": "login",
+    "commits": ["(auth) Add auth", "(auth/login) Add login"],
+    "pullRequest": {"reviewers": ["ikorennoy"]},
+    "readiness": "missing"
+  },
+  "readiness": {
+    "login": {
+      "pullRequest": 7,
+      "readiness": {
+        "groups": [
+          {
+            "approvedBy": [],
+            "changesRequestedBy": [],
+            "name": "IJPL Code Platform",
+            "needed": 1,
+            "requested": [],
+            "suggested": [{"fullName": "Ilya Korennoy", "login": "ikorennoy"}]
+          }
+        ],
+        "kind": "missing",
+        "notCounted": [],
+        "reason": "approvalsMissing"
+      },
+      "requirement": {
+        "groups": [
+          {
+            "approved": false,
+            "branchWide": false,
+            "collectedApprovals": 0,
+            "name": "IJPL Code Platform",
+            "paths": ["auth.txt"],
+            "pathsSource": "patronus",
+            "requiredApprovals": 1,
+            "reviewers": [
+              {
+                "approvalState": "notAdded",
+                "available": true,
+                "fullName": "Ilya Korennoy",
+                "githubLogin": "ikorennoy",
+                "suggested": true,
+                "username": "ikorennoy"
+              }
+            ],
+            "selfApprovalAllowed": false
+          }
+        ],
+        "mergeRequest": null,
+        "required": true,
+        "skipped": false
+      },
+      "tip": "login-tip"
+    }
+  },
+  "remoteTips": {},
+  "robots": [
+    {
+      "branchName": "other",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "from-comment",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/from-comment"
+    }
+  ],
+  "stackTips": {},
+  "tips": {"auth": "auth-tip", "login": "login-tip"},
+  "view": {
+    "branches": {
+      "auth": {
+        "dryRun": null,
+        "hold": null,
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      },
+      "login": {
+        "dryRun": null,
+        "hold": null,
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      }
+    },
+    "landedByRobot": {},
+    "stacks": {}
+  }
+}

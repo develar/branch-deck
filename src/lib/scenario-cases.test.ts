@@ -7,7 +7,7 @@ import { branchSyncStore, getStackDescendants, stackMainLineIn } from "@/stores/
 import { testBranch } from "@/stores/test-branch"
 import type { ExercisedCase, ScenarioCase } from "@/test-support/scenario-case"
 import { appOutcome, bdOutcome, isExercised, scenarioCase } from "@/test-support/scenario-case"
-import { nextStepOf, safePushReadOf, seedScenario } from "@/test-support/scenario-facts"
+import { UPDATE_FACTS, factsOf, nextStepOf, safePushReadOf, seedScenario } from "@/test-support/scenario-facts"
 
 vi.mock("@/stores/repository", () => import("@/test-support/scenario-repository-mock"))
 
@@ -15,12 +15,16 @@ const files = import.meta.glob<unknown>("/crates/domain-policy/cases/*.json", { 
 /** The specs and the design docs a case may name, by their path from the repository root */
 const documents = import.meta.glob<string>(["/spec/**/*.md", "/docs/**/*.md"], { eager: true, query: "?raw", import: "default" })
 
+/** `given` of each case as the file has it, before the defaults: what its facts say they were computed from */
+const rawGiven = new Map<string, unknown>()
+
 const cases: ScenarioCase[] = Object.entries(files).flatMap(([file, content]) =>
   (content as unknown[]).map((raw, index) => {
     const parsed = scenarioCase.safeParse(raw)
     if (!parsed.success) {
       throw new Error(`${file} case ${index}: ${parsed.error.message}`)
     }
+    rawGiven.set(parsed.data.id, (raw as { given?: unknown }).given)
     return parsed.data
   }),
 )
@@ -99,19 +103,31 @@ async function appFailures(scenario: ExercisedCase): Promise<string[]> {
       failures.push(`${scenario.id}: app.${column}: ${error instanceof Error ? error.message : String(error)} — ${scenario.title}`)
     }
   }
-  await seedScenario(scenario.given)
+  // the facts of another `given` answer for another case: the Rust test rewrites them
+  expect(factsOf(scenario.id).given, `${scenario.id}: the facts are of another given; ${UPDATE_FACTS}`).toEqual(rawGiven.get(scenario.id))
+  await seedScenario(scenario.id, scenario.given)
   check("step", () => {
     const step = nextStepOf(scenario.given)
     if (scenario.app.step !== undefined) {
-      expect({ kind: step.kind, safePushBlocker: step.safePushBlocker, dryRunBlocker: step.dryRunBlocker }).toMatchObject(scenario.app.step)
+      expectSubset({ kind: step.kind, safePushBlocker: step.safePushBlocker, dryRunBlocker: step.dryRunBlocker }, scenario.app.step)
     }
   })
   check("decision", () => {
     if (scenario.app.decision !== undefined) {
-      expect(safePushReadOf(scenario.given).decision).toMatchObject(scenario.app.decision)
+      expectSubset(safePushReadOf(scenario.given).decision, scenario.app.decision)
     }
   })
   return failures
+}
+
+/** `actual` has every key of `expected` with its value; the failure names each key with both values */
+function expectSubset(actual: object, expected: object): void {
+  const differing = Object.entries(expected)
+    .filter(([key, value]) => JSON.stringify((actual as Record<string, unknown>)[key]) !== JSON.stringify(value))
+    .map(([key, value]) => `${key}: expected ${JSON.stringify(value)}, the app answers ${JSON.stringify((actual as Record<string, unknown>)[key])}`)
+  if (differing.length > 0) {
+    throw new Error(`${differing.join("; ")} (all: ${JSON.stringify(actual)})`)
+  }
 }
 
 describe("scenario cases", () => {

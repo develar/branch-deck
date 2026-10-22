@@ -1,0 +1,146 @@
+{
+  "given": {
+    "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/oauth) Add oauth"],
+    "robot": [{"on": "stack", "state": "running"}, {"on": "child:login", "state": "running"}]
+  },
+  "readiness": {
+    "auth": {
+      "pullRequest": null,
+      "readiness": {"kind": "notRequired"},
+      "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
+      "tip": "auth-tip"
+    },
+    "stack:auth": {
+      "pullRequest": null,
+      "readiness": {"kind": "notRequired"},
+      "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
+      "tip": "stack-auth-tip"
+    }
+  },
+  "remoteTips": {},
+  "robots": [
+    {
+      "branchName": "other",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "from-comment",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/from-comment"
+    },
+    {
+      "branchName": null,
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "robot-0",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": null,
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "stack-auth-tip",
+      "stackRoot": "auth",
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/robot-0"
+    },
+    {
+      "branchName": "login",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "robot-1",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": null,
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "login-tip",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/robot-1"
+    }
+  ],
+  "stackTips": {"auth": "stack-auth-tip"},
+  "tips": {"auth": "auth-tip", "login": "login-tip", "oauth": "oauth-tip"},
+  "view": {
+    "branches": {
+      "auth": {
+        "dryRun": null,
+        "hold": {
+          "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+          "carried": {"amended": [], "commits": ["auth-c0"]},
+          "kind": "span"
+        },
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": {
+          "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+          "carried": {"amended": [], "commits": ["auth-c0"]}
+        },
+        "start": {
+          "kind": "descendant",
+          "span": {
+            "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+            "carried": {"amended": [], "commits": ["auth-c0"]}
+          }
+        },
+        "startBlocked": false
+      },
+      "login": {
+        "dryRun": {"kind": "lastCommit", "robotId": "robot-1"},
+        "hold": {"by": {"branch": "login", "robotId": "robot-1", "wholeStack": false}, "carried": null, "kind": "own"},
+        "landedBy": null,
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": {
+          "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+          "carried": {"amended": [], "commits": ["login-c0"]}
+        },
+        "start": {"kind": "lastCommit", "robotId": "robot-1"},
+        "startBlocked": true
+      },
+      "oauth": {
+        "dryRun": null,
+        "hold": {
+          "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+          "carried": {"amended": [], "commits": ["oauth-c0"]},
+          "kind": "span"
+        },
+        "landedBy": null,
+        "landingAncestor": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": {
+          "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+          "carried": {"amended": [], "commits": ["oauth-c0"]}
+        },
+        "start": {
+          "kind": "descendant",
+          "span": {
+            "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+            "carried": {"amended": [], "commits": ["oauth-c0"]}
+          }
+        },
+        "startBlocked": false
+      }
+    },
+    "landedByRobot": {},
+    "stacks": {
+      "auth": {
+        "dryRun": {"kind": "lastCommit", "robotId": "robot-0"},
+        "holdRobotId": "robot-0",
+        "landingMember": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+        "start": {"kind": "lastCommit", "robotId": "robot-0"},
+        "startBlocked": true
+      }
+    }
+  }
+}

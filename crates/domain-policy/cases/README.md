@@ -12,11 +12,21 @@ Two tests read every `*.json` file here, one test function per `group`, and name
 | Side | Test | Adapter |
 | --- | --- | --- |
 | `bd` | `crates/bd-remote/src/scenario_test.rs` | `Given` (serde, `deny_unknown_fields`) → a `Space` of the bd-cli fixtures with the fake Patronus and the fake GitHub → `safe_push()` itself with `--check` (the function the command runs: its preamble, `plan()`, the output of a check) → the projection of the output; then `bd safe-push` without `--check` |
-| app | `src/lib/scenario-cases.test.ts` | `src/test-support/scenario-case.ts` (zod, strict) → `src/test-support/scenario-facts.ts` seeds the stores as the sync, the repository view, Patronus, GitHub and the review scan leave them (`seedScenario`) → the app's own readers: `getBranchNextStepOf` (`getStackNextStepNow` of the whole stack) for the step, `readSafePush` for the decision |
+| app | `src/lib/scenario-cases.test.ts` | `src/test-support/scenario-case.ts` (zod, strict) → `src/test-support/scenario-facts.ts` seeds the stores as the sync, the repository view, Patronus, GitHub and the review scan leave them (`seedScenario`), what Rust computes of them from `facts/<id>.json` → the app's own readers: `getBranchNextStepOf` (`getStackNextStepNow` of the whole stack) for the step, `readSafePush` for the decision |
 
-The adapters map `given` to the shape each side reads and compute no rule: the Rust side builds a repository, the TS
-side store-shaped facts (`Branch`, `PatronusView`, `PullRequest`, `ReadinessEntry`), so a change of a rule of either
-side reddens the test of that side.
+No adapter computes a rule. The Rust side builds a repository of `given` with the fixtures. What the app's stores hold
+of the Rust core — the tips the sync left, the robots as the list answers them, the repository view (`patronus_view`
+with the landing needs, as `bd status` reads it) and the review readiness of the branch and of its whole stack — the
+Rust test computes of that same repository and writes to `facts/<id>.json`, one file per exercised case
+(`the_facts_of_the_<group>_cases_are_what_the_fixtures_leave`; the ids named `<branch>-tip`, `<branch>-remote`,
+`stack-<root>-tip`, `<branch>-c<i>` for the i-th original commit, the robots by id with their times settled, the robot pages under
+`https://patronus`). The TS side seeds those files and maps the rest of `given` to store-shaped facts (`Branch`,
+`PullRequest`, the rules). So a change of a rule of the app reddens the Vitest, a change of `plan()` the Rust group
+test, and a change of the sync, of `patronus_view`, of the robot list or of the review scan the Rust facts test:
+`UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/facts_of/)'` rewrites the files (and removes those of
+cases that are gone), and the diff is reviewed like code, because the Vitest answers from them. A file records the
+`given` it was computed from: the Vitest refuses facts of another `given`, and a case without its file fails with the
+command.
 
 The fixed test names, by group:
 
@@ -29,6 +39,10 @@ The fixed test names, by group:
 | `stack-and-whole-stack` | `the_stack_and_whole_stack_cases_answer_as_bd_answers_today` | `the stack and whole stack cases answer as the app answers today` |
 | `landing` | `the_landing_cases_answer_as_bd_answers_today` | `the landing cases answer as the app answers today` |
 | `discrepancies` | `the_discrepancy_cases_name_every_id_as_the_register_does` | `the discrepancy cases name every id as the register does` |
+
+The facts of each group are kept by `the_facts_of_the_<group>_cases_are_what_the_fixtures_leave` of the same words
+(`the_facts_of_the_landing_cases_are_what_the_fixtures_leave`), and `no_facts_file_is_of_a_case_that_is_gone` by the
+files as a whole.
 
 `safe-push.json` holds the first three groups, `next-step.json` the next two: one case per row of the table of
 [Next Step](../../../spec/branch/next-step.spec.md#the-table) and per bullet of its stacked branch and its whole stack.
@@ -117,24 +131,24 @@ request of a whole stack #12.
 | `commits` | `(prefix) subject` strings, `(parent/child)` stacked [`["(auth) Add auth"]`]; `[]` a branch in the table without commits | `f<i>.txt` of each, as `commit_subjects`; stacks on with a parent; `[]` no such branch | the branches of the table, each with its tip and count, stacked by the prefix |
 | `target` | `protected` · `unprotected` [`protected`] | `robot-start-supported` answers `supported: false` | `options.supported` |
 | `remote` | `none` · `upToDate` · `behind` · `unpushed` · `rebuiltOnNewerBaseline` [`none`] | `bd push`; `unpushed` one commit after it; `behind` a commit of someone else on the remote branch, fetched; `rebuiltOnNewerBaseline` the baseline moved and the branch rebased onto it | the `remoteStatus` of the branch and of the branches it is built on (`bd push` pushes the stack): never pushed, up to date, one commit ahead, one behind with a dropped commit, the same commits rebuilt (not a fast-forward) |
-| `robot` | `{ state: running·failure·canceled·success, on: tip·older·remote·ancestor:<b>·child:<b>·stack, reason: approvals, fromPullRequest }`, or a list | the robot list after a sync, on the tips it built (`older`: `0000`) | the robots of the Patronus store and the `PatronusView` as `patronus_view` computes it of them (`landedBy`, `span`, `hold`, `landingAncestor`, the stacks' `landingMember` and `holdRobotId`); `reason: approvals` in `needsReview` |
+| `robot` | `{ state: running·failure·canceled·success, on: tip·older·remote·ancestor:<b>·child:<b>·stack, reason: approvals, fromPullRequest }`, or a list | the robot list after a sync, on the tips it built (`older`: `0000`); the i-th robot is `robot-<i>`, the one on an older commit `older` | the robots and the `PatronusView` of the facts (what `patronus_view` computes of them: `landedBy`, `span`, `hold`, `landingAncestor`, the stacks' `landingMember` and `holdRobotId`); `reason: approvals` in `needsReview` by the robot's id |
 | `sync` | `running` | — (`bd` syncs before it plans) | `syncing` |
 | `conflicts` | a branch | its first commit changes `config.txt`, which only an unassigned commit creates | `hasError` of it, `blocked` of a branch built on it, the stack branch `Conflict` |
 | `notOnSpace` | `true` | `origin` set to the bare repository | `patronusAvailable: false` |
 | `pullRequest` | `{ of [the branch], base [master], draft [false], approvers [[]], reviewers [[]], changesRequested [[]], state [open] }` | the GitHub search answer (`latestReviews`, `reviewRequests`) | `pullRequest`, `fromPullRequest` of `of` only |
 | `stackPullRequest` | `true` | the open #12 of `{prefix}/stack/<root>` in the search | `stackPullRequest`; of the whole stack its `pullRequest` |
-| `readiness` | `notRequired` · `approved` · `missing` · `unknown` · `unavailable` · `unlisted` · `space` · `notAsked` [`notRequired`] | the pre-check answer, see below | the entry of the review-readiness store under the key of the branch's input (`readinessInputOf`), the availability of the pull requests |
+| `readiness` | `notRequired` · `approved` · `missing` · `unknown` · `unavailable` · `unlisted` · `space` · `notAsked` [`notRequired`] | the pre-check answer, see below | the answer of the facts (Rust asked as the app's scan asks, `readinessInputOf`) in the review-readiness store under the key of the branch's input, the availability of the pull requests |
 | `profile` | `{ chosen: <id>·none, lastRobot: lsc, skipsReview, newApi }` | `--profile`; the last robot's options | `ask.profileId`; `options` |
 | `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` | the flags of the same names | `withoutApprovals` = `ask.bypassReview`; the others have no input of the decision |
 | `rules` | `keep` · `dismiss` · `unknown` · `loading` [`keep`] | — (`bd` reads no branch rules: D1, D9) | what `get_branch_rules` answered `readDismissesStaleReviews` of the target: `unknown` a failed answer (read as `false`, D9), `loading` no answer yet |
 | `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named | `parked`; of the whole stack `wholeStackParkedState` |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) | the stack branch `Blocked` by it |
 | `landed` | `inBaseline` · `byContent` | `origin/master` at HEAD; `land_auth_by_content` after `bd push` (`LANDED_SUBJECTS` only) | the landing report of the baseline check (`inBaseline`); one commit left (`byContent`) |
-| `landingNeeds` | `true` | `(codec) Add controlUrl`, then the branch uses it (Kotlin) | `landingNeeds` of the branch in the view, known |
-| `dangling` | `removed` (branch `fake-agent`) · `changed` (branch `suspend`), with `commits: []` | `commit_dangling_reference` · `commit_changed_declaration` | the fixture's commits; a `danglingReference` in `landingNeeds` |
+| `landingNeeds` | `true` | `(codec) Add controlUrl`, then the branch uses it (Kotlin) | `landingNeeds` of the branch in the view of the facts, known |
+| `dangling` | `removed` (branch `fake-agent`) · `changed` (branch `suspend`), with `commits: []` | `commit_dangling_reference` · `commit_changed_declaration` | the fixture's commits; the `danglingReference` the landing gate finds, in the view of the facts |
 
 A value the adapters don't map yet fails the case with "not mapped yet": the stage maps it with the first case that
-needs it. Not mapped yet: a decision of the whole stack; robots of the whole stack other than merged ones on the app's side.
+needs it. Not mapped yet: a decision of the whole stack.
 
 A merged robot lands by the hashes of the tips the sync built: of the branch itself "Merged by Patronus", of a branch
 built on it (`child:<b>`) or of the stack branch (`stack`) "Landed in master with …"; a running one on `tip` holds the
@@ -146,7 +160,7 @@ branch, on `child:<b>` lands it, on `ancestor:<b>` lands a part of it (a Dry Run
 | --- | --- | --- |
 | `notRequired` | the pre-check needs no approval | `notRequired` · loaded |
 | `approved` | with a pull request: Patronus evaluated it, IJPL Code Platform approved | `approved` · loaded |
-| `missing` | the pre-check needs approvals; with a pull request evaluated, nobody approved | `missing` (IJPL Code Platform, Ilya Korennoy suggested) · loaded |
+| `missing` | the pre-check needs approvals (the group Air Plugin Release Team, Alice suggested); with a pull request evaluated, nobody of IJPL Code Platform approved (Ilya Korennoy suggested) | `missing` · loaded |
 | `unknown` | a pull request with an approval, the review required, Patronus doesn't evaluate it | `unknown` (`approvalsNotEvaluated`) · loaded |
 | `unavailable` | the pre-check answers 500 | `unavailable` (`error`) · loaded |
 | `unlisted` | GitHub's search of the pull requests fails; the pre-check needs no approval | no pull requests listed · `unlisted` |

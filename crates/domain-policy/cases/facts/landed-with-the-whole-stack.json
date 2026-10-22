@@ -1,0 +1,115 @@
+{
+  "given": {
+    "branch": "login",
+    "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+    "robot": {"on": "stack", "state": "success"}
+  },
+  "readiness": {
+    "login": {
+      "pullRequest": null,
+      "readiness": {"kind": "notRequired"},
+      "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
+      "tip": "login-tip"
+    },
+    "stack:auth": {
+      "pullRequest": null,
+      "readiness": {"kind": "notRequired"},
+      "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
+      "tip": "stack-auth-tip"
+    }
+  },
+  "remoteTips": {},
+  "robots": [
+    {
+      "branchName": "other",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "from-comment",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/from-comment"
+    },
+    {
+      "branchName": null,
+      "cancellationReason": null,
+      "finishTime": 1704189600,
+      "id": "robot-0",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": null,
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "stack-auth-tip",
+      "stackRoot": "auth",
+      "startTime": 1704189000,
+      "status": "success",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/robot-0"
+    }
+  ],
+  "stackTips": {"auth": "stack-auth-tip"},
+  "tips": {"auth": "auth-tip", "login": "login-tip", "session": "session-tip"},
+  "view": {
+    "branches": {
+      "auth": {
+        "dryRun": null,
+        "hold": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "carried": null, "kind": "landed"},
+        "landedBy": {
+          "after": [],
+          "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+          "landed": ["auth-c0"],
+          "own": false
+        },
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      },
+      "login": {
+        "dryRun": null,
+        "hold": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "carried": null, "kind": "landed"},
+        "landedBy": {
+          "after": [],
+          "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+          "landed": ["login-c0"],
+          "own": false
+        },
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      },
+      "session": {
+        "dryRun": null,
+        "hold": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "carried": null, "kind": "landed"},
+        "landedBy": {
+          "after": [],
+          "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+          "landed": ["session-c0"],
+          "own": false
+        },
+        "landingAncestor": null,
+        "landingNeeds": {"refusals": [], "state": "known"},
+        "span": null,
+        "start": null,
+        "startBlocked": false
+      }
+    },
+    "landedByRobot": {
+      "robot-0": [
+        {"after": [], "branch": "auth", "own": false},
+        {"after": [], "branch": "login", "own": false},
+        {"after": [], "branch": "session", "own": false}
+      ]
+    },
+    "stacks": {}
+  }
+}

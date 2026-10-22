@@ -147,6 +147,27 @@ D — одинаковый ввод даёт разный результат в 
   [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
 - **D10.** Сегодняшнее поведение закреплено:
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
+- **D11.** Сегодняшнее поведение закреплено (три случая строки 5):
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
+- **D12.** Сегодняшнее поведение закреплено (`remote-behind`):
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
+- **D13.** Сегодняшнее поведение закреплено (`row-1-merged-pull-request`):
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
+- **D14.** Сегодняшнее поведение закреплено (`readiness-unavailable`, `readiness-space-required`, `row-11-unavailable`):
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
+- **D15.** Сегодняшнее поведение закреплено (`dry-run-while-a-safe-push-of-a-child-lands-the-branch`):
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
+
+Реестр и документ держит тест реестра: у каждого id есть строка реестра и запись выше, а у строки, оставляющей правило
+владельцу («владелец»), — нумерованный пункт в [Решениях владельца](#решения-которые-подтверждает-владелец), который
+называет id.
 
 ## Область изменений
 
@@ -776,10 +797,13 @@ rewrites между процессами через файл `s10`; `s12` ждё
   parked, not built, landed, overlap, неизвестная readiness, неизвестные правила, landing gate; D8 — конкретный случай
   заблокированной ветки без effective base с объявленным родителем ≠ `blocked_by.parent`. У случая ожидания `app` и
   `bd`; Vitest заполняет сторы и спрашивает читателей приложения (`getBranchNextStepOf`, `getStackNextStepNow`,
-  `readSafePush`), Rust-тест гонит сам `safe_push()` с `--check` через фикстуры `bd-cli` с fakes. D1–D15 записаны там,
-  где `app != bd`; suite зелёный, потому что ожидания — текущие.
+  `readSafePush`), Rust-тест гонит сам `safe_push()` с `--check` через фикстуры `bd-cli` с fakes и пишет для Vitest
+  факты, которые у приложения считает Rust (`cases/facts/<id>.json`: tips, роботы, `patronus_view`, readiness), так
+  что TS-адаптер не копирует ни одного правила Rust. D1–D15 записаны там, где `app != bd`; suite зелёный, потому что
+  ожидания — текущие.
 - **Удаляется:** ничего.
-- **Проверки:** оба теста зелёные; каждый D-id встречается в таблице ([Таблица сценариев](#таблица-сценариев)).
+- **Проверки:** оба теста зелёные; каждый D-id встречается в таблице ([Таблица сценариев](#таблица-сценариев)), в
+  реестре документа, в списке тестов и, где правило за владельцем, в его решениях (тест реестра).
   Разыграны D1 и D9 (в реестре), D2, D3b, D11–D15 (их `twins` в группах `review`, `next-step-rows` и `landing`), D8 —
   своей парой тестов. D3a, D4–D7 и D10 только записаны с указателями: ни `plan()`, ни решение Safe Push их сегодня не достигают —
   порядок retarget и push, повтор push поверх remote, push перед request review, ожидание mirror, закрытие PR и прямой
@@ -976,9 +1000,11 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `domain-policy` заведён), s0c-scenarios (таблица сценариев получает одно ожидание), s1-holes (D1, D2, D9 уже
   сошлись).
 - **Объём и файлы** — один коммит на семейство, каждый переключает **обоих** потребителей (презентер и `bd`) и удаляет
-  TS-правило в том же коммите: (1) remote и push action (R1, D4); (2) stack, whole stack, родитель (D8 по решению
-  владельца), parked (R3); (3) holds и отказ в старте (R2, R4); (4) `land::decide`, `review`, `pull_request` (D1, D2,
-  D3b, D9); (5) next step и landing node (R6); (6) `actions` и доступность; (7) `news`, `landed` (D7 правило);
+  TS-правило в том же коммите: (1) remote и push action (R1, D4, D12: отказ `drops_remote_commits` у обеих сторон); (2) stack, whole stack, родитель
+  (D8 по решению владельца), parked (R3); (3) holds и отказ в старте (R2, R4, D15: hold из `patronus_view` держит push
+  любого старта, Dry Run тоже); (4) `land::decide`, `review`, `pull_request` (D1, D2, D3b, D9, D11 и D14 по решению
+  владельца); (5) next step и landing node (R6); (6) `actions` и доступность; (7) `news`, `landed` (D7 правило, D13:
+  слитый PR с текущими коммитами — приземление);
   `reason` и каталог с тестами пары. `BranchView`/`StackView` несут `landing` (с `LandDecision { blockers,
   confirmations }` из `land::decide`) и `actions`; поповер Safe Push рендерит `landing.land.confirmations` — это
   замена `ConfirmReason` из `safe-push-decision.ts:73,102`, а не второе понятие: в s9 `prepare` отдаёт тот же
@@ -994,7 +1020,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `useBranchContextActions.ts:650`); `stackBranchHoldReasonIn`/`getStackBranchHoldReason` (`stores/patronus.ts:458-483`)
   и проверки parked stack branch в `push_command.rs:692`, `safe_push_command.rs:914`; TS-половина таблицы сценариев; решающая половина `plan()` в
   `safe_push_command.rs`; `stack_summary::whole_stack_of`.
-- **Проверки:** таблица сценариев с одним ожиданием на случай — D3b, D4 (правило), D5 (кандидаты), D8 сходятся;
+- **Проверки:** таблица сценариев с одним ожиданием на случай — D3b, D4 (правило), D5 (кандидаты), D8, D11, D12
+  (правило), D13, D14, D15 сходятся;
   табличные тесты покрывают каждую строку `next-step.spec.md`; e2e каждой поверхности next step и Safe Push; B3, B4,
   B6, B10; `lint:arch` запрещает новые модули правил в `src/lib`.
 - **Критерий выхода:** `src/lib` не содержит функции, возвращающей «можно/нужно/переносит/держит».
@@ -1027,7 +1054,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `bd safe-push`, `push`, `robot`, `request-review` — адаптеры с прежними флагами плюс `--push` у request-review.
   **Документированные изменения `bd`** в том же коммите: retarget до push (`spec/cli/agent-cli.spec.md` «bd push»,
   `git-operations.md` «Agent push»); HTTP-чтения вне repository lock («Agent Safe Push»); `pushed_over` (D4);
-  `needs_push` без `--push` (D5); `pull_request_other_base` (D3b); `plan_changed` — новый `ErrorCode` (exit 3 и повторяемый, как
+  `needs_push` без `--push` (D5); `pull_request_other_base` (D3b); `drops_remote_commits` — подтверждение явным шагом
+  плана, не кнопкой (D12); `Retarget` — шаг `Land` до `Push` (D11); `plan_changed` — новый `ErrorCode` (exit 3 и повторяемый, как
   `head_moved` и `locked`, `domain-types/src/error.rs:207,254`), потому что sync `bd` больше не держит repository lock до `execute` и rewrite другой
   сессии между `prepare` и полным witness меняет план; строка в `agent-cli.spec.md`, текст `skill_text()`
   (`crates/bd-cli/src/agent_help.rs`) и `bd schema`. Бюджеты: `a_safe_push_check` и новый
@@ -1178,9 +1206,14 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `--check`, тот же путь, что у команды, затем `bd safe-push` без `--check`) и zod `strictObject`
   (`src/test-support/scenario-case.ts` → `scenario-facts.ts` заполняет сторы так, как их оставляют sync, представление
   репозитория, Patronus, GitHub и опрос review → сами читатели приложения: `getBranchNextStepOf`,
-  `getStackNextStepNow`, `readSafePush`). Адаптер отображает `given` в факты сторов и не считает ни одного правила
-  приложения. Ключ вне словаря отказывает обоим; значение, которое адаптер ещё не отображает, роняет случай («not
-  mapped yet»).
+  `getStackNextStepNow`, `readSafePush`). Ни один адаптер не считает правила: то, что у приложения считает Rust
+  (tips sync'а, список роботов, представление `patronus_view` с landing needs, readiness review), Rust-тест пишет из
+  фикстуры того же `given` в `cases/facts/<id>.json` (`the_facts_of_the_<группа>_cases_are_what_the_fixtures_leave`,
+  id коммитов названы `<ветка>-tip`, `<ветка>-remote`, `stack-<root>-tip`), Vitest их читает; остальное `given` TS
+  отображает в факты сторов (таблица, PR, правила). Изменение sync'а или `patronus_view` краснит Rust-тест фактов;
+  `UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/facts_of/)'` переписывает файлы, diff
+  рецензируется как код; Vitest отказывает фактам другого `given`. Ключ вне словаря отказывает обоим; значение,
+  которое адаптер ещё не отображает, роняет случай («not mapped yet»).
 - **Имена тестов фиксированы:** по тесту на группу с каждой стороны (`the_<…>_cases_answer_as_bd_answers_today` и
   `the <…> cases answer as the app answers today`, таблица имён — в `README.md`), реестр —
   `the_discrepancy_cases_name_every_id_as_the_register_does`; D8 — отдельная пара тестов
@@ -1248,7 +1281,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | Документ | Что меняется и когда |
 | --- | --- |
 | `operations.md` | s9: реестр в Rust, «Outside the registry» удалён (push и старт — операции, процент в своём канале), индикатор — только TS; s11: решение 4 (`bd` регистрируется), допуск rewrite между процессами; s10: `busy` с держателем |
-| `landing.md` | s8: D8 правило родителя, D3b другая база; s9: `bd` и приложение идентичны по порядку эффектов, retarget до push, request review пушит с `--push`, закрытие PR (`bd` перечисляет `closes`, не закрывает); s10: реестр landing между процессами |
+| `landing.md` | s8: D8 правило родителя, D3b другая база, D11 retarget как шаг плана, D13 слитый PR — приземление; s9: `bd` и приложение идентичны по порядку эффектов, retarget до push, request review пушит с `--push`, закрытие PR (`bd` перечисляет `closes`, не закрывает); s10: реестр landing между процессами |
 | `git-operations.md` | s1: push приложения под lock; s6: «Repository view» → сессия; s9: «Agent push»/«Agent Safe Push»/«App stack push» → «Push and land», HTTP вне lock; s10: «Operations registry», stamp, журнал; s11: rewrites через движок |
 | `rendering-performance.md` | s6: поток патчей вместо `SyncEvent`; s8: части строки и презентеры, числа B3–B5 |
 | `distributed-settings.md` | s5: переписан — один писатель в Rust, версии, `origin` |
@@ -1316,6 +1349,14 @@ B3 (перерисованные строки) не измеряется: в pro
    записей страницы; Activity сливает журналы recent projects. *По умолчанию: так* (s10).
 8. **Формулировки `Reason`.** Форматируются на каждой стороне из типизированных кодов, без общего английского в Rust;
    каталог держит обе стороны исчерпывающими. *По умолчанию: так* (s8).
+9. **D11, PR в виртуальную базу.** `Retarget` в target — шаг плана `Land`, подтверждаемый там же, где `Push`, у обеих
+   сторон; приложение перестаёт отказывать строкой 5 и перестаёт предлагать retarget отдельным шагом. *По умолчанию:
+   шаг плана* — PR виртуальной ветки всегда идёт в master ([Landing](landing.md)), и `bd` уже делает так (s8, правило;
+   s9, шаг).
+10. **D14, review без ответа.** `Fact::Unavailable` readiness (pre-check упал) — подтверждение `ReviewUnknown`
+    («cannot check the approvals»), которое принимает клавиша в поповере и `--allow-unknown-review` в `bd`, никогда
+    отказ `approvals_missing`; репозиторий только на Space читается одной функцией у обеих сторон: требование merge
+    request — `Missing` с его ссылкой. *По умолчанию: подтверждение* (s8).
 
 ## Критерии завершения
 

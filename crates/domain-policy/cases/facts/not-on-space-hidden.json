@@ -1,0 +1,9 @@
+{
+  "given": {"notOnSpace": true},
+  "readiness": {},
+  "remoteTips": {},
+  "robots": [],
+  "stackTips": {},
+  "tips": {"auth": "auth-tip"},
+  "view": {"branches": {}, "landedByRobot": {}, "stacks": {}}
+}

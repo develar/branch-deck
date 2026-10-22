@@ -3,7 +3,10 @@
 //! `--check` (the production path: its preamble, `plan()`, the output of a check), and the start without `--check`;
 //! today's answer expected. `src/lib/scenario-cases.test.ts` is the side of the app
 
-use crate::safe_push_command::{SafePushArgs, SafePushOutput, safe_push as safe_push_command};
+use crate::patronus_facts::{PatronusFacts, remote_of, table_of};
+use crate::push_command::github_repository;
+use crate::robot_list::list_robots;
+use crate::safe_push_command::{SafePushArgs, SafePushOutput, github_service, open_pull_requests, patronus_service, safe_push as safe_push_command};
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
 use bd_cli::remote_fixture_test::{
   LANDED_SUBJECTS, Space, evaluated_review, fake_github, land_auth_by_content, minutes_ago, pull_request_json, push_from_elsewhere_to, rebuild_on_a_newer_baseline,
@@ -12,19 +15,26 @@ use bd_cli::remote_fixture_test::{
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
 use bd_core::stack_summary::{WholeStack, whole_stack_of};
-use bd_core::sync_command::{lock, sync_locked};
-use domain_types::stack::BranchStack;
+use bd_core::sync_command::{SyncOutput, lock, sync_locked};
 use domain_types::commit::Commit;
+use domain_types::patronus::{ReviewReadinessBranch, ReviewStart};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState as ListedPullRequestState, PullRequestsResult};
+use domain_types::stack::{BranchStack, StackBranchState};
 use github::fake_github::{FakeAnswer, FakeGitHub};
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::stack::place_branches;
 use history_rewrite::store_lines::StoreLines;
+use repository_view::patronus_view::{landed_commits, with_landing_needs};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
-use serde_json::{Value, json};
-use std::collections::HashMap;
+use serde_json::{Map, Value, json};
+use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use sync_core::landing_gate::landing_needs_of;
+use sync_core::patronus::target_branch_of;
+use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 
 /// The groups of the cases and their test functions here; the Vitest has the same groups
 const GROUPS: [&str; 7] = [
@@ -64,6 +74,9 @@ struct Case {
   #[expect(dead_code, reason = "the expectations of the app, the Vitest's")]
   app: Option<IgnoredAny>,
   bd: Option<Expected>,
+  /// `given` as the file has it, which the facts of the case record, so the Vitest tells facts of another `given`
+  #[serde(skip)]
+  raw_given: Value,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -88,9 +101,9 @@ struct Today {
 #[serde(deny_unknown_fields)]
 struct Expected {
   /// A subset of the projection of the `--check` output (`projection`), or `{error}`
-  check: serde_json::Map<String, Value>,
+  check: Map<String, Value>,
   /// `{started_via}` or `{error}` of the start without `--check`
-  start: Option<serde_json::Map<String, Value>>,
+  start: Option<Map<String, Value>>,
 }
 
 /// The closed vocabulary of a situation, the schema of the README (`src/test-support/scenario-case.ts` is its twin)
@@ -447,8 +460,8 @@ impl Given {
 
 /// The repository of a case, its fakes and the environment bd runs in
 struct Situation {
-  /// Serves the fakes while the case runs
-  _space: Space,
+  /// Serves the fakes while the case runs; its Patronus URL names the robot pages
+  space: Space,
   environment: Environment,
   _github: Option<Arc<FakeGitHub>>,
 }
@@ -694,7 +707,7 @@ impl Situation {
       git(&space.repo, &["remote", "set-url", "origin", space.remote.path().to_str().unwrap()]);
     }
     Self {
-      _space: space,
+      space,
       environment,
       _github: github,
     }
@@ -703,7 +716,11 @@ impl Situation {
   /// `safe_push()` with `--check`, the function the command runs: its output as `--check` prints it, or the error of
   /// the plan
   fn check(&self, given: &Given) -> Result<SafePushOutput, CliError> {
-    let context = RepoContext::resolve(
+    safe_push_command(&self.context()?, &given.args(true), &self.environment)
+  }
+
+  fn context(&self) -> Result<RepoContext, CliError> {
+    RepoContext::resolve(
       &self.environment,
       &RepoOptions {
         repo: None,
@@ -711,8 +728,7 @@ impl Situation {
         full_ids: false,
         no_cache: false,
       },
-    )?;
-    safe_push_command(&context, &given.args(true), &self.environment)
+    )
   }
 
   /// `bd safe-push` without `--check`: `{started_via, canceled}` (whether it canceled a robot first) or `{error}`
@@ -726,6 +742,382 @@ impl Situation {
       json!({"error": output["error"]["code"]})
     }
   }
+}
+
+// ---- the facts of the app's side ----
+
+/// The facts of the app's side of each exercised case, one file per case id: what the sync, the repository view, the
+/// robot list and the review scan leave of the case's repository, which `src/test-support/scenario-facts.ts` seeds into
+/// the stores instead of computing any of it (`assert_facts`, one test per group)
+const FACTS_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../domain-policy/cases/facts");
+
+/// The environment variable that lets the facts test rewrite the files
+const UPDATE_FACTS: &str = "UPDATE_SCENARIO_FACTS";
+
+/// The branch of a virtual branch's full name
+fn short_name(full_name: &str) -> Option<&str> {
+  full_name.strip_prefix(&format!("{PREFIX}/virtual/"))
+}
+
+/// The ids the sync left, each under the name the TS adapter uses: `<branch>-tip` (the tip of the virtual branch),
+/// `<branch>-remote` (its remote branch, unless that is the tip), `stack-<root>-tip`, `stack-<root>-remote`,
+/// `<branch>-c<i>` (the i-th original commit of the branch, the oldest first) and `baseline`; the first name of an id wins
+fn names_of(synced: &SyncOutput) -> HashMap<String, String> {
+  let report = &synced.report;
+  let mut names: HashMap<String, String> = HashMap::new();
+  for (full_name, tip) in &report.tips {
+    if let Some(short) = short_name(full_name) {
+      names.entry(tip.clone()).or_insert_with(|| format!("{short}-tip"));
+    }
+  }
+  for stack in &report.stack_branches {
+    if let Some(tip) = &stack.tip {
+      names.entry(tip.clone()).or_insert_with(|| format!("stack-{}-tip", stack.root));
+    }
+  }
+  for (full_name, tip) in &report.remote_tips {
+    if let Some(short) = short_name(full_name) {
+      names.entry(tip.clone()).or_insert_with(|| format!("{short}-remote"));
+    }
+  }
+  for stack in &report.stack_branches {
+    if let Some(tip) = stack.remote.as_ref().and_then(|remote| remote.remote_tip.clone()) {
+      names.entry(tip).or_insert_with(|| format!("stack-{}-remote", stack.root));
+    }
+  }
+  for branch in &report.branches {
+    for (index, commit) in branch.commits.iter().rev().enumerate() {
+      names.entry(commit.id.clone()).or_insert_with(|| format!("{}-c{index}", branch.name));
+    }
+  }
+  names.entry(report.baseline_commit.clone()).or_insert_with(|| "baseline".to_string());
+  names
+}
+
+/// Every string of `value` that is an id of `names` becomes its name
+fn name_ids(value: &mut Value, names: &HashMap<String, String>) {
+  match value {
+    Value::String(text) => {
+      if let Some(name) = names.get(text.as_str()) {
+        *text = name.clone();
+      }
+    }
+    Value::Array(items) => items.iter_mut().for_each(|item| name_ids(item, names)),
+    Value::Object(fields) => fields.values_mut().for_each(|field| name_ids(field, names)),
+    _ => {}
+  }
+}
+
+/// The robots by id, with the times the fakes give relative to now made the same on every run: every start the same
+/// instant (the fixtures start them all 180 minutes ago, a second apart at most), the finishes by their rank (the
+/// fixtures finish them minutes apart), so the order of the finishes, the one fact the app reads of the times, stays
+fn settle_robots(robots: &mut Value) {
+  let Some(robots) = robots.as_array_mut() else {
+    return;
+  };
+  robots.sort_by_key(|robot| robot["id"].as_str().unwrap_or_default().to_string());
+  let mut finishes: Vec<u64> = robots.iter().filter_map(|robot| robot["finishTime"].as_u64()).collect();
+  finishes.sort_unstable();
+  finishes.dedup();
+  for robot in robots.iter_mut() {
+    robot["startTime"] = json!(1_704_189_000);
+    if let Some(finish) = robot["finishTime"].as_u64() {
+      let rank = finishes.iter().position(|known| *known == finish).unwrap();
+      robot["finishTime"] = json!(1_704_189_600 + 600 * u64::try_from(rank).unwrap());
+    }
+  }
+}
+
+/// `value` with the keys of every object sorted
+fn sorted(value: Value) -> Value {
+  match value {
+    Value::Array(items) => Value::Array(items.into_iter().map(sorted).collect()),
+    Value::Object(fields) => {
+      let by_key: BTreeMap<String, Value> = fields.into_iter().map(|(key, field)| (key, sorted(field))).collect();
+      Value::Object(by_key.into_iter().collect::<Map<String, Value>>())
+    }
+    other => other,
+  }
+}
+
+/// `value` as the facts files hold it: an object or a list of up to 100 characters on one line, the rest one field or
+/// item per line, indented by two spaces
+fn pretty(value: &Value, indent: usize) -> String {
+  let compact = serde_json::to_string(value).unwrap();
+  let inner = " ".repeat(indent + 2);
+  let outer = " ".repeat(indent);
+  match value {
+    Value::Object(fields) if !fields.is_empty() && compact.len() > 100 => {
+      let lines: Vec<String> = fields.iter().map(|(key, field)| format!("{inner}{}: {}", json!(key), pretty(field, indent + 2))).collect();
+      format!("{{\n{}\n{outer}}}", lines.join(",\n"))
+    }
+    Value::Array(items) if !items.is_empty() && compact.len() > 100 => {
+      let lines: Vec<String> = items.iter().map(|item| format!("{inner}{}", pretty(item, indent + 2))).collect();
+      format!("[\n{}\n{outer}]", lines.join(",\n"))
+    }
+    _ => inline(value),
+  }
+}
+
+/// `value` on one line, a space after every colon and comma
+fn inline(value: &Value) -> String {
+  match value {
+    Value::Object(fields) if !fields.is_empty() => {
+      let fields: Vec<String> = fields.iter().map(|(key, field)| format!("{}: {}", json!(key), inline(field))).collect();
+      format!("{{{}}}", fields.join(", "))
+    }
+    Value::Array(items) if !items.is_empty() => {
+      let items: Vec<String> = items.iter().map(inline).collect();
+      format!("[{}]", items.join(", "))
+    }
+    other => serde_json::to_string(other).unwrap(),
+  }
+}
+
+impl Situation {
+  /// The facts of the app's side (`FACTS_DIRECTORY`): the tips of the sync (`tips`, `remoteTips`, `stackTips`, by the
+  /// short names), the robots as the list answers them (`list_robots`, by id, `settle_robots`), the repository view (`patronus_view` with the landing needs, as
+  /// `bd status` reads it) and the review readiness of the branch and of its whole stack (`readiness`, by the app's keys),
+  /// with the ids named and the times settled
+  fn facts(&self, given: &Given, raw_given: &Value) -> Value {
+    let context = self.context().unwrap();
+    let synced = {
+      let _lock = lock(&context).unwrap();
+      sync_locked(&context).unwrap()
+    };
+    let table = table_of(&context, &synced);
+    // the list as the app's poll and `plan()` read it, never the one a `bd push` of the fixture kept in the cache
+    let space = context.space_repository().unwrap();
+    let robots = match &space {
+      Some(space) => list_robots(&context, &patronus_service(&self.environment).unwrap(), space).unwrap(),
+      None => Vec::new(),
+    };
+    let mut facts = PatronusFacts::read(&context, &table, &remote_of(&context, &synced), robots);
+    let on_space = space.is_some();
+    if on_space {
+      let needs = landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed_commits(&facts.view)).unwrap();
+      with_landing_needs(&mut facts.view, &table, &needs);
+    }
+    let readiness = if on_space { self.readiness(&context, &synced, given) } else { BTreeMap::new() };
+    let report = &synced.report;
+    let tips = |of: &HashMap<String, String>| -> BTreeMap<String, String> {
+      of.iter()
+        .filter_map(|(full_name, tip)| short_name(full_name).map(|short| (short.to_string(), tip.clone())))
+        .collect()
+    };
+    let stack_tips: BTreeMap<String, String> = report
+      .stack_branches
+      .iter()
+      .filter_map(|stack| stack.tip.clone().map(|tip| (stack.root.clone(), tip)))
+      .collect();
+    let mut value = json!({
+      "given": raw_given,
+      "tips": tips(&report.tips),
+      "remoteTips": tips(&report.remote_tips),
+      "stackTips": stack_tips,
+      "robots": facts.robots,
+      "view": facts.view,
+      "readiness": readiness,
+    });
+    name_ids(&mut value, &names_of(&synced));
+    settle_robots(&mut value["robots"]);
+    // the fake listens on a port of its own: the robot pages under one host
+    let value: Value = serde_json::from_str(&serde_json::to_string(&value).unwrap().replace(&self.space.patronus_url, "https://patronus")).unwrap();
+    sorted(value)
+  }
+
+  /// The review readiness as the app's scan asks it (`readinessInputOf`): the branch from its open pull request into
+  /// the target, else through the API; the whole stack of its root as its built stack branch with the pull request of
+  /// the stack; nothing while the app hasn't asked (`notAsked`)
+  fn readiness(&self, context: &RepoContext, synced: &SyncOutput, given: &Given) -> BTreeMap<String, Value> {
+    if given.readiness == Readiness::NotAsked {
+      return BTreeMap::new();
+    }
+    let space = context.space_repository().unwrap().expect("on Space");
+    let service = patronus_service(&self.environment).unwrap();
+    let github_service = github_service(context, &self.environment);
+    let runtime = context.runtime().unwrap();
+    let target = target_branch_of(synced.report.upstream.as_ref()).expect("the baseline is a branch of origin");
+    let github = github_repository(context, &synced.report).unwrap();
+    let listed = match &github {
+      Some(repository) => open_pull_requests(context, &github_service, runtime, repository),
+      None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
+    };
+    let repository = ReadinessRepository {
+      space: &space,
+      github: github.as_ref(),
+      target: &target,
+      baseline: &synced.baseline,
+      branch_prefix: &context.prefix,
+    };
+    let ask = |key: &str, source: Option<String>, tip: &str, pull_request: Option<&PullRequest>| {
+      let start =
+        pull_request.filter(|pull_request| pull_request.state == ListedPullRequestState::Open && (pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target));
+      ReviewReadinessBranch {
+        branch_name: key.to_string(),
+        source,
+        tip: tip.to_string(),
+        start: start.map_or(ReviewStart::Rest, |pull_request| ReviewStart::PullRequest { number: pull_request.number }),
+        reviewers: start.map_or_default(|pull_request| pull_request.reviewers.clone()),
+        author: start.and_then(|pull_request| pull_request.author.clone()),
+      }
+    };
+    let name = given.branch.as_str();
+    let mut asks = Vec::new();
+    if let Some(tip) = synced.report.tips.get(&virtual_branch(name)) {
+      asks.push(ask(name, None, tip, listed.pull_requests.get(name)));
+    }
+    let root = given.root_of(name);
+    if let Some(stack) = synced
+      .report
+      .stack_branches
+      .iter()
+      .find(|stack| stack.root == root && stack.state == StackBranchState::Built && !stack.members.is_empty())
+      && let Some(tip) = &stack.tip
+    {
+      asks.push(ask(&format!("stack:{root}"), Some(stack.branch_name.clone()), tip, listed.stack_pull_requests.get(root)));
+    }
+    let answers = runtime
+      .block_on(branch_review_readiness(
+        &context.git,
+        &context.repository,
+        &context.cache(),
+        &service,
+        &repository,
+        &asks,
+        true,
+      ))
+      .unwrap();
+    answers
+      .into_iter()
+      .zip(&asks)
+      .map(|(answer, ask)| {
+        let pull_request = match ask.start {
+          ReviewStart::PullRequest { number } => Some(number),
+          ReviewStart::Rest => None,
+        };
+        (
+          answer.branch_name,
+          json!({"readiness": answer.readiness, "requirement": answer.requirement, "tip": answer.tip, "pullRequest": pull_request}),
+        )
+      })
+      .collect()
+  }
+}
+
+/// The facts of the exercised cases of `group`, each in its own repository on its own thread, by case id
+fn facts_of_group(cases: &[Case], group: &str) -> BTreeMap<String, Value> {
+  let exercised: Vec<&Case> = cases
+    .iter()
+    .filter(|case| case.group == group && case.kind == CaseKind::Exercised && case.given.is_some())
+    .collect();
+  std::thread::scope(|scope| {
+    #[expect(clippy::needless_collect, reason = "every case starts before the first is joined")]
+    let running: Vec<_> = exercised
+      .iter()
+      .map(|case| {
+        let given = case.given.as_ref().unwrap();
+        (case.id.clone(), scope.spawn(move || Situation::of(given).facts(given, &case.raw_given)))
+      })
+      .collect();
+    running
+      .into_iter()
+      .map(|(id, thread)| {
+        let facts = thread.join().unwrap_or_else(|_| panic!("{id}: the facts panicked"));
+        (id, facts)
+      })
+      .collect()
+  })
+}
+
+/// The facts files of `FACTS_DIRECTORY` as they are, by case id
+fn filed_facts() -> BTreeMap<String, Value> {
+  std::fs::read_dir(FACTS_DIRECTORY).map_or_default(|entries| {
+    entries
+      .map(|entry| entry.unwrap().path())
+      .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+      .map(|path| {
+        let id = path.file_stem().unwrap().to_str().unwrap().to_string();
+        (id, serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap())
+      })
+      .collect()
+  })
+}
+
+/// The facts the app's side reads of the cases of `group` are what their fixtures leave today: `facts/<id>.json` of
+/// every exercised case equals what the Rust core computes of its repository. A change of the sync, of `patronus_view`,
+/// of the robot list or of the review scan changes the files: `UPDATE_SCENARIO_FACTS=1` rewrites them, and the diff is
+/// reviewed like code, as the Vitest answers from them
+fn assert_facts(group: &str) {
+  let computed = facts_of_group(&cases(), group);
+  assert!(!computed.is_empty(), "no exercised case of {group}");
+  let directory = PathBuf::from(FACTS_DIRECTORY);
+  if std::env::var_os(UPDATE_FACTS).is_some() {
+    std::fs::create_dir_all(&directory).unwrap();
+    for (id, facts) in &computed {
+      std::fs::write(directory.join(format!("{id}.json")), format!("{}\n", pretty(facts, 0))).unwrap();
+    }
+    return;
+  }
+  let filed = filed_facts();
+  let differing: Vec<&String> = computed.iter().filter(|(id, facts)| filed.get(*id) != Some(facts)).map(|(id, _)| id).collect();
+  if let Some(id) = differing.first() {
+    pretty_assertions::assert_eq!(
+      pretty(filed.get(*id).unwrap_or(&Value::Null), 0),
+      pretty(&computed[*id], 0),
+      "the facts of {} cases of {group} differ from their files, {id} first; {UPDATE_FACTS}=1 cargo nextest run -p bd-remote -E 'test(/facts_of/)' rewrites them",
+      differing.len()
+    );
+  }
+}
+
+#[test_log::test]
+fn the_facts_of_the_safe_push_mode_and_route_cases_are_what_the_fixtures_leave() {
+  assert_facts("modes-and-routes");
+}
+
+#[test_log::test]
+fn the_facts_of_the_safe_push_profile_cases_are_what_the_fixtures_leave() {
+  assert_facts("profiles");
+}
+
+#[test_log::test]
+fn the_facts_of_the_safe_push_review_cases_are_what_the_fixtures_leave() {
+  assert_facts("review");
+}
+
+#[test_log::test]
+fn the_facts_of_the_next_step_row_cases_are_what_the_fixtures_leave() {
+  assert_facts("next-step-rows");
+}
+
+#[test_log::test]
+fn the_facts_of_the_stack_and_whole_stack_cases_are_what_the_fixtures_leave() {
+  assert_facts("stack-and-whole-stack");
+}
+
+#[test_log::test]
+fn the_facts_of_the_landing_cases_are_what_the_fixtures_leave() {
+  assert_facts("landing");
+}
+
+#[test_log::test]
+fn the_facts_of_the_discrepancy_cases_are_what_the_fixtures_leave() {
+  assert_facts("discrepancies");
+}
+
+/// A facts file of a case that is gone misleads nobody: it goes with the case (`UPDATE_SCENARIO_FACTS=1` removes it)
+#[test_log::test]
+fn no_facts_file_is_of_a_case_that_is_gone() {
+  let cases = cases();
+  let stale: Vec<String> = filed_facts().into_keys().filter(|id| !cases.iter().any(|case| case.id == *id)).collect();
+  if std::env::var_os(UPDATE_FACTS).is_some() {
+    for id in &stale {
+      std::fs::remove_file(PathBuf::from(FACTS_DIRECTORY).join(format!("{id}.json"))).unwrap();
+    }
+    return;
+  }
+  assert!(stale.is_empty(), "facts of no case: {stale:?}; {UPDATE_FACTS}=1 removes them");
 }
 
 /// What a case compares of the `--check` output: the codes of the refusals, the profile and the pull request by id
@@ -748,7 +1140,7 @@ fn projection(output: &Value) -> Value {
 }
 
 /// The keys of `expected` that `actual` answers otherwise, each named with the case
-fn mismatches(id: &str, column: &str, expected: &serde_json::Map<String, Value>, actual: &Value) -> Vec<String> {
+fn mismatches(id: &str, column: &str, expected: &Map<String, Value>, actual: &Value) -> Vec<String> {
   expected
     .iter()
     .filter(|(key, value)| actual.get(key.as_str()).unwrap_or(&Value::Null) != *value)
@@ -806,7 +1198,12 @@ fn cases() -> Vec<Case> {
     .iter()
     .flat_map(|file| {
       let text = std::fs::read_to_string(file).unwrap();
-      serde_json::from_str::<Vec<Case>>(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()))
+      let cases = serde_json::from_str::<Vec<Case>>(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+      let raw = serde_json::from_str::<Vec<Value>>(&text).unwrap();
+      cases.into_iter().zip(raw).map(|(mut case, raw)| {
+        case.raw_given = raw.get("given").cloned().unwrap_or(Value::Null);
+        case
+      })
     })
     .collect()
 }
@@ -976,6 +1373,73 @@ fn registry_failures(cases: &[Case]) -> Vec<String> {
     }
     if case.kind == CaseKind::Recorded {
       failures.push(format!("{}: only the registry records a case", case.id));
+    }
+  }
+  failures.extend(design_doc_failures());
+  failures
+}
+
+/// The text of the design doc under `heading`, up to the next heading of its level or above
+fn section<'a>(doc: &'a str, heading: &str) -> &'a str {
+  let level = heading.chars().take_while(|c| *c == '#').count();
+  let start = doc.find(&format!("\n{heading}\n")).unwrap_or_else(|| panic!("the design doc has no heading {heading:?}")) + 1;
+  let rest = &doc[start + heading.len()..];
+  let end = rest
+    .match_indices("\n#")
+    .map(|(at, _)| at + 1)
+    .find(|at| {
+      let line = &rest[*at..];
+      let hashes = line.chars().take_while(|c| *c == '#').count();
+      hashes <= level && line[hashes..].starts_with(' ')
+    })
+    .map_or(doc.len(), |at| start + heading.len() + at);
+  &doc[start..end]
+}
+
+/// `text` names `id` as a word: `D1,` or `D1/D9`, not `D11`
+fn names_id(text: &str, id: &str) -> bool {
+  text
+    .match_indices(id)
+    .any(|(at, _)| !text[at + id.len()..].starts_with(|c: char| c.is_ascii_alphanumeric()))
+}
+
+/// The numbered items of a Markdown `text`, each with its continuation lines
+fn numbered_items(text: &str) -> Vec<String> {
+  let mut items: Vec<String> = Vec::new();
+  for line in text.lines() {
+    let numbered = line.starts_with(|c: char| c.is_ascii_digit()) && line.contains(". ");
+    match items.last_mut() {
+      Some(item) if !numbered && line.starts_with(' ') => {
+        item.push(' ');
+        item.push_str(line.trim());
+      }
+      _ if numbered => items.push(line.to_string()),
+      _ => {}
+    }
+  }
+  items
+}
+
+/// The design doc keeps up with the registry: every id has its row of the register and its entry under «Тесты каждой
+/// строки D», and a row that leaves the rule to the owner («владелец») has a numbered item of «Решения, которые
+/// подтверждает владелец» naming the id
+fn design_doc_failures() -> Vec<String> {
+  let doc = std::fs::read_to_string(format!("{ROOT}/docs/design/rust-domain-authority.md")).unwrap();
+  let register = section(&doc, "### Реестр расхождений");
+  let decisions = numbered_items(section(&doc, "## Решения, которые подтверждает владелец"));
+  let mut failures = Vec::new();
+  for id in REGISTRY {
+    if !register.contains(&format!("\n- **{id}.**")) {
+      failures.push(format!("{id}: the design doc has no entry `- **{id}.**` under «Тесты каждой строки D»"));
+    }
+    match register.lines().find(|line| line.starts_with(&format!("| {id} |"))) {
+      None => failures.push(format!("{id}: the design doc has no row of it in the register")),
+      Some(row) if row.contains("владелец") && !decisions.iter().any(|item| names_id(item, id)) => {
+        failures.push(format!(
+          "{id}: its row leaves the rule to the owner, and no item of «Решения, которые подтверждает владелец» names it"
+        ));
+      }
+      Some(_) => {}
     }
   }
   failures

@@ -153,6 +153,7 @@ export default defineConfig({
       "**/*.md",
       // written by the tests themselves
       "tests/**/snapshots/**",
+      "crates/domain-policy/cases/facts/**",
       // written by Icon Composer, which rewrites it in its own style on every save
       "**/*.icon/**",
       "crates/*/testdata/**",
