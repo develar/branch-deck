@@ -192,9 +192,13 @@ menu stacks, unstacks and renames branches.
   those of any flat branch (or conflict like them).
   [@test] ../../crates/history-rewrite/src/stack_test.rs (`an_integrated_parent_moves_the_child_to_the_nearest_active_ancestor`, `a_parent_without_commits_moves_the_child_to_the_nearest_ancestor_with_commits`)
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`an_unapplied_parent_is_reported_before_the_sync_starts`, `a_problem_is_not_built_and_a_missing_parent_is_passed`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the whole stack of a blocked branch with an inactive declared parent is d8`)
 - A parent with a problem and a blocked parent must block the child: the `Blocked` status, the reason as its text, its
   commits blocked, its virtual branch left as it was.
   [@test] ../../crates/history-rewrite/src/stack_test.rs (`a_parent_with_a_problem_blocks_its_children`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the whole stack of a blocked branch with an inactive declared parent is d8`)
 - A parent that conflicts or fails while it is built must block its descendants the same way.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_parent_conflict_blocks_its_descendants`)
 

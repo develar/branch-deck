@@ -5,6 +5,8 @@
 import type { LandingRefusal, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusStartOptions, PullRequest, ReviewReadiness } from "@/lib/bindings"
 import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
+import type { ParkedState } from "@/lib/parked"
+import { wholeStackParkedState } from "@/lib/parked"
 import type { LandedBy, LandingAncestor } from "@/lib/patronus"
 import {
   allowsPushMode,
@@ -18,13 +20,15 @@ import {
   getSafePushSlot,
   getStartPush,
   isPullRequestIntoTarget,
+  isStartBlocked,
 } from "@/lib/patronus"
 import { changesRequestedBy, waitingReviewers } from "@/lib/pull-request"
 import type { DismissFact, ReviewFact, SafePushFacts } from "@/lib/safe-push-decision"
 import { facts, group, ilya, missing, restart } from "@/lib/test-next-step-facts"
 import { testRobot } from "@/lib/test-robot"
 import { formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
-import type { StackBranch } from "@/stores/branch-sync"
+import type { RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import { testRemoteStatus } from "@/stores/test-branch"
 import type { Given, GivenRobot } from "@/test-support/scenario-case"
 import { robotsOf } from "@/test-support/scenario-case"
 
@@ -35,6 +39,38 @@ const GITHUB_REPOSITORY = "acme/monorepo"
 const ILYA = "ikorennoy"
 /** The commit of a conflict of the stack branch, as the sync names it */
 const CONFLICT_COMMIT = "0caf9066d2a4c3b1e5f7a9b8c6d4e2f1a3b5c7d9"
+/** The commit `bd push` pushed, which the remote branch has */
+const PUSHED = "pushed"
+
+/** The remote status of the case's branch as the sync left it; null where nothing reads it */
+function remoteStatusOf(given: Given): RemoteStatus | null {
+  switch (given.remote) {
+    case "rebuiltOnNewerBaseline":
+      // the same commits by content, rebuilt on a newer baseline: not a fast-forward of the remote branch
+      return testRemoteStatus({ remoteTip: PUSHED, fastForward: false })
+    case "behind":
+      return testRemoteStatus({
+        remoteTip: "theirs",
+        commitsBehind: 1,
+        droppedCommits: [{ id: "theirs", subject: "Someone else", author: "Other", authorTime: 0 }],
+        fastForward: false,
+      })
+    default:
+      return null
+  }
+}
+
+/** The parked state of `name`: the branch `given.parked` names (`self` the case's branch, `builtOn` its parent), or a branch built on it */
+function parkedStateOf(given: Given, name: string): ParkedState | null {
+  const parked = given.parked === "self" ? given.branch : given.parked === "builtOn" ? ancestorsOf(given, given.branch).at(-1) : given.parked
+  if (parked === undefined) {
+    return null
+  }
+  if (parked === name) {
+    return { note: "", with: null }
+  }
+  return ancestorsOf(given, name).includes(parked) ? { note: "", with: parked } : null
+}
 
 function notMapped(what: string): never {
   throw new Error(`given.${what} is not mapped yet`)
@@ -47,10 +83,16 @@ function groupOf(subject: string): { name: string; parent: string | null } {
   return slash === -1 ? { name: prefix, parent: null } : { name: prefix.slice(slash + 1), parent: prefix.slice(0, slash) }
 }
 
+/** The commits a dangling reference fixture makes (`commit_dangling_reference`, `commit_changed_declaration`) */
+const DANGLING_COMMITS = {
+  removed: ["(fake-agent) IJAI-3880 Move the control constants", "(lane-document) IJAI-3878 Use the control protocol"],
+  changed: ["(journey) IJAI-4182 The journey support goes with its tests", "(suspend) IJAI-4185 The cleanups may suspend"],
+} as const
+
 /** The branches of the commits in the order of their first commit, each with its parent and its commit count */
 function branchesOf(given: Given): Map<string, { parent: string | null; commits: number }> {
   const branches = new Map<string, { parent: string | null; commits: number }>()
-  for (const subject of given.commits) {
+  for (const subject of given.dangling === undefined ? given.commits : DANGLING_COMMITS[given.dangling]) {
     const { name, parent } = groupOf(subject)
     const known = branches.get(name)
     branches.set(name, { parent: known?.parent ?? parent, commits: (known?.commits ?? 0) + 1 })
@@ -94,6 +136,8 @@ function robotOf(given: GivenRobot, branch: string, index: number): PatronusRobo
       return testRobot(`robot-${index}`, branch, { status, finishTime })
     case "older":
       return testRobot(`robot-${index}`, branch, { status, finishTime, sourceRevision: "0000" })
+    case "remote":
+      return testRobot(`robot-${index}`, branch, { status, finishTime, sourceRevision: PUSHED })
     case "stack":
       return testRobot(`robot-${index}`, null, { status, finishTime, sourceRevision: "stack-tip" })
     default:
@@ -125,10 +169,10 @@ function isListed(given: Given): boolean {
   return given.readiness !== "unlisted" && given.readiness !== "space"
 }
 
-/** The pull request #7 of `branch` as GitHub lists it */
+/** The pull request #7 of `branch` as GitHub lists it: of `pullRequest.of` only, when it names a branch */
 function pullRequestOf(given: Given, branch: string): PullRequest | undefined {
   const pullRequest = given.pullRequest
-  if (pullRequest === undefined || !isListed(given)) {
+  if (pullRequest === undefined || !isListed(given) || (pullRequest.of !== undefined && pullRequest.of !== branch)) {
     return undefined
   }
   return {
@@ -196,9 +240,6 @@ function readinessOf(given: Given, pullRequest: PullRequest | undefined): Review
 }
 
 function checkMapped(given: Given): void {
-  if (given.remote !== "none" && given.remote !== "upToDate" && given.remote !== "unpushed") {
-    notMapped(`remote ${given.remote}`)
-  }
   if (given.subject === "wholeStack" && given.robot !== undefined && robotsOf(given).some(robot => robot.state !== "success")) {
     notMapped("robot of the whole stack other than merged")
   }
@@ -243,6 +284,33 @@ function landingRefusalOf(branch: string): LandingRefusal {
   }
 }
 
+/** The refusal of the landing gate of a dangling reference: `removed` of fake-agent (`commit_dangling_reference`), `changed` of suspend (`commit_changed_declaration`) */
+function danglingRefusalOf(branch: string, reference: "removed" | "changed"): LandingRefusal {
+  const removed = reference === "removed"
+  const fixedBy = removed
+    ? { id: "3333333333333333333333333333333333333333", subject: "IJAI-3878 Use the control protocol", branch: "lane-document" }
+    : { id: "3333333333333333333333333333333333333333", subject: "IJAI-4182 The journey support goes with its tests", branch: "journey" }
+  return {
+    kind: "danglingReference",
+    branch,
+    reference,
+    identifier: removed ? "CONTROL_URL_ENV" : "cleanup",
+    file: removed ? "src/acp/AcpHost.kt" : "src/contract/AcpJourneyLifecycleTest.kt",
+    line: removed ? 7 : 8,
+    removedBy: { id: "4444444444444444444444444444444444444444", subject: removed ? "IJAI-3880 Move the control constants" : "IJAI-4185 The cleanups may suspend", branch },
+    fixedBy,
+    fix: { kind: "moveCommit", commit: fixedBy, into: branch },
+  }
+}
+
+/** What the landing gate refuses of `branch` after the sync, as the repository view holds it */
+function landingNeedsOf(given: Given, branch: string): LandingRefusal[] {
+  if (given.dangling !== undefined) {
+    return [danglingRefusalOf(branch, given.dangling)]
+  }
+  return given.landingNeeds === true ? [landingRefusalOf(branch)] : []
+}
+
 /** The facts of the next step of `branch` (the case's own by default) */
 export function nextStepFactsOf(given: Given, branch: string = given.branch): NextStepFacts {
   checkMapped(given)
@@ -250,12 +318,14 @@ export function nextStepFactsOf(given: Given, branch: string = given.branch): Ne
   const available = given.notOnSpace !== true
   const ancestors = ancestorsOf(given, branch)
   const robots = robotsOf(given).map((robot, index) => ({ given: robot, robot: robotOf(robot, branch, index) }))
-  const own = robots.find(({ given }) => given.on === "tip" || given.on === "older")
+  const own = robots.find(({ given }) => given.on === "tip" || given.on === "older" || given.on === "remote")
+  const remoteStatus = remoteStatusOf(given)
   const running = (on: string) => robots.find(({ given }) => given.state === "running" && given.on.startsWith(on))
   const commitCount = given.landed === "byContent" ? 1 : (branchesOf(given).get(branch)?.commits ?? 0)
   const hasError = given.conflicts === branch
   const blockedBy = given.conflicts !== undefined && ancestors.includes(given.conflicts) ? given.conflicts : null
-  const onTip = own !== undefined && own.given.on === "tip" && own.given.state === "running" ? own.robot : null
+  // a robot on the commit the branch is at, or on its remote branch only rebuilt since (`isStartBlocked`)
+  const onTip = own !== undefined && isStartBlocked(own.robot, `${branch}-tip`, remoteStatus) ? own.robot : null
   const descendant = running("child:")
   const ancestor = running("ancestor:")
   const landingPart: LandingAncestor | null = ancestor === undefined ? null : { branch: ancestor.robot.branchName!, robot: ancestor.robot }
@@ -286,13 +356,13 @@ export function nextStepFactsOf(given: Given, branch: string = given.branch): Ne
     dryRunStartBlocker: blockerOf(true),
     landingPart,
     held: onTip !== null || descendant !== undefined,
-    parked: given.parked === undefined ? null : { note: "", with: given.parked === "self" ? null : ancestors.at(-1)! },
+    parked: parkedStateOf(given, branch),
     landedIn: given.landed === "inBaseline" ? "origin/master" : null,
     landedWith: landedBy === null ? null : formatLandedReason(landedBy),
     robot: getSafePushSlot({
       robot: own?.robot,
       localTip: `${branch}-tip`,
-      remote: null,
+      remote: remoteStatus,
       needsReview: own?.given.reason === "approvals",
       failing: false,
       canOffer: available && commitCount > 0 && !hasError,
@@ -303,7 +373,7 @@ export function nextStepFactsOf(given: Given, branch: string = given.branch): Ne
     pullRequest: pullRequest === undefined ? null : nextStepPullRequest(pullRequest),
     target: TARGET,
     landsBranches: ancestors.length + 1,
-    landingNeeds: given.landingNeeds === true ? [landingRefusalOf(branch)] : [],
+    landingNeeds: landingNeedsOf(given, branch),
     readiness: ((readiness: ReviewReadiness | null) => (readiness === null ? null : { readiness, stale: false }))(readinessOf(given, pullRequest)),
     stackPullRequest: given.stackPullRequest === true && isForking(given, stackRoot) ? { number: 12, subject: formatWholeStack(stackRoot), open: () => {} } : null,
   })
@@ -342,6 +412,7 @@ function stackNextStepFactsOf(given: Given, root: string): NextStepFacts {
     commitCount: stack.commitCount,
     startBlocker: blocker,
     dryRunStartBlocker: blocker,
+    parked: wholeStackParkedState(members, name => parkedStateOf(given, name)),
     landedWith: formatLandedWholeReason(landed, root),
     robot: { kind: "start" },
     pullRequestsAvailable: isListed(given),
@@ -440,7 +511,8 @@ export function safePushFactsOf(given: Given): { step: BranchNextStep; facts: Sa
   const chosen = given.profile?.chosen
   const profileId = chosen !== undefined ? (chosen === "none" ? null : chosen) : bypass === null ? branchProfileId : bypass.defaultProfileId
   const profile = fromPullRequest === null ? (offered.find(it => it.id === profileId) ?? null) : null
-  const startPush = getStartPush(given.remote === "upToDate" ? "upToDate" : given.remote === "unpushed" ? "push" : "create", false)
+  const pushActions = { none: "create", upToDate: "upToDate", unpushed: "push", behind: "force", rebuiltOnNewerBaseline: "upToDate" } as const
+  const startPush = getStartPush(pushActions[given.remote], false)
   const replaces = robotsOf(given).some(robot => robot.on === "older" && robot.state === "running") ? "0000" : null
   return {
     step,

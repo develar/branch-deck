@@ -4,8 +4,8 @@ import { z } from "zod"
 
 const robotState = z.enum(["running", "failure", "canceled", "success"])
 
-/** `tip`, `older`, `stack`, `ancestor:<branch>`, `child:<branch>` */
-const robotOn = z.union([z.enum(["tip", "older", "stack"]), z.string().regex(/^(ancestor|child):[\w./-]+$/)])
+/** `tip`, `older`, `remote` (the remote branch, rebuilt since on a newer baseline), `stack`, `ancestor:<branch>`, `child:<branch>` */
+const robotOn = z.union([z.enum(["tip", "older", "remote", "stack"]), z.string().regex(/^(ancestor|child):[\w./-]+$/)])
 
 /** A robot of the branch, of a branch around it or of the whole stack; `reason: approvals` failed for the approvals */
 const robot = z.strictObject({
@@ -38,6 +38,8 @@ export const given = z.strictObject({
   stackPullRequest: z.literal(true).optional(),
   pullRequest: z
     .strictObject({
+      /** The branch of the pull request: the case's branch by default */
+      of: branchName.optional(),
       base: z.string().default("master"),
       draft: z.boolean().default(false),
       approvers: z.array(z.string()).default([]),
@@ -57,13 +59,15 @@ export const given = z.strictObject({
     .optional(),
   flags: z.array(z.enum(["withoutApprovals", "cancelRunning", "createPullRequest", "allowMissing", "allowDangling"])).default([]),
   rules: z.enum(["keep", "dismiss", "unknown", "loading"]).optional(),
-  /** `self`: the branch is parked; `builtOn`: its parent is */
-  parked: z.enum(["self", "builtOn"]).optional(),
+  /** `self`: the branch is parked; `builtOn`: its parent is; a branch of the stack: that one is */
+  parked: z.union([z.enum(["self", "builtOn"]), branchName]).optional(),
   /** `notBuilt`: a member of the whole stack has a stack problem (a conflict is `conflicts` of a member) */
   stackBranch: z.literal("notBuilt").optional(),
   /** `inBaseline`: origin/master has every commit; `byContent`: the baseline landed the commits rebuilt, one added since */
   landed: z.enum(["inBaseline", "byContent"]).optional(),
   landingNeeds: z.literal(true).optional(),
+  /** The commits of a fixture with a dangling reference instead of `commits`: `removed` of fake-agent, `changed` of suspend */
+  dangling: z.enum(["removed", "changed"]).optional(),
 })
 
 export type Given = z.infer<typeof given>
@@ -107,29 +111,65 @@ const bdCheck = z.union([
   }),
 ])
 
-const bdStart = z.union([z.strictObject({ started_via: z.enum(["api", "pull_request"]) }), z.strictObject({ error: z.string() })])
+const bdStart = z.union([
+  /** `canceled`: it canceled the running Safe Push of an older commit first (`--cancel-running`) */
+  z.strictObject({ started_via: z.enum(["api", "pull_request"]), canceled: z.boolean().optional() }),
+  z.strictObject({ error: z.string() }),
+])
 
-export const scenarioCase = z.strictObject({
+const discrepancy = z.enum(["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D8", "D9", "D10"])
+
+/** Where each side does it today: `path:line` or `path#name` (a test, a function), from the repository root */
+const today = z.strictObject({
+  app: z.array(z.string()).min(1),
+  bd: z.array(z.string()).min(1),
+  /** Why the sides differ although their classes agree (D9), or what the pointers show */
+  why: z.string().optional(),
+})
+
+const header = {
   id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
   group: z.string(),
   title: z.string(),
   spec: z.array(z.string()).min(1),
-  discrepancy: z
-    .string()
-    .regex(/^D([1-9]|10)[ab]?$/)
-    .nullable(),
+}
+
+/** Both sides answer `given` */
+const exercisedCase = z.strictObject({
+  ...header,
+  kind: z.literal("exercised").default("exercised"),
+  discrepancy: discrepancy.nullable(),
+  /** Of an entry of the registry whose sides agree by class */
+  today: today.optional(),
   asymmetry: z.strictObject({ kind: z.enum(["byDesign", "unregistered"]), why: z.string() }).optional(),
   given,
   app: appExpectation,
   bd: z.strictObject({ check: bdCheck, start: bdStart.optional() }),
 })
 
+/** An entry of the registry that no decision of either side reaches: `today` says where each side does it */
+const recordedCase = z.strictObject({
+  ...header,
+  kind: z.literal("recorded"),
+  discrepancy,
+  /** The exercised case of another group that records the same discrepancy */
+  twin: z.string().optional(),
+  today,
+})
+
+export const scenarioCase = z.union([exercisedCase, recordedCase])
+
 export type ScenarioCase = z.infer<typeof scenarioCase>
+export type ExercisedCase = z.infer<typeof exercisedCase>
+
+export function isExercised(scenario: ScenarioCase): scenario is ExercisedCase {
+  return scenario.kind === "exercised"
+}
 
 /** Whether a side starts, refuses or waits: the class the README compares the sides by */
 export type OutcomeClass = "start" | "refuse" | "wait"
 
-export function appOutcome(scenario: ScenarioCase): OutcomeClass {
+export function appOutcome(scenario: ExercisedCase): OutcomeClass {
   const { decision, step } = scenario.app
   if (decision === undefined) {
     // a step alone: nothing offered, or the reason every surface disables the start of the mode with
@@ -151,7 +191,7 @@ export function appOutcome(scenario: ScenarioCase): OutcomeClass {
   }
 }
 
-export function bdOutcome(scenario: ScenarioCase): OutcomeClass {
+export function bdOutcome(scenario: ExercisedCase): OutcomeClass {
   const { start, check } = scenario.bd
   if (start !== undefined) {
     return "error" in start ? "refuse" : "start"

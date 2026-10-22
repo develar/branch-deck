@@ -1,0 +1,210 @@
+[
+  {
+    "id": "push-dismisses-the-counted-approvals",
+    "group": "discrepancies",
+    "title": "a push of a new commit into #7, whose approvals Patronus counts, while the rules of the repository dismiss stale reviews: the app refuses and offers the push, bd starts",
+    "spec": [
+      "docs/design/rust-domain-authority.md#реестр-расхождений",
+      "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
+      "spec/cli/agent-cli.spec.md#bd-safe-push"
+    ],
+    "discrepancy": "D1",
+    "given": {
+      "readiness": "approved",
+      "pullRequest": {
+        "approvers": ["ikorennoy"]
+      },
+      "remote": "unpushed",
+      "rules": "dismiss"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "refuse",
+        "offersPush": true
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true,
+        "pull_request": 7
+      },
+      "start": {
+        "started_via": "pull_request"
+      }
+    }
+  },
+  {
+    "id": "skips-review-profile-of-the-api-start",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "a profile that skips the code-owner review: the app skips the approvals, bd refuses approvals_missing without --without-approvals or --create-pull-request",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#safe-push-without-review"],
+    "discrepancy": "D2",
+    "twin": "skips-review-profile",
+    "today": {
+      "app": ["src/lib/safe-push-decision.ts#function skipsApprovals"],
+      "bd": ["crates/bd-remote/src/safe_push_command.rs:1172"]
+    }
+  },
+  {
+    "id": "retarget-before-or-after-the-push",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "the order of the retarget of a pull request into a virtual branch and the push: the app retargets before the push, bd push after it, bd safe-push before",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#bd-push"],
+    "discrepancy": "D3a",
+    "today": {
+      "app": ["src/lib/git/push.ts:136"],
+      "bd": ["crates/bd-remote/src/push_command.rs:244", "crates/bd-remote/src/safe_push_command.rs:467"]
+    }
+  },
+  {
+    "id": "pull-request-into-another-base",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "an open pull request into another base (a release branch): the app blocks the Safe Push, bd starts through the API and ignores it",
+    "spec": [
+      "docs/design/rust-domain-authority.md#реестр-расхождений",
+      "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
+      "spec/cli/agent-cli.spec.md#bd-safe-push"
+    ],
+    "discrepancy": "D3b",
+    "twin": "row-5-prime-another-base",
+    "today": {
+      "app": ["src/lib/branch-next-step.ts:576"],
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#fn other_base_pull_request_start"]
+    }
+  },
+  {
+    "id": "push-over-a-moved-remote",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "a push over a remote branch that moved without commits the branch lacks: the app pushes again once, bd answers lease_rejected",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/cli/agent-cli.spec.md#bd-push"],
+    "discrepancy": "D4",
+    "today": {
+      "app": [
+        "src/lib/git/push.ts#function pushesOverMovedRemote",
+        "src/lib/git/push.test.ts#pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost"
+      ],
+      "bd": ["crates/bd-remote/src/push_test.rs#fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it"]
+    }
+  },
+  {
+    "id": "request-review-pushes-first",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "Request Review of a branch the remote lags: the app pushes first, bd request-review doesn't push; each side computes the candidates on its own",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#request-review", "spec/cli/agent-cli.spec.md#bd-request-review"],
+    "discrepancy": "D5",
+    "today": {
+      "app": ["src/components/branch/RequestReviewForm.tsx:101", "src/lib/request-review.ts:29"],
+      "bd": ["crates/bd-remote/src/request_review_command.rs#fn suggested_reviewers"]
+    }
+  },
+  {
+    "id": "create-pull-request-waits-for-the-mirror",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "Create Pull Request: the app pushes, waits for the GitHub branch (`wait_for_github_branch`) and creates it; bd does it in safe-push --create-pull-request with `wait_for_mirror`",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": "D6",
+    "today": {
+      "app": ["src/lib/create-pull-request-context.ts:295"],
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#wait_for_mirror: plan.push_needed"]
+    }
+  },
+  {
+    "id": "close-the-pull-requests-a-robot-landed",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "the pull requests a merged robot landed with it: only the app closes them, by its poll of the robots; bd lists and closes none",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#merged", "docs/design/landing.md#every-pull-request-goes-into-master"],
+    "discrepancy": "D7",
+    "today": {
+      "app": ["src/lib/landed-stack.ts#export function closeLandedPullRequests"],
+      "bd": ["crates/bd-remote/src/robot_command.rs:1"],
+      "why": "bd has no code of it: the pointer is the robot command, which reports and closes nothing"
+    }
+  },
+  {
+    "id": "d8-whole-stack-parent",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "the whole stack of C, blocked by A, whose declared parent B has no commits (stacked on A by bd restack): bd follows blocked_by and lands the chain A → C, the app follows declaredParent B, which no row has, and C is a root of its own",
+    "spec": [
+      "docs/design/rust-domain-authority.md#реестр-расхождений",
+      "spec/branch/stacked-branches.spec.md#placement",
+      "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack"
+    ],
+    "discrepancy": "D8",
+    "today": {
+      "app": ["src/stores/branch-sync.ts#function buildParentIn", "src/lib/scenario-cases.test.ts#the whole stack of a blocked branch with an inactive declared parent is d8"],
+      "bd": [
+        "crates/bd-core/src/stack_summary.rs#stack.blocked_by.as_ref().map(|block| block.parent.as_str())",
+        "crates/bd-remote/src/scenario_test.rs#fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8"
+      ]
+    }
+  },
+  {
+    "id": "rules-unknown-keep-the-approvals",
+    "group": "discrepancies",
+    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read: the app reads it as \"keeps the approvals\", bd never asks",
+    "spec": [
+      "docs/design/rust-domain-authority.md#реестр-расхождений",
+      "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
+      "spec/cli/agent-cli.spec.md#bd-safe-push"
+    ],
+    "discrepancy": "D9",
+    "given": {
+      "readiness": "approved",
+      "pullRequest": {
+        "approvers": ["ikorennoy"]
+      },
+      "remote": "unpushed",
+      "rules": "unknown"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true,
+        "pull_request": 7
+      }
+    },
+    "today": {
+      "app": ["src/hooks/useDismissesStaleReviews.ts:24"],
+      "bd": ["src-tauri/src/commands/pull_requests.rs#read_branch_rules"],
+      "why": "both start: the app because it reads a failed read of the rules as \"keeps the approvals\" (a GitHub error is `false`), bd because it never reads the rules; the only caller of read_branch_rules is the app's"
+    }
+  },
+  {
+    "id": "direct-ipc-skips-the-checks",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "the IPC of a start, a restart, a cancel and a push runs without the checks of the decision and without the repository lock; bd checks and locks in its commands",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#bd-push"],
+    "discrepancy": "D10",
+    "today": {
+      "app": [
+        "src-tauri/src/commands/patronus.rs#pub async fn start_patronus_robot",
+        "src-tauri/src/commands/patronus.rs#pub async fn cancel_patronus_robot",
+        "src-tauri/src/commands/push.rs#pub async fn push_branch("
+      ],
+      "bd": ["crates/bd-remote/src/push_command.rs:218"]
+    }
+  }
+]

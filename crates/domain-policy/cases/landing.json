@@ -1,0 +1,403 @@
+[
+  {
+    "id": "robot-on-the-remote-branch-rebuilt-on-a-newer-baseline",
+    "group": "landing",
+    "title": "a Safe Push runs on the remote branch, which has the commits of the branch by content, rebuilt since on a newer baseline: a start would test the same commits again",
+    "spec": [
+      "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
+      "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
+      "spec/cli/agent-cli.spec.md#bd-safe-push"
+    ],
+    "discrepancy": null,
+    "given": {
+      "remote": "rebuiltOnNewerBaseline",
+      "robot": {
+        "state": "running",
+        "on": "remote"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "A Safe Push of the last commit is running"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"]
+      }
+    }
+  },
+  {
+    "id": "rebuilt-on-a-newer-baseline-starts-without-a-push",
+    "group": "landing",
+    "title": "the remote branch has the commits of the branch by content, only rebuilt since on a newer baseline: the start pushes nothing",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "remote": "rebuiltOnNewerBaseline"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": false
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "robot-of-a-branch-built-on-it-before-the-ancestor",
+    "group": "landing",
+    "title": "a Safe Push of session, built on login, lands login, while one of auth lands a part of it: the reason names session first",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(login/session) Add session"],
+      "branch": "login",
+      "robot": [
+        {
+          "state": "running",
+          "on": "child:session"
+        },
+        {
+          "state": "running",
+          "on": "ancestor:auth"
+        }
+      ]
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "A Safe Push of session is running: it lands login with it"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"]
+      }
+    }
+  },
+  {
+    "id": "older-robot-with-a-push-needed",
+    "group": "landing",
+    "title": "a Safe Push of an older commit runs and the branch has a commit the remote lacks: the push fails it at the end",
+    "spec": [
+      "spec/branch/patronus.spec.md#restart-and-cancel",
+      "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
+      "spec/cli/agent-cli.spec.md#bd-safe-push"
+    ],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "the refusal of bd names --cancel-running, the confirmation the popover asks for (`replaces`): spec/cli/agent-cli.spec.md#bd-safe-push"
+    },
+    "given": {
+      "remote": "unpushed",
+      "robot": {
+        "state": "running",
+        "on": "older"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["replaces"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"],
+        "push_needed": true
+      }
+    }
+  },
+  {
+    "id": "older-robot-with-a-push-needed-canceled",
+    "group": "landing",
+    "title": "the same with --cancel-running: bd cancels the robot of the older commit, pushes and starts, as the popover's start replaces it",
+    "spec": ["spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "remote": "unpushed",
+      "robot": {
+        "state": "running",
+        "on": "older"
+      },
+      "flags": ["cancelRunning"]
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["replaces"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true
+      },
+      "start": {
+        "started_via": "api",
+        "canceled": true
+      }
+    }
+  },
+  {
+    "id": "older-robot-without-a-push",
+    "group": "landing",
+    "title": "a Safe Push of an older commit runs and the remote branch is up to date: a start would run beside it",
+    "spec": ["spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "the refusal of bd names --cancel-running, the confirmation the popover asks for (`replaces`): spec/cli/agent-cli.spec.md#bd-safe-push"
+    },
+    "given": {
+      "remote": "upToDate",
+      "robot": {
+        "state": "running",
+        "on": "older"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["replaces"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"],
+        "push_needed": false
+      }
+    }
+  },
+  {
+    "id": "whole-stack-holds-a-parked-member",
+    "group": "landing",
+    "title": "session of the forking auth stack is parked: the whole stack holds what is parked and stays local",
+    "spec": [
+      "spec/branch/parked-branches.spec.md#parked-with-a-parent",
+      "spec/branch/stacked-branches.spec.md",
+      "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack",
+      "spec/cli/agent-cli.spec.md#bd-safe-push"
+    ],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "parked": "session"
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Holds parked session: land the stack in pieces"
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "parked"
+      }
+    }
+  },
+  {
+    "id": "remote-behind",
+    "group": "landing",
+    "title": "the remote branch has a commit of someone else that the branch lacks: a push would drop it",
+    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "unregistered",
+      "why": "the decision of the app reads no commits the remote branch has that the branch lacks: its start pushes (`startPush` force), the push button asks about the dropped commits; bd refuses push_refused with the `--force --expect-remote` push"
+    },
+    "given": {
+      "remote": "behind"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["push_refused"],
+        "push_needed": true
+      }
+    }
+  },
+  {
+    "id": "retarget-of-a-pushed-along-ancestor",
+    "group": "landing",
+    "title": "the Safe Push of session pushes login along, whose pull request #7 goes into the virtual branch of auth: bd retargets it to master first",
+    "spec": ["spec/branch/patronus.spec.md#pull-requests", "spec/branch/stacked-branches.spec.md#pull-requests", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(login/session) Add session"],
+      "branch": "session",
+      "pullRequest": {
+        "of": "login",
+        "base": "test-user/virtual/auth"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["stack"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": null,
+        "retargeted": [7]
+      }
+    }
+  },
+  {
+    "id": "missing-declaration-allowed",
+    "group": "landing",
+    "title": "the branch uses a name only codec adds, and the start is told to start anyway: --allow-missing, the popover's Start Anyway",
+    "spec": ["spec/branch/next-step.spec.md#what-the-safe-push-needs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "landingNeeds": true,
+      "flags": ["allowMissing"]
+    },
+    "app": {
+      "step": {
+        "kind": "needsBranch",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["landing"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": []
+      }
+    }
+  },
+  {
+    "id": "dangling-reference-removed",
+    "group": "landing",
+    "title": "fake-agent removes a constant that the tree it lands still uses; lane-document, outside it, changes the use",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "--allow-dangling of bd is the popover's Start Anyway: spec/cli/agent-cli.spec.md#bd-safe-push"
+    },
+    "given": {
+      "commits": [],
+      "branch": "fake-agent",
+      "dangling": "removed"
+    },
+    "app": {
+      "step": {
+        "kind": "needsBranch",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["landing"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["dangling_reference"]
+      }
+    }
+  },
+  {
+    "id": "dangling-reference-changed",
+    "group": "landing",
+    "title": "suspend makes a function suspend that a test the tree lands still calls; journey, outside it, deletes the test",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "--allow-dangling of bd is the popover's Start Anyway: spec/cli/agent-cli.spec.md#bd-safe-push"
+    },
+    "given": {
+      "commits": [],
+      "branch": "suspend",
+      "dangling": "changed"
+    },
+    "app": {
+      "step": {
+        "kind": "needsBranch",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["landing"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["dangling_reference"]
+      }
+    }
+  },
+  {
+    "id": "dangling-reference-allowed",
+    "group": "landing",
+    "title": "the dangling reference of fake-agent, and the start is told to start anyway: --allow-dangling",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": [],
+      "branch": "fake-agent",
+      "dangling": "removed",
+      "flags": ["allowDangling"]
+    },
+    "app": {
+      "step": {
+        "kind": "needsBranch",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["landing"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": []
+      }
+    }
+  }
+]

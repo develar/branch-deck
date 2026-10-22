@@ -851,37 +851,6 @@
     }
   },
   {
-    "id": "rules-unknown-keep-the-approvals",
-    "group": "next-step-rows",
-    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read: the app reads it as \"keeps the approvals\", bd never asks",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D9",
-    "given": {
-      "readiness": "approved",
-      "pullRequest": {
-        "approvers": ["ikorennoy"]
-      },
-      "remote": "unpushed",
-      "rules": "unknown"
-    },
-    "app": {
-      "step": {
-        "kind": "safePush",
-        "safePushBlocker": null
-      },
-      "decision": {
-        "kind": "start"
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": [],
-        "push_needed": true,
-        "pull_request": 7
-      }
-    }
-  },
-  {
     "id": "landed-by-content-work-left",
     "group": "next-step-rows",
     "title": "the baseline landed the commits of auth rebuilt, one commit added since: that commit is the work left",

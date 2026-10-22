@@ -4,24 +4,43 @@
 //! the side of the app
 
 use crate::safe_push_command::{SafePushArgs, SafePushOutput, check_output, github_service, patronus_service, plan, start_of, start_output, whole_stack_arg};
-use bd_cli::fixture_test::{PREFIX, commit_all, git, run_json, write};
+use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
 use bd_cli::remote_fixture_test::{
-  LANDED_SUBJECTS, Space, evaluated_review, fake_github, land_auth_by_content, minutes_ago, pull_request_json, reviewed_on_github, robot, safe_push, stack_robot,
+  LANDED_SUBJECTS, Space, evaluated_review, fake_github, land_auth_by_content, minutes_ago, pull_request_json, push_from_elsewhere_to, rebuild_on_a_newer_baseline,
+  reviewed_on_github, robot, safe_push, stack_robot,
 };
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
+use bd_core::stack_summary::{WholeStack, whole_stack_of};
 use bd_core::sync_command::{lock, sync_locked};
 use domain_types::patronus::PatronusPushMode;
+use domain_types::stack::BranchStack;
+use domain_types::commit::Commit;
 use github::fake_github::{FakeAnswer, FakeGitHub};
+use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
+use history_rewrite::stack::place_branches;
+use history_rewrite::store_lines::StoreLines;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::target_conflict::fetch_target;
 
 /// The groups of the cases and their test functions here; the Vitest has the same groups
-const GROUPS: [&str; 5] = ["modes-and-routes", "profiles", "review", "next-step-rows", "stack-and-whole-stack"];
+const GROUPS: [&str; 7] = [
+  "modes-and-routes",
+  "profiles",
+  "review",
+  "next-step-rows",
+  "stack-and-whole-stack",
+  "landing",
+  "discrepancies",
+];
+
+/// The ids of the registry of `docs/design/rust-domain-authority.md`: the group `discrepancies` has one entry of each
+const REGISTRY: [&str; 11] = ["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D8", "D9", "D10"];
 
 /// A case of the table; `app` and `asymmetry` are the Vitest's
 #[derive(Debug, Deserialize)]
@@ -29,15 +48,41 @@ const GROUPS: [&str; 5] = ["modes-and-routes", "profiles", "review", "next-step-
 struct Case {
   id: String,
   group: String,
+  /// `exercised` (the default): both sides answer `given`; `recorded`: a discrepancy no decision of either side reaches,
+  /// recorded by `today`
+  #[serde(default)]
+  kind: CaseKind,
   title: String,
   spec: Vec<String>,
   discrepancy: Option<String>,
+  /// Of an entry of the registry: the exercised case of another group that records the same discrepancy
+  twin: Option<String>,
+  /// Where each side does it today: `path:line` or `path#name` (a test, a function), from the repository root
+  today: Option<Today>,
   #[expect(dead_code, reason = "the Vitest compares the classes of the outcomes")]
   asymmetry: Option<IgnoredAny>,
-  given: Given,
+  given: Option<Given>,
   #[expect(dead_code, reason = "the expectations of the app, the Vitest's")]
-  app: IgnoredAny,
-  bd: Expected,
+  app: Option<IgnoredAny>,
+  bd: Option<Expected>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum CaseKind {
+  #[default]
+  Exercised,
+  Recorded,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Today {
+  app: Vec<String>,
+  bd: Vec<String>,
+  /// Why the sides differ although their classes agree (D9), or what the pointers show
+  #[expect(dead_code, reason = "the Vitest asks for it where the classes of a discrepancy agree")]
+  why: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,10 +121,13 @@ struct Given {
   flags: Vec<Flag>,
   /// `bd` reads no branch rules (D1, D9)
   rules: Option<IgnoredAny>,
-  parked: Option<Parked>,
+  /// `self`, `builtOn` (its parent), or the name of a branch of the stack
+  parked: Option<String>,
   stack_branch: Option<StackBranch>,
   landed: Option<Landed>,
   landing_needs: Option<bool>,
+  /// The commits of a fixture that make a dangling reference, instead of `commits`
+  dangling: Option<Dangling>,
 }
 
 impl Default for Given {
@@ -106,6 +154,7 @@ impl Default for Given {
       stack_branch: None,
       landed: None,
       landing_needs: None,
+      dangling: None,
     }
   }
 }
@@ -172,12 +221,11 @@ struct GivenRobot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-enum Parked {
-  /// The branch
-  #[serde(rename = "self")]
-  Itself,
-  /// Its parent
-  BuiltOn,
+enum Dangling {
+  /// `commit_dangling_reference`: `fake-agent` removes a constant that the tree still uses, `lane-document` changes the use
+  Removed,
+  /// `commit_changed_declaration`: `suspend` makes a function suspend, `journey` deletes the test that calls it
+  Changed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -208,6 +256,8 @@ enum RobotState {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase", default)]
 struct GivenPullRequest {
+  /// The branch of the pull request: the case's branch by default
+  of: Option<String>,
   base: String,
   draft: bool,
   approvers: Vec<String>,
@@ -219,6 +269,7 @@ struct GivenPullRequest {
 impl Default for GivenPullRequest {
   fn default() -> Self {
     Self {
+      of: None,
       base: "master".to_string(),
       draft: false,
       approvers: Vec::new(),
@@ -289,9 +340,15 @@ impl Given {
 
   /// The values the adapter maps (the README says which); anything else fails the case
   fn check_mapped(&self) {
-    let not_mapped = |what: &str| panic!("given.{what} is not mapped yet");
-    if matches!(self.remote, Remote::Behind | Remote::RebuiltOnNewerBaseline) {
-      not_mapped(&format!("remote {:?}", self.remote));
+    if let Some(dangling) = self.dangling {
+      let branch = match dangling {
+        Dangling::Removed => "fake-agent",
+        Dangling::Changed => "suspend",
+      };
+      assert!(
+        self.commits.is_empty() && self.branch == branch,
+        "given.dangling {dangling:?} brings its own commits: commits [], branch {branch}"
+      );
     }
     if self.landed == Some(Landed::ByContent) {
       assert!(
@@ -409,8 +466,9 @@ fn virtual_branch(name: &str) -> String {
   format!("{PREFIX}/virtual/{name}")
 }
 
-/// The pull request #7 of the case's branch as the GitHub search lists it
+/// The pull request #7 of the case's branch (or of `of`) as the GitHub search lists it
 fn pull_request_of(given: &GivenPullRequest, branch: &str) -> Value {
+  let branch = given.of.as_deref().unwrap_or(branch);
   let approvers: Vec<&str> = given.approvers.iter().map(String::as_str).collect();
   let mut pull_request = pull_request_json(&approvers);
   let reviews = pull_request["latestReviews"]["nodes"].as_array_mut().unwrap();
@@ -474,6 +532,8 @@ fn add_robots(space: &Space, environment: &mut Environment, given: &Given) {
     let mut listed = match robot_of.on.split_once(':') {
       Some((_, other)) => robot(&id, &state, other, &tip_of(&virtual_branch(other))),
       None if robot_of.on == "tip" => robot(&id, &state, &given.branch, &tip_of(&virtual_branch(&given.branch))),
+      // the remote branch, which the sync rebuilt since on a newer baseline (`remote: rebuiltOnNewerBaseline`)
+      None if robot_of.on == "remote" => robot(&id, &state, &given.branch, &space.remote_tip(&virtual_branch(&given.branch))),
       None if robot_of.on == "older" => robot(&id, &state, &given.branch, "0000"),
       None => {
         let root = given.root_of(&given.branch);
@@ -510,6 +570,11 @@ fn commit_given(space: &Space, given: &Given) {
   if given.conflicts.is_some() {
     write(repo, "config.txt", "a\n");
     commit("Add config");
+  }
+  match given.dangling {
+    Some(Dangling::Removed) => drop(commit_dangling_reference(repo)),
+    Some(Dangling::Changed) => drop(commit_changed_declaration(repo)),
+    None => {}
   }
   if given.landing_needs.is_some() {
     write(repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
@@ -601,18 +666,29 @@ impl Situation {
       None => {}
     }
     match given.remote {
+      Remote::None => {}
       Remote::UpToDate => bd_ok(&environment, &["push", branch]),
       Remote::Unpushed => {
         bd_ok(&environment, &["push", branch]);
         write(&space.repo, "more.txt", "more\n");
         commit_all(&space.repo, &format!("({branch}) More {branch}"), 1_700_009_000);
       }
-      _ => {}
+      Remote::Behind => {
+        bd_ok(&environment, &["push", branch]);
+        push_from_elsewhere_to(&space.remote, &virtual_branch(branch), "Someone else");
+        git(&space.repo, &["fetch", "-q", "origin"]);
+      }
+      Remote::RebuiltOnNewerBaseline => {
+        // the remote branch has the commits by content
+        bd_ok(&environment, &["push", branch]);
+        rebuild_on_a_newer_baseline(&space.repo);
+      }
     }
-    if let Some(parked) = given.parked {
+    if let Some(parked) = given.parked.as_deref() {
       let name = match parked {
-        Parked::Itself => branch,
-        Parked::BuiltOn => given.parent_of(branch).expect("given.parked builtOn needs a parent"),
+        "self" => branch,
+        "builtOn" => given.parent_of(branch).expect("given.parked builtOn needs a parent"),
+        member => member,
       };
       bd_ok(&environment, &["sync"]);
       bd_ok(&environment, &["park", name]);
@@ -660,13 +736,13 @@ impl Situation {
     Ok(check_output(start_output(&context, &args, mode, whole_stack.as_ref(), &plan), plan))
   }
 
-  /// `bd safe-push` without `--check`: `{started_via}` or `{error}`
+  /// `bd safe-push` without `--check`: `{started_via, canceled}` (whether it canceled a robot first) or `{error}`
   fn start(&self, given: &Given) -> Value {
     let line = given.command_line();
     let args: Vec<&str> = line.iter().map(String::as_str).collect();
     let (exit_code, output) = safe_push(&self.environment, &args);
     if exit_code == 0 {
-      json!({"started_via": output["started_via"]})
+      json!({"started_via": output["started_via"], "canceled": output["canceled"].is_object()})
     } else {
       json!({"error": output["error"]["code"]})
     }
@@ -706,17 +782,22 @@ fn mismatches(id: &str, column: &str, expected: &serde_json::Map<String, Value>,
     .collect()
 }
 
-/// What bd answers today for the case, against its `bd` column: the failures
+/// What bd answers today for the case, against its `bd` column: the failures; a recorded case has none to answer
 fn answer(case: &Case) -> Vec<String> {
   assert!(!case.spec.is_empty(), "{}: a case names the requirements it pins", case.id);
-  let situation = Situation::of(&case.given);
-  let check = match situation.check(&case.given) {
+  let (given, expected) = match (case.kind, &case.given, &case.bd) {
+    (CaseKind::Exercised, Some(given), Some(expected)) => (given, expected),
+    (CaseKind::Recorded, None, None) => return Vec::new(),
+    _ => return vec![format!("{}: an exercised case has given and bd, a recorded one neither", case.id)],
+  };
+  let situation = Situation::of(given);
+  let check = match situation.check(given) {
     Ok(output) => projection(&serde_json::to_value(output).unwrap()),
     Err(error) => json!({"error": error.code}),
   };
-  let mut failures = mismatches(&case.id, "check", &case.bd.check, &check);
-  if let Some(expected) = &case.bd.start {
-    failures.extend(mismatches(&case.id, "start", expected, &situation.start(&case.given)));
+  let mut failures = mismatches(&case.id, "check", &expected.check, &check);
+  if let Some(start) = &expected.start {
+    failures.extend(mismatches(&case.id, "start", start, &situation.start(given)));
   }
   let context = match &case.discrepancy {
     Some(id) => format!(" ({id})"),
@@ -795,4 +876,193 @@ fn the_next_step_row_cases_answer_as_bd_answers_today() {
 #[test_log::test]
 fn the_stack_and_whole_stack_cases_answer_as_bd_answers_today() {
   assert_group("stack-and-whole-stack");
+}
+
+#[test_log::test]
+fn the_landing_cases_answer_as_bd_answers_today() {
+  assert_group("landing");
+}
+
+/// Where a pointer of `today` goes wrong: `path:line` past the end of the file, `path#name` without the name in it
+fn broken_pointer(pointer: &str) -> Option<String> {
+  let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+  let (path, check) = match (pointer.split_once('#'), pointer.rsplit_once(':')) {
+    (Some((path, name)), _) => (path, Ok(name)),
+    (None, Some((path, line))) => (path, Err(line.parse::<usize>().unwrap_or(0))),
+    (None, None) => return Some(format!("{pointer}: neither path:line nor path#name")),
+  };
+  let Ok(text) = std::fs::read_to_string(format!("{root}/{path}")) else {
+    return Some(format!("{pointer}: no file {path}"));
+  };
+  match check {
+    Ok(name) if !text.contains(name) => Some(format!("{pointer}: {path} has no {name:?}")),
+    Err(line) if line == 0 || line > text.lines().count() => Some(format!("{pointer}: {path} has no line {line}")),
+    _ => None,
+  }
+}
+
+/// The group `discrepancies` is the registry: one entry of each id, a recorded one with its pointers; a case of another
+/// group with a discrepancy is the `twin` of its entry
+fn registry_failures(cases: &[Case]) -> Vec<String> {
+  let registry: Vec<&Case> = cases.iter().filter(|case| case.group == "discrepancies").collect();
+  let mut failures = Vec::new();
+  let ids: Vec<&str> = registry.iter().filter_map(|case| case.discrepancy.as_deref()).collect();
+  for id in REGISTRY {
+    let count = ids.iter().filter(|known| **known == id).count();
+    if count != 1 {
+      failures.push(format!("the registry has {count} entries of {id}"));
+    }
+  }
+  failures.extend(ids.iter().filter(|id| !REGISTRY.contains(id)).map(|id| format!("{id} is no id of the registry")));
+  for entry in &registry {
+    let Some(id) = entry.discrepancy.as_deref() else {
+      failures.push(format!("{}: an entry of the registry names its discrepancy", entry.id));
+      continue;
+    };
+    if entry.kind == CaseKind::Recorded && entry.today.is_none() {
+      failures.push(format!("{}: a recorded entry says where each side does it today", entry.id));
+    }
+    if let Some(today) = &entry.today {
+      if today.app.is_empty() || today.bd.is_empty() {
+        failures.push(format!("{}: today names a place of each side", entry.id));
+      }
+      failures.extend(
+        today
+          .app
+          .iter()
+          .chain(&today.bd)
+          .filter_map(|pointer| broken_pointer(pointer))
+          .map(|broken| format!("{}: {broken}", entry.id)),
+      );
+    }
+    if let Some(twin) = &entry.twin {
+      match cases.iter().find(|case| case.id == *twin) {
+        Some(case) if case.group != "discrepancies" && case.discrepancy.as_deref() == Some(id) => {}
+        _ => failures.push(format!("{}: its twin {twin} is an exercised case of another group with {id}", entry.id)),
+      }
+    }
+  }
+  for case in cases.iter().filter(|case| case.group != "discrepancies") {
+    if let Some(id) = &case.discrepancy
+      && !registry.iter().any(|entry| entry.discrepancy.as_ref() == Some(id) && entry.twin.as_ref() == Some(&case.id))
+    {
+      failures.push(format!("{}: {id} outside the registry, whose entry doesn't name it as its twin", case.id));
+    }
+    if case.kind == CaseKind::Recorded {
+      failures.push(format!("{}: only the registry records a case", case.id));
+    }
+  }
+  failures
+}
+
+#[test_log::test]
+fn the_discrepancy_cases_name_d1_to_d10_as_the_register_does() {
+  let failures = registry_failures(&cases());
+  assert!(failures.is_empty(), "the registry:\n{}", failures.join("\n"));
+  assert_group("discrepancies");
+}
+
+/// A commit of the placement of D8, as the commit list reads it
+fn listed_commit(id: &str, subject: &str) -> Commit {
+  Commit {
+    id: id.to_string(),
+    stripped_subject: subject.to_string(),
+    message: subject.to_string(),
+    author_name: "Test Author".to_string(),
+    author_email: "test@example.com".to_string(),
+    author_timestamp: 1_700_000_000,
+    committer_timestamp: 1_700_000_000,
+    author_timezone: String::new(),
+    committer_timezone: String::new(),
+    subject: subject.to_string(),
+    parent_id: None,
+    tree_id: "tree".to_string(),
+    note: None,
+    mapped_commit_id: None,
+    mapped_source: None,
+    mapped_resolution: None,
+  }
+}
+
+/// The subjects of D8 after the reword: `b1` lost its `(A/B)`, so B has no commits, and the stored parent B → A stays
+const D8_SUBJECTS: [&str; 4] = ["(A) a1", "(A/A) a2", "b1", "(B/C) c1"];
+
+/// The placement of C that D8 is about: declared on B, which has no commits, blocked by A (a stack problem of its own:
+/// its own parent), no effective base
+fn assert_d8_placement(stack: Option<&BranchStack>) {
+  let stack = stack.expect("C is placed");
+  assert_eq!(
+    (
+      stack.declared_parent.as_deref(),
+      stack.effective_base.as_deref(),
+      stack.blocked_by.as_ref().map(|block| block.parent.as_str())
+    ),
+    (Some("B"), None, Some("A"))
+  );
+}
+
+/// D8 (the registry's entry `d8-whole-stack-parent` says what the app answers): the whole stack of C, whose declared
+/// parent B has no commits and is stacked on A by `bd restack`, while A has a stack problem. bd follows `blocked_by`: C's
+/// whole stack is the chain A → C; the app follows `declaredParent`, which no row has: C is a root of its own
+#[test_log::test]
+fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8() {
+  // the placement alone, as stack_test.rs places branches
+  let mut grouper = CommitGrouper::new_with(&GroupingInputs {
+    stacks: true,
+    stack_parents: StoreLines {
+      entries: [("B".to_string(), "A".to_string())].into(),
+      ..StoreLines::default()
+    },
+    ..GroupingInputs::default()
+  });
+  for (index, subject) in D8_SUBJECTS.iter().enumerate() {
+    grouper.add_commit(listed_commit(&format!("c{index}"), subject));
+  }
+  let forest = grouper.finish_with_stacks().1.expect("stacks are on");
+  let placed = place_branches(&forest, &HashMap::new());
+  assert_d8_placement(placed.get("C"));
+
+  // the same through the fixtures: B gets a commit for `bd restack B A`, which refuses a branch without commits, then
+  // the reword drops its prefix
+  let space = Space::new(&[]);
+  let repo = &space.repo;
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let mut ids = Vec::new();
+  for (index, subject) in ["(A) a1", "(A/A) a2", "(A/B) b1", "(B/C) c1"].iter().enumerate() {
+    write(repo, &format!("f{index}.txt"), subject);
+    ids.push(commit_all(repo, subject, 1_700_000_000 + 100 * i64::try_from(index).unwrap()));
+  }
+  let environment = space.environment();
+  bd_ok(&environment, &["restack", "B", "A"]);
+  bd_ok(&environment, &["reword", &ids[2], "--subject", "b1"]);
+  let context = RepoContext::resolve(
+    &environment,
+    &RepoOptions {
+      repo: None,
+      prefix: Some(PREFIX),
+      full_ids: false,
+      no_cache: false,
+    },
+  )
+  .unwrap();
+  let synced = {
+    let _lock = lock(&context).unwrap();
+    sync_locked(&context).unwrap()
+  };
+  let branches = &synced.report.branches;
+  assert_eq!(branches.iter().map(|branch| branch.name.as_str()).collect::<Vec<_>>(), ["C", "A"]);
+  assert_d8_placement(branches.iter().find(|branch| branch.name == "C").and_then(|branch| branch.stack.as_ref()));
+
+  // bd: `effective_base ?? blocked_by.parent`, the chain from A down to C
+  let whole_stack = whole_stack_of(branches, &synced.report.stack_branches, "C").unwrap();
+  assert!(
+    matches!(&whole_stack, WholeStack::Chain { root, leaf } if root == "A" && leaf == "C"),
+    "{:?}",
+    whole_stack.summary(PREFIX)
+  );
+  // and the Safe Push of the whole stack of A lands C, its leaf, which the block refuses
+  let (exit_code, output) = safe_push(&environment, &["A", "--whole-stack", "--check"]);
+  assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("push_refused")), "{output}");
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("C is not synced (Blocked: parent A has a stack problem"), "{message}");
 }

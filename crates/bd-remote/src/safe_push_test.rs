@@ -2,7 +2,7 @@ use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_in, run_json, write};
 use bd_cli::remote_fixture_test::{
   AUTH, LANDED_SUBJECTS, STACK, Space, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, minutes_ago, pull_request_json,
-  push_from_elsewhere_to, reviewed_on_github, robot, safe_push, search_answer, stack_robot,
+  push_from_elsewhere_to, rebuild_on_a_newer_baseline, reviewed_on_github, robot, safe_push, search_answer, stack_robot,
 };
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub};
@@ -156,10 +156,7 @@ fn push_and_rebuild_on_a_newer_baseline(space: &Space, environment: &Environment
   let (exit_code, output) = run_json(environment, &["--prefix", PREFIX, "push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
   let pushed = space.remote_tip(AUTH);
-  let baseline = git(&space.repo, &["rev-parse", "refs/remotes/origin/master"]);
-  let upstream = git(&space.repo, &["commit-tree", &format!("{baseline}^{{tree}}"), "-p", &baseline, "-m", "Upstream change"]);
-  git(&space.repo, &["update-ref", "refs/remotes/origin/master", &upstream]);
-  git(&space.repo, &["rebase", "-q", &upstream]);
+  rebuild_on_a_newer_baseline(&space.repo);
 
   let (exit_code, output) = safe_push(environment, &["auth", "--check"]);
   assert_eq!(exit_code, 0, "{output}");

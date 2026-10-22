@@ -997,6 +997,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   landed in master with the Safe Pushes of login and session"). `lands` must leave out the branches merged Safe
   Pushes landed whole, the branch itself always named: the robot lands the rest.
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_landed`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
 - A robot on the last commit of the branch, or a Safe Push whose commit has commits of it, of a branch of its stack
   (decided as `bd push` decides it), must refuse the start with `robot_running`, in the words of the app, the commits
   named by id; a running Safe Push of an older commit, which the push fails, too, unless `--cancel-running` cancels it
@@ -1004,6 +1008,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`, `a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none`, `the_commits_a_robot_lands_are_named_by_their_number_and_ids`, `the_robots_match_their_branches_as_the_page_matches_them`)
   [@test] ../../crates/repository-view/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
 - A proven dangling reference (as `bd check` reports it) of the branch or a branch it is built on must refuse the start
   with `dangling_reference` (exit 4), nothing pushed; the trial build that finds it builds only what lands (every
   branch for a whole stack that forks), naming the use, `fixed_by` and the fix (of two references both,
@@ -1011,6 +1019,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - With `branchdeck.symbols on`, a use by a commit of what lands of a name that a commit outside it adds (a missing
   declaration of `bd check`), which no merged Safe Push landed, must refuse the start with `missing_declaration`
   (exit 4), nothing pushed, in the same trial session (`sync_core::landing_gate`, the rule of the app's start too). A
@@ -1021,6 +1031,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   anyway.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`, `a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`, `a_safe_push_check_of_the_whole_stack`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once.
   So before the lock, `bd safe-push` must fetch only the target's remote branch (as Update Project does). Then it must
   replay what the robot lands onto the tip that the sync read, as a plain `git rebase` replays it, with no resolution

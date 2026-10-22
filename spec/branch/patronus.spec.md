@@ -733,6 +733,10 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   it, and its approvals count.
   [@test] ../../src/lib/patronus.test.ts (`never comments on a pull request into another base than the target: Patronus would merge it there`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the retarget of a pull request into the parent's branch as the next step, whose approvals don't count`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_d1_to_d10_as_the_register_does`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name d1 to d10 as the register does`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
 - The popover says it: "Comments /patronus merge on #7: Patronus reports there and closes it once merged." A comment
   can't choose a merge profile: the popover offers none, and "Safe Push With Profile…" is disabled ("A comment on #7
   runs the default checks: it can't choose a profile"); a branch whose own profile is another one says "A comment runs
@@ -804,6 +808,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of the branches a merged robot landed whole, not of its own branch`, `leaves a pull request with a commit the branch lacks, one of a branch with work left, and one of a branch the table lacks`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should close by content the pull requests of the branches a Safe Push landed after a change below its commit, not of one with work left`)
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
 - Until the update archives them, the branches a merged robot landed that way (the same view, a robot first seen merged
   too: `getLandedBy`) say so in their rows, "Landed with oauth", "Landed with the whole air stack"
   (`LandedWithChip`, `info`, beside the status "landed" and the hollow `info` node of a branch in master), its hover "In master with the
@@ -1081,6 +1087,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   restarts, for them.
   [@test] ../../src/lib/patronus-actions.test.ts (`waits for a robot that lands an ancestor of the branch, as a start does; a dry run lands nothing and needn't`, `refuses the restart of a branch a merged Safe Push landed whole, a Dry Run too, and restarts one with commits after the landed ones`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should refuse the restart of the failed robot of a branch a merged Safe Push of a branch built on it landed, in its menu, its robot's details and its preview`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
 - A restart or a cancel runs once per robot (an operation of the robot, [Running Operations](../../docs/design/operations.md)):
   while it runs, it is running on every surface of the robot (the slot, the details, the landing overview: disabled,
@@ -1133,6 +1141,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   to push"; one with commits added after the landed ones is not: they are work for the remote. A landed branch is only
   left out of the pushes of a stack: the branches built on it push without it (Push with Children of a landed root,
   [Stacked Branches](stacked-branches.spec.md#pull-requests)), while a running Safe Push holds every push of its stack.
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - The stack branch of a whole stack ([Whole Stack](whole-stack.spec.md)) is held as a branch is
   (`getStackBranchHoldReason`): while its own robot runs ("A Safe Push of the whole air stack is running: wait until
   it merges, or restart it on the current stack"), and once merged Safe Pushes, of pieces or of the whole stack, landed
@@ -1216,6 +1226,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   why: a dry run doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the popover, and not restart it`, `should cancel the robot it replaces without a push when the remote branch has the commits`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
   ([Outgoing Commits](../repository/outgoing.spec.md#push)). When it drops the commits the remote has now, the toast's
   action first opens the confirm of the row's push button. A robot its restart canceled for a push that did not

@@ -244,6 +244,15 @@ pub fn push_from_elsewhere_to(remote: &TempDir, branch: &str, subject: &str) -> 
   remote_tip(remote, branch)
 }
 
+/// The baseline moves on by a commit of the target and the user's branch is rebased onto it: the next sync rebuilds the
+/// branches on it, so a remote branch pushed before has their commits by content, under other hashes
+pub fn rebuild_on_a_newer_baseline(repo: &TestRepo) {
+  let baseline = git(repo, &["rev-parse", "refs/remotes/origin/master"]);
+  let upstream = git(repo, &["commit-tree", &format!("{baseline}^{{tree}}"), "-p", &baseline, "-m", "Upstream change"]);
+  git(repo, &["update-ref", "refs/remotes/origin/master", &upstream]);
+  git(repo, &["rebase", "-q", &upstream]);
+}
+
 /// The subjects of `land_auth_by_content`: one branch, two commits
 pub const LANDED_SUBJECTS: [&str; 2] = ["(auth) Add auth", "(auth) Add login"];
 

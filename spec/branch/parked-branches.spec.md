@@ -134,6 +134,10 @@ branch built on it carries its commits, so it is parked with it.
 - `bd safe-push` must refuse a parked branch, a branch built on one and a whole stack with a parked member with
   `parked`, `--check` and `--patronus-dry-run` included, before Patronus is asked.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_parked_branch_and_a_branch_built_on_it_start_nothing`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
 - `bd help agent` and the skill must tell an agent never to push or unpark a parked branch on its own.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 
@@ -158,6 +162,8 @@ branch built on it carries its commits, so it is parked with it.
   branch of a stack that holds one stays local. Patronus is not asked for its readiness.
   [@test] ../../src/lib/parked.test.ts (`starts no Safe Push and no Dry Run of a parked branch: its step is none, on every surface`, `says why nothing starts, of a branch, of one built on it and of the whole stack`)
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
 - The row must say it: the Status cell "Parked" or "Parked with auth" (the note in its hover) instead of the push
   state, its error or conflict still shown; the name cell of the parked branch shows its note instead of the summary,
   issue keys as links.
