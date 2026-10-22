@@ -39,7 +39,7 @@ use sync_core::pull_request_text::{AncestorText, CommitText, IssueText, PullRequ
 use sync_core::pull_requests::{GitHubRepository, list_pull_requests, parse_github_repository, resolve_github_repository_with};
 use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, not_built_reason, push_branches, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
-use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
+use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, has_work_for_remote};
 use sync_core::stack_pull_request::{StackMemberText, stack_pull_request_text};
 use sync_core::sync::SyncReport;
 use youtrack::service::YouTrackService;
@@ -723,18 +723,6 @@ const fn state_word(state: StackBranchState) -> &'static str {
     StackBranchState::Conflict => "conflict",
     StackBranchState::Stale => "stale",
   }
-}
-
-/// A push of the branch would change its remote branch
-pub(crate) const fn has_work_for_remote(remote: &RemoteStatusUpdate) -> bool {
-  !remote.remote_exists
-    || !remote.unpushed_commits.is_empty()
-    || remote.commits_behind > 0
-    || remote.commits_amended > 0
-    || remote.commits_restacked > 0
-    || remote.commits_landed > 0
-    || remote.commits_reworded > 0
-    || remote.ancestor_commits_ahead > 0
 }
 
 /// `bd push --unapplied <name>`: the unapplied branch to `origin` under its own name, under the repository lock, leased

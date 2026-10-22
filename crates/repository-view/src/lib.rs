@@ -3,7 +3,7 @@
 //! the table from the report of its own sync or from a grouping, and reads the same view.
 //!
 //! - `branch_table`: the branch table a sync left: the branches in the order of the table, their tips and copies, the
-//!   stack branches, the parked branches, `stack_ancestors`
+//!   stack branches, the parked branches, the remote facts of the sync (`remote_facts`), `stack_ancestors`
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
 //!   (`sync_core::robot_landing`), once per state (`ContentMemo`)
 //! - `views`: what the app keeps to answer `get_repository_view`: the table of the last sync and the memo, by repository

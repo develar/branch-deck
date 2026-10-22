@@ -3,7 +3,7 @@
 //! `--check` (the production path: its preamble, `plan()`, the output of a check), and the start without `--check`;
 //! today's answer expected. `src/lib/scenario-cases.test.ts` is the side of the app
 
-use crate::patronus_facts::{PatronusFacts, remote_of, table_of};
+use crate::patronus_facts::{PatronusFacts, table_of};
 use crate::push_command::github_repository;
 use crate::robot_list::list_robots;
 use crate::safe_push_command::{SafePushArgs, SafePushOutput, github_service, open_pull_requests, patronus_service, safe_push as safe_push_command};
@@ -935,7 +935,7 @@ impl Situation {
       Some(space) => list_robots(&context, &patronus_service(&self.environment).unwrap(), space).unwrap(),
       None => Vec::new(),
     };
-    let mut facts = PatronusFacts::read(&context, &table, &remote_of(&context, &synced), robots);
+    let mut facts = PatronusFacts::read(&context, &table, robots);
     let on_space = space.is_some();
     if on_space {
       let needs = landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed_commits(&facts.view)).unwrap();

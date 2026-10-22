@@ -2,12 +2,10 @@
 //! the user's robots, matched to the branches of the table as the rows match them, and what they land, landed and hold.
 //! `bd push`, `bd safe-push` and `bd status` read it; the words stay theirs.
 
-use crate::push_command::has_work_for_remote;
 use bd_core::context::RepoContext;
 use bd_core::sync_command::SyncOutput;
-use domain_types::branch_names::to_final_branch_name;
 use domain_types::patronus::PatronusRobot;
-use domain_types::repository_view::{BranchPatronus, PatronusView, RemoteFact, RemoteFacts, RobotMatch, StackPatronus, StartRefusal};
+use domain_types::repository_view::{BranchPatronus, PatronusView, RobotMatch, StackPatronus, StartRefusal};
 use repository_view::branch_table::BranchTable;
 use repository_view::patronus_view::{ContentMemo, match_robots, patronus_view};
 use sync_core::patronus_start::{carried_ids, carried_words, push_mode_name};
@@ -20,8 +18,10 @@ pub struct PatronusFacts {
 }
 
 impl PatronusFacts {
-  /// The view of `table` with the user's `robots`: by the hashes where they tell, else by content (git)
-  pub fn read(context: &RepoContext, table: &BranchTable, remote: &RemoteFacts, robots: Vec<PatronusRobot>) -> Self {
+  /// The view of `table` with the user's `robots`, on the remote facts of the table: by the hashes where they tell,
+  /// else by content (git)
+  pub fn read(context: &RepoContext, table: &BranchTable, robots: Vec<PatronusRobot>) -> Self {
+    let remote = &table.remote;
     let matched = match_robots(table, remote, &robots);
     let view = patronus_view(&context.git, &context.repository, table, remote, &robots, &matched, &mut ContentMemo::default());
     Self { robots, matched, view }
@@ -73,39 +73,7 @@ impl PatronusFacts {
   }
 }
 
-/// The table of `bd`'s sync
+/// The table of `bd`'s sync, with the remote statuses it emitted
 pub fn table_of(context: &RepoContext, synced: &SyncOutput) -> BranchTable {
-  BranchTable::from_report(&context.prefix, &synced.report)
-}
-
-/// What the sync knows of the remote branches: the remote tip it read, and whether the remote has the branch by
-/// content; of each stack branch its remote status
-pub fn remote_of(context: &RepoContext, synced: &SyncOutput) -> RemoteFacts {
-  RemoteFacts {
-    branches: synced
-      .branches
-      .iter()
-      .map(|branch| {
-        let full_name = to_final_branch_name(&context.prefix, &branch.name).unwrap_or_default();
-        let fact = RemoteFact {
-          remote_tip: synced.report.remote_tips.get(&full_name).cloned(),
-          up_to_date: branch.remote.as_ref().is_some_and(|remote| remote.exists && !remote.has_work()),
-        };
-        (branch.name.clone(), fact)
-      })
-      .collect(),
-    stacks: synced
-      .report
-      .stack_branches
-      .iter()
-      .filter_map(|stack| {
-        let remote = stack.remote.as_ref()?;
-        let fact = RemoteFact {
-          remote_tip: remote.remote_tip.clone(),
-          up_to_date: remote.remote_exists && !has_work_for_remote(remote),
-        };
-        Some((stack.root.clone(), fact))
-      })
-      .collect(),
-  }
+  BranchTable::from_report(&context.prefix, &synced.report, &synced.remote_statuses)
 }

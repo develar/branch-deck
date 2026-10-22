@@ -7,7 +7,7 @@
 use crate::commit_key::CommitKey;
 use crate::commit_walk::{WalkedCommit, walk_commits, walk_commits_by_authors, walk_commits_with_messages};
 use anyhow::Result;
-use domain_types::{DroppedCommit, LandedRemoteCommit, RemoteStatusUpdate};
+use domain_types::{DroppedCommit, LandedRemoteCommit, ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::is_object_id;
 use object_cache::cache::ObjectCache;
@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use sync_utils::list_cut::kept;
 use tracing::{debug, instrument};
 
@@ -856,6 +856,48 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
     ancestor_commits_ahead,
     fast_forward,
   })
+}
+
+/// A push of the branch would change its remote branch: the remote lacks it or commits of it, or has commits a push
+/// replaces or drops
+pub const fn has_work_for_remote(remote: &RemoteStatusUpdate) -> bool {
+  !remote.remote_exists
+    || !remote.unpushed_commits.is_empty()
+    || remote.commits_behind > 0
+    || remote.commits_amended > 0
+    || remote.commits_restacked > 0
+    || remote.commits_landed > 0
+    || remote.commits_reworded > 0
+    || remote.ancestor_commits_ahead > 0
+}
+
+/// A reporter that forwards every event of a sync to `inner` and keeps the remote statuses it emitted, so the caller
+/// that keeps the branch table of the sync (the app's `sync_branches`, the route of the test server) has the remote
+/// facts of its branches (`BranchTable::from_report`) as `bd` has them from its events
+#[derive(Clone)]
+pub struct RemoteStatusCollector<P> {
+  inner: P,
+  statuses: Arc<Mutex<Vec<RemoteStatusUpdate>>>,
+}
+
+impl<P> RemoteStatusCollector<P> {
+  pub fn new(inner: P) -> Self {
+    Self { inner, statuses: Arc::default() }
+  }
+
+  /// The remote statuses sent so far, in the order the sync sent them
+  pub fn take_statuses(&self) -> Vec<RemoteStatusUpdate> {
+    std::mem::take(&mut *self.statuses.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+  }
+}
+
+impl<P: ProgressReporter> ProgressReporter for RemoteStatusCollector<P> {
+  fn send(&self, event: SyncEvent) -> Result<()> {
+    if let SyncEvent::RemoteStatusUpdate(status) = &event {
+      self.statuses.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(status.clone());
+    }
+    self.inner.send(event)
+  }
 }
 
 /// Forgets the statuses of this process, as a new process starts without them

@@ -6,7 +6,7 @@
 //! nothing that lands. Best effort: a repository not on Space, no Space token or no answer of Patronus holds nothing.
 
 use crate::landed::{LandedBranch, landed_branches};
-use crate::patronus_facts::{PatronusFacts, remote_of, table_of};
+use crate::patronus_facts::{PatronusFacts, table_of};
 use crate::robot_list::list_robots;
 use crate::safe_push_command::patronus_service;
 use bd_core::context::{Environment, RepoContext};
@@ -137,7 +137,7 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
   };
   let service = patronus_service(environment)?;
   let robots = list_robots(context, &service, &space)?;
-  let facts = PatronusFacts::read(context, &table_of(context, synced), &remote_of(context, synced), robots);
+  let facts = PatronusFacts::read(context, &table_of(context, synced), robots);
   Ok(push_holds(context, &facts, Some(service)))
 }
 

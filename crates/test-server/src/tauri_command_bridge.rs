@@ -54,6 +54,7 @@ use sync_core::pull_request_writes::{
 use sync_core::pull_requests::{
   GetPullRequestsParams, GitHubRepository, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests, parse_known_github_repository, resolve_github_repository,
 };
+use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
   write_global_config, write_repository_config,
@@ -321,8 +322,8 @@ pub async fn sync_branches(
   // Create a channel for streaming events
   let (tx, rx) = mpsc::unbounded_channel();
 
-  // Create a progress reporter that sends events through the channel
-  let reporter = ChannelProgressReporter { sender: tx };
+  // Create a progress reporter that sends events through the channel and keeps the remote statuses for the table
+  let reporter = RemoteStatusCollector::new(ChannelProgressReporter { sender: tx });
 
   // Run the sync directly (no need for tokio::spawn since this is already async)
   let git_executor = &state.git_executor;
@@ -335,7 +336,7 @@ pub async fn sync_branches(
   };
   let synced = sync_core::sync::sync_branches(git_executor, repository_path, branch_prefix, progress, options).await;
   if let Ok(report) = &synced {
-    let table = repository_view::branch_table::BranchTable::from_report(branch_prefix, report);
+    let table = repository_view::branch_table::BranchTable::from_report(branch_prefix, report, &reporter.take_statuses());
     state.repository_views.keep(repository_path, branch_prefix, table);
   }
   if let Err(e) = synced {

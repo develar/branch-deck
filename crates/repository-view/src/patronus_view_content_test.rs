@@ -32,7 +32,7 @@ async fn synced(repo: &TestRepo) -> BranchTable {
   let report = sync_branches(&GitCommandExecutor::new(), repo.path_str(), PREFIX, TestReporter::new(), SyncOptions::default())
     .await
     .unwrap();
-  BranchTable::from_report(PREFIX, &report)
+  BranchTable::from_report(PREFIX, &report, &[])
 }
 
 fn running(id: &str, branch: &str, source: &str) -> PatronusRobot {

@@ -2717,12 +2717,17 @@ robot's branch into a branch that is no ancestor of it, as the robot landing doe
 Read-only. What Rust derives of the branch table for the page and for `bd`, so both read one rule: the crate
 `repository-view`. `BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the
 table, their virtual tips, the copies the sync wrote (`SyncReport::copies`, recorded from its `CommitSynced` events: a
-mapping note read at the sync's start names the copy of before), the stack branches and the parked branches; `bd`
-builds it from the report of its sync (`bd status` from a grouping). The app keeps the table of the last sync of each
-repository and branch prefix (`RepositoryViews` in `views.rs`, written by `sync_branches` from the report it no longer
-drops; a failed sync keeps the one before) and answers `get_repository_view` from it, with the robots, their matches
-and the remote facts the page sends: a push moves a remote branch without a sync, the page knows it, the table doesn't.
-The E2E server keeps it the same way from its own sync.
+mapping note read at the sync's start names the copy of before), the stack branches, the parked branches and the remote
+facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the remote tip of each branch from
+`SyncReport::remote_tips`, up to date when the `RemoteStatusUpdate` the sync emitted for it has a remote branch and no
+work for it, `has_work_for_remote` in `remote_status.rs`; of each stack branch its `StackBranchUpdate::remote`); `bd`
+builds it from the report of its sync and the statuses among its events (`bd status` from a grouping, with the remote
+tips only). The app keeps the table of the last sync of each repository and branch prefix (`RepositoryViews` in
+`views.rs`, written by `sync_branches` from the report it no longer drops and the statuses a `RemoteStatusCollector`
+kept while it forwarded every event to the page; a failed sync keeps the one before) and answers `get_repository_view`
+from it, with the robots, their matches and the remote facts the page sends: a push moves a remote branch without a
+sync, the page knows it, the table doesn't, so the page's view reads the page's facts; `bd` reads the table's
+(`PatronusFacts::read`). The E2E server keeps it the same way from its own sync.
 
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table

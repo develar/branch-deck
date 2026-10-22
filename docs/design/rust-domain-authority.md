@@ -865,6 +865,10 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `up_to_date` из `RemoteStatusUpdate`, которые sync излучает; `remote_of` из `bd-remote/patronus_facts.rs`
     переезжает в `repository-view` одной функцией для обеих сторон). Guard'ы строят `patronus_view` из таблицы,
     её remote-фактов и роботов, которых Rust читает сам; `GetRepositoryViewParams.remote` страницы остаётся до s7.
+    Сделано (s1-4): `BranchTable::remote` и `remote_facts` в `branch_table.rs`; `has_work_for_remote` — в
+    `sync_core::remote_status`; статусы собирает `RemoteStatusCollector` (там же), обёртка репортёра у
+    `sync_branches` приложения и маршрута test-server, у `bd` — `SyncOutput::remote_statuses`; `PatronusFacts::read`
+    берёт `table.remote`, отдельного параметра нет.
   - D10, push: `push_branch(es)` приложения и маршруты test-server идут через одну функцию `repository-view`:
     lock (`lock_repository_in` на `git_common_dir` из `RepositoryStateCache`: ни одного git-процесса), список роботов
     (один запрос, best effort как `bd push`: не на Space, без токена или без ответа — без hold'ов), затем отказы в словах

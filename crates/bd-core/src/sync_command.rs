@@ -49,6 +49,11 @@ pub struct SyncOutput {
   #[serde(skip)]
   #[schemars(skip)]
   pub report: SyncReport,
+  /// The remote statuses the sync emitted, one per branch, for the remote facts of its table
+  /// (`repository_view::branch_table::remote_facts`)
+  #[serde(skip)]
+  #[schemars(skip)]
+  pub remote_statuses: Vec<RemoteStatusUpdate>,
 }
 
 impl SyncOutput {
@@ -566,7 +571,7 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
             resolved,
           })
           .collect(),
-        remote: remotes.remove(&name).map(|remote| RemoteSummary::new(&remote, commit_count, &short)),
+        remote: remotes.get(&name).map(|remote| RemoteSummary::new(remote, commit_count, &short)),
         push: None,
         name,
       }
@@ -591,6 +596,7 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
     update,
     landed,
     report,
+    remote_statuses: remotes.into_values().collect(),
   }
 }
 

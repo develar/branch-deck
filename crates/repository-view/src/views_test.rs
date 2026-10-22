@@ -55,7 +55,7 @@ async fn synced_views() -> (TestRepo, RepositoryViews, BranchTable) {
   let report = sync_branches(&GitCommandExecutor::new(), repo.path_str(), "test", TestReporter::new(), SyncOptions::default())
     .await
     .unwrap();
-  let table = BranchTable::from_report("test", &report);
+  let table = BranchTable::from_report("test", &report, &[]);
   let views = RepositoryViews::default();
   views.keep(repo.path_str(), "test", table.clone());
   (repo, views, table)

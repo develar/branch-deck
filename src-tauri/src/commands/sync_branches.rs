@@ -7,6 +7,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use repository_view::branch_table::BranchTable;
 use repository_view::views::RepositoryViews;
 use serde::Deserialize;
+use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use tauri::State;
 use tauri::ipc::Channel;
@@ -51,18 +52,21 @@ pub async fn sync_branches(
     };
     let issue_config = IssueConfigSource::Cached((*issue_config).clone());
 
-    // Use the branch-sync implementation with TauriProgressReporter adapter
-    let progress_adapter = TauriProgressReporter::new(progress);
+    // the page takes the events; the remote statuses among them are kept for the table
+    let progress_adapter = RemoteStatusCollector::new(TauriProgressReporter::new(progress));
 
     let options = SyncOptions {
       issue_config,
       object_cache,
       ..Default::default()
     };
-    // the page takes the events; the table the sync left answers its repository views
-    sync_core::sync::sync_branches(&git_executor, repository_path, branch_prefix, progress_adapter, options)
+    // the table the sync left, with the remote statuses it emitted, answers its repository views
+    sync_core::sync::sync_branches(&git_executor, repository_path, branch_prefix, progress_adapter.clone(), options)
       .await
-      .map(|report| views.keep(repository_path, branch_prefix, BranchTable::from_report(branch_prefix, &report)))
+      .map(|report| {
+        let table = BranchTable::from_report(branch_prefix, &report, &progress_adapter.take_statuses());
+        views.keep(repository_path, branch_prefix, table);
+      })
       .map_err(|e| {
         error!(error = ?e, "Branch synchronization failed");
         CommandError::from(e)

@@ -22,11 +22,11 @@
 //! minute for the answer to a pull request comment, after it.
 
 use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
-use crate::patronus_facts::{PatronusFacts, remote_of, table_of};
+use crate::patronus_facts::{PatronusFacts, table_of};
 use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
 use crate::push_command::{
-  PullRequestDraft, PushArgs, PushedBranch, github_repository, has_work_for_remote, not_synced_reason, push_locked, pushed_branch, refuse_an_unapplied_name,
-  stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
+  PullRequestDraft, PushArgs, PushedBranch, github_repository, not_synced_reason, push_locked, pushed_branch, refuse_an_unapplied_name, stack_pull_request_draft,
+  unknown_or_unapplied, unpushed_pull_request_draft,
 };
 use crate::push_hold::PushHolds;
 use crate::robot_list::list_robots;
@@ -70,6 +70,7 @@ use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_reques
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
+use sync_core::remote_status::has_work_for_remote;
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
 use tokio::runtime::Runtime;
@@ -1013,7 +1014,7 @@ fn plan(
   // what the merged ones landed of it, by content
   let user_robots = list_robots(context, service, &space)?;
   let table = table_of(context, synced);
-  let facts = PatronusFacts::read(context, &table, &remote_of(context, synced), user_robots);
+  let facts = PatronusFacts::read(context, &table, user_robots);
   let landed = landed_branches(&facts);
   let pushes = mode != PatronusPushMode::DryRun;
   let landing = match start {

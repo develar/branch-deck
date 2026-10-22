@@ -461,23 +461,24 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
       copies: HashMap::new(),
       stack_branches: all_stacks.clone(),
       parked: grouping.grouping.parked.entries.keys().cloned().collect(),
+      // no sync: the remote tips the grouping read, no remote status
+      remote: RemoteFacts {
+        branches: grouping
+          .branches
+          .iter()
+          .map(|branch| {
+            let full_name = to_final_branch_name(&context.prefix, &branch.name).unwrap_or_default();
+            let fact = RemoteFact {
+              remote_tip: grouping.remote_tips.get(&full_name).cloned(),
+              up_to_date: false,
+            };
+            (branch.name.clone(), fact)
+          })
+          .collect(),
+        stacks: BTreeMap::new(),
+      },
     };
-    let remote = RemoteFacts {
-      branches: grouping
-        .branches
-        .iter()
-        .map(|branch| {
-          let full_name = to_final_branch_name(&context.prefix, &branch.name).unwrap_or_default();
-          let fact = RemoteFact {
-            remote_tip: grouping.remote_tips.get(&full_name).cloned(),
-            up_to_date: false,
-          };
-          (branch.name.clone(), fact)
-        })
-        .collect(),
-      stacks: BTreeMap::new(),
-    };
-    let mut facts = PatronusFacts::read(context, &table, &remote, read_robots(context, environment));
+    let mut facts = PatronusFacts::read(context, &table, read_robots(context, environment));
     // what the Safe Push of each branch needs, where a Safe Push lands it: one trial session of every branch
     let needs = if args.brief || context.space_repository()?.is_none() {
       None
