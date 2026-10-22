@@ -8,12 +8,11 @@ publish = false
 [dev-dependencies]
 sync-core = { path = "../sync-core" }
 history-rewrite = { path = "../history-rewrite" }
-sync-types = { path = "../sync-types" }
+domain-types = { path = "../domain-types" }
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 test-utils = { path = "../test-utils" }
-sync-test-utils = { path = "../sync-test-utils" }
 
 anyhow.workspace = true
 tokio.workspace = true

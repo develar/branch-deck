@@ -3,9 +3,9 @@ use crate::fake_youtrack::{FakeCommand, FakeIssue, FakeYouTrack, start_fake};
 use crate::service::YouTrackService;
 use crate::sign_in_session::YouTrackSignInSession;
 use crate::token_store::{RefreshGrant, StoredToken, read_token, token_file};
+use domain_types::youtrack::{YouTrackAuthProblem, YouTrackIssueAnswer, YouTrackStateChange, YouTrackTokenSource, YouTrackUser};
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
-use sync_types::youtrack::{YouTrackAuthProblem, YouTrackIssueAnswer, YouTrackStateChange, YouTrackTokenSource, YouTrackUser};
 use sync_utils::secret_store::write_secret_json;
 use sync_utils::timestamp::unix_now;
 

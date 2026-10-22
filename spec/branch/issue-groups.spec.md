@@ -22,7 +22,7 @@ targets:
   - ../../crates/git-ops/src/ref_transaction.rs
   - ../../crates/git-ops/src/reword_commits.rs
   - ../../crates/git-ops/src/squash_commits.rs
-  - ../../crates/sync-types/src/lib.rs
+  - ../../crates/domain-types/src/lib.rs
   - ../../crates/bd-rewrite/src/rewrite.rs
   - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-rewrite/src/suggest.rs

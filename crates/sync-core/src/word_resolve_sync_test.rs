@@ -4,13 +4,13 @@
 
 use crate::check::{CheckOutcome, check_plan};
 use crate::sync::{SyncOptions, sync_branches};
+use domain_types::SyncEvent;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, ResolvedFileSummary, WordResolutionSummary};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 const PREFIX: &str = "test";
 /// The time of the commits: two repositories made alike have the same commit ids

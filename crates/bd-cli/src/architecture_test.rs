@@ -34,7 +34,7 @@ struct Unreachable {
 
 const UNREACHABLE: &[Unreachable] = &[
   Unreachable {
-    from: "sync-types",
+    from: "domain-types",
     forbidden: &["git-ops", "git-executor", "reqwest", "tokio", TAURI, "clap"],
     why: "the crate of the types does no IO",
   },
@@ -59,7 +59,7 @@ struct Allowed {
 
 const ALLOWED: &[Allowed] = &[
   Allowed {
-    from: "sync-types",
+    from: "domain-types",
     to: "git-ops",
     removed_in: "s2-types",
   },
@@ -303,16 +303,16 @@ fn graph_of(edges: &[(&str, &str, Kind, &[&str])]) -> Graph {
 #[test]
 fn the_architecture_check_names_the_path_of_a_forbidden_reach() {
   let graph = graph_of(&[
-    ("sync-types", "sync-utils", Kind::Normal, &[]),
+    ("domain-types", "sync-utils", Kind::Normal, &[]),
     ("sync-utils", "git-executor", Kind::Normal, &[]),
-    ("sync-types", "tokio", Kind::Dev, &[]),
-    ("sync-types", "tauri-build", Kind::Build, &[]),
+    ("domain-types", "tokio", Kind::Dev, &[]),
+    ("domain-types", "tauri-build", Kind::Build, &[]),
   ]);
   assert_eq!(
     violations(&graph, &[]),
     [
-      "  sync-types reaches git-executor (sync-types -> sync-utils -> git-executor): the crate of the types does no IO",
-      "  sync-types depends on tauri-build (Build): only the app depends on Tauri",
+      "  domain-types reaches git-executor (domain-types -> sync-utils -> git-executor): the crate of the types does no IO",
+      "  domain-types depends on tauri-build (Build): only the app depends on Tauri",
     ]
   );
   let allowed = Allowed {
@@ -322,7 +322,7 @@ fn the_architecture_check_names_the_path_of_a_forbidden_reach() {
   };
   assert_eq!(
     violations(&graph, &[&allowed]),
-    ["  sync-types depends on tauri-build (Build): only the app depends on Tauri"]
+    ["  domain-types depends on tauri-build (Build): only the app depends on Tauri"]
   );
 }
 

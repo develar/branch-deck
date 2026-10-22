@@ -1,7 +1,7 @@
 use crate::common::{UPSTREAM_COMMIT_FORMAT, parse_upstream_commit};
 use anyhow::{Context, Result};
+use domain_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
 use git_executor::git_command_executor::GitCommandExecutor;
-use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
 use tracing::info;
 
 /// Detect integration via merge commit detection

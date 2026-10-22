@@ -7,6 +7,7 @@
 use crate::commit_key::CommitKey;
 use crate::commit_walk::{WalkedCommit, walk_commits, walk_commits_by_authors, walk_commits_with_messages};
 use anyhow::Result;
+use domain_types::{DroppedCommit, LandedRemoteCommit, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::is_object_id;
 use object_cache::cache::ObjectCache;
@@ -16,7 +17,6 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::{LazyLock, Mutex, OnceLock};
-use sync_types::{DroppedCommit, LandedRemoteCommit, RemoteStatusUpdate};
 use sync_utils::list_cut::kept;
 use tracing::{debug, instrument};
 

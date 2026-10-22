@@ -1,6 +1,11 @@
 use crate::patronus::SpaceRepository;
 use crate::pull_requests::GitHubRepository;
 use crate::review_readiness::{ReadinessInputs, ReadinessRepository, branch_review_readiness, is_fresh, prepare_review_readiness};
+use domain_types::patronus::{
+  BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart,
+  ReviewerApprovalState,
+};
+use domain_types::pull_request::{Reviewer, ReviewerState};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::review_answer::ReviewAnswer;
 use patronus::fake_patronus::{FakePatronus, start_fake};
@@ -10,11 +15,6 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use sync_types::patronus::{
-  BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart,
-  ReviewerApprovalState,
-};
-use sync_types::pull_request::{Reviewer, ReviewerState};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -198,12 +198,12 @@ fn an_answer_with_the_evaluation_holds_a_day_one_without_it_minutes() {
     answer: PatronusReviewRequirement {
       required: true,
       merge_request: None,
-      groups: vec![sync_types::patronus::PatronusReviewerGroup {
+      groups: vec![domain_types::patronus::PatronusReviewerGroup {
         name: "Air".to_string(),
         reviewers: Vec::new(),
         paths: Vec::new(),
         branch_wide: false,
-        paths_source: sync_types::patronus::ReviewPathsSource::Patronus,
+        paths_source: domain_types::patronus::ReviewPathsSource::Patronus,
         required_approvals: Some(1),
         collected_approvals: Some(0),
         approved: Some(false),
@@ -258,7 +258,7 @@ async fn the_whole_stack_is_asked_as_its_stack_branch_under_the_key_of_the_calle
   assert_eq!(
     answers[1].readiness,
     ReviewReadiness::Unavailable {
-      reason: sync_types::patronus::UnavailableReadinessReason::Error,
+      reason: domain_types::patronus::UnavailableReadinessReason::Error,
       message: "me/virtual/IJPL-1 is not a stack branch of me".to_string(),
     }
   );

@@ -4,15 +4,15 @@
 
 use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, REVIEW_APPROVAL_CHECK_SKIP_OPTION, RobotDto, RobotUpdateRequest};
 use crate::token::{TokenLookup, TokenStamp};
+use domain_types::patronus::{
+  KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
+};
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use moka::sync::Cache;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use sync_types::patronus::{
-  KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
-};
 use sync_utils::timestamp::{parse_rfc3339_timestamp, unix_now};
 use tracing::{info, instrument};
 
@@ -51,15 +51,15 @@ pub(crate) struct Caches {
   /// By `project/repository/target`: the answer of `robot-start-supported`
   pub(crate) start_supported: Cache<String, (Instant, Result<crate::client::StartSupportedDto, String>)>,
   /// By `repository/target/tip/base`, of a repository only on Space: the review requirement and how long it holds
-  pub(crate) reviews: Cache<String, (Instant, Duration, sync_types::patronus::PatronusReviewRequirement)>,
+  pub(crate) reviews: Cache<String, (Instant, Duration, domain_types::patronus::PatronusReviewRequirement)>,
   /// By `repository/source/target`: the open merge request, None = none (asked again after a while)
   pub(crate) merge_requests: Cache<String, (Instant, Option<crate::client::MergeRequestDto>)>,
   /// By robot id, of finished robots: the error problems
-  pub(crate) problems: Cache<String, Vec<sync_types::patronus::PatronusProblem>>,
+  pub(crate) problems: Cache<String, Vec<domain_types::patronus::PatronusProblem>>,
   /// By build id: its progress, so the details open in two windows ask it once a minute
   pub(crate) build_progress: Cache<String, (Instant, crate::client::BuildProgressDto)>,
   /// By robot id: its progress of the new API (`robots/progress`), kept as a build's is
-  pub(crate) robot_progress: Cache<String, (Instant, Option<sync_types::patronus::PatronusRobotProgress>)>,
+  pub(crate) robot_progress: Cache<String, (Instant, Option<domain_types::patronus::PatronusRobotProgress>)>,
   /// By `robot id/with the teamcity CLI`, of finished robots: the failed builds of the full failure
   pub(crate) failed_builds: Cache<String, crate::actions::FailedBuilds>,
 }

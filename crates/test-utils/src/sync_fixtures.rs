@@ -1,9 +1,10 @@
-//! Test utilities for branch-sync and integration-detection testing.
+//! Fixtures of the sync tests (sync-core, repository-view, integration-detection-tests): a progress reporter that
+//! records the sync events, and a grouped branch placed in a stack.
 
 use anyhow::Result;
+use domain_types::stack::BranchStack;
+use domain_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
 use std::sync::{Arc, Mutex};
-use sync_types::stack::BranchStack;
-use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
 
 /// Progress reporter that captures sync events for verification.
 #[derive(Clone)]

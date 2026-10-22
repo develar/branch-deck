@@ -14,6 +14,10 @@ use crate::patronus::{SpaceRepository, required_target_branch};
 use crate::patronus_review::{ReviewInput, attribute_ownership_paths, read_review_inputs, skipped_review};
 use crate::pull_requests::GitHubRepository;
 use anyhow::anyhow;
+use domain_types::patronus::{
+  BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusAvailability, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch,
+  ReviewStart, UnavailableReadinessReason,
+};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use git_ops::revs::is_object_id;
@@ -24,10 +28,6 @@ use patronus::review::ReviewSubject;
 use patronus::review_readiness::{evaluates_pull_request, review_readiness};
 use patronus::service::PatronusService;
 use sha2::{Digest, Sha256};
-use sync_types::patronus::{
-  BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusAvailability, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch,
-  ReviewStart, UnavailableReadinessReason,
-};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tracing::{debug, instrument};

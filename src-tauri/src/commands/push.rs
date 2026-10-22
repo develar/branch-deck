@@ -1,5 +1,6 @@
 use crate::command_error::CommandError;
 use crate::operation::{operation, run_blocking};
+use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use repository_view::views::RepositoryViews;
 use std::collections::HashMap;
@@ -7,7 +8,6 @@ use sync_core::push::{
   NOT_SYNCED_YET, PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, push_branch as core_push_branch, push_branches as core_push_branches,
 };
 use sync_core::transfer_progress::TransferProgress;
-use sync_types::stack::BlockReason;
 use tauri::State;
 use tauri::ipc::Channel;
 use tracing::{instrument, warn};

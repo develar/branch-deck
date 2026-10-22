@@ -1,4 +1,5 @@
 use crate::sync::{SyncOptions, sync_branches};
+use domain_types::stack::StackProblem;
 use history_rewrite::regroup::{
   RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core,
 };
@@ -7,10 +8,9 @@ use history_rewrite::store_lines::LineStore;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::time::Duration;
-use sync_test_utils::TestReporter;
-use sync_types::stack::StackProblem;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// A repository whose initial commit is the baseline; `stacks` turns on stacked branches
 pub(crate) fn repo(stacks: bool) -> TestRepo {

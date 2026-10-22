@@ -2,17 +2,17 @@ use crate::landed::{STATE_FILE, dismiss_landed, read_report, record_sync};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::update_project_test::{Setup, git, path, setup, update};
 use crate::update_project::{UpdateUndoToken, check_baseline_update, undo_update_core};
+use domain_types::SyncEvent;
+use domain_types::landed::LandedBranch;
 use git_ops::update_branch::{UpdateKind, UpdateState};
 use history_rewrite::commit_grouper::GroupingInputs;
 use pretty_assertions::assert_eq;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
-use sync_types::landed::LandedBranch;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// Commit `files` upstream as a robot would push the local commit `local` of `clone`: its author and author time, the
 /// committer `Patronus`

@@ -1,8 +1,8 @@
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, branch_name_of, stack_branch_name_of, stripped_subject};
 use crate::stack::{STACKS_CONFIG_KEY, StackForest, leaf_of, stack_of, stack_path, stacks_enabled};
+use domain_types::stack::{DeclaredParent, ParentState, StackProblem};
 use git_ops::commit_list::Commit;
 use indexmap::IndexMap;
-use sync_types::stack::{DeclaredParent, ParentState, StackProblem};
 use test_log::test;
 
 /// Helper function to create a test commit with minimal required fields

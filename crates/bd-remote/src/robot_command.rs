@@ -11,6 +11,8 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorCode};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::stack_summary::{WholeStack, whole_stack_of};
+use domain_types::patronus::{PatronusRobot, PatronusRobotDetails, PatronusRobotStatus};
+use domain_types::robot_failure::{FailedBuild, FailedCheck, OmittedFailures, RobotCommit, RobotCommitState, RobotFailure, RobotFailureKind, RobotFailureProblem};
 use git_ops::branch_names::to_final_branch_name;
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
@@ -21,8 +23,6 @@ use std::collections::HashMap;
 use sync_core::patronus_start::{find_branch_robot, find_stack_robot, is_robot_active};
 use sync_core::robot_commits::robot_failure_report;
 use sync_core::stack_branch::read_stack_branches;
-use sync_types::patronus::{PatronusRobot, PatronusRobotDetails, PatronusRobotStatus};
-use sync_types::robot_failure::{FailedBuild, FailedCheck, OmittedFailures, RobotCommit, RobotCommitState, RobotFailure, RobotFailureKind, RobotFailureProblem};
 use tokio::runtime::Runtime;
 
 #[derive(Debug, Default, clap::Args)]

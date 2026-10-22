@@ -742,7 +742,7 @@ pub async fn set_review_requests(
 ) -> Result<StatusCode, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   // GitHub has the pull requests the user is asked to review: the reviews and the comments go there
-  if let sync_types::pull_request::PullRequestAvailability::Available { owner, name } = &fixture.result.availability {
+  if let domain_types::pull_request::PullRequestAvailability::Available { owner, name } = &fixture.result.availability {
     let pulls = review_fixtures::review_request_pulls(&fixture.result);
     repo.remote(&state.git_executor).add_review_pulls(owner, name, pulls);
   }

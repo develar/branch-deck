@@ -2,6 +2,7 @@ use crate::check::{CheckOutcome, check_plan};
 use crate::grouping::group_commits_ahead_of_baseline;
 use crate::regroup_test;
 use crate::regroup_test::{commits, entries, groups, other_worktree, path, plant_store, regroup, repo, sync};
+use domain_types::BranchOrigin;
 use git_ops::commit_writer::write_store_updates;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_REF};
@@ -11,7 +12,6 @@ use history_rewrite::store_lines::{StoreLineProblem, StoreLines, format_store_li
 use history_rewrite::test_commit::commit;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
-use sync_types::BranchOrigin;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 

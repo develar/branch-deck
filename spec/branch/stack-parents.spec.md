@@ -17,8 +17,8 @@ targets:
   - ../../crates/git-ops/src/commit_writer.rs
   - ../../crates/git-ops/src/reword_commits.rs
   - ../../crates/branch-integration/src/detector.rs
-  - ../../crates/sync-types/src/lib.rs
-  - ../../crates/sync-types/src/stack.rs
+  - ../../crates/domain-types/src/lib.rs
+  - ../../crates/domain-types/src/stack.rs
   - ../../crates/bd-rewrite/src/rewrite.rs
   - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-rewrite/src/suggest.rs

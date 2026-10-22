@@ -10,12 +10,12 @@
 //! still wins over all of it.
 
 use crate::fake_github::FakeAnswer;
+use domain_types::patronus::PatronusCommandReply;
+use domain_types::pull_request::{GitHubUser, PullRequest, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Mutex;
-use sync_types::patronus::PatronusCommandReply;
-use sync_types::pull_request::{GitHubUser, PullRequest, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
 use sync_utils::timestamp::{format_utc_timestamp, parse_rfc3339_timestamp};
 
 /// The login of the bot that answers the `/patronus` comments
@@ -552,7 +552,7 @@ fn search_node(owner: &str, pull_request: &PullRequest) -> Value {
 }
 
 /// The check runs a summary counts: the failed ones first, named as far as the summary names them
-fn check_runs(checks: &sync_types::pull_request::ChecksSummary) -> Vec<Value> {
+fn check_runs(checks: &domain_types::pull_request::ChecksSummary) -> Vec<Value> {
   let run = |name: Option<String>, status: &str, conclusion: Option<&str>| json!({"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion});
   let failed = (0..checks.failed).map(|index| {
     run(

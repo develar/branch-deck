@@ -1,7 +1,7 @@
 use crate::token::{GhSource, Token, TokenChain, TokenSources, read_gh_token, read_git_credential};
+use domain_types::pull_request::TokenSource;
 use pretty_assertions::assert_eq;
 use std::time::Duration;
-use sync_types::pull_request::TokenSource;
 use test_utils::fake_executable::{fake_executable, shell_path};
 use test_utils::git_test_utils::TestRepo;
 

@@ -5,13 +5,13 @@ use super::test_helpers::{IntegrationMethod, UpdateMethod, detected_branch_info,
 use branch_integration::detection_notes::STACK_NOTES_REF;
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
 use pretty_assertions::assert_eq;
 use std::collections::HashSet;
-use sync_test_utils::TestReporter;
-use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
 use sync_utils::timestamp::utc_today;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 #[test]
 fn test_full_integration_workflow_with_push_and_merge() {

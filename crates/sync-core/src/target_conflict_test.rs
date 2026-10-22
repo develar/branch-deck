@@ -1,8 +1,8 @@
 use crate::sync::{SyncOptions, sync_branches};
 use crate::target_conflict::{TargetCheck, TargetCommit, TargetConflict, TargetConflictParams, TargetOutcome, check_branch_target, target_conflict_core};
 use pretty_assertions::assert_eq;
-use sync_test_utils::TestReporter;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 const PREFIX: &str = "test";
 

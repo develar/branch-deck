@@ -3,7 +3,7 @@ name: Review Requests
 description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through its API, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request in its own window (an overview with the files and commits while it is fetched, then the review of base..head with the file tree and all diffs), approving it (the primary decision) or requesting changes on the commit the user saw, with the same actions in the overview, the review and the row's menu; and the Notifications page of Settings, the notifications and the badge.
 style: plain-1
 targets:
-  - ../../crates/sync-types/src/review_request.rs
+  - ../../crates/domain-types/src/review_request.rs
   - ../../src/lib/approval-news.ts
   - ../../crates/sync-core/src/review_requests.rs
   - ../../crates/sync-core/src/review_fetch.rs

@@ -1,9 +1,9 @@
 use crate::sync::{SyncOptions, sync_branches};
+use domain_types::SyncEvent;
 use git_ops::model::BranchError;
 use pretty_assertions::assert_eq;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// The missing commits of the conflict of `branch` in a sync with the `test` prefix: `(subject, branch)`
 async fn missing_commits_of(test_repo: &TestRepo, branch: &str) -> Vec<(String, Option<String>)> {

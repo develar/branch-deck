@@ -463,6 +463,7 @@ dependencies = [
  "clap",
  "code-symbols",
  "dirs",
+ "domain-types",
  "file-diffs",
  "git-executor",
  "git-ops",
@@ -476,7 +477,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "sync-core",
- "sync-types",
  "sync-utils",
  "tar",
  "tempfile",
@@ -511,6 +511,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs",
+ "domain-types",
  "file-diffs",
  "git-executor",
  "git-ops",
@@ -523,7 +524,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sync-core",
- "sync-types",
  "tempfile",
  "tokio",
  "tracing",
@@ -561,6 +561,7 @@ dependencies = [
  "bd-core",
  "bd-rewrite",
  "clap",
+ "domain-types",
  "git-ops",
  "github",
  "history-rewrite",
@@ -573,7 +574,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "sync-core",
- "sync-types",
  "sync-utils",
  "tempfile",
  "test-log",
@@ -593,6 +593,7 @@ dependencies = [
  "bd-core",
  "clap",
  "code-symbols",
+ "domain-types",
  "file-diffs",
  "git-executor",
  "git-ops",
@@ -604,7 +605,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "sync-core",
- "sync-types",
  "sync-utils",
  "tar",
  "tempfile",
@@ -621,6 +621,7 @@ dependencies = [
  "bd-cli",
  "bd-core",
  "clap",
+ "domain-types",
  "git-ops",
  "history-rewrite",
  "pretty_assertions",
@@ -628,7 +629,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sync-core",
- "sync-types",
  "sync-utils",
  "tempfile",
  "test-log",
@@ -711,6 +711,7 @@ dependencies = [
  "bd-core",
  "bd-lease",
  "branch-integration",
+ "domain-types",
  "file-diffs",
  "git-executor",
  "git-ops",
@@ -730,7 +731,6 @@ dependencies = [
  "specta",
  "specta-typescript",
  "sync-core",
- "sync-types",
  "sync-utils",
  "tauri",
  "tauri-build",
@@ -760,12 +760,12 @@ name = "branch-integration"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "domain-types",
  "git-executor",
  "git-ops",
  "indexmap 2.14.2",
  "serde",
  "serde_json",
- "sync-types",
  "sync-utils",
  "tracing",
 ]
@@ -1702,6 +1702,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "domain-types"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "git-ops",
+ "serde",
+ "specta",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2392,13 +2402,13 @@ name = "github"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "domain-types",
  "git-executor",
  "moka",
  "pretty_assertions",
  "reqwest",
  "serde",
  "serde_json",
- "sync-types",
  "sync-utils",
  "tempfile",
  "test-log",
@@ -2660,6 +2670,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "branch-integration",
+ "domain-types",
  "git-executor",
  "git-ops",
  "indexmap 2.14.2",
@@ -2667,7 +2678,6 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
- "sync-types",
  "sync-utils",
  "tempfile",
  "test-log",
@@ -3009,14 +3019,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "branch-integration",
+ "domain-types",
  "git-executor",
  "git-ops",
  "history-rewrite",
  "indexmap 2.14.2",
  "pretty_assertions",
  "sync-core",
- "sync-test-utils",
- "sync-types",
  "sync-utils",
  "test-log",
  "test-utils",
@@ -4089,6 +4098,7 @@ name = "patronus"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "domain-types",
  "git-ops",
  "moka",
  "pretty_assertions",
@@ -4096,7 +4106,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sync-types",
  "sync-utils",
  "tempfile",
  "test-utils",
@@ -4802,6 +4811,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "repository-view"
 version = "0.1.0"
 dependencies = [
+ "domain-types",
  "git-executor",
  "git-ops",
  "moka",
@@ -4810,8 +4820,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sync-core",
- "sync-test-utils",
- "sync-types",
  "sync-utils",
  "test-utils",
  "tokio",
@@ -5661,6 +5669,7 @@ dependencies = [
  "branch-integration",
  "code-symbols",
  "criterion",
+ "domain-types",
  "file-diffs",
  "git-executor",
  "git-ops",
@@ -5678,8 +5687,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "specta",
- "sync-test-utils",
- "sync-types",
  "sync-utils",
  "tempfile",
  "test-log",
@@ -5691,24 +5698,6 @@ dependencies = [
  "tracing",
  "uuid",
  "youtrack",
-]
-
-[[package]]
-name = "sync-test-utils"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "sync-types",
-]
-
-[[package]]
-name = "sync-types"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "git-ops",
- "serde",
- "specta",
 ]
 
 [[package]]
@@ -6413,6 +6402,7 @@ dependencies = [
  "axum",
  "branch-integration",
  "dashmap",
+ "domain-types",
  "file-diffs",
  "fs_extra",
  "git-executor",
@@ -6427,7 +6417,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sync-core",
- "sync-types",
  "sync-utils",
  "tempfile",
  "test-utils",
@@ -6445,6 +6434,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "domain-types",
  "git-executor",
  "tempfile",
  "test-log",
@@ -8179,6 +8169,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "domain-types",
  "getrandom 0.3.4",
  "github",
  "moka",
@@ -8187,7 +8178,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sync-types",
  "sync-utils",
  "tempfile",
  "test-log",

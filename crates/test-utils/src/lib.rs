@@ -6,6 +6,7 @@ pub mod fake_executable;
 pub mod fake_server;
 pub mod git_test_utils;
 pub mod repo_template;
+pub mod sync_fixtures;
 
 #[cfg(test)]
 mod fake_executable_test;

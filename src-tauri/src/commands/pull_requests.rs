@@ -3,6 +3,7 @@ use crate::commands::github::GitHubState;
 use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
 use sync_core::pull_request_create::{
@@ -16,7 +17,6 @@ use sync_core::pull_request_writes::{
 };
 use sync_core::pull_requests::{GetPullRequestsParams, GitHubRepository, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests, parse_known_github_repository};
 use sync_core::stack_pull_request::{GetNewStackPullRequestParams, read_new_stack_pull_request};
-use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use tauri::State;
 use tracing::instrument;
 

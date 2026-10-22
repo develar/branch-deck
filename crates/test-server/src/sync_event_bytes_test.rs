@@ -6,11 +6,11 @@
 //! cargo nextest run -p test-server --run-ignored only -E 'test(/sync_event_bytes/)' --no-capture
 //! ```
 
+use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use sync_core::sync::{IssueConfigSource, SyncOptions};
-use sync_types::{ProgressReporter, SyncEvent};
 
 /// The count and the bytes of the events of a sync, by their type
 type EventBytes = BTreeMap<String, (usize, usize)>;

@@ -6,13 +6,13 @@
 //! so a `gh auth login` takes effect without a restart.
 
 use crate::token_store::{read_token, token_file};
+use domain_types::pull_request::TokenSource;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
-use sync_types::pull_request::TokenSource;
 use sync_utils::child_process::{find_executable, run_child};
 use sync_utils::span::in_current_span;
 use tracing::{debug, info, instrument, warn};

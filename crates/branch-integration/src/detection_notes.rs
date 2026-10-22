@@ -2,13 +2,13 @@
 //! unchanged tip is not detected again, and the stack base notes on the tips of stacked branches (`STACK_NOTES_REF`).
 
 use anyhow::{Context, Result};
+use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
+use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::write_notes;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
-use sync_types::upstream_commit::UpstreamCommit;
 use tracing::{debug, instrument};
 
 // Git notes ref for detection cache - this is the namespace where notes are stored

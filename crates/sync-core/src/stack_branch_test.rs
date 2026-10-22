@@ -1,4 +1,5 @@
 use crate::stack_branch::{BuildResult, StackBranchPlan, StackBranchSync, StackBuild, StackFinish, build_stack_branch, finish_stack_branches, plan_stack_branches};
+use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackMemberBlock};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::tree_id_cache::TreeIdCache;
@@ -7,7 +8,6 @@ use history_rewrite::commit_grouper::CommitGrouper;
 use history_rewrite::stack::place_branches;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
-use sync_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackMemberBlock};
 use test_utils::git_test_utils::TestRepo;
 
 /// A commit of `subject` by `email`, without git

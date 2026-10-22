@@ -7,6 +7,8 @@ use crate::conflict_chain::{ChainMemo, ConflictChain, conflict_ref};
 use crate::missing_commits::CommitOwners;
 use crate::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, compute_remote_status_for_branch};
 use anyhow::Result;
+use domain_types::stack::BlockReason;
+use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::commit_chain::CommitChain;
@@ -21,8 +23,6 @@ use git_ops::word_resolve::{ResolveMode, note_resolution};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
-use sync_types::stack::BlockReason;
-use sync_types::{ProgressReporter, SyncEvent};
 use tracing::{debug, instrument, warn};
 
 /// State shared by all branch tasks of one sync

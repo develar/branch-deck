@@ -12,14 +12,14 @@ use crate::client::{
 use crate::service::{PatronusService, parse_push_mode, parse_status, robot_profile, to_robot};
 use crate::teamcity_cli::TeamCityCli;
 use crate::token::Token;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use sync_types::patronus::{
+use domain_types::patronus::{
   PatronusAvailability, PatronusChecks, PatronusMergeRequest, PatronusProblem, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotProfile,
   PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
 };
-use sync_types::robot_failure::{BuildProblem, FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailure, RobotFailureKind, RobotFailureProblem};
+use domain_types::robot_failure::{BuildProblem, FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailure, RobotFailureKind, RobotFailureProblem};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use sync_utils::list_cut::kept;
 use sync_utils::timestamp::{parse_rfc3339_timestamp, unix_now};
 use tokio::sync::Semaphore;

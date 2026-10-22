@@ -1,5 +1,6 @@
 use crate::parked::{ParkBranchLine, ParkBranchesParams, UnparkBranchesParams, park_branches, parked_state, unpark_branches};
 use crate::regroup_test::{commits, entries, path, plant_store, repo, sync};
+use domain_types::GroupedBranchInfo;
 use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkLine, ParkOutcome, ParkedChange, drop_integrated_parked, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, lock_repository};
@@ -8,10 +9,9 @@ use history_rewrite::store_lines::StoreLines;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::time::Duration;
-use sync_test_utils::placed_branch;
-use sync_types::GroupedBranchInfo;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::placed_branch;
 
 fn parked(repo: &TestRepo) -> StoreLines {
   read_grouping_inputs(repo.git_executor(), path(repo)).unwrap().parked

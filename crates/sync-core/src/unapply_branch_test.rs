@@ -3,20 +3,20 @@ use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyRefusal, UnapplyUndoToken, UndoneUnapply, unapply_branch_core, undo_unapply_core};
 use crate::update_project::UndoBlocked;
 use anyhow::Result;
+use domain_types::{SyncEvent, UnappliedBranchInfo};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use pretty_assertions::assert_eq;
-use sync_test_utils::TestReporter;
-use sync_types::{SyncEvent, UnappliedBranchInfo};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
-const PREFIX: &str = "test-prefix";
+pub(crate) const PREFIX: &str = "test-prefix";
 const VIRTUAL: &str = "test-prefix/virtual/feature";
 
 /// Unapplies `branch` (branch prefix `test-prefix`), checked against `expected` when given
-fn unapply(repo: &TestRepo, branch: &str, expected: Option<Vec<String>>) -> Result<UnapplyBranchResult> {
+pub(crate) fn unapply(repo: &TestRepo, branch: &str, expected: Option<Vec<String>>) -> Result<UnapplyBranchResult> {
   let params = UnapplyBranchParams {
     repository_path: path(repo).to_string(),
     branch_name: branch.to_string(),

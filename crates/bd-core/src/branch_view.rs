@@ -4,13 +4,13 @@
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::ShortIds;
+use domain_types::GroupedBranchInfo;
+use domain_types::stack::{BlockReason, BranchStack, ParentSource};
 use history_rewrite::regroup::problem_commits;
 use history_rewrite::stack::describe_problem;
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline_with};
-use sync_types::GroupedBranchInfo;
-use sync_types::stack::{BlockReason, BranchStack, ParentSource};
 
 /// Where the parent of a branch comes from
 #[derive(Debug, Clone, Copy, Serialize, JsonSchema)]

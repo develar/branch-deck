@@ -2,11 +2,11 @@ use crate::client::YouTrackClient;
 use crate::issue_test::{open_issue, state_values};
 use crate::service::{EnvironmentToken, YouTrackService};
 use crate::token_store::{RefreshGrant, StoredToken, read_token, token_file};
+use domain_types::youtrack::{YouTrackAuthProblem, YouTrackIssueAnswer, YouTrackStateChange, YouTrackTokenSource};
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake_server};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::sync::Arc;
-use sync_types::youtrack::{YouTrackAuthProblem, YouTrackIssueAnswer, YouTrackStateChange, YouTrackTokenSource};
 use sync_utils::secret_store::write_secret_json;
 use sync_utils::timestamp::unix_now;
 

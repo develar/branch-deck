@@ -8,6 +8,8 @@ use crate::state::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use domain_types::patronus::{PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
+use domain_types::pull_request::{GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, TokenSource};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::revs::resolve_commit;
@@ -19,8 +21,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::pull_requests::{GITHUB_REPOSITORY_CONFIG, GitHubRepository, parse_known_github_repository, parse_pull_request_maps};
-use sync_types::patronus::{PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
-use sync_types::pull_request::{GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, TokenSource};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::{format_utc_timestamp, unix_now};
 

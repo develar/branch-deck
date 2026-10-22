@@ -1,8 +1,8 @@
 use crate::command_error::CommandError;
 use crate::commands::github::app_user_agent;
 use crate::operation::operation;
+use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use std::path::Path;
-use sync_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use tauri::{AppHandle, Emitter, State};
 use tracing::instrument;
 use youtrack::client::YouTrackClient;

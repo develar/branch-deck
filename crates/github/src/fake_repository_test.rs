@@ -1,10 +1,10 @@
 use crate::client::{GitHubClient, GitHubError};
 use crate::fake_github::{FakeAnswer, FakeGitHub, serve};
 use crate::fake_repository::{BranchTip, FakeGitHubRepository, RepositoryState};
+use domain_types::pull_request::GitHubUser;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::sync::Arc;
-use sync_types::pull_request::GitHubUser;
 
 const TOKEN: &str = "e2e-token";
 
@@ -121,11 +121,11 @@ async fn get(client: &GitHubClient, path: &[String], query: &[(&str, &str)]) -> 
 fn bob_pull(repository: &FakeGitHubRepository) {
   repository.update(|state| {
     state.pulls.push(crate::fake_repository::FakePull {
-      pull_request: sync_types::pull_request::PullRequest {
+      pull_request: domain_types::pull_request::PullRequest {
         number: 7,
         title: "Add auth".to_string(),
         url: "https://github.com/acme/monorepo/pull/7".to_string(),
-        state: sync_types::pull_request::PullRequestState::Open,
+        state: domain_types::pull_request::PullRequestState::Open,
         is_draft: false,
         review_decision: None,
         head_ref_name: "user/virtual/auth".to_string(),
@@ -163,9 +163,9 @@ async fn a_review_makes_the_user_a_reviewer_and_the_author_cannot_review() {
   assert_eq!(pull.reviews[0].event, "APPROVE");
   assert_eq!(
     pull.pull_request.reviewers,
-    vec![sync_types::pull_request::Reviewer {
+    vec![domain_types::pull_request::Reviewer {
       login: "alice".to_string(),
-      state: sync_types::pull_request::ReviewerState::Approved,
+      state: domain_types::pull_request::ReviewerState::Approved,
       requested: false,
     }]
   );
@@ -186,7 +186,7 @@ async fn the_patronus_bot_answers_a_command_comment_with_a_reaction_and_a_reject
   repository.update(|state| {
     state.patronus_replies.insert(
       7,
-      sync_types::patronus::PatronusCommandReply::Rejected {
+      domain_types::patronus::PatronusCommandReply::Rejected {
         reason: Some("The pull request is a draft".to_string()),
       },
     );

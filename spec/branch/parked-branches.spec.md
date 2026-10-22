@@ -10,7 +10,7 @@ targets:
   - ../../crates/sync-core/src/parked.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/sync_inputs.rs
-  - ../../crates/sync-types/src/lib.rs
+  - ../../crates/domain-types/src/lib.rs
   - ../../crates/bd-rewrite/src/park_command.rs
   - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-remote/src/push_command.rs

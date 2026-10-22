@@ -11,10 +11,10 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
+use domain_types::youtrack::YouTrackUser;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
-use sync_types::youtrack::YouTrackUser;
 use sync_utils::timestamp::unix_now;
 
 /// The id of the YouTrack service in its Hub: the scope of a token

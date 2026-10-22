@@ -6,8 +6,8 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
+use domain_types::update::{UpdateInfo, UpdateStatus};
 use serde::Deserialize;
-use sync_types::update::{UpdateInfo, UpdateStatus};
 
 use crate::state::{AppState, TestRepository};
 use crate::tauri_command_bridge::{CommandFailure, CommandResult, requesting_repository};

@@ -7,13 +7,13 @@
 use crate::config_snapshot::ConfigSnapshot;
 use crate::remote_url::{origin_push_url, parse_remote_url, split_owner_and_name};
 use anyhow::Result;
+use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use github::client::{GitHubError, GraphQlResponse};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use sync_utils::list_cut::kept;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::{instrument, warn};

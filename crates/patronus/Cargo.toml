@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 axum = { workspace = true, optional = true }
 git-ops = { path = "../git-ops" }
-sync-types = { path = "../sync-types" }
+domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 test-utils = { path = "../test-utils", features = ["http"], optional = true }
 moka.workspace = true

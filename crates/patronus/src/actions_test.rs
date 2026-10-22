@@ -4,12 +4,12 @@ use crate::fake_patronus::start_fake;
 use crate::service_test::{service, token};
 use crate::teamcity_cli::TeamCityCli;
 use crate::token::TokenLookup;
+use domain_types::patronus::{PatronusChecks, PatronusProblem, PatronusPushMode, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus};
+use domain_types::robot_failure::{BuildProblem, FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailureKind, RobotFailureProblem};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use sync_types::patronus::{PatronusChecks, PatronusProblem, PatronusPushMode, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus};
-use sync_types::robot_failure::{BuildProblem, FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailureKind, RobotFailureProblem};
 use test_utils::fake_executable::fake_executable;
 
 #[tokio::test]

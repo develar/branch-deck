@@ -1,9 +1,9 @@
 use crate::review_fetch::{GitHubCredentials, NoCommonHistory, fetch_review_head, fetch_review_head_until, prune_review_refs, review_refs_to_prune};
+use domain_types::review_request::{FetchReviewHeadParams, ReviewHeadState, ReviewRange, ReviewSource};
 use git_executor::git_command_executor::{ProgressStop, StoppedCommand};
 use pretty_assertions::assert_eq;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use sync_types::review_request::{FetchReviewHeadParams, ReviewHeadState, ReviewRange, ReviewSource};
 use test_log::test;
 use test_utils::fake_executable::{fake_executable, shell_path};
 use test_utils::git_test_utils::TestRepo;

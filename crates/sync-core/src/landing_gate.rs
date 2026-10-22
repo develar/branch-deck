@@ -7,7 +7,7 @@
 //!   the robots of 2026-10-17 and 2026-10-21 did. Names, not a compiler, but the edges by symbols held 141 of 141
 //!   (docs/design/symbol-dependencies.md), so it refuses the start too, and the user can start anyway.
 //!
-//! The result is typed (`sync_types::landing`): the CLI and the app each name it in their own words, and each refusal
+//! The result is typed (`domain_types::landing`): the CLI and the app each name it in their own words, and each refusal
 //! carries the fix the user can run (`LandingFix`).
 //!
 //! `landing_needs` asks the same of every branch before any start, in one trial check of all of them: what the Safe
@@ -18,14 +18,14 @@
 use crate::check::{CheckReport, CheckSession};
 use crate::dangling_references::DanglingKind;
 use crate::missing_declarations::{MissingDeclaration, missing_declarations};
+use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind, StackCommit};
+use domain_types::patronus::LandingAllowances;
+use domain_types::repository_view::RobotOf;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::regroup::RegroupError;
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
-use sync_types::landing::{LandingFix, LandingRefusal, ReferenceKind, StackCommit};
-use sync_types::patronus::LandingAllowances;
-use sync_types::repository_view::RobotOf;
 use tracing::instrument;
 
 /// What a start lands

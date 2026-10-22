@@ -1,7 +1,7 @@
 use crate::patronus_start::{RobotSource, allows_push_mode, carried_ids, carried_words, find_branch_robot, find_stack_robot, is_push_into_robot_risky, is_start_blocked};
+use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use domain_types::repository_view::Carried;
 use pretty_assertions::assert_eq;
-use sync_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use sync_types::repository_view::Carried;
 
 fn robot(id: &str, branch_name: Option<&str>, status: PatronusRobotStatus, start_time: u32) -> PatronusRobot {
   PatronusRobot {

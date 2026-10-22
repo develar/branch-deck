@@ -2,8 +2,8 @@
 //! as the app matches them (`src/lib/patronus.ts`), the words of a mode and of what a robot lands. Pure functions over
 //! the robots of the user; what they land, landed and hold is the repository view (`repository_view::patronus_view`).
 
-use sync_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use sync_types::repository_view::Carried;
+use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use domain_types::repository_view::Carried;
 
 /// Still running, a cancel included
 pub const fn is_robot_active(robot: &PatronusRobot) -> bool {

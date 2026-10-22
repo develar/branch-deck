@@ -1,9 +1,9 @@
 use crate::patronus::{MAX_REVIEW_COMMITS, SpaceRepository, attribute_paths_by_ownership, find_target_branch, needs_ownership_paths, parse_space_repository};
 use crate::patronus_review::{ReviewInput, read_review_inputs};
+use domain_types::patronus::{PatronusReviewRequirement, PatronusReviewerGroup, ReviewPathsSource};
 use git_ops::ownership::OwnershipRules;
 use object_cache::cache::ObjectCache;
 use std::fmt::Write;
-use sync_types::patronus::{PatronusReviewRequirement, PatronusReviewerGroup, ReviewPathsSource};
 use test_utils::git_test_utils::TestRepo;
 
 #[test]

@@ -3,6 +3,7 @@ use crate::update_project::{
   FetchFailed, LOCKED_MESSAGE, UndoBlocked, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error,
   check_baseline_update, previous_tip_of_forced_update, undo_update_core, update_project_core, update_project_with,
 };
+use domain_types::SyncEvent;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::{
@@ -16,10 +17,9 @@ use std::cell::RefCell;
 use std::fmt::Write;
 use std::fs;
 use std::time::Duration;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// An upstream repository with `shared.txt` and `other.txt`, and a clone of it whose `master` tracks `origin/master`
 pub(crate) struct Setup {

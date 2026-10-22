@@ -2,15 +2,15 @@ use crate::branch_table::BranchTable;
 use crate::patronus_view::match_robots;
 use crate::patronus_view::patronus_view_content_test::repo;
 use crate::views::RepositoryViews;
+use domain_types::landing::{LandingFix, LandingRefusal};
+use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use domain_types::repository_view::{GetRepositoryViewParams, LandingNeeds, RemoteFacts, RepositoryView, RobotMatch, RobotOf, WaitLandingNeedsParams};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};
-use sync_test_utils::TestReporter;
-use sync_types::landing::{LandingFix, LandingRefusal};
-use sync_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use sync_types::repository_view::{GetRepositoryViewParams, LandingNeeds, RemoteFacts, RepositoryView, RobotMatch, RobotOf, WaitLandingNeedsParams};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 fn params(revision: u32) -> GetRepositoryViewParams {
   GetRepositoryViewParams {

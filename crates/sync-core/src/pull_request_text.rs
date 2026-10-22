@@ -9,12 +9,12 @@
 use crate::issue_navigation::issue_link;
 use crate::stack_pull_request::{MAX_BODY_CHARS, cut_chars, cut_title, push_fitting_sections};
 use crate::sync::branch_summary;
+use domain_types::issue_navigation::IssueNavigationConfig;
+use domain_types::youtrack::YouTrackIssueAnswer;
 use git_ops::branch_description::Description;
 use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::time::Duration;
-use sync_types::issue_navigation::IssueNavigationConfig;
-use sync_types::youtrack::YouTrackIssueAnswer;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::debug;
 use youtrack::service::YouTrackService;

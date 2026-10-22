@@ -9,7 +9,7 @@ targets:
   - ../../crates/sync-utils/src/private_file.rs
   - ../../crates/sync-utils/src/secret_store.rs
   - ../../crates/github/src/token.rs
-  - ../../crates/sync-types/src/pull_request.rs
+  - ../../crates/domain-types/src/pull_request.rs
   - ../../src-tauri/src/commands/github.rs
   - ../../src-tauri/src/lib.rs
   - ../../crates/bd-core/src/context.rs

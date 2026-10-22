@@ -4,11 +4,11 @@ use crate::test_commit::commit;
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::detection_notes::{CacheOps, CachedDetection, NOTES_REF, Recheck, deserialize_from_cache};
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
+use domain_types::stack::{BlockReason, BranchStack, ParentState, StackBlock, StackFix};
 use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
-use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
-use sync_types::stack::{BlockReason, BranchStack, ParentState, StackBlock, StackFix};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 

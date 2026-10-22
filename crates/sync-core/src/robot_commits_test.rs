@@ -1,9 +1,9 @@
 use crate::robot_commits::{robot_commit_map, stack_robot_commit_map};
 use crate::sync::{SyncOptions, sync_branches};
+use domain_types::robot_failure::{RobotCommitMap, RobotCommitState};
 use pretty_assertions::assert_eq;
-use sync_test_utils::TestReporter;
-use sync_types::robot_failure::{RobotCommitMap, RobotCommitState};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 use RobotCommitState::{Added, Changed, Landed, Rebased, Removed, Tested, Unknown};
 

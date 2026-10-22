@@ -16,12 +16,12 @@
 use crate::safe_push_command::{patronus_service, robots};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
+use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusRobot};
 use object_cache::cache::ObjectCache;
 use patronus::service::{FULL_LIST_DAYS, PatronusService};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sync_core::patronus::SpaceRepository;
-use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusRobot};
 use sync_utils::timestamp::unix_now;
 use tokio::runtime::Runtime;
 

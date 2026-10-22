@@ -8,6 +8,10 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use crate::stack_summary::StackSummary;
+use domain_types::branch_integration::BranchIntegrationStatus;
+use domain_types::landed::LandedBranch;
+use domain_types::stack::BranchStack;
+use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::model::{BranchError, BranchSyncStatus};
 use git_ops::update_branch::{UpdateKind, UpdateState};
@@ -17,10 +21,6 @@ use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use sync_core::sync::{SyncOptions, SyncReport, sync_branches};
-use sync_types::branch_integration::BranchIntegrationStatus;
-use sync_types::landed::LandedBranch;
-use sync_types::stack::BranchStack;
-use sync_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 
 /// `bd sync`
 #[derive(Debug, Serialize, JsonSchema)]

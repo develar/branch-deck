@@ -12,12 +12,12 @@ use crate::safe_push_command::patronus_service;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorCode};
 use bd_core::sync_command::SyncOutput;
+use domain_types::patronus::PatronusRobot;
+use domain_types::repository_view::{Carried, HoldKind};
 use git_ops::branch_names::to_final_branch_name;
 use patronus::service::PatronusService;
 use std::collections::HashMap;
 use sync_core::patronus_start::{carried_ids, carried_words, push_mode_name};
-use sync_types::patronus::PatronusRobot;
-use sync_types::repository_view::{Carried, HoldKind};
 
 /// The robot that holds the push of a branch
 #[derive(Debug, Clone)]

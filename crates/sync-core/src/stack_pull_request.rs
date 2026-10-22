@@ -5,12 +5,12 @@
 //! their commits; no git process. GitHub refuses a body over 65,536 characters and a title over 256: both are cut.
 
 use anyhow::Result;
+use domain_types::pull_request::NewPullRequest;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
 use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use serde::Deserialize;
 use std::fmt::Write as _;
-use sync_types::pull_request::NewPullRequest;
 use tracing::instrument;
 
 /// The most characters GitHub takes in the body of a pull request

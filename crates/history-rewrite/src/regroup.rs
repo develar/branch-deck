@@ -20,6 +20,7 @@ use crate::snapshot::{Grouped, Snapshot, group_commits};
 use crate::stack::{StackForest, problem_view, stack_path};
 use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE};
 use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head, undo_over_drops};
+use domain_types::stack::{StackProblem, StackProblemView};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::sanitize_branch_name;
 use git_ops::commit_list::Commit;
@@ -31,7 +32,6 @@ use git_ops::squash_commits::restore_branch_head_with;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::Duration;
-use sync_types::stack::{StackProblem, StackProblemView};
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::{info, instrument};
 

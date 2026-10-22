@@ -7,6 +7,7 @@
 
 use crate::request_review_command::availability_error;
 use bd_core::context::RepoContext;
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use github::service::GitHubService;
 use schemars::JsonSchema;
@@ -14,7 +15,6 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use sync_core::pull_request_writes::retarget_pull_request;
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
-use sync_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
 use tokio::runtime::Runtime;
 
 /// An open pull request whose base was a virtual branch, retargeted to the baseline

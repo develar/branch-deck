@@ -4,11 +4,11 @@ use crate::pull_request_create::{
   wait_for_branch,
 };
 use crate::pull_request_text::{AncestorText, CommitText};
+use domain_types::pull_request::{GitHubUser, NewPullRequest, Reviewer, ReviewerState};
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake_service};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::time::Duration;
-use sync_types::pull_request::{GitHubUser, NewPullRequest, Reviewer, ReviewerState};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 

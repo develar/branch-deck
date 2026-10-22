@@ -1,12 +1,12 @@
 use crate::branch_table::BranchTable;
 use crate::branch_table::branch_table_test::placed;
 use crate::patronus_view::{ContentMemo, match_robots, patronus_view};
+use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use domain_types::repository_view::{Carried, HoldKind, PatronusView, RemoteFact, RemoteFacts, RobotOf, StartRefusal};
+use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
 use pretty_assertions::assert_eq;
-use sync_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use sync_types::repository_view::{Carried, HoldKind, PatronusView, RemoteFact, RemoteFacts, RobotOf, StartRefusal};
-use sync_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 
 /// A commit of the checked-out branch whose mapping note names its virtual copy `copy`
 fn commit(id: &str, copy: &str) -> Commit {

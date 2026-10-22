@@ -4,9 +4,9 @@
 use crate::command_error::CommandError;
 use crate::operation::run_blocking;
 use crate::repository_state::RepositoryStateCache;
+use domain_types::repository_view::{GetRepositoryViewParams, RepositoryView, WaitLandingNeedsParams};
 use git_executor::git_command_executor::GitCommandExecutor;
 use repository_view::views::RepositoryViews;
-use sync_types::repository_view::{GetRepositoryViewParams, RepositoryView, WaitLandingNeedsParams};
 use tauri::State;
 use tracing::instrument;
 

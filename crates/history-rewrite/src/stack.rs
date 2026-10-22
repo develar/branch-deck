@@ -9,14 +9,14 @@ use branch_integration::common::ListedBranch;
 use branch_integration::detection_notes::{CachedDetection, NOTES_REF, deserialize_from_cache};
 use branch_integration::detector::{BaselineAncestry, CachePlan, PendingBranch, archived_within_retention, detect_pending_branches, resolve_baseline};
 use branch_integration::strategy::{DetectionStrategy, get_detection_strategy};
+use domain_types::branch_integration::BranchIntegrationStatus;
+use domain_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentSource, ParentState, StackBlock, StackFix, StackProblem, StackProblemView};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use git_ops::notes::read_notes;
 use git_ops::revs::short_id;
 use indexmap::{IndexMap, IndexSet};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use sync_types::branch_integration::BranchIntegrationStatus;
-use sync_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentSource, ParentState, StackBlock, StackFix, StackProblem, StackProblemView};
 use sync_utils::git_bool::parse_git_bool;
 
 pub const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";

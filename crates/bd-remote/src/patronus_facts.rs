@@ -5,12 +5,12 @@
 use crate::push_command::has_work_for_remote;
 use bd_core::context::RepoContext;
 use bd_core::sync_command::SyncOutput;
+use domain_types::patronus::PatronusRobot;
+use domain_types::repository_view::{BranchPatronus, PatronusView, RemoteFact, RemoteFacts, RobotMatch, RobotOf, StackPatronus, StartRefusal};
 use git_ops::branch_names::to_final_branch_name;
 use repository_view::branch_table::BranchTable;
 use repository_view::patronus_view::{ContentMemo, match_robots, patronus_view};
 use sync_core::patronus_start::{carried_ids, carried_words, push_mode_name};
-use sync_types::patronus::PatronusRobot;
-use sync_types::repository_view::{BranchPatronus, PatronusView, RemoteFact, RemoteFacts, RobotMatch, RobotOf, StackPatronus, StartRefusal};
 
 /// The robots and the Patronus view of a table
 pub struct PatronusFacts {

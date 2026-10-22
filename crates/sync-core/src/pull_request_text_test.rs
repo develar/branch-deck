@@ -1,9 +1,9 @@
 use crate::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
+use domain_types::issue_navigation::{IssueNavigationConfig, IssueNavigationLink};
 use git_ops::branch_description::Description;
 use github::fake_github::{FakeAnswer, start_fake_server};
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use sync_types::issue_navigation::{IssueNavigationConfig, IssueNavigationLink};
 use sync_utils::secret_store::write_secret_json;
 use youtrack::client::YouTrackClient;
 use youtrack::service::YouTrackService;

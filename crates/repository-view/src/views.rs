@@ -9,6 +9,9 @@
 
 use crate::branch_table::BranchTable;
 use crate::patronus_view::{ContentMemo, landed_commits, patronus_view, with_landing_needs};
+use domain_types::landing::LandingRefusal;
+use domain_types::repository_view::{GetRepositoryViewParams, PatronusView, RepositoryView, WaitLandingNeedsParams};
+use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
 use object_cache::cache::ObjectCache;
@@ -19,9 +22,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 use sync_core::landing_gate::landing_needs_of;
-use sync_types::landing::LandingRefusal;
-use sync_types::repository_view::{GetRepositoryViewParams, PatronusView, RepositoryView, WaitLandingNeedsParams};
-use sync_types::stack::BlockReason;
 use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
 

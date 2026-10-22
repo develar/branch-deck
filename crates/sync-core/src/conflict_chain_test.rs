@@ -1,14 +1,14 @@
 use crate::conflict_chain::{CONFLICT_REFS, conflict_ref, move_conflict_refs};
 use crate::process_budget_test::repo_with_a_conflict_after_a_clean_commit;
 use crate::sync::{SyncOptions, sync_branches};
+use domain_types::SyncEvent;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::BranchError;
 use git_ops::revs::ref_tips;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// The ref of a branch and of a branch below it never clash, and a rename moves the copies to another ref
 #[test]

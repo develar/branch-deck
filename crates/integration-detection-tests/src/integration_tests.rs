@@ -5,10 +5,10 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::to_final_branch_name;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};
-use sync_test_utils::TestReporter;
 use sync_utils::timestamp::unix_now;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 use tracing::debug;
 
 use super::test_helpers::{
@@ -159,7 +159,7 @@ pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration
       // Find the integration info to get the timestamp
       let integration_info = detected_branch_info(&events, integrated_branch);
 
-      if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, commit, .. } = &integration_info.status {
+      if let domain_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, commit, .. } = &integration_info.status {
         let commit = commit.as_ref().unwrap_or_else(|| panic!("Expected the integration commit for branch {branch_name}"));
         let (expected_id, expected_author, expected_committer) = &integration_commits[*branch_name];
         assert_eq!(&commit.id, expected_id, "Branch {branch_name} integration commit");
@@ -322,7 +322,7 @@ fn test_integration_timestamp_accuracy() {
   let now = unix_now();
   let time_since_merge = now - merge_timestamp;
 
-  if let sync_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, .. } = &integration_info.status {
+  if let domain_types::branch_integration::BranchIntegrationStatus::Integrated { integrated_at, .. } = &integration_info.status {
     if let Some(integrated_date) = integrated_at {
       let time_since_detected = now - integrated_date;
 
@@ -343,7 +343,7 @@ fn test_integration_timestamp_accuracy() {
 
 #[test]
 fn test_confidence_ordering() {
-  use sync_types::branch_integration::IntegrationConfidence::*;
+  use domain_types::branch_integration::IntegrationConfidence::*;
   assert!(Exact > High);
   assert_eq!(Exact, Exact);
   assert_eq!(High, High);

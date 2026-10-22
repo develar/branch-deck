@@ -1,4 +1,4 @@
-use sync_types::{ProgressReporter, SyncEvent};
+use domain_types::{ProgressReporter, SyncEvent};
 use tauri::ipc::Channel;
 
 // Implement ProgressReporter for Tauri Channel

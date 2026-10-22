@@ -1,10 +1,10 @@
 use crate::command_error::CommandError;
 use crate::operation::run_blocking;
+use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use sync_core::branch_name_suggestion::suggest_branch_names as core_suggest_branch_names;
-use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use tauri::State;
 use tracing::instrument;
 

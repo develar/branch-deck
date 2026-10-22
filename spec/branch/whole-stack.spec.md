@@ -6,8 +6,8 @@ targets:
   - ../../crates/sync-core/src/stack_branch.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/branch_processor.rs
-  - ../../crates/sync-types/src/stack.rs
-  - ../../crates/sync-types/src/lib.rs
+  - ../../crates/domain-types/src/stack.rs
+  - ../../crates/domain-types/src/lib.rs
   - ../../crates/git-ops/src/branch_names.rs
   - ../../crates/git-ops/src/tree_id_cache.rs
   - ../../crates/object-cache/src/stack_branch.rs
@@ -25,8 +25,8 @@ targets:
   - ../../crates/sync-core/src/pull_request_create.rs
   - ../../crates/sync-core/src/review_readiness.rs
   - ../../crates/sync-core/src/stack_pull_request.rs
-  - ../../crates/sync-types/src/patronus.rs
-  - ../../crates/sync-types/src/pull_request.rs
+  - ../../crates/domain-types/src/patronus.rs
+  - ../../crates/domain-types/src/pull_request.rs
   - ../../src-tauri/src/commands/patronus.rs
   - ../../src/stores/branch-sync.ts
   - ../../src/stores/repository.ts

@@ -6,6 +6,18 @@ use axum::{
     sse::{Event, KeepAlive, Sse},
   },
 };
+use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
+use domain_types::patronus::{
+  GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
+  PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
+  PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+};
+use domain_types::pull_request::{
+  CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
+};
+use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
+use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
+use domain_types::{ProgressReporter, SyncEvent};
 use file_diffs::model::{
   BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
 };
@@ -47,18 +59,6 @@ use sync_core::review_readiness::{branch_review_readiness, prepare_review_readin
 use sync_core::robot_commits::robot_failure_report;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
-use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
-use sync_types::patronus::{
-  GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
-  PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
-  PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
-};
-use sync_types::pull_request::{
-  CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
-};
-use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
-use sync_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
-use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::{Stream, StreamExt};
@@ -473,8 +473,8 @@ pub async fn get_stack_independence(
 /// The commit map of a running robot, by the real core on the test repository
 pub async fn get_robot_commit_map(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::robot_failure::GetRobotCommitMapParams>,
-) -> CommandResult<sync_types::robot_failure::RobotCommitMap> {
+  Json(params): Json<domain_types::robot_failure::GetRobotCommitMapParams>,
+) -> CommandResult<domain_types::robot_failure::RobotCommitMap> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("read the commit map of the robot", move || {
@@ -499,8 +499,8 @@ pub async fn get_robot_commit_map(
 /// The view of the table the last sync of the repository finished, by the real core, as the app answers it
 pub async fn get_repository_view(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::repository_view::GetRepositoryViewParams>,
-) -> CommandResult<sync_types::repository_view::RepositoryView> {
+  Json(params): Json<domain_types::repository_view::GetRepositoryViewParams>,
+) -> CommandResult<domain_types::repository_view::RepositoryView> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   let views = state.repository_views.clone();
@@ -511,7 +511,7 @@ pub async fn get_repository_view(
 }
 
 /// The wait of the page for the landing needs of the repository, by the real core, as the app answers it
-pub async fn wait_landing_needs(State(state): State<Arc<AppState>>, Json(params): Json<sync_types::repository_view::WaitLandingNeedsParams>) -> CommandResult<u32> {
+pub async fn wait_landing_needs(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::repository_view::WaitLandingNeedsParams>) -> CommandResult<u32> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let views = state.repository_views.clone();
   run_command("wait for the landing needs", move || Ok::<_, anyhow::Error>(views.wait_landing_needs(&params))).await
@@ -931,8 +931,8 @@ pub async fn set_youtrack_issue_state(
 /// The fixture set by `POST /repositories/{id}/review-requests`; GitHub is never asked in E2E
 pub async fn get_review_requests(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::review_request::GetReviewRequestsParams>,
-) -> CommandResult<sync_types::review_request::ReviewRequestsResult> {
+  Json(params): Json<domain_types::review_request::GetReviewRequestsParams>,
+) -> CommandResult<domain_types::review_request::ReviewRequestsResult> {
   let repo = repository_by_path(&state, &params.repository_path)?;
   repo.review_request_calls.fetch_add(1, Ordering::SeqCst);
   Ok(Json(repo.review_requests.read().expect("review request fixture lock").result.clone()))
@@ -944,8 +944,8 @@ pub async fn get_review_requests(
 /// The progress channel is not mocked; the fixture's `fetchError` fails it
 pub async fn fetch_review_head(
   State(state): State<Arc<AppState>>,
-  Json(mut params): Json<sync_types::review_request::FetchReviewHeadParams>,
-) -> CommandResult<sync_types::review_request::ReviewRange> {
+  Json(mut params): Json<domain_types::review_request::FetchReviewHeadParams>,
+) -> CommandResult<domain_types::review_request::ReviewRange> {
   let fetch_error = {
     let repo = repository_by_path(&state, &params.repository_path)?;
     repo.review_fetch_calls.fetch_add(1, Ordering::SeqCst);
@@ -979,7 +979,7 @@ pub async fn cancel_review_fetch() -> Json<()> {
   Json(())
 }
 
-pub async fn prune_review_refs(State(state): State<Arc<AppState>>, Json(params): Json<sync_types::review_request::PruneReviewRefsParams>) -> CommandResult<()> {
+pub async fn prune_review_refs(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::review_request::PruneReviewRefsParams>) -> CommandResult<()> {
   repository_by_path(&state, &params.repository_path)?
     .review_prune_keeps
     .lock()
@@ -992,7 +992,7 @@ pub async fn prune_review_refs(State(state): State<Arc<AppState>>, Json(params):
   .await
 }
 
-pub async fn get_range_files(State(state): State<Arc<AppState>>, Json(params): Json<sync_types::review_request::GetRangeParams>) -> CommandResult<CommitFiles> {
+pub async fn get_range_files(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::review_request::GetRangeParams>) -> CommandResult<CommitFiles> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("read the files of a range", move || {
@@ -1131,8 +1131,8 @@ pub async fn get_patronus_failing_robots(State(state): State<Arc<AppState>>, Jso
 /// The page's calls are logged with their `recheck`, which only the page knows
 pub async fn get_branch_review_readiness(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_types::patronus::GetBranchReviewReadinessParams>,
-) -> CommandResult<Vec<sync_types::patronus::BranchReviewReadiness>> {
+  Json(params): Json<domain_types::patronus::GetBranchReviewReadinessParams>,
+) -> CommandResult<Vec<domain_types::patronus::BranchReviewReadiness>> {
   let operation = "read the code-owner review";
   {
     let repo = repository_by_path(&state, &params.repository_path)?;

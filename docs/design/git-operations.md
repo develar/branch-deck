@@ -2356,7 +2356,7 @@ The same rule answers before any start, for every branch (`landing_needs`, the l
 [repository view](#repository-view)): one trial check of every branch (`CheckSession::check`, the dangling references
 of all of them), one search of the missing declarations, and per branch the refusals its start would get, filtered by
 the one predicate of the gate (`refuses`: a use by a commit of what lands of a name a commit outside it adds, which
-no merged Safe Push landed). The types are of `sync_types::landing` (`LandingRefusal`, `LandingFix`, `StackCommit`); a
+no merged Safe Push landed). The types are of `domain_types::landing` (`LandingRefusal`, `LandingFix`, `StackCommit`); a
 dangling reference carries its fix too (the restack onto the branch of the commit that changes the use, or its move),
 and a missing declaration the running Safe Push that lands the branch adding the name (`landing_in`,
 `name_landing_robots`, from the holds and spans of the view). The app computes it in the background after a sync

@@ -1,10 +1,10 @@
 use crate::sync::{SyncOptions, sync_branches};
+use domain_types::SyncEvent;
 use git_ops::model::{BranchError, MergeConflictInfo};
 use pretty_assertions::assert_eq;
 use std::fmt::Write;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// A file of `lines` lines that each name their number
 fn numbered_lines(lines: usize) -> String {

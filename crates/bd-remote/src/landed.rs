@@ -8,10 +8,10 @@ use crate::patronus_facts::PatronusFacts;
 use crate::safe_push_command::{RobotSummary, join_names, robot_summary};
 use bd_core::context::RepoContext;
 use bd_core::output::ShortIds;
+use domain_types::patronus::PatronusRobot;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_types::patronus::PatronusRobot;
 
 /// A branch a merged Safe Push landed
 #[derive(Debug, Clone)]

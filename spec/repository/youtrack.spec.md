@@ -12,7 +12,7 @@ targets:
   - ../../crates/youtrack/src/service.rs
   - ../../crates/youtrack/src/token_store.rs
   - ../../crates/sync-utils/src/secret_store.rs
-  - ../../crates/sync-types/src/youtrack.rs
+  - ../../crates/domain-types/src/youtrack.rs
   - ../../src-tauri/src/commands/youtrack.rs
   - ../../src-tauri/src/lib.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs

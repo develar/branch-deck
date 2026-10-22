@@ -1,10 +1,10 @@
 use crate::common::{UPSTREAM_COMMIT_FORMAT, oldest_logged_commit, parse_upstream_commit};
 use crate::detection_notes::Recheck;
 use anyhow::Result;
+use domain_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
+use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
-use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
-use sync_types::upstream_commit::UpstreamCommit;
 use tracing::info;
 
 /// The revision arguments of the symmetric difference of `baseline` and the branch tip, without the commits below the

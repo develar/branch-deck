@@ -3,8 +3,8 @@ name: Landed Commits
 description: Requirements for telling the user that their commits reached the baseline (a Safe Push robot, a merged pull request, a cherry-pick): before the update the header and the rows name what the fetched baseline already has, the update toast leads with what landed, and an island keeps the report until the user has seen it or dismissed it, also for an update made outside Branch Deck; Activity keeps it after.
 style: plain-1
 targets:
-  - ../../crates/sync-types/src/landed.rs
-  - ../../crates/sync-types/src/upstream_commit.rs
+  - ../../crates/domain-types/src/landed.rs
+  - ../../crates/domain-types/src/upstream_commit.rs
   - ../../crates/sync-core/src/landed.rs
   - ../../crates/sync-core/src/update_project.rs
   - ../../crates/sync-core/src/sync.rs

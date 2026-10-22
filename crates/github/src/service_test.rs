@@ -3,9 +3,9 @@ use crate::fake_github::{FakeAnswer, FakeGitHub, start_fake};
 use crate::service::{GitHubFailure, GitHubService, RequestKind};
 use crate::token::{TokenChain, TokenSources};
 use crate::token_test::env_and_gh_chain;
+use domain_types::pull_request::TokenSource;
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use sync_types::pull_request::TokenSource;
 use test_utils::git_test_utils::TestRepo;
 
 const REPOSITORY: &str = "acme/monorepo";

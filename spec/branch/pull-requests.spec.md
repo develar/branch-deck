@@ -3,7 +3,7 @@ name: Pull Requests
 description: Requirements for the GitHub pull request status of the virtual branches, read through the GitHub API with the token of GH_TOKEN, gh or git (also for branches pushed to Space and mirrored to GitHub, as its committed settings say) and shown as a chip in the branch row, the branch preview and the landing overview; a pull request Patronus merged reads merged; and "Create Pull Request…" in the branch menu, the branch preview and the push toast, a dialog that creates the pull request into the base of the branch through the GitHub API, with the reviewers (the code owners Patronus suggests, a search of the repository's users) and the user as its assignee, or opens GitHub's form with its text; "Request Review…" asks the suggested code owners on an open pull request.
 style: plain-1
 targets:
-  - ../../crates/sync-types/src/pull_request.rs
+  - ../../crates/domain-types/src/pull_request.rs
   - ../../crates/github/src/client.rs
   - ../../crates/github/src/service.rs
   - ../../crates/github/src/token.rs

@@ -11,13 +11,13 @@ use crate::commit_walk::{WalkedCommit, walk_commits, walk_commits_by_authors};
 use crate::remote_status::same_changes;
 use crate::review_fetch::present_commits;
 use anyhow::Result;
+use domain_types::robot_failure::{RobotCommit, RobotCommitMap, RobotCommitState, RobotFailure, RobotFailureReport};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::revs::{current_branch, is_object_id};
 use history_rewrite::snapshot::read_grouping_inputs;
 use std::collections::{HashMap, HashSet};
-use sync_types::robot_failure::{RobotCommit, RobotCommitMap, RobotCommitState, RobotFailure, RobotFailureReport};
 use tracing::{debug, instrument};
 
 /// The commits of a `rev-list` walk, newest first, each with its mark

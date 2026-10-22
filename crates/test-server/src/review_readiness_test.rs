@@ -1,10 +1,10 @@
 use crate::review_fixtures::fixture_review_answer;
 use crate::test_support::{create_repository, post, start_test_server};
+use domain_types::patronus::PatronusReviewRequirement;
 use patronus::client::PreMergeCheckResponse;
 use patronus::review::to_requirement;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-use sync_types::patronus::PatronusReviewRequirement;
 use test_utils::git_test_utils::git_command;
 
 /// The answer of a Patronus that evaluated the pull request: the code owner is asked and hasn't approved
@@ -48,7 +48,7 @@ fn a_fixture_answer_reads_back_through_the_real_parser() {
   let skipped: PatronusReviewRequirement = serde_json::from_value(json!({"required": false, "mergeRequest": null, "groups": [], "skipped": true})).unwrap();
   fixture_review_answer(&skipped).unwrap_err();
   let mut ownership = serde_json::from_value::<PatronusReviewRequirement>(awaiting_code_owner()).unwrap();
-  ownership.groups[0].paths_source = sync_types::patronus::ReviewPathsSource::Ownership;
+  ownership.groups[0].paths_source = domain_types::patronus::ReviewPathsSource::Ownership;
   fixture_review_answer(&ownership).unwrap_err();
 }
 

@@ -3,9 +3,9 @@
 
 use crate::client::{YouTrackClient, YouTrackError};
 use crate::url::{api_url, issue_page};
+use domain_types::youtrack::{YouTrackField, YouTrackIssue, YouTrackState, YouTrackUser};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sync_types::youtrack::{YouTrackField, YouTrackIssue, YouTrackState, YouTrackUser};
 use tracing::instrument;
 
 /// The value Mark Fixed sets: the resolved state of YouTrack's default workflow

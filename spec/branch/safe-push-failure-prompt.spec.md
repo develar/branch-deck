@@ -3,7 +3,7 @@ name: Safe Push Failure Prompt
 description: Requirements for the prompt for an external coding agent that fixes a branch whose Patronus robot failed (or fails while it runs) — fast from the details the app has, or full with the failed builds, their problems, the failed tests with messages and the log tails of the `teamcity` CLI — with the commit map that names the commits the robot checked by the hashes of the checked-out branch; the actions that copy it (the branch menu, the robot details, the landing overview, the failed toast) and the toast's first step chosen by what failed.
 style: plain-1
 targets:
-  - ../../crates/sync-types/src/robot_failure.rs
+  - ../../crates/domain-types/src/robot_failure.rs
   - ../../crates/patronus/src/actions.rs
   - ../../crates/patronus/src/client.rs
   - ../../crates/patronus/src/teamcity_cli.rs

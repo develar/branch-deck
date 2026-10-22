@@ -5,9 +5,9 @@
 //! requests of a stack in line (`pull_request_writes.rs`).
 
 use crate::pull_requests::{GitHubRepository, GitHubWriteError};
+use domain_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
-use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
 use tracing::instrument;
 
 /// The repository of the pull request a `/patronus` comment goes to is the one the review requests name, else the

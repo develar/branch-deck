@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 history-rewrite = { path = "../history-rewrite" }
-sync-types = { path = "../sync-types" }
+domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
@@ -41,14 +41,13 @@ libc = "0.2.190"
 
 [features]
 default = []
-specta = ["dep:specta", "history-rewrite/specta", "sync-types/specta", "branch-integration/specta", "git-ops/specta"]
+specta = ["dep:specta", "history-rewrite/specta", "domain-types/specta", "branch-integration/specta", "git-ops/specta"]
 
 [dev-dependencies]
 history-rewrite = { path = "../history-rewrite", features = ["test-commit"] }
 github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils" }
-sync-test-utils = { path = "../sync-test-utils" }
 tempfile.workspace = true
 tokio.workspace = true
 pretty_assertions = { workspace = true }

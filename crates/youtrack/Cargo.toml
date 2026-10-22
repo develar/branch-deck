@@ -13,7 +13,7 @@ reqwest = { workspace = true, features = ["form"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"
-sync-types = { path = "../sync-types" }
+domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 test-utils = { path = "../test-utils", features = ["http"], optional = true }
 tokio = { workspace = true, features = ["time", "io-util"] }

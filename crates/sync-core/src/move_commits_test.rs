@@ -1,11 +1,11 @@
 use crate::regroup_test::{commits, issue_group_plan, path, regroup, repo};
 use crate::stack_operations::{UndoRegroupParams, undo_regroup};
+use domain_types::{BranchOrigin, GroupedBranchInfo, SyncEvent};
 use history_rewrite::issue_groups::ISSUE_GROUPS;
 use history_rewrite::move_commits::{MoveChange, MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
 use history_rewrite::regroup::RegroupError;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
-use sync_types::{BranchOrigin, GroupedBranchInfo, SyncEvent};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -54,7 +54,7 @@ fn subjects(test_repo: &TestRepo, count: usize) -> Vec<String> {
 /// Branches of the `BranchesGrouped` event of a sync against `origin/master`
 fn grouped_branches(test_repo: &TestRepo) -> Vec<GroupedBranchInfo> {
   use crate::sync::{SyncOptions, sync_branches};
-  use sync_test_utils::TestReporter;
+  use test_utils::sync_fixtures::TestReporter;
 
   let reporter = TestReporter::new();
   let repo_path = test_repo.path().to_str().unwrap();

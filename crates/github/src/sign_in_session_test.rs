@@ -5,10 +5,10 @@ use crate::service::GitHubService;
 use crate::sign_in_session::{GitHubSignInSession, NO_CLIENT_ID_MESSAGE};
 use crate::token::{TokenChain, TokenSources};
 use crate::token_store::{read_token, token_file};
+use domain_types::pull_request::{GitHubDeviceCode, TokenSource};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
-use sync_types::pull_request::{GitHubDeviceCode, TokenSource};
 
 const TOKEN: &str = "gho_signed_in";
 

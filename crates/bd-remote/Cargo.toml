@@ -17,7 +17,7 @@ history-rewrite = { path = "../history-rewrite" }
 object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
 sync-core = { path = "../sync-core" }
-sync-types = { path = "../sync-types" }
+domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 youtrack = { path = "../youtrack" }
 clap = { version = "4.6", features = ["derive"] }

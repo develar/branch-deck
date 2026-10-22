@@ -2,12 +2,12 @@ use crate::pull_requests::{
   GitHubRepository, PULL_REQUESTS_QUERY, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, list_pull_requests, parse_github_repository, parse_pull_requests, parse_space_mirror,
   resolve_github_repository,
 };
+use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, TokenSource};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
 use github::service::GitHubService;
 use github::token::{TokenChain, TokenSources};
 use pretty_assertions::assert_eq;
-use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, TokenSource};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -395,7 +395,7 @@ async fn the_pull_request_of_a_stack_branch_is_the_stacks_by_its_root() {
     &repository("o", "r"),
   )
   .await;
-  let numbers = |pull_requests: &std::collections::BTreeMap<String, sync_types::pull_request::PullRequest>| {
+  let numbers = |pull_requests: &std::collections::BTreeMap<String, domain_types::pull_request::PullRequest>| {
     pull_requests.iter().map(|(name, pull_request)| (name.clone(), pull_request.number)).collect::<Vec<_>>()
   };
   assert_eq!(numbers(&result.pull_requests), vec![("auth".to_string(), 10)]);

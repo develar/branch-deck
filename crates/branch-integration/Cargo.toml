@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-sync-types = { path = "../sync-types" }
+domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
@@ -17,7 +17,7 @@ indexmap.workspace = true
 
 [features]
 default = []
-specta = ["sync-types/specta", "git-ops/specta"]
+specta = ["domain-types/specta", "git-ops/specta"]
 
 [lints]
 workspace = true

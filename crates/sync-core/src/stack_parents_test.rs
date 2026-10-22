@@ -1,5 +1,6 @@
 use crate::grouping::group_commits_ahead_of_baseline;
 use crate::regroup_test::{commits, entries, groups, issue_group_plan, other_worktree, path, plan, plant_store, regroup, repo, sync};
+use domain_types::stack::{DeclaredParent, ParentSource, ParentState, StackFix, StackProblem};
 use git_ops::revs::short_id;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::regroup::{
@@ -13,7 +14,6 @@ use history_rewrite::store_lines::{StoreLines, format_store_lines, read_store_he
 use history_rewrite::test_commit::commit;
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
-use sync_types::stack::{DeclaredParent, ParentSource, ParentState, StackFix, StackProblem};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 

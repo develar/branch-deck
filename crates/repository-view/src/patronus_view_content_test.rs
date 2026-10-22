@@ -3,13 +3,13 @@
 
 use crate::branch_table::BranchTable;
 use crate::patronus_view::{ContentMemo, match_robots, patronus_view};
+use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use domain_types::repository_view::{HoldKind, PatronusView, RemoteFacts};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};
-use sync_test_utils::TestReporter;
-use sync_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use sync_types::repository_view::{HoldKind, PatronusView, RemoteFacts};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 const PREFIX: &str = "test";
 

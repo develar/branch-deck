@@ -14,6 +14,8 @@
 
 use crate::commit_key::{CommitKey, subject_of};
 use anyhow::{Context, Result};
+use domain_types::landed::{LandedBranch, LandedCommit};
+use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, parse_single_commit};
 use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
@@ -25,8 +27,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use sync_types::landed::{LandedBranch, LandedCommit};
-use sync_types::upstream_commit::UpstreamCommit;
 use sync_utils::timestamp::unix_now;
 use tracing::{debug, info, instrument, warn};
 

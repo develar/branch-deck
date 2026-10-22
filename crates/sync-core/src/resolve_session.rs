@@ -8,6 +8,7 @@ use crate::landed::landed_candidates;
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, display_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
 use crate::update_project::record_landed_update;
 use anyhow::{Result, anyhow};
+use domain_types::landed::LandedBranch;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
 use git_ops::model::ResolvedFileSummary;
@@ -26,7 +27,6 @@ use history_rewrite::snapshot::read_grouping_inputs;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use sync_types::landed::LandedBranch;
 use tracing::{instrument, warn};
 
 /// No resolve session for this worktree

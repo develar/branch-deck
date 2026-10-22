@@ -469,7 +469,7 @@ The checklist:
   module organization); make modules public with `pub mod`; every import uses the full module path, so it shows where
   a type or function comes from:
   - ✅ `use git_executor::git_command_executor::GitCommandExecutor`
-  - ✅ `use sync_types::issue_navigation::IssueNavigationConfig`
+  - ✅ `use domain_types::issue_navigation::IssueNavigationConfig`
   - ❌ `pub use pull_request::PullRequestAvailability` (in lib.rs)
 
 ### Frontend Imports and Naming
@@ -587,7 +587,7 @@ crates/
 ├── history-rewrite/ # The rewrites of the checked out branch (regroup, reword, squash, fold), the grouping, the stores, the repository lock
 ├── sync-core/       # Branch sync and the cores of the other operations
 ├── repository-view/ # What Rust derives of the branch table for the page and bd: the table of a sync, the Patronus section (one rule)
-├── sync-types/      # Types shared by the cores, bd and the app
+├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app); serde, specta behind a feature, no IO
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
 ├── bd-cli/          # `bd` agent CLI: the `Cli`, the dispatch, `bd schema`, the help texts, the process budgets (docs/guidelines/agent-cli.md)
@@ -605,8 +605,7 @@ crates/
 ├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
 ├── youtrack/        # YouTrack REST client, the sign-in through its Hub (OAuth, PKCE, refresh token), issues and commands
 ├── test-server/     # E2E mock server
-├── test-utils/      # Test repositories, fixture git (`git_command`) and, with the feature `http`, `fake_server`: the loopback HTTP server of the fakes of patronus, github, youtrack and the test server
-├── sync-test-utils/ # Test helpers of the sync and the integration detection
+├── test-utils/      # Test repositories, fixture git (`git_command`), the fixtures of the sync tests (`sync_fixtures`) and, with the feature `http`, `fake_server`: the loopback HTTP server of the fakes of patronus, github, youtrack and the test server
 ├── integration-detection-tests/ # Tests of the integration detection
 └── …
 tests/

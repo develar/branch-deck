@@ -1,13 +1,13 @@
 use crate::remote_fixtures::{fixture_progress, fixture_robot};
 use crate::test_support::{create_repository, post, start_test_server};
+use domain_types::patronus::{
+  PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
+};
 use patronus::actions::progress_of;
 use patronus::client::{PatronusClient, RobotDto, RobotProgressDto};
 use patronus::service::to_robot;
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use sync_types::patronus::{
-  PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
-};
 use test_utils::git_test_utils::git_command;
 
 fn robot(id: &str, client: &PatronusClient) -> PatronusRobot {

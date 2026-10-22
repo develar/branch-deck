@@ -1,3 +1,26 @@
+//! The types that cross a process or window boundary: what the cores hand to `bd` (JSON) and to the app (Tauri
+//! commands and events, `src/lib/bindings.ts`), and what the page sends back. Data only, no IO: serde, and `specta`
+//! behind the feature of the same name. The commits, branch errors and statuses of a sync still come from `git-ops`
+//! (`commit_list::Commit`, `model`, `update_branch::UpdateCheck`) until they move here.
+//!
+//! - the crate root: the events of a sync (`SyncEvent`, `ProgressReporter`), its grouped branches, the remote status
+//!   of a branch, the unapplied branches, the dropped commits and the landed remote commits
+//! - `branch_integration`: the integration of a branch into the baseline (rebase, merge, squash)
+//! - `branch_name_suggestion`: branch names suggested by the user's Claude Code
+//! - `issue_navigation`: the issue links of the IntelliJ IDEA configuration
+//! - `landed`: the landed commits and branches
+//! - `landing`: what refuses a Safe Push or a Dry Run before the push, and the fix of each refusal
+//! - `patronus`: the Patronus robots of the virtual branches, the parameters of their start, the review readiness
+//! - `pull_request`: the pull requests of the branches, their checks and reviews
+//! - `repository_view`: what Rust derives of the branch table for the page and `bd`
+//! - `review_request`: the review requests of Your Turn
+//! - `robot_failure`: why a robot failed and the commits it checked
+//! - `robot_landing`: what a merged robot landed and what a running one lands
+//! - `stack`: the stacked branches as a sync reports them
+//! - `update`: the update of the app
+//! - `upstream_commit`: a commit of the baseline that carries the user's work
+//! - `youtrack`: the YouTrack sign-in and issues
+
 use crate::issue_navigation::IssueNavigationConfig;
 use git_ops::commit_list::Commit;
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, WordResolutionSummary};

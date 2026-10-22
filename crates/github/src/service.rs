@@ -3,9 +3,9 @@
 
 use crate::client::{GitHubClient, GitHubError};
 use crate::token::{Token, TokenChain};
+use domain_types::pull_request::TokenSource;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use sync_types::pull_request::TokenSource;
 
 /// Enough for every source to be tried once
 const MAX_TOKENS: usize = 4;

@@ -6,7 +6,7 @@ use crate::operation::run_blocking;
 use tracing::info;
 use tracing::{error, instrument};
 
-use sync_types::update::{UpdateInfo, UpdateStatus};
+use domain_types::update::{UpdateInfo, UpdateStatus};
 
 pub struct UpdateState {
   pub info: UpdateInfo,
@@ -44,7 +44,7 @@ pub type SharedUpdateState = std::sync::Mutex<UpdateState>;
 mod auto_update_impl {
   use super::SharedUpdateState;
   use anyhow::anyhow;
-  use sync_types::update::{UpdateInfo, UpdateStatus};
+  use domain_types::update::{UpdateInfo, UpdateStatus};
   use tauri::AppHandle;
   use tauri_plugin_updater::UpdaterExt;
   use tracing::{debug, info, instrument};

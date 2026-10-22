@@ -1,11 +1,11 @@
 //! Parse IntelliJ IDEA issue navigation configuration from .idea/vcs.xml, and the link it gives an issue key
 
+use domain_types::issue_navigation::{IssueNavigationConfig, IssueNavigationLink};
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
 use quick_xml::events::Event;
 use std::fmt::Write as _;
 use std::path::Path;
-use sync_types::issue_navigation::{IssueNavigationConfig, IssueNavigationLink};
 use tracing::{debug, warn};
 
 /// Load issue navigation configuration from .idea/vcs.xml if it exists

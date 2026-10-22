@@ -7,12 +7,12 @@ use crate::pull_requests::{GitHubRepository, GitHubRepositorySource, parse_githu
 use crate::remote_command::execute_remote_command_with_progress_until;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
+use domain_types::review_request::{FetchReviewHeadParams, ReviewCommit, ReviewHeadState, ReviewRange, ReviewSource};
 use git_executor::git_command_executor::{GitCommandExecutor, ProgressStop, StoppedCommand};
 use git_ops::cat_file_batch::object_types;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{is_ancestor, is_object_id, merge_base};
 use std::time::Duration;
-use sync_types::review_request::{FetchReviewHeadParams, ReviewCommit, ReviewHeadState, ReviewRange, ReviewSource};
 use tracing::{instrument, warn};
 
 /// The namespace of the review refs; only the review fetch writes it and only pruning deletes from it

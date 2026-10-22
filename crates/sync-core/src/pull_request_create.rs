@@ -12,13 +12,13 @@ use crate::pull_request_text::{AncestorText, CommitText, PullRequestTextInput, i
 use crate::pull_request_writes::{request_reviews, unique_logins};
 use crate::pull_requests::{GitHubRepository, GitHubWriteError, list_pull_requests, visible_data};
 use anyhow::{Result, anyhow, bail};
+use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequest, PullRequestState, Reviewer, ReviewerState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
 use github::client::{GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::Deserialize;
 use std::time::Duration;
-use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequest, PullRequestState, Reviewer, ReviewerState};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::instrument;

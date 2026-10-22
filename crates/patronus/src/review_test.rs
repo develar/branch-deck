@@ -3,10 +3,10 @@ use crate::fake_patronus::{FakePatronus, start_fake};
 use crate::review::{REVIEW_CHECK_UNAVAILABLE, ReviewSubject};
 use crate::service::PatronusService;
 use crate::service_test::{service, token};
+use domain_types::patronus::{PatronusAvailability, ReviewerApprovalState};
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use sync_types::patronus::{PatronusAvailability, ReviewerApprovalState};
 
 fn commits() -> Vec<PreMergeCommitDto> {
   vec![PreMergeCommitDto {

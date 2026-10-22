@@ -13,6 +13,9 @@ tempfile.workspace = true
 # Git command executor
 git-executor = { path = "../git-executor" }
 
+# The types of the sync fixtures (`sync_fixtures`)
+domain-types = { path = "../domain-types" }
+
 # The fake HTTP server of the fakes (`fake_server`), with the `http` feature
 axum = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }

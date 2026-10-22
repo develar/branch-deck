@@ -4,11 +4,11 @@
 //! answer. A start through the API counts no approval of a pull request, so the answer without one is the verdict.
 //! An older Patronus answers without the evaluation: then only "no approval at all" is certain.
 
-use sync_types::patronus::{
+use domain_types::patronus::{
   ApprovedReviewGroup, MissingApprovalsReason, MissingReviewGroup, PatronusReviewRequirement, PatronusReviewer, PatronusReviewerGroup, Person, ReviewReadiness, ReviewStart,
   ReviewerApprovalState, UnknownReadinessReason,
 };
-use sync_types::pull_request::{Reviewer, ReviewerState};
+use domain_types::pull_request::{Reviewer, ReviewerState};
 
 /// Whether Patronus evaluated the reviews of a pull request for the answer: the groups say whether they approved
 pub fn evaluates_pull_request(requirement: &PatronusReviewRequirement) -> bool {

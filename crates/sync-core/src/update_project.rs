@@ -9,6 +9,7 @@ use crate::resolve_copies::{Materialize, prepare_dir};
 use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
+use domain_types::landed::LandedBranch;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{Worktree, current_branch, current_worktree, is_object_id};
 use git_ops::update_branch::{
@@ -24,7 +25,6 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
-use sync_types::landed::LandedBranch;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument, warn};
 

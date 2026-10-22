@@ -7,13 +7,13 @@ use super::test_helpers::{
 };
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::SyncEvent;
+use domain_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
 use std::collections::HashSet;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
-use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
 use sync_utils::timestamp::{unix_now, utc_today};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 #[test]
 fn test_squash_merge_integration_with_timestamp_verification() {

@@ -1,8 +1,8 @@
 use crate::sync::{SyncOptions, sync_branches};
 use crate::sync_inputs::sync_inputs_fingerprint;
 use git_executor::git_command_executor::GitCommandExecutor;
-use sync_test_utils::TestReporter;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 fn fingerprint(git: &GitCommandExecutor, repo: &TestRepo) -> String {
   sync_inputs_fingerprint(git, repo.path().to_str().unwrap(), "test").unwrap()

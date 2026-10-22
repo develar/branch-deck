@@ -11,6 +11,8 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorCode};
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::PersonSummary;
+use domain_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::revs::resolve_commit;
 use schemars::JsonSchema;
@@ -19,8 +21,6 @@ use sync_core::patronus::target_branch_of;
 use sync_core::pull_request_writes::request_pull_request_reviewers;
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests, resolve_github_repository_with};
 use sync_core::review_readiness::ReadinessRepository;
-use sync_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
-use sync_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
 use tokio::runtime::Runtime;
 
 #[derive(Debug, Default, clap::Args)]

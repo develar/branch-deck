@@ -1,9 +1,9 @@
 use crate::client::{YouTrackClient, YouTrackError};
 use crate::issue::{apply_command, fetch_issue, fetch_me, set_field_command};
+use domain_types::youtrack::{YouTrackField, YouTrackIssue, YouTrackState, YouTrackUser};
 use github::fake_github::{FakeAnswer, start_fake_server};
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use sync_types::youtrack::{YouTrackField, YouTrackIssue, YouTrackState, YouTrackUser};
 
 fn client() -> YouTrackClient {
   YouTrackClient::new("Branch Deck test")

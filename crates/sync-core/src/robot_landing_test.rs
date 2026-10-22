@@ -1,7 +1,7 @@
 use crate::robot_commits::robot_commits_test::{commit, forking_stack, stacks_repo, sync};
 use crate::robot_landing::{robot_landings, robot_spans};
+use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLanding, RobotLandingRequest, RobotSpan};
 use pretty_assertions::assert_eq;
-use sync_types::robot_landing::{BranchLanding, BranchSpan, RobotLanding, RobotLandingRequest, RobotSpan};
 use test_utils::git_test_utils::TestRepo;
 
 fn tip(repo: &TestRepo, full_name: &str) -> String {

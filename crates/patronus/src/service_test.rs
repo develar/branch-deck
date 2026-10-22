@@ -2,10 +2,10 @@ use crate::client::{PatronusClient, RobotDto};
 use crate::fake_patronus::start_fake;
 use crate::service::{PatronusService, robot_profile, to_robot};
 use crate::token::{Token, TokenLookup, TokenStamp};
+use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus};
 use pretty_assertions::assert_eq;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use sync_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus};
 
 pub(crate) fn token(value: &str) -> TokenLookup {
   TokenLookup::Found(Token {

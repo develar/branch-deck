@@ -8,12 +8,12 @@ use crate::push_lease::{PushOptions, PushRef, PushedRefStatus, fetch_remote_bran
 use crate::remote_status::{AncestorCommits, StackParent, StatusBranch, compute_remote_statuses};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result, bail};
+use domain_types::RemoteStatusUpdate;
+use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use sync_types::RemoteStatusUpdate;
-use sync_types::stack::BlockReason;
 use tracing::{info, instrument};
 
 #[derive(Debug, Deserialize)]

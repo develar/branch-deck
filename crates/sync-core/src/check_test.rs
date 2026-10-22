@@ -1,6 +1,8 @@
 use crate::cache_memo::CacheMemo;
 use crate::check::{CheckOutcome, CheckReport, CheckSession, Planned, StackIndependence, StackUse, check_plan, run_builds, stack_independence};
 use crate::regroup_test;
+use domain_types::landing::StackCommit;
+use domain_types::stack::BlockReason;
 use git_ops::merge_memo::{MergeMemo, MergeOutcome, MergeTrees};
 use history_rewrite::regroup::{RegroupError, RegroupPlan};
 use object_cache::cache::{CacheConfig, ObjectCache};
@@ -8,8 +10,6 @@ use object_cache::merge_result::{MergeKey, MergeResult};
 use pretty_assertions::assert_eq;
 use std::sync::{Mutex, mpsc};
 use std::time::Duration;
-use sync_types::landing::StackCommit;
-use sync_types::stack::BlockReason;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 

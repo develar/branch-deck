@@ -4,7 +4,7 @@ description: Requirements for the Patronus status of the virtual branches (Safe 
 style: plain-1
 targets:
   - ../../src/lib/os-notification.ts
-  - ../../crates/sync-types/src/patronus.rs
+  - ../../crates/domain-types/src/patronus.rs
   - ../../crates/patronus/src/actions.rs
   - ../../crates/patronus/src/client.rs
   - ../../crates/patronus/src/review.rs

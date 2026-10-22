@@ -34,7 +34,7 @@ pub use branch_name_suggestion::BranchNameSuggestionOutcome;
 
 // Other files
 use crate::{PullRequestAvailability, BranchNameSuggestionOutcome}; // Uses re-exports
-use sync_types::{PullRequestAvailability, BranchNameSuggestionOutcome}; // Uses re-exports
+use domain_types::{PullRequestAvailability, BranchNameSuggestionOutcome}; // Uses re-exports
 ```
 
 ### ✅ Correct - Direct imports
@@ -49,8 +49,8 @@ use crate::pull_request::PullRequestAvailability;
 use crate::branch_name_suggestion::BranchNameSuggestionOutcome;
 
 // From other crates
-use sync_types::pull_request::PullRequestAvailability;
-use sync_types::branch_name_suggestion::BranchNameSuggestionOutcome;
+use domain_types::pull_request::PullRequestAvailability;
+use domain_types::branch_name_suggestion::BranchNameSuggestionOutcome;
 ```
 
 ## Module Structure Guidelines
@@ -85,7 +85,7 @@ Every import shows exactly where types come from:
 
 ```rust
 use git_executor::git_command_executor::GitCommandExecutor;
-use sync_types::issue_navigation::IssueNavigationConfig;
+use domain_types::issue_navigation::IssueNavigationConfig;
 ```
 
 ### 2. Better IDE Navigation
@@ -169,20 +169,20 @@ reports anything missing. The same no-re-exports rule applies: there are no barr
 
 Before:
 ```rust
-// sync_types/lib.rs
+// domain_types/lib.rs
 pub mod pull_request;
 
 // Other crate
-use sync_types::pull_request::PullRequestAvailability;
+use domain_types::pull_request::PullRequestAvailability;
 ```
 
 After:
 ```rust
-// sync_types/lib.rs
+// domain_types/lib.rs
 pub mod pull_request;
 
 // Other crate
-use sync_types::pull_request::PullRequestAvailability;
+use domain_types::pull_request::PullRequestAvailability;
 ```
 
 ## Tools and Enforcement

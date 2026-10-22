@@ -8,10 +8,10 @@
 use crate::actions::{ActionError, availability_message};
 use crate::client::{GitHubPullRequestDto, MergeRequestDto, PatronusError, PreMergeCheckRequest, PreMergeCheckResponse, PreMergeCommitDto};
 use crate::service::PatronusService;
-use std::time::{Duration, Instant};
-use sync_types::patronus::{
+use domain_types::patronus::{
   PatronusAvailability, PatronusMergeRequest, PatronusReviewRequirement, PatronusReviewer, PatronusReviewerGroup, ReviewPathsSource, ReviewerApprovalState,
 };
+use std::time::{Duration, Instant};
 use tracing::instrument;
 
 /// No approval needed: holds until the commits change

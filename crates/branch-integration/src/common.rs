@@ -1,10 +1,10 @@
 use super::detection_notes::{CachedDetection, deserialize_from_cache};
 use anyhow::Result;
+use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use git_ops::notes::read_notes;
 use std::collections::{HashMap, HashSet};
-use sync_types::upstream_commit::UpstreamCommit;
 use sync_utils::timestamp::utc_today;
 use tracing::{debug, instrument, warn};
 

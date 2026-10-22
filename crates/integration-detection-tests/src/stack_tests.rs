@@ -3,11 +3,11 @@
 use super::test_helpers::{detection_note, setup_test_repos, sync_user_branches};
 use branch_integration::detection_notes::{NOTES_REF, STACK_NOTES_REF};
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::SyncEvent;
+use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
+use domain_types::stack::ParentState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
-use sync_types::SyncEvent;
-use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
-use sync_types::stack::ParentState;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 

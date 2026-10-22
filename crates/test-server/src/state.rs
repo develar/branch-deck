@@ -1,12 +1,12 @@
 use dashmap::DashMap;
+use domain_types::branch_name_suggestion::BranchNameSuggestionOutcome;
+use domain_types::pull_request::PullRequestAvailability;
+use domain_types::review_request::ReviewRequestsResult;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicU32;
-use sync_types::branch_name_suggestion::BranchNameSuggestionOutcome;
-use sync_types::pull_request::PullRequestAvailability;
-use sync_types::review_request::ReviewRequestsResult;
 
 pub struct AppState {
   pub repositories: DashMap<String, TestRepository>,

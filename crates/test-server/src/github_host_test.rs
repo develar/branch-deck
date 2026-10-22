@@ -1,9 +1,9 @@
 use crate::remote_fixtures::fixture_pulls;
 use crate::test_support::{create_repository, post, start_test_server};
+use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use test_utils::git_test_utils::git_command;
 
 fn pull_request(branch: &str, number: u32) -> PullRequest {

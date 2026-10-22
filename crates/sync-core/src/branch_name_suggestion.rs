@@ -2,6 +2,7 @@
 //! messages and changed file names on stdin, two names back as structured output
 //! (`spec/branch/branch-name-suggestions.spec.md`). Like `gh`, `claude` is not git: every failure is an outcome.
 
+use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use std::borrow::Cow;
@@ -9,7 +10,6 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
-use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use sync_utils::child_process::{ChildOutput, ChildProcessError, cached_login_shell_path, find_executable, run_child};
 use sync_utils::list_cut;
 use tracing::{info, instrument, warn};

@@ -20,6 +20,8 @@ use crate::grouping::BranchGrouping;
 use crate::remote_status::RemoteStatusMemo;
 use anyhow::Result;
 use branch_integration::common::ListedBranch;
+use domain_types::RemoteStatusUpdate;
+use domain_types::stack::{BlockReason, BranchStack, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace, to_stack_branch_name};
 use git_ops::commit_chain::CommitChain;
@@ -38,8 +40,6 @@ use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex};
-use sync_types::RemoteStatusUpdate;
-use sync_types::stack::{BlockReason, BranchStack, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
 use tracing::{debug, info, instrument, warn};
 
 /// The version of a remembered build: bump it when the copies change (their message, ident or dates), so no build of

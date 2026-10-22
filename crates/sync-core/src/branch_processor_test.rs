@@ -1,6 +1,7 @@
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch, process_single_branch};
 use crate::missing_commits::CommitOwners;
 use crate::sync::{SyncOptions, sync_branches};
+use domain_types::SyncEvent;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
@@ -14,9 +15,8 @@ use history_rewrite::reword::{CommitReword, RewordText, reword_core};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 fn repo_path(test_repo: &TestRepo) -> &str {
   test_repo.path().to_str().unwrap()

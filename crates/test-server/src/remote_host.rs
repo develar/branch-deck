@@ -224,7 +224,7 @@ impl RemoteHost {
   }
 
   /// How the Patronus bot answers a `/patronus` comment from now on, by pull request number
-  pub fn set_patronus_replies(&self, replies: std::collections::BTreeMap<u32, sync_types::patronus::PatronusCommandReply>) {
+  pub fn set_patronus_replies(&self, replies: std::collections::BTreeMap<u32, domain_types::patronus::PatronusCommandReply>) {
     self.github_repository().update(|state| state.patronus_replies = replies);
   }
 

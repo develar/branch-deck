@@ -2,6 +2,8 @@ use super::detection_notes::{CacheOps, CachedDetection, Recheck, STACK_NOTES_REF
 use super::squash::SquashCheck;
 use super::{common, merge, rebase, strategy::DetectionStrategy};
 use anyhow::{Result, anyhow};
+use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
+use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
@@ -11,8 +13,6 @@ use git_ops::revs::{is_ancestor, resolve_commit};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, PoisonError};
-use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
-use sync_types::{ProgressReporter, SyncEvent};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::{days_ago, parse_utc_date};

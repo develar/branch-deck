@@ -16,7 +16,7 @@ targets:
   - ../../crates/branch-integration/src/squash.rs
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/sync-core/src/check.rs
-  - ../../crates/sync-types/src/stack.rs
+  - ../../crates/domain-types/src/stack.rs
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/stack-lanes.ts

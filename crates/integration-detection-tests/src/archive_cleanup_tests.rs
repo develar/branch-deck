@@ -12,7 +12,7 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   use branch_integration::detector::{DetectConfig, detect_integrated_branches};
   use branch_integration::strategy::DetectionStrategy;
   use history_rewrite::baseline::detect_baseline_branch;
-  use sync_test_utils::TestReporter;
+  use test_utils::sync_fixtures::TestReporter;
 
   // Set up repos and executor
   let (_upstream_repo, local_repo, git_executor) = crate::test_helpers::setup_test_repos();
@@ -81,7 +81,7 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
     .get_events()
     .into_iter()
     .filter_map(|event| match event {
-      sync_types::SyncEvent::ArchivedBranchesFound { branch_names, .. } => Some(branch_names),
+      domain_types::SyncEvent::ArchivedBranchesFound { branch_names, .. } => Some(branch_names),
       _ => None,
     })
     .flatten()
@@ -95,7 +95,7 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   assert!(
     matches!(
       status,
-      sync_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
+      domain_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
         total_commit_count: 3,
         integrated_count: 1,
         orphaned_count: 2,

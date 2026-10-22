@@ -2,15 +2,15 @@ use crate::process_budget_test::{empty_cache, sync_events};
 use crate::remote_status::forget_statuses;
 use crate::stack_branch::forget_builds;
 use crate::sync::{SyncOptions, sync_branches};
+use domain_types::stack::{BlockReason, BranchStack, ParentSource, ParentState, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
+use domain_types::{GroupedBranchInfo, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchError, BranchSyncStatus};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
-use sync_test_utils::TestReporter;
-use sync_types::stack::{BlockReason, BranchStack, ParentSource, ParentState, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
-use sync_types::{GroupedBranchInfo, SyncEvent};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 fn repo_path(test_repo: &TestRepo) -> &str {
   test_repo.path().to_str().unwrap()

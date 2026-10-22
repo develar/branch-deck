@@ -14,18 +14,18 @@
 //!   (`robot_landing`), once per state of the branches (`ContentMemo`).
 
 use crate::branch_table::BranchTable;
+use domain_types::landing::LandingRefusal;
+use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
+use domain_types::repository_view::{
+  BranchPatronus, Carried, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RemoteFact, RemoteFacts, RobotLandedBranch, RobotMatch, RobotOf, SpanView, StackPatronus,
+  StartRefusal,
+};
+use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use sync_core::landing_gate::name_landing_robots;
 use sync_core::patronus_start::{find_branch_robot, find_stack_robot, is_pushing_robot, is_robot_active};
 use sync_core::robot_landing::{robot_landings_of_grouped, robot_spans_of_grouped};
-use sync_types::landing::LandingRefusal;
-use sync_types::patronus::{PatronusRobot, PatronusRobotStatus};
-use sync_types::repository_view::{
-  BranchPatronus, Carried, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RemoteFact, RemoteFacts, RobotLandedBranch, RobotMatch, RobotOf, SpanView, StackPatronus,
-  StartRefusal,
-};
-use sync_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
 use tracing::{debug, instrument};
 
 /// How many answers a memo keeps of each kind before it starts again

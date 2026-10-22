@@ -1,12 +1,12 @@
 use super::test_helpers::{setup_test_repos, test_partial_integration_detection_with_strategy};
 use branch_integration::rebase::{CherryMarks, RightSideMarks, scan_cherry_marks};
 use branch_integration::{detector::detect_integrated_branches, strategy::DetectionStrategy};
+use domain_types::SyncEvent;
 use pretty_assertions::assert_eq;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
 use sync_utils::timestamp::{days_ago, format_utc_date, utc_today};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// Test the core orphan scenario: virtual branch exists but original commits are gone from HEAD
 #[test(tokio::test)]
@@ -65,7 +65,7 @@ async fn test_true_orphan_case_when_original_commits_removed_from_head() {
       assert!(info.name.contains("feature-test"), "Branch name should contain feature-test");
 
       // Verify branch status details
-      if let sync_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
+      if let domain_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
         total_commit_count,
         integrated_count,
         orphaned_count,
@@ -319,7 +319,7 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   use crate::test_helpers::{integrated_cache_info, not_integrated_cache_info};
   use branch_integration::detection_notes::CacheOps;
   use sync_core::sync::{SyncOptions, sync_branches};
-  use sync_test_utils::TestReporter;
+  use test_utils::sync_fixtures::TestReporter;
 
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
 
@@ -403,7 +403,7 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   assert!(
     matches!(
       status,
-      sync_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
+      domain_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
         total_commit_count: 1,
         integrated_count: 0,
         orphaned_count: 1,
@@ -473,7 +473,7 @@ fn a_tag_with_the_name_of_an_archived_branch_does_not_change_its_detection() {
   assert!(
     matches!(
       status,
-      sync_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
+      domain_types::branch_integration::BranchIntegrationStatus::NotIntegrated {
         total_commit_count: 1,
         orphaned_count: 1,
         ..

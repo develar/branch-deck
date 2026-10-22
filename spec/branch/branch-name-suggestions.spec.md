@@ -3,7 +3,7 @@ name: Branch Name Suggestions
 description: Requirements for the AI branch names of the Move to… form, from the user's Claude Code (one `claude -p --model haiku` per request with the commit messages and changed file names), the consent prompt before anything is sent (and its switch in Settings), the hints for a missing or logged-out Claude Code, and the removal of the cache of the on-device model it replaced.
 style: plain-1
 targets:
-  - ../../crates/sync-types/src/branch_name_suggestion.rs
+  - ../../crates/domain-types/src/branch_name_suggestion.rs
   - ../../crates/sync-core/src/branch_name_suggestion.rs
   - ../../crates/sync-utils/src/child_process.rs
   - ../../src-tauri/src/commands/suggest_branch_names.rs

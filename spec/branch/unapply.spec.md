@@ -19,7 +19,7 @@ targets:
   - ../../crates/bd-core/src/error.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/sync-core/src/sync.rs
-  - ../../crates/sync-types/src/lib.rs
+  - ../../crates/domain-types/src/lib.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/delete_archived_branch.rs
   - ../../crates/bd-remote/src/push_command.rs

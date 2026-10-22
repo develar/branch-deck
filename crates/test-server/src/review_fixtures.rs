@@ -7,6 +7,9 @@ use crate::remote_fixtures::{FixtureResult, host_of, unknown_repository};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use domain_types::patronus::{PatronusCommandReply, PatronusReviewRequirement, PatronusReviewer, ReviewPathsSource, ReviewerApprovalState};
+use domain_types::pull_request::{PullRequest, PullRequestState, Reviewer, ReviewerState};
+use domain_types::review_request::{ReviewRequest, ReviewRequestsResult};
 use git_ops::ownership::read_file_owners;
 use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
@@ -17,9 +20,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
-use sync_types::patronus::{PatronusCommandReply, PatronusReviewRequirement, PatronusReviewer, ReviewPathsSource, ReviewerApprovalState};
-use sync_types::pull_request::{PullRequest, PullRequestState, Reviewer, ReviewerState};
-use sync_types::review_request::{ReviewRequest, ReviewRequestsResult};
 
 /// What the Patronus pre-check answers for the branches of a test repository
 #[derive(Debug, Default, Deserialize)]

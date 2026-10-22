@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Crates that only build fixture repositories for tests
-const EXEMPT_CRATES: [&str; 3] = ["test-utils", "sync-test-utils", "integration-detection-tests"];
+const EXEMPT_CRATES: [&str; 2] = ["test-utils", "integration-detection-tests"];
 
 /// A production source file
 pub(crate) struct Source {

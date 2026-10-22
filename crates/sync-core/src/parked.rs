@@ -3,12 +3,12 @@
 //! it is built on, whose commits it carries.
 
 use anyhow::Result;
+use domain_types::GroupedBranchInfo;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::parked::{ParkLine, ParkOutcome, park_core, unpark_core};
 use history_rewrite::repository_lock::RewriteOptions;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use sync_types::GroupedBranchInfo;
 use tracing::instrument;
 
 /// A branch to park and its note

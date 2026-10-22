@@ -1,10 +1,10 @@
 use crate::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, push_branch, push_branches};
 use crate::remote_status::compute_remote_status_for_branch;
 use crate::transfer_progress::TransferProgress;
+use domain_types::RemoteStatusUpdate;
+use domain_types::stack::BlockReason;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
-use sync_types::RemoteStatusUpdate;
-use sync_types::stack::BlockReason;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
 

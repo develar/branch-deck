@@ -1,7 +1,7 @@
 use crate::common::oldest_logged_commit;
+use domain_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::OnceLock;
-use sync_types::branch_integration::{BranchIntegrationStatus, IntegrationConfidence};
 use tracing::info;
 
 /// The squash check of one detection: the tree of the baseline is read once, by the first branch that needs it

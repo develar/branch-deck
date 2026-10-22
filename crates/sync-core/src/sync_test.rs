@@ -1,4 +1,6 @@
 use crate::sync::{SyncDeferred, SyncOptions, prepare_branches_for_ui, sync_branches};
+use domain_types::SyncEvent;
+use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::process_stats::CommandStats;
 use git_ops::commit_list::{Commit, get_commit_list};
@@ -9,11 +11,9 @@ use indexmap::IndexMap;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
-use sync_types::stack::BlockReason;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// Runs a sync with the `test` branch prefix and returns the events it reported
 async fn sync_events(git_executor: &GitCommandExecutor, test_repo: &TestRepo) -> anyhow::Result<Vec<SyncEvent>> {

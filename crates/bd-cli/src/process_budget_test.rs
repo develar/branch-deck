@@ -21,11 +21,11 @@ use bd_rewrite::move_hunk_command::{MoveHunkArgs, move_hunk};
 use bd_rewrite::reword_command::{RewordArgs, reword};
 use bd_rewrite::rewrite::{GroupArgs, RewriteArgs, group};
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
+use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_core::sync::{SyncOptions, sync_branches};
-use sync_types::{ProgressReporter, SyncEvent};
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 
 /// The context `bd --prefix test-user` resolves in `repo`; its executor counts every process of the command

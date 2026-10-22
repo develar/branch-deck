@@ -4,14 +4,14 @@ use crate::test_helpers::{setup_test_repos, sync_user_branches};
 use branch_integration::common::get_all_branch_data;
 use branch_integration::detector::archive_and_clean_up;
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::SyncEvent;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::HashSet;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
 use sync_utils::timestamp::utc_today;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, git_command};
+use test_utils::sync_fixtures::TestReporter;
 
 /// A clone with one commit and the virtual branch `user/virtual/auth` at it: (upstream, clone, git, commit)
 fn repo_with_virtual_auth() -> (TestRepo, TestRepo, GitCommandExecutor, String) {

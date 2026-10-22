@@ -1,38 +1,22 @@
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyRefusal, ReapplyUndoToken, UndoneReapply, reapply_branch_core, undo_reapply_core};
 use crate::regroup_test::{commits, path, repo, sync};
-use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
+use crate::unapply_branch_test::{PREFIX, unapply};
 use anyhow::Result;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, lock_repository};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
-const PREFIX: &str = "test-prefix";
 const UNAPPLIED: &str = "test-prefix/unapplied/feature";
-
-/// Unapplies `branch` of `repo`, which a sync built
-fn unapply(repo: &TestRepo, branch: &str) {
-  unapply_branch_core(
-    repo.git_executor(),
-    UnapplyBranchParams {
-      repository_path: path(repo).to_string(),
-      branch_name: branch.to_string(),
-      branch_prefix: PREFIX.to_string(),
-      original_commit_ids: None,
-    },
-    &RewriteOptions::default(),
-  )
-  .unwrap();
-}
 
 /// `(feature) Add file0`, `(other) Add file1`, `(feature) Add file2`, synced, then `feature` unapplied
 fn unapplied_repo() -> TestRepo {
   let repo = repo(false);
   commits(&repo, &["(feature) Add file0", "(other) Add file1", "(feature) Add file2"]);
   sync(&repo);
-  unapply(&repo, "feature");
+  unapply(&repo, "feature", None).unwrap();
   repo
 }
 
@@ -102,7 +86,7 @@ fn an_issue_branch_comes_back_without_a_prefix() -> Result<()> {
   let repo = repo(false);
   commits(&repo, &["ABC-1 Fix the parser", "(other) Add file1"]);
   sync(&repo);
-  unapply(&repo, "ABC-1");
+  unapply(&repo, "ABC-1", None)?;
   let result = reapply(&repo, "ABC-1", false)?;
   assert_eq!(result.prefix_restored, 0);
   assert_eq!(subjects(&repo).last().map(String::as_str), Some("ABC-1 Fix the parser"));
@@ -181,7 +165,7 @@ fn a_reapply_token_names_full_ids_and_the_unapplied_branch() {
 #[test]
 fn reapply_waits_for_the_repository_lock_and_fails_with_locked() {
   let repo = unapplied_repo();
-  let _held = history_rewrite::repository_lock::lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
+  let _held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
   let options = RewriteOptions {
     lock_timeout: std::time::Duration::from_millis(100),
     ..RewriteOptions::default()

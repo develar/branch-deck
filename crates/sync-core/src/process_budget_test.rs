@@ -18,6 +18,8 @@ use crate::sync::{SyncOptions, sync_branches};
 use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_target};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
 use crate::update_project::{UpdateProjectParams, check_baseline_update, update_project_core};
+use domain_types::robot_landing::RobotLandingRequest;
+use domain_types::{RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::BranchError;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
@@ -29,10 +31,8 @@ use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use sync_test_utils::TestReporter;
-use sync_types::robot_landing::RobotLandingRequest;
-use sync_types::{RemoteStatusUpdate, SyncEvent};
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
+use test_utils::sync_fixtures::TestReporter;
 
 const PREFIX: &str = "test";
 

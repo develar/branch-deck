@@ -3,6 +3,12 @@ use crate::commands::github::{GitHubState, app_user_agent};
 use crate::commands::pull_requests::github_repository;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use domain_types::patronus::{
+  BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
+  PatronusCommandComment, PatronusCommandReply, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
+  PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+};
+use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient};
@@ -15,12 +21,6 @@ use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_br
 use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
 use sync_core::target_conflict::{TargetCheck, TargetConflictParams, target_conflict_core};
-use sync_types::patronus::{
-  BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
-  PatronusCommandComment, PatronusCommandReply, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
-  PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
-};
-use sync_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use tauri::State;
 use tracing::instrument;
 

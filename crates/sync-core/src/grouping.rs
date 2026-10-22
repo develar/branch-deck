@@ -6,6 +6,8 @@ use crate::sync::prepare_branches_for_ui;
 use crate::update_project::BaselineUpstream;
 use anyhow::Result;
 use branch_integration::common::ListedBranch;
+use domain_types::GroupedBranchInfo;
+use domain_types::stack::BranchStack;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::revs::{read_head, ref_tips, tips_under};
@@ -15,8 +17,6 @@ use history_rewrite::snapshot::read_grouping_inputs_with;
 use history_rewrite::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection, stacks_enabled};
 use indexmap::IndexMap;
 use std::collections::HashMap;
-use sync_types::GroupedBranchInfo;
-use sync_types::stack::BranchStack;
 use tracing::instrument;
 
 /// The commits ahead of the baseline, grouped into virtual branches as a sync groups them, without syncing

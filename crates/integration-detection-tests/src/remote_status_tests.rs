@@ -1,14 +1,14 @@
 use super::test_helpers::{options_with_strategy, setup_test_repos};
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::{DroppedCommit, LandedRemoteCommit, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_core::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, PushTimes, StackParent, compute_remote_status_for_branch};
 use sync_core::sync::sync_branches;
-use sync_test_utils::TestReporter;
-use sync_types::{DroppedCommit, LandedRemoteCommit, SyncEvent};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// Result of extracting remote status from sync events
 #[derive(Debug)]
@@ -456,7 +456,7 @@ async fn test_unrelated_commits_from_same_author_not_counted() {
 }
 
 /// The remote status of `user/virtual/{name}` against `origin/main`, for the user of the scenario
-fn branch_status(git_executor: &GitCommandExecutor, scenario: &TestScenario, name: &str) -> sync_types::RemoteStatusUpdate {
+fn branch_status(git_executor: &GitCommandExecutor, scenario: &TestScenario, name: &str) -> domain_types::RemoteStatusUpdate {
   compute_remote_status_for_branch(
     git_executor,
     scenario.local_repo.path().to_str().unwrap(),
@@ -471,7 +471,7 @@ fn branch_status(git_executor: &GitCommandExecutor, scenario: &TestScenario, nam
 }
 
 /// The remote status of `user/virtual/feature`
-fn feature_status(scenario: &TestScenario) -> sync_types::RemoteStatusUpdate {
+fn feature_status(scenario: &TestScenario) -> domain_types::RemoteStatusUpdate {
   branch_status(&scenario.git_executor, scenario, "feature")
 }
 
@@ -594,7 +594,7 @@ async fn test_dropped_commits_one_more_than_the_limit_are_listed_whole() {
 }
 
 /// The remote status of `user/virtual/{branch}` in the events of a sync
-fn synced_status(events: &[SyncEvent], branch: &str) -> sync_types::RemoteStatusUpdate {
+fn synced_status(events: &[SyncEvent], branch: &str) -> domain_types::RemoteStatusUpdate {
   events
     .iter()
     .find_map(|event| match event {
@@ -605,7 +605,7 @@ fn synced_status(events: &[SyncEvent], branch: &str) -> sync_types::RemoteStatus
 }
 
 /// The subjects of the dropped commits of a status, newest first
-fn dropped_subjects(status: &sync_types::RemoteStatusUpdate) -> Vec<&str> {
+fn dropped_subjects(status: &domain_types::RemoteStatusUpdate) -> Vec<&str> {
   status.dropped_commits.iter().map(|commit| commit.subject.as_str()).collect()
 }
 
@@ -662,7 +662,7 @@ async fn rebuilt_parent(scenario: &TestScenario, auth_subject: &str, auth_again:
 }
 
 /// The status of `login` as a push computes it, without the sync's commits: the parent's virtual branch is read
-fn login_status_outside_the_sync(scenario: &TestScenario) -> sync_types::RemoteStatusUpdate {
+fn login_status_outside_the_sync(scenario: &TestScenario) -> domain_types::RemoteStatusUpdate {
   compute_remote_status_for_branch(
     &scenario.git_executor,
     scenario.local_repo.path().to_str().unwrap(),

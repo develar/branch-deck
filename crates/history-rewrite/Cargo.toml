@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-sync-types = { path = "../sync-types" }
+domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
@@ -20,7 +20,7 @@ specta = { workspace = true, optional = true }
 
 [features]
 default = []
-specta = ["dep:specta", "sync-types/specta", "branch-integration/specta", "git-ops/specta"]
+specta = ["dep:specta", "domain-types/specta", "branch-integration/specta", "git-ops/specta"]
 # `test_commit`, the commits of the unit tests of the crates that build on this one
 test-commit = []
 

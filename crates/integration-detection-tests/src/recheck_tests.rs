@@ -7,15 +7,15 @@ use super::test_helpers::{detected_branch_info, detection_note, setup_test_repos
 use branch_integration::detection_notes::{CacheOps, CachedDetection, Recheck};
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::SyncEvent;
+use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::HashSet;
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
-use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
 use sync_utils::timestamp::format_utc_date;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 const RETENTION_DAYS: u64 = 7;
 

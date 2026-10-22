@@ -1,10 +1,10 @@
 use crate::review_readiness::review_readiness;
-use pretty_assertions::assert_eq;
-use sync_types::patronus::{
+use domain_types::patronus::{
   ApprovedReviewGroup, MissingApprovalsReason, MissingReviewGroup, PatronusReviewRequirement, PatronusReviewer, PatronusReviewerGroup, Person, ReviewPathsSource, ReviewReadiness,
   ReviewStart, ReviewerApprovalState, UnknownReadinessReason,
 };
-use sync_types::pull_request::{Reviewer, ReviewerState};
+use domain_types::pull_request::{Reviewer, ReviewerState};
+use pretty_assertions::assert_eq;
 
 const FROM_PULL_REQUEST: ReviewStart = ReviewStart::PullRequest { number: 1078 };
 

@@ -20,6 +20,10 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, ErrorCode};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
+use domain_types::patronus::PatronusRobot;
+use domain_types::pull_request::{PullRequestState, PullRequestsResult};
+use domain_types::stack::{StackBranchState, StackBranchUpdate};
+use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use git_ops::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
 use history_rewrite::baseline::detect_baseline_branch;
@@ -36,10 +40,6 @@ use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, 
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
 use sync_core::stack_pull_request::{StackMemberText, stack_pull_request_text};
 use sync_core::sync::SyncReport;
-use sync_types::patronus::PatronusRobot;
-use sync_types::pull_request::{PullRequestState, PullRequestsResult};
-use sync_types::stack::{StackBranchState, StackBranchUpdate};
-use sync_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use youtrack::service::YouTrackService;
 
 #[derive(Debug, Default, clap::Args)]

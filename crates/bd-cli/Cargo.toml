@@ -33,7 +33,7 @@ github = { path = "../github" }
 sync-core = { path = "../sync-core" }
 history-rewrite = { path = "../history-rewrite" }
 code-symbols = { path = "../code-symbols" }
-sync-types = { path = "../sync-types" }
+domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 text-diff = { path = "../text-diff" }
 anyhow.workspace = true

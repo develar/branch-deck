@@ -3,10 +3,10 @@
 //! every failure is an availability, not an error.
 
 use crate::pull_requests::{GitHubRepository, availability_of, parse_review_decision, visible_data};
+use domain_types::pull_request::{ChecksState, PullRequestAvailability};
+use domain_types::review_request::{BackToYou, ReviewRequest, ReviewRequestsResult};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
-use sync_types::pull_request::{ChecksState, PullRequestAvailability};
-use sync_types::review_request::{BackToYou, ReviewRequest, ReviewRequestsResult};
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::instrument;
 

@@ -26,14 +26,14 @@ use crate::commit_key::CommitKey;
 use crate::robot_commits::head_commits;
 use crate::robot_commits::{HeadCommit, SourceWalk, mapped_virtual, rebased_versions};
 use anyhow::Result;
+use domain_types::GroupedBranchInfo;
+use domain_types::robot_failure::RobotCommitState;
+use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLanding, RobotLandingRequest, RobotSpan};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::cat_file_batch::object_ids_and_types;
 use git_ops::revs::is_object_id;
 use std::collections::HashMap;
-use sync_types::GroupedBranchInfo;
-use sync_types::robot_failure::RobotCommitState;
-use sync_types::robot_landing::{BranchLanding, BranchSpan, RobotLanding, RobotLandingRequest, RobotSpan};
 use tracing::{debug, instrument};
 
 /// What the merged robots of `requests` landed (`RobotLanding`, one per request whose robot landed anything), the

@@ -2,10 +2,10 @@ use crate::patronus_command_test::repository;
 use crate::pull_request_writes::{
   PullRequestReviewEvent, close_pull_request, read_pull_request_head, request_pull_request_reviewers, retarget_pull_request, submit_pull_request_review,
 };
+use domain_types::pull_request::{RefusedReviewer, RequestedReviewers};
 use github::fake_github::{FakeAnswer, start_fake_service};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-use sync_types::pull_request::{RefusedReviewer, RequestedReviewers};
 use test_log::test;
 
 #[test(tokio::test)]

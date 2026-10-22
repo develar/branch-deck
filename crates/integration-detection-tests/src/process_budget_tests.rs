@@ -3,18 +3,18 @@
 use super::test_helpers::{detected_branch_info, setup_test_repos};
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::branch_integration::BranchIntegrationStatus;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashSet};
-use sync_test_utils::TestReporter;
-use sync_types::branch_integration::BranchIntegrationStatus;
 use sync_utils::timestamp::utc_today;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
 /// Detects the archived branches of `repo` against `origin/master` with `strategy`; returns the events and the
 /// processes by subcommand
-fn detect(repo: &TestRepo, strategy: DetectionStrategy) -> (Vec<sync_types::SyncEvent>, BTreeMap<String, u32>) {
+fn detect(repo: &TestRepo, strategy: DetectionStrategy) -> (Vec<domain_types::SyncEvent>, BTreeMap<String, u32>) {
   let git = GitCommandExecutor::new().with_process_stats("test");
   let progress = TestReporter::new();
   let active_branches = HashSet::new();

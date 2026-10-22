@@ -36,7 +36,7 @@ patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils", features = ["http"] }
 sync-core = { path = "../sync-core" }
 history-rewrite = { path = "../history-rewrite" }
-sync-types = { path = "../sync-types" }
+domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 youtrack = { path = "../youtrack", features = ["fake"] }
 tempfile.workspace = true

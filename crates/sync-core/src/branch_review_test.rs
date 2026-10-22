@@ -1,6 +1,6 @@
 use crate::branch_review::{BranchReviewMemo, GetBranchReviewParams, get_branch_review};
+use domain_types::review_request::ReviewCommit;
 use pretty_assertions::assert_eq;
-use sync_types::review_request::ReviewCommit;
 use test_utils::git_test_utils::TestRepo;
 
 fn params(repo: &TestRepo, chain: &[&str]) -> GetBranchReviewParams {

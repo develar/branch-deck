@@ -8,6 +8,7 @@ use bd_core::context::RepoContext;
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
+use domain_types::landed::LandedBranch;
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::{
@@ -27,7 +28,6 @@ use sync_core::resolve_session::{ContinueOptions, NoSession, SessionOutcome, Ses
 use sync_core::update_project::{
   BdUpdate, FetchFailed, NoUpstream, UndoBlocked, UndoneUpdate, UpdateOptions, UpdateUndoToken, check_baseline_update, undo_update_core, update_and_resolve,
 };
-use sync_types::landed::LandedBranch;
 use sync_utils::list_cut::kept;
 
 #[derive(Debug, Default, clap::Args)]

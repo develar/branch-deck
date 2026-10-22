@@ -3,13 +3,13 @@
 use anyhow::Result;
 use branch_integration::detection_notes::CachedDetection;
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::SyncEvent;
+use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::time::Instant;
 use sync_core::sync::{IssueConfigSource, SyncOptions, sync_branches};
-use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
-use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 use tracing::{debug, info};
 
 /// Common test setup that creates upstream and local repositories with proper clone relationship

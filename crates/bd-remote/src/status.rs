@@ -7,6 +7,10 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use bd_core::stack_summary::StackSummary;
+use domain_types::landing::{LandingFix, LandingRefusal};
+use domain_types::repository_view::{LandingNeeds, RemoteFact, RemoteFacts};
+use domain_types::stack::ParentState;
+use domain_types::{BranchOrigin, GroupedBranchInfo};
 use git_ops::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use history_rewrite::store_lines::StoreLineProblem;
 use repository_view::branch_table::BranchTable;
@@ -18,10 +22,6 @@ use sync_core::grouping::BranchGrouping;
 use sync_core::landing_gate::landing_needs_of;
 use sync_core::parked::parked_state;
 use sync_core::stack_branch::read_stack_branches;
-use sync_types::landing::{LandingFix, LandingRefusal};
-use sync_types::repository_view::{LandingNeeds, RemoteFact, RemoteFacts};
-use sync_types::stack::ParentState;
-use sync_types::{BranchOrigin, GroupedBranchInfo};
 use tracing::debug;
 
 #[derive(Debug, Default, clap::Args)]

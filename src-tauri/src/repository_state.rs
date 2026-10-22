@@ -1,3 +1,4 @@
+use domain_types::issue_navigation::IssueNavigationConfig;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use moka::sync::Cache;
@@ -7,7 +8,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use sync_core::issue_navigation::load_issue_navigation_config;
 use sync_core::pull_requests::{GitHubRepository, resolve_github_repository};
-use sync_types::issue_navigation::IssueNavigationConfig;
 use tracing::{debug, instrument};
 
 /// Per-repository issue navigation config (`.idea/vcs.xml`), cached for an hour, the git directories and the object

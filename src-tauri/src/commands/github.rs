@@ -1,5 +1,6 @@
 use crate::command_error::CommandError;
 use crate::operation::operation;
+use domain_types::pull_request::{GitHubAuthStatus, GitHubDeviceCode};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::client::GitHubClient;
 use github::device_flow::GITHUB_OAUTH_CLIENT_ID;
@@ -8,7 +9,6 @@ use github::sign_in_session::GitHubSignInSession;
 use github::token::{TokenChain, TokenSources};
 use github::token_store::token_file;
 use std::path::Path;
-use sync_types::pull_request::{GitHubAuthStatus, GitHubDeviceCode};
 use tauri::{AppHandle, Emitter, State};
 use tracing::instrument;
 

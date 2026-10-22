@@ -1,7 +1,7 @@
 use crate::branch_table::stack_ancestors;
+use domain_types::GroupedBranchInfo;
 use pretty_assertions::assert_eq;
-use sync_test_utils::placed_branch;
-use sync_types::GroupedBranchInfo;
+use test_utils::sync_fixtures::placed_branch;
 
 pub(crate) fn placed(name: &str, effective_base: Option<&str>) -> GroupedBranchInfo {
   placed_branch(name, effective_base, effective_base)
