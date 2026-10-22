@@ -1,6 +1,8 @@
 //! An in-process GitHub for the tests: answers each `METHOD /path` as the test says and records every request. With a
 //! repository (`with_repository`, `fake_repository.rs`) the requests no answer is scripted for are answered from its
-//! state, as GitHub would.
+//! state, as GitHub would. The OAuth device flow (`POST /login/device/code`, `POST /login/oauth/access_token`) is
+//! answered as GitHub does too: a code to poll every second, `authorization_pending` until a test authorizes the codes
+//! issued so far (`authorize_device_codes`, the user entering them on GitHub), then the token the test gave.
 
 use crate::client::GitHubClient;
 use crate::fake_repository::FakeGitHubRepository;
@@ -63,7 +65,20 @@ pub struct FakeGitHub {
   requests: Mutex<Vec<FakeRequest>>,
   /// Answers what no answer is scripted for
   repository: Option<Arc<FakeGitHubRepository>>,
+  device_flow: Mutex<DeviceFlow>,
 }
+
+/// The device codes the fake issued, and the token each authorized one is exchanged for
+#[derive(Default)]
+struct DeviceFlow {
+  /// By device code: None while the user has not entered it
+  codes: Vec<(String, Option<String>)>,
+}
+
+/// The code the user enters of every device code of the fake
+pub const FAKE_USER_CODE: &str = "WDJB-MJHT";
+/// Where GitHub asks for the code
+pub const DEVICE_VERIFICATION_URI: &str = "https://github.com/login/device";
 
 impl FakeGitHub {
   /// A fake that answers from `repository` what no answer is scripted for
@@ -98,6 +113,51 @@ impl FakeGitHub {
     self.requests().into_iter().filter(|request| request.method == method && request.path == path).collect()
   }
 
+  /// The user entered every device code issued so far on GitHub: the next poll of each gets `token`
+  pub fn authorize_device_codes(&self, token: &str) {
+    for (_, granted) in &mut self.device_flow.lock().unwrap().codes {
+      granted.get_or_insert_with(|| token.to_string());
+    }
+  }
+
+  /// The OAuth device flow: a code of `client_id`, polled for with `grant_type` device code; None for another path
+  fn device_flow_answer(&self, request: &FakeRequest) -> Option<FakeAnswer> {
+    let field = |name: &str| form_field(&request.body, name);
+    let error = |error: &str| Some(FakeAnswer::ok(serde_json::json!({ "error": error })));
+    match (request.method.as_str(), request.path.as_str()) {
+      ("POST", "/login/device/code") => {
+        if field("client_id").is_none_or(str::is_empty) {
+          return error("incorrect_client_credentials");
+        }
+        let mut flow = self.device_flow.lock().unwrap();
+        let device_code = format!("device-{}", flow.codes.len() + 1);
+        flow.codes.push((device_code.clone(), None));
+        Some(FakeAnswer::ok(serde_json::json!({
+          "device_code": device_code,
+          "user_code": FAKE_USER_CODE,
+          "verification_uri": DEVICE_VERIFICATION_URI,
+          "expires_in": 900,
+          "interval": 1,
+        })))
+      }
+      ("POST", "/login/oauth/access_token") => {
+        if field("client_id").is_none_or(str::is_empty) {
+          return error("incorrect_client_credentials");
+        }
+        if field("grant_type") != Some("urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code") {
+          return error("unsupported_grant_type");
+        }
+        let flow = self.device_flow.lock().unwrap();
+        match flow.codes.iter().find(|(code, _)| Some(code.as_str()) == field("device_code")) {
+          None => error("incorrect_device_code"),
+          Some((_, None)) => error("authorization_pending"),
+          Some((_, Some(token))) => Some(FakeAnswer::ok(serde_json::json!({"access_token": token, "token_type": "bearer", "scope": "read:org,repo"}))),
+        }
+      }
+      _ => None,
+    }
+  }
+
   fn next_answer(&self, key: &str) -> Option<FakeAnswer> {
     let mut answers = self.answers.lock().unwrap();
     let queue = answers.get_mut(key)?;
@@ -117,7 +177,8 @@ impl FakeGitHub {
     self.requests.lock().unwrap().push(request.clone());
     let answer = self
       .next_answer(&format!("{method} {}", uri.path()))
-      .or_else(|| self.repository.as_ref().and_then(|repository| repository.answer(&request)));
+      .or_else(|| self.repository.as_ref().and_then(|repository| repository.answer(&request)))
+      .or_else(|| self.device_flow_answer(&request));
     let Some(answer) = answer else {
       return (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({"message": "Not Found"}))).into_response();
     };
@@ -136,6 +197,13 @@ impl FakeGitHub {
   }
 }
 
+/// The value of the form field `name` of `body`, as sent (percent-encoded)
+fn form_field<'a>(body: &'a str, name: &str) -> Option<&'a str> {
+  body
+    .split('&')
+    .find_map(|pair| pair.split_once('=').filter(|(key, _)| *key == name).map(|(_, value)| value))
+}
+
 /// A fake GitHub on a free port and a client of it (the API and the web host are the same server)
 pub async fn start_fake() -> (Arc<FakeGitHub>, GitHubClient) {
   let (fake, url) = start_fake_server().await;
@@ -146,11 +214,17 @@ pub async fn start_fake() -> (Arc<FakeGitHub>, GitHubClient) {
 /// and its Hub
 pub async fn start_fake_server() -> (Arc<FakeGitHub>, String) {
   let fake = Arc::new(FakeGitHub::default());
+  let url = serve(Arc::clone(&fake)).await;
+  (fake, url)
+}
+
+/// Serves `fake` on a free port for the rest of the runtime; its URL (`http://127.0.0.1:<port>`)
+pub async fn serve(fake: Arc<FakeGitHub>) -> String {
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let address = listener.local_addr().unwrap();
-  let app = router(Arc::clone(&fake));
+  let app = router(fake);
   tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-  (fake, format!("http://{address}"))
+  format!("http://{address}")
 }
 
 /// The routes of `fake`, every path: for a server of the caller's (the E2E test server serves one per test repository)

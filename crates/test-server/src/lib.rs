@@ -110,6 +110,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       post(remote_fixtures::set_pull_requests).get(remote_fixtures::get_github_log),
     )
     .route(
+      "/repositories/{id}/github-sign-in",
+      post(remote_fixtures::set_github_sign_in).get(remote_fixtures::get_github_sign_in),
+    )
+    .route(
       "/repositories/{id}/branch-name-suggestions",
       post(set_branch_name_suggestions).get(get_branch_name_suggestion_fixture),
     )
@@ -168,6 +172,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_pull_requests", post(tauri_command_bridge::get_pull_requests))
     .route("/invoke/get_review_requests", post(tauri_command_bridge::get_review_requests))
     .route("/invoke/get_github_auth_status", post(tauri_command_bridge::get_github_auth_status))
+    .route("/invoke/start_github_sign_in", post(tauri_command_bridge::start_github_sign_in))
+    .route("/invoke/wait_github_sign_in", post(tauri_command_bridge::wait_github_sign_in))
+    .route("/invoke/cancel_github_sign_in", post(tauri_command_bridge::cancel_github_sign_in))
+    .route("/invoke/sign_out_of_github", post(tauri_command_bridge::sign_out_of_github))
     .route("/invoke/get_youtrack_auth_status", post(tauri_command_bridge::get_youtrack_auth_status))
     .route("/invoke/get_branch_rules", post(tauri_command_bridge::get_branch_rules))
     .route("/invoke/retarget_pull_request", post(tauri_command_bridge::retarget_pull_request))
@@ -742,6 +750,10 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
     return Err(StatusCode::UNPROCESSABLE_ENTITY);
   };
   state.path_to_id.remove(&repo.path);
+  // a sign-in the page left waiting on GitHub would hold the repository until its code expires
+  if let Some(host) = repo.existing_remote() {
+    host.end_sign_ins();
+  }
 
   let no_commands = tokio::time::timeout(DELETE_WAIT, Arc::clone(&repo.in_flight).write_owned()).await;
   if no_commands.is_err() {

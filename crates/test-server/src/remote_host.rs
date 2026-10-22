@@ -1,8 +1,9 @@
 //! The remote services of one test repository: a fake on a loopback port of its own behind the real service the app
 //! uses, so a bridged command runs the app's client and service against what the test set (`remote_fixtures.rs`).
 //! Started on the first need of the repository, stopped when it is deleted; nothing of the developer is reached (a
-//! fixed Space token, no `teamcity` CLI; the GitHub token is only the token file of the host's own app data directory:
-//! no `GH_TOKEN`, no `gh`, no git credentials, no keychain).
+//! fixed Space token, no `teamcity` CLI; the GitHub token is only the token file of the host's own app data directory
+//! and a fake `gh` a fixture writes there: no `GH_TOKEN`, no `gh` of the developer, no git credentials, no keychain).
+//! The app's GitHub sign-in runs the real session (`github::sign_in_session`) against the device flow of the fake.
 
 use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
 use crate::review_fixtures::review_check_answer;
@@ -12,6 +13,7 @@ use github::client::GitHubClient;
 use github::fake_github::FakeGitHub;
 use github::fake_repository::{FakeGitHubRepository, FakePull, RepositoryState};
 use github::service::GitHubService;
+use github::sign_in_session::GitHubSignInSession;
 use github::token::{GhSource, TokenChain, TokenSources};
 use github::token_store::{StoredToken, remove_token, token_file, write_token};
 use patronus::client::{PATRONUS_URL, PatronusClient};
@@ -47,8 +49,14 @@ pub struct RemoteHost {
   github_server: FakeServer,
   /// Replaced on each GitHub fixture: no token the chain accepted, denied or rejected before holds
   github_service: RwLock<Arc<GitHubService>>,
-  /// The app data directory of the host: the token file of the GitHub sign-in
+  /// The app data directory of the host: the token file of the GitHub sign-in, and the fake `gh`
   app_data: tempfile::TempDir,
+  /// The app's sign-in to GitHub, on the token file of `app_data`
+  github_sign_in: GitHubSignInSession,
+  /// The OAuth app of the build: None, as a build without `BRANCH_DECK_GITHUB_CLIENT_ID`, until a fixture names one
+  github_client_id: RwLock<Option<String>>,
+  /// The `gh` the token chain asks: none until a fixture gives it a token
+  gh: RwLock<GhSource>,
   /// What the pre-check answers by branch, in wire form (`review_fixtures::ReviewAnswersFixture`)
   review_answers: Arc<RwLock<HashMap<String, serde_json::Value>>>,
   /// The pull requests of the review requests: GitHub keeps them beside the ones of a GitHub fixture
@@ -92,7 +100,8 @@ impl RemoteHost {
     let github = Arc::new(FakeGitHub::with_repository(repository));
     let github_server = FakeServer::serve(github::fake_github::router(Arc::clone(&github)));
     let app_data = tempfile::tempdir().expect("the app data directory of the test repository");
-    let github_service = RwLock::new(Arc::new(new_github_service(&github_server.url, app_data.path(), &git)));
+    let github_service = RwLock::new(Arc::new(new_github_service(&github_server.url, app_data.path(), GhSource::None, &git)));
+    let github_sign_in = GitHubSignInSession::new(Some(token_file(app_data.path())));
     let host = Self {
       patronus,
       patronus_server,
@@ -102,6 +111,9 @@ impl RemoteHost {
       github_server,
       github_service,
       app_data,
+      github_sign_in,
+      github_client_id: RwLock::new(None),
+      gh: RwLock::new(GhSource::None),
       review_answers,
       review_pulls: Mutex::default(),
       git,
@@ -154,7 +166,7 @@ impl RemoteHost {
   }
 
   /// The token file of the app's sign-in to GitHub
-  pub fn github_token_file(&self) -> PathBuf {
+  fn github_token_file(&self) -> PathBuf {
     token_file(self.app_data.path())
   }
 
@@ -212,7 +224,41 @@ impl RemoteHost {
       remove_token(&file)
     };
     written.expect("the GitHub token file of the test repository");
-    *self.github_service.write().expect("github service lock") = Arc::new(new_github_service(&self.github_server.url, self.app_data.path(), &self.git));
+    self.renew_github_service();
+  }
+
+  /// The app's sign-in to GitHub, run by the real session
+  pub const fn github_sign_in(&self) -> &GitHubSignInSession {
+    &self.github_sign_in
+  }
+
+  /// The OAuth app of the build the sign-in runs with; None for a build without it
+  pub fn github_client_id(&self) -> Option<String> {
+    self.github_client_id.read().expect("client id lock").clone()
+  }
+
+  /// The build has the OAuth app `client_id` from now on
+  pub fn set_github_client_id(&self, client_id: String) {
+    *self.github_client_id.write().expect("client id lock") = Some(client_id);
+  }
+
+  /// `gh` is signed in with `token` from now on: a fake `gh` in the app data directory answers it; a new service
+  pub fn set_gh_token(&self, token: &str) {
+    let bin = self.app_data.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("the directory of the fake gh");
+    let gh = test_utils::fake_executable::fake_executable(&bin, "gh", &format!("echo {token}"));
+    *self.gh.write().expect("gh lock") = GhSource::At(gh);
+    self.renew_github_service();
+  }
+
+  /// Ends the wait of a sign-in in progress: the repository is deleted, and no command may outlive it
+  pub fn end_sign_ins(&self) {
+    self.github_sign_in.cancel();
+  }
+
+  fn renew_github_service(&self) {
+    let gh = self.gh.read().expect("gh lock").clone();
+    *self.github_service.write().expect("github service lock") = Arc::new(new_github_service(&self.github_server.url, self.app_data.path(), gh, &self.git));
   }
 
   fn renew_patronus_service(&self) {
@@ -239,11 +285,11 @@ fn new_patronus_service(url: &str) -> PatronusService {
   PatronusService::new(client, move |_| TokenLookup::Found(token.clone()))
 }
 
-/// The GitHub service of the app on the fake, asking only with the token file in `app_data_dir`
-fn new_github_service(url: &str, app_data_dir: &std::path::Path, git: &GitCommandExecutor) -> GitHubService {
+/// The GitHub service of the app on the fake, asking only `gh` and the token file in `app_data_dir`
+fn new_github_service(url: &str, app_data_dir: &std::path::Path, gh: GhSource, git: &GitCommandExecutor) -> GitHubService {
   let sources = TokenSources {
     environment: None,
-    gh: GhSource::None,
+    gh,
     token_file: Some(token_file(app_data_dir)),
     git_credential: false,
   };

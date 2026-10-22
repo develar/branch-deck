@@ -206,3 +206,65 @@ async fn signed_out_and_no_access_are_what_the_real_service_makes_of_the_fake() 
     assert_eq!(status().await["signedInAs"], login);
   }
 }
+
+/// The app's sign-in runs the real session against the device flow of the fake: pending until a fixture authorizes
+/// the code, then the token of the host's user in the token file; a sign-out removes it, a fake `gh` gives its token,
+/// and a deleted repository ends the wait of a sign-in its page left
+#[tokio::test]
+async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_repository() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, _) = create_repository(&client, addr).await;
+  let invoke = |command: &'static str| {
+    let request = client
+      .post(format!("http://{addr}/invoke/{command}"))
+      .header(crate::REPOSITORY_ID_HEADER, &id)
+      .json(&json!({}));
+    async move { request.send().await.unwrap().json::<Value>().await.unwrap() }
+  };
+  let sign_in_log = || async {
+    let response = client.get(format!("http://{addr}/repositories/{id}/github-sign-in")).send().await.unwrap();
+    response.json::<Value>().await.unwrap()
+  };
+  post(
+    &client,
+    addr,
+    &format!("/repositories/{id}/github-sign-in"),
+    json!({"clientId": "client-1", "signedIn": false}),
+  )
+  .await;
+  assert_eq!(invoke("get_github_auth_status").await["signedInAs"], Value::Null);
+
+  let code = invoke("start_github_sign_in").await;
+  assert_eq!(
+    code,
+    json!({"userCode": "WDJB-MJHT", "verificationUri": "https://github.com/login/device", "expiresIn": 900})
+  );
+  let wait = tokio::spawn(invoke("wait_github_sign_in"));
+  while sign_in_log().await["polls"] == 0 {
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+  }
+  assert_eq!(sign_in_log().await, json!({"pending": true, "codes": 1, "polls": 1}));
+  post(&client, addr, &format!("/repositories/{id}/github-sign-in"), json!({"authorize": true})).await;
+  assert_eq!(wait.await.unwrap(), json!("user-name"));
+  assert_eq!(
+    invoke("get_github_auth_status").await,
+    json!({"signInAvailable": true, "signedInAs": "user-name", "tokenSource": "branchDeck", "manageUrl": "https://github.com/settings/connections/applications/client-1"})
+  );
+
+  assert_eq!(invoke("sign_out_of_github").await, Value::Null);
+  assert_eq!(invoke("get_github_auth_status").await["tokenSource"], Value::Null);
+  post(&client, addr, &format!("/repositories/{id}/github-sign-in"), json!({"ghToken": "gho_from_gh"})).await;
+  assert_eq!(invoke("get_github_auth_status").await["tokenSource"], json!("gh"));
+
+  invoke("start_github_sign_in").await;
+  let wait = tokio::spawn(invoke("wait_github_sign_in"));
+  while sign_in_log().await["polls"].as_u64() < Some(2) {
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+  }
+  let started = std::time::Instant::now();
+  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
+  assert_eq!(deleted.status(), 204);
+  assert!(started.elapsed() < std::time::Duration::from_secs(5), "the deletion waited {:?}", started.elapsed());
+  assert_eq!(wait.await.unwrap(), json!({"status": "error", "error": {"message": "canceled"}}));
+}

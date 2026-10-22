@@ -1,16 +1,16 @@
 // @spec spec/repository/settings.spec.md
 import type { Page } from "@playwright/test"
-import type { GitHubAuthStatus, RepositoryConfig } from "../../../src/lib/bindings"
+import type { RepositoryConfig } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expectSettingsOpened, openSettingsWindow, settingsTab } from "../helpers/settings-helpers"
 import { openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 const WINDOW_SIZE = { width: 720, height: 540 }
-const SIGNED_OUT: GitHubAuthStatus = { signInAvailable: true, signedInAs: null, tokenSource: null, manageUrl: null }
 
 /**
  * Every line a row of Settings → Repository can show at once: a source, Use Default or Use Global, the reason that
@@ -53,9 +53,11 @@ function webviewZoom(page: Page): Promise<number | undefined> {
 
 /**
  * The window at 720 × 540 with the tallest state of each page: the code of the GitHub sign-in, the warning that the OS
- * refused the notifications, every line of the rows of Repository. The window's own commands are answered in its page.
+ * refused the notifications, every line of the rows of Repository. The sign-in runs against the fake GitHub, which
+ * never gets the code; the window's other commands are answered in its page.
  */
-async function openTallestSettings(page: Page): Promise<Page> {
+async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Promise<Page> {
+  await repo.setGitHubSignIn({ clientId: "client-1", signedIn: false })
   const window = await openSettingsWindow(
     page,
     {},
@@ -65,18 +67,11 @@ async function openTallestSettings(page: Page): Promise<Page> {
         await window.addInitScript(() => {
           Object.defineProperty(Notification, "permission", { get: () => "denied" })
         })
-        await routeCommand(window, "get_github_auth_status", () => ({ status: "ok", data: SIGNED_OUT }))
         await routeCommand(window, "get_repository_config", () => ({ status: "ok", data: TALLEST_REPOSITORY_CONFIG }))
         await routeCommand(window, "agent_cli_status", () => ({
           bd: "/Users/test/.local/bin/bd",
           skills: ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"],
         }))
-        await routeCommand(window, "start_github_sign_in", () => ({
-          status: "ok",
-          data: { userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresIn: 900 },
-        }))
-        // GitHub never answers: the code stays
-        await window.route("**/invoke/wait_github_sign_in", () => {})
       },
     },
   )
@@ -113,8 +108,9 @@ async function expectEveryPageFits(window: Page, pages: string[]): Promise<void>
 }
 
 test.describe("Settings window", () => {
+  let repo: TestRepositoryBuilder
   test.beforeEach(async ({ setupRepo }) => {
-    await setupRepo("simple", { prepopulateStore: true })
+    repo = await setupRepo("simple", { prepopulateStore: true })
   })
 
   test("should open at the page an open names, else at the page shown last, its tab focused", async ({ page, testStore }) => {
@@ -248,7 +244,7 @@ test.describe("Settings window", () => {
   })
 
   test("should fit every page at 720 × 540 without scrolling", async ({ page }) => {
-    const window = await openTallestSettings(page)
+    const window = await openTallestSettings(page, repo)
     // Windows: the title bar on Appearance, no Dock badge
     await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Patronus", "Agents", "Repository"])
     for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "patronus", "agents", "repository"]) {
@@ -262,8 +258,8 @@ test.describe("Settings window on macOS", () => {
   test.use({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36" })
 
   test("should fit every page at 720 × 540 without scrolling, the Dock badge too", async ({ page, setupRepo }) => {
-    await setupRepo("simple", { prepopulateStore: true })
-    const window = await openTallestSettings(page)
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    const window = await openTallestSettings(page, repo)
     await expect(window.getByTestId("settings-page-github")).toBeVisible()
     await settingsTab(window, "Notifications").click()
     await expect(window.getByTestId("setting-reviewBadge")).toBeVisible()

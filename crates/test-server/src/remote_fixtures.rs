@@ -456,3 +456,54 @@ pub async fn get_github_log(Path(id): Path<String>, State(state): State<Arc<AppS
     .collect();
   Ok(Json(serde_json::json!({"calls": repo.pull_request_calls.load(Ordering::SeqCst), "requests": requests})))
 }
+
+/// The app's GitHub sign-in from now on; a field left out changes nothing
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GitHubSignInFixture {
+  /// The OAuth app of the build: the test server's build has none, as one without `BRANCH_DECK_GITHUB_CLIENT_ID`
+  #[serde(default)]
+  pub client_id: Option<String>,
+  /// The user entered the codes issued so far on GitHub: the wait of a sign-in gets the token of the host's user
+  #[serde(default)]
+  pub authorize: bool,
+  /// The token file holds the sign-in of the host's user (signed in elsewhere, by `bd` or another window), or none
+  #[serde(default)]
+  pub signed_in: Option<bool>,
+  /// `gh` is signed in with this token (letters, digits, `_` and `-`)
+  #[serde(default)]
+  pub gh_token: Option<String>,
+}
+
+/// Sets the app's GitHub sign-in (`GitHubSignInFixture`), which the real session and token chain read
+pub async fn set_github_sign_in(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<GitHubSignInFixture>) -> FixtureResult {
+  let (host, _) = host_of(&state, &id)?;
+  if let Some(token) = &fixture.gh_token {
+    if token.is_empty() || !token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+      return Err((StatusCode::UNPROCESSABLE_ENTITY, format!("the gh token {token:?} is not letters, digits, `_` and `-`")));
+    }
+    host.set_gh_token(token);
+  }
+  if let Some(client_id) = fixture.client_id {
+    host.set_github_client_id(client_id);
+  }
+  if let Some(signed_in) = fixture.signed_in {
+    host.set_github_signed_in(signed_in);
+  }
+  if fixture.authorize {
+    host.github().authorize_device_codes(GITHUB_TOKEN);
+  }
+  Ok(StatusCode::OK)
+}
+
+/// The sign-in as the session holds it (`pending`: a sign-in waits for its code) and what reached the device flow of
+/// the fake GitHub: the codes asked for and the polls for the token
+pub async fn get_github_sign_in(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let (host, _) = host_of(&state, &id)?;
+  let count = |path: &str| host.github().requests_to("POST", path).len();
+  Ok(Json(serde_json::json!({
+    "pending": host.github_sign_in().is_pending(),
+    "codes": count("/login/device/code"),
+    "polls": count("/login/oauth/access_token"),
+  })))
+}

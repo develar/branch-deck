@@ -11,7 +11,6 @@ use file_diffs::model::{
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
-use github::sign_in_session::auth_status;
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::{RewordRequest, RewordResult, reword_request_core};
@@ -54,7 +53,9 @@ use sync_types::patronus::{
   PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
   PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
-use sync_types::pull_request::{CreatedPullRequest, GitHubAuthStatus, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
+use sync_types::pull_request::{
+  CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
+};
 use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
@@ -709,10 +710,42 @@ pub async fn get_branch_rules(State(state): State<Arc<AppState>>, Json(params): 
   rules.map(Json).map_err(|failure| CommandFailure::error(operation, failure_message(&failure)))
 }
 
-/// The sign-in of the requesting page's repository, as the app reads it; this build has no OAuth app of its own
+/// The sign-in of the requesting page's repository, as the app reads it, with the OAuth app of a fixture (none by
+/// default)
 pub async fn get_github_auth_status(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<GitHubAuthStatus> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  Ok(Json(auth_status(&host.github_service(), Some(host.github_token_file()), None).await))
+  let client_id = host.github_client_id();
+  Ok(Json(host.github_sign_in().status(&host.github_service(), client_id.as_deref()).await))
+}
+
+/// Starts the app's sign-in against the device flow of the fake GitHub, as the app does
+pub async fn start_github_sign_in(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<GitHubDeviceCode> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  let client_id = host.github_client_id();
+  let code = host.github_sign_in().start(&host.github_service(), client_id.as_deref()).await;
+  code.map(Json).map_err(|e| CommandFailure::error("start the GitHub sign-in", e))
+}
+
+/// Waits for the code of the sign-in to be entered (a fixture authorizes it) and keeps the token, as the app does; the
+/// page mock tells the windows (`github-auth-changed`)
+pub async fn wait_github_sign_in(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<String> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  let client_id = host.github_client_id();
+  let login = host.github_sign_in().wait(&host.github_service(), client_id.as_deref()).await;
+  login.map(Json).map_err(|e| CommandFailure::error("sign in to GitHub", e))
+}
+
+/// Ends the wait of the sign-in in progress, as the app does
+pub async fn cancel_github_sign_in(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<()> {
+  requesting_repository(&state, &headers)?.remote(&state.git_executor).github_sign_in().cancel();
+  Ok(Json(()))
+}
+
+/// Removes the token of the sign-in, as the app does; the page mock tells the windows (`github-auth-changed`)
+pub async fn sign_out_of_github(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<()> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  let signed_out = host.github_sign_in().sign_out(&host.github_service()).await;
+  signed_out.map(Json).map_err(|e| CommandFailure::error("sign out of GitHub", e))
 }
 
 /// Changes the base of a pull request, as the app does

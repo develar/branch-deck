@@ -4,6 +4,7 @@ description: Requirements for the GitHub token without the gh CLI - the app's ow
 style: plain-1
 targets:
   - ../../crates/github/src/device_flow.rs
+  - ../../crates/github/src/sign_in_session.rs
   - ../../crates/github/src/token_store.rs
   - ../../crates/sync-utils/src/private_file.rs
   - ../../crates/sync-utils/src/secret_store.rs
@@ -72,11 +73,16 @@ redirect and without a client secret.
   [@test] ../../crates/github/src/device_flow_test.rs (`the_wait_polls_while_pending_slows_down_when_told_and_takes_the_token`, `a_denied_or_expired_code_and_a_cancel_end_the_wait`)
 - One sign-in at a time (`start_github_sign_in`, then `wait_github_sign_in`). A newer one, `cancel_github_sign_in` and
   a sign-out end the wait of an older one with "canceled", which is no error: Tauri does not cancel a command whose
-  promise the page dropped, so a generation counter does.
+  promise the page dropped, so a generation counter does (`GitHubSignInSession`, shared by the app's commands and the
+  test server).
+  [@test] ../../crates/github/src/sign_in_session_test.rs (`a_cancel_ends_the_wait_and_a_build_without_the_oauth_app_signs_in_nowhere`)
   [@test] ../../src/stores/github-auth.test.ts (`says nothing when canceled, and why when GitHub refused`)
+  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`)
 - With the token, the app asks `GET /user` for the login, keeps the token, forgets what GitHub accepted and denied
   (`TokenChain::forget`), and emits `github-auth-changed` to every window, which asks for the pull requests, the review
   requests and the status again.
+  [@test] ../../crates/github/src/sign_in_session_test.rs (`a_sign_in_polls_until_the_code_is_entered_then_keeps_the_token_of_its_user`)
+  [@test] ../../crates/test-server/src/github_host_test.rs (`the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_repository`)
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`)
 
 ### The token file
@@ -96,6 +102,8 @@ redirect and without a client secret.
   [@test] ../../crates/github/src/token_test.rs (`the_sign_in_of_the_app_comes_after_gh_and_before_git`)
 - Sign Out removes the file and tells every window. "Manage on GitHub" opens
   `github.com/settings/connections/applications/<client id>`: the organizations the app may see, and revoking it.
+  [@test] ../../crates/github/src/sign_in_session_test.rs (`a_sign_in_polls_until_the_code_is_entered_then_keeps_the_token_of_its_user`)
+  [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`)
 
 ### Settings
 
@@ -153,8 +161,14 @@ redirect and without a client secret.
 - `cargo nextest run -p github`: the device flow against the fake GitHub (`device_flow_test.rs`), the token file
   (`token_store_test.rs`), the order of the sources (`token_test.rs`).
 - `pnpm test:unit`: `src/stores/github-auth.test.ts`.
-- `pnpm e2e`: `tests/e2e/github-sign-in/`. The test server answers `get_github_auth_status` as a build without the
-  sign-in; a test answers the sign-in commands in the page (`routeCommand`) and emits `github-auth-changed` itself.
+- `cargo nextest run -p github`: the session from the code to the token file, a cancel and a sign-out against the fake
+  GitHub (`sign_in_session_test.rs`); `-p test-server`: the same through the routes of the test server
+  (`github_host_test.rs`).
+- `pnpm e2e`: `tests/e2e/github-sign-in/`. The test server runs the sign-in commands through the real session against
+  the device flow of a fake GitHub per test repository, a build without the OAuth app until a fixture names one
+  (`setGitHubSignIn`: `clientId`, `authorize` for the user entering the code, `signedIn`, `ghToken`), and the page mock
+  emits `github-auth-changed` after a sign-in or a sign-out, as the backend does
+  ([E2E Testing](../../docs/design/e2e-testing.md)).
 - In the app: build with `BRANCH_DECK_GITHUB_CLIENT_ID=<the client id of build-tauri.yml> pnpm install-app`, unset `GH_TOKEN`, move `gh`
   out of `PATH`, sign in from Settings, and check that the pull requests and Your Turn load and `bd safe-push --check`
   sees the pull request.

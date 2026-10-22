@@ -22,6 +22,8 @@ mod fake_repository_test;
 #[cfg(test)]
 mod service_test;
 #[cfg(test)]
+mod sign_in_session_test;
+#[cfg(test)]
 mod token_store_test;
 #[cfg(test)]
 mod token_test;

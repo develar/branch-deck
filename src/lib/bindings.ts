@@ -76,15 +76,15 @@ export const commands = {
 	/**  Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it. */
 	startGithubSignIn: () => typedError<GitHubDeviceCode, CommandError>(__TAURI_INVOKE("start_github_sign_in")),
 	/**
-	 *  Waits until the user entered the code of `start_github_sign_in` on GitHub, then keeps the token (`token_store`) and
-	 *  tells every window; the login. A newer sign-in or `cancel_github_sign_in` ends it with "canceled".
+	 *  Waits until the user entered the code of `start_github_sign_in` on GitHub, keeps the token and tells every window;
+	 *  the login. A newer sign-in or `cancel_github_sign_in` ends it with "canceled".
 	 */
 	waitGithubSignIn: () => typedError<string, CommandError>(__TAURI_INVOKE("wait_github_sign_in")),
 	/**  Ends the wait of the sign-in in progress, if any */
 	cancelGithubSignIn: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_github_sign_in")),
 	/**
-	 *  Removes the token of the app's own sign-in. GitHub keeps the authorization until it is revoked there
-	 *  (`manage_url`): revoking needs the client secret, which the app has not.
+	 *  Removes the token of the app's own sign-in and tells every window; GitHub keeps the authorization until it is
+	 *  revoked there
 	 */
 	signOutOfGithub: () => typedError<null, CommandError>(__TAURI_INVOKE("sign_out_of_github")),
 	/**  The YouTrack sign-in and where the token comes from, for Settings and the popovers */

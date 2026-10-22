@@ -127,6 +127,22 @@ export class TestRepositoryBuilder {
     await this.setFixture("pull-requests", fixture)
   }
 
+  /**
+   * The app's GitHub sign-in from now on, run by the real session against the device flow of the fake GitHub; a field
+   * left out changes nothing. `clientId`: the OAuth app of the build (none by default, as a build without it);
+   * `authorize`: the user entered the codes asked for so far on GitHub, so the waiting sign-in gets the token of
+   * `user-name`; `signedIn`: the token file holds that sign-in, or none (signed in or out elsewhere); `ghToken`: `gh` is
+   * signed in with this token
+   */
+  async setGitHubSignIn(fixture: { clientId?: string; authorize?: boolean; signedIn?: boolean; ghToken?: string }): Promise<void> {
+    await this.setFixture("github-sign-in", fixture)
+  }
+
+  /** The sign-in as the backend holds it (`pending`: one waits for its code) and the codes and polls that reached GitHub */
+  async getGitHubSignIn(): Promise<{ pending: boolean; codes: number; polls: number }> {
+    return this.getFixture("github-sign-in")
+  }
+
   /** How often the app asked for pull requests */
   async getPullRequestCalls(): Promise<number> {
     return (await this.getGitHubLog()).calls

@@ -616,10 +616,26 @@ export const tauriMockScript = () => {
       return config
     },
 
+    // the app's GitHub sign-in: the backend tells every window that it changed (`github-auth-changed`, the
+    // `GITHUB_AUTH_CHANGED_EVENT` of src-tauri), this one and the other pages of a linked sub-window
+    wait_github_sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "github-auth-changed"),
+    sign_out_of_github: async (cmd: string, payload: any) => emitAfter(cmd, payload, "github-auth-changed"),
+
     // Updater commands: the test server has no updater, the app is always up to date
     // (the main window runs a silent check a few seconds after startup)
     check_for_updates: () => NO_UPDATE,
     get_update_status: () => NO_UPDATE,
+  }
+
+  /**
+   * Runs `cmd` on the test server, then emits `event` to every window as the backend does after it succeeded: to this
+   * page and, through `__e2eRelay`, to the other pages of a linked sub-window
+   */
+  async function emitAfter(cmd: string, payload: any, event: string): Promise<any> {
+    const answer = await proxyToTestServer(cmd, payload)
+    ;(window as any).__e2eEmitTauriEvent(event, null)
+    void (window as any).__e2eRelay?.(event, null)
+    return answer
   }
 
   // All unhandled commands are proxied to test server for single source of truth

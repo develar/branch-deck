@@ -120,10 +120,12 @@ Mock implementation:
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
   entry with its reason (a page handler for the windows, the window menu and the updater; a `routeCommand` of the test
-  for the GitHub and YouTrack sign-ins and YouTrack), never both; a stale entry, or a route or a handler without its command, fails;
-  the four handlers over a route (`get_file_diffs`, `get_file_merges`, `sync_branches`, `set_repository_config`) are
-  pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw bytes). The number of
-  commands (111) and `PAGE_MOCKED` (19) are pinned; `PAGE_MOCKED` only goes down: a new command gets a route
+  for the YouTrack sign-in and YouTrack), never both; a stale entry, or a route or a handler without its command, fails;
+  the six handlers over a route (`get_file_diffs`, `get_file_merges` and `sync_branches` adapt a channel;
+  `set_repository_config`, `wait_github_sign_in` and `sign_out_of_github` emit the event the backend emits after
+  them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
+  bytes). The number of commands (111) and `PAGE_MOCKED` (15) are pinned; `PAGE_MOCKED` only goes down: a new command
+  gets a route of the server, not a page mock.
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
   (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
   and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the
@@ -294,8 +296,8 @@ the remote service; a test sets what the fake answers and reads what reached it.
   (`routePushNotingPatronus` in `patronus-actions.spec.ts`)
 - **GitHub**: the host holds `FakeGitHub` with a `FakeGitHubRepository` (`crates/github/src/fake_repository.rs`) and
   the `GitHubService` of the app on it, whose token chain asks only the token file of the host's own app data directory
-  (no `GH_TOKEN`, no `gh`, no git credentials, no keychain): signed in as `user-name`, the author of the fixtures' pull
-  requests, until a fixture says `signedOut`. The fake answers as GitHub does what `sync_core` asks: `GET /user`, the
+  and a fake `gh` a sign-in fixture writes there (no `GH_TOKEN`, no `gh` of the developer, no git credentials, no
+  keychain): signed in as `user-name`, the author of the fixtures' pull requests, until a fixture says `signedOut`. The fake answers as GitHub does what `sync_core` asks: `GET /user`, the
   GraphQL search of the user's pull requests (`author:@me`, newest first) and of the assignable users, `POST pulls`
   (422 for an open pull request of the head, for a head or a base it doesn't have), `GET`/`PATCH pulls/<n>`, `POST
   pulls/<n>/requested_reviewers` (422 for the author and for a user who is no collaborator), `POST pulls/<n>/reviews`
@@ -304,13 +306,25 @@ the remote service; a test sets what the fake answers and reads what reached it.
   `GET rules/branches/<b>`; a write changes what the next read answers. Its Patronus bot answers a `/patronus` comment
   at once: 👍, or 👎 and a `⚠️` comment of the reason, as `patronus_replies` says (accepted by default). A branch
   is on GitHub when the test repository has it (its `origin` is itself). The service is replaced on each fixture.
-- **GitHub bridge**: `get_pull_requests`, `get_branch_rules`, `get_github_auth_status` (the page's repository by
-  `X-Repository-Id`; this build has no OAuth app of its own), `create_pull_request`, `retarget_pull_request`,
+- **GitHub bridge**: `get_pull_requests`, `get_branch_rules`, `create_pull_request`, `retarget_pull_request`,
   `close_pull_request`, `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request` (the text of
   the real core, the viewer GitHub answers), `wait_for_github_branch`, `search_github_users`,
   `request_pull_request_reviewers` and `submit_pull_request_review` call the cores as
   `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository the real `resolve_github_repository` reads
   (or the one the page names); `post_patronus_command` and `read_patronus_command_reply` as `commands/patronus.rs` does.
+- **GitHub sign-in**: `get_github_auth_status`, `start_github_sign_in`, `wait_github_sign_in`, `cancel_github_sign_in`
+  and `sign_out_of_github` (the page's repository by `X-Repository-Id`) call the host's `GitHubSignInSession`
+  (`crates/github/src/sign_in_session.rs`), the core of the app's commands, with the host's service. The fake answers
+  the device flow as GitHub does: `POST /login/device/code` a code (`WDJB-MJHT`, `https://github.com/login/device`, 900
+  s, polled every second), `POST /login/oauth/access_token` `authorization_pending` until the codes are authorized,
+  then the host's token, whose user `GET /user` names (`user-name`). `POST /repositories/{id}/github-sign-in`
+  (`setGitHubSignIn`) changes what it names: `clientId`, the OAuth app of the build (none by default, as a build
+  without `BRANCH_DECK_GITHUB_CLIENT_ID`); `authorize`, the user entered the codes issued so far; `signedIn`, the token
+  file holds the host's sign-in or none (signed in or out elsewhere); `ghToken`, a fake `gh` that answers it. `GET`
+  (`getGitHubSignIn`) answers `pending` (a sign-in waits for its code, as the session holds it), `codes` and `polls`,
+  the requests of the device flow that reached the fake. The page mock emits `github-auth-changed` to every page after
+  a wait or a sign-out succeeded, as the backend does; a deleted repository cancels the sign-in its page left waiting,
+  so its deletion does not wait for the code to expire.
 - **GitHub fixture**: `POST /repositories/{id}/pull-requests` (`setPullRequests`, the `pullRequests` setup option) takes
   a `PullRequestsResult` (`availablePullRequests`, `unavailablePullRequests` in `pull-request-helpers.ts`) and what only
   the writes see (`GitHubFixture`: `repository` of an availability that names none, `users`, the collaborators a review
