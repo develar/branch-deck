@@ -208,9 +208,10 @@ fn specta_builder() -> Builder<tauri::Wry> {
   ])
 }
 
-/// The size at which the app's log file rotates, and how many rotated files stay (`tauri_plugin_log`): a sync of a
-/// large repository logs about 100 KB at debug level, and the lines an `operation_id` of Activity names must still be
-/// there a day later
+/// The size over which `tauri_plugin_log` rotates the app's log file when the app starts (it rotates only then; within a
+/// session the file grows past it), and how many files stay: the current one and the two before it. A sync of a large
+/// repository logs about 100 KB at debug level, and the lines an `operation_id` of Activity names must still be there a
+/// day later
 #[cfg(not(feature = "devtools"))]
 const LOG_FILE_BYTES: u128 = 10 * 1024 * 1024;
 #[cfg(not(feature = "devtools"))]
@@ -238,7 +239,8 @@ pub fn run() {
   // the devtools plugin sets a subscriber of its own
   #[cfg(not(feature = "devtools"))]
   tracing_log::install();
-  // the log an `operation_id` leads to: the plugin's default of 40 KB, deleted on rotation, held a few commands
+  // the log an `operation_id` leads to: the plugin's default, 40 KB and `KeepOne` (deleted at the next start), held a
+  // few commands
   #[cfg(not(feature = "devtools"))]
   let builder = builder.plugin(
     tauri_plugin_log::Builder::new()

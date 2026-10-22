@@ -3,8 +3,8 @@
 //!
 //! The time first makes the ids of one log sort by when they started; the random part keeps the ids of the app and of
 //! every `bd` process apart without a shared counter. The root span of a `bd` command and the span of a Tauri command's
-//! `run_blocking` carry it as `operation_id`, and a `CommandError` names it, so the Activity entry of an error leads to
-//! its log lines.
+//! body, both built by [`OperationId::span`], carry it as `operation_id`, and a `CommandError` names it, so the Activity
+//! entry of an error leads to its log lines.
 
 use std::fmt::{self, Write};
 use std::hash::{BuildHasher, Hasher};
@@ -39,6 +39,15 @@ impl OperationId {
   #[must_use]
   pub const fn timestamp_ms(self) -> u64 {
     (self.0 >> RANDOM_BITS) as u64
+  }
+
+  /// The span of the operation, `operation{operation_id=<id>}`, with `op` (the words of a `bd` command, `lease get`)
+  /// before the id when there is one: `operation{op=<op> operation_id=<id>}`. The one place that names the span and its
+  /// fields, which a reader greps in a log and which the root span of `bd` and the body of a Tauri command open
+  /// (`src-tauri/src/tracing_log_test.rs`, `crates/bd-cli/src/operation_test.rs` quote the text)
+  #[must_use]
+  pub fn span(self, op: Option<&str>) -> tracing::Span {
+    if let Some(op) = op { tracing::info_span!("operation", %op, operation_id = %self) } else { tracing::info_span!("operation", operation_id = %self) }
   }
 }
 

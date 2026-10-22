@@ -146,9 +146,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/git-executor/src/git_info.rs (`minimum_version`, `a_missing_explicit_git_is_not_found_with_the_hint`)
 - Logs must go to stderr, and only with `-v` (debug) or `-vv` (trace). Every line of a run must name its operation,
   the lines of the threads a sync builds its branches on too: the root span
-  `operation{op=<command> operation_id=<ULID>}`, `op` the words of the command (`status`, `lease get`); the JSON output
-  does not carry the id.
+  `operation{op=<command> operation_id=<ULID>}` (`OperationId::span`), `op` the words of the command (`status`,
+  `lease get`); the JSON output does not carry the id. Every closure or future the cores hand to another thread carries
+  the span of its caller.
   [@test] ../../crates/bd-cli/src/operation_test.rs (`every_log_line_of_a_command_names_its_operation`, `the_operation_of_a_nested_command_names_both_words`)
+  [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`every_closure_or_future_handed_to_another_thread_carries_the_span_of_its_caller`)
 
 ### Output contract
 

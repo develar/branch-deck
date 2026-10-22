@@ -22,15 +22,14 @@ tokio::task_local! {
 /// Runs the body of an async command as its operation: in the span `operation{operation_id}`, the error named after it
 pub async fn operation<T>(body: impl Future<Output = Result<T, CommandError>>) -> Result<T, CommandError> {
   let operation_id = OperationId::new();
-  let span = tracing::info_span!("operation", %operation_id);
+  let span = operation_id.span(None);
   CURRENT.scope(operation_id, body.instrument(span)).await.map_err(|error| named(error, operation_id))
 }
 
 /// Runs the body of a synchronous command as its operation, on the caller's thread
 pub fn operation_now<T>(body: impl FnOnce() -> Result<T, CommandError>) -> Result<T, CommandError> {
   let operation_id = OperationId::new();
-  let span = tracing::info_span!("operation", %operation_id);
-  span.in_scope(body).map_err(|error| named(error, operation_id))
+  operation_id.span(None).in_scope(body).map_err(|error| named(error, operation_id))
 }
 
 /// Runs `step` on tokio's blocking thread pool, inside the span of the caller, and converts both a panicked task and the

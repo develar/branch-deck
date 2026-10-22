@@ -1,25 +1,31 @@
 //! A thread starts without a span, so a closure or a future handed to one would log its lines outside the operation of
 //! its caller (`operation{operation_id=…}` of a `bd` run or a Tauri command, docs/design/async-patterns.md#operation-spans).
 //! Every spawn of the production sources carries the caller's span: a closure through `sync_utils::span::in_current_span`,
-//! a future through `tracing::Instrument::in_current_span`. Like the git scans, a file is exempt only with its reason and
-//! its exact number of hits.
+//! a future through `tracing::Instrument::in_current_span`. A spawn is every call named `spawn` or `spawn_blocking` that
+//! has an argument, whichever receiver or path it has (`tokio::spawn`, `thread::spawn`, `tauri::async_runtime::spawn`, a
+//! `JoinSet`, a scope, a `Builder`), its argument read across lines; `Command::spawn()` has none. Like the git scans, a
+//! file is exempt only with its reason and its exact number of hits.
 
 use crate::source_scan_test::{Exemption, Source, check};
 
-/// What hands work to another thread, each with the index of its `(`: a closure to a blocking or scoped thread, a future
-/// to `tokio::spawn` or a `JoinSet`
-const SPAWNS: [(&str, usize); 4] = [("spawn_blocking(", 14), ("thread::spawn(", 13), ("scope.spawn(", 11), ("spawn(async", 5)];
+/// The heads of a spawn call
+const SPAWNS: [&str; 2] = ["spawn_blocking(", "spawn("];
 
-const EXEMPT: [Exemption; 7] = [
+const EXEMPT: [Exemption; 8] = [
   Exemption {
     path: "crates/git-executor/src/git_command_executor.rs",
-    hits: 3,
-    reason: "the pipe threads of a git process log nothing",
+    hits: 5,
+    reason: "the pipe threads of a git process log nothing (3); `GitCommand::spawn(bool)` starts the process, no thread (2)",
   },
   Exemption {
     path: "crates/git-executor/src/interactive_command.rs",
     hits: 2,
     reason: "the pipe threads of a git process log nothing",
+  },
+  Exemption {
+    path: "crates/sync-core/src/sync.rs",
+    hits: 4,
+    reason: "`SyncTask::spawn` runs its task through `spawn_blocking(in_current_span(…))` itself",
   },
   Exemption {
     path: "crates/test-server/src/lib.rs",
@@ -48,8 +54,20 @@ const EXEMPT: [Exemption; 7] = [
   },
 ];
 
-/// The argument text of the call that opens at `open` (the index of its `(`), up to its closing parenthesis; string and
-/// character literals are skipped
+/// The index in `line` of the `(` of every spawn call on it: a head of `SPAWNS` that is a name of its own (not `respawn(`)
+/// and no declaration (`fn spawn(`)
+fn spawn_calls(line: &str) -> impl Iterator<Item = usize> + '_ {
+  SPAWNS.iter().flat_map(move |head| {
+    line.match_indices(head).filter_map(move |(at, _)| {
+      let before = &line[..at];
+      let own_name = before.chars().next_back().is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+      (own_name && !before.ends_with("fn ")).then_some(at + head.len() - 1)
+    })
+  })
+}
+
+/// The argument text of the call that opens at `open` (the index of its `(`), up to its closing parenthesis, without a
+/// trailing comma; string and character literals are skipped
 fn argument_of(text: &str, open: usize) -> &str {
   let bytes = text.as_bytes();
   let mut depth = 0usize;
@@ -69,7 +87,7 @@ fn argument_of(text: &str, open: usize) -> &str {
       b')' => {
         depth -= 1;
         if depth == 0 {
-          return text[open + 1..index].trim();
+          return text[open + 1..index].trim().trim_end_matches(',').trim_end();
         }
       }
       _ => {}
@@ -82,15 +100,19 @@ fn argument_of(text: &str, open: usize) -> &str {
 /// The lines of `source` whose spawn carries no span of the caller
 fn unspanned_spawns(source: &Source) -> Vec<usize> {
   let mut lines = Vec::new();
-  for (line_number, line) in source.code_lines() {
-    let Some(column) = SPAWNS.iter().filter_map(|(spawn, open)| line.find(spawn).map(|at| at + open)).min() else {
-      continue;
-    };
-    let line_start = source.text.lines().take(line_number - 1).map(|line| line.len() + 1).sum::<usize>();
-    let argument = argument_of(&source.text, line_start + column);
-    if !(argument.starts_with("in_current_span(") || argument.ends_with(".in_current_span()")) {
-      lines.push(line_number);
+  let mut offset = 0;
+  for (index, segment) in source.text.split_inclusive('\n').enumerate() {
+    let line = segment.trim_end_matches(['\n', '\r']);
+    if !line.trim_start().starts_with("//") {
+      for column in spawn_calls(line) {
+        let argument = argument_of(&source.text, offset + column);
+        let spanned = argument.is_empty() || argument.starts_with("in_current_span(") || argument.ends_with(".in_current_span()");
+        if !spanned {
+          lines.push(index + 1);
+        }
+      }
     }
+    offset += segment.len();
   }
   lines
 }
@@ -106,7 +128,7 @@ fn every_closure_or_future_handed_to_another_thread_carries_the_span_of_its_call
 }
 
 #[test]
-fn the_scan_reads_the_argument_of_a_spawn_past_strings_and_nested_calls() {
+fn the_scan_reads_the_argument_of_a_spawn_past_strings_nested_calls_and_line_breaks() {
   let source = Source {
     path: "x.rs".to_owned(),
     text: [
@@ -115,8 +137,25 @@ fn the_scan_reads_the_argument_of_a_spawn_past_strings_and_nested_calls() {
       "set.spawn(async move { get(\"(\").await }.in_current_span());",
       "set.spawn(async move { get(\"(\").await });",
       "std::thread::spawn(in_current_span(|| ()));",
+      // a future as rustfmt lays a long one out: the argument on its own lines, a trailing comma
+      "pending.spawn(",
+      "  async move { get().await }",
+      "  .in_current_span(),",
+      ");",
+      "pending.spawn(",
+      "  async move { get().await },",
+      ");",
+      // a named future or closure, whichever path or receiver spawns it
+      "tokio::spawn(work);",
+      "tauri::async_runtime::spawn(task);",
+      "std::thread::scope(|s| s.spawn(|| run()));",
+      "std::thread::Builder::new().name(name).spawn(|| run())?;",
+      // no spawn of a thread: a process, a declaration, another name
+      "let child = command.spawn()?;",
+      "pub fn spawn(&self, pipe_stdin: bool) -> Result<Spawned> {",
+      "respawn(worker);",
     ]
     .join("\n"),
   };
-  assert_eq!(unspanned_spawns(&source), vec![2, 4]);
+  assert_eq!(unspanned_spawns(&source), vec![2, 4, 10, 13, 14, 15, 16]);
 }

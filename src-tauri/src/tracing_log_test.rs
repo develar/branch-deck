@@ -67,7 +67,8 @@ async fn a_log_line_of_a_command_names_the_command_and_its_operation() {
   let expected = vec![
     // the start of each span, then the event in both
     (log::Level::Info, module_path!().to_owned(), format!("{command}: new")),
-    (log::Level::Info, "branch_deck_lib::operation".to_owned(), format!("{operation}: new")),
+    // the span is built where the id is (`OperationId::span`), so its line names that module
+    (log::Level::Info, "sync_utils::operation_id".to_owned(), format!("{operation}: new")),
     (log::Level::Debug, module_path!().to_owned(), format!("{operation}: reading the widget files=3")),
   ];
   assert_eq!(records(), expected);
@@ -83,7 +84,7 @@ async fn the_async_lines_of_a_command_and_its_blocking_step_name_one_operation()
   let operation = format!("restart_widget{{widget_id=7}}:operation{{operation_id={operation_id}}}");
   let expected = vec![
     (log::Level::Info, module_path!().to_owned(), "restart_widget{widget_id=7}: new".to_owned()),
-    (log::Level::Info, "branch_deck_lib::operation".to_owned(), format!("{operation}: new")),
+    (log::Level::Info, "sync_utils::operation_id".to_owned(), format!("{operation}: new")),
     (log::Level::Debug, module_path!().to_owned(), format!("{operation}: asking the service")),
     // the blocking step opens no operation of its own
     (log::Level::Debug, module_path!().to_owned(), format!("{operation}: the service refused")),

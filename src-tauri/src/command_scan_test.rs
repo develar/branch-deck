@@ -223,6 +223,47 @@ fn is_one_blocking_step(body: &str) -> bool {
   !lines[..step].iter().any(outside) && lines[end].matches(".await").count() == 1 && !after_await.contains('?') && !lines[end + 1..].iter().any(outside)
 }
 
+/// Whether `body` is one `operation(…).await` or `operation_now(…)` call and nothing else: no statement before it, whose
+/// error would leave without an operation id, and none after it. As rustfmt lays it out, the call opens on the first line
+/// at the body's indentation, its argument lies deeper, and it closes with `  })` and, for a future, `  .await` (or the
+/// whole call on one line)
+fn is_one_operation(body: &str) -> bool {
+  let lines: Vec<&str> = body.lines().collect();
+  let (Some(first), Some(last)) = (lines.first(), lines.last()) else {
+    return false;
+  };
+  let synchronous = first.starts_with("  operation_now(");
+  if !synchronous && !first.starts_with("  operation(") {
+    return false;
+  }
+  let closes = if lines.len() == 1 {
+    last.ends_with(if synchronous { ")" } else { ").await" })
+  } else if synchronous {
+    *last == "  })"
+  } else {
+    *last == "  .await"
+  };
+  let inside = |line: &&str| line.is_empty() || line.starts_with("   ") || *line == "  })";
+  closes && lines.get(1..lines.len() - 1).unwrap_or_default().iter().all(inside)
+}
+
+#[test]
+fn a_body_is_one_operation_only_without_work_outside_it() {
+  assert!(is_one_operation("  operation(async move {\n    let x = read().await?;\n    Ok(x)\n  })\n  .await"));
+  assert!(is_one_operation("  operation(async move { read(&git, params).await }).await"));
+  assert!(is_one_operation("  operation_now(|| {\n    let x = read()?;\n    Ok(x)\n  })"));
+  assert!(is_one_operation("  operation_now(|| Ok(7))"));
+  // fallible work before the operation leaves without its id, work after it runs outside the span
+  assert!(!is_one_operation(
+    "  let space = patronus.space().await?;\n  operation(async move { core(&space).await }).await"
+  ));
+  assert!(!is_one_operation("  operation(async move {\n    prepare().await\n  })\n  .await?;\n  finish().await"));
+  assert!(!is_one_operation("  operation(async move {\n    prepare().await\n  })\n  .await?;\n  Ok(())"));
+  // another name that only contains the word
+  assert!(!is_one_operation("  undo_operation(async move { core().await }).await"));
+  assert!(!is_one_operation("  run_blocking(move || core(&git)).await"));
+}
+
 #[test]
 fn a_body_is_one_blocking_step_only_without_work_outside_it() {
   assert!(is_one_blocking_step(
@@ -247,9 +288,9 @@ fn every_command_has_a_span_and_a_fallible_one_runs_as_an_operation() {
     if command.instrument.is_none() {
       report.push(format!("  {} ({}): no #[instrument] span", command.name, command.place));
     }
-    if command.fallible && !["operation(", "operation_now("].iter().any(|call| command.body.contains(call)) && !is_one_blocking_step(&command.body) {
+    if command.fallible && !is_one_operation(&command.body) && !is_one_blocking_step(&command.body) {
       report.push(format!(
-        "  {} ({}): can fail, but its body is no operation: wrap it in `operation(async move {{ … }}).await` (a synchronous command: `operation_now(|| {{ … }})`), unless it is one `run_blocking(…).await` step",
+        "  {} ({}): can fail, but its body is no operation: the whole body is `operation(async move {{ … }}).await` (a synchronous command: `operation_now(|| {{ … }})`), nothing before or after it, unless it is one `run_blocking(…).await` step",
         command.name, command.place
       ));
     }

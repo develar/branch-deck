@@ -40,7 +40,8 @@ fn every_log_line_of_a_command_names_its_operation() {
   assert_eq!(output["branches"].as_array().map(Vec::len), Some(2), "{output}");
 
   let logs = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
-  let lines: Vec<&str> = logs.lines().filter(|line| line.contains(" DEBUG ") || line.contains(" INFO ")).collect();
+  // every line, whatever its level: a warning of a thread outside the span would pass a filter on DEBUG and INFO
+  let lines: Vec<&str> = logs.lines().filter(|line| !line.trim().is_empty()).collect();
   assert!(lines.len() > 20, "too few log lines for a sync of two branches: {logs}");
   let id = lines[0]
     .split("operation_id=")

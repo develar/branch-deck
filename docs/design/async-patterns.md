@@ -135,15 +135,20 @@ of every `bd` process never collide and sort by time). `src-tauri/src/command_sc
 - A thread starts without a span: `spawn_blocking`, a `JoinSet`, a scoped thread and `tokio::spawn` would log their
   lines outside the operation. A closure handed to another thread goes through `sync_utils::span::in_current_span(…)`,
   a future ends with `.in_current_span()` (`tracing::Instrument`); `crates/git-executor/src/thread_span_scan_test.rs`
-  scans every spawn of the production sources, and exempts a file only with its reason and its number of hits (the pipe
-  threads of a git process, the mock server). So the branch builds of a sync, the integration detection and the file
-  diff workers log inside the operation of the command or the `bd` run.
+  scans every call named `spawn` or `spawn_blocking` with an argument in the production sources, whichever receiver or
+  path it has (`tokio::spawn`, `thread::spawn`, `tauri::async_runtime::spawn`, a `JoinSet`, a scope, a `Builder`), the
+  argument read across lines as rustfmt lays a long future out, and exempts a file only with its reason and its number
+  of hits (the pipe threads of a git process, `SyncTask::spawn`, which wraps the task itself, the mock server). So the
+  branch builds of a sync, the integration detection, the file diff workers and the requests of a robot's progress log
+  inside the operation of the command or the `bd` run.
 - `tracing_log` (`src-tauri/src/tracing_log.rs`) makes the spans reach the log at all: without a subscriber the `log`
   feature of `tracing` hands an event to `log` without its spans. The subscriber formats each event with its spans,
   plus a line when a span starts (`FmtSpan::NEW`, as `tracing` wrote one per span before), and gives the line to `log`
-  with the event's level and target, which `tauri_plugin_log` writes: 10 MB per file and the last three rotated files
-  (`KeepSome`), so the lines an `operation_id` of Activity names are still there; the plugin's default, 40 KB deleted
-  on rotation, held a few commands. The devtools build keeps the subscriber of its plugin.
+  with the event's level and target, which `tauri_plugin_log` writes. The plugin rotates only when it starts: a file
+  over 10 MB is renamed with its date then, and `KeepSome(3)` keeps the current file and the two before it, so the
+  lines an `operation_id` of Activity names are still there a few starts later (within a session the file grows past the
+  size); the plugin's default, 40 KB and `KeepOne`, deleted the whole log at the next start, a few commands' worth. The
+  devtools build keeps the subscriber of its plugin.
 - `bd` opens the root span `operation{op, operation_id}` in `bd_cli::run` before the dispatch, `op` the words of the
   command (`lease get`); every `-v` line carries it, the lines of the sync's threads too
   (`crates/bd-cli/src/operation_test.rs`, under a global subscriber that sees every thread).

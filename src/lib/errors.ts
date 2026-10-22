@@ -15,8 +15,9 @@ export function getErrorDetails(error: unknown): string {
 }
 
 /**
- * The operation a failed command names (`CommandError.operation_id`, set by `run_blocking`): the id of its log lines,
- * `operation{operation_id=…}`; undefined for any other error
+ * The operation a failed command names (`CommandError.operation_id`, set by `operation`, `operation_now` or the one
+ * `run_blocking` step of `src-tauri/src/operation.rs`): the id of its log lines, `operation{operation_id=…}`; undefined
+ * for any other error
  */
 export function getErrorOperationId(error: unknown): string | undefined {
   if (typeof error === "object" && error !== null && "operation_id" in error && typeof error.operation_id === "string") {

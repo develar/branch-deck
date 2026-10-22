@@ -114,12 +114,16 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 - The entry of an error a command returned keeps the operation it names as `operationId`, the key to the command's
   lines in the app's log: every command that can fail runs its body as an operation, the `operation{operation_id=…}`
   span of `src-tauri/src/operation.rs`, and its error carries the id (`CommandError.operation_id`); the app's log keeps
-  10 MB and the last three rotated files, so the lines are still there. The page log line of the error carries it as
-  `operation_id`. It is stored, not shown yet; an error raised outside a command has none.
+  the current file and the two before it (a file over 10 MB is rotated when the app starts), so the lines are still
+  there. The page log line of the error carries it as `operation_id`. It is stored, not shown yet; an error raised
+  outside a command has none.
   [@test] ../../src/stores/activity.test.ts (`keeps the operation a failed command names, for its lines in the log`)
   [@test] ../../src/lib/errors.test.ts (`returns the operation a CommandError names, and nothing for any other error`)
   [@test] ../../src/lib/errors.test.ts (`passes the operation a CommandError names to the backend log line, as operation_id`)
   [@test] ../../src-tauri/src/command_scan_test.rs (`every_command_has_a_span_and_a_fallible_one_runs_as_an_operation`)
+  [@test] ../../src-tauri/src/command_scan_test.rs (`a_body_is_one_operation_only_without_work_outside_it`)
+  [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`every_closure_or_future_handed_to_another_thread_carries_the_span_of_its_caller`)
+  [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`the_scan_reads_the_argument_of_a_spawn_past_strings_nested_calls_and_line_breaks`)
   [@test] ../../src-tauri/src/tracing_log_test.rs (`the_async_lines_of_a_command_and_its_blocking_step_name_one_operation`)
 
 ### Undo

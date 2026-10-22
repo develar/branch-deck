@@ -255,11 +255,10 @@ fn operation_name(matches: &ArgMatches) -> String {
   names.join(" ")
 }
 
-/// Runs the command inside its root span `operation{op, operation_id}`, so every log line of it names the operation
-/// (docs/design/async-patterns.md#operation-spans); the JSON output does not carry the id yet
+/// Runs the command inside its root span `operation{op, operation_id}` (`OperationId::span`), so every log line of it
+/// names the operation (docs/design/async-patterns.md#operation-spans); the JSON output does not carry the id yet
 fn execute_operation(invocation: &Invocation, environment: &Environment, out: &mut dyn Write) -> i32 {
-  let operation_id = OperationId::new();
-  let _operation = tracing::info_span!("operation", op = %invocation.op, %operation_id).entered();
+  let _operation = OperationId::new().span(Some(&invocation.op)).entered();
   execute(&invocation.cli, environment, out)
 }
 
