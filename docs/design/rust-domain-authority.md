@@ -827,7 +827,39 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `push_holds()` в `bd`; `push_hold.rs` не переезжает (он только читает представление и уходит в s9).
   - Спецификации и документы: `agent-cli` (код отказа D1), `patronus.spec` (неизвестные правила), `git-operations`
     (push приложения под lock), AGENTS.md «Repository lock» (push приложения — держатель lock).
-- **Удаляется:** fallback `false` в `useDismissesStaleReviews.ts`.
+- **Уточнения по коду (планирование s1):**
+  - D1/D9 в `bd`: правила читаются в `plan()` только там, где их читает приложение (`readStartBasics`): Safe Push,
+    не dry run, `push_needed`, PR, с которого стартует робот, имеет approval. `dismiss` при readiness `approved` —
+    отказ `push_dismisses_approvals` (exit 4, исправление `bd push`, затем `bd request-review`); `dismiss` при другой
+    readiness — предупреждение в `rules`; неудачное чтение — отказ `rules_unknown` (exit 4), который снимает
+    `--allow-unknown-rules` (решение владельца 6: приложение подтверждает `rulesUnknown`, `bd` — флагом, как
+    `--allow-missing`). Один GET правил, тем же `read_branch_rules`.
+  - D2: `skips_approvals = pushes && pull_request.is_none() && !create_pull_request && (without_approvals ||
+    profile.skips_review == Some(true))` над выбранным профилем (`--profile` или профиль последнего робота);
+    `review.skipped_by` (`profile` | `without_approvals`) говорит агенту, почему `readiness: missing` не отказ.
+  - D10, факты remote: `BranchTable` получает `remote: RemoteFacts` из sync'а (tips из `SyncReport::remote_tips`,
+    `up_to_date` из `RemoteStatusUpdate`, которые sync излучает; `remote_of` из `bd-remote/patronus_facts.rs`
+    переезжает в `repository-view` одной функцией для обеих сторон). Guard'ы строят `patronus_view` из таблицы,
+    её remote-фактов и роботов, которых Rust читает сам; `GetRepositoryViewParams.remote` страницы остаётся до s7.
+  - D10, push: `push_branch(es)` приложения и маршруты test-server идут через одну функцию `repository-view`:
+    lock (`lock_repository_in` на `git_common_dir` из `RepositoryStateCache`: ни одного git-процесса), список роботов
+    (один запрос, best effort как `bd push`: не на Space, без токена или без ответа — без hold'ов), затем отказы в словах
+    `bd push`: parked (сама или built on), landed whole (`HoldKind::Landed`), hold своего или span-робота, hold stack
+    branch; unapplied ветка — только lock. Робот, которого страница отменила перед Push and Restart, — `Canceling` и не
+    держит.
+  - D10, роботы: `start_patronus_robot` читает роботов сам (ошибка списка — ошибка старта, как в `bd safe-push`),
+    строит факты и отказывает в parked, landed whole, not built (stack branch не `built`), `start`/`dry_run` refusal
+    представления (overlap, last commit, ancestor), затем gate и target (`prepare_robot_start`). `landed_commits`
+    уходит из `StartPatronusRobotParams`: gate берёт их из представления (`landed_commits(&view)`), страница их больше
+    не передаёт (`LandingGateParams` для `check_landing_gate` страницы — пока да). `restart_` находит робота в списке
+    (чужой или temporary ref — отказ), применяет те же проверки к его subject, исключая его самого из `LastCommit`;
+    `cancel_` отказывает роботу не из списка и не активному. Слова отказов — `start_refusal_text`, который переезжает
+    из `bd-remote/patronus_facts.rs` в `repository-view`.
+  - Закрытое расхождение в реестре: запись получает `closed: "<этап>"` и остаётся ключом id (тест реестра требует
+    запись каждого id); у exercised-записи стороны одного класса без `today.why`, у recorded `today` называет, где
+    каждая сторона делает это теперь. Правило «D1–D15 закрыты» s8 — все записи с `closed`.
+- **Удаляется:** fallback `false` в `useDismissesStaleReviews.ts`; `remote_of` в `bd-remote`; `landed_commits` в
+  `StartPatronusRobotParams`.
 - **Проверки:** таблица сценариев: D1, D2, D9 — `app == bd`; Rust-тест каждого guard вызывает команду напрямую с
   parked, landed и overlapped subject; бюджет процессов push приложения получает lock и ничего больше.
 - **Критерий выхода:** прямой вызов `start_patronus_robot` с parked subject отказывает.
@@ -1227,7 +1259,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
   (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`). Новая группа приходит со своей парой
   тестов в том же коммите; спецификации и реестр ссылаются на эти имена.
 - **Ожидания — сегодняшние**, не желаемые. Стороны разных классов (`refuse`, `start`, `wait`) несут `discrepancy` или
-  `asymmetry`; `discrepancy` вне реестра стоит только у `twins` его записи.
+  `asymmetry`; `discrepancy` вне реестра стоит только у `twins` его записи. Запись реестра, чьё расхождение этап
+  закрыл, несёт `closed: "<этап>"` и остаётся (по записи на id): стороны одного класса без `today.why`, у recorded
+  `today` — где каждая сторона делает это теперь; README случаев описывает поле.
 - **Правило:** изменение next step (`branch-next-step.ts`, `useStackNextStep.ts`), решения Safe Push
   (`safe-push-decision.ts`) или `plan()` `bd safe-push` меняет затронутые случаи в том же коммите — иначе краснеет
   тест своей стороны. Проверка: `cargo nextest run -p bd-remote -E 'test(/scenario/)'` и
