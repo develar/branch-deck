@@ -733,8 +733,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   it, and its approvals count.
   [@test] ../../src/lib/patronus.test.ts (`never comments on a pull request into another base than the target: Patronus would merge it there`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the retarget of a pull request into the parent's branch as the next step, whose approvals don't count`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_d1_to_d10_as_the_register_does`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name d1 to d10 as the register does`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
 - The popover says it: "Comments /patronus merge on #7: Patronus reports there and closes it once merged." A comment

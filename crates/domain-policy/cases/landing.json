@@ -228,11 +228,7 @@
     "group": "landing",
     "title": "the remote branch has a commit of someone else that the branch lacks: a push would drop it",
     "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "unregistered",
-      "why": "the decision of the app reads no commits the remote branch has that the branch lacks: its start pushes (`startPush` force), the push button asks about the dropped commits; bd refuses push_refused with the `--force --expect-remote` push"
-    },
+    "discrepancy": "D12",
     "given": {
       "remote": "behind"
     },
@@ -397,6 +393,72 @@
     "bd": {
       "check": {
         "refusals": []
+      }
+    }
+  },
+  {
+    "id": "dry-run-over-a-running-safe-push-of-an-older-commit",
+    "group": "landing",
+    "title": "a Dry Run of a branch whose Safe Push runs on an older commit, the branch not on the remote: a dry run replaces nothing, and its push would fail the running one",
+    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "mode": "dryRun",
+      "robot": {
+        "state": "running",
+        "on": "older"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "dryRunBlocker": null
+      },
+      "decision": {
+        "kind": "refuse",
+        "reason": "A Safe Push of auth is running: wait until it merges, or restart it on the current branch"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"]
+      }
+    }
+  },
+  {
+    "id": "dry-run-while-a-safe-push-of-a-child-lands-the-branch",
+    "group": "landing",
+    "title": "a Dry Run of login while the Safe Push of session, built on it, runs: the dry run is not held by the robot that lands login, but the app holds its push; bd pushes login and starts",
+    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": "D15",
+    "given": {
+      "mode": "dryRun",
+      "branch": "login",
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(login/session) Add session"],
+      "robot": {
+        "state": "running",
+        "on": "child:session"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "A Safe Push of session is running: it lands login with it",
+        "dryRunBlocker": null
+      },
+      "decision": {
+        "kind": "refuse",
+        "reason": "A Safe Push of session is running: it lands login with it"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true,
+        "lands": ["auth", "login"]
+      },
+      "start": {
+        "started_via": "api"
       }
     }
   }

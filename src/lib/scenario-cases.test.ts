@@ -1,16 +1,19 @@
-// The app's side of the scenario table (`crates/domain-policy/cases/*.json`, its README): each case's `given` through
-// `getBranchNextStep` and `getSafePushDecision`, today's answer expected; `crates/bd-remote/src/scenario_test.rs` is
-// the side of bd
-import { afterEach, describe, expect, it } from "vite-plus/test"
+// The app's side of the scenario table (`crates/domain-policy/cases/*.json`, its README): each case's `given` seeded
+// into the stores, then the app's own readers (`getBranchNextStepOf`, `getStackNextStepNow`, `readSafePush`), today's
+// answer expected; `crates/bd-remote/src/scenario_test.rs` is the side of bd
+import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import { getStackNextStepNow } from "@/hooks/useStackNextStep"
-import { getSafePushDecision } from "@/lib/safe-push-decision"
 import { branchSyncStore, getStackDescendants, stackMainLineIn } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
 import type { ExercisedCase, ScenarioCase } from "@/test-support/scenario-case"
 import { appOutcome, bdOutcome, isExercised, scenarioCase } from "@/test-support/scenario-case"
-import { nextStepOf, safePushFactsOf } from "@/test-support/scenario-facts"
+import { nextStepOf, safePushReadOf, seedScenario } from "@/test-support/scenario-facts"
+
+vi.mock("@/stores/repository", () => import("@/test-support/scenario-repository-mock"))
 
 const files = import.meta.glob<unknown>("/crates/domain-policy/cases/*.json", { eager: true, import: "default" })
+/** The specs and the design docs a case may name, by their path from the repository root */
+const documents = import.meta.glob<string>(["/spec/**/*.md", "/docs/**/*.md"], { eager: true, query: "?raw", import: "default" })
 
 const cases: ScenarioCase[] = Object.entries(files).flatMap(([file, content]) =>
   (content as unknown[]).map((raw, index) => {
@@ -30,32 +33,97 @@ const GROUPS: Record<string, string> = {
   "next-step-rows": "the next step row cases answer as the app answers today",
   "stack-and-whole-stack": "the stack and whole stack cases answer as the app answers today",
   landing: "the landing cases answer as the app answers today",
-  discrepancies: "the discrepancy cases name d1 to d10 as the register does",
+  discrepancies: "the discrepancy cases name every id as the register does",
 }
 
 /** The ids of the registry of `docs/design/rust-domain-authority.md`: the group `discrepancies` has one entry of each */
-const REGISTRY = ["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D8", "D9", "D10"]
+const REGISTRY = ["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "D13", "D14", "D15"]
 
-/** The rows of the table of `spec/branch/next-step.spec.md` (row 4 is removed); a case names one as `#the-table:<row>` */
-const NEXT_STEP_ROWS = ["1", "1′", "2", "3", "5", "5′", "6", "7", "8", "9", "10", "8′", "10′", "11"]
+/** The text of a spec or a design doc by its path from the repository root; undefined without the file */
+function documentOf(path: string): string | undefined {
+  return documents[`/${path}`]
+}
 
-function assertAppAnswer(scenario: ExercisedCase): void {
-  const { decision } = scenario.app
-  const step = decision === undefined ? nextStepOf(scenario.given) : safePushFactsOf(scenario.given).step
-  if (scenario.app.step !== undefined) {
-    expect({ kind: step.kind, safePushBlocker: step.safePushBlocker, dryRunBlocker: step.dryRunBlocker }, `${scenario.id}: app.step`).toMatchObject(scenario.app.step)
+/** The GitHub slug of a Markdown heading: lower case, the letters, digits, spaces and hyphens kept, spaces as hyphens */
+function headingSlug(heading: string): string {
+  return heading
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^\p{L}\p{N} _-]/gu, "")
+    .replaceAll(" ", "-")
+}
+
+/** The slugs of the headings of a Markdown text */
+function headingsOf(text: string): string[] {
+  return text
+    .split("\n")
+    .flatMap(line => /^#+ (.+)$/.exec(line)?.[1] ?? [])
+    .map(headingSlug)
+}
+
+/** The rows of the table of `spec/branch/next-step.spec.md` (`| <#> |` under "The table"; row 4 is removed) */
+function nextStepRows(): string[] {
+  const text = documentOf("spec/branch/next-step.spec.md")!
+  const table = text.slice(text.indexOf("\n### The table\n"))
+  const rows = [...table.matchAll(/^ {2}\| ([^|]+?) \| /gmu)].map(match => match[1]!).filter(row => row !== "#" && !row.startsWith("-"))
+  return rows.filter(row => !table.includes(`  | ${row} | removed:`))
+}
+
+/** Why an anchor of a case goes nowhere: no file, no heading of its slug, no row `| <row> |` of a `#the-table:<row>`; null when it resolves */
+function brokenSpec(spec: string): string | null {
+  const [path, anchor] = spec.split("#") as [string, string | undefined]
+  const text = documentOf(path)
+  if (text === undefined) {
+    return `${spec}: no file ${path}`
   }
-  if (decision !== undefined) {
-    expect(getSafePushDecision(safePushFactsOf(scenario.given).facts), `${scenario.id}: app.decision`).toMatchObject(decision)
+  if (anchor === undefined) {
+    return null
   }
+  const [slug, row] = anchor.split(":") as [string, string | undefined]
+  if (!headingsOf(text).includes(slug)) {
+    return `${spec}: ${path} has no heading of the slug ${JSON.stringify(slug)}`
+  }
+  return row !== undefined && !text.includes(`\n  | ${row} |`) ? `${spec}: ${path} has no row ${JSON.stringify(row)} of the table` : null
+}
+
+/**
+ * What the app answers today for the case, against its `app` column: the step as the row shows it, the decision of its
+ * start where the case gives one, from the seeded stores; the failures, each named with the case
+ */
+async function appFailures(scenario: ExercisedCase): Promise<string[]> {
+  const failures: string[] = []
+  const check = (column: string, run: () => void): void => {
+    try {
+      run()
+    } catch (error: unknown) {
+      failures.push(`${scenario.id}: app.${column}: ${error instanceof Error ? error.message : String(error)} — ${scenario.title}`)
+    }
+  }
+  await seedScenario(scenario.given)
+  check("step", () => {
+    const step = nextStepOf(scenario.given)
+    if (scenario.app.step !== undefined) {
+      expect({ kind: step.kind, safePushBlocker: step.safePushBlocker, dryRunBlocker: step.dryRunBlocker }).toMatchObject(scenario.app.step)
+    }
+  })
+  check("decision", () => {
+    if (scenario.app.decision !== undefined) {
+      expect(safePushReadOf(scenario.given).decision).toMatchObject(scenario.app.decision)
+    }
+  })
+  return failures
 }
 
 describe("scenario cases", () => {
-  it("are well formed: unique ids, known groups, a discrepancy or an asymmetry where the sides differ, an asymmetry only there", () => {
+  it("are well formed: unique ids, known groups, resolving anchors, a discrepancy or an asymmetry where the sides differ, an asymmetry only there", () => {
     expect(cases.length).toBeGreaterThan(0)
     const ids = cases.map(scenario => scenario.id)
     expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([])
     expect([...new Set(cases.map(scenario => scenario.group))].filter(group => GROUPS[group] === undefined)).toEqual([])
+    expect(
+      cases.flatMap(scenario => scenario.spec.flatMap(spec => brokenSpec(spec) ?? [])),
+      "the anchors of the cases",
+    ).toEqual([])
     for (const scenario of cases.filter(isExercised)) {
       const differs = appOutcome(scenario) !== bdOutcome(scenario)
       const explained = scenario.discrepancy !== null || scenario.asymmetry !== undefined
@@ -74,12 +142,17 @@ describe("scenario cases", () => {
     const byId = (a: string, b: string) => a.localeCompare(b)
     expect(registry.map(entry => entry.discrepancy ?? "").toSorted(byId)).toEqual(REGISTRY.toSorted(byId))
     for (const entry of registry) {
-      if (entry.kind === "recorded" && entry.twin !== undefined) {
-        const twin = cases.find(scenario => scenario.id === entry.twin)
-        expect({ id: entry.id, group: twin?.group !== "discrepancies", discrepancy: twin?.discrepancy }).toEqual({ id: entry.id, group: true, discrepancy: entry.discrepancy })
+      for (const twin of entry.kind === "recorded" ? entry.twins : []) {
+        const found = cases.find(scenario => scenario.id === twin)
+        expect({ id: entry.id, twin, group: found?.group !== "discrepancies", discrepancy: found?.discrepancy }).toEqual({
+          id: entry.id,
+          twin,
+          group: true,
+          discrepancy: entry.discrepancy,
+        })
       }
     }
-    const twins = new Set(registry.flatMap(entry => (entry.kind === "recorded" && entry.twin !== undefined ? [entry.twin] : [])))
+    const twins = new Set(registry.flatMap(entry => (entry.kind === "recorded" ? entry.twins : [])))
     const outside = cases.filter(scenario => scenario.group !== "discrepancies" && scenario.discrepancy !== null)
     expect(outside.map(scenario => scenario.id).filter(id => !twins.has(id))).toEqual([])
     expect(cases.filter(scenario => scenario.kind === "recorded" && scenario.group !== "discrepancies").map(scenario => scenario.id)).toEqual([])
@@ -91,18 +164,23 @@ describe("scenario cases", () => {
   })
 
   it("cover every row of the next step table", () => {
+    const rows = nextStepRows()
+    expect(rows).toContain("1")
+    expect(rows).not.toContain("4")
     const named = new Set(cases.flatMap(scenario => scenario.spec).flatMap(spec => /^spec\/branch\/next-step\.spec\.md#the-table:(.+)$/.exec(spec)?.[1] ?? []))
-    expect(NEXT_STEP_ROWS.filter(row => !named.has(row))).toEqual([])
-    expect([...named].filter(row => !NEXT_STEP_ROWS.includes(row))).toEqual([])
+    expect(rows.filter(row => !named.has(row))).toEqual([])
+    expect([...named].filter(row => !rows.includes(row))).toEqual([])
   })
 
   for (const [group, title] of Object.entries(GROUPS)) {
-    it(title, () => {
+    it(title, async () => {
       const ofGroup = cases.filter(scenario => scenario.group === group)
       expect(ofGroup.length, group).toBeGreaterThan(0)
+      const failures: string[] = []
       for (const scenario of ofGroup.filter(isExercised)) {
-        assertAppAnswer(scenario)
+        failures.push(...(await appFailures(scenario)))
       }
+      expect(failures, `${failures.length} of ${ofGroup.length} cases of ${group} answer otherwise`).toEqual([])
     })
   }
 })

@@ -161,11 +161,7 @@
     "group": "next-step-rows",
     "title": "GitHub merged the pull request #7 with the commits of the branch: the app holds it, bd reads only open pull requests and robots",
     "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "unregistered",
-      "why": "bd lists only the open pull requests and decides what landed by the robots: a pull request merged with the commits of the branch refuses nothing, bd starts through the API; the app holds the branch (row 1)"
-    },
+    "discrepancy": "D13",
     "given": {
       "pullRequest": {
         "state": "merged"
@@ -248,13 +244,13 @@
   {
     "id": "row-2-failed-robot",
     "group": "next-step-rows",
-    "title": "the robot of an older commit failed, not for approvals: Restart Safe Push",
+    "title": "the robot of the tip failed, not for approvals: Restart Safe Push",
     "spec": ["spec/branch/next-step.spec.md#the-table:2", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": null,
     "given": {
       "robot": {
         "state": "failure",
-        "on": "older"
+        "on": "tip"
       }
     },
     "app": {
@@ -272,13 +268,13 @@
   {
     "id": "row-2-canceled-robot",
     "group": "next-step-rows",
-    "title": "the robot of an older commit was canceled: Restart Safe Push",
+    "title": "the robot of the tip was canceled: Restart Safe Push",
     "spec": ["spec/branch/next-step.spec.md#the-table:2", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": null,
     "given": {
       "robot": {
         "state": "canceled",
-        "on": "older"
+        "on": "tip"
       }
     },
     "app": {
@@ -302,7 +298,7 @@
     "given": {
       "robot": {
         "state": "failure",
-        "on": "older",
+        "on": "tip",
         "reason": "approvals",
         "fromPullRequest": true
       },
@@ -334,7 +330,7 @@
     "given": {
       "robot": {
         "state": "failure",
-        "on": "older",
+        "on": "tip",
         "reason": "approvals",
         "fromPullRequest": true
       },
@@ -362,11 +358,7 @@
     "group": "next-step-rows",
     "title": "the pull request of login goes into the virtual branch of its parent auth: its approvals don't count",
     "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "unregistered",
-      "why": "bd retargets an open pull request into a virtual branch as a step of the start and starts from it (`retargeted`); the app refuses the start and offers the retarget as the step (row 5)"
-    },
+    "discrepancy": "D11",
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -393,11 +385,7 @@
     "group": "next-step-rows",
     "title": "the pull request of auth goes into the virtual branch of session, another branch of the table: its approvals don't count",
     "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "unregistered",
-      "why": "bd retargets an open pull request into a virtual branch as a step of the start and starts from it (`retargeted`); the app refuses the start and offers the retarget as the step (row 5)"
-    },
+    "discrepancy": "D11",
     "given": {
       "commits": ["(auth) Add auth", "(session) Add session"],
       "branch": "auth",
@@ -424,11 +412,7 @@
     "group": "next-step-rows",
     "title": "the pull request of auth goes into the virtual branch of gone, which landed and was archived: its approvals don't count",
     "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "unregistered",
-      "why": "bd retargets an open pull request into a virtual branch as a step of the start and starts from it (`retargeted`); the app refuses the start and offers the retarget as the step (row 5)"
-    },
+    "discrepancy": "D11",
     "given": {
       "branch": "auth",
       "pullRequest": {
@@ -757,11 +741,7 @@
     "group": "next-step-rows",
     "title": "Patronus can't answer for the review: the app confirms, bd fails",
     "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "unregistered",
-      "why": "bd fails the check and the start with patronus_error when Patronus can't answer for the review; the app confirms that the start checks the approvals (as readiness-unavailable)"
-    },
+    "discrepancy": "D14",
     "given": {
       "readiness": "unavailable"
     },

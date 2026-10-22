@@ -45,10 +45,10 @@
     "title": "a profile that skips the code-owner review: the app skips the approvals, bd refuses approvals_missing without --without-approvals or --create-pull-request",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#safe-push-without-review"],
     "discrepancy": "D2",
-    "twin": "skips-review-profile",
+    "twins": ["skips-review-profile"],
     "today": {
       "app": ["src/lib/safe-push-decision.ts#function skipsApprovals"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs:1172"]
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#code: ErrorCode::ApprovalsMissing,"]
     }
   },
   {
@@ -59,8 +59,11 @@
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#bd-push"],
     "discrepancy": "D3a",
     "today": {
-      "app": ["src/lib/git/push.ts:136"],
-      "bd": ["crates/bd-remote/src/push_command.rs:244", "crates/bd-remote/src/safe_push_command.rs:467"]
+      "app": ["src/lib/git/push.ts#const retargeted = (await retargetBeforePush(branch)) ?? undefined"],
+      "bd": [
+        "crates/bd-remote/src/push_command.rs#None => retarget_pull_requests_of(context, &github, runtime, &repository, (&names, base), args.dry_run),",
+        "crates/bd-remote/src/safe_push_command.rs#the pull requests go into the target before anything is pushed or canceled"
+      ]
     }
   },
   {
@@ -74,9 +77,9 @@
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
     "discrepancy": "D3b",
-    "twin": "row-5-prime-another-base",
+    "twins": ["row-5-prime-another-base"],
     "today": {
-      "app": ["src/lib/branch-next-step.ts:576"],
+      "app": ["src/lib/branch-next-step.ts#return step(\"otherBase\", item, general ?? reason, dryRunBlocker, { tone: \"quiet\", retarget, ...notice })"],
       "bd": ["crates/bd-remote/src/safe_push_command.rs#fn other_base_pull_request_start"]
     }
   },
@@ -103,7 +106,10 @@
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#request-review", "spec/cli/agent-cli.spec.md#bd-request-review"],
     "discrepancy": "D5",
     "today": {
-      "app": ["src/components/branch/RequestReviewForm.tsx:101", "src/lib/request-review.ts:29"],
+      "app": [
+        "src/components/branch/RequestReviewForm.tsx#if (pushes && !(await pushFirst(branch.name, errorTitle)))",
+        "src/lib/request-review.ts#export function getRequestReviewCandidates"
+      ],
       "bd": ["crates/bd-remote/src/request_review_command.rs#fn suggested_reviewers"]
     }
   },
@@ -115,7 +121,7 @@
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D6",
     "today": {
-      "app": ["src/lib/create-pull-request-context.ts:295"],
+      "app": ["src/lib/create-pull-request-context.ts#const result = await commands.waitForGithubBranch("],
       "bd": ["crates/bd-remote/src/safe_push_command.rs#wait_for_mirror: plan.push_needed"]
     }
   },
@@ -128,7 +134,7 @@
     "discrepancy": "D7",
     "today": {
       "app": ["src/lib/landed-stack.ts#export function closeLandedPullRequests"],
-      "bd": ["crates/bd-remote/src/robot_command.rs:1"],
+      "bd": ["crates/bd-remote/src/robot_command.rs#pub fn robot("],
       "why": "bd has no code of it: the pointer is the robot command, which reports and closes nothing"
     }
   },
@@ -186,7 +192,7 @@
       }
     },
     "today": {
-      "app": ["src/hooks/useDismissesStaleReviews.ts:24"],
+      "app": ["src/hooks/useDismissesStaleReviews.ts#.then(result => (result.status === \"ok\" ? result.data.dismissStaleReviewsOnPush : forget()), forget)"],
       "bd": ["src-tauri/src/commands/pull_requests.rs#read_branch_rules"],
       "why": "both start: the app because it reads a failed read of the rules as \"keeps the approvals\" (a GitHub error is `false`), bd because it never reads the rules; the only caller of read_branch_rules is the app's"
     }
@@ -204,7 +210,85 @@
         "src-tauri/src/commands/patronus.rs#pub async fn cancel_patronus_robot",
         "src-tauri/src/commands/push.rs#pub async fn push_branch("
       ],
-      "bd": ["crates/bd-remote/src/push_command.rs:218"]
+      "bd": ["crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;"]
+    }
+  },
+  {
+    "id": "pull-request-into-a-virtual-base",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "an open pull request into a virtual branch (of the parent, of another branch of the table, of one that landed): the app refuses the Safe Push and offers the retarget as the step (row 5), bd retargets it as a step of the start and starts from it",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:5", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": "D11",
+    "twins": ["row-5-into-the-parent", "row-5-into-another-branch", "row-5-into-a-landed-branch"],
+    "today": {
+      "app": ["src/lib/branch-next-step.ts#baseIsVirtualBranch", "src/hooks/useBranchNextStep.ts#export async function retargetToTarget"],
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#None => virtual_base_retargets("]
+    }
+  },
+  {
+    "id": "push-over-the-commits-of-someone-else",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "the remote branch has a commit of someone else that the branch lacks: the decision of the app reads no dropped commits and starts with a force push (the push button alone asks), bd refuses push_refused",
+    "spec": [
+      "docs/design/rust-domain-authority.md#реестр-расхождений",
+      "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
+      "spec/cli/agent-cli.spec.md#bd-safe-push"
+    ],
+    "discrepancy": "D12",
+    "twins": ["remote-behind"],
+    "today": {
+      "app": ["src/hooks/useSafePush.ts#const startPush = getStartPush(getPushAction({ remoteStatus }), pushOrder.length > 1)"],
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#the remote branch has {} commits the branch doesn't, and the baseline neither"]
+    }
+  },
+  {
+    "id": "merged-pull-request-of-the-commits",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "GitHub merged the pull request with the commits the branch has: the app holds the branch (row 1), bd reads only the open pull requests and the robots and starts through the API",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": "D13",
+    "twins": ["row-1-merged-pull-request"],
+    "today": {
+      "app": ["src/hooks/useBranchNextStep.ts#const mergedCurrent = pullRequest.state === \"merged\""],
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#match own.filter(|pull_request| pull_request.state == PullRequestState::Open)"]
+    }
+  },
+  {
+    "id": "review-without-an-answer",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "the review Patronus can't answer (the pre-check fails) or answers for a Space merge request: the app confirms with the review line and lets the robot decide, bd fails patronus_error or refuses approvals_missing",
+    "spec": [
+      "docs/design/rust-domain-authority.md#реестр-расхождений",
+      "spec/branch/patronus.spec.md#code-owner-review",
+      "spec/branch/next-step.spec.md#the-table:11",
+      "spec/cli/agent-cli.spec.md#bd-safe-push"
+    ],
+    "discrepancy": "D14",
+    "twins": ["readiness-unavailable", "row-11-unavailable", "readiness-space-required"],
+    "today": {
+      "app": ["src/lib/safe-push-decision.ts#function isReviewUnjudged", "src/hooks/useSafePush.ts#function reviewFactOf"],
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#pub(crate) fn review_readiness", "crates/sync-core/src/review_readiness.rs#fn to_branch_readiness"]
+    }
+  },
+  {
+    "id": "dry-run-pushes-into-a-held-branch",
+    "group": "discrepancies",
+    "kind": "recorded",
+    "title": "a Dry Run whose push goes into a branch a running Safe Push of a branch built on it lands: the app refuses the start, because the push would fail that Safe Push (the hold of the view); bd refuses only the last commit for a dry run, pushes and starts",
+    "spec": [
+      "docs/design/rust-domain-authority.md#реестр-расхождений",
+      "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
+      "spec/cli/agent-cli.spec.md#bd-safe-push"
+    ],
+    "discrepancy": "D15",
+    "twins": ["dry-run-while-a-safe-push-of-a-child-lands-the-branch"],
+    "today": {
+      "app": ["src/hooks/useSafePush.ts#pushHeld: needsPush && hold !== null && replaces === null ? formatPushHoldReason(branchName, hold) : null"],
+      "bd": ["crates/repository-view/src/patronus_view.rs#dry_run: last_commit,"]
     }
   }
 ]

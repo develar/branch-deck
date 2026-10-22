@@ -58,7 +58,8 @@ export const given = z.strictObject({
     })
     .optional(),
   flags: z.array(z.enum(["withoutApprovals", "cancelRunning", "createPullRequest", "allowMissing", "allowDangling"])).default([]),
-  rules: z.enum(["keep", "dismiss", "unknown", "loading"]).optional(),
+  /** What the GitHub rules of the target answer the app (bd reads none): `unknown` is a failed read, `loading` no answer yet */
+  rules: z.enum(["keep", "dismiss", "unknown", "loading"]).default("keep"),
   /** `self`: the branch is parked; `builtOn`: its parent is; a branch of the stack: that one is */
   parked: z.union([z.enum(["self", "builtOn"]), branchName]).optional(),
   /** `notBuilt`: a member of the whole stack has a stack problem (a conflict is `conflicts` of a member) */
@@ -117,9 +118,9 @@ const bdStart = z.union([
   z.strictObject({ error: z.string() }),
 ])
 
-const discrepancy = z.enum(["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D8", "D9", "D10"])
+const discrepancy = z.enum(["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "D13", "D14", "D15"])
 
-/** Where each side does it today: `path:line` or `path#name` (a test, a function), from the repository root */
+/** Where each side does it today: `path#text` or `path:line#text` (a test, a function, a line), from the repository root */
 const today = z.strictObject({
   app: z.array(z.string()).min(1),
   bd: z.array(z.string()).min(1),
@@ -141,7 +142,8 @@ const exercisedCase = z.strictObject({
   discrepancy: discrepancy.nullable(),
   /** Of an entry of the registry whose sides agree by class */
   today: today.optional(),
-  asymmetry: z.strictObject({ kind: z.enum(["byDesign", "unregistered"]), why: z.string() }).optional(),
+  /** Why the sides differ by design (a spec, a doc comment) without an id of the registry; every other difference carries one */
+  asymmetry: z.strictObject({ kind: z.literal("byDesign"), why: z.string() }).optional(),
   given,
   app: appExpectation,
   bd: z.strictObject({ check: bdCheck, start: bdStart.optional() }),
@@ -152,8 +154,8 @@ const recordedCase = z.strictObject({
   ...header,
   kind: z.literal("recorded"),
   discrepancy,
-  /** The exercised case of another group that records the same discrepancy */
-  twin: z.string().optional(),
+  /** The exercised cases of other groups that record the same discrepancy */
+  twins: z.array(z.string()).default([]),
   today,
 })
 

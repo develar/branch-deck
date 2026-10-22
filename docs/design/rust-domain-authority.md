@@ -84,6 +84,11 @@ D — одинаковый ввод даёт разный результат в 
 | D8 | Родитель для состава whole stack | TS `effectiveBase ?? declaredParent` (`useStackNextStep.ts:51-108`, `branch-sync.ts:355`); Rust `effective_base ?? blocked_by.parent` (`bd-core/src/stack_summary.rs:176`) | одна функция в Rust; конкретный случай (`s0c-scenarios`): A с проблемой стека (`(A/A)`) ← B без коммитов, сохранённый родитель B → A (`bd restack`) ← C `(B/C)`; у C нет effective base, объявленный родитель B, `blocked_by.parent` A: whole stack `bd` — цепочка A → C (корень A), у приложения C — корень своего стека (корень C), а у A whole stack нет; правило выбирает владелец ([Решения владельца](#решения-которые-подтверждает-владелец)) |
 | D9 | Неудачное чтение правил GitHub читается как `false` | `useDismissesStaleReviews.ts:19-26` (до следующего вопроса) | `Fact::Unavailable` никогда не превращается в разрешение; см. D1 и решение владельца о случае без токена |
 | D10 | Прямой IPC обходит проверки | `start_patronus_robot`, `restart_`, `cancel_patronus_robot`, `push_branch(es)` без lock | вся допустимость — в движке операций; низкоуровневый IPC удаляется в `s9-engine-remote`; до того `s1-holes` добавляет проверки в Rust |
+| D11 | PR в виртуальную базу (ветка родителя, другая ветка таблицы, приземлённая) | приложение отказывает в Safe Push и предлагает retarget как шаг (строка 5, `branch-next-step.ts`: `baseIsVirtualBranch`); `bd safe-push` делает retarget шагом старта и стартует от этого PR (`virtual_base_retargets`) | `Retarget` — шаг плана `Land` у обеих сторон, подтверждаемый там же, где `Push`; приложение перестаёт отказывать; решает владелец ([Решения владельца](#решения-которые-подтверждает-владелец)) |
+| D12 | Push поверх чужого коммита на remote (`dropped_commits` непуст) | решение Safe Push в приложении не читает чужие коммиты: старт делает force push (спрашивает только кнопка push); `bd` отказывает `push_refused` | `domain-policy::push`: отказ `drops_remote_commits` у обеих сторон, подтверждение — явный шаг плана, не кнопка |
+| D13 | PR слит GitHub'ом с коммитами ветки | приложение держит ветку (строка 1, `mergedCurrent`); `bd` читает только открытые PR и роботов и стартует через API | `domain-policy::landed`: слитый PR с текущими коммитами — приземление у обеих сторон |
+| D14 | Review без ответа: pre-check упал (`unavailable`) или репозиторий только на Space | приложение подтверждает строкой review и даёт решить роботу (`isReviewUnjudged`, `reviewFactOf: space`); `bd` падает `patronus_error` или отказывает `approvals_missing` (`to_branch_readiness` читает требование Space как missing) | `Fact::Unavailable` — ожидание или подтверждение, не отказ; одно чтение `space` у обеих сторон; решает владелец |
+| D15 | Dry Run, чей push идёт в ветку, которую приземляет идущий Safe Push ветки над ней (span hold) | приложение отказывает: push провалит тот Safe Push (`pushHeld` из hold представления); `bd` для dry run отказывает только по последнему коммиту (`dry_run: last_commit` в `patronus_view`), пушит и стартует | hold из `patronus_view` действует на push любого старта у обеих сторон (`domain-policy::holds`) |
 | R1 | Needs push, порядок push стека | `isRemoteUpToDate`, `getPushAction` (`push-summary.ts:24-62`), `needsPush`, `stackPushOrder` (`stack.ts:156-188`); `has_work_for_remote` (`push_command.rs:727`), `stack_branches_to_push` (`:674`) | `domain-policy::push::plan` |
 | R2 | Hold stack branch и порядок перед push держащего робота | решение hold ветки одно (`patronus_view`); hold stack branch — TS `stackBranchHoldReasonIn` и проверки parked в `push_command.rs:692`, `safe_push_command.rs:914`; статус, cancel и restart держащего робота — `checkPushHold`/`cancelHoldingRobot` (`push.ts:249-290`) и `push_locked`/`--restart-running` | `domain-policy::holds` получает hold ветки из `patronus_view` и hold stack branch (s8); порядок «статус → cancel → push» — `operations::push` (s9); `push_hold.rs` (чтение представления для `bd push`) удаляется в s9 |
 | R3 | Parked | `src/lib/parked.ts:21-63`; `sync_core::parked::parked_state` (`parked.rs:126`) | `domain-policy::parked` |
@@ -104,13 +109,13 @@ D — одинаковый ввод даёт разный результат в 
 
 Тесты каждой строки D: у разыгранного случая — тесты групп его случаев ([Таблица сценариев](#таблица-сценариев)),
 у записанного (`recorded`: решение ни одной стороны его не достигает) — существующие тесты, на которые указывает запись
-`discrepancies.json`; тест реестра проверяет, что каждый её указатель (`path:line`, `path#name`) существует. У D7 со
+`discrepancies.json`; тест реестра проверяет, что каждый её указатель (`path#text`, `path:line#text`) есть в файле, а у `path:line#text` — на этой строке. У D7 со
 стороны `bd` и у D10 теста поведения нет: `bd` ничего не закрывает, прямой IPC никто не проверяет, их держит только
 указатель.
 
 - **D1.** Сегодняшнее поведение закреплено:
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_d1_to_d10_as_the_register_does`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name d1 to d10 as the register does`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
 - **D2.** Сегодняшнее поведение закреплено:
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
@@ -133,15 +138,15 @@ D — одинаковый ввод даёт разный результат в 
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`)
 - **D7.** Сегодняшнее поведение закреплено:
   [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of the branches a merged robot landed whole, not of its own branch`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_d1_to_d10_as_the_register_does`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
 - **D8.** Сегодняшнее поведение закреплено:
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the whole stack of a blocked branch with an inactive declared parent is d8`)
 - **D9.** Сегодняшнее поведение закреплено:
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_d1_to_d10_as_the_register_does`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name d1 to d10 as the register does`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
 - **D10.** Сегодняшнее поведение закреплено:
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_d1_to_d10_as_the_register_does`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
 
 ## Область изменений
 
@@ -634,7 +639,7 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 или контракты, которые вводит другой этап; файлы, которые другой этап переносит или переименовывает (массовый перенос —
 предпосылка каждого этапа, который трогает перенесённое); поведение, которое проверяют его тесты. Граф после `s0b`:
 `s0c ∥ s2` → `s1` → `s3` → `s4 ∥ s5` → `s6` → `s7` → `s8` → `s9` → `s10` → `s11` → `s12 ∥ s13` → `s14`. Бок о бок
-идут три пары: `s0c` (таблица сценариев: данные, тесты и `pub(crate) fn plan`) и `s2` (переименование типов);
+идут три пары: `s0c` (таблица сценариев: данные и тесты, Rust-тест гонит сам `safe_push()` с `--check`) и `s2` (переименование типов);
 `s4` (тип ошибки каждой команды, `errors.ts`) и `s5` (настройки, `app-settings`, параметр `branch_prefix` девяти
 команд: общие файлы только в `src-tauri/src/commands/`, строки разные); `s12` (`app-api`, тела команд, маршруты
 test-server) и `s13` (сохранённое представление, старт без ожидания sync: общий только `src-tauri/src/lib.rs`).
@@ -770,12 +775,13 @@ rewrites между процессами через файл `s10`; `s12` ждё
   Next Step, каждый Safe Push и Dry Run, ветка и whole stack, профиль, bypass, draft, другая база, виртуальная база,
   parked, not built, landed, overlap, неизвестная readiness, неизвестные правила, landing gate; D8 — конкретный случай
   заблокированной ветки без effective base с объявленным родителем ≠ `blocked_by.parent`. У случая ожидания `app` и
-  `bd`; Vitest подаёт их в `getSafePushDecision`/`getBranchNextStep`, Rust-тест — в `plan()` `bd` (`pub(crate) fn plan`,
-  `safe_push_command.rs:881`) через фикстуры `bd-cli` с fakes. D1–D10 записаны там, где `app != bd`; suite зелёный, потому что ожидания — текущие.
+  `bd`; Vitest заполняет сторы и спрашивает читателей приложения (`getBranchNextStepOf`, `getStackNextStepNow`,
+  `readSafePush`), Rust-тест гонит сам `safe_push()` с `--check` через фикстуры `bd-cli` с fakes. D1–D15 записаны там,
+  где `app != bd`; suite зелёный, потому что ожидания — текущие.
 - **Удаляется:** ничего.
 - **Проверки:** оба теста зелёные; каждый D-id встречается в таблице ([Таблица сценариев](#таблица-сценариев)).
-  Разыграны D1 и D9 (в реестре), D2 и D3b (их `twin` в группах `review` и `next-step-rows`), D8 — своей парой
-  тестов. D3a, D4–D7 и D10 только записаны с указателями: ни `plan()`, ни решение Safe Push их сегодня не достигают —
+  Разыграны D1 и D9 (в реестре), D2, D3b, D11–D15 (их `twins` в группах `review`, `next-step-rows` и `landing`), D8 —
+  своей парой тестов. D3a, D4–D7 и D10 только записаны с указателями: ни `plan()`, ни решение Safe Push их сегодня не достигают —
   порядок retarget и push, повтор push поверх remote, push перед request review, ожидание mirror, закрытие PR и прямой
   IPC живут в исполнении, а не в решении. Их закрывает `s9-engine-remote`, где они становятся шагами плана (D10
   до того частично — проверки `s1-holes`).
@@ -1159,25 +1165,29 @@ rewrites между процессами через файл `s10`; `s12` ждё
 Вход строки 1 матрицы. Случаи лежат в `crates/domain-policy/cases/*.json` (только данные; формат и словарь `given` —
 `README.md` там же): `safe-push.json` (группы `modes-and-routes`, `profiles`, `review`), `next-step.json`
 (`next-step-rows`, `stack-and-whole-stack`), `landing.json` (`landing`) и `discrepancies.json` — реестр (`discrepancies`:
-одна запись на каждый id D1–D10).
+одна запись на каждый id D1–D15).
 
 - **Поля случая:** `id`, `group`, `title`, `spec` (требования; строка таблицы Next Step —
-  `spec/branch/next-step.spec.md#the-table:<row>`), `discrepancy` (id реестра или `null`), `asymmetry` (`byDesign` или
-  `unregistered`, с `why`), `given` (закрытый словарь фактов), `app` (`step`, `decision`) и `bd` (`check`, `start`). У
-  записи реестра ещё `kind` (`exercised` или `recorded`), `today` (указатели `path:line` и `path#name`, `why`) и `twin`
-  (разыгранный случай другой группы с тем же id).
+  `spec/branch/next-step.spec.md#the-table:<row>`), `discrepancy` (id реестра или `null`), `asymmetry` (только
+  `byDesign`, с `why`: расхождение без id в словаре не стоит — планировщик даёт id), `given` (закрытый словарь фактов),
+  `app` (`step`, `decision`) и `bd` (`check`, `start`). У записи реестра ещё `kind` (`exercised` или `recorded`),
+  `today` (указатели `path#text` и `path:line#text`, `why`) и `twins` (разыгранные случаи других групп с тем же id).
+  Оба теста проверяют каждый якорь `spec`: файл есть, slug — заголовок в нём, строка `#the-table:<row>` — в таблице.
 - **Схема — сами адаптеры**, отдельной JSON Schema нет: Rust `Given` с `#[serde(deny_unknown_fields)]`
-  (`crates/bd-remote/src/scenario_test.rs`: фикстуры `bd-cli` с fake Patronus и fake GitHub → `plan()` →
-  `check_output`, затем тот же `bd safe-push` без `--check`) и zod `strictObject` (`src/test-support/scenario-case.ts` →
-  `scenario-facts.ts` → `getBranchNextStep` → `getSafePushDecision`). Ключ вне словаря отказывает обоим; значение,
-  которое адаптер ещё не отображает, роняет случай («not mapped yet»).
+  (`crates/bd-remote/src/scenario_test.rs`: фикстуры `bd-cli` с fake Patronus и fake GitHub → сам `safe_push()` с
+  `--check`, тот же путь, что у команды, затем `bd safe-push` без `--check`) и zod `strictObject`
+  (`src/test-support/scenario-case.ts` → `scenario-facts.ts` заполняет сторы так, как их оставляют sync, представление
+  репозитория, Patronus, GitHub и опрос review → сами читатели приложения: `getBranchNextStepOf`,
+  `getStackNextStepNow`, `readSafePush`). Адаптер отображает `given` в факты сторов и не считает ни одного правила
+  приложения. Ключ вне словаря отказывает обоим; значение, которое адаптер ещё не отображает, роняет случай («not
+  mapped yet»).
 - **Имена тестов фиксированы:** по тесту на группу с каждой стороны (`the_<…>_cases_answer_as_bd_answers_today` и
   `the <…> cases answer as the app answers today`, таблица имён — в `README.md`), реестр —
-  `the_discrepancy_cases_name_d1_to_d10_as_the_register_does`; D8 — отдельная пара тестов
+  `the_discrepancy_cases_name_every_id_as_the_register_does`; D8 — отдельная пара тестов
   (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`). Новая группа приходит со своей парой
   тестов в том же коммите; спецификации и реестр ссылаются на эти имена.
 - **Ожидания — сегодняшние**, не желаемые. Стороны разных классов (`refuse`, `start`, `wait`) несут `discrepancy` или
-  `asymmetry`; `discrepancy` вне реестра стоит только у `twin` его записи.
+  `asymmetry`; `discrepancy` вне реестра стоит только у `twins` его записи.
 - **Правило:** изменение next step (`branch-next-step.ts`, `useStackNextStep.ts`), решения Safe Push
   (`safe-push-decision.ts`) или `plan()` `bd safe-push` меняет затронутые случаи в том же коммите — иначе краснеет
   тест своей стороны. Проверка: `cargo nextest run -p bd-remote -E 'test(/scenario/)'` и
@@ -1310,7 +1320,7 @@ B3 (перерисованные строки) не измеряется: в pro
 ## Критерии завершения
 
 - [ ] `domain-types`/`domain-policy` не достигают ни одного IO-crate; allowlist архитектурного теста пуст.
-- [ ] Таблица сценариев имеет одно ожидание на случай; D1–D10 закрыты.
+- [ ] Таблица сценариев имеет одно ожидание на случай; D1–D15 закрыты.
 - [ ] Каждый мутирующий IPC — `execute(Intent)`; прямой вызов не обходит parked, landed, not built, holds, approvals,
       overlap и landing gate.
 - [ ] Одно правило допуска покрывает окна приложения, процессы `bd` и каждое семейство intent'ов; потерянный старт

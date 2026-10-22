@@ -1,9 +1,9 @@
 //! The side of bd of the scenario table (`crates/domain-policy/cases/*.json`, its README): each case's `given` as a
-//! repository of the bd-cli fixtures with the fake Patronus and the fake GitHub, then `plan()` after the preamble of
-//! `safe_push()`, and the start itself without `--check`; today's answer expected. `src/lib/scenario-cases.test.ts` is
-//! the side of the app
+//! repository of the bd-cli fixtures with the fake Patronus and the fake GitHub, then `safe_push()` itself with
+//! `--check` (the production path: its preamble, `plan()`, the output of a check), and the start without `--check`;
+//! today's answer expected. `src/lib/scenario-cases.test.ts` is the side of the app
 
-use crate::safe_push_command::{SafePushArgs, SafePushOutput, check_output, github_service, patronus_service, plan, start_of, start_output, whole_stack_arg};
+use crate::safe_push_command::{SafePushArgs, SafePushOutput, safe_push as safe_push_command};
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
 use bd_cli::remote_fixture_test::{
   LANDED_SUBJECTS, Space, evaluated_review, fake_github, land_auth_by_content, minutes_ago, pull_request_json, push_from_elsewhere_to, rebuild_on_a_newer_baseline,
@@ -13,7 +13,6 @@ use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
 use bd_core::stack_summary::{WholeStack, whole_stack_of};
 use bd_core::sync_command::{lock, sync_locked};
-use domain_types::patronus::PatronusPushMode;
 use domain_types::stack::BranchStack;
 use domain_types::commit::Commit;
 use github::fake_github::{FakeAnswer, FakeGitHub};
@@ -26,7 +25,6 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use sync_core::target_conflict::fetch_target;
 
 /// The groups of the cases and their test functions here; the Vitest has the same groups
 const GROUPS: [&str; 7] = [
@@ -40,7 +38,7 @@ const GROUPS: [&str; 7] = [
 ];
 
 /// The ids of the registry of `docs/design/rust-domain-authority.md`: the group `discrepancies` has one entry of each
-const REGISTRY: [&str; 11] = ["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D8", "D9", "D10"];
+const REGISTRY: [&str; 16] = ["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "D13", "D14", "D15"];
 
 /// A case of the table; `app` and `asymmetry` are the Vitest's
 #[derive(Debug, Deserialize)]
@@ -55,9 +53,10 @@ struct Case {
   title: String,
   spec: Vec<String>,
   discrepancy: Option<String>,
-  /// Of an entry of the registry: the exercised case of another group that records the same discrepancy
-  twin: Option<String>,
-  /// Where each side does it today: `path:line` or `path#name` (a test, a function), from the repository root
+  /// Of an entry of the registry: the exercised cases of other groups that record the same discrepancy
+  #[serde(default)]
+  twins: Vec<String>,
+  /// Where each side does it today: `path#text` or `path:line#text` (a test, a function, a line), from the repository root
   today: Option<Today>,
   #[expect(dead_code, reason = "the Vitest compares the classes of the outcomes")]
   asymmetry: Option<IgnoredAny>,
@@ -409,13 +408,6 @@ impl Given {
     self.landing_needs.is_some() || self.commits.iter().any(|subject| Self::group_of(subject).1.is_some())
   }
 
-  fn mode(&self) -> PatronusPushMode {
-    match self.mode {
-      Mode::SafePush => PatronusPushMode::RebaseAutosquash,
-      Mode::DryRun => PatronusPushMode::DryRun,
-    }
-  }
-
   fn args(&self, check: bool) -> SafePushArgs {
     SafePushArgs {
       branch: self.branch.clone(),
@@ -708,9 +700,9 @@ impl Situation {
     }
   }
 
-  /// `plan()` after the preamble of `safe_push()` with `--check`, its output as `--check` prints it
+  /// `safe_push()` with `--check`, the function the command runs: its output as `--check` prints it, or the error of
+  /// the plan
   fn check(&self, given: &Given) -> Result<SafePushOutput, CliError> {
-    let args = given.args(true);
     let context = RepoContext::resolve(
       &self.environment,
       &RepoOptions {
@@ -720,20 +712,7 @@ impl Situation {
         no_cache: false,
       },
     )?;
-    let service = patronus_service(&self.environment)?;
-    let github = github_service(&context, &self.environment);
-    let runtime = context.runtime()?;
-    let target_fetch = (!args.create_pull_request).then(|| fetch_target(&context.git, &context.repository));
-    // a check holds the lock for its sync only
-    let synced = {
-      let _lock = lock(&context)?;
-      sync_locked(&context)?
-    };
-    let whole_stack = whole_stack_arg(&args, &synced)?;
-    let start = start_of(&args, whole_stack.as_ref());
-    let mode = given.mode();
-    let plan = plan(&context, &args, &service, &github, runtime, &synced, mode, &start, target_fetch)?;
-    Ok(check_output(start_output(&context, &args, mode, whole_stack.as_ref(), &plan), plan))
+    safe_push_command(&context, &given.args(true), &self.environment)
   }
 
   /// `bd safe-push` without `--check`: `{started_via, canceled}` (whether it canceled a robot first) or `{error}`
@@ -785,6 +764,15 @@ fn mismatches(id: &str, column: &str, expected: &serde_json::Map<String, Value>,
 /// What bd answers today for the case, against its `bd` column: the failures; a recorded case has none to answer
 fn answer(case: &Case) -> Vec<String> {
   assert!(!case.spec.is_empty(), "{}: a case names the requirements it pins", case.id);
+  let broken: Vec<String> = case
+    .spec
+    .iter()
+    .filter_map(|spec| broken_spec(spec))
+    .map(|broken| format!("{}: {broken}", case.id))
+    .collect();
+  if !broken.is_empty() {
+    return broken;
+  }
   let (given, expected) = match (case.kind, &case.given, &case.bd) {
     (CaseKind::Exercised, Some(given), Some(expected)) => (given, expected),
     (CaseKind::Recorded, None, None) => return Vec::new(),
@@ -883,20 +871,58 @@ fn the_landing_cases_answer_as_bd_answers_today() {
   assert_group("landing");
 }
 
-/// Where a pointer of `today` goes wrong: `path:line` past the end of the file, `path#name` without the name in it
+const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+
+/// Where a pointer of `today` goes wrong: `path#text` without the text in the file, `path:line#text` without the text
+/// on that line; a bare `path:line` says nothing of what is there and goes stale with any edit above it
 fn broken_pointer(pointer: &str) -> Option<String> {
-  let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-  let (path, check) = match (pointer.split_once('#'), pointer.rsplit_once(':')) {
-    (Some((path, name)), _) => (path, Ok(name)),
-    (None, Some((path, line))) => (path, Err(line.parse::<usize>().unwrap_or(0))),
-    (None, None) => return Some(format!("{pointer}: neither path:line nor path#name")),
+  let Some((place, name)) = pointer.split_once('#') else {
+    return Some(format!("{pointer}: a pointer is path#text or path:line#text"));
   };
-  let Ok(text) = std::fs::read_to_string(format!("{root}/{path}")) else {
+  let (path, line) = match place.rsplit_once(':') {
+    Some((path, line)) if line.chars().all(|c| c.is_ascii_digit()) => (path, Some(line.parse::<usize>().unwrap_or(0))),
+    _ => (place, None),
+  };
+  let Ok(text) = std::fs::read_to_string(format!("{ROOT}/{path}")) else {
     return Some(format!("{pointer}: no file {path}"));
   };
-  match check {
-    Ok(name) if !text.contains(name) => Some(format!("{pointer}: {path} has no {name:?}")),
-    Err(line) if line == 0 || line > text.lines().count() => Some(format!("{pointer}: {path} has no line {line}")),
+  match line {
+    None if !text.contains(name) => Some(format!("{pointer}: {path} has no {name:?}")),
+    Some(line) if !text.lines().nth(line.wrapping_sub(1)).is_some_and(|on| on.contains(name)) => Some(format!("{pointer}: line {line} of {path} has no {name:?}")),
+    _ => None,
+  }
+}
+
+/// The GitHub slug of a Markdown heading: lower case, the letters, digits, spaces and hyphens kept, spaces as hyphens
+fn heading_slug(heading: &str) -> String {
+  heading
+    .trim()
+    .to_lowercase()
+    .chars()
+    .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+    .map(|c| if c == ' ' { '-' } else { c })
+    .collect()
+}
+
+/// Where an anchor of `spec` goes wrong: no file, no heading of the slug, no row `| <row> |` of a `#the-table:<row>`
+fn broken_spec(spec: &str) -> Option<String> {
+  let (path, anchor) = spec.split_once('#').map_or((spec, None), |(path, anchor)| (path, Some(anchor)));
+  let Ok(text) = std::fs::read_to_string(format!("{ROOT}/{path}")) else {
+    return Some(format!("{spec}: no file {path}"));
+  };
+  let anchor = anchor?;
+  let (slug, row) = anchor.split_once(':').map_or((anchor, None), |(slug, row)| (slug, Some(row)));
+  let headings: Vec<String> = text
+    .lines()
+    .filter_map(|line| line.strip_prefix('#').map(|rest| rest.trim_start_matches('#')))
+    .filter(|rest| rest.starts_with(' '))
+    .map(heading_slug)
+    .collect();
+  if !headings.iter().any(|heading| heading == slug) {
+    return Some(format!("{spec}: {path} has no heading of the slug {slug:?}"));
+  }
+  match row {
+    Some(row) if !text.lines().any(|line| line.starts_with(&format!("  | {row} |"))) => Some(format!("{spec}: {path} has no row {row:?} of the table")),
     _ => None,
   }
 }
@@ -935,7 +961,7 @@ fn registry_failures(cases: &[Case]) -> Vec<String> {
           .map(|broken| format!("{}: {broken}", entry.id)),
       );
     }
-    if let Some(twin) = &entry.twin {
+    for twin in &entry.twins {
       match cases.iter().find(|case| case.id == *twin) {
         Some(case) if case.group != "discrepancies" && case.discrepancy.as_deref() == Some(id) => {}
         _ => failures.push(format!("{}: its twin {twin} is an exercised case of another group with {id}", entry.id)),
@@ -944,7 +970,7 @@ fn registry_failures(cases: &[Case]) -> Vec<String> {
   }
   for case in cases.iter().filter(|case| case.group != "discrepancies") {
     if let Some(id) = &case.discrepancy
-      && !registry.iter().any(|entry| entry.discrepancy.as_ref() == Some(id) && entry.twin.as_ref() == Some(&case.id))
+      && !registry.iter().any(|entry| entry.discrepancy.as_ref() == Some(id) && entry.twins.contains(&case.id))
     {
       failures.push(format!("{}: {id} outside the registry, whose entry doesn't name it as its twin", case.id));
     }
@@ -956,7 +982,7 @@ fn registry_failures(cases: &[Case]) -> Vec<String> {
 }
 
 #[test_log::test]
-fn the_discrepancy_cases_name_d1_to_d10_as_the_register_does() {
+fn the_discrepancy_cases_name_every_id_as_the_register_does() {
   let failures = registry_failures(&cases());
   assert!(failures.is_empty(), "the registry:\n{}", failures.join("\n"));
   assert_group("discrepancies");

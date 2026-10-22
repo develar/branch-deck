@@ -258,7 +258,7 @@
   {
     "id": "last-robot-profile",
     "group": "profiles",
-    "title": "the profile of the last robot, by its options, is the default",
+    "title": "the profile of the last robot, which failed on an older commit, is the default; the branch unpushed since, its slot starts anew",
     "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": null,
     "given": {
@@ -272,7 +272,7 @@
     },
     "app": {
       "step": {
-        "kind": "restart"
+        "kind": "safePush"
       },
       "decision": {
         "kind": "confirm",
@@ -308,7 +308,7 @@
     },
     "app": {
       "step": {
-        "kind": "restart"
+        "kind": "safePush"
       },
       "decision": {
         "kind": "confirm",
@@ -361,7 +361,7 @@
     "given": {
       "robot": {
         "state": "failure",
-        "on": "older"
+        "on": "tip"
       },
       "profile": {
         "chosen": "none",
@@ -550,8 +550,8 @@
     },
     "app": {
       "step": {
-        "kind": "restart",
-        "safePushBlocker": null
+        "kind": "createPullRequest",
+        "safePushBlocker": "Code owners must approve in a pull request: IJPL Code Platform"
       },
       "decision": {
         "kind": "confirm",
@@ -601,11 +601,7 @@
     "group": "review",
     "title": "the pre-check of the review fails",
     "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "unregistered",
-      "why": "bd fails the check and the start with patronus_error when the pre-check fails (review_readiness in safe_push_command.rs); the app confirms with the review line (isReviewUnjudged)"
-    },
+    "discrepancy": "D14",
     "given": {
       "readiness": "unavailable"
     },
@@ -629,11 +625,7 @@
     "group": "review",
     "title": "a repository only on Space whose merge request needs approvals",
     "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "unregistered",
-      "why": "a repository only on Space: Rust reads the required approvals as missing (to_branch_readiness) and bd refuses with approvals_missing, the app reads the requirement (reviewFactOf: space, required) and confirms with the review line"
-    },
+    "discrepancy": "D14",
     "given": {
       "readiness": "space"
     },
@@ -675,6 +667,43 @@
       },
       "start": {
         "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "approved-pull-request-into-another-base-pushes",
+    "group": "review",
+    "title": "a push of a new commit into the approved #7, which goes into a release branch, while the rules dismiss stale reviews: the app refuses by the base (row 5′), no dismiss fact without a start from the pull request; bd ignores the pull request and refuses the approvals Patronus finds missing without one",
+    "spec": ["spec/branch/next-step.spec.md#the-table:5′", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "approved",
+      "remote": "unpushed",
+      "rules": "dismiss",
+      "pullRequest": {
+        "base": "release/1",
+        "approvers": ["ikorennoy"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "otherBase",
+        "safePushBlocker": "Approvals in #7 don't count: its base is release/1"
+      },
+      "decision": {
+        "kind": "refuse",
+        "reason": "Approvals in #7 don't count: its base is release/1"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "push_needed": true,
+        "pull_request": null,
+        "readiness": "missing"
+      },
+      "start": {
+        "error": "approvals_missing"
       }
     }
   }
