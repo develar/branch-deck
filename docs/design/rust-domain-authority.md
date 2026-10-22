@@ -614,7 +614,9 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
     `pnpm perf:bd-rebuild measure`, длительность nextest и e2e, размер eager JS, байты `SyncEvent` полного sync на
     `branch_table_large` (измерительный `#[ignore]`-тест test-server). Перерисованные строки (B3) в production-сборке
     не считаются (`Profiler` там пуст): `s0a` записывает аналитическое значение, счётчик на профилирующей сборке
-    `perf:table` приходит в `s8` вместе с его целью.
+    `perf:table` приходит в `s8` вместе с его целью. Сделано: [Baseline s0a](#baseline-s0a) и столбец «Сегодня»
+    бюджетов. Выводы замеров копятся вне `tests/results`, пока идут другие замеры: Playwright (`perf:table`,
+    `pnpm e2e`) очищает этот каталог, свой `outputDir`, при каждом запуске.
   - Комментарий `patronus_start.rs:49` исправлен: файл — `src/test-support/robot-match-cases.json`, его читают и
     `patronus_start_test.rs`, и `src/lib/patronus.test.ts`.
 - **Удаляется:** экспорт bindings в `run()`.
@@ -960,27 +962,51 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 
 ## Бюджеты производительности
 
-Baseline'ы измеряются в `s0a-safety-net` на одной машине, master и изменение по очереди, и записываются сюда («сегодня»
-ниже — из документов, до измерения). «≤ base» — не хуже числа `s0a`.
+Baseline'ы измерены в `s0a-safety-net` на одной машине, master и изменение по очереди ([Baseline s0a](#baseline-s0a)).
+«Сегодня» — эти измерения (master; число ветки — через «/», где оно другое), кроме B3 (аналитически) и строк, которых
+`s0a` не измерял (B7, B8, B10, B14, B15: из документов). «≤ base» — не хуже числа `s0a`.
 
 | # | Метрика | Сегодня | Цель | Чем проверяется | Этап |
 | --- | --- | --- | --- | --- | --- |
-| B1 | IPC-сообщений странице на sync 141 строки | O(коммиты + 3 × ветки) `SyncEvent` + 2 `get_repository_view` | ≤ ⌈мс sync / 16⌉ + 2 патча, 0 дополнительных вызовов | тест сессии, счётчик `perf:table` | s6 |
-| B2 | IPC-байты на sync без изменений | события каждой ветки заново | ≤ 1 KiB (два переключения `sync`) | тест сессии | s6 |
+| B1 | IPC-сообщений странице на sync 141 строки | 432 `SyncEvent` + 8 вызовов до строк и чипов; `get_repository_view` 2 на два sync; chromium = webkit | ≤ ⌈мс sync / 16⌉ + 2 патча, 0 дополнительных вызовов | тест сессии, счётчик `perf:table` | s6 |
+| B2 | IPC-байты на sync без изменений | 201 670 байт: все 432 события заново (Rust: 432 `SyncEvent`, 201 159 байт) | ≤ 1 KiB (два переключения `sync`) | тест сессии | s6 |
 | B3 | Перерисованных строк на sync, изменивший одну ветку | ≥ 1 на строку (7 селекторов на строку; аналитически, счётчика в production-сборке нет) | 1 строка (+ таблица при смене порядка) | React Profiler в профилирующей сборке `perf:table` (с s8) | s8 |
-| B4 | Script главного потока, первый sync 141 строки | 234–271 мс | ≤ base в s6; ≤ 170 мс (−30 %) в s8 | `perf:table` (отчёт) | s6, s8 |
-| B5 | Script, sync без изменений | 45–55 мс | ≤ 10 мс | `perf:table` | s6 |
-| B6 | IPC на hover, открытие меню, открытие поповера строки | интервал на поповер, работа на строку | 0 на hover и меню; 1 `set_demand` на поповер | счётчик IPC в e2e, точное утверждение | s7, s8 |
+| B4 | Script главного потока, первый sync 141 строки | 210 / 222 мс (task 351 / 365 мс), chromium, медиана 5 прогонов | ≤ base в s6; ≤ 170 мс (−30 %) в s8 | `perf:table` (отчёт) | s6, s8 |
+| B5 | Script, sync без изменений | 49 / 36 мс (task 90 / 74 мс): разброс прогонов, не изменение | ≤ 10 мс | `perf:table` | s6 |
+| B6 | IPC на hover, открытие меню, открытие поповера строки | hover 1 (`prefetch_branch_review`), меню 0, поповер 0; таймер поповера и работа на строку не считаются | 0 на hover и меню; 1 `set_demand` на поповер | счётчик IPC в e2e, точное утверждение | s7, s8 |
 | B7 | IPC от старта до первого кадра со строками | много чтений | ≤ 2 (`open_session` + канал) | счётчик IPC в e2e; Real App Check владельца | s13 |
 | B8 | HTTP на холостой опрос Patronus | 1 список + проблемы на каждого упавшего робота | 1 запрос; проблемы только для роботов, чьё состояние изменилось | HTTP-бюджет сессии | s7 |
-| B9 | git-процессов на операцию | `an_unchanged_sync` 12, `a_safe_push_check` 34 (`SAFE_PUSH_CHECK`, `process_budget_test.rs:575-592`), его вариант со стеком 40, монорепозиторий 14 | не выше; Safe Push приложения на свежей таблице = `bd` минус его sync; один `for-each-ref` witness под lock; D1 добавляет один HTTP на target, не процесс | `process_budget_test.rs`, `perf:monorepo` | s9 |
+| B9 | git-процессов на операцию | `an_unchanged_sync` 12 (`UNCHANGED_SYNC`), `a_safe_push_check` 42 (`SAFE_PUSH_CHECK` 34 + `TARGET_CHECK` 8, `crates/bd-cli/src/process_budget_test.rs`), его вариант со стеком 44; монорепозиторий: sync без изменений 14, полный 157 | не выше; Safe Push приложения на свежей таблице = `bd` минус его sync; один `for-each-ref` witness под lock; D1 добавляет один HTTP на target, не процесс | `process_budget_test.rs`, `perf:monorepo` | s9 |
 | B10 | derive + diff всей модели, 141 строка | цепочки TS-селекторов | ≤ 2 мс в release-бенче | бенч-тест `repository-model` | s8 |
-| B11 | Пересборка после правки одной строки правила | `perf:bd-rebuild measure` в s0a | правка `domain-policy` не пересобирает `sync-core`, `trial-check`, `git-ops`; правка `operations` — тоже | `perf:bd-rebuild compare`, тест рёбер | s3, s9 |
-| B12 | Длительность e2e | ~38 с, 230 тестов | ≤ base + 15 % при реальных путях за fakes | приёмка этапов | s0b и далее |
-| B13 | Eager JS главного окна | ~590 KB, 7 modulepreload | меньше (stores, правила и оркестрация покидают бандл) | отчёт `vite build` | s13 |
+| B11 | Пересборка после правки одной строки правила | медиана, с (CPU, с): тесты владельца 1,0–2,9 (1,9–4,7), тесты `bd-cli` 2,3–3,2 (3,9–7,5), бинарь `bd` 1,0–1,8 (2,6–6,1) | правка `domain-policy` не пересобирает `sync-core`, `trial-check`, `git-ops`; правка `operations` — тоже | `perf:bd-rebuild compare`, тест рёбер | s3, s9 |
+| B12 | Длительность e2e | 590 тестов, 1,6 мин по Playwright (96 / 95 с с global setup), 14 workers | ≤ base + 15 % при реальных путях за fakes | приёмка этапов | s0b и далее |
+| B13 | Eager JS главного окна | 719 086 / 719 284 байт: entry 363 894 + 21 modulepreload; gzip 234 440 / 234 470 | меньше (stores, правила и оркестрация покидают бандл) | отчёт `vite build` | s13 |
 | B14 | `prepare(Land)` тёплый | — | 0 git-процессов сверх сегодняшних; HTTP ≤ TS-последовательности того же клика; 0 HTTP при Fresh-фактах | HTTP-бюджет | s9 |
 | B15 | Частота патчей во время sync | flush TS 16 мс | ≤ 1 на 16 мс; патч ≤ байт заменяемых `SyncEvent`; первый снимок ≤ `SyncEvent` полного sync | тест сессии | s6 |
-| B16 | `cargo nextest run --workspace` | ~80 с | ≤ 100 с | приёмка этапов | все |
+| B16 | `cargo nextest run --workspace` | 96,9 / 95,1 с (2223 / 2241 теста) | ≤ 100 с | приёмка этапов | все |
+
+### Baseline s0a
+
+2026-10-22, 03:40–04:00; Apple M5 Max, 18 ядер, 128 GB, rustc 1.101.0-nightly (2026-10-09), cargo-nextest 0.9.148
+(`machine.json` `perf:bd-rebuild`). master `ac9945e7` и ветка `66938306` (s0a-5, со счётчиками IPC) — по очереди в двух
+слотах `bd lease`, без чужих сборок; load — среднее за 1 минуту при старте замера (у nextest и e2e его поднимают они
+сами). Выводы (JSON, TSV, логи) лежали в `tests/results/s0a-baselines/` слота (git их игнорирует); числа повторены в
+сообщении коммита.
+
+| Замер | Команда | master `ac9945e7` | ветка `66938306` | load |
+| --- | --- | --- | --- | --- |
+| Таблица, chromium | `PERF_RUNS=5 pnpm perf:table --project=chromium` | первые строки 1073 мс; первый sync script 209,6 / task 350,6 мс; sync без изменений 48,6 / 89,8 мс; relayout 0,49 мс; `get_repository_view` 2 | 1071 мс; 221,8 / 365,1 мс; 36,3 / 74,2 мс; 0,50 мс; 2 | 2,2 / 3,1 |
+| Таблица, webkit | `PERF_RUNS=5 pnpm perf:table --project=webkit` | первые строки 1403 мс; relayout 3,19 мс; более широкий текст 1,12 мс; та же ширина 0,82 мс | 1410; 3,17; 1,12; 0,82 мс | 4,1 / 3,6 |
+| IPC страницы (оба движка) | счётчики `__ipcStats` в `perf:table` | счётчиков нет | первый sync 432 события, 8 вызовов; sync без изменений 201 670 байт; hover 1, меню 0, поповер 0 | — |
+| `SyncEvent` на стороне Rust | `cargo nextest run -p test-server --run-ignored only -E 'test(/sync_event_bytes/)'` | теста нет | первый sync 432 события, 200 595 байт; без изменений 432, 201 159 | 16,8 |
+| `bd` на монорепозитории | `pnpm perf:monorepo pin` (`~/projects/idea-1`, `86be3572..7dfac19d`), `measure --runs 3 --push IJAI-3828` | процессов: полный sync 157 (2,55 с), без изменений 14 (0,12 с), status 8, commits 13 / 11, check 77 / 30, push одной ветки 130, затем 17, push всех 16 | то же число по каждому шагу (`compare`: same), время ±2 % | 2,3 / 3,4 |
+| Пересборка `bd` | `pnpm perf:bd-rebuild measure --runs 3` | медиана own / cli / bin, с: safe_push 2,9 / 2,7 / 1,2; clustering 1,0 / 3,0 / 1,6; lease 2,5 / 2,3 / 1,0; sync 1,1 / 3,2 / 1,8; CPU 1,9–7,5 с | 2,9 / 2,6 / 1,2; 1,0 / 3,0 / 1,5; 2,4 / 2,3 / 1,0; 1,1 / 3,1 / 1,7; отношение к master 0,94–1,00 (CPU 0,96–1,00) | 3,5 / 2,4–4,5 |
+| Rust-тесты | `cargo nextest run --workspace` | 96,9 с, 2223 теста | 95,1 с, 2241 тест | 6,8 / 24,8 |
+| E2E | `E2E_PORT=310<слот> pnpm e2e` | 590 тестов, 1,6 мин (96,1 с), 1 падение: известный flake `commit-review` «drag the divider» | 590 прошли, 1,6 мин (94,7 с) | 25,2 / 18,9 |
+| Eager JS главного окна | `pnpm build`, entry и `modulepreload` в `dist/index.html` | 719 086 байт (entry 363 894 + 21 chunk 355 192), gzip 234 440 | 719 284, gzip 234 470 | — |
+
+B3 (перерисованные строки) не измеряется: в production-сборке `Profiler` пуст; число в таблице бюджетов аналитическое,
+счётчик приходит в `s8`.
 
 ## Карта документации
 
@@ -1078,7 +1104,7 @@ Baseline'ы измеряются в `s0a-safety-net` на одной машин�
 
 | Этап | Состояние |
 | --- | --- |
-| s0a-safety-net | не начат |
+| s0a-safety-net | приземлён |
 | s0b-remote-bridge | не начат |
 | s0c-scenarios | не начат |
 | s1-holes | не начат |

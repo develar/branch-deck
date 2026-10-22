@@ -45,8 +45,8 @@ impl RobotSource<'_> {
 /// The robot of a virtual branch: one started on the branch, or a Safe Push of a temporary ref (the IDE, the CLI) on
 /// the local or the pushed tip of the branch. A robot of the whole stack (`stack_root`) is no branch's, whatever its
 /// revision. A running robot wins over a canceling one (a restart replaces it) over a finished one, then the newest,
-/// then the first of the list. The page matches them the same way (`findBranchRobot`): both pass
-/// `robot_match_cases.json`.
+/// then the first of the list. The page matches them the same way (`findBranchRobot`): both pass the cases of
+/// `src/test-support/robot-match-cases.json`, read by `patronus_start_test.rs` and `src/lib/patronus.test.ts`.
 pub fn find_branch_robot<'a>(robots: &'a [PatronusRobot], branch_name: &str, local_tip: Option<&str>, remote_tip: Option<&str>) -> Option<&'a PatronusRobot> {
   find_robot(robots, RobotSource::Branch(branch_name), local_tip, remote_tip)
 }
