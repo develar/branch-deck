@@ -485,6 +485,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should wait for the Safe Push of an ancestor, which lands its commits`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`, `the safe push review cases answer as the app answers today`)
 - One pure decision then says what the start does (`getSafePushDecision`), from the facts read when it is asked
   (`readSafePush`): the next step with the review only as Patronus answered it for the branch as it is (a stale answer
   is not acted on), the merge profiles, the remote status, the holds, the pull request the start comments on, the rules
@@ -499,6 +501,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   a repository only on Space whose merge request needs approvals), the push dismisses approvals Patronus doesn't count,
   a start without review. S, "Safe Push With Profile…" and the start without review always confirm.
   [@test] ../../src/lib/safe-push-decision.test.ts (`starts a lone branch at once when there is nothing to say: default checks, approved or not needed`, `opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the profiles, the remote status, the review and the rules, each saying what it waits for`, `refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't`, `lets a profile that skips the review start without the approvals, and a start without review wait for its profile`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`, `the_safe_push_profile_cases_answer_as_bd_answers_today`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`, `the safe push profile cases answer as the app answers today`, `the safe push review cases answer as the app answers today`)
 - A click waits for the facts its decision needs, at most 20 s (`SAFE_PUSH_SETTLE_MS`), its button busy with
   "Checking…"; then it starts at once, says the refusal in an `info` toast ("Push" its action where the push alone is
   the step), or opens the popover (also after the 20 s: the popover says what it still waits for). The second click of
@@ -546,6 +550,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/patronus/src/service_test.rs (`the_options_of_a_robot_say_whether_its_profile_skips_the_review`)
   [@test] ../../src/lib/patronus.test.ts (`offers a profile for the modes it allows; none listed allows any`)
   [@test] ../../src/lib/patronus.test.ts (`blocks a start while a robot runs on the commit the branch is at`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_profile_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push profile cases answer as the app answers today`)
 - The target branch is the branch of `origin` the baseline tracks (`origin/master` → `master`); a local baseline or one
   on another remote can't be started.
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
@@ -1055,6 +1061,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   pull request is open or the approvals are no longer missing, the popover is the usual one.
   [@test] ../../src/lib/patronus.test.ts (`offers a Safe Push without review the profiles known to skip it, the unknown ones and the emergency ones apart`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`, `should say that an emergency profile skips all checks, and start with it`, `should start with the profile of the last robot when its options said it skips the review`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
 
 ### Restart and cancel
 

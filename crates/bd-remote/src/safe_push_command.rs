@@ -350,7 +350,7 @@ pub(crate) struct Review {
 }
 
 /// The facts a start is decided on, read under the repository lock
-struct Plan {
+pub(crate) struct Plan {
   /// The branch the robot runs on (for a straight chain with `--whole-stack`, its last branch), or the root of the
   /// whole stack
   name: String,
@@ -390,7 +390,7 @@ struct Plan {
 }
 
 /// The stack branch a Safe Push of the whole stack pushes and starts from
-struct StackPush {
+pub(crate) struct StackPush {
   /// The branch on the remote, the same name as the local stack branch, `{prefix}/stack/<root>`
   full_name: String,
   /// Its tip as the sync built it; `None` without one
@@ -406,7 +406,7 @@ struct StackPush {
 /// What a start lands, and from which branch: a branch with the branches it is built on starts from its virtual
 /// branch (the whole stack of a straight chain is its last branch), the whole stack of a stack that forks from its
 /// stack branch. One value, so the subject and the branch it starts from can't disagree
-enum Start<'a> {
+pub(crate) enum Start<'a> {
   Branch(String),
   WholeStack(&'a StackBranchUpdate),
 }
@@ -443,58 +443,12 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let synced = sync_locked(context)?;
   // a check writes nothing after its sync: the trial builds and Patronus don't keep the other bd writers waiting
   let lock = (!args.check).then_some(lock);
-  // the whole stack: a stack that forks starts from its stack branch, a straight chain from its last branch
-  let whole_stack = if args.whole_stack {
-    Some(whole_stack_of(&synced.report.branches, &synced.report.stack_branches, &args.branch)?)
-  } else {
-    None
-  };
-  let start = match &whole_stack {
-    None => Start::Branch(args.branch.clone()),
-    Some(WholeStack::Chain { leaf, .. }) => Start::Branch(leaf.clone()),
-    Some(WholeStack::Forking(update)) => Start::WholeStack(update),
-  };
+  let whole_stack = whole_stack_arg(args, &synced)?;
+  let start = start_of(args, whole_stack.as_ref());
   let plan = plan(context, args, &service, &github, runtime, &synced, mode, &start, target_fetch)?;
-  let mut output = SafePushOutput {
-    schema: SchemaVersion,
-    repository: context.repository.clone(),
-    prefix: context.prefix.clone(),
-    branch: args.branch.clone(),
-    mode: mode_name(mode),
-    target: plan.target.clone(),
-    lands: plan.lands.clone(),
-    whole_stack: whole_stack.as_ref().map(|whole| whole.summary(&context.prefix)),
-    profile: plan.profile.as_ref().map(profile_summary),
-    profiles: plan.profiles.iter().map(profile_summary).collect(),
-    review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref())),
-    push_needed: plan.push_needed,
-    remotes: plan.remotes.clone(),
-    refusals: Vec::new(),
-    target_check: plan.target_check.as_ref().map(|(_, summary)| summary.clone()),
-    alone: None,
-    warnings: plan.warnings.clone(),
-    pushed: Vec::new(),
-    canceled: None,
-    started_via: None,
-    robot: None,
-    pull_request: plan.pull_request.as_ref().map(|pull_request| PullRequestStart {
-      number: pull_request.number,
-      url: pull_request.url.clone(),
-      created: false,
-      comment_url: None,
-      reply: None,
-      reviewers: Vec::new(),
-      assignees: Vec::new(),
-      warnings: Vec::new(),
-    }),
-    retargeted: Vec::new(),
-    retarget_warnings: Vec::new(),
-  };
+  let mut output = start_output(context, args, mode, whole_stack.as_ref(), &plan);
   if args.check {
-    output.refusals = plan.refusals;
-    output.alone = plan.alone;
-    output.retargeted = plan.retargets;
-    return Ok(output);
+    return Ok(check_output(output, plan));
   }
   if let Some(refusal) = plan.refusals.first().cloned() {
     let mut error = CliError::new(refusal.code, refusal.message);
@@ -609,6 +563,71 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     output.started_via = Some("api".to_string());
   }
   Ok(output)
+}
+
+/// The whole stack `--whole-stack` lands, from the sync
+pub(crate) fn whole_stack_arg<'s>(args: &SafePushArgs, synced: &'s SyncOutput) -> Result<Option<WholeStack<'s>>, CliError> {
+  if !args.whole_stack {
+    return Ok(None);
+  }
+  whole_stack_of(&synced.report.branches, &synced.report.stack_branches, &args.branch).map(Some)
+}
+
+/// What the start lands, and from which branch: the branch; of the whole stack, a stack that forks from its stack
+/// branch, a straight chain from its last branch
+pub(crate) fn start_of<'a>(args: &SafePushArgs, whole_stack: Option<&'a WholeStack<'_>>) -> Start<'a> {
+  match whole_stack {
+    None => Start::Branch(args.branch.clone()),
+    Some(WholeStack::Chain { leaf, .. }) => Start::Branch(leaf.clone()),
+    Some(WholeStack::Forking(update)) => Start::WholeStack(update),
+  }
+}
+
+/// The output of a start as `plan` decides it, before anything is pushed or started
+pub(crate) fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMode, whole_stack: Option<&WholeStack>, plan: &Plan) -> SafePushOutput {
+  SafePushOutput {
+    schema: SchemaVersion,
+    repository: context.repository.clone(),
+    prefix: context.prefix.clone(),
+    branch: args.branch.clone(),
+    mode: mode_name(mode),
+    target: plan.target.clone(),
+    lands: plan.lands.clone(),
+    whole_stack: whole_stack.map(|whole| whole.summary(&context.prefix)),
+    profile: plan.profile.as_ref().map(profile_summary),
+    profiles: plan.profiles.iter().map(profile_summary).collect(),
+    review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref())),
+    push_needed: plan.push_needed,
+    remotes: plan.remotes.clone(),
+    refusals: Vec::new(),
+    target_check: plan.target_check.as_ref().map(|(_, summary)| summary.clone()),
+    alone: None,
+    warnings: plan.warnings.clone(),
+    pushed: Vec::new(),
+    canceled: None,
+    started_via: None,
+    robot: None,
+    pull_request: plan.pull_request.as_ref().map(|pull_request| PullRequestStart {
+      number: pull_request.number,
+      url: pull_request.url.clone(),
+      created: false,
+      comment_url: None,
+      reply: None,
+      reviewers: Vec::new(),
+      assignees: Vec::new(),
+      warnings: Vec::new(),
+    }),
+    retargeted: Vec::new(),
+    retarget_warnings: Vec::new(),
+  }
+}
+
+/// The output of `--check`: `output` with what refuses a start, the trial build alone and the retargets a start would do
+pub(crate) fn check_output(mut output: SafePushOutput, plan: Plan) -> SafePushOutput {
+  output.refusals = plan.refusals;
+  output.alone = plan.alone;
+  output.retargeted = plan.retargets;
+  output
 }
 
 /// The remote of the stack branch: Patronus pushes from `origin`, whose remote status the sync computed
@@ -871,7 +890,7 @@ fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]
 /// Everything the start is decided on, before anything is pushed: the repository on Space, the robots of the user,
 /// the stack, the profiles, the pull request and the review
 #[expect(clippy::too_many_arguments, reason = "the services and the sync of the command")]
-fn plan(
+pub(crate) fn plan(
   context: &RepoContext,
   args: &SafePushArgs,
   service: &PatronusService,

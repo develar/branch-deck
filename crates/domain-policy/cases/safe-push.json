@@ -1,0 +1,681 @@
+[
+  {
+    "id": "safe-push-via-api",
+    "group": "modes-and-routes",
+    "title": "a Safe Push of a lone branch without a pull request starts through the API",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {},
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true,
+        "profile": null,
+        "pull_request": null,
+        "readiness": "not_required"
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "dry-run-via-api",
+    "group": "modes-and-routes",
+    "title": "a Dry Run of a lone branch starts through the API, the review not checked",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "mode": "dryRun"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "dryRunBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "profile": null,
+        "pull_request": null,
+        "readiness": null
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "dry-run-skips-missing-approvals",
+    "group": "modes-and-routes",
+    "title": "a Dry Run starts although the approvals are missing",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "mode": "dryRun",
+      "readiness": "missing"
+    },
+    "app": {
+      "step": {
+        "kind": "createPullRequest",
+        "dryRunBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "readiness": null
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "dry-run-from-draft-pull-request",
+    "group": "modes-and-routes",
+    "title": "a Dry Run of a branch whose pull request is a draft starts from it",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "mode": "dryRun",
+      "pullRequest": {
+        "draft": true
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "draft",
+        "dryRunBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": 7
+      },
+      "start": {
+        "started_via": "pull_request"
+      }
+    }
+  },
+  {
+    "id": "dry-run-beside-pull-request-into-other-base",
+    "group": "modes-and-routes",
+    "title": "a Dry Run of a branch whose pull request merges into a release branch starts through the API",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "mode": "dryRun",
+      "pullRequest": {
+        "base": "release/253"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "otherBase",
+        "dryRunBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": null
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "safe-push-from-pull-request-comment",
+    "group": "modes-and-routes",
+    "title": "a Safe Push of a branch with an open pull request into master starts from a /patronus comment with the default checks",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "pullRequest": {}
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "profile": null,
+        "pull_request": 7
+      },
+      "start": {
+        "started_via": "pull_request"
+      }
+    }
+  },
+  {
+    "id": "pull-request-comment-takes-no-profile",
+    "group": "modes-and-routes",
+    "title": "a profile chosen for a start from a pull request comment",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "a /patronus comment can't choose a profile: the app's popover offers none for it and starts the default checks, bd refuses --profile (agent-cli.spec.md, bd safe-push)"
+    },
+    "given": {
+      "pullRequest": {},
+      "profile": {
+        "chosen": "lsc"
+      }
+    },
+    "app": {
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "invalid_arguments"
+      },
+      "start": {
+        "error": "invalid_arguments"
+      }
+    }
+  },
+  {
+    "id": "unprotected-target",
+    "group": "modes-and-routes",
+    "title": "a target Patronus does not protect",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "target": "unprotected"
+    },
+    "app": {
+      "decision": {
+        "kind": "refuse",
+        "reason": "Patronus does not push into master",
+        "offersPush": false
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "patronus_refused"
+      },
+      "start": {
+        "error": "patronus_refused"
+      }
+    }
+  },
+  {
+    "id": "default-checks",
+    "group": "profiles",
+    "title": "no robot of the branch yet: the default checks, no profile",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {},
+    "app": {
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "profile": null
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "last-robot-profile",
+    "group": "profiles",
+    "title": "the profile of the last robot, by its options, is the default",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": {
+        "state": "failure",
+        "on": "older"
+      },
+      "profile": {
+        "lastRobot": "lsc"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "restart"
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["profile"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "profile": "lsc"
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "last-robot-profile-from-the-list",
+    "group": "profiles",
+    "title": "with the new API the robot list names the profile of the last robot, the default",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": {
+        "state": "failure",
+        "on": "older"
+      },
+      "profile": {
+        "lastRobot": "lsc",
+        "skipsReview": true,
+        "newApi": true
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "restart"
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["profile"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "profile": "lsc"
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "chosen-profile",
+    "group": "profiles",
+    "title": "a profile chosen for the start",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "profile": {
+        "chosen": "lsc"
+      }
+    },
+    "app": {
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["profile"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "profile": "lsc"
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "none-drops-the-last-robot-profile",
+    "group": "profiles",
+    "title": "none chosen over the profile of the last robot: the default checks",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": {
+        "state": "failure",
+        "on": "older"
+      },
+      "profile": {
+        "chosen": "none",
+        "lastRobot": "lsc"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "restart"
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "profile": null
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "emergency-profile-refused",
+    "group": "profiles",
+    "title": "an emergency profile chosen for a Safe Push with review",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "the app offers an emergency profile only to a Safe Push without review, after its warning, so the usual start takes the default checks; bd never starts one (agent-cli.spec.md: --profile emergency is invalid_arguments)"
+    },
+    "given": {
+      "profile": {
+        "chosen": "emergency"
+      }
+    },
+    "app": {
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "invalid_arguments"
+      },
+      "start": {
+        "error": "invalid_arguments"
+      }
+    }
+  },
+  {
+    "id": "approvals-missing-without-pull-request",
+    "group": "review",
+    "title": "the approvals are missing and no pull request collects them",
+    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push", "spec/branch/next-step.spec.md"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "missing"
+    },
+    "app": {
+      "step": {
+        "kind": "createPullRequest"
+      },
+      "decision": {
+        "kind": "refuse",
+        "offersPush": false
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "readiness": "missing"
+      },
+      "start": {
+        "error": "approvals_missing"
+      }
+    }
+  },
+  {
+    "id": "approvals-missing-in-pull-request",
+    "group": "review",
+    "title": "the approvals are missing in the open pull request, nobody asked",
+    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push", "spec/branch/next-step.spec.md"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "missing",
+      "pullRequest": {}
+    },
+    "app": {
+      "step": {
+        "kind": "requestReview"
+      },
+      "decision": {
+        "kind": "refuse",
+        "offersPush": false
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "pull_request": 7,
+        "readiness": "missing"
+      },
+      "start": {
+        "error": "approvals_missing"
+      }
+    }
+  },
+  {
+    "id": "without-approvals",
+    "group": "review",
+    "title": "a Safe Push without review, no profile chosen",
+    "spec": ["spec/branch/patronus.spec.md#safe-push-without-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "missing",
+      "flags": ["withoutApprovals"]
+    },
+    "app": {
+      "step": {
+        "kind": "createPullRequest"
+      },
+      "decision": {
+        "kind": "choose",
+        "reason": "Choose the profile that skips the code-owner review"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "profile": null
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "without-approvals-with-profile",
+    "group": "review",
+    "title": "a Safe Push without review with a profile chosen",
+    "spec": ["spec/branch/patronus.spec.md#safe-push-without-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "missing",
+      "flags": ["withoutApprovals"],
+      "profile": {
+        "chosen": "lsc"
+      }
+    },
+    "app": {
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["profile", "bypass"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "profile": "lsc"
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "skips-review-profile",
+    "group": "review",
+    "title": "the profile of the last robot, which failed on an older commit, skips the review; the approvals missing",
+    "spec": ["spec/branch/patronus.spec.md#safe-push-without-review", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": "D2",
+    "given": {
+      "readiness": "missing",
+      "robot": {
+        "state": "failure",
+        "on": "older"
+      },
+      "profile": {
+        "lastRobot": "lsc",
+        "skipsReview": true
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "restart",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["profile"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "profile": "lsc"
+      },
+      "start": {
+        "error": "approvals_missing"
+      }
+    }
+  },
+  {
+    "id": "readiness-unknown",
+    "group": "review",
+    "title": "Patronus doesn't evaluate the pull request someone approved",
+    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "unknown",
+      "pullRequest": {
+        "approvers": ["alice"]
+      }
+    },
+    "app": {
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["review"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "readiness": "unknown"
+      },
+      "start": {
+        "started_via": "pull_request"
+      }
+    }
+  },
+  {
+    "id": "readiness-unavailable",
+    "group": "review",
+    "title": "the pre-check of the review fails",
+    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "unregistered",
+      "why": "bd fails the check and the start with patronus_error when the pre-check fails (review_readiness in safe_push_command.rs); the app confirms with the review line (isReviewUnjudged)"
+    },
+    "given": {
+      "readiness": "unavailable"
+    },
+    "app": {
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["review"]
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "patronus_error"
+      },
+      "start": {
+        "error": "patronus_error"
+      }
+    }
+  },
+  {
+    "id": "readiness-space-required",
+    "group": "review",
+    "title": "a repository only on Space whose merge request needs approvals",
+    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "unregistered",
+      "why": "a repository only on Space: Rust reads the required approvals as missing (to_branch_readiness) and bd refuses with approvals_missing, the app reads the requirement (reviewFactOf: space, required) and confirms with the review line"
+    },
+    "given": {
+      "readiness": "space"
+    },
+    "app": {
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["review"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "readiness": "missing"
+      },
+      "start": {
+        "error": "approvals_missing"
+      }
+    }
+  },
+  {
+    "id": "pull-requests-unlisted",
+    "group": "review",
+    "title": "GitHub doesn't list the pull requests",
+    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "unlisted"
+    },
+    "app": {
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["review"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": null
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  }
+]

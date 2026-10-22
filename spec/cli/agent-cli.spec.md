@@ -930,6 +930,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   would fail with; it must hold the repository lock for its sync only, so its trial builds and the questions to
   Patronus and GitHub keep no other `bd` writer waiting.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`)
 - The target branch, the stack and the tips must come from the sync of the same run, and the Space and the GitHub
   repository from one read of the push URL of `origin`, shared with the push.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
@@ -954,6 +956,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last
   robot of the branch is the default.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dry_run_takes_a_profile_by_name_and_checks_no_review`, `the_profile_of_the_last_robot_is_the_default_and_none_drops_it`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_profile_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push profile cases answer as the app answers today`)
 - Before a Safe Push (never a dry run) it must check the code-owner review as the app's start does, with the pull request
   the robot starts from, always asked again ([Patronus](../branch/patronus.spec.md#code-owner-review)), and a
   `missing` readiness must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review`
@@ -964,6 +968,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   owners asked who haven't approved (`waiting_for`), the approvals Patronus doesn't count (`not_counted`), and per
   group `approved` and `needed`, per reviewer `approval_state`, when Patronus evaluated the pull request.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
   `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `bd push`
   prints would (with its `title` and `body`), assigned to the user (`--no-assign` leaves it unassigned) and with the

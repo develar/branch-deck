@@ -39,4 +39,6 @@ mod robot_test;
 #[cfg(test)]
 mod safe_push_test;
 #[cfg(test)]
+mod scenario_test;
+#[cfg(test)]
 mod status_test;

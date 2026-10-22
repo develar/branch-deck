@@ -1254,7 +1254,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | --- | --- |
 | s0a-safety-net | приземлён |
 | s0b-remote-bridge | приземлён |
-| s0c-scenarios | не начат |
+| s0c-scenarios | в работе |
 | s1-holes | не начат |
 | s2-types | приземлён |
 | s3-crates | не начат |
