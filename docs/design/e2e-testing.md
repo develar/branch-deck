@@ -115,6 +115,15 @@ Template system:
 
 Mock implementation:
 - **IPC Interception**: `mockIPC` redirects all Tauri commands
+- **Command registry**: three lists name the commands: `collect_commands!` of `src-tauri/src/lib.rs`, the
+  `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and `COMMAND_HANDLERS` of `tauri-mocks.ts`. The mock
+  proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
+  `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
+  entry with its reason (a page handler for the windows, the window menu and the updater; a `routeCommand` of the test
+  for Patronus, GitHub and YouTrack), never both; a stale entry, or a route or a handler without its command, fails;
+  the four handlers over a route (`get_file_diffs`, `get_file_merges`, `sync_branches`, `set_repository_config`) are
+  pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw bytes). The number of
+  commands (111) and `PAGE_MOCKED` (35) are pinned; `PAGE_MOCKED` only goes down: a new command gets a route
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
   (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
   and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the

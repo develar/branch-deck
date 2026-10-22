@@ -23,6 +23,9 @@ pub mod static_files;
 pub mod tauri_command_bridge;
 
 #[cfg(test)]
+mod command_registry_test;
+
+#[cfg(test)]
 mod commit_files_test;
 
 #[cfg(test)]

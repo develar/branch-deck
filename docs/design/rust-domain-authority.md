@@ -590,7 +590,9 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
     которые достигают сервера только через `routeCommand` теста, иначе 405); число никогда не растёт. Четыре обёртки
     `COMMAND_HANDLERS` над маршрутом (`get_file_diffs`, `get_file_merges`, `sync_branches`, `set_repository_config`)
     считаются маршрутизированными. Прокси неизвестных команд на сервер и отказ на 405 уже есть
-    (`tauri-mocks.ts:106,153-157,595`) и не пишутся заново.
+    (`tauri-mocks.ts:106,153-157,595`) и не пишутся заново. Сделано: число команд (`COMMAND_COUNT` = 111) тоже
+    зафиксировано, а запись `PAGE_MOCKED` без команды, маршрут или обработчик без команды роняют тест;
+    `install_update` и `restart_app` не вызывает ни один e2e-тест.
   - `architecture_test.rs` над `cargo metadata` с правилами [Crates](#crates-и-направление-зависимостей) и allowlist
     сегодняшних нарушений: `sync-types → git-ops`, `patronus → git-ops`, `sync-core → github/patronus/youtrack/
     file-diffs/code-symbols`, `bd-remote → bd-rewrite`, `src-tauri → bd-lease`. `bd-clustering` до переименования
