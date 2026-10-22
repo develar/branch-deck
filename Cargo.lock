@@ -6444,9 +6444,12 @@ name = "test-utils"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "git-executor",
  "tempfile",
  "test-log",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -8188,6 +8191,7 @@ dependencies = [
  "sync-utils",
  "tempfile",
  "test-log",
+ "test-utils",
  "tokio",
  "tracing",
  "url",

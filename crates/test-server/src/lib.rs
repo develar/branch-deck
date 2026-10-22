@@ -622,6 +622,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
   let repo = TestRepository {
     id: id.to_string(),
     path: path.to_string(),
+    app_data: state.app_data_of(id),
     in_flight: Arc::default(),
     store,
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
@@ -780,6 +781,11 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
   }
 
+  if repo.app_data.exists()
+    && let Err(e) = std::fs::remove_dir_all(&repo.app_data)
+  {
+    tracing::warn!("Failed to remove the app data {}: {}", repo.app_data.display(), e);
+  }
   let global_config = state.global_config_of(&id);
   if let Err(e) = std::fs::remove_file(&global_config)
     && e.kind() != std::io::ErrorKind::NotFound

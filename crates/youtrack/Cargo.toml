@@ -15,13 +15,14 @@ serde_json.workspace = true
 sha2 = "0.10.9"
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
+test-utils = { path = "../test-utils", features = ["http"], optional = true }
 tokio = { workspace = true, features = ["time", "io-util"] }
 tracing.workspace = true
 url = "2.5.8"
 
 [features]
 # the in-process YouTrack of the tests (`fake_youtrack`), for the tests of other crates
-fake = ["dep:axum"]
+fake = ["dep:axum", "dep:test-utils"]
 
 [dev-dependencies]
 axum.workspace = true

@@ -91,6 +91,11 @@ async fn a_canceled_sign_in_ends_its_wait_and_a_pasted_token_is_kept_once_youtra
   let (waited, ()) = tokio::join!(session.wait(&service), cancel);
   assert_eq!(waited, Err("canceled".to_string()));
   assert!(!session.is_pending());
+  // a cancel before the wait: nothing stays pending that no wait could end
+  session.start(&service, &url).await.unwrap();
+  session.cancel();
+  assert!(!session.is_pending());
+  assert_eq!(session.wait(&service).await, Err("No YouTrack sign-in is in progress".to_string()));
 
   assert_eq!(session.save_token(&service, &url, "perm-wrong").await, Err("YouTrack rejected the token".to_string()));
   assert!(read_token(&token_file(dir.path())).is_none());

@@ -13,11 +13,9 @@ use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::future::IntoFuture;
 use std::sync::{Arc, Mutex};
 use sync_types::youtrack::YouTrackUser;
 use sync_utils::timestamp::unix_now;
-use tracing::Instrument;
 
 /// The id of the YouTrack service in its Hub: the scope of a token
 pub const FAKE_SERVICE_ID: &str = "fake-youtrack-service";
@@ -360,8 +358,6 @@ async fn answer(State(fake): State<Arc<FakeYouTrack>>, method: Method, uri: Uri,
 /// A fake YouTrack on a free port for the rest of the runtime, and its URL (`http://127.0.0.1:<port>`)
 pub async fn start_fake() -> (Arc<FakeYouTrack>, String) {
   let fake = Arc::new(FakeYouTrack::default());
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a loopback port for the fake YouTrack");
-  let url = format!("http://{}", listener.local_addr().expect("the address of the fake YouTrack"));
-  tokio::spawn(axum::serve(listener, router(Arc::clone(&fake))).into_future().in_current_span());
+  let url = test_utils::fake_server::FakeServer::start(router(Arc::clone(&fake))).await.detach();
   (fake, url)
 }

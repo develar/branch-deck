@@ -17,6 +17,8 @@ mod actions_test;
 #[cfg(test)]
 mod ci_text_test;
 #[cfg(test)]
+mod fake_patronus_test;
+#[cfg(test)]
 mod review_readiness_test;
 #[cfg(test)]
 mod review_test;

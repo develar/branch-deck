@@ -1,6 +1,6 @@
 use crate::patronus::SpaceRepository;
 use crate::pull_requests::GitHubRepository;
-use crate::review_readiness::{ReadinessRepository, branch_review_readiness, is_fresh};
+use crate::review_readiness::{ReadinessInputs, ReadinessRepository, branch_review_readiness, is_fresh, prepare_review_readiness};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::review_answer::ReviewAnswer;
 use patronus::fake_patronus::{FakePatronus, start_fake};
@@ -10,7 +10,10 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use sync_types::patronus::{BranchReviewReadiness, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState};
+use sync_types::patronus::{
+  BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart,
+  ReviewerApprovalState,
+};
 use sync_types::pull_request::{Reviewer, ReviewerState};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -259,4 +262,51 @@ async fn the_whole_stack_is_asked_as_its_stack_branch_under_the_key_of_the_calle
       message: "me/virtual/IJPL-1 is not a stack branch of me".to_string(),
     }
   );
+}
+
+/// The one composition of the inputs the app and the test server read the readiness with: the tips are checked, the
+/// target is the branch of origin the baseline tracks, a local baseline is refused
+#[test(tokio::test)]
+async fn the_inputs_of_the_readiness_are_composed_once_for_the_app_and_the_test_server() {
+  let setup = setup().await;
+  let path = setup.repo.path().to_str().unwrap();
+  let git = setup.repo.git_executor();
+  git.execute_command(&["remote", "add", "origin", "."], path).unwrap();
+  git.execute_command(&["update-ref", "refs/remotes/origin/master", "HEAD"], path).unwrap();
+  let space = SpaceRepository {
+    project_key: "ij".to_string(),
+    name: "ultimate".to_string(),
+  };
+  let github = GitHubRepository {
+    owner: "acme".to_string(),
+    name: "monorepo".to_string(),
+  };
+  let params = |baseline: &str, tip: &str| GetBranchReviewReadinessParams {
+    repository_path: path.to_string(),
+    branch_prefix: "me".to_string(),
+    baseline_branch: baseline.to_string(),
+    branches: vec![branch(tip, ReviewStart::Rest, Vec::new())],
+    recheck: false,
+  };
+
+  let inputs = prepare_review_readiness(git, space.clone(), Some(github.clone()), &params("origin/master", &setup.tip)).unwrap();
+  assert_eq!(
+    inputs,
+    ReadinessInputs {
+      space: space.clone(),
+      github: Some(github),
+      target: "master".to_string(),
+      baseline: "origin/master".to_string(),
+      branch_prefix: "me".to_string(),
+    }
+  );
+  assert_eq!(
+    (inputs.repository().target, inputs.repository().github.map(|it| it.owner.as_str())),
+    ("master", Some("acme"))
+  );
+
+  let refused = prepare_review_readiness(git, space.clone(), None, &params("origin/master", "HEAD")).unwrap_err();
+  assert_eq!(refused.to_string(), "Not a commit id: HEAD");
+  let local = prepare_review_readiness(git, space, None, &params("baseline", &setup.tip)).unwrap_err();
+  assert!(local.to_string().contains("not a branch of origin"), "{local}");
 }

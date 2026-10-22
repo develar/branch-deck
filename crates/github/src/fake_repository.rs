@@ -138,12 +138,13 @@ impl FakeGitHubRepository {
   pub(crate) fn answer(&self, request: &crate::fake_github::FakeRequest) -> Option<FakeAnswer> {
     let path = percent_decoded(&request.path);
     let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    let mut state = self.state.lock().unwrap();
     let rest = match segments.as_slice() {
       ["user" | "graphql"] => &[][..],
       ["repos", _, _, rest @ ..] => rest,
+      // not about the repository: its lock is not taken (the device flow of the fake answers meanwhile)
       _ => return None,
     };
+    let mut state = self.state.lock().unwrap();
     if request.authorization.as_deref() != Some(format!("Bearer {}", state.token).as_str()) || state.token.is_empty() {
       return Some(FakeAnswer::status(401, json!({"message": "Bad credentials"})));
     }

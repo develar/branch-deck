@@ -10,12 +10,13 @@
 //! day, one without it (an older Patronus, a start through the API) as long as before: 2 minutes while approvals are
 //! missing, 10 without. Errors are never kept. A repository only on Space keeps its own path (`review_requirement`).
 
-use crate::patronus::SpaceRepository;
+use crate::patronus::{SpaceRepository, required_target_branch};
 use crate::patronus_review::{ReviewInput, attribute_ownership_paths, read_review_inputs, skipped_review};
 use crate::pull_requests::GitHubRepository;
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
+use git_ops::revs::is_object_id;
 use object_cache::cache::ObjectCache;
 use object_cache::review_answer::ReviewAnswer;
 use patronus::client::GitHubPullRequestDto;
@@ -24,7 +25,8 @@ use patronus::review_readiness::{evaluates_pull_request, review_readiness};
 use patronus::service::PatronusService;
 use sha2::{Digest, Sha256};
 use sync_types::patronus::{
-  BranchReviewReadiness, MissingApprovalsReason, PatronusAvailability, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
+  BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusAvailability, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch,
+  ReviewStart, UnavailableReadinessReason,
 };
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
@@ -47,6 +49,52 @@ pub struct ReadinessRepository<'a> {
   /// As the sync detected it, e.g. `origin/master`
   pub baseline: &'a str,
   pub branch_prefix: &'a str,
+}
+
+/// What `branch_review_readiness` is asked with, owned: as the app (`get_branch_review_readiness`) and the E2E test
+/// server compose it (`prepare_review_readiness`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadinessInputs {
+  pub space: SpaceRepository,
+  pub github: Option<GitHubRepository>,
+  /// The branch of origin the baseline tracks, e.g. `master`
+  pub target: String,
+  pub baseline: String,
+  pub branch_prefix: String,
+}
+
+impl ReadinessInputs {
+  pub fn repository(&self) -> ReadinessRepository<'_> {
+    ReadinessRepository {
+      space: &self.space,
+      github: self.github.as_ref(),
+      target: &self.target,
+      baseline: &self.baseline,
+      branch_prefix: &self.branch_prefix,
+    }
+  }
+}
+
+/// The inputs of `branch_review_readiness` for `params`, with the Space and GitHub repositories the caller resolved:
+/// every tip is a commit id (the page sends what it holds), and the target is the branch of origin the baseline
+/// tracks (one git process; a local baseline is refused, Patronus pushes into a branch of origin)
+pub fn prepare_review_readiness(
+  git: &GitCommandExecutor,
+  space: SpaceRepository,
+  github: Option<GitHubRepository>,
+  params: &GetBranchReviewReadinessParams,
+) -> anyhow::Result<ReadinessInputs> {
+  if let Some(branch) = params.branches.iter().find(|branch| !is_object_id(&branch.tip)) {
+    anyhow::bail!("Not a commit id: {}", branch.tip);
+  }
+  let target = required_target_branch(git, &params.repository_path, &params.baseline_branch)?;
+  Ok(ReadinessInputs {
+    space,
+    github,
+    target,
+    baseline: params.baseline_branch.clone(),
+    branch_prefix: params.branch_prefix.clone(),
+  })
 }
 
 /// The readiness of `branches`, in their order. `recheck` asks Patronus again, never the cache, and in the foreground

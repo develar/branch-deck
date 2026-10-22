@@ -68,11 +68,21 @@ pub struct FakeGitHub {
   device_flow: Mutex<DeviceFlow>,
 }
 
-/// The device codes the fake issued, and the token each authorized one is exchanged for
+/// The device codes the fake issued, and what the user did with each
 #[derive(Default)]
 struct DeviceFlow {
-  /// By device code: None while the user has not entered it
-  codes: Vec<(String, Option<String>)>,
+  codes: Vec<(String, DeviceCodeState)>,
+}
+
+#[derive(Default, Clone)]
+enum DeviceCodeState {
+  /// The user has not entered it
+  #[default]
+  Pending,
+  /// The user entered it: the token the poll gets
+  Granted(String),
+  /// The user denied the app on GitHub
+  Denied,
 }
 
 /// The code the user enters of every device code of the fake
@@ -115,8 +125,19 @@ impl FakeGitHub {
 
   /// The user entered every device code issued so far on GitHub: the next poll of each gets `token`
   pub fn authorize_device_codes(&self, token: &str) {
-    for (_, granted) in &mut self.device_flow.lock().unwrap().codes {
-      granted.get_or_insert_with(|| token.to_string());
+    for (_, state) in &mut self.device_flow.lock().unwrap().codes {
+      if matches!(state, DeviceCodeState::Pending) {
+        *state = DeviceCodeState::Granted(token.to_string());
+      }
+    }
+  }
+
+  /// The user denied the app for every device code issued so far: the next poll of each gets `access_denied`
+  pub fn deny_device_codes(&self) {
+    for (_, state) in &mut self.device_flow.lock().unwrap().codes {
+      if matches!(state, DeviceCodeState::Pending) {
+        *state = DeviceCodeState::Denied;
+      }
     }
   }
 
@@ -131,7 +152,7 @@ impl FakeGitHub {
         }
         let mut flow = self.device_flow.lock().unwrap();
         let device_code = format!("device-{}", flow.codes.len() + 1);
-        flow.codes.push((device_code.clone(), None));
+        flow.codes.push((device_code.clone(), DeviceCodeState::Pending));
         Some(FakeAnswer::ok(serde_json::json!({
           "device_code": device_code,
           "user_code": FAKE_USER_CODE,
@@ -150,8 +171,9 @@ impl FakeGitHub {
         let flow = self.device_flow.lock().unwrap();
         match flow.codes.iter().find(|(code, _)| Some(code.as_str()) == field("device_code")) {
           None => error("incorrect_device_code"),
-          Some((_, None)) => error("authorization_pending"),
-          Some((_, Some(token))) => Some(FakeAnswer::ok(serde_json::json!({"access_token": token, "token_type": "bearer", "scope": "read:org,repo"}))),
+          Some((_, DeviceCodeState::Pending)) => error("authorization_pending"),
+          Some((_, DeviceCodeState::Denied)) => error("access_denied"),
+          Some((_, DeviceCodeState::Granted(token))) => Some(FakeAnswer::ok(serde_json::json!({"access_token": token, "token_type": "bearer", "scope": "read:org,repo"}))),
         }
       }
       _ => None,
@@ -220,18 +242,19 @@ pub async fn start_fake_server() -> (Arc<FakeGitHub>, String) {
 
 /// Serves `fake` on a free port for the rest of the runtime; its URL (`http://127.0.0.1:<port>`)
 pub async fn serve(fake: Arc<FakeGitHub>) -> String {
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-  let address = listener.local_addr().unwrap();
-  let app = router(fake);
-  tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-  format!("http://{address}")
+  test_utils::fake_server::FakeServer::start(router(fake)).await.detach()
 }
 
 /// The routes of `fake`, every path: for a server of the caller's (the E2E test server serves one per test repository)
 pub fn router(fake: Arc<FakeGitHub>) -> axum::Router {
   axum::Router::new().fallback(move |method: Method, uri: Uri, headers: HeaderMap, body: Bytes| {
     let fake = Arc::clone(&fake);
-    async move { fake.respond(&method, &uri, &headers, &body) }
+    // on the blocking pool: the branch tips of a repository (`BranchTip`) may run git
+    async move {
+      tokio::task::spawn_blocking(move || fake.respond(&method, &uri, &headers, &body))
+        .await
+        .expect("the fake's answer")
+    }
   })
 }
 

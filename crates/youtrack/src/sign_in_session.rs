@@ -9,7 +9,6 @@ use crate::sign_in::{PendingSignIn, finish_sign_in, start_sign_in};
 use crate::token_store::{RefreshGrant, StoredToken};
 use crate::url::normalize_base_url;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 use sync_types::youtrack::{YouTrackSignIn, YouTrackUser};
 use sync_utils::secret_store::{remove_secret, write_secret_json};
 use sync_utils::span::in_current_span;
@@ -19,18 +18,29 @@ use tracing::{info, instrument};
 /// The browser sign-in of one app; the tokens go to the token file of its service
 #[derive(Default)]
 pub struct YouTrackSignInSession {
-  /// The sign-in waiting for the browser, with its generation and its YouTrack; `wait` takes it
-  pending: Mutex<Option<(u64, String, PendingSignIn)>>,
+  /// Under one lock: a start, a wait and a cancel each see the state whole, so nothing stays pending that no wait
+  /// can end
+  state: Mutex<SignInState>,
+}
+
+#[derive(Default)]
+struct SignInState {
   /// A newer sign-in, a cancel or a sign-out ends the wait of an older one
-  generation: AtomicU64,
+  generation: u64,
+  /// The sign-in waiting for the browser, with its generation and its YouTrack; `wait` takes it
+  pending: Option<(u64, String, PendingSignIn)>,
   /// The generation of the sign-in started and not ended yet; 0 for none
-  in_progress: AtomicU64,
+  in_progress: u64,
 }
 
 impl YouTrackSignInSession {
+  fn state(&self) -> std::sync::MutexGuard<'_, SignInState> {
+    self.state.lock().unwrap()
+  }
+
   /// A sign-in was started and has not ended: it waits for `wait`, or `wait` waits for the browser
   pub fn is_pending(&self) -> bool {
-    self.in_progress.load(Ordering::SeqCst) != 0
+    self.state().in_progress != 0
   }
 
   /// Starts the browser sign-in to the YouTrack at `url`, which replaces the one before: the Hub page to open. `wait`
@@ -39,12 +49,14 @@ impl YouTrackSignInSession {
   pub async fn start(&self, service: &YouTrackService, url: &str) -> Result<YouTrackSignIn, String> {
     let base = normalize_base_url(url)?;
     let pending = start_sign_in(&service.client, &base).await.map_err(|e| e.to_string())?;
-    let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
     let answer = YouTrackSignIn {
       authorize_url: pending.authorize_url.clone(),
     };
-    *self.pending.lock().unwrap() = Some((generation, base, pending));
-    self.in_progress.store(generation, Ordering::SeqCst);
+    let mut state = self.state();
+    state.generation += 1;
+    let generation = state.generation;
+    state.pending = Some((generation, base, pending));
+    state.in_progress = generation;
     Ok(answer)
   }
 
@@ -52,19 +64,20 @@ impl YouTrackSignInSession {
   /// forgets what the service knew; the user. A newer sign-in, `cancel` or `sign_out` ends it with "canceled".
   #[instrument(skip(self, service))]
   pub async fn wait(&self, service: &YouTrackService) -> Result<YouTrackUser, String> {
-    let (generation, base, pending) = self.pending.lock().unwrap().take().ok_or("No YouTrack sign-in is in progress")?;
+    let (generation, base, pending) = self.state().pending.take().ok_or("No YouTrack sign-in is in progress")?;
     let signed_in = self.finish(service, generation, base, pending).await;
     // only this sign-in ends here: a newer one stays in progress
-    let _ = self.in_progress.compare_exchange(generation, 0, Ordering::SeqCst, Ordering::SeqCst);
+    let mut state = self.state();
+    if state.in_progress == generation {
+      state.in_progress = 0;
+    }
     signed_in
   }
 
   async fn finish(&self, service: &YouTrackService, generation: u64, base: String, pending: PendingSignIn) -> Result<YouTrackUser, String> {
     let hub = pending.hub.clone();
     let client = &service.client;
-    let tokens = finish_sign_in(client, pending, || self.generation.load(Ordering::SeqCst) != generation)
-      .await
-      .map_err(|e| e.to_string())?;
+    let tokens = finish_sign_in(client, pending, || self.state().generation != generation).await.map_err(|e| e.to_string())?;
     let user = fetch_me(client, &base, &tokens.access_token).await.map_err(|e| e.message())?;
     let refresh = tokens.refresh_token.map(|refresh_token| RefreshGrant {
       hub_url: hub.url,
@@ -90,9 +103,10 @@ impl YouTrackSignInSession {
 
   /// Ends the wait of the sign-in in progress, if any
   pub fn cancel(&self) {
-    self.generation.fetch_add(1, Ordering::SeqCst);
-    self.pending.lock().unwrap().take();
-    self.in_progress.store(0, Ordering::SeqCst);
+    let mut state = self.state();
+    state.generation += 1;
+    state.pending = None;
+    state.in_progress = 0;
   }
 
   /// Keeps a token the user created in YouTrack (Profile → Account Security), once YouTrack accepted it; the user

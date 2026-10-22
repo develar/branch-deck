@@ -25,11 +25,20 @@ impl AppState {
   pub fn global_config_of(&self, repository_id: &str) -> PathBuf {
     self.test_root_dir.path().join(format!("{repository_id}.gitconfig"))
   }
+
+  /// The app data directory of a test repository's fake services (`remote_host.rs`): the token files of the sign-ins
+  /// and the fake `gh`, beside the repository as its global git config is, so a failed sign-in test can be read there.
+  /// Deleted with the repository
+  pub fn app_data_of(&self, repository_id: &str) -> PathBuf {
+    self.test_root_dir.path().join(format!("{repository_id}.app-data"))
+  }
 }
 
 pub struct TestRepository {
   pub id: String,
   pub path: String,
+  /// `AppState::app_data_of`: where the fake services keep the app's token files
+  pub app_data: PathBuf,
   /// Held for reading by every request of the page mock for this repository (`hold_repository` in lib.rs) and for
   /// writing by `delete_repository`, so a repository is deleted only after the commands still running for it
   pub in_flight: std::sync::Arc<tokio::sync::RwLock<()>>,
@@ -66,7 +75,11 @@ pub struct TestRepository {
 impl TestRepository {
   /// The fake services of the repository, started now if not yet
   pub fn remote(&self, git: &GitCommandExecutor) -> std::sync::Arc<crate::remote_host::RemoteHost> {
-    std::sync::Arc::clone(self.remote.get_or_init(|| std::sync::Arc::new(crate::remote_host::RemoteHost::start(git, &self.path))))
+    std::sync::Arc::clone(
+      self
+        .remote
+        .get_or_init(|| std::sync::Arc::new(crate::remote_host::RemoteHost::start(git, &self.path, self.app_data.clone()))),
+    )
   }
 
   /// The fake services once started

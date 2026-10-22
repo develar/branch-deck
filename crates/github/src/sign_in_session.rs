@@ -38,7 +38,8 @@ impl GitHubSignInSession {
     }
   }
 
-  /// A sign-in waits for the user to enter its code on GitHub
+  /// A sign-in waits for the user to enter its code on GitHub: started, and not ended by `wait` (with its token or
+  /// its error), `cancel` or `sign_out`
   pub fn is_pending(&self) -> bool {
     self.pending.lock().unwrap().is_some()
   }
@@ -76,13 +77,24 @@ impl GitHubSignInSession {
   }
 
   /// Waits until the user entered the code of `start` on GitHub, then keeps the token in the token file and forgets
-  /// what the token chain knew; the login. A newer sign-in, `cancel` or `sign_out` ends it with "canceled".
+  /// what the token chain knew; the login. A newer sign-in, `cancel` or `sign_out` ends it with "canceled". The sign-in
+  /// ends with its token or with its error (a denied or expired code, a GitHub that does not answer): nothing is
+  /// pending after either, unless a newer sign-in started meanwhile.
   #[instrument(skip(self, service))]
   pub async fn wait(&self, service: &GitHubService, client_id: Option<&str>) -> Result<String, String> {
     let (generation, code) = self.pending.lock().unwrap().clone().ok_or("No GitHub sign-in is in progress")?;
+    let signed_in = self.finish(service, client_id, &code, generation).await;
+    self.pending.lock().unwrap().take_if(|(pending, _)| *pending == generation);
+    if signed_in.is_ok() {
+      service.tokens.forget().await;
+    }
+    signed_in
+  }
+
+  async fn finish(&self, service: &GitHubService, client_id: Option<&str>, code: &DeviceCode, generation: u64) -> Result<String, String> {
     let client = &service.client;
     let is_canceled = || self.generation.load(Ordering::SeqCst) != generation;
-    let access = wait_for_token(client, client_id.ok_or(NO_CLIENT_ID_MESSAGE)?, &code, is_canceled)
+    let access = wait_for_token(client, client_id.ok_or(NO_CLIENT_ID_MESSAGE)?, code, is_canceled)
       .await
       .map_err(|e| e.to_string())?;
     let login = client.viewer_login(&access.token).await.map_err(|e| e.message())?;
@@ -97,8 +109,6 @@ impl GitHubSignInSession {
       .await
       .map_err(|e| e.to_string())?
       .map_err(|e| format!("Cannot keep the GitHub token: {e}"))?;
-    self.pending.lock().unwrap().take_if(|(pending, _)| *pending == generation);
-    service.tokens.forget().await;
     info!(%login, "signed in to GitHub");
     Ok(login)
   }

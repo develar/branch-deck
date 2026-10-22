@@ -92,3 +92,22 @@ async fn a_cancel_ends_the_wait_and_a_build_without_the_oauth_app_signs_in_nowhe
   let status = session.status(&service, None).await;
   assert_eq!((status.sign_in_available, status.manage_url), (false, None));
 }
+
+#[tokio::test]
+async fn a_denied_code_ends_the_sign_in_and_is_pending_is_false() {
+  let (fake, service, session, dir) = setup().await;
+  session.start(&service, Some("client-1")).await.unwrap();
+  assert!(session.is_pending());
+  let wait = session.wait(&service, Some("client-1"));
+  let deny = async {
+    while fake.requests_to("POST", "/login/oauth/access_token").is_empty() {
+      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    fake.deny_device_codes();
+  };
+  let (waited, ()) = tokio::join!(wait, deny);
+  assert_eq!(waited, Err("the access was denied on GitHub".to_string()));
+  assert!(!session.is_pending(), "a sign-in that ended with its error is no longer pending");
+  assert_eq!(session.wait(&service, Some("client-1")).await, Err("No GitHub sign-in is in progress".to_string()));
+  assert!(read_token(&token_file(dir.path())).is_none());
+}

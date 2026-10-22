@@ -2,6 +2,8 @@
 
 pub mod env_vars;
 pub mod fake_executable;
+#[cfg(feature = "http")]
+pub mod fake_server;
 pub mod git_test_utils;
 pub mod repo_template;
 

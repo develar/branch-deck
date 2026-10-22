@@ -127,7 +127,7 @@ Mock implementation:
   handlers over a route (`get_file_diffs`, `get_file_merges` and `sync_branches` adapt a channel;
   `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
   and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (111) and `PAGE_MOCKED` (4) are pinned; `PAGE_MOCKED` only goes down: a new command
+  bytes). The number of commands (112) and `PAGE_MOCKED` (4) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
@@ -141,9 +141,14 @@ Mock implementation:
   its failure stays `routeCommandError`, the one page answer that is no route count. The page answers of the read
   commands are pinned per command (`ROUTED_IN_PAGE`, ten commands: a robot a `/patronus` comment started, the
   build progress of a running robot's details, a refused landing gate, …), and the pushes (`PUSHES_IN_PAGE`,
-  `routePush`/`routePushBranches`: the templates name the repository itself as `origin`, so a rejected or moved remote
-  has nowhere to come from) are the one exception among the writes. A new page answer fails, a removed one lowers its
-  number; `routeCommand` and a fulfilling route name their command by a string literal.
+  `routePush`/`routePushBranches`/`routeHeldPush`: the templates name the repository itself as `origin`, so a rejected
+  or moved remote has nowhere to come from) are the one exception among the writes. An answer counts where it is
+  given: a helper that answers (a declared `function`, exported from `helpers/` or a spec's own, through the helpers it
+  calls) counts its answers once per call, not once per definition, so the pinned pushes are the calls of the push
+  helpers; an answering arrow function kept in a `const` is refused, as is a second declaration of an answering
+  helper's name. A route handler that fulfills with an answer of its own on any branch is an answer, even when
+  another branch forwards the server's `response`. A new page answer fails, a removed one lowers its number;
+  `routeCommand` and a fulfilling route name their command by a string literal.
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
   (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
   and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the
@@ -317,6 +322,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (`routePushNotingPatronus` in `patronus-actions.spec.ts`)
 - **GitHub**: the host holds `FakeGitHub` with a `FakeGitHubRepository` (`crates/github/src/fake_repository.rs`) and
   the `GitHubService` of the app on it, whose token chain asks only the token file of the host's own app data directory
+  (`<test root>/<id>.app-data`, beside the repository, deleted with it)
   and a fake `gh` a sign-in fixture writes there (no `GH_TOKEN`, no `gh` of the developer, no git credentials, no
   keychain): signed in as `user-name`, the author of the fixtures' pull requests, until a fixture says `signedOut`. The fake answers as GitHub does what `sync_core` asks: `GET /user`, the
   GraphQL search of the user's pull requests (`author:@me`, newest first) and of the assignable users, `POST pulls`

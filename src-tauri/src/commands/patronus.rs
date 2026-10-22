@@ -4,7 +4,6 @@ use crate::commands::pull_requests::github_repository;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::is_object_id;
 use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
@@ -13,7 +12,7 @@ use patronus::token::find_user_token;
 use std::time::Duration;
 use sync_core::landing_gate::{LandingCheck, LandingGateParams, landing_check};
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, prepare_robot_start, required_target_branch};
-use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
+use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
 use sync_core::target_conflict::{TargetCheck, TargetConflictParams, target_conflict_core};
 use sync_types::patronus::{
@@ -337,29 +336,23 @@ pub async fn get_branch_review_readiness(
   params: GetBranchReviewReadinessParams,
 ) -> Result<Vec<BranchReviewReadiness>, CommandError> {
   operation(async move {
-    if let Some(branch) = params.branches.iter().find(|branch| !is_object_id(&branch.tip)) {
-      return Err(CommandError::new(format!("Not a commit id: {}", branch.tip)));
-    }
     let space = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
     let github = github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-    let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
-    let cache = {
-      let (git, path, repository_state) = ((*git_executor).clone(), params.repository_path.clone(), (*repository_state).clone());
-      run_blocking(move || anyhow::Ok(repository_state.object_cache(&git, &path))).await?
-    };
-    let repository = ReadinessRepository {
-      space: &space,
-      github: github.as_ref(),
-      target: &target,
-      baseline: &params.baseline_branch,
-      branch_prefix: &params.branch_prefix,
+    let (inputs, cache, params) = {
+      let (git, repository_state) = ((*git_executor).clone(), (*repository_state).clone());
+      run_blocking(move || {
+        let inputs = prepare_review_readiness(&git, space, github, &params)?;
+        let cache = repository_state.object_cache(&git, &params.repository_path);
+        anyhow::Ok((inputs, cache, params))
+      })
+      .await?
     };
     branch_review_readiness(
       &git_executor,
       &params.repository_path,
       &cache,
       &patronus.service,
-      &repository,
+      &inputs.repository(),
       &params.branches,
       params.recheck,
     )

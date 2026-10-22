@@ -9,13 +9,15 @@ use axum::routing::{get, post, put};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use test_utils::fake_server::FakeServer;
 
-/// Rewrites a robot of an answer in place (`FakePatronus::robots_hook`)
-pub type RobotsHook = Box<dyn Fn(&mut serde_json::Value) + Send + Sync>;
+/// Rewrites a robot of an answer in place (`FakePatronus::robots_hook`); runs on the blocking pool, outside every lock
+/// of the fake: the hook of the test server runs git
+pub type RobotsHook = Arc<dyn Fn(&mut serde_json::Value) + Send + Sync>;
 
 /// The answer of a pre-check request (its body): the status and the body Patronus answers, None for the built-in one
-/// (`FakePatronus::review_hook`)
-pub type ReviewHook = Box<dyn Fn(&serde_json::Value) -> Option<(u16, serde_json::Value)> + Send + Sync>;
+/// (`FakePatronus::review_hook`); runs on the blocking pool, outside every lock of the fake
+pub type ReviewHook = Arc<dyn Fn(&serde_json::Value) -> Option<(u16, serde_json::Value)> + Send + Sync>;
 
 /// Answers `status` (200 = the robots) and counts the requests
 #[derive(Default)]
@@ -114,46 +116,6 @@ pub struct FakePatronus {
   created: AtomicU32,
 }
 
-/// A fake served on a loopback port of its own; the server stops when this is dropped
-pub struct FakeServer {
-  /// `http://127.0.0.1:{port}`, the base URL of a client
-  pub url: String,
-  task: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl FakeServer {
-  /// Serves `router` on a new loopback port; call inside a Tokio runtime
-  pub fn serve(router: axum::Router) -> Self {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port for the fake");
-    listener.set_nonblocking(true).expect("a non-blocking listener");
-    Self::serve_on(tokio::net::TcpListener::from_std(listener).expect("a Tokio listener"), router)
-  }
-
-  /// `serve`, bound without blocking the runtime
-  pub async fn start(router: axum::Router) -> Self {
-    Self::serve_on(tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a loopback port for the fake"), router)
-  }
-
-  fn serve_on(listener: tokio::net::TcpListener, router: axum::Router) -> Self {
-    let url = format!("http://{}", listener.local_addr().expect("the address of the fake"));
-    let task = tokio::spawn(async move { axum::serve(listener, router).await.expect("the fake server") });
-    Self { url, task: Some(task) }
-  }
-
-  /// Keeps the server running until the runtime ends
-  pub fn detach(mut self) {
-    self.task.take();
-  }
-}
-
-impl Drop for FakeServer {
-  fn drop(&mut self) {
-    if let Some(task) = self.task.take() {
-      task.abort();
-    }
-  }
-}
-
 impl FakePatronus {
   pub fn set_status(&self, status: u16) {
     *self.status.lock().unwrap() = status;
@@ -163,12 +125,36 @@ impl FakePatronus {
     self.state_only.load(Ordering::SeqCst)
   }
 
+  /// `robots` as `robots_hook` rewrites them, on the blocking pool, so a hook that runs git holds up no other answer
+  /// of the runtime
+  async fn hooked(&self, robots: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    let hook = self.robots_hook.lock().unwrap().clone();
+    let Some(hook) = hook else {
+      return robots;
+    };
+    let rewrite = move || {
+      robots
+        .into_iter()
+        .map(|mut robot| {
+          hook(&mut robot);
+          robot
+        })
+        .collect()
+    };
+    tokio::task::spawn_blocking(rewrite).await.expect("the robots hook")
+  }
+
   /// `robot` as `robots_hook` rewrites it
-  fn hooked(&self, mut robot: serde_json::Value) -> serde_json::Value {
-    if let Some(hook) = self.robots_hook.lock().unwrap().as_ref() {
-      hook(&mut robot);
-    }
-    robot
+  async fn hooked_one(&self, robot: serde_json::Value) -> serde_json::Value {
+    self.hooked(vec![robot]).await.pop().expect("the hooked robot")
+  }
+
+  /// What `review_hook` answers the pre-check `body`, on the blocking pool; None without a hook or for the built-in
+  /// answer
+  async fn review_hooked(&self, body: &serde_json::Value) -> Option<(u16, serde_json::Value)> {
+    let hook = self.review_hook.lock().unwrap().clone()?;
+    let body = body.clone();
+    tokio::task::spawn_blocking(move || hook(&body)).await.expect("the review hook")
   }
 
   /// The robots of the list; none until set when `state_only`
@@ -201,7 +187,7 @@ impl FakePatronus {
 
   /// Lists a new running robot `id` of `source` (the branches, the mode and the options of a start or of the robot a
   /// restart restarts), on the commit its source branch points to now (`robots_hook`)
-  fn list_started(&self, id: &str, source: &serde_json::Value, push_mode: &serde_json::Value) {
+  async fn list_started(&self, id: &str, source: &serde_json::Value, push_mode: &serde_json::Value) {
     let created = self.created.fetch_add(1, Ordering::SeqCst) + 1;
     let start = self.clock.lock().unwrap().map_or_else(sync_utils::timestamp::unix_now, |clock| clock + created);
     let mut robot = serde_json::json!({
@@ -221,7 +207,7 @@ impl FakePatronus {
     if source["options"].is_object() {
       robot["options"] = source["options"].clone();
     }
-    let robot = self.hooked(robot);
+    let robot = self.hooked_one(robot).await;
     self.robots.lock().unwrap().get_or_insert_with(Vec::new).push(robot);
   }
 
@@ -376,10 +362,8 @@ fn default_attempt_builds() -> serde_json::Value {
 pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
   let fake = Arc::new(FakePatronus::default());
   fake.set_status(200);
-  let server = FakeServer::start(router(Arc::clone(&fake))).await;
-  let client = PatronusClient::new(server.url.clone(), "Branch Deck test");
-  server.detach();
-  (fake, client)
+  let url = FakeServer::start(router(Arc::clone(&fake))).await.detach();
+  (fake, PatronusClient::new(url, "Branch Deck test"))
 }
 
 /// The routes of Patronus that `fake` answers
@@ -391,7 +375,7 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
       get(|State(fake): State<Arc<FakePatronus>>, Query(query): Query<HashMap<String, String>>| async move {
         fake.list_calls.fetch_add(1, Ordering::SeqCst);
         *fake.last_query.lock().unwrap() = query;
-        let mut robots: Vec<serde_json::Value> = fake.listed_robots().into_iter().map(|robot| fake.hooked(robot)).collect();
+        let mut robots = fake.hooked(fake.listed_robots()).await;
         if fake.list_profiles.load(Ordering::SeqCst) {
           // the older robot ran with the Large Scale Change profile, the newer one without a profile
           for robot in &mut robots {
@@ -422,7 +406,7 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
           return (StatusCode::CREATED, Json(serde_json::json!({"robotId": "started"}))).into_response();
         }
         let id = format!("started-{count}");
-        fake.list_started(&id, &body, &body["mode"]);
+        fake.list_started(&id, &body, &body["mode"]).await;
         (StatusCode::CREATED, Json(serde_json::json!({"robotId": id}))).into_response()
       }),
     )
@@ -466,7 +450,7 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
           vec![robot]
         });
         *fake.last_updates.lock().unwrap() = body;
-        let robots: Vec<serde_json::Value> = robots.into_iter().map(|robot| fake.hooked(robot)).collect();
+        let robots = fake.hooked(robots).await;
         fake.answer(serde_json::json!({"robots": robots}))
       }),
     )
@@ -485,7 +469,7 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
           }
           None => robot_detail_json(&id),
         };
-        fake.answer(fake.hooked(robot))
+        fake.answer(fake.hooked_one(robot).await)
       }),
     )
     .route(
@@ -574,7 +558,7 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
           return no_such_robot();
         };
         let robot_id = format!("restarted-{count}");
-        fake.list_started(&robot_id, &restarted, &restarted["pushMode"]);
+        fake.list_started(&robot_id, &restarted, &restarted["pushMode"]).await;
         fake.answer(serde_json::json!({"robotId": robot_id}))
       }),
     )
@@ -620,9 +604,8 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         // the commits are newest first
         let tip = body["commits"][0]["hash"].as_str().unwrap_or_default().to_string();
         fake.checked_tips.lock().unwrap().push(tip);
-        if *fake.status.lock().unwrap() == 200
-          && let Some((status, answer)) = fake.review_hook.lock().unwrap().as_ref().and_then(|hook| hook(&body))
-        {
+        let answering = *fake.status.lock().unwrap() == 200;
+        if answering && let Some((status, answer)) = fake.review_hooked(&body).await {
           return (StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), Json(answer)).into_response();
         }
         let evaluated = fake.pull_request_review.lock().unwrap().clone().filter(|_| body["githubPullRequest"].is_object());

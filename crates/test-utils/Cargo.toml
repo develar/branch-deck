@@ -13,6 +13,11 @@ tempfile.workspace = true
 # Git command executor
 git-executor = { path = "../git-executor" }
 
+# The fake HTTP server of the fakes (`fake_server`), with the `http` feature
+axum = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+
 # Note: git-ops removed to avoid circular dependency - git-ops has its own test utilities
 
 [dev-dependencies]
@@ -20,5 +25,7 @@ test-log = { workspace = true }
 
 [features]
 default = []
+# `fake_server`: a router on a loopback port, for the fakes of the service crates
+http = ["dep:axum", "dep:tokio", "dep:tracing"]
 [lints]
 workspace = true

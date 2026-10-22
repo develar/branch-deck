@@ -9,6 +9,7 @@ axum = { workspace = true, optional = true }
 git-ops = { path = "../git-ops" }
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
+test-utils = { path = "../test-utils", features = ["http"], optional = true }
 moka.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -19,7 +20,7 @@ tracing.workspace = true
 
 [features]
 # the in-process Patronus of the tests (`fake_patronus`), for the tests of other crates
-fake = ["dep:axum"]
+fake = ["dep:axum", "dep:test-utils"]
 
 [dev-dependencies]
 axum.workspace = true

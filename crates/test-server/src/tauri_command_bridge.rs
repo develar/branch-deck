@@ -43,7 +43,7 @@ use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
   write_global_config, write_repository_config,
 };
-use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
+use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::robot_failure_report;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
@@ -806,10 +806,11 @@ pub async fn request_pull_request_reviewers(
   requested.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
 
-/// The text a new pull request starts with and the user of the token, as the app reads them; no YouTrack yet
+/// The text a new pull request starts with and the user of the token, as the app reads them: the issue summaries
+/// from the YouTrack of the repository, when the issue links name it and the app is signed in
 pub async fn get_new_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<GetNewPullRequestParams>) -> CommandResult<NewPullRequest> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let pull_request = new_pull_request(&state.git_executor, None, "origin", &params).await;
+  let host = remote_of(&state, &params.repository_path)?;
+  let pull_request = new_pull_request(&state.git_executor, Some(host.youtrack_service()), "origin", &params).await;
   let pull_request = pull_request.map_err(|e| CommandFailure::error("read the text of the pull request", e))?;
   with_viewer(&state, &params.repository_path, pull_request).await
 }
@@ -1142,26 +1143,21 @@ pub async fn get_branch_review_readiness(
       .expect("review readiness calls lock")
       .push(serde_json::json!({"branches": branches, "recheck": params.recheck}));
   }
-  if let Some(branch) = params.branches.iter().find(|branch| !git_ops::revs::is_object_id(&branch.tip)) {
-    return Err(CommandFailure::error(operation, format!("Not a commit id: {}", branch.tip)));
-  }
   let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
   let (_, github) = github_of(&state, &params.repository_path, None).await?;
-  let (git_executor, path, baseline) = (state.git_executor.clone(), params.repository_path.clone(), params.baseline_branch.clone());
-  let Json(target) = run_command(operation, move || required_target_branch(&git_executor, &path, &baseline)).await?;
-  let repository = ReadinessRepository {
-    space: &space,
-    github: github.as_ref(),
-    target: &target,
-    baseline: &params.baseline_branch,
-    branch_prefix: &params.branch_prefix,
+  let Json((inputs, params)) = {
+    let git_executor = state.git_executor.clone();
+    run_command(operation, move || {
+      prepare_review_readiness(&git_executor, space, github, &params).map(|inputs| (inputs, params))
+    })
+    .await?
   };
   let readiness = branch_review_readiness(
     &state.git_executor,
     &params.repository_path,
     &ObjectCache::disabled(),
     &host.patronus_service(),
-    &repository,
+    &inputs.repository(),
     &params.branches,
     params.recheck,
   )

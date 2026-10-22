@@ -9,6 +9,7 @@ axum = { workspace = true, optional = true }
 git-executor = { path = "../git-executor" }
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
+test-utils = { path = "../test-utils", features = ["http"], optional = true }
 moka.workspace = true
 reqwest = { workspace = true, features = ["form"] }
 serde.workspace = true
@@ -18,7 +19,7 @@ tracing.workspace = true
 
 [features]
 # the in-process GitHub of the tests (`fake_github`), for the tests of other crates
-fake = ["dep:axum"]
+fake = ["dep:axum", "dep:test-utils"]
 
 [dev-dependencies]
 axum.workspace = true

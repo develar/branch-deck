@@ -1,6 +1,6 @@
 use crate::client::{GitHubClient, GitHubError};
-use crate::fake_github::{FakeAnswer, FakeGitHub, router};
-use crate::fake_repository::{FakeGitHubRepository, RepositoryState};
+use crate::fake_github::{FakeAnswer, FakeGitHub, serve};
+use crate::fake_repository::{BranchTip, FakeGitHubRepository, RepositoryState};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -10,6 +10,14 @@ const TOKEN: &str = "e2e-token";
 
 /// acme/monorepo with the branches master and user/virtual/auth, the user alice of the token and bob, served on a port
 async fn setup() -> (Arc<FakeGitHub>, Arc<FakeGitHubRepository>, GitHubClient) {
+  setup_with_tip(Box::new(|branch| {
+    ["master", "user/virtual/auth"].contains(&branch).then(|| format!("{:0>40}", branch.len()))
+  }))
+  .await
+}
+
+/// `setup` with `tip` as where its branches point
+async fn setup_with_tip(tip: BranchTip) -> (Arc<FakeGitHub>, Arc<FakeGitHubRepository>, GitHubClient) {
   let repository = Arc::new(FakeGitHubRepository::default());
   repository.set(RepositoryState {
     owner: "acme".to_string(),
@@ -24,14 +32,9 @@ async fn setup() -> (Arc<FakeGitHub>, Arc<FakeGitHubRepository>, GitHubClient) {
     clock: 1_704_189_600,
     ..RepositoryState::default()
   });
-  repository.set_branch_tip(Box::new(|branch| {
-    ["master", "user/virtual/auth"].contains(&branch).then(|| format!("{:0>40}", branch.len()))
-  }));
+  repository.set_branch_tip(tip);
   let fake = Arc::new(FakeGitHub::with_repository(Arc::clone(&repository)));
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-  let url = format!("http://{}", listener.local_addr().unwrap());
-  let app = router(Arc::clone(&fake));
-  tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+  let url = serve(Arc::clone(&fake)).await;
   (fake, repository, GitHubClient::with_urls(url.clone(), url, "Branch Deck test"))
 }
 
@@ -198,4 +201,31 @@ async fn the_patronus_bot_answers_a_command_comment_with_a_reaction_and_a_reject
   assert_eq!(after[2]["user"]["type"], "Bot");
   let missing = get(&client, &pulls(&["issues", "comments", "99"]), &[]).await;
   assert!(matches!(missing, Err(GitHubError::NoAccess { status: 404, .. })), "{missing:?}");
+}
+
+/// The runtime has one thread, as a branch tip that ran git on it would stall every other answer of the server. The
+/// repository answers one request at a time under its state lock, the tips included, so the other request is one of
+/// the fake itself (the device flow), which the runtime answers meanwhile
+#[tokio::test(flavor = "current_thread")]
+async fn a_branch_tip_that_blocks_holds_up_no_other_answer() {
+  let (_fake, _repository, client_of_fake) = setup_with_tip(Box::new(|_| {
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    Some("a".repeat(40))
+  }))
+  .await;
+  let url = client_of_fake.web_url().to_string();
+  let client = reqwest::Client::new();
+  let order = std::sync::Mutex::new(Vec::new());
+  let noted = async |name: &'static str, request: reqwest::RequestBuilder| {
+    assert_eq!(request.send().await.unwrap().status().as_u16(), 200, "{name}");
+    order.lock().unwrap().push(name);
+  };
+  let branch = noted("branch", client.get(format!("{url}/repos/acme/monorepo/branches/master")).bearer_auth(TOKEN));
+  let device_code = async {
+    // after the branch sent its request
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    noted("device code", client.post(format!("{url}/login/device/code")).form(&[("client_id", "c")])).await;
+  };
+  tokio::join!(branch, device_code);
+  assert_eq!(order.into_inner().unwrap(), ["device code", "branch"], "the device code answered while the tip was read");
 }
