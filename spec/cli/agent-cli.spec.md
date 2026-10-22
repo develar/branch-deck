@@ -1138,6 +1138,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Without the Space token it must be `not_logged_in`, and outside Space `not_on_space`, before a request to Patronus.
   [@test] ../../crates/bd-remote/src/robot_test.rs (`robot_without_a_token_or_space_asks_nothing`)
 
+### `bd robot-stats`
+
+- `bd robot-stats` must print the Safe Push statistics of the repository from the core of the app: the user's robots
+  of the last 70 days against everyone else's, the time lost, the failure causes and flaky checks of the last 14 days
+  and the start hours ([Safe Push Statistics](../repository/safe-push-statistics.spec.md)); read only, Patronus listed
+  week by week and kept in the object cache.
+  [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothing`)
+  [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`a_failure_after_a_read_prints_the_kept_numbers_with_a_warning`, `the_statistics_say_why_there_are_none`)
+
 ### `bd describe`
 
 - `bd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`. The

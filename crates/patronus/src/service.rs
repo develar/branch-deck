@@ -212,6 +212,11 @@ impl PatronusService {
     &self.client
   }
 
+  /// The server, e.g. `PATRONUS_URL`: part of the key of what is kept of it
+  pub fn base_url(&self) -> &str {
+    self.client.base_url()
+  }
+
   /// Who asks, for a key of an answer that depends on the user: the server and a hash of the current token (a renewed
   /// token is another key, which costs one more question per branch every 14 days); None without a token. The Space
   /// user is not known locally: the `name` of the token file is the CLI client, which another user's login keeps.

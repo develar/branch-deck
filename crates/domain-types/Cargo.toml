@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+# the time zone database of `calendar`; reading the system zone (`tz-system`) is the hosts'
+jiff = { workspace = true, features = ["tzdb-bundle-platform", "tzdb-zoneinfo"] }
 thiserror.workspace = true
 serde.workspace = true
 schemars = { workspace = true, optional = true }

@@ -257,6 +257,80 @@ pub async fn set_patronus_details(Path(id): Path<String>, State(state): State<Ar
   Ok(StatusCode::OK)
 }
 
+/// More robots of the list, after those of `set_patronus` (`POST /repositories/{id}/patronus-history`): the history
+/// the statistics count, the user's (owner `1`) and other people's
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusHistoryFixture {
+  pub robots: Vec<HistoryRobotFixture>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRobotFixture {
+  pub id: String,
+  /// `1` is the user
+  pub owner: String,
+  pub status: PatronusRobotStatus,
+  /// Unix seconds
+  pub start_time: u32,
+  pub finish_time: Option<u32>,
+  /// The virtual branch it ran on, of the user's
+  #[serde(default)]
+  pub branch: Option<String>,
+  #[serde(default)]
+  pub dry_run: bool,
+  #[serde(default)]
+  pub source_robot_id: Option<String>,
+}
+
+/// `robot` as Patronus lists it to the statistics, its branch under `branch_prefix`
+pub fn fixture_history_robot(robot: &HistoryRobotFixture, branch_prefix: &str) -> anyhow::Result<serde_json::Value> {
+  let source_branch = robot
+    .branch
+    .as_deref()
+    .map(|branch| to_final_branch_name(branch_prefix, branch).map(|name| format!("refs/heads/{name}")))
+    .transpose()?;
+  Ok(serde_json::json!({
+    "id": robot.id,
+    "name": robot.id,
+    "repository": crate::remote_host::SPACE_REPOSITORY,
+    "sourceBranch": source_branch,
+    "sourceRevision": "",
+    "targetBranch": "master",
+    "startDateTime": format_utc_timestamp(robot.start_time),
+    "finishDateTime": robot.finish_time.map(format_utc_timestamp),
+    "status": status_name(robot.status),
+    "pushMode": if robot.dry_run { "DRY_RUN" } else { "REBASE_AUTOSQUASH" },
+    "type": "WEB_UI",
+    "isEmergency": false,
+    "sourceRobotId": robot.source_robot_id,
+    "owner": {"type": "USER", "id": robot.owner, "name": format!("User {}", robot.owner)},
+  }))
+}
+
+/// Adds the robots of `PatronusHistoryFixture` to the list of the fake Patronus
+pub async fn set_patronus_history(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<PatronusHistoryFixture>) -> FixtureResult {
+  let (host, path) = host_of(&state, &id)?;
+  let git = state.git_executor.clone();
+  let prefix = tokio::task::spawn_blocking(in_current_span(move || {
+    crate::tauri_command_bridge::read_local_branch_prefix(&git, &path).map(|prefix| prefix.prefix)
+  }))
+  .await
+  .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+  .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
+  let listed = fixture
+    .robots
+    .iter()
+    .map(|robot| fixture_history_robot(robot, &prefix))
+    .collect::<anyhow::Result<Vec<_>>>()
+    .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
+  let patronus = host.patronus();
+  let mut robots = patronus.robots.lock().expect("patronus robots lock");
+  robots.get_or_insert_with(Vec::new).extend(listed);
+  Ok(StatusCode::OK)
+}
+
 /// What the page asked (`listCalls`, `pollCalls`, `detailCalls`: its commands, which the caches of the service may
 /// answer), what reached the fake Patronus (`requests`), and the actions it took, in order: the bodies of the start
 /// requests (`starts`), the robots restarted (`restarts`), canceled (`cancels`) and whose status was read (`statusReads`)
@@ -276,6 +350,8 @@ pub async fn get_patronus_fixture(Path(id): Path<String>, State(state): State<Ar
       "problems": fake.problem_calls.lock().expect("patronus problem calls lock").clone(),
       "progress": fake.progress_calls.lock().expect("patronus progress calls lock").clone(),
       "startOptions": fake.start_supported_calls.load(ordering),
+      "listQueries": fake.list_queries.lock().expect("patronus list queries lock").clone(),
+      "checks": fake.checks_calls.lock().expect("patronus checks calls lock").clone(),
     },
     "starts": fake.starts.lock().expect("patronus starts lock").clone(),
     "restarts": fake.restarts.lock().expect("patronus restarts lock").clone(),

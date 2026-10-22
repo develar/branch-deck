@@ -50,6 +50,17 @@ pub struct FakePatronus {
   pub list_profiles: std::sync::atomic::AtomicBool,
   /// The query of the last list request
   pub last_query: Mutex<HashMap<String, String>>,
+  /// The queries of every list request, in order
+  pub list_queries: Mutex<Vec<HashMap<String, String>>>,
+  /// The robots whose checks were asked (`GET /robots/{id}/teamcity-checks`), in order
+  pub checks_calls: Mutex<Vec<String>>,
+  /// The checks asked at once now, and the most at once so far
+  checks_in_flight: AtomicU32,
+  pub max_checks_in_flight: AtomicU32,
+  /// By robot id: its answer of `GET /robots/{id}/changes` instead of the built-in one
+  pub changes: Mutex<HashMap<String, serde_json::Value>>,
+  /// The robots whose changes were asked, in order
+  pub changes_calls: Mutex<Vec<String>>,
   /// The body of the last fetch-updates request
   pub last_updates: Mutex<serde_json::Value>,
   /// The pre-check answers approval required for a request without this review key… and with it unless approved
@@ -238,6 +249,31 @@ impl FakePatronus {
   }
 }
 
+/// Whether a list with `query` holds `robot`, as Patronus filters: `owner=me` keeps the robots of the user (id 1) and
+/// no owner everyone's; `targetBranch` with or without `refs/heads/`; `[start, end)` only with an `end` (a list
+/// without one is answered whole, as the tests set it)
+fn list_filter(query: &HashMap<String, String>, robot: &serde_json::Value) -> bool {
+  if query.get("owner").map(String::as_str) == Some("me") && robot["owner"]["id"].as_str().is_some_and(|id| id != "1") {
+    return false;
+  }
+  if let Some(target) = query.get("targetBranch") {
+    let strip = |branch: &str| branch.strip_prefix("refs/heads/").unwrap_or(branch).to_string();
+    if robot["targetBranch"].as_str().is_some_and(|branch| strip(branch) != strip(target)) {
+      return false;
+    }
+  }
+  if let (Some(start), Some(end)) = (query.get("start"), query.get("end")) {
+    let parse = |value: &str| sync_utils::timestamp::parse_rfc3339_timestamp(value);
+    let started = robot["startDateTime"].as_str().and_then(parse);
+    if let (Some(started), Some(start), Some(end)) = (started, parse(start), parse(end))
+      && (started < start || started >= end)
+    {
+      return false;
+    }
+  }
+  true
+}
+
 /// What Patronus answers for a robot it doesn't know
 fn no_such_robot() -> Response {
   (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "NOT_FOUND", "description": "no such robot"}))).into_response()
@@ -375,8 +411,10 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
       "/app/rest/v1/robots",
       get(|State(fake): State<Arc<FakePatronus>>, Query(query): Query<HashMap<String, String>>| async move {
         fake.list_calls.fetch_add(1, Ordering::SeqCst);
-        *fake.last_query.lock().unwrap() = query;
-        let mut robots = fake.hooked(fake.listed_robots()).await;
+        fake.list_queries.lock().unwrap().push(query.clone());
+        fake.last_query.lock().unwrap().clone_from(&query);
+        let listed: Vec<serde_json::Value> = fake.listed_robots().into_iter().filter(|robot| list_filter(&query, robot)).collect();
+        let mut robots = fake.hooked(listed).await;
         if fake.list_profiles.load(Ordering::SeqCst) {
           // the older robot ran with the Large Scale Change profile, the newer one without a profile
           for robot in &mut robots {
@@ -489,9 +527,30 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
     .route(
       "/app/rest/v1/robots/{id}/teamcity-checks",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
+        fake.checks_calls.lock().unwrap().push(id.clone());
+        let in_flight = fake.checks_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        fake.max_checks_in_flight.fetch_max(in_flight, Ordering::SeqCst);
+        // long enough for the requests sent at once to overlap
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        fake.checks_in_flight.fetch_sub(1, Ordering::SeqCst);
         let checks = fake.checks.lock().unwrap().get(&id).cloned();
         let checks = checks.unwrap_or_else(|| if fake.is_state_only() { serde_json::json!([]) } else { default_checks() });
         fake.answer(serde_json::json!({"robotId": id, "teamCityChecks": checks}))
+      }),
+    )
+    .route(
+      "/app/rest/v1/robots/{id}/changes",
+      get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
+        fake.changes_calls.lock().unwrap().push(id.clone());
+        let changes = fake.changes.lock().unwrap().get(&id).cloned();
+        let changes = changes.unwrap_or_else(|| {
+          if fake.is_state_only() {
+            serde_json::json!({"type": "NOT_LOADED"})
+          } else {
+            serde_json::json!({"type": "DELIVERED", "commitsNumber": 1, "topCommits": []})
+          }
+        });
+        fake.answer(changes)
       }),
     )
     .route(

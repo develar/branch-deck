@@ -8,6 +8,7 @@
 //! - `safe_push_command`: `bd safe-push`, a Safe Push or a Dry Run through Patronus
 //! - `request_review_command`, `pull_request_retarget`: `bd request-review`, and the retarget of pull requests
 //! - `robot_command`, `robot_list`: `bd robot`, and the robots Patronus lists
+//! - `robot_stats_command`: `bd robot-stats`, the Safe Push statistics of the repository
 
 pub mod branch_stats;
 pub mod landed;
@@ -19,6 +20,7 @@ pub mod push_hold;
 pub mod request_review_command;
 pub mod robot_command;
 pub mod robot_list;
+pub mod robot_stats_command;
 pub mod safe_push_command;
 pub mod status;
 
@@ -30,6 +32,8 @@ mod push_test;
 mod request_review_test;
 #[cfg(test)]
 mod robot_list_test;
+#[cfg(test)]
+mod robot_stats_test;
 #[cfg(test)]
 mod robot_test;
 #[cfg(test)]

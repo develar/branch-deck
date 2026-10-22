@@ -88,6 +88,8 @@
 //! - `review_readiness`: the review readiness of branches, shared by the app and `bd safe-push`
 //! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
 //! - `robot_landing`: what a merged robot landed of the branches, by content: the commits it tested, and those after
+//! - `robot_stats`: the Safe Push statistics: the robots of the last 70 days, kept in the object cache, read once
+//! - `robot_stats_aggregate`: what the statistics count of them, pure (moves to `domain-policy` in s8)
 //! - `target_conflict`: the check that Patronus can rebase what a robot lands onto the newest target
 //!
 //! The lease pool:
@@ -165,6 +167,8 @@ pub mod review_readiness;
 pub mod review_requests;
 pub mod robot_commits;
 pub mod robot_landing;
+pub mod robot_stats;
+pub mod robot_stats_aggregate;
 pub mod stack_branch;
 pub mod stack_operations;
 pub mod stack_pull_request;

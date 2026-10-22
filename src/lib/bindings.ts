@@ -156,6 +156,12 @@ export const commands = {
 	 *  `since`. When Patronus can't be asked, the availability says why.
 	 */
 	getPatronusRobots: (params: GetPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("get_patronus_robots", { params })),
+	/**
+	 *  The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
+	 *  the target of the last 70 days, kept in the object cache, the progress and the numbers of the lists through `events`
+	 *  before the runs are read
+	 */
+	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, CommandError>(__TAURI_INVOKE("get_robot_stats", { params, events })),
 	/**  The robots of `params.robots` whose status changed since the app saw it; the others are not in the result */
 	pollPatronusRobots: (params: PollPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("poll_patronus_robots", { params })),
 	/**  The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover */
@@ -758,6 +764,11 @@ export type Carried = {
 	amended: string[],
 };
 
+export type CheckCount = {
+	name: string,
+	count: number,
+};
+
 export type ChecksState = "passing" | "failing" | "pending";
 
 /**  The checks of the head commit, summarized */
@@ -926,6 +937,16 @@ export type ConflictFix = {
 	trials: number,
 };
 
+/**  What the numbers miss */
+export type Coverage = {
+	/**  The robots of the window that count, everyone's */
+	robots: number,
+	/**  The user's finished robots of the runs window whose checks are not read yet: the next read asks for them */
+	runs_missing: number,
+	/**  The weeks Patronus did not list */
+	weeks_missing: number,
+};
+
 export type CreatePullRequestParams = {
 	repositoryPath: string,
 	branchPrefix: string,
@@ -996,6 +1017,23 @@ export type DeleteArchivedBranchParams = {
 	repositoryPath: string,
 	branchName: string,
 	branchPrefix: string,
+};
+
+/**  The robots of one owner or of the user */
+export type Delivery = {
+	merged: number,
+	failed: number,
+	canceled: number,
+	/**  Finished robots per merge; null without a merge */
+	robots_per_merge: number | null,
+	/**  From the start to the merge of a merged robot, seconds */
+	merge_time: Spread | null,
+	/**  The weeks of the window from the oldest, by the local Monday a robot finished in */
+	weeks: WeekCount[],
+	/**  Dry runs, which land nothing: counted apart */
+	dry_runs: number,
+	/**  Emergency robots, which skip checks: counted apart */
+	emergency: number,
 };
 
 /**  The GitHub repository found without `branchdeck.githubRepository` */
@@ -1097,6 +1135,14 @@ export type EmptyLastLine = {
 	new: boolean,
 };
 
+/**  Everyone else as the median person: the median of each person's value, of the people with at least `MIN_MERGES` */
+export type EveryoneDelivery = {
+	people: number,
+	robots_per_merge: number | null,
+	/**  Seconds */
+	merge_time: number,
+};
+
 /**  A failed build of the dependency chain of a check (never a composite one) */
 export type FailedBuild = {
 	/**  The build configuration name, e.g. "Compile" */
@@ -1145,6 +1191,20 @@ export type FailedTest = {
 	 *  null when unknown
 	 */
 	firstFailedBefore: boolean | null,
+};
+
+/**  Why the user's robots of the runs window failed */
+export type FailureCauses = {
+	/**  Failed robots of the runs window */
+	failed: number,
+	/**  Of them, those whose checks were read */
+	read: number,
+	/**  By kind, the most first */
+	kinds: KindCount[],
+	/**  The checks that failed the most robots, at most 10 */
+	checks: CheckCount[],
+	/**  The checks that passed only on a later attempt, the most first, at most 10 */
+	flaky: FlakyCheck[],
 };
 
 export type FetchBaselineParams = {
@@ -1290,6 +1350,16 @@ export type FixupKind =
 "Squash" | 
 /**  `amend!`: the body of the amend commit replaces the target's message */
 "Amend";
+
+export type FlakyCheck = {
+	name: string,
+	/**  Passed on attempt 2 or later */
+	count: number,
+	/**  Passed or failed */
+	runs: number,
+	/**  `count / runs`; null below `MIN_FLAKY_RUNS` runs */
+	share: number | null,
+};
 
 /**
  *  A branch whose ref git cannot hold beside another one: `<prefix>/virtual/auth/login` needs a directory where
@@ -1538,6 +1608,14 @@ export type GetRobotFailureParams = {
 	full: boolean,
 };
 
+export type GetRobotStatsParams = {
+	repository_path: string,
+	baseline_branch: string,
+	branch_prefix: string,
+	/**  Asked by the user (Refresh): the lists of the last minutes are asked again */
+	refresh: boolean,
+};
+
 export type GetUncommittedChangesParams = {
 	repositoryPath: string,
 };
@@ -1654,6 +1732,12 @@ export type HoldView = {
 	carried: Carried | null,
 };
 
+export type HourTime = {
+	/**  The median from start to merge, seconds */
+	median: number,
+	count: number,
+};
+
 /**  Confidence level for integration detection */
 export type IntegrationConfidence = "Exact" | "High";
 
@@ -1664,6 +1748,11 @@ export type IssueNavigationConfig = {
 export type IssueNavigationLink = {
 	issueRegexp: string,
 	linkRegexp: string,
+};
+
+export type KindCount = {
+	kind: RobotFailureKind,
+	count: number,
 };
 
 /**  A running robot whose status the app knows */
@@ -1785,6 +1874,15 @@ file: string; line: number; usedBy: StackCommit; declaredBy: StackCommit; fix: L
  *  view says it, a start does not ask it
  */
 landingIn?: RobotOf | null };
+
+/**  What the user's merged robots landed */
+export type LandingValue = {
+	/**  Over the merges whose changes were read; null without one */
+	commits_per_merge: number | null,
+	merges_read: number,
+	/**  Merged robots of a whole stack (`{prefix}/stack/<root>`) */
+	whole_stack: number,
+};
 
 /**  The line ends of a whole file */
 export type LineEndKind = "lf" | "crlf" | "cr" | 
@@ -3179,6 +3277,40 @@ export type RobotOf = {
 	wholeStack: boolean,
 };
 
+/**  `bd robot-stats` and the Landing view */
+export type RobotStats = {
+	window: StatsWindow,
+	/**  The user's robots */
+	mine: Delivery,
+	/**  Everyone else in the repository, as the median person; null while fewer than `MIN_PEOPLE` landed */
+	everyone: EveryoneDelivery | null,
+	/**  Of the user's merges, those without a failed robot of the same branch in the 3 days before: an estimate */
+	first_try: Share | null,
+	value: LandingValue,
+	time: TimeSpent,
+	failures: FailureCauses,
+	/**  Workdays only, by the local hour a merged robot started: 24 hours */
+	start_hours: StartHour[],
+	coverage: Coverage,
+};
+
+/**  The progress of a read, and the numbers of the lists before the runs are read */
+export type RobotStatsEvent = { type: "progress"; data: {
+	lists_read: number,
+	lists_total: number,
+	runs_read: number,
+	runs_total: number,
+} } | { type: "partial"; data: RobotStats };
+
+export type RobotStatsResult = {
+	availability: PatronusAvailability,
+	/**  Patronus failed, the numbers are of what was kept */
+	stale: boolean,
+	/**  Unix seconds: when the newest list was read; null without one */
+	fetched_at: number | null,
+	stats: RobotStats | null,
+};
+
 /**  A declaration of a text: its lines and its label, `Outer › inner` */
 export type Scope = {
 	/**  0-based, the end exclusive */
@@ -3204,6 +3336,11 @@ export type SetRepositoryConfigParams = {
 	scope?: WriteScope,
 };
 
+export type Share = {
+	count: number,
+	total: number,
+};
+
 /**  A value of each of the three sides of a merge */
 export type Sides<T> = {
 	left: T,
@@ -3222,6 +3359,12 @@ export type SpanView = {
 	 *  tells (its commit is not in the repository)
 	 */
 	carried: Carried | null,
+};
+
+export type Spread = {
+	median: number,
+	/**  The 90th percentile (nearest rank) */
+	p90: number,
 };
 
 export type SquashCommitsParams = {
@@ -3491,6 +3634,17 @@ export type StackUse = {
 	declaredBy: StackCommit,
 };
 
+export type StartHour = {
+	/**  Local, 0–23 */
+	hour: number,
+	/**  Everyone else's merged robots; null while fewer than `MIN_HOUR_PEOPLE` people started one at that hour */
+	everyone: HourTime | null,
+	/**  The user's; null below `MIN_HOUR_ROBOTS` */
+	mine: HourTime | null,
+	/**  0 (the fastest hour) to 4 (the slowest) of everyone's medians; null without one */
+	level: number | null,
+};
+
 export type StartPatronusRobotParams = {
 	repositoryPath: string,
 	branchPrefix: string,
@@ -3532,6 +3686,18 @@ export type StartRefusal =
  *  branch of it
  */
 { kind: "ancestor"; landing: RobotOf };
+
+export type StatsWindow = {
+	/**  Unix seconds */
+	start: number,
+	end: number,
+	/**  The runs (checks, failure causes, commits) count since then */
+	runs_start: number,
+	/**  The IANA zone of the hours and weeks, e.g. `Europe/Berlin` */
+	time_zone: string,
+	/**  The branch the robots push into, e.g. `master` */
+	target: string,
+};
 
 /**  An open of a sub-window, as its page gets it (`window.__SUB_WINDOW_OPEN__`) */
 export type SubWindowOpen = {
@@ -3808,6 +3974,17 @@ export type TextMerge = {
 	leftScopes: Scope[],
 	baseScopes: Scope[],
 	rightScopes: Scope[],
+};
+
+/**  Where the user's robot time went, seconds */
+export type TimeSpent = {
+	/**  In robots that merged */
+	merged: number,
+	/**  In robots that failed */
+	failed: number,
+	canceled: number,
+	/**  From a failed or canceled robot to the next robot of the same branch, within 3 days */
+	between: number,
 };
 
 /**  Where the GitHub token came from, in the order they are tried (`github::token`) */
@@ -4089,6 +4266,14 @@ export type WaitLandingNeedsParams = {
 	branchPrefix: string,
 	/**  `landingGeneration` of the view the page has: the wait ends once a computation finished after it, or none runs */
 	after: number,
+};
+
+export type WeekCount = {
+	/**  Unix seconds of the local Monday 00:00 */
+	start: number,
+	merged: number,
+	/**  Finished robots */
+	robots: number,
 };
 
 /**  The whitespace option of a diff view (`IgnorePolicy`) */

@@ -3,25 +3,31 @@ use crate::commands::github::{GitHubState, app_user_agent};
 use crate::commands::pull_requests::github_repository;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use domain_types::calendar::Calendar;
 use domain_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
   PatronusCommandComment, PatronusCommandReply, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
   PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
+use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
 use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
+use std::sync::Arc;
 use std::time::Duration;
 use sync_core::landing_gate::{LandingCheck, LandingGateParams, landing_check};
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, prepare_robot_start, required_target_branch};
 use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
+use sync_core::robot_stats::{RobotStatsSource, robot_stats_core};
 use sync_core::target_conflict::{TargetCheck, TargetConflictParams, target_conflict_core};
+use sync_utils::timestamp::unix_now;
 use tauri::State;
+use tauri::ipc::Channel;
 use tracing::instrument;
 
 /// The Patronus client of the app: one HTTP client (kept-alive connection), the token and backoff state, and the
@@ -33,6 +39,8 @@ pub struct PatronusState {
   /// The `teamcity` CLI with an authenticated server, once found; looked for again on each full failure until then (the
   /// user may log in meanwhile)
   teamcity: tokio::sync::Mutex<Option<TeamCityCli>>,
+  /// By repository path: a read of the statistics waits for the one running, then reads what it kept
+  stats_reads: Cache<String, Arc<tokio::sync::Mutex<()>>>,
 }
 
 impl PatronusState {
@@ -44,6 +52,7 @@ impl PatronusState {
       service: PatronusService::new(PatronusClient::new(base_url, &user_agent), find_user_token),
       repositories: Cache::builder().max_capacity(100).time_to_live(Duration::from_secs(600)).build(),
       teamcity: tokio::sync::Mutex::new(None),
+      stats_reads: Cache::new(100),
     }
   }
 
@@ -85,6 +94,50 @@ async fn target_branch(git_executor: &GitCommandExecutor, repository_path: &str,
   let path = repository_path.to_string();
   let baseline = baseline_branch.to_string();
   run_blocking(move || required_target_branch(&git, &path, &baseline)).await
+}
+
+/// The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
+/// the target of the last 70 days, kept in the object cache, the progress and the numbers of the lists through `events`
+/// before the runs are read
+#[tauri::command]
+#[instrument(skip(git_executor, repository_state, patronus, events))]
+#[specta::specta]
+pub async fn get_robot_stats(
+  git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
+  patronus: State<'_, PatronusState>,
+  params: GetRobotStatsParams,
+  events: Channel<RobotStatsEvent>,
+) -> Result<RobotStatsResult, CommandError> {
+  operation(async move {
+    let Some(repository) = patronus.space_repository(&git_executor, &params.repository_path).await? else {
+      return Ok(RobotStatsResult {
+        availability: PatronusAvailability::NotPatronus,
+        stale: false,
+        fetched_at: None,
+        stats: None,
+      });
+    };
+    let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
+    let read = patronus.stats_reads.get_with(params.repository_path.clone(), || Arc::new(tokio::sync::Mutex::new(())));
+    let _reading = read.lock().await;
+    let cache = repository_state.object_cache(&git_executor, &params.repository_path);
+    let source = RobotStatsSource {
+      service: &patronus.service,
+      cache: &cache,
+      repository: &repository.name,
+      target: &target,
+      branch_prefix: &params.branch_prefix,
+    };
+    let calendar = Calendar::from_zone(jiff::tz::TimeZone::system());
+    let send = |event: RobotStatsEvent| {
+      if let Err(e) = events.send(event) {
+        tracing::debug!(error = %e, "the statistics window is gone");
+      }
+    };
+    Ok(robot_stats_core(&source, &calendar, unix_now(), params.refresh, &send).await)
+  })
+  .await
 }
 
 /// The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since

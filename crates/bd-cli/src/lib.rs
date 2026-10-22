@@ -19,6 +19,7 @@ use bd_lease::workspace_command::workspace;
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
 use bd_remote::robot_command::{RobotArgs, robot};
+use bd_remote::robot_stats_command::{RobotStatsArgs, robot_stats};
 use bd_remote::safe_push_command::{SafePushArgs, safe_push};
 use bd_remote::status::{StatusArgs, status, status_brief};
 use bd_rewrite::check_command::{CheckArgs, check};
@@ -157,6 +158,11 @@ enum Command {
   /// The newest one or --robot <id>; when it failed or fails, why (--full: the failed builds, tests and log tails) and
   /// which commits of the checked-out branch it tested
   Robot(RobotArgs),
+  /// The Safe Push statistics of the repository: the user's robots of the last 70 days against everyone else's. Read only
+  ///
+  /// Robots per merge, the time to merge, the time lost in failures, the failure causes and flaky checks of the last 14
+  /// days, the hours robots ran fastest; kept in the object cache, so a second run asks Patronus for little
+  RobotStats(RobotStatsArgs),
   /// Print or set the pull request title and body of a branch (`branch.<name>.description`)
   Describe(DescribeArgs),
   /// Keep a branch local: `bd push` and `bd safe-push` refuse it and the branches built on it, until `bd unpark`
@@ -343,6 +349,9 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
       .and_then(|context| request_review(&context, args, environment))
       .and_then(|output| print(out, &output)),
     Command::Robot(args) => context().and_then(|context| robot(&context, args, environment)).and_then(|output| print(out, &output)),
+    Command::RobotStats(args) => context()
+      .and_then(|context| robot_stats(&context, args, environment))
+      .and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Park(args) => context().and_then(|context| park(&context, args)).and_then(|output| print(out, &output)),
     Command::Unpark(args) => context().and_then(|context| unpark(&context, args)).and_then(|output| print(out, &output)),

@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 # the random bits of an operation id (`operation_id`)
 getrandom.workspace = true
-jiff = { version = "0.2.38", default-features = false, features = ["std"] }
+jiff.workspace = true
 memchr = "2"
 serde.workspace = true
 serde_json.workspace = true

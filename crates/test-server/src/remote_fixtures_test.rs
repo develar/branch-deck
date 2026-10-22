@@ -1,4 +1,4 @@
-use crate::remote_fixtures::{fixture_progress, fixture_robot};
+use crate::remote_fixtures::{HistoryRobotFixture, fixture_history_robot, fixture_progress, fixture_robot};
 use crate::test_support::{create_repository, post, start_test_server};
 use domain_types::patronus::{
   PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
@@ -6,6 +6,7 @@ use domain_types::patronus::{
 use patronus::actions::progress_of;
 use patronus::client::{PatronusClient, RobotDto, RobotProgressDto};
 use patronus::service::to_robot;
+use patronus::stats::{owner_key, to_history_robot};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use test_utils::git_test_utils::git_command;
@@ -69,6 +70,44 @@ fn a_fixture_robot_reads_back_through_the_real_parser() {
     let wire: RobotDto = serde_json::from_value(fixture_robot(&fixture, "user-name").unwrap()).unwrap();
     assert_eq!(to_robot(&wire, "user-name", &client), fixture);
   }
+}
+
+/// A robot of the history fixture reads back through the real parser of the statistics as the fixture: the owner, the
+/// times, the restart, the dry run, and the branch of the user's own
+#[test]
+fn a_history_robot_reads_back_through_the_parser_of_the_statistics() {
+  let fixture = HistoryRobotFixture {
+    id: "h1".to_string(),
+    owner: "1".to_string(),
+    status: PatronusRobotStatus::Success,
+    start_time: 1_704_000_000,
+    finish_time: Some(1_704_003_600),
+    branch: Some("auth".to_string()),
+    dry_run: true,
+    source_robot_id: Some("h0".to_string()),
+  };
+  let wire: RobotDto = serde_json::from_value(fixture_history_robot(&fixture, "user-name").unwrap()).unwrap();
+  let me = owner_key(b"salt", wire.owner.as_ref().unwrap());
+  let robot = to_history_robot(&wire, b"salt", Some(me)).unwrap();
+  assert_eq!(
+    (
+      robot.status,
+      robot.start,
+      robot.finish,
+      robot.dry_run,
+      robot.source_robot_id.as_deref(),
+      robot.source_branch.as_deref()
+    ),
+    (
+      PatronusRobotStatus::Success,
+      1_704_000_000,
+      Some(1_704_003_600),
+      true,
+      Some("h0"),
+      Some("user-name/virtual/auth")
+    )
+  );
+  assert!(robot.user);
 }
 
 /// The progress of a fixture, written as `robots/progress` folds it, reads back through the real fold as the fixture

@@ -1,9 +1,9 @@
 /// What the reading commands write, for `bd --help` and `bd help agent`; a macro, so that `concat!` takes it
 macro_rules! read_only {
   () => {
-    "Read only: `bd status`, `bd commits`, `bd suggest`, `bd check`, `bd robot`, `bd schema`, `bd version`,
-`bd describe <branch>` without a setter, `bd request-review --check`, `bd update --status` without --materialize,
-`bd lease status`, `bd workspace`, and
+    "Read only: `bd status`, `bd commits`, `bd suggest`, `bd check`, `bd robot`, `bd robot-stats`, `bd schema`,
+`bd version`, `bd describe <branch>` without a setter, `bd request-review --check`, `bd update --status` without
+--materialize, `bd lease status`, `bd workspace`, and
 `bd group --dry-run`, `bd rename --dry-run`, `bd restack --dry-run`, `bd unstack --dry-run`, `bd update --dry-run`
 (also with --continue), `bd pick --dry-run`, `bd fold --dry-run`, `bd move-hunk --dry-run` and `bd reword --dry-run`
 write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
@@ -235,6 +235,10 @@ Workflow: the commits into pull requests
    the ids of the checked-out branch: `tested`, `rebased`, `changed`, `added`, `removed`, `landed`).
    `kind: infrastructure`: nothing to fix, the user restarts it; else fix and check locally, the user pushes and
    restarts it.
+8. Statistics. `bd robot-stats` prints how the user's Safe Pushes went over 70 days against everyone else's
+   (`mine`, `everyone`: robots per merge, the time to merge), the time lost (`time`), why robots of the last 14 days
+   failed and which checks passed only on a retry (`failures`), and the fastest hours (`start_hours`); --refresh asks
+   Patronus again for the weeks it may still change.
 
 Other tasks
 - Before the first edit of a session: `bd workspace` says whether to work in a lease of your own

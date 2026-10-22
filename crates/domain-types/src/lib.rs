@@ -8,6 +8,7 @@
 //!   (`BranchSyncStatus`, `CommitSyncStatus`, `BranchError`), its grouped branches, the remote status of a branch, the
 //!   unapplied branches, the dropped commits and the landed remote commits
 //! - `branch_integration`: the integration of a branch into the baseline (rebase, merge, squash)
+//! - `calendar`: the local weekday, hour and week of a moment, in a time zone the host names
 //! - `branch_names`: the names of the branches under the prefix (`{prefix}/virtual/<name>`, `BranchKind`), the prefix,
 //!   a group name valid in a ref
 //! - `branch_name_suggestion`: branch names suggested by the user's Claude Code
@@ -23,6 +24,7 @@
 //! - `review_request`: the review requests of Your Turn
 //! - `robot_failure`: why a robot failed and the commits it checked
 //! - `robot_landing`: what a merged robot landed and what a running one lands
+//! - `robot_stats`: the Safe Push statistics, the robots they keep and the command of the app
 //! - `stack`: the stacked branches as a sync reports them, the syntax of a stack prefix (`(auth/login)`)
 //! - `update`: the update of the app
 //! - `update_project`: Update Project, the check of the branch against its upstream and the applied update
@@ -39,6 +41,7 @@ use std::collections::BTreeMap;
 pub mod branch_integration;
 pub mod branch_name_suggestion;
 pub mod branch_names;
+pub mod calendar;
 pub mod commit;
 pub mod conflict;
 pub mod error;
@@ -51,6 +54,7 @@ pub mod repository_view;
 pub mod review_request;
 pub mod robot_failure;
 pub mod robot_landing;
+pub mod robot_stats;
 pub mod stack;
 pub mod update;
 pub mod update_project;

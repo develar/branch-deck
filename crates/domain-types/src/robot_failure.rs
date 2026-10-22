@@ -31,6 +31,7 @@ pub struct RobotFailure {
 /// What failed, which decides the first step: a restart for builds that never started, a fix otherwise
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum RobotFailureKind {
   /// Checks failed

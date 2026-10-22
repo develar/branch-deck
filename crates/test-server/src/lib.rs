@@ -128,6 +128,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       post(remote_fixtures::set_patronus).get(remote_fixtures::get_patronus_fixture),
     )
     .route("/repositories/{id}/patronus-details", post(remote_fixtures::set_patronus_details))
+    .route("/repositories/{id}/patronus-history", post(remote_fixtures::set_patronus_history))
     .route("/repositories/{id}/review-requests", post(set_review_requests).get(get_review_request_fixture))
     .route("/repositories/{id}/patronus-progress", post(remote_fixtures::set_patronus_progress))
     .route("/repositories/{id}/patronus-profiles", post(remote_fixtures::set_patronus_profiles))
@@ -208,6 +209,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/prefetch_branch_review", post(tauri_command_bridge::prefetch_branch_review))
     .route("/invoke/get_file_owners", post(tauri_command_bridge::get_file_owners))
     .route("/invoke/get_patronus_robots", post(tauri_command_bridge::get_patronus_robots))
+    .route("/invoke/get_robot_stats", post(tauri_command_bridge::get_robot_stats))
     .route("/invoke/poll_patronus_robots", post(tauri_command_bridge::poll_patronus_robots))
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
     .route("/invoke/get_patronus_robot_problems", post(tauri_command_bridge::get_patronus_robot_problems))

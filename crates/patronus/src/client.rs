@@ -25,6 +25,8 @@ pub const CI_DETAILS_TIMEOUT: Duration = Duration::from_secs(30);
 const GET_RETRY_DELAY: Duration = Duration::from_secs(1);
 /// Patronus answers the progress of at most this many robots per request
 pub const MAX_PROGRESS_ROBOTS: usize = 20;
+/// A week of everyone's robots of a repository is a few megabytes
+pub const HISTORY_LIST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PatronusError {
@@ -98,6 +100,39 @@ pub struct RobotDto {
   /// flag is off for the user and for a robot started without one
   #[serde(default)]
   pub merge_profile: Option<RobotMergeProfileDto>,
+  /// Who started the robot; only of a list
+  #[serde(default)]
+  pub owner: Option<RobotOwnerDto>,
+  /// The robot a restart restarted; only of a list
+  #[serde(default)]
+  pub source_robot_id: Option<String>,
+  /// Who started it: `SAFE_PUSH`, `WEB_UI`, `SPACE_SAFE_MERGE`, `GITHUB_PR`, `CUSTOM`, `SPACE_REVIEW_CHERRY_PICK`, …;
+  /// only of a list
+  #[serde(default, rename = "type")]
+  pub kind: Option<String>,
+  /// Started with an emergency profile, which skips checks; only of a list
+  #[serde(default)]
+  pub is_emergency: bool,
+}
+
+/// The owner of a robot, and who asks (`me` of a list): the name and the email Patronus also sends are not read
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RobotOwnerDto {
+  /// `USER` or `APPLICATION`
+  #[serde(rename = "type")]
+  pub kind: String,
+  pub id: String,
+}
+
+/// `GET /robots/{id}/changes`: what the robot landed
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotChangesDto {
+  /// `NOT_LOADED`, `PENDING` or `DELIVERED`
+  #[serde(rename = "type")]
+  pub kind: String,
+  #[serde(default)]
+  pub commits_number: Option<u32>,
 }
 
 /// `mergeProfile` of a robot of the list
@@ -512,6 +547,9 @@ struct RobotStartedDto {
 #[derive(Deserialize)]
 struct RobotsDto {
   robots: Vec<RobotDto>,
+  /// Who asks
+  #[serde(default)]
+  me: Option<RobotOwnerDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -584,6 +622,26 @@ impl PatronusClient {
     let robots: RobotsDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
     info!(count = robots.robots.len(), elapsed_ms = started.elapsed().as_millis(), "listed Patronus robots");
     Ok(robots.robots)
+  }
+
+  /// Everyone's robots into `target` of `repository` started in `[start, end)`, and who asks: no owner filter, a window
+  /// of at most 70 days (Patronus refuses a longer one)
+  #[instrument(skip(self, token))]
+  pub async fn list_target_robots(&self, token: &str, repository: &str, target: &str, start: u32, end: u32) -> Result<(Option<RobotOwnerDto>, Vec<RobotDto>), PatronusError> {
+    let (start, end) = (format_utc_timestamp(start), format_utc_timestamp(end));
+    let query = [("repository", repository), ("targetBranch", target), ("start", start.as_str()), ("end", end.as_str())];
+    let url = reqwest::Url::parse_with_params(&format!("{}/app/rest/v1/robots", self.base_url), query).map_err(|e| PatronusError::InvalidResponse(e.to_string()))?;
+    let started = Instant::now();
+    let robots: RobotsDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), HISTORY_LIST_TIMEOUT).await?;
+    info!(count = robots.robots.len(), elapsed_ms = started.elapsed().as_millis(), "listed everyone's Patronus robots");
+    Ok((robots.me, robots.robots))
+  }
+
+  /// What a robot landed: the count of its commits once Patronus delivered them
+  #[instrument(skip(self, token))]
+  pub async fn get_robot_changes(&self, token: &str, robot_id: &str) -> Result<RobotChangesDto, PatronusError> {
+    let url = self.robot_api_url(robot_id, &["changes"])?;
+    self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await
   }
 
   /// The robots whose status is not the known one; the others are not sent back

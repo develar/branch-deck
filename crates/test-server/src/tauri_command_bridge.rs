@@ -1,3 +1,4 @@
+use crate::remote_host::PAGE_CLOCK_START;
 use axum::{
   extract::State,
   http::{StatusCode, header},
@@ -7,6 +8,7 @@ use axum::{
   },
 };
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
+use domain_types::calendar::Calendar;
 use domain_types::patronus::{
   GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
   PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
@@ -16,6 +18,7 @@ use domain_types::pull_request::{
   CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
 };
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
+use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use domain_types::{ProgressReporter, SyncEvent};
 use file_diffs::model::{
@@ -57,6 +60,7 @@ use sync_core::repository_config::{
 };
 use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::robot_failure_report;
+use sync_core::robot_stats::{RobotStatsSource, robot_stats_core};
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use tokio::sync::mpsc;
@@ -1071,6 +1075,33 @@ pub async fn get_patronus_robots(State(state): State<Arc<AppState>>, Json(params
   let Json(github) = run_command("resolve the GitHub repository", move || resolve_github_repository(&git, &params.repository_path)).await?;
   result.github_repository = github.map(|github| github.full_name());
   Ok(Json(result))
+}
+
+/// The Safe Push statistics as the app reads them (`get_robot_stats`): the real core against the fake Patronus of the
+/// repository, at the page's clock (`PAGE_CLOCK_START`) and in UTC, so the weeks and the hours of a test are fixed; no
+/// object cache, so every read asks the fake. The page gets no events: only the result
+pub async fn get_robot_stats(State(state): State<Arc<AppState>>, Json(params): Json<GetRobotStatsParams>) -> CommandResult<RobotStatsResult> {
+  let Some((host, space)) = space_of(&state, &params.repository_path)? else {
+    return Ok(Json(RobotStatsResult {
+      availability: PatronusAvailability::NotPatronus,
+      stale: false,
+      fetched_at: None,
+      stats: None,
+    }));
+  };
+  let git = state.git_executor.clone();
+  let (path, baseline) = (params.repository_path.clone(), params.baseline_branch.clone());
+  let Json(target) = run_command("read the target branch", move || required_target_branch(&git, &path, &baseline)).await?;
+  let service = host.patronus_service();
+  let cache = ObjectCache::disabled();
+  let source = RobotStatsSource {
+    service: &service,
+    cache: &cache,
+    repository: &space.name,
+    target: &target,
+    branch_prefix: &params.branch_prefix,
+  };
+  Ok(Json(robot_stats_core(&source, &Calendar::utc(), PAGE_CLOCK_START, params.refresh, &|_| {}).await))
 }
 
 /// The robots whose status changed since the page saw it, as the app polls them

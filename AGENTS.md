@@ -500,6 +500,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Landed commits | `repository/landed-commits` | `crates/sync-core/src/landed.rs` (report in `branch-deck/landed.json`) |
 | Landing overview, PR status, Create Pull Request, Request Review | `repository/landing-overview`, `repository/outgoing`, `branch/pull-requests` | `crates/github/`, `sync_core::pull_requests`, `sync_core::pull_request_create`, `sync_core::pull_request_text` |
 | Patronus: robots, Safe Push and Dry Run, the next step, the failure prompt (`bd safe-push`, `bd robot`) | `branch/patronus`, `branch/next-step`, `branch/safe-push-failure-prompt`, `branch/whole-stack`, `cli/agent-cli` | `crates/patronus/`, `crates/repository-view/`, `src/lib/branch-next-step.ts`, `src/stores/review-readiness.ts` |
+| Safe Push statistics: the user's robots of 70 days against everyone else's, time lost, failure causes, start hours (`bd robot-stats`) | `repository/safe-push-statistics` | `crates/sync-core/src/robot_stats.rs`, `crates/sync-core/src/robot_stats_aggregate.rs`, `crates/patronus/src/stats.rs`, `crates/bd-remote/src/robot_stats_command.rs` |
 | GitHub sign-in (OAuth device flow) | `repository/github-sign-in` | `crates/github/src/token.rs` |
 | YouTrack sign-in (Hub OAuth in the browser, refresh token), the issue popover, Mark Fixed | `repository/youtrack` | `crates/youtrack/`, `src/stores/youtrack.ts` |
 | Issue groups | `branch/issue-groups` | `crates/history-rewrite/src/issue_groups.rs` |

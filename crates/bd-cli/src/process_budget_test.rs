@@ -12,6 +12,7 @@ use bd_lease::workspace_command::workspace_with;
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
 use bd_remote::robot_command::{RobotArgs, robot};
+use bd_remote::robot_stats_command::{RobotStatsArgs, robot_stats};
 use bd_remote::safe_push_command::{SafePushArgs, safe_push};
 use bd_remote::status::{StatusArgs, status};
 use bd_rewrite::check_command::{CheckArgs, check};
@@ -740,6 +741,17 @@ fn a_robot() {
     &context,
     &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 2), ("rev-parse", 2)],
   );
+}
+
+/// `bd robot-stats`: the Space repository (`remote`), the baseline (`remote`, the `@{u}` probe, one `for-each-ref`) and
+/// the branch of origin it tracks (`remote`, `symbolic-ref`, `rev-parse`, `for-each-ref`); no grouping, no sync
+#[test]
+fn a_robot_stats() {
+  let space = Space::new(&["(auth) Add login"]);
+  let environment = space.environment();
+  let context = space_context(&environment);
+  robot_stats(&context, &RobotStatsArgs::default(), &environment).unwrap();
+  assert_processes(&context, &[("for-each-ref", 2), ("remote", 3), ("rev-parse", 2), ("symbolic-ref", 1)]);
 }
 
 /// `bd request-review auth --check`: the grouping, whose listing names the upstream the target is, the tip, and the

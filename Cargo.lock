@@ -567,6 +567,7 @@ dependencies = [
  "git-ops",
  "github",
  "history-rewrite",
+ "jiff",
  "object-cache",
  "patronus",
  "pretty_assertions",
@@ -720,6 +721,7 @@ dependencies = [
  "github",
  "gtk",
  "history-rewrite",
+ "jiff",
  "log",
  "moka",
  "objc2",
@@ -1708,6 +1710,7 @@ name = "domain-types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "jiff",
  "schemars 1.2.3",
  "serde",
  "serde_json",

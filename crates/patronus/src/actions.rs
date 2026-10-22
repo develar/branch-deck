@@ -660,33 +660,12 @@ fn failure_checks(details: &CachedDetails) -> Result<&[TeamCityCheckDto], Action
 pub fn robot_failure_of(robot: PatronusRobot, dto: &RobotDto, checks: &[TeamCityCheckDto], problems: &[ProblemDto]) -> RobotFailure {
   let running = robot.status == PatronusRobotStatus::Running;
   let mut omitted = OmittedFailures::default();
-  let checks: Vec<FailedCheck> = failed_attempts(checks, running)
-    .map(|(check, attempt)| FailedCheck {
-      name: check.label().to_string(),
-      build_configuration_id: check.build_configuration_id.clone().filter(|id| !id.is_empty()),
-      attempt: attempt.number + 1,
-      attempt_limit: check.attempt_limit,
-      build_id: attempt.build_id.clone(),
-      build_url: attempt.build_url.clone().filter(|url| !url.is_empty()),
-      failed_tests: attempt.failed_tests_number,
-      failed_builds: attempt.failed_builds_number,
-      failed_to_start: attempt.failed_to_start_builds_number,
-      running: check.status != "FAILURE",
-    })
-    .collect();
-  let problems: Vec<RobotFailureProblem> = problems
-    .iter()
-    .filter(|problem| problem.is_error())
-    .map(|problem| RobotFailureProblem {
-      title: problem.title.clone(),
-      subsystem: problem.subsystem.clone().filter(|subsystem| !subsystem.is_empty()),
-      details: problem.details_markdown.as_deref().filter(|details| !details.trim().is_empty()).map(|details| {
-        let (details, cut) = cut_head(details, usize::MAX, MAX_DETAILS_BYTES);
-        omitted.truncated |= cut;
-        details
-      }),
-    })
-    .collect();
+  let checks: Vec<FailedCheck> = failed_attempts(checks, running).map(|(check, attempt)| to_failed_check(check, attempt)).collect();
+  let problems = error_problems(problems, |details| {
+    let (details, cut) = cut_head(details, usize::MAX, MAX_DETAILS_BYTES);
+    omitted.truncated |= cut;
+    Some(details)
+  });
   RobotFailure {
     kind: failure_kind(&checks, &problems),
     robot,
@@ -697,6 +676,41 @@ pub fn robot_failure_of(robot: PatronusRobot, dto: &RobotDto, checks: &[TeamCity
     problems,
     builds: None,
     omitted,
+  }
+}
+
+/// What failed a finished robot, as `robot_failure_of` decides it: the kind and the names of the failed checks
+pub fn finished_failure(checks: &[TeamCityCheckDto], problems: &[ProblemDto]) -> (RobotFailureKind, Vec<String>) {
+  let checks: Vec<FailedCheck> = failed_attempts(checks, false).map(|(check, attempt)| to_failed_check(check, attempt)).collect();
+  let problems = error_problems(problems, |_| None);
+  (failure_kind(&checks, &problems), checks.into_iter().map(|check| check.name).collect())
+}
+
+/// The error problems, each with what `details` keeps of its details (none blank)
+fn error_problems(problems: &[ProblemDto], mut details: impl FnMut(&str) -> Option<String>) -> Vec<RobotFailureProblem> {
+  problems
+    .iter()
+    .filter(|problem| problem.is_error())
+    .map(|problem| RobotFailureProblem {
+      title: problem.title.clone(),
+      subsystem: problem.subsystem.clone().filter(|subsystem| !subsystem.is_empty()),
+      details: problem.details_markdown.as_deref().filter(|text| !text.trim().is_empty()).and_then(&mut details),
+    })
+    .collect()
+}
+
+fn to_failed_check(check: &TeamCityCheckDto, attempt: &TeamCityCheckAttemptDto) -> FailedCheck {
+  FailedCheck {
+    name: check.label().to_string(),
+    build_configuration_id: check.build_configuration_id.clone().filter(|id| !id.is_empty()),
+    attempt: attempt.number + 1,
+    attempt_limit: check.attempt_limit,
+    build_id: attempt.build_id.clone(),
+    build_url: attempt.build_url.clone().filter(|url| !url.is_empty()),
+    failed_tests: attempt.failed_tests_number,
+    failed_builds: attempt.failed_builds_number,
+    failed_to_start: attempt.failed_to_start_builds_number,
+    running: check.status != "FAILURE",
   }
 }
 

@@ -21,6 +21,8 @@ domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 youtrack = { path = "../youtrack" }
 clap = { version = "4.6", features = ["derive"] }
+# the system time zone of the statistics (`robot_stats_command`)
+jiff = { workspace = true, features = ["tz-system"] }
 schemars.workspace = true
 serde.workspace = true
 sha2 = "0.10.9"

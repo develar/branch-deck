@@ -38,6 +38,8 @@ sync-core = { path = "../crates/sync-core", features = ["specta"] }
 history-rewrite = { path = "../crates/history-rewrite", features = ["specta"] }
 domain-types = { path = "../crates/domain-types", features = ["specta"] }
 sync-utils = { path = "../crates/sync-utils" }
+# the system time zone of the statistics (`get_robot_stats`)
+jiff = { workspace = true, features = ["tz-system"] }
 branch-integration = { path = "../crates/branch-integration", features = ["specta"] }
 serde_json.workspace = true
 specta.workspace = true

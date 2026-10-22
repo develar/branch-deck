@@ -66,7 +66,7 @@ async fn a_hook_that_blocks_holds_up_no_other_answer() {
 #[tokio::test]
 async fn under_state_only_every_route_answers_only_the_state_set() {
   let routes_in_source = include_str!("fake_patronus.rs").matches(".route(").count();
-  assert_eq!(routes_in_source, 15, "a new route of the fake: add what it answers under state_only to this test");
+  assert_eq!(routes_in_source, 16, "a new route of the fake: add what it answers under state_only to this test");
   let fake = Arc::new(FakePatronus::default());
   fake.set_status(200);
   fake.state_only.store(true, Ordering::SeqCst);
@@ -93,6 +93,7 @@ async fn under_state_only_every_route_answers_only_the_state_set() {
   assert_eq!(get(format!("{base}/robots/x")).await.0, 404);
   assert_eq!(get(format!("{base}/robots/x/status")).await.0, 404);
   assert_eq!(get(format!("{base}/robots/x/teamcity-checks")).await.1["teamCityChecks"], json!([]));
+  assert_eq!(get(format!("{base}/robots/x/changes")).await.1["type"], json!("NOT_LOADED"));
   assert_eq!(get(format!("{base}/teamcity-checks/attempts/x")).await.1["builds"], json!([]));
   assert_eq!(get(format!("{base}/robots/x/problems")).await.1["problems"], json!([]));
   assert_eq!(client.post(format!("{base}/robots/x/restart")).send().await.unwrap().status(), 404);

@@ -9,6 +9,7 @@ pub mod fake_patronus;
 pub mod review;
 pub mod review_readiness;
 pub mod service;
+pub mod stats;
 pub mod teamcity_cli;
 pub mod token;
 

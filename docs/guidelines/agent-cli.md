@@ -11,7 +11,8 @@ together), regroup the commits and sync them. It reads with `status`, `commits`,
 checked grouping with `suggest`, rewrites commit messages with `group`, `rename`, `restack`, `unstack` and `undo`,
 rebuilds the virtual branches with `sync` and keeps their pull request text with `describe`, tries a plan without
 writing refs with `check`, pushes with `push`, asks the code owners to review a pull request with `request-review`,
-starts a Patronus Safe Push with `safe-push` and reads its robot, and why it failed, with `robot`. `group --sync`
+starts a Patronus Safe Push with `safe-push` and reads its robot, and why it failed, with `robot`, and how the Safe
+Pushes of the repository went with `robot-stats`. `group --sync`
 applies a plan, its pull request texts and a sync in one call. `update` brings the checked out branch onto its
 baseline as the app's Update Project does, and resolves a conflict in a resolve session outside the working tree;
 `pick` lands the commits of another worktree on the checked out branch, `unapply` takes a branch and its files out of
@@ -70,7 +71,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   subject when it is exactly the `group`.
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
-- Read only: `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `update --dry-run`, `update --status`,
+- Read only: `status`, `commits`, `suggest`, `check`, `robot`, `robot-stats`, `schema`, `version`, `update --dry-run`, `update --status`,
   `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
   `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the

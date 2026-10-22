@@ -8,6 +8,7 @@ use bd_lease::workspace_command::WorkspaceOutput;
 use bd_remote::push_command::PushOutput;
 use bd_remote::request_review_command::RequestReviewOutput;
 use bd_remote::robot_command::RobotOutput;
+use bd_remote::robot_stats_command::RobotStatsOutput;
 use bd_remote::safe_push_command::SafePushOutput;
 use bd_remote::status::{StatusBrief, StatusOutput};
 use bd_rewrite::check_command::CheckOutput;
@@ -26,7 +27,7 @@ use schemars::{Schema, schema_for};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-/// `bd schema`: the JSON Schema of every output, by command; `rewrite` is the output of group, rename, restack,
+/// `bd schema`: the JSON Schema of every output, by command (`robot_stats` that of `bd robot-stats`); `rewrite` is the output of group, rename, restack,
 /// unstack and reword, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort`
 /// those of `bd update --status` and `--abort`, `lease_get`, `lease_return`, `lease_status`, `lease_adopt` and
 /// `lease_clean` those of `bd lease`, and `error` is what any command prints when it fails
@@ -58,6 +59,7 @@ pub fn schema_output() -> SchemaOutput {
       ("push".to_string(), schema_for!(PushOutput)),
       ("reapply".to_string(), schema_for!(ReapplyOutput)),
       ("rewrite".to_string(), schema_for!(RewriteOutput)),
+      ("robot_stats".to_string(), schema_for!(RobotStatsOutput)),
       ("request_review".to_string(), schema_for!(RequestReviewOutput)),
       ("robot".to_string(), schema_for!(RobotOutput)),
       ("safe_push".to_string(), schema_for!(SafePushOutput)),

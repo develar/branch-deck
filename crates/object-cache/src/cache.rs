@@ -10,11 +10,11 @@
 //!   `conflicts/` (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and
 //!   blobs) in the cache directory itself. A store moved to another environment is dropped from the old one on open,
 //!   and a retired store (`RETIRED_STORES`) from every environment.
-//! - **The exceptions are `review_answer`, `patronus_robots` and `build_result`**, keyed by a hash of what they decide
-//!   on. An answer of Patronus (the changed paths, the target, the reviews of a pull request; the user's robots of a
-//!   repository), which the target's ownership rules or a robot that starts or finishes can outdate: its value carries
+//! - **The exceptions are `review_answer`, `patronus_robots`, `patronus_history` and `build_result`**, keyed by a hash of
+//!   what they decide on. An answer of Patronus (the changed paths, the target, the reviews of a pull request; the user's
+//!   robots of a repository; a week of everyone's robots and the runs of the user's finished ones), which the target's ownership rules or a robot that starts or finishes can outdate: its value carries
 //!   when it was fetched, and the reader decides how long it holds (`sync_core::review_readiness`, `bd`'s
-//!   `robot_list`). A passed build of `bd check --build` (the command, the branch, the ids of what it
+//!   `robot_list`, `sync_core::robot_stats`). A passed build of `bd check --build` (the command, the branch, the ids of what it
 //!   extracts), which what the build reads outside the tree (a JDK, a toolchain) can outdate: `--rebuild` runs it
 //!   anyway. `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks
 //!   between those commits find, so it holds as long as the commit graph does (a `git replace` of a commit in that
@@ -113,13 +113,14 @@ pub(crate) enum Store {
   ConflictChain,
   StackBranch,
   PatronusRobots,
+  PatronusHistory,
   FileDiff,
   FileMerge,
   WordResolution,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 16;
+const STORE_COUNT: usize = 17;
 
 /// The stores that no binary writes any more: `commit_patch`, the patches of the old diff views (now `file_diff`)
 const RETIRED_STORES: [&str; 1] = ["commit_patch"];
@@ -141,6 +142,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::ConflictChain,
   Store::StackBranch,
   Store::PatronusRobots,
+  Store::PatronusHistory,
   Store::FileDiff,
   Store::FileMerge,
   Store::WordResolution,
@@ -171,6 +173,7 @@ impl Store {
       | Self::ConflictChain
       | Self::StackBranch
       | Self::PatronusRobots
+      | Self::PatronusHistory
       | Self::FileDiff
       | Self::FileMerge
       | Self::WordResolution => 1,
@@ -190,7 +193,8 @@ impl Store {
       | Self::RemoteStatus
       | Self::BuildResult
       | Self::StackBranch
-      | Self::PatronusRobots => Environment::Main,
+      | Self::PatronusRobots
+      | Self::PatronusHistory => Environment::Main,
     }
   }
 
@@ -214,6 +218,7 @@ impl Store {
       Self::ConflictChain => "conflict_chain",
       Self::StackBranch => "stack_branch",
       Self::PatronusRobots => "patronus_robots",
+      Self::PatronusHistory => "patronus_history",
       Self::FileDiff => "file_diff",
       Self::FileMerge => "file_merge",
       Self::WordResolution => "word_resolution",

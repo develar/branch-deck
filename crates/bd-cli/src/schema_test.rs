@@ -32,6 +32,7 @@ fn schema_lists_every_output() {
       "request_review",
       "rewrite",
       "robot",
+      "robot_stats",
       "safe_push",
       "status",
       "status_brief",
