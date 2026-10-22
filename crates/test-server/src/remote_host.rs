@@ -3,6 +3,7 @@
 //! Started on the first need of the repository, stopped when it is deleted; nothing of the developer is reached (a
 //! fixed token, no `teamcity` CLI).
 
+use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
 use git_executor::git_command_executor::GitCommandExecutor;
 use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::fake_patronus::{FakePatronus, FakeServer, router};
@@ -16,10 +17,9 @@ use sync_core::patronus::SpaceRepository;
 pub const SPACE_PROJECT: &str = "e2e";
 pub const SPACE_REPOSITORY: &str = "repository";
 
-/// What `robot-start-supported` answers until a test sets another: supported, without merge profiles
-fn default_start_options() -> serde_json::Value {
-  serde_json::json!({"supported": true, "profiles": []})
-}
+/// 2024-01-02 10:00Z in Unix seconds: the clock of every page starts there (`tests/e2e/fixtures/base-test.ts`), so a
+/// robot a test starts starts then for the page, after the robots of its fixtures
+pub const PAGE_CLOCK_START: u32 = 1_704_189_600;
 
 pub struct RemoteHost {
   patronus: Arc<FakePatronus>,
@@ -35,7 +35,8 @@ impl RemoteHost {
     let patronus = Arc::new(FakePatronus::default());
     patronus.set_status(200);
     patronus.state_only.store(true, Ordering::SeqCst);
-    *patronus.start_options.lock().expect("start options lock") = Some(default_start_options());
+    *patronus.start_options.lock().expect("start options lock") = Some(fixture_start_options(&PatronusProfilesFixture::default()));
+    *patronus.clock.lock().expect("patronus clock lock") = Some(PAGE_CLOCK_START);
     let (git, path) = (git.clone(), repository_path.to_string());
     *patronus.robots_hook.lock().expect("robots hook lock") = Some(Box::new(move |robot| crate::remote_fixtures::resolve_source_revision(&git, &path, robot)));
     let patronus_server = FakeServer::serve(router(Arc::clone(&patronus)));
@@ -69,6 +70,16 @@ impl RemoteHost {
     self.on_space.store(on_space, Ordering::SeqCst);
     self.patronus.set_status(status);
     *self.patronus.robots.lock().expect("patronus robots lock") = Some(robots);
+    self.renew_patronus_service();
+  }
+
+  /// What `robot-start-supported` answers from now on (wire form); a new service, which has not cached the answer before
+  pub fn set_patronus_start_options(&self, options: serde_json::Value) {
+    *self.patronus.start_options.lock().expect("start options lock") = Some(options);
+    self.renew_patronus_service();
+  }
+
+  fn renew_patronus_service(&self) {
     *self.patronus_service.write().expect("patronus service lock") = Arc::new(new_patronus_service(&self.patronus_server.url));
   }
 }

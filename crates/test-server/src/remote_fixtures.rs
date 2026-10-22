@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::pull_requests::GITHUB_REPOSITORY_CONFIG;
-use sync_types::patronus::{PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
+use sync_types::patronus::{PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::{format_utc_timestamp, unix_now};
 
@@ -58,6 +58,34 @@ pub fn fixture_robot(robot: &PatronusRobot, branch_prefix: &str) -> anyhow::Resu
     wire["options"] = serde_json::Value::Object(options);
   }
   Ok(wire)
+}
+
+/// What `robot-start-supported` answers for these merge profiles (`PatronusStartOptions` names the regular and the
+/// emergency ones apart, as the service splits them): start supported, each mode by its wire name
+pub fn fixture_start_options(fixture: &PatronusProfilesFixture) -> serde_json::Value {
+  let profile = |profile: &PatronusProfile, emergency: bool| {
+    serde_json::json!({
+      "id": profile.id,
+      "name": profile.name,
+      "description": profile.description,
+      "allowedPushModes": profile.allowed_push_modes.iter().map(|mode| push_mode_name(*mode)).collect::<Vec<_>>(),
+      "isEmergency": emergency,
+    })
+  };
+  let regular = fixture.profiles.iter().map(|it| profile(it, false));
+  let emergency = fixture.emergency_profiles.iter().map(|it| profile(it, true));
+  serde_json::json!({"supported": true, "profiles": regular.chain(emergency).collect::<Vec<_>>()})
+}
+
+/// The merge profiles Patronus offers for a start, as `PatronusStartOptions` names them. The default profile is not
+/// set here: the real service takes the profile of the branch's last robot, which a fixture robot names (`profile`)
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusProfilesFixture {
+  #[serde(default)]
+  pub profiles: Vec<PatronusProfile>,
+  #[serde(default)]
+  pub emergency_profiles: Vec<PatronusProfile>,
 }
 
 /// What `robots/progress` folds for the robot `robot_id` that `progress` shows at `now` (Unix seconds): one running
@@ -185,6 +213,13 @@ pub async fn set_patronus_progress(Path(id): Path<String>, State(state): State<A
   Ok(StatusCode::OK)
 }
 
+/// Sets the merge profiles Patronus offers for a start (`PatronusProfilesFixture`); none until set
+pub async fn set_patronus_profiles(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<PatronusProfilesFixture>) -> FixtureResult {
+  let (host, _) = host_of(&state, &id)?;
+  host.set_patronus_start_options(fixture_start_options(&fixture));
+  Ok(StatusCode::OK)
+}
+
 /// Sets the TeamCity checks and the problems Patronus answers for robots (`PatronusDetailsFixture`)
 pub async fn set_patronus_details(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<PatronusDetailsFixture>) -> FixtureResult {
   let (host, _) = host_of(&state, &id)?;
@@ -196,7 +231,8 @@ pub async fn set_patronus_details(Path(id): Path<String>, State(state): State<Ar
 }
 
 /// What the page asked (`listCalls`, `pollCalls`, `detailCalls`: its commands, which the caches of the service may
-/// answer) and what reached the fake Patronus (`requests`)
+/// answer), what reached the fake Patronus (`requests`), and the actions it took, in order: the bodies of the start
+/// requests (`starts`), the robots restarted (`restarts`), canceled (`cancels`) and whose status was read (`statusReads`)
 pub async fn get_patronus_fixture(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
   let repo = state.repositories.get(&id).ok_or_else(unknown_repository)?;
   let host = repo.remote(&state.git_executor);
@@ -214,5 +250,9 @@ pub async fn get_patronus_fixture(Path(id): Path<String>, State(state): State<Ar
       "progress": fake.progress_calls.lock().expect("patronus progress calls lock").clone(),
       "startOptions": fake.start_supported_calls.load(ordering),
     },
+    "starts": fake.starts.lock().expect("patronus starts lock").clone(),
+    "restarts": fake.restarts.lock().expect("patronus restarts lock").clone(),
+    "cancels": fake.canceled.lock().expect("patronus cancels lock").clone(),
+    "statusReads": fake.status_calls.lock().expect("patronus status calls lock").clone(),
   })))
 }

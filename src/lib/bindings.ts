@@ -164,8 +164,9 @@ export const commands = {
 	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, CommandError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
 	/**
 	 *  Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
-	 *  stack; the frontend pushes it first. First the landing gate (`sync_core::landing_gate`), as `bd safe-push` refuses
-	 *  it: a proven dangling reference or a missing declaration refuses the start unless `allow` lets it. The new robot.
+	 *  stack; the frontend pushes it first. First the landing gate and the target (`sync_core::patronus::prepare_robot_start`,
+	 *  which the test server runs too), as `bd safe-push` refuses it: a proven dangling reference or a missing declaration
+	 *  refuses the start unless `allow` lets it. The new robot.
 	 */
 	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("start_patronus_robot", { params })),
 	/**

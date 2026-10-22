@@ -43,7 +43,7 @@ fn check_names_the_profiles_and_the_review_and_starts_nothing() {
     json!({"required": false, "skipped": false, "counts_in": "space_merge_request", "merge_request": null, "groups": [], "readiness": "not_required"})
   );
   assert_eq!((output["push_needed"].clone(), output["robot"].clone()), (json!(true), Value::Null));
-  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 0);
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
   assert_eq!(space.remote_tip(AUTH), "");
 }
 
@@ -60,7 +60,7 @@ fn missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway() {
   assert!(message.contains("git config branchdeck.githubRepository"), "{message}");
   assert!(message.contains("bd safe-push auth --create-pull-request"), "{message}");
   assert_eq!(output["error"]["review"]["groups"][0]["reviewers"][0]["username"], json!("alice"));
-  assert_eq!((space.fake.start_calls.load(Ordering::SeqCst), space.remote_tip(AUTH)), (0, String::new()));
+  assert_eq!((space.fake.starts.lock().unwrap().len(), space.remote_tip(AUTH)), (0, String::new()));
 
   let (exit_code, output) = space.run(&["auth", "--create-pull-request"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
@@ -305,7 +305,7 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   let refused = &output["error"]["branches"][0]["remote"];
   assert_eq!(refused["dropped_commits"][0]["subject"], json!("Someone else"));
   assert_eq!(
-    (space.fake.start_calls.load(Ordering::SeqCst), space.remote_tip(AUTH)),
+    (space.fake.starts.lock().unwrap().len(), space.remote_tip(AUTH)),
     (0, theirs),
     "nothing was pushed or started"
   );
@@ -366,7 +366,7 @@ fn a_stacked_branch_lands_its_parents_with_it() {
   assert_eq!(pushed, [&json!("auth"), &json!("login")]);
   assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
   assert_eq!(space.last_start()["sourceBranch"], json!("refs/heads/test-user/virtual/login"));
-  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 1, "one robot");
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 1, "one robot");
 
   // a dry run checks the same commits
   let (exit_code, output) = space.run(&["login", "--patronus-dry-run"]);
@@ -444,7 +444,7 @@ fn a_branch_with_an_open_pull_request_starts_from_a_comment() {
     json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "comment_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402", "reply": "accepted"})
   );
   assert_eq!(output["robot"]["id"], json!("from-comment"));
-  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 0);
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
   // branches reviewed on GitHub: no Space merge request is looked up
   assert_eq!(space.fake.merge_request_calls.load(Ordering::SeqCst), 0);
   assert_eq!(
@@ -466,7 +466,7 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
     output["pull_request"],
     json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "created": true, "comment_url": null, "reply": null, "assignees": ["me"]})
   );
-  assert_eq!((output["robot"].clone(), space.fake.start_calls.load(Ordering::SeqCst)), (Value::Null, 0));
+  assert_eq!((output["robot"].clone(), space.fake.starts.lock().unwrap().len()), (Value::Null, 0));
   assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
   // the text of its one commit: its subject
   assert_eq!(
@@ -523,7 +523,7 @@ fn patronus_judges_the_approvals_of_the_pull_request() {
   assert_eq!((review["groups"][0]["approved"].clone(), review["groups"][0]["needed"].clone()), (json!(false), json!(1)));
   assert_eq!(review["groups"][0]["reviewers"][0]["approval_state"], json!("reviewing"));
   assert_eq!(space.fake.checked_pull_requests.lock().unwrap()[0], json!({"repository": "acme/monorepo", "number": 7}));
-  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 0);
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
 
   *space.fake.pull_request_review.lock().unwrap() = Some(evaluated_review(true, "APPROVED"));
   let (exit_code, output) = safe_push(&environment, &["auth"]);
@@ -729,7 +729,7 @@ fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   let (exit_code, output) = push(&["auth", "--restart-running"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(*space.fake.canceled.lock().unwrap(), vec!["running".to_string()]);
-  assert_eq!(space.fake.restart_calls.load(Ordering::SeqCst), 1);
+  assert_eq!(space.fake.restarts.lock().unwrap().len(), 1);
   assert_eq!(output["restarted"].as_array().map(Vec::len), Some(1), "{output}");
   assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
 
@@ -1093,7 +1093,7 @@ fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
   let stack_tip = space.local_tip(STACK);
   assert_eq!((space.remote_tip(STACK), space.remote_tip(AUTH)), (stack_tip.clone(), String::new()));
   assert_eq!(space.last_start()["sourceBranch"], json!(format!("refs/heads/{STACK}")));
-  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 1, "one robot");
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 1, "one robot");
 
   // the robot of the whole stack lands every branch of it: a start or a push of a branch waits for it, and a start of
   // the whole stack on the same commits too
@@ -1182,7 +1182,7 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
     "{output}"
   );
   assert!(message.contains("Land it in pieces"), "{output}");
-  assert_eq!((space.remote_tip(STACK), space.fake.start_calls.load(Ordering::SeqCst)), (String::new(), 0));
+  assert_eq!((space.remote_tip(STACK), space.fake.starts.lock().unwrap().len()), (String::new(), 0));
 
   // auth's own commit changes the file its child creates: auth conflicts, the stack branch is not built
   let space = forking_stack();
@@ -1198,7 +1198,7 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
       "Nothing was pushed or started: the stack branch of auth is not the build of its commits: auth conflicts, so the stack branch was not rebuilt. `bd sync` says what to fix"
     )
   );
-  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 0);
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
 }
 
 /// The approvals of the whole stack count in the pull request of its stack branch: `--create-pull-request` opens it
@@ -1310,7 +1310,7 @@ fn a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the
     "{message}"
   );
   assert!(message.contains("`bd update`") && message.contains("`bd safe-push auth` again"), "{message}");
-  assert_eq!((space.fake.start_calls.load(Ordering::SeqCst), space.remote_tip(AUTH)), (0, String::new()));
+  assert_eq!((space.fake.starts.lock().unwrap().len(), space.remote_tip(AUTH)), (0, String::new()));
 }
 
 /// The target moved after the last sync with a change of other files: the replay applies, and the start goes on. A

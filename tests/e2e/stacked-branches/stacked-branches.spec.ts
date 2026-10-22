@@ -939,7 +939,7 @@ test.describe("Stacked branches", () => {
       const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
       const openWholeStack = async () => {
         await findBranchRow(page, "auth").click({ button: "right" })
-        await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+        await openSubmenu(page, "Whole Stack")
       }
 
       // the steps of the start take the place of the root's own step: "⋯" of the row stays where it is
@@ -1052,7 +1052,7 @@ test.describe("Stacked branches", () => {
 
       // a click before the answer waits for it, then says why, with the pull request where the approvals count
       await findBranchRow(page, "auth").click({ button: "right" })
-      await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+      await openSubmenu(page, "Whole Stack")
       await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
       release()
       const notice = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of the whole auth stack needs a pull request" })
@@ -1065,7 +1065,7 @@ test.describe("Stacked branches", () => {
 
       // now the menu knows: its Safe Push disabled with the reason, its pull request offered
       await findBranchRow(page, "auth").click({ button: "right" })
-      await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+      await openSubmenu(page, "Whole Stack")
       const safePush = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
       await expect(safePush).toHaveAttribute("aria-disabled", "true")
       await safePush.hover()

@@ -23,7 +23,7 @@ use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchPar
 use sync_core::branch_name_suggestion::clean_names;
 use sync_core::branch_prefix::GitBranchPrefix;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
-use sync_core::patronus::{SpaceRepository, find_target_branch};
+use sync_core::patronus::{SpaceRepository, find_target_branch, prepare_robot_start, required_target_branch};
 use sync_core::pull_requests::resolve_github_repository;
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
@@ -34,8 +34,8 @@ use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use sync_types::patronus::{
-  GetPatronusRobotsParams, GetPatronusStartOptionsParams, PatronusAvailability, PatronusFailingRobotsParams, PatronusProblem, PatronusRobotDetails, PatronusRobotParams,
-  PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams,
+  GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot,
+  PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, StartPatronusRobotParams,
 };
 use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use sync_types::{ProgressReporter, SyncEvent};
@@ -995,22 +995,77 @@ fn ownership_requirement(
   })
 }
 
+/// The Space repository of the repository at `path` for an action: not on Space is the app's error
+fn required_space_of(state: &AppState, path: &str, operation: &str) -> Result<(Arc<RemoteHost>, SpaceRepository), CommandFailure> {
+  space_of(state, path)?.ok_or_else(|| CommandFailure::error(operation, "The repository is not on Space: Patronus can't push it"))
+}
+
 /// The branch a start pushes to and the merge profiles Patronus answers for it, as the app reads them
 pub async fn get_patronus_start_options(State(state): State<Arc<AppState>>, Json(params): Json<GetPatronusStartOptionsParams>) -> CommandResult<PatronusStartOptions> {
   let operation = "read the Safe Push options";
-  let (host, space) = space_of(&state, &params.repository_path)?.ok_or_else(|| CommandFailure::error(operation, "The repository is not on Space: Patronus can't push it"))?;
+  let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
   let git_executor = state.git_executor.clone();
   let (path, baseline) = (params.repository_path.clone(), params.baseline_branch.clone());
-  let Json(target) = run_command(operation, move || {
-    find_target_branch(&git_executor, &path, &baseline)?
-      .ok_or_else(|| anyhow::anyhow!("The baseline {baseline} is not a branch of origin: Patronus pushes into a branch of origin"))
-  })
-  .await?;
+  let Json(target) = run_command(operation, move || required_target_branch(&git_executor, &path, &baseline)).await?;
   let options = host
     .patronus_service()
     .start_options(&space.project_key, &space.name, &target, params.last_robot_id.as_deref(), params.last_robot_profile)
     .await;
   options.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
+/// The branch of origin a robot pushes into, as the app reads it
+pub async fn get_patronus_target_branch(State(state): State<Arc<AppState>>, Json(params): Json<GetPatronusTargetBranchParams>) -> CommandResult<Option<String>> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the target branch", move || {
+    find_target_branch(&git_executor, &params.repository_path, &params.baseline_branch)
+  })
+  .await
+}
+
+/// Starts a robot as the app does (`prepare_robot_start`: the landing gate, without the object cache, and the target;
+/// then the real service): the fake Patronus of the repository lists it and logs the request (`GET …/patronus`)
+pub async fn start_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<StartPatronusRobotParams>) -> CommandResult<PatronusRobot> {
+  let operation = "start the Patronus robot";
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let (git_executor, start) = (state.git_executor.clone(), params.clone());
+  let Json(branches) = run_command(operation, move || prepare_robot_start(&git_executor, &ObjectCache::disabled(), &start)).await?;
+  let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
+  let robot = host
+    .patronus_service()
+    .start(
+      &space.name,
+      &params.branch_prefix,
+      &branches.source_branch,
+      &branches.target_branch,
+      params.mode,
+      params.profile_id,
+      params.merge_request,
+    )
+    .await;
+  robot.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
+/// Restarts a robot as the app does: the fake lists a new one on the newest commit of the branch
+pub async fn restart_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobot> {
+  let host = remote_of(&state, &params.repository_path)?;
+  let robot = host.patronus_service().restart(&params.branch_prefix, &params.robot_id).await;
+  robot.map(Json).map_err(|e| CommandFailure::error("restart the Patronus robot", e))
+}
+
+/// Cancels a robot as the app does: the fake answers it canceling
+pub async fn cancel_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobot> {
+  let host = remote_of(&state, &params.repository_path)?;
+  let robot = host.patronus_service().cancel(&params.branch_prefix, &params.robot_id).await;
+  robot.map(Json).map_err(|e| CommandFailure::error("cancel the Patronus robot", e))
+}
+
+/// The status of one robot as the app reads it before a push into its branch
+pub async fn get_patronus_robot_status(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobotStatus> {
+  let host = remote_of(&state, &params.repository_path)?;
+  let status = host.patronus_service().robot_status(&params.robot_id).await;
+  status.map(Json).map_err(|e| CommandFailure::error("read the status of the Patronus robot", e))
 }
 
 pub async fn browse_repository(

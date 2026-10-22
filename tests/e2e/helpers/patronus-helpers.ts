@@ -14,7 +14,7 @@ import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
 import type { SetupRepoOptions } from "./setup-options"
 import { emitTauriEvent } from "./sync-helpers"
-import type { TestRepositoryBuilder } from "./test-repository"
+import type { PatronusStartRequest, TestRepositoryBuilder } from "./test-repository"
 import { routeCommand } from "./wait-helpers"
 
 /**
@@ -33,7 +33,7 @@ export function robot(branchName: string, id: string, patch: Partial<PatronusRob
     startTime: 1704139200,
     finishTime: null,
     cancellationReason: null,
-    url: `https://patronus.labs.jb.gg/robot/${id}`,
+    url: robotUrl(id),
     ...patch,
   }
 }
@@ -136,6 +136,51 @@ export function failedFastTests(robotId: string) {
       ],
     },
   }
+}
+
+/**
+ * What Patronus answers of a robot whose Fast Tests failed before any build started (`setPatronusDetails`): the CI
+ * failed, not the branch, so the failure is `infrastructure` and its toast offers the restart
+ */
+export function buildsNeverStarted(robotId: string) {
+  const attempt = { id: `${robotId}-fast-1`, number: 0, buildId: "1095220200", status: "FAILURE", failedTestsNumber: 0, failedBuildsNumber: 0, failedToStartBuildsNumber: 3 }
+  return {
+    checks: {
+      [robotId]: [
+        {
+          id: "1",
+          name: "Fast Tests",
+          buildConfigurationId: "Fast_Aggregator",
+          buildConfigurationName: "Fast Tests Aggregator",
+          status: "FAILURE",
+          attemptLimit: 1,
+          attempts: [attempt],
+        },
+      ],
+    },
+  }
+}
+
+/**
+ * The request of a start of `branchName` of the `issue_links` templates (prefix `user-name`) into master, as the fake
+ * Patronus logs it (`getPatronusLog().starts`): a Safe Push with the default checks unless `patch` says otherwise
+ */
+export function startRequest(branchName: string, patch: Partial<PatronusStartRequest> = {}): PatronusStartRequest {
+  return {
+    type: "ROBOT_WEB_UI",
+    repository: "repository",
+    sourceBranch: `refs/heads/user-name/virtual/${branchName}`,
+    targetBranch: "master",
+    mode: "REBASE_AUTOSQUASH",
+    sourceBranchDeletePolicy: "NEVER",
+    mergeProfileId: null,
+    ...patch,
+  }
+}
+
+/** The page of the robot `id` a fake Patronus started (`started-<n>`, `restarted-<n>`), as the client derives it */
+export function robotUrl(id: string): string {
+  return `https://patronus.labs.jb.gg/robot/${id}`
 }
 
 /** The warning Patronus registers on a running robot once a required check failed: the robot will fail */

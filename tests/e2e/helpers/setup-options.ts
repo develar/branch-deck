@@ -54,6 +54,13 @@ export const SetupRepoOptionsSchema = z.object({
    * Default: undefined - no robot has checks or problems
    */
   patronusDetails: z.any().optional(),
+
+  /**
+   * The merge profiles the fake Patronus offers for a start (see `TestRepositoryBuilder.setPatronusProfiles`), set before
+   * the first sync
+   * Default: undefined - no merge profile, only the default checks
+   */
+  patronusProfiles: z.any().optional(),
 })
 
 /**

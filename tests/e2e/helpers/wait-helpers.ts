@@ -50,13 +50,29 @@ export async function holdCommandCalls(page: Page, command: string): Promise<{ c
   return { calls, release }
 }
 
-/** Answers a command in the page instead of the test server, and records the parameters of each call */
+/**
+ * Answers a command in the page instead of the test server, and records the parameters of each call; `answer` may
+ * resolve later (read what the test server holds at that moment)
+ */
 export async function routeCommand(page: Page, command: string, answer: (params: Record<string, unknown>) => unknown): Promise<Record<string, unknown>[]> {
   const calls: Record<string, unknown>[] = []
   await page.route(`**/invoke/${command}`, async route => {
     const params = route.request().postDataJSON() as Record<string, unknown>
     calls.push(params)
-    await route.fulfill({ json: answer(params) })
+    await route.fulfill({ json: await answer(params) })
+  })
+  return calls
+}
+
+/**
+ * Records the parameters of each call of `command`, which the test server answers: what the page sent that the fake
+ * of the remote service never sees (the overrides of a start)
+ */
+export async function recordCommand(page: Page, command: string): Promise<Record<string, unknown>[]> {
+  const calls: Record<string, unknown>[] = []
+  await page.route(`**/invoke/${command}`, async route => {
+    calls.push(route.request().postDataJSON() as Record<string, unknown>)
+    await route.fallback()
   })
   return calls
 }

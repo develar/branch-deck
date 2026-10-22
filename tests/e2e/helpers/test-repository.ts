@@ -1,5 +1,6 @@
 import type {
   BranchNameSuggestionOutcome,
+  PatronusProfile,
   PatronusReviewRequirement,
   PatronusRobotProgress,
   PatronusRobotsResult,
@@ -10,6 +11,33 @@ import { TEST_SERVER_URL } from "./test-server-url"
 
 /** What reached the fake Patronus: the requests by kind, the robots whose problems and progress were asked, in order */
 export type PatronusRequests = { list: number; updates: number; details: number; problems: string[]; progress: string[]; startOptions: number }
+
+/** A start request as the fake Patronus logs it (`BranchRobotStartRequest` of the patronus crate); see `startRequest` */
+export type PatronusStartRequest = {
+  type: "ROBOT_WEB_UI"
+  repository: string
+  sourceBranch: string
+  targetBranch: string
+  mode: "REBASE_AUTOSQUASH" | "DRY_RUN"
+  sourceBranchDeletePolicy: "NEVER"
+  mergeProfileId: string | null
+  spaceReview?: { projectKey: string; reviewKey: string }
+}
+
+/**
+ * What the page asked of Patronus (its commands, which the caches of the service may answer), what reached the fake
+ * (`requests`), and the actions in order: the start requests, the robots restarted, canceled and whose status was read
+ */
+export type PatronusLog = {
+  listCalls: number
+  pollCalls: number
+  detailCalls: number
+  requests: PatronusRequests
+  starts: PatronusStartRequest[]
+  restarts: string[]
+  cancels: string[]
+  statusReads: string[]
+}
 
 export class TestRepositoryBuilder {
   private baseUrl = TEST_SERVER_URL
@@ -146,6 +174,15 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * Sets the merge profiles the fake Patronus offers for a start (`robot-start-supported`), the regular and the
+   * emergency ones apart, as `PatronusStartOptions` names them; none until set. The default profile is the one of the
+   * branch's last robot (its `profile`), as the real service takes it
+   */
+  async setPatronusProfiles(fixture: { profiles?: PatronusProfile[]; emergencyProfiles?: PatronusProfile[] }): Promise<void> {
+    await this.setFixture("patronus-profiles", fixture)
+  }
+
+  /**
    * Sets the TeamCity checks and the problems the fake Patronus answers for robots, by robot id, and the failed builds of
    * check attempts, by attempt id, in its wire form (`teamCityChecks`, `problems`, `builds`); none without them
    */
@@ -153,11 +190,8 @@ export class TestRepositoryBuilder {
     await this.setFixture("patronus-details", fixture)
   }
 
-  /**
-   * How often the page listed and polled the Patronus robots and asked for their details (its commands, which the caches
-   * of the service may answer), and what reached the fake Patronus (`requests`)
-   */
-  async getPatronusCalls(): Promise<{ listCalls: number; pollCalls: number; detailCalls: number; requests: PatronusRequests }> {
+  /** What the page asked of Patronus and what the fake Patronus got and did (`PatronusLog`) */
+  async getPatronusLog(): Promise<PatronusLog> {
     return this.getFixture("patronus")
   }
 

@@ -4,7 +4,6 @@ use crate::commands::pull_requests::github_repository;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::revs::is_object_id;
 use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient};
@@ -12,8 +11,8 @@ use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
 use std::time::Duration;
-use sync_core::landing_gate::{LandingCheck, LandingGateParams, ensure_landing_starts, landing_check};
-use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
+use sync_core::landing_gate::{LandingCheck, LandingGateParams, landing_check};
+use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, prepare_robot_start, required_target_branch};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
 use sync_core::target_conflict::{TargetCheck, TargetConflictParams, target_conflict_core};
@@ -86,9 +85,7 @@ async fn target_branch(git_executor: &GitCommandExecutor, repository_path: &str,
   let git = git_executor.clone();
   let path = repository_path.to_string();
   let baseline = baseline_branch.to_string();
-  run_blocking(move || find_target_branch(&git, &path, &baseline))
-    .await?
-    .ok_or_else(|| CommandError::new(format!("The baseline {baseline_branch} is not a branch of origin: Patronus pushes into a branch of origin")))
+  run_blocking(move || required_target_branch(&git, &path, &baseline)).await
 }
 
 /// The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
@@ -219,8 +216,9 @@ pub async fn get_patronus_start_options(
 }
 
 /// Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
-/// stack; the frontend pushes it first. First the landing gate (`sync_core::landing_gate`), as `bd safe-push` refuses
-/// it: a proven dangling reference or a missing declaration refuses the start unless `allow` lets it. The new robot.
+/// stack; the frontend pushes it first. First the landing gate and the target (`sync_core::patronus::prepare_robot_start`,
+/// which the test server runs too), as `bd safe-push` refuses it: a proven dangling reference or a missing declaration
+/// refuses the start unless `allow` lets it. The new robot.
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack, mode = ?params.mode, landed_commits = params.landed_commits.len()))]
 #[specta::specta]
@@ -231,35 +229,20 @@ pub async fn start_patronus_robot(
   params: StartPatronusRobotParams,
 ) -> Result<PatronusRobot, CommandError> {
   operation(async move {
-    let gate = LandingGateParams {
-      repository_path: params.repository_path.clone(),
-      branch_prefix: params.branch_prefix.clone(),
-      branch_name: params.branch_name.clone(),
-      stack: params.stack,
-      landed_commits: params.landed_commits.clone(),
-      allow: params.allow,
-    };
-    let (git, repository_state_cache) = ((*git_executor).clone(), (*repository_state).clone());
-    run_blocking(move || {
-      let cache = repository_state_cache.object_cache(&git, &gate.repository_path);
-      ensure_landing_starts(&git, &cache, &gate)
+    let (git, repository_state_cache, start) = ((*git_executor).clone(), (*repository_state).clone(), params.clone());
+    let branches = run_blocking(move || {
+      let cache = repository_state_cache.object_cache(&git, &start.repository_path);
+      prepare_robot_start(&git, &cache, &start)
     })
     .await?;
     let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
-    let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
-    let source = if params.stack {
-      to_stack_branch_name(&params.branch_prefix, &params.branch_name)?
-    } else {
-      to_final_branch_name(&params.branch_prefix, &params.branch_name)?
-    };
-    let source_branch = format!("refs/heads/{source}");
     patronus
       .service
       .start(
         &repository.name,
         &params.branch_prefix,
-        &source_branch,
-        &target,
+        &branches.source_branch,
+        &branches.target_branch,
         params.mode,
         params.profile_id,
         params.merge_request,

@@ -347,7 +347,7 @@ async fn starts_a_robot_on_the_pushed_branch_and_keeps_the_branch() {
   // Patronus has not written the profile into the new robot's options yet: the robot knows the one it was started with
   assert_eq!(robot.profile.and_then(|profile| profile.id).as_deref(), Some("lsc"));
   assert_eq!(
-    *fake.last_start.lock().unwrap(),
+    fake.last_start(),
     serde_json::json!({
       "type": "ROBOT_WEB_UI",
       "repository": "ultimate",
@@ -370,7 +370,7 @@ async fn a_failed_start_is_never_repeated() {
     .await
     .unwrap_err();
   assert_eq!(error, "no such repository");
-  assert_eq!(fake.start_calls.load(Ordering::SeqCst), 1);
+  assert_eq!(fake.starts.lock().unwrap().len(), 1);
 
   // nor a 400 right after a push: Patronus fetches the pushed branch while it handles the start
   fake.set_status(400);
@@ -378,7 +378,7 @@ async fn a_failed_start_is_never_repeated() {
     .start("ultimate", "me", "refs/heads/me/virtual/IJPL-1", "master", PatronusPushMode::DryRun, None, None)
     .await
     .unwrap_err();
-  assert_eq!(fake.start_calls.load(Ordering::SeqCst), 2);
+  assert_eq!(fake.starts.lock().unwrap().len(), 2);
 }
 
 #[tokio::test]
@@ -388,7 +388,43 @@ async fn restart_answers_the_new_robot_and_cancel_the_canceling_one() {
   assert_eq!(service.restart("me", "finished").await.unwrap().id, "restarted");
   assert_eq!(service.cancel("me", "running").await.unwrap().id, "running");
   assert_eq!(service.robot_status("running").await.unwrap(), PatronusRobotStatus::Canceling);
-  assert_eq!((fake.restart_calls.load(Ordering::SeqCst), fake.cancel_calls.load(Ordering::SeqCst)), (1, 1));
+  assert_eq!((fake.restarts.lock().unwrap().len(), fake.canceled.lock().unwrap().len()), (1, 1));
+}
+
+#[tokio::test]
+async fn a_fake_of_the_state_only_lists_the_robots_a_start_and_a_restart_start_and_cancels_them() {
+  let (fake, client) = start_fake().await;
+  fake.state_only.store(true, Ordering::SeqCst);
+  *fake.clock.lock().unwrap() = Some(1_704_189_600);
+  let (service, _) = service(client, token("t"));
+  let source = "refs/heads/me/virtual/IJPL-1";
+  let started = service
+    .start("ultimate", "me", source, "master", PatronusPushMode::DryRun, Some("lsc".to_string()), None)
+    .await
+    .unwrap();
+  assert_eq!(
+    (started.id.as_str(), started.status, started.push_mode, started.branch_name.as_deref(), started.start_time),
+    ("started-1", PatronusRobotStatus::Running, PatronusPushMode::DryRun, Some("IJPL-1"), 1_704_189_601)
+  );
+  assert_eq!(fake.last_start()["mergeProfileId"], "lsc");
+
+  let restarted = service.restart("me", "started-1").await.unwrap();
+  assert_eq!(
+    (restarted.id.as_str(), restarted.push_mode, restarted.branch_name.as_deref(), restarted.start_time),
+    ("restarted-1", PatronusPushMode::DryRun, Some("IJPL-1"), 1_704_189_602)
+  );
+  assert_eq!(service.cancel("me", "started-1").await.unwrap().status, PatronusRobotStatus::Canceling);
+  assert_eq!(service.robot_status("restarted-1").await.unwrap(), PatronusRobotStatus::Running);
+  let listed: Vec<String> = fake
+    .robots
+    .lock()
+    .unwrap()
+    .iter()
+    .flatten()
+    .map(|robot| format!("{} {}", robot["id"], robot["status"]))
+    .collect();
+  assert_eq!(listed, ["\"started-1\" \"CANCELING\"", "\"restarted-1\" \"RUNNING\""]);
+  assert_eq!(service.restart("me", "unknown").await.map(|robot| robot.id).unwrap_err(), "no such robot");
 }
 
 #[tokio::test]
@@ -396,7 +432,7 @@ async fn an_action_without_a_token_tells_how_to_log_in() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, TokenLookup::Missing);
   assert_eq!(service.cancel("me", "running").await.unwrap_err(), "Run ./safePush.cmd once to log in to Patronus");
-  assert_eq!(fake.cancel_calls.load(Ordering::SeqCst), 0);
+  assert_eq!(fake.canceled.lock().unwrap().len(), 0);
 }
 
 fn failed_check(name: &str, build_id: &str, attempt: u32, limit: u32) -> FailedCheck {

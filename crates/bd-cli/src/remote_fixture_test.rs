@@ -91,7 +91,7 @@ impl Space {
   }
 
   pub fn last_start(&self) -> Value {
-    self.fake.last_start.lock().unwrap().clone()
+    self.fake.last_start()
   }
 
   /// Puts the baseline on the remote's `master`, the target the robots push into

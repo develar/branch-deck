@@ -31,11 +31,6 @@ const PAGE_MOCKED: &[(&str, &str)] = &[
   ("check_for_updates", UPDATER),
   ("get_update_status", UPDATER),
   // reached only through `routeCommand` of a test
-  ("start_patronus_robot", PATRONUS),
-  ("restart_patronus_robot", PATRONUS),
-  ("cancel_patronus_robot", PATRONUS),
-  ("get_patronus_robot_status", PATRONUS),
-  ("get_patronus_target_branch", PATRONUS),
   ("post_patronus_command", PATRONUS),
   ("read_patronus_command_reply", PATRONUS),
   ("create_pull_request", GITHUB),
@@ -239,7 +234,7 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
 fn page_mocked_only_goes_down() {
   assert_eq!(
     PAGE_MOCKED.len(),
-    35,
+    30,
     "PAGE_MOCKED may only shrink: a new command gets a route of the test server, not a page mock; when a command gets its route, lower this number"
   );
 }

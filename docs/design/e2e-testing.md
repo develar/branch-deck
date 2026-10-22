@@ -123,7 +123,7 @@ Mock implementation:
   for Patronus, GitHub and YouTrack), never both; a stale entry, or a route or a handler without its command, fails;
   the four handlers over a route (`get_file_diffs`, `get_file_merges`, `sync_branches`, `set_repository_config`) are
   pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw bytes). The number of
-  commands (111) and `PAGE_MOCKED` (35) are pinned; `PAGE_MOCKED` only goes down: a new command gets a route
+  commands (111) and `PAGE_MOCKED` (30) are pinned; `PAGE_MOCKED` only goes down: a new command gets a route
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
   (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
   and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the
@@ -243,10 +243,21 @@ the remote service; a test sets what the fake answers and reads what reached it.
   fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
   so the host holds whether the repository is on Space (`space_repository`, project `e2e`, repository `repository`).
 - **Bridge**: `get_patronus_robots`, `poll_patronus_robots`, `get_patronus_robot_details`, `get_robot_failure`,
-  `get_patronus_robot_problems`, `get_patronus_failing_robots` and `get_patronus_start_options` call the service as
-  `src-tauri/src/commands/patronus.rs` does: the list answers `notPatronus` while the repository is not on Space and
-  names the GitHub repository by the real `resolve_github_repository`; the start options need Space and the target
-  branch of the baseline (`find_target_branch`).
+  `get_patronus_robot_problems`, `get_patronus_failing_robots`, `get_patronus_start_options`,
+  `get_patronus_target_branch`, `start_patronus_robot`, `restart_patronus_robot`, `cancel_patronus_robot` and
+  `get_patronus_robot_status` call the service as `src-tauri/src/commands/patronus.rs` does: the list answers
+  `notPatronus` while the repository is not on Space and names the GitHub repository by the real
+  `resolve_github_repository`; the start options and the start need Space and the target branch of the baseline
+  (`required_target_branch`), and the start runs the app's `prepare_robot_start` first (the landing gate, without the
+  object cache, then the source ref of the virtual or the stack branch).
+- **Actions**: in `state_only` the fake acts as Patronus does: a start (`POST /robots`) lists a new running robot
+  `started-<n>` built from its body (source and target branch, mode), on the commit its source branch is at then
+  (`robots_hook`, pinned: a later change of the branch doesn't move it), dated by `clock`, which the host sets to the
+  page's clock (`PAGE_CLOCK_START`, 2024-01-02 10:00Z, `base-test.ts`) plus a second per robot started; a restart
+  lists `restarted-<n>` with the branches, mode and options of the robot it restarts, on the newest commit of the
+  branch; a cancel makes the robot `CANCELING`; the status of a robot is its listed status; an unknown robot answers 404.
+  The robot pages are `https://patronus.labs.jb.gg/robot/<id>` (`robotUrl` in `patronus-helpers.ts`). A failure of
+  Patronus is the fixture's `availability` (`set_status`), never a route of the page.
 - **Fixtures** (`crates/test-server/src/remote_fixtures.rs`) keep the shapes the page knows and are written once into
   the wire form of the fake; `remote_fixtures_test.rs` reads each form back through the real parser (`to_robot`,
   `progress_of`) as the fixture. `POST /repositories/{id}/patronus` (a `PatronusRobotsResult`, `setPatronus`) sets the
@@ -257,12 +268,19 @@ the remote service; a test sets what the fake answers and reads what reached it.
   empty `sourceRevision` is resolved when Patronus answers (`robots_hook`) to the tip of that ref, `~N` to its Nth first
   parent. `/patronus-progress` sets what `robots/progress` folds per robot (the new API of Settings → Patronus), and
   `/patronus-details` the TeamCity checks and problems per robot and the failed builds per check attempt in the wire
-  form (`setPatronusDetails`, `failedFastTests` in `patronus-helpers.ts`); a robot without them has none. Robot start
-  options answer supported without merge profiles until a test routes them
-- **Counters**: `GET /repositories/{id}/patronus` answers `listCalls`, `pollCalls`, `detailCalls`, the commands of the
-  page (the caches of the service answer some of them: a test of the page's ask policy counts these), and `requests`,
-  what reached the fake: `list`, `updates`, `details` and `startOptions` counts, and the robot ids of `problems` and
-  `progress` in order (`getPatronusCalls`)
+  form (`setPatronusDetails`, `failedFastTests` and `buildsNeverStarted` in `patronus-helpers.ts`); a robot without
+  them has none. `/patronus-profiles` (`setPatronusProfiles`, the `patronusProfiles` setup option) sets the merge
+  profiles of `robot-start-supported` in the shape of `PatronusStartOptions` (`profiles`, `emergencyProfiles`); until
+  then a start offers only the default checks. The default profile is the real service's: the profile of the branch's
+  last robot, which a fixture robot names in `profile`
+- **Log**: `GET /repositories/{id}/patronus` (`getPatronusLog`) answers `listCalls`, `pollCalls`, `detailCalls`, the
+  commands of the page (the caches of the service answer some of them: a test of the page's ask policy counts these),
+  `requests`, what reached the fake: `list`, `updates`, `details` and `startOptions` counts, and the robot ids of
+  `problems` and `progress` in order; and the actions in order: `starts`, the bodies of the start requests as Patronus
+  got them (`startRequest` in `patronus-helpers.ts` builds the expected one), `restarts`, `cancels` and `statusReads`,
+  robot ids. A Safe Push test asserts the start Patronus got, not the parameters the page sent; the order of a push
+  answered in the page and the robot actions around it is the log the push's route reads when it comes
+  (`routePushNotingPatronus` in `patronus-actions.spec.ts`)
 
 ## Alternatives Considered
 

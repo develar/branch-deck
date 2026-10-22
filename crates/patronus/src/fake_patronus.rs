@@ -23,9 +23,12 @@ pub struct FakePatronus {
   /// The robots whose problems were asked, in order
   pub problem_calls: Mutex<Vec<String>>,
   pub start_supported_calls: AtomicU32,
-  pub start_calls: AtomicU32,
-  pub restart_calls: AtomicU32,
-  pub cancel_calls: AtomicU32,
+  /// The bodies of the start requests, in order
+  pub starts: Mutex<Vec<serde_json::Value>>,
+  /// The ids of the restarted robots, in order
+  pub restarts: Mutex<Vec<String>>,
+  /// The robots whose status was asked (`GET /robots/{id}/status`), in order
+  pub status_calls: Mutex<Vec<String>>,
   /// The builds whose progress was asked, in order
   pub build_progress_calls: Mutex<Vec<String>>,
   /// The robots whose progress was asked (`robots/progress`), one entry per request with its ids joined by a comma
@@ -39,8 +42,6 @@ pub struct FakePatronus {
   pub last_query: Mutex<HashMap<String, String>>,
   /// The body of the last fetch-updates request
   pub last_updates: Mutex<serde_json::Value>,
-  /// The body of the last start request
-  pub last_start: Mutex<serde_json::Value>,
   /// The pre-check answers approval required for a request without this review key… and with it unless approved
   pub review_required: std::sync::atomic::AtomicBool,
   pub review_approved: std::sync::atomic::AtomicBool,
@@ -89,9 +90,16 @@ pub struct FakePatronus {
   pub robots_hook: Mutex<Option<RobotsHook>>,
   /// Answers only the state that was set, nothing built in, as the test server needs it: the list is `robots` (none
   /// until set), fetch-updates answers the listed robots whose status differs from the last known one, as Patronus does,
-  /// `GET /robots/{id}` the listed robot (404 for another), and a robot without its own checks, problems or progress (an
-  /// attempt without its builds) has none
+  /// `GET /robots/{id}` and its status the listed robot (404 for another), and a robot without its own checks, problems
+  /// or progress (an attempt without its builds) has none. A start lists a new running robot `started-<n>` of its body,
+  /// a restart a new running robot `restarted-<n>` of the restarted one's branches, mode and options, each on the commit
+  /// its source branch points to then (`robots_hook`); a cancel makes the robot canceling
   pub state_only: std::sync::atomic::AtomicBool,
+  /// Unix seconds: the robots a start or a restart lists start one second apart after it, in order, as the clock of the
+  /// client runs; now when unset
+  pub clock: Mutex<Option<u32>>,
+  /// The robots a start or a restart listed so far
+  created: AtomicU32,
 }
 
 /// A fake served on a loopback port of its own; the server stops when this is dropped
@@ -174,6 +182,49 @@ impl FakePatronus {
       .collect()
   }
 
+  /// The body of the last start request; null before one
+  pub fn last_start(&self) -> serde_json::Value {
+    self.starts.lock().unwrap().last().cloned().unwrap_or_default()
+  }
+
+  /// Lists a new running robot `id` of `source` (the branches, the mode and the options of a start or of the robot a
+  /// restart restarts), on the commit its source branch points to now (`robots_hook`)
+  fn list_started(&self, id: &str, source: &serde_json::Value, push_mode: &serde_json::Value) {
+    let created = self.created.fetch_add(1, Ordering::SeqCst) + 1;
+    let start = self.clock.lock().unwrap().map_or_else(sync_utils::timestamp::unix_now, |clock| clock + created);
+    let mut robot = serde_json::json!({
+      "id": id,
+      "name": source["sourceBranch"].as_str().map(|branch| branch.trim_start_matches("refs/heads/")),
+      "repository": source["repository"],
+      "sourceBranch": source["sourceBranch"],
+      "sourceRevision": "",
+      "targetBranch": source["targetBranch"],
+      "startDateTime": sync_utils::timestamp::format_utc_timestamp(start),
+      "finishDateTime": null,
+      "status": "RUNNING",
+      "pushMode": push_mode,
+      "cancellationReason": null,
+      "owner": {"type": "USER", "id": "1", "name": "Me"},
+    });
+    if source["options"].is_object() {
+      robot["options"] = source["options"].clone();
+    }
+    let robot = self.hooked(robot);
+    self.robots.lock().unwrap().get_or_insert_with(Vec::new).push(robot);
+  }
+
+  /// Changes the listed robot `id` by `change`; false without it
+  fn change_listed(&self, id: &str, change: impl FnOnce(&mut serde_json::Value)) -> bool {
+    let mut robots = self.robots.lock().unwrap();
+    let robot = robots.iter_mut().flatten().find(|robot| robot["id"] == id);
+    robot.map(change).is_some()
+  }
+
+  /// The listed robot `id`
+  fn find_listed(&self, id: &str) -> Option<serde_json::Value> {
+    self.listed_robots().into_iter().find(|robot| robot["id"] == id)
+  }
+
   fn answer(&self, body: serde_json::Value) -> Response {
     let status = *self.status.lock().unwrap();
     if status == 200 {
@@ -186,6 +237,11 @@ impl FakePatronus {
         .into_response()
     }
   }
+}
+
+/// What Patronus answers for a robot it doesn't know
+fn no_such_robot() -> Response {
+  (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "NOT_FOUND", "description": "no such robot"}))).into_response()
 }
 
 pub fn robot_json(id: &str, status: &str, source_branch: &str, start: &str) -> serde_json::Value {
@@ -338,12 +394,20 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         }))
       })
       .post(|State(fake): State<Arc<FakePatronus>>, Json(body): Json<serde_json::Value>| async move {
-        fake.start_calls.fetch_add(1, Ordering::SeqCst);
-        *fake.last_start.lock().unwrap() = body;
+        let count = {
+          let mut starts = fake.starts.lock().unwrap();
+          starts.push(body.clone());
+          starts.len()
+        };
         if *fake.status.lock().unwrap() != 200 {
           return fake.answer(serde_json::Value::Null);
         }
-        (StatusCode::CREATED, Json(serde_json::json!({"robotId": "started"}))).into_response()
+        if !fake.is_state_only() {
+          return (StatusCode::CREATED, Json(serde_json::json!({"robotId": "started"}))).into_response();
+        }
+        let id = format!("started-{count}");
+        fake.list_started(&id, &body, &body["mode"]);
+        (StatusCode::CREATED, Json(serde_json::json!({"robotId": id}))).into_response()
       }),
     )
     .route(
@@ -398,8 +462,8 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         let robot = match detail {
           Some(robot) => robot,
           None if fake.is_state_only() => {
-            let Some(robot) = fake.listed_robots().into_iter().find(|robot| robot["id"] == id.as_str()) else {
-              return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "NOT_FOUND", "description": "no such robot"}))).into_response();
+            let Some(robot) = fake.find_listed(&id) else {
+              return no_such_robot();
             };
             robot
           }
@@ -410,7 +474,16 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
     )
     .route(
       "/app/rest/v1/robots/{id}/status",
-      get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move { fake.answer(serde_json::json!({"robotId": id, "robotStatus": "CANCELING"})) }),
+      get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
+        fake.status_calls.lock().unwrap().push(id.clone());
+        if !fake.is_state_only() {
+          return fake.answer(serde_json::json!({"robotId": id, "robotStatus": "CANCELING"}));
+        }
+        match fake.find_listed(&id) {
+          Some(robot) => fake.answer(serde_json::json!({"robotId": id, "robotStatus": robot["status"]})),
+          None => no_such_robot(),
+        }
+      }),
     )
     .route(
       "/app/rest/v1/robots/{id}/teamcity-checks",
@@ -472,21 +545,34 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
     )
     .route(
       "/app/rest/v1/robots/{id}/restart",
-      post(|State(fake): State<Arc<FakePatronus>>| async move {
-        fake.restart_calls.fetch_add(1, Ordering::SeqCst);
-        fake.answer(serde_json::json!({"robotId": "restarted"}))
+      post(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
+        let count = {
+          let mut restarts = fake.restarts.lock().unwrap();
+          restarts.push(id.clone());
+          restarts.len()
+        };
+        if !fake.is_state_only() || *fake.status.lock().unwrap() != 200 {
+          return fake.answer(serde_json::json!({"robotId": "restarted"}));
+        }
+        let Some(restarted) = fake.find_listed(&id) else {
+          return no_such_robot();
+        };
+        let robot_id = format!("restarted-{count}");
+        fake.list_started(&robot_id, &restarted, &restarted["pushMode"]);
+        fake.answer(serde_json::json!({"robotId": robot_id}))
       }),
     )
     .route(
       "/app/rest/v1/robots/{id}/cancel",
       put(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
-        fake.cancel_calls.fetch_add(1, Ordering::SeqCst);
-        fake.canceled.lock().unwrap().push(id);
-        if *fake.status.lock().unwrap() == 200 {
-          StatusCode::OK.into_response()
-        } else {
-          fake.answer(serde_json::Value::Null)
+        fake.canceled.lock().unwrap().push(id.clone());
+        if *fake.status.lock().unwrap() != 200 {
+          return fake.answer(serde_json::Value::Null);
         }
+        if fake.is_state_only() && !fake.change_listed(&id, |robot| robot["status"] = "CANCELING".into()) {
+          return no_such_robot();
+        }
+        StatusCode::OK.into_response()
       }),
     )
     .route(

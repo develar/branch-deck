@@ -6,12 +6,12 @@ import { openActivityWindow } from "../helpers/activity-helpers"
 import { expectNothingToPush, findBranchRow, getBranchCells, getLandingNode, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
-import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
+import { availableRobots, buildsNeverStarted, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommandCalls, routeCommand } from "../helpers/wait-helpers"
+import { holdCommandCalls } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
 // before, and the merged one took an hour: the usual time of a Safe Push
@@ -92,20 +92,18 @@ test.describe("Patronus chip", () => {
     await expectColumnAligned(page.getByTestId("branch-row").getByRole("button", { name: /^More actions for / }))
   })
 
-  test("should restart a failed robot from its row, the state staying in the Status cell", async ({ page }) => {
-    const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("ABC-123", "restarted-robot", { startTime: NOW }))
+  test("should restart a failed robot from its row, the state staying in the Status cell", async ({ page, repo }) => {
     const restart = getSlot(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })
     // no hover swaps it: the failure stays where the eye reads the state
     await expect(restart).toBeVisible()
     await findBranchRow(page, "ABC-123").locator("td").nth(1).hover()
     await expect(getChip(page, "ABC-123")).toHaveText("Failed")
     await restart.click()
-    await expect.poll(() => restarts.length).toBe(1)
+    await expect.poll(async () => (await repo.getPatronusLog()).restarts).toEqual([FAILED.id])
     await verifyBranchState(findBranchRow(page, "ABC-123"), "closed")
   })
 
-  test("should restart a robot once while its restart runs, running in the slot and in its details, landing from the click", async ({ page }) => {
-    await routeCommand(page, "restart_patronus_robot", () => robot("ABC-123", "restarted-robot", { startTime: NOW }))
+  test("should restart a robot once while its restart runs, running in the slot and in its details, landing from the click", async ({ page, repo }) => {
     const restarts = await holdCommandCalls(page, "restart_patronus_robot")
     const restart = getSlot(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })
     const node = getLandingNode(findBranchRow(page, "ABC-123"))
@@ -125,6 +123,7 @@ test.describe("Patronus chip", () => {
     restarts.release()
     await expect(page.getByText("Safe Push restarted", { exact: true })).toBeVisible()
     expect(restarts.calls).toHaveLength(1)
+    expect((await repo.getPatronusLog()).restarts).toEqual([FAILED.id])
     await expect(node).toHaveAttribute("data-kind", "landing")
   })
 
@@ -220,7 +219,7 @@ baseTest.describe("Patronus robot timing", () => {
     // no details open: the row, the indicator, the Dock and the timers ask nothing
     await page.clock.fastForward("02:00")
     await expect(chip).toHaveText("20m · ~20m")
-    expect((await repo.getPatronusCalls()).detailCalls).toBe(0)
+    expect((await repo.getPatronusLog()).detailCalls).toBe(0)
 
     const popover = await hoverChip(page, "JIRA-456")
     await expect(popover.getByTestId("patronus-progress")).toHaveText("about 9 min left · Unit Tests 93% · 1 check queued")
@@ -228,10 +227,10 @@ baseTest.describe("Patronus robot timing", () => {
     await expect(popover.getByTestId("patronus-started")).toHaveText(/ · usually ~40 min for Safe Push$/)
     // while they are open the slot takes it
     await expect(chip).toHaveText("20m · ~9m")
-    expect((await repo.getPatronusCalls()).detailCalls).toBe(1)
+    expect((await repo.getPatronusLog()).detailCalls).toBe(1)
     // asked again once a minute while open
     await page.clock.fastForward("01:01")
-    await expect.poll(async () => (await repo.getPatronusCalls()).detailCalls).toBe(2)
+    await expect.poll(async () => (await repo.getPatronusLog()).detailCalls).toBe(2)
     await page.keyboard.press("Escape")
     await expect(popover).toBeHidden()
     await page.mouse.move(0, 0)
@@ -239,14 +238,14 @@ baseTest.describe("Patronus robot timing", () => {
     // closed: the estimate from history again, and nothing asked
     await expect(chip).toHaveText("21m · ~19m")
     await page.clock.fastForward("03:00")
-    expect((await repo.getPatronusCalls()).detailCalls).toBe(2)
+    expect((await repo.getPatronusLog()).detailCalls).toBe(2)
 
     // the robots of the landing overview asks while it is open
     await page.getByTestId("landing-indicator").hover()
     const row = page.getByTestId("landing-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
     await expect(row.getByTestId("robots-row-checks")).toHaveText("Unit Tests 93% · 1 check queued")
     await expect(row.getByTestId("robots-row-state")).toHaveText("24m · ~9m")
-    expect((await repo.getPatronusCalls()).detailCalls).toBe(3)
+    expect((await repo.getPatronusLog()).detailCalls).toBe(3)
   })
 
   baseTest("should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -273,7 +272,7 @@ baseTest.describe("Patronus robot timing", () => {
     // the unassigned commits card renders after the branches and would move the rows away from the pointer
     await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
     await expect(getChip(page, "JIRA-456")).toHaveText("18m · ~1h 32m")
-    const calls = await repo.getPatronusCalls()
+    const calls = await repo.getPatronusLog()
 
     let popover = await hoverChip(page, "JIRA-456")
     await expect(popover.getByTestId("patronus-started")).toContainText("usually ~1 h 50 min for Large Scale Change · about 1 h 32 min left")
@@ -294,7 +293,7 @@ baseTest.describe("Patronus robot timing", () => {
     await row.getByTestId("robots-row-state").hover()
     await expect(page.getByRole("tooltip")).toHaveText("Safe Push · Large Scale Change")
     // no list and no poll for the estimates, only the details that were open
-    expect(await repo.getPatronusCalls()).toMatchObject({ listCalls: calls.listCalls, pollCalls: calls.pollCalls })
+    expect(await repo.getPatronusLog()).toMatchObject({ listCalls: calls.listCalls, pollCalls: calls.pollCalls })
   })
 
   baseTest("should count the time of a running robot and the time it usually takes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -335,10 +334,10 @@ test.describe("Patronus in the landing overview", () => {
   })
 
   test("should list the robots again from the overview", async ({ page, repo }) => {
-    const { listCalls } = await repo.getPatronusCalls()
+    const { listCalls } = await repo.getPatronusLog()
     const popover = await openLandingOverview(page)
     await popover.getByTestId("patronus-refresh").click()
-    await expect.poll(async () => (await repo.getPatronusCalls()).listCalls).toBe(listCalls + 1)
+    await expect.poll(async () => (await repo.getPatronusLog()).listCalls).toBe(listCalls + 1)
     await expect(popover.getByTestId("patronus-refresh")).toBeEnabled()
   })
 })
@@ -397,29 +396,14 @@ test.describe("Patronus failure", () => {
   })
 
   test("should restart from the toast a Safe Push whose builds never started", async ({ page, repo }) => {
-    await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: 1704189000 }, FAILED, MERGED, DRY_RUN, OUTDATED))
     // the CI failed, not the branch
-    await routeCommand(page, "get_robot_failure", () => ({
-      failure: {
-        robot: RUNNING,
-        running: false,
-        testRevision: null,
-        targetRevision: null,
-        kind: "infrastructure",
-        checks: [],
-        problems: [],
-        builds: null,
-        omitted: { builds: 0, tests: 0, messages: 0, truncated: false },
-      },
-      commits: null,
-      headBranch: "master",
-    }))
-    const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("JIRA-456", "restarted-robot", { startTime: NOW }))
+    await repo.setPatronusDetails(buildsNeverStarted(RUNNING.id))
+    await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: 1704189000 }, FAILED, MERGED, DRY_RUN, OUTDATED))
     await emitTauriEvent(page, "tauri://focus")
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of JIRA-456 failed" })
     await toast.getByRole("button", { name: "Restart Safe Push" }).click()
-    await expect.poll(() => restarts.length).toBe(1)
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push restarted" })).toBeVisible()
+    expect((await repo.getPatronusLog()).restarts).toEqual([RUNNING.id])
   })
 })
 

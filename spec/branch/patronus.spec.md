@@ -636,8 +636,13 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   an older commit is canceled for that push, not restarted ([below](#pushing-into-a-branch-whose-safe-push-runs)). Then
   `POST /robots` starts the robot on the pushed virtual branch, as the web UI does (`ROBOT_WEB_UI`, the source branch
   `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart takes the newest commit of the
-  branch. The robot shows at once and is polled.
+  branch; the request names the profile chosen (`mergeProfileId`, null for the default checks), the mode
+  (`REBASE_AUTOSQUASH`, `DRY_RUN`) and the Space merge request whose approvals count (`spaceReview`). The landing gate
+  and the target are checked in Rust before it (`prepare_robot_start`). The robot shows at once and is polled.
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`, `should start a Safe Push with the profile chosen in the popover of S and of Safe Push With Profile…`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`, `should name the approvals a Safe Push needs on Space, and start with the merge request found open`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_restart_and_cancel_run_the_real_service_against_the_fake`)
   [@test] ../../src/lib/git/push.test.ts (`pushes the branch for the action without a toast, Activity records it`, `pushes the ancestors with work for the remote first, root first`, `refuses a push that drops remote commits of the branch or of an ancestor: the row asks first`, `returns the reason of a hold instead of a toast`)
 - A started robot is a `success` toast "Safe Push started" ("Dry Run started") that names the branch, the target and
   the profile, never the ref the robot runs on ("auth → master · profile Large Scale Change", `describeRobot`), with
@@ -1290,14 +1295,16 @@ explicit choice of the user, offered only where the approvals count in a pull re
   estimate (`robot-eta.test.ts`) and the merge toast and notification.
 - `pnpm e2e` covers the slot, the chip, the popover, the preview section and the overview (`tests/e2e/patronus`); the
   timing runs on the fake clock of the page (`page.clock.fastForward`), the robots' times relative to its 2024-01-02
-  10:00Z. E2E never calls
-  Patronus: `POST /repositories/{id}/patronus` sets what `get_patronus_robots` answers (an empty `sourceRevision` means
-  the local tip of the robot's branch), what `poll_patronus_robots` answers (the fixture robots whose status differs
-  from the known one) and the robot of `get_patronus_robot_details` (without checks); `GET` returns how often the app
-  listed and polled; `get_patronus_robot_problems` answers none, `get_branch_review_readiness` the answer of
-  `POST /repositories/{id}/review-answers` per branch, else "not required" ([E2E Testing](../../docs/design/e2e-testing.md)).
-  The actions are answered in the page (`page.route`), which records their parameters. The E2E repositories have no
-  remote: a push answered in the page (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
+  10:00Z, where a robot a test starts starts too. E2E never calls Patronus: the test server runs the commands through
+  the real service against a fake Patronus of each test repository ([E2E Testing](../../docs/design/e2e-testing.md#remote-services)).
+  `POST /repositories/{id}/patronus` sets its robots (an empty `sourceRevision` means the tip of the robot's branch
+  when Patronus answers), `…/patronus-details` their checks and problems, `…/patronus-profiles` the merge profiles of
+  a start; a start lists a new running robot `started-<n>` on the commit its branch is at, a restart `restarted-<n>`,
+  a cancel makes the robot canceling. `GET …/patronus` (`getPatronusLog`) returns how often the app listed, polled and
+  read details, and the start requests, the restarts, the cancels and the status reads the fake got, in order.
+  `get_branch_review_readiness` answers per branch what `POST /repositories/{id}/review-answers` sets, else "not
+  required". The `/patronus` comment and its reply are still answered in the page (`page.route`). The E2E repositories
+  have no remote: a push answered in the page (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
 - Against the real Patronus: `pnpm run tauri dev`, open a checkout of `ultimate`; the log has one line per request
   ("listed Patronus robots", "polled Patronus robots") with its duration.
 
