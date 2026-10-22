@@ -1,6 +1,16 @@
 import { GitPullRequestCreateIcon } from "lucide-react"
 import type { StartStepOptions } from "@/hooks/useBranchNextStep"
-import { announceApproval, busyFact, getBranchNextStepNow, getLandedIn, nextStepSources, tellApprovalNews, useBranchNextStep, useNextStepStores } from "@/hooks/useBranchNextStep"
+import {
+  announceApproval,
+  busyFact,
+  fixLanding,
+  getBranchNextStepNow,
+  getLandedIn,
+  nextStepSources,
+  tellApprovalNews,
+  useBranchNextStep,
+  useNextStepStores,
+} from "@/hooks/useBranchNextStep"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { formatBranchCount } from "@/lib/branch"
@@ -214,6 +224,8 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     // what merged Safe Pushes landed of it is in the target: the robot lands the rest
     landsBranches: rest.members.length,
     startDescription: describeWholeStackLanding(rest.members, rest.commitCount, target, "rebaseAutosquash", rest.landed),
+    // the repository view computes them of the branches, not of the whole stack: its start's gate checks it
+    landingNeeds: null,
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
     stackPullRequest: null,
     actions: {
@@ -229,6 +241,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
       // in the column of steps of the island header, which is the whole stack's
       createPullRequest: stackStepItem(getCreateStackPullRequestItem(root)),
       requestReview: getRequestReviewItem(pullRequest, readiness?.readiness ?? null, () => openRequestReview(key)),
+      fixLanding,
     },
   }
 }

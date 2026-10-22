@@ -1,6 +1,6 @@
 ---
 name: Next Step
-description: Requirements for the one model of what to do next with a branch (getBranchNextStep), the first matching row of a table of its states (a sync, a failure, a block, a hold, landed, a robot that runs or merged, landed by a merged Safe Push (its own, of a branch built on it or of the whole stack, by the hashes or by content, the commits added since the work left) until the update, a robot to restart, a pull request into another base or a draft, the approvals that count missing, waited for or approved, as Patronus judges them; a stacked branch by the rows of its own pull request), rendered by the Safe Push slot of the row, the "⋯" menu, S, the branch preview, the review window, the stack header and the start of a Safe Push with its popover (getSafePushDecision); the same table for the whole stack of a root from its stack branch (useStackNextStep), whose pull request a branch without its own points to, which lands only what merged Safe Pushes left of it; the readiness store that asks Patronus for it in the background, only for the branches a surface shows, and Check Approvals Again.
+description: Requirements for the one model of what to do next with a branch (getBranchNextStep), the first matching row of a table of its states (a sync, a failure, a block, a hold, landed, a robot that runs or merged, a branch outside what its Safe Push lands that its build needs (the landing needs Rust computes after a sync), landed by a merged Safe Push (its own, of a branch built on it or of the whole stack, by the hashes or by content, the commits added since the work left) until the update, a robot to restart, a pull request into another base or a draft, the approvals that count missing, waited for or approved, as Patronus judges them; a stacked branch by the rows of its own pull request), rendered by the Safe Push slot of the row, the "⋯" menu, S, the branch preview, the review window, the stack header and the start of a Safe Push with its popover (getSafePushDecision); the same table for the whole stack of a root from its stack branch (useStackNextStep), whose pull request a branch without its own points to, which lands only what merged Safe Pushes left of it; the readiness store that asks Patronus for it in the background, only for the branches a surface shows, and Check Approvals Again.
 style: plain-1
 targets:
   - ../../src/lib/branch-next-step.ts
@@ -35,6 +35,9 @@ targets:
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/branch/LandedChip.tsx
   - ../../crates/sync-core/src/robot_landing.rs
+  - ../../crates/sync-core/src/landing_gate.rs
+  - ../../crates/repository-view/src/views.rs
+  - ../../src/lib/landing-gate.ts
 ---
 
 # Next Step
@@ -77,6 +80,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   | # | State | Slot | Safe Push elsewhere |
   |---|---|---|---|
   | 1 | Syncing, failed to sync, no commits, blocked, held by a Safe Push, parked or built on a parked branch, landed, a robot runs, merged (by the robot, by the merged Safe Push of a branch built on it or of the whole stack, or the pull request of these commits; all of it, no commit added since) | nothing; the Status cell says it ("Landed with oauth", "Parked with auth") | disabled: "Wait for the sync to finish", "Parked: Unpark it to push", "Built on parked auth: Unpark auth to push", "Holds parked auth: land the stack in pieces" (the whole stack), "Landed in origin/master", "Landed in master with oauth", "Merged by Patronus", "Pull request #7 is merged", … (a running robot of an older commit: enabled, the start replaces it) |
+  | 1′ | The build of what its Safe Push lands needs a commit of a branch outside it (`landingNeeds` of the repository view, [below](#what-the-safe-push-needs)) | "Needs stills-codec" (a commit not in a branch by its hash), the reason on hover; a click runs the fix, "Stack lane-run on stills-codec" | enabled: its popover says why before the start, with the fix and Start Anyway |
   | 2 | A robot failed or was canceled, not for approvals, and no running Safe Push of a branch it is built on (of the whole stack: of a branch of it) lands a part of it; while one does, the failure of the earlier piece waits for it: the rows below decide, the Safe Push disabled with "A Safe Push of auth is running: wait until it merges" | "Restart Safe Push" (Safe Push… where Patronus can't restart it) | enabled |
   | 3 | A robot failed for approvals, started from the open pull request into the target, readiness `approved` | "Restart Safe Push" | enabled |
   | 4 | removed: a stacked branch takes the rows of its own pull request into master, see below | — | — |
@@ -182,6 +186,38 @@ branch from all the facts (the branch, its robots, its pull request and the read
   open pull request, which asks GitHub, still opens from the menus, at an anchor of the row that takes no room
   ([Pull Requests](pull-requests.spec.md#request-review)).
   [@test] ../../src/lib/branch-next-step.test.ts (`treats the readiness as unavailable without the pull requests: never a duplicate Create Pull Request…`, `has no slot in a repository that is not on Space, and keeps the reasons of the branch`)
+
+### What the Safe Push needs
+
+- git merges a branch that uses a name only another branch adds, and the robot's build fails: the robot of
+  2026-10-22 ran `ui-perf-nightly`, built on `lane-run`, whose commit imports a class `stills-codec` adds, while the
+  robot of `stills-codec` ran beside it. The landing gate refuses such a start only after the press
+  ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)); the row says it before any press. After a sync
+  Rust computes in the background, for every branch, the refusals the gate of its start would give (`landingNeeds` of
+  `BranchPatronus` in the repository view, `sync_core::landing_gate::landing_needs`, the same rule as the gate): one
+  trial check of every branch, its dangling references and missing declarations, less what merged Safe Pushes landed.
+  A branch built on one that needs a branch needs it too: its Safe Push lands that one. The needs are a fact with its
+  inputs (the baseline, the tips of the table, the landed commits): unknown until computed, never "nothing", and not
+  computed again while the inputs stay; the page waits for the computation (`wait_landing_needs`) and asks the view
+  again. Row 1′ maps them to the step, no rule of its own (`getBranchNextStep`): "Needs stills-codec", its hover the
+  reason in the words of the gate's toast ("“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3),
+  which “Name lossy stills” of stills-codec adds: git merges it, but the build of lane-run fails. Stack lane-run on
+  stills-codec to land it too."), and a click the fix: the restack of the root of what lands onto that branch
+  (`LandingFix`, `formatLandingFix`); "⋯" offers the same fix first ("Stack lane-run on stills-codec"). A fix no action
+  runs (the move of an unassigned commit, a restack that would close a cycle) opens the Safe Push popover. Row 1 comes
+  first (a running robot, a sync); the restart of a failed robot and the approvals come after: a restart would fail on
+  the same build. While the branch that adds the name is landing in a running Safe Push, the reason says so: "stills-codec is
+  landing in its Safe Push, which tests it without this start: a start beside it fails too." The Safe Push stays
+  enabled: its popover shows the reason before the start, with the fix and Start Anyway
+  ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The whole stack has no landing needs of its own:
+  the gate of its start checks it.
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 1′: a branch whose Safe Push needs a branch outside what it lands says so and restacks; unknown needs change nothing`)
+  [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should say on the row which branch its Safe Push needs before any press, and stack it on that branch from the slot`, `should stack the branch on the branch its Safe Push needs from the menu of a branch built on it`)
+  [@test] ../../src/stores/patronus.test.ts (`waits for the landing needs Rust computes in the background, unknown until then, and asks the view again once`)
+  [@test] ../../crates/repository-view/src/views_test.rs (`the_landing_needs_are_unknown_until_computed_then_kept_while_the_inputs_stay`, `a_running_safe_push_of_the_branch_the_start_needs_is_named`)
+  [@test] ../../crates/sync-core/src/landing_gate_test.rs (`a_branch_that_uses_a_name_of_a_branch_outside_it_needs_that_branch_and_so_does_a_branch_built_on_it`, `the_needs_of_a_branch_are_the_refusals_of_its_start`, `a_landed_declaration_is_needed_by_nobody`, `a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_landing_needs_of_every_branch`)
+  [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
 
 ### The whole stack
 

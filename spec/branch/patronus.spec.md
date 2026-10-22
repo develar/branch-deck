@@ -594,6 +594,22 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   the gate; the start from a pull request asks the gate first too. A check that can't run holds nothing back, and the
   start's toast says "Not checked whether JIRA-456 uses a name only another branch adds: …".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse a Safe Push whose branch uses a name another branch adds, with the restack and Start Anyway`)
+- The row knows it before the press: after a sync Rust computes the refusals of every branch's start by the same rule
+  (the landing needs, [Next Step](next-step.spec.md#what-the-safe-push-needs)), and the slot says "Needs ABC-123" with
+  the restack. The popover of the start (S, a click, Dry Run) then opens first (a confirm reason, `landing`) and shows the
+  reason before the start, in the words of the toast, with the fix as its button ("Stack JIRA-456 on ABC-123", which
+  restacks and leaves the popover open to read the start again); its start is "Start Anyway", the start with the
+  overrides of what refused it, which the gate of the start and the start command get. Start Anyway is offered only
+  there and in the refusal's toast, never by the row. A dangling reference has the same fix: the restack onto the
+  branch of the commit that changes the use, or its move. While the branch that adds the name is landing in a running
+  Safe Push (its own, of a branch built on it, of its whole stack: `landingIn`), the reason says so: "ABC-123 is landing
+  in its Safe Push, which tests it without this start: a start beside it fails too." Its robot tests ABC-123 without
+  JIRA-456, so the start fails all the same; the fix stays the restack, or a start after it merged.
+  [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should say in the Safe Push popover why the build fails before the start, and stack the branch from it`, `should start anyway from the Safe Push popover with the override of what refuses it`)
+  [@test] ../../src/lib/safe-push-decision.test.ts (`opens the popover when the build of what it lands needs a branch outside it: the reason, the fix and Start Anyway before the start`)
+  [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
+  [@test] ../../crates/repository-view/src/views_test.rs (`a_running_safe_push_of_the_branch_the_start_needs_is_named`)
+  [@test] ../../crates/sync-core/src/landing_gate_test.rs (`a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
   [@test] ../../src/lib/landing-gate.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`, `counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`, `starts when nothing refuses it`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once

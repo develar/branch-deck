@@ -14,7 +14,7 @@ use test_utils::git_test_utils::TestRepo;
 const PREFIX: &str = "test";
 
 /// `origin/master` at the initial commit, stacked branches on
-fn repo() -> TestRepo {
+pub(crate) fn repo() -> TestRepo {
   let repo = TestRepo::new();
   let initial = repo.create_commit("Initial commit", "README.md", "# Test\n");
   repo.git(&["remote", "add", "origin", "."]);

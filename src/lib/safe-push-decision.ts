@@ -1,4 +1,4 @@
-import type { PatronusProfile, PatronusStartOptions, ReviewReadiness } from "@/lib/bindings"
+import type { LandingRefusal, PatronusProfile, PatronusStartOptions, ReviewReadiness } from "@/lib/bindings"
 import type { NextStepKind } from "@/lib/branch-next-step"
 import type { PullRequestStart, StartPush } from "@/lib/patronus"
 import type { SafePushMode } from "@/stores/safe-push"
@@ -67,6 +67,11 @@ export interface SafePushFacts {
    * only, so a start of a piece of it says so first; null otherwise (and for the whole stack itself)
    */
   readonly wholeStackPullRequest: number | null
+  /**
+   * What the start needs of a branch outside what it lands, as Rust computed it after the sync (`landingNeeds`): the
+   * refusals its landing gate will give; empty when none or not known yet (the gate of the start checks again)
+   */
+  readonly landingRefusals: readonly LandingRefusal[]
 }
 
 /** Why a start opens its popover instead of starting at once: each a line of the popover */
@@ -87,6 +92,8 @@ export type ConfirmReason =
   | "bypass"
   /** A piece of a stack whose pull request is open: the approvals of that pull request don't count for this start */
   | "wholeStack"
+  /** Its build needs a branch outside what it lands (`landingRefusals`): the fix, or Start Anyway */
+  | "landing"
 
 export type SafePushDecision =
   /** A fact it decides on loads: the start waits, its button busy with `what` */
@@ -116,8 +123,9 @@ function skipsApprovals(facts: SafePushFacts): boolean {
  * the review window, the island header) and of its popover: first what holds it back (the next step of the branch, the
  * profiles, the remote, a hold, the review, the rules of the repository), each a wait while it loads; then whether it
  * has something to say before it starts (`confirm`): it lands more than its row, runs another profile than the default
- * checks, cancels a running Safe Push, Patronus can't judge the approvals yet, or it lands a piece of a stack whose pull
- * request is open (whose approvals count for the whole stack only). A key always confirms.
+ * checks, cancels a running Safe Push, Patronus can't judge the approvals yet, it lands a piece of a stack whose pull
+ * request is open (whose approvals count for the whole stack only), or its build needs a branch outside what it lands
+ * (the fix, or Start Anyway). A key always confirms.
  */
 export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
   const skips = skipsApprovals(facts)
@@ -191,6 +199,9 @@ export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
   }
   if (facts.wholeStackPullRequest !== null) {
     reasons.push("wholeStack")
+  }
+  if (facts.landingRefusals.length > 0) {
+    reasons.push("landing")
   }
   return reasons.length === 0 ? { kind: "start" } : { kind: "confirm", reasons }
 }

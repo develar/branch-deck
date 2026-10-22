@@ -142,6 +142,10 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 
   const patronus = isPatronusAvailable()
   const landingActions: MenuItem[] = []
+  // the build of what its Safe Push lands needs a branch outside it: the fix first ("Stack lane-run on stills-codec")
+  if (nextStep.landingFix !== null) {
+    landingActions.push(...rewrite([nextStep.landingFix]))
+  }
   if (patronus) {
     landingActions.push(getSafePushMenuItem(branch, nextStep))
   }

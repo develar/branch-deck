@@ -36,13 +36,19 @@ fn short(space: &Space, rev: &str) -> String {
   git(&space.repo, &["rev-parse", rev])[..8].to_string()
 }
 
-#[test_log::test]
-fn status_names_the_branches_a_merged_safe_push_landed_and_what_is_left_of_them() {
-  let space = merged_login();
-  let (exit_code, status) = bd(&space, &["status"]);
+/// `bd status` of `space`, every field of it in `bd schema`
+fn covered_status(space: &Space) -> Value {
+  let (exit_code, status) = bd(space, &["status"]);
   assert_eq!(exit_code, 0, "{status}");
   let (_, schema) = run_json(&space.environment(), &["schema"]);
   assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status");
+  status
+}
+
+#[test_log::test]
+fn status_names_the_branches_a_merged_safe_push_landed_and_what_is_left_of_them() {
+  let space = merged_login();
+  let status = covered_status(&space);
   let (auth, login) = (short(&space, "HEAD~1"), short(&space, "HEAD"));
   // login is the robot's own, auth it is built on: all of both landed
   assert_eq!(landed_by(&status, "auth")["branch"], json!("login"));
@@ -62,6 +68,7 @@ fn status_names_the_branches_a_merged_safe_push_landed_and_what_is_left_of_them(
 
   // the brief view says it compactly
   let (_, brief) = bd(&space, &["status", "--brief"]);
+  let (_, schema) = run_json(&space.environment(), &["schema"]);
   assert_covered(&schema["outputs"]["status_brief"], &schema["outputs"]["status_brief"], &brief, "status_brief");
   let mut briefs: Vec<(String, Value)> = brief["branches"]
     .as_array()
@@ -244,4 +251,37 @@ fn push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once
   assert_eq!(names(&output, "skipped"), [&json!("auth"), &json!("login")], "{output}");
   assert_eq!((&output["stacks"][0]["name"], output.get("stack_warnings")), (&json!("auth"), None), "{output}");
   assert_eq!(space.remote_tip(STACK), space.local_tip(STACK));
+}
+
+/// `branch` of `bd status` by name
+fn status_branch<'a>(status: &'a Value, name: &str) -> &'a Value {
+  status["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap()
+}
+
+/// On Space `bd status` says what the Safe Push of each branch needs of a branch outside what it lands, as
+/// `bd safe-push` would refuse it: `flow` uses a name `util` adds, `ui` is built on `flow`; `util` needs nothing
+#[test_log::test]
+fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
+  let space = Space::new(&[]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  write(&space.repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
+  let declares = commit_all(&space.repo, "(util) Add controlUrl", 1_700_000_100)[..8].to_string();
+  write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
+  commit_all(&space.repo, "(flow) Start with controlUrl", 1_700_000_200);
+  write(&space.repo, "src/c/Ui.kt", "package c\n\nfun show() = 1\n");
+  commit_all(&space.repo, "(flow/ui) Show the start", 1_700_000_300);
+  sync(&space);
+
+  let status = covered_status(&space);
+  let need = json!([{
+    "code": "missing_declaration",
+    "identifier": "controlUrl",
+    "at": "src/b/Use.kt:3",
+    "needs": declares,
+    "needs_branch": "util",
+    "fix": "bd restack flow util",
+  }]);
+  assert_eq!(status_branch(&status, "flow")["landing_needs"], need);
+  assert_eq!(status_branch(&status, "ui")["landing_needs"], need);
+  assert_eq!(status_branch(&status, "util")["landing_needs"], json!([]));
 }

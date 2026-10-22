@@ -42,6 +42,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use sync_types::landing::StackCommit;
 use sync_types::stack::{BlockReason, ParentState, StackProblemView};
 use sync_types::{ProgressReporter, SyncEvent};
 use sync_utils::span::in_current_span;
@@ -157,18 +158,6 @@ pub struct StackUse {
   pub name: String,
   /// The commit of the ancestor that adds it
   pub declared_by: StackCommit,
-}
-
-/// A commit ahead of the baseline, as `StackIndependence` names it
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct StackCommit {
-  pub id: String,
-  /// The subject without its prefix; an autosquash marker stays
-  pub subject: String,
-  /// The branch the commit is in
-  pub branch: String,
 }
 
 /// Does the stacked `branch` build on the baseline without its parent? A trial build of the branch alone, as Unstack

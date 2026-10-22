@@ -2,6 +2,7 @@
 //! "Repository view"): the Patronus section, what the robots land, landed and hold of the branches as they are now
 //! (`sync_core::patronus_view`). The page asks it with `get_repository_view` and reads it by branch.
 
+use crate::landing::LandingRefusal;
 use crate::patronus::PatronusRobot;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -125,6 +126,19 @@ pub enum StartRefusal {
   Ancestor { landing: RobotOf },
 }
 
+/// What the Safe Push of a branch needs before it starts (`sync_core::landing_gate::landing_needs`): the refusals its
+/// start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. Computed
+/// in the background after a sync: unknown until then, never an empty list it did not compute
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum LandingNeeds {
+  #[default]
+  Unknown,
+  /// Empty: the start lands what its build needs
+  Known { refusals: Vec<LandingRefusal> },
+}
+
 /// The Patronus facts of one branch; a branch with none is not listed
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -142,6 +156,9 @@ pub struct BranchPatronus {
   pub start: Option<StartRefusal>,
   /// Why a Dry Run can't start: only a robot on the last commit
   pub dry_run: Option<StartRefusal>,
+  /// What its Safe Push needs of a branch outside what it lands; a missing declaration names the running Safe Push of
+  /// the branch that adds the name (`landingIn`)
+  pub landing_needs: LandingNeeds,
 }
 
 /// The Patronus facts of the whole stack of a root; a stack with none is not listed
@@ -202,5 +219,19 @@ pub struct RepositoryView {
   pub revision: u32,
   /// Counts the syncs whose table the view is of; 0 before the first
   pub table_generation: u32,
+  /// Counts the finished computations of the landing needs of the repository: the page waits for the next one
+  /// (`wait_landing_needs`) while a branch's are unknown, then asks the view again
+  pub landing_generation: u32,
   pub patronus: PatronusView,
+}
+
+/// What the page waits for while the landing needs of a branch are unknown (`wait_landing_needs`)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct WaitLandingNeedsParams {
+  pub repository_path: String,
+  pub branch_prefix: String,
+  /// `landingGeneration` of the view the page has: the wait ends once a computation finished after it, or none runs
+  pub after: u32,
 }

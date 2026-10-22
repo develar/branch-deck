@@ -39,6 +39,7 @@ import { requestReveal } from "@/stores/commit-move"
 import {
   getBranchRobot,
   getLandedBy,
+  getLandingNeeds,
   getPatronusGitHubRepository,
   getPushHold,
   getStackPushHold,
@@ -330,6 +331,7 @@ export function readSafePush(branchName: string, ask: Omit<SafePushRequest, "pla
     dismiss,
     ancestorCount: ancestors.length,
     wholeStackPullRequest: stackPullRequest?.number ?? null,
+    landingRefusals: getLandingNeeds(branchName) ?? [],
   }
   return {
     facts,
@@ -411,6 +413,8 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
     // the branches it lands besides the root: it always says what it lands first
     ancestorCount: stack.members.length - 1,
     wholeStackPullRequest: null,
+    // the repository view computes them of the branches: the gate of the start checks the whole stack
+    landingRefusals: [],
   }
   const piece = getStackBranchBlocker(root, stack) === null ? null : (stackMainLineIn(branchSyncStore.getState(), root).at(-1) ?? null)
   // what merged Safe Pushes landed of it is in the target: the popover names the rest

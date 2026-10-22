@@ -199,9 +199,15 @@ export const commands = {
 	/**
 	 *  The view of the table the last sync of the repository finished: what the robots land, landed and hold
 	 *  (`patronus_view`), with the page's robots, their matches and what the page knows of the remote branches. Git only
-	 *  for robots the hashes and the memo don't answer
+	 *  for robots the hashes and the memo don't answer; the landing needs of new inputs are computed in the background,
+	 *  through the object cache of the repository
 	 */
 	getRepositoryView: (params: GetRepositoryViewParams) => typedError<RepositoryView, CommandError>(__TAURI_INVOKE("get_repository_view", { params })),
+	/**
+	 *  Resolves once no computation of the landing needs of the repository runs, or one finished after the view the page
+	 *  has (`after`): the count of finished computations, which tells the page to ask the view again
+	 */
+	waitLandingNeeds: (params: WaitLandingNeedsParams) => typedError<number, CommandError>(__TAURI_INVOKE("wait_landing_needs", { params })),
 	/**  Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known */
 	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], CommandError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
 	/**
@@ -653,6 +659,11 @@ export type BranchPatronus = {
 	start: StartRefusal | null,
 	/**  Why a Dry Run can't start: only a robot on the last commit */
 	dryRun: StartRefusal | null,
+	/**
+	 *  What its Safe Push needs of a branch outside what it lands; a missing declaration names the running Safe Push of
+	 *  the branch that adds the name (`landingIn`)
+	 */
+	landingNeeds: LandingNeeds,
 };
 
 export type BranchReview = {
@@ -1720,13 +1731,13 @@ export type LandingCheck = {
 	refusals: LandingRefusal[],
 };
 
-/**  How the user gets the missing declaration into what lands */
+/**  How the user gets the missing declaration, or the change of a dangling use, into what lands */
 export type LandingFix = 
-/**  Stack `branch`, the root of what lands, on `onto`, the branch that adds the name: the start lands it too */
+/**  Stack `branch`, the root of what lands, on `onto`, the branch of the commit it needs: the start lands it too */
 { kind: "restack"; branch: string; onto: string } | 
 /**
- *  Move the commit that adds the name into `into`, the branch that uses it: the commit is unassigned, stacked branches
- *  are off, or its branch is built on what lands, so a restack would close a cycle
+ *  Move the commit it needs into `into`, the branch that needs it: the commit is unassigned, stacked branches are off,
+ *  or its branch is built on what lands, so a restack would close a cycle
  */
 { kind: "moveCommit"; commit: StackCommit; into: string };
 
@@ -1743,6 +1754,15 @@ export type LandingGateParams = {
 	allow?: LandingAllowances,
 };
 
+/**
+ *  What the Safe Push of a branch needs before it starts (`sync_core::landing_gate::landing_needs`): the refusals its
+ *  start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. Computed
+ *  in the background after a sync: unknown until then, never an empty list it did not compute
+ */
+export type LandingNeeds = { state: "unknown" } | 
+/**  Empty: the start lands what its build needs */
+{ state: "known"; refusals: LandingRefusal[] };
+
 /**  Why a start is refused */
 export type LandingRefusal = 
 /**
@@ -1751,11 +1771,19 @@ export type LandingRefusal =
  */
 { kind: "danglingReference"; branch: string; reference: ReferenceKind; identifier: string; 
 /**  Where the use is */
-file: string; line: number; removedBy: StackCommit; fixedBy: StackCommit } | 
+file: string; line: number; removedBy: StackCommit; fixedBy: StackCommit; 
+/**  How the commit that changes the use gets into what lands */
+fix: LandingFix } | 
 /**  A commit of `branch` uses a name that a commit outside what lands adds */
 { kind: "missingDeclaration"; branch: string; identifier: string; 
 /**  Where the use is */
-file: string; line: number; usedBy: StackCommit; declaredBy: StackCommit; fix: LandingFix };
+file: string; line: number; usedBy: StackCommit; declaredBy: StackCommit; fix: LandingFix; 
+/**
+ *  The running Safe Push that lands the branch of `declared_by` (its own, of a branch built on it, of its whole
+ *  stack): the commit it tests lacks this start's commits, so a start beside it fails all the same; the repository
+ *  view says it, a start does not ask it
+ */
+landingIn?: RobotOf | null };
 
 /**  The line ends of a whole file */
 export type LineEndKind = "lf" | "crlf" | "cr" | 
@@ -2735,6 +2763,11 @@ export type RepositoryView = {
 	revision: number,
 	/**  Counts the syncs whose table the view is of; 0 before the first */
 	tableGeneration: number,
+	/**
+	 *  Counts the finished computations of the landing needs of the repository: the page waits for the next one
+	 *  (`wait_landing_needs`) while a branch's are unknown, then asks the view again
+	 */
+	landingGeneration: number,
 	patronus: PatronusView,
 };
 
@@ -3296,7 +3329,7 @@ export type StackBranchUpdate = {
 	remote: RemoteStatusUpdate | null,
 };
 
-/**  A commit ahead of the baseline, as `StackIndependence` names it */
+/**  A commit ahead of the baseline, as `StackIndependence` and the refusals of the landing gate name it */
 export type StackCommit = {
 	id: string,
 	/**  The subject without its prefix; an autosquash marker stays */
@@ -4045,6 +4078,14 @@ export type WaitForGitHubBranchParams = {
 	repositoryPath: string,
 	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
 	branch: string,
+};
+
+/**  What the page waits for while the landing needs of a branch are unknown (`wait_landing_needs`) */
+export type WaitLandingNeedsParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  `landingGeneration` of the view the page has: the wait ends once a computation finished after it, or none runs */
+	after: number,
 };
 
 /**  The whitespace option of a diff view (`IgnorePolicy`) */

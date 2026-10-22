@@ -56,7 +56,7 @@ use commands::pull_requests::{
 use commands::push::{push_branch, push_branches};
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
-use commands::repository_view::get_repository_view;
+use commands::repository_view::{get_repository_view, wait_landing_needs};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_review_requests, prune_review_refs};
 use commands::reword::reword;
 use commands::squash_commits::{restore_branch_head, squash_commits};
@@ -145,6 +145,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_robot_failure,
     get_robot_commit_map,
     get_repository_view,
+    wait_landing_needs,
     get_patronus_failing_robots,
     get_branch_review_readiness,
     post_patronus_command,

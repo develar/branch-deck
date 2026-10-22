@@ -28,7 +28,7 @@ export function robotOf(branch: string, robotId: string, wholeStack = false): Ro
 
 /** The facts of a branch in a view, nothing but `patch` */
 export function branchFacts(patch: Partial<BranchPatronus>): BranchPatronus {
-  return { landedBy: null, span: null, landingAncestor: null, hold: null, startBlocked: false, start: null, dryRun: null, ...patch }
+  return { landedBy: null, span: null, landingAncestor: null, hold: null, startBlocked: false, start: null, dryRun: null, landingNeeds: { state: "unknown" }, ...patch }
 }
 
 /** The facts of a branch a merged robot landed whole */

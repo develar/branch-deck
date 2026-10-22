@@ -242,6 +242,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/landed_test.rs (`status_names_the_branches_a_merged_safe_push_landed_and_what_is_left_of_them`)
   [@test] ../../crates/bd-remote/src/robot_list_test.rs (`status_asks_patronus_once_while_the_kept_robots_hold`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
+- On Space (the push URL of `origin`), each branch must show `landing_needs`: what its Safe Push needs of a commit
+  outside what it lands, the refusals `bd safe-push` would give its start (`sync_core::landing_gate::landing_needs`,
+  one trial check of every branch, less what merged Safe Pushes landed), so an agent sees them without `bd check`: per
+  need the `code` (`missing_declaration`, `dangling_reference`), the `identifier`, `at` (`file:line` of the use), the
+  commit it `needs` and its `needs_branch`, the `fix` (`bd restack <root> <branch>`, which the user approves first, or
+  `move <commit> into <branch>`) and `landing_in`, the robot of the running Safe Push that lands `needs_branch`. Empty:
+  nothing is needed. A branch built on one that needs a branch needs it too. Omitted off Space, with `--brief` or
+  `--unassigned`, and when the check can't run: unknown, not empty.
+  [@test] ../../crates/bd-remote/src/landed_test.rs (`status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it`)
+  [@test] ../../crates/sync-core/src/landing_gate_test.rs (`the_needs_of_a_branch_are_the_refusals_of_its_start`)
 - Each branch must show its `origin` (`prefix`, `issue_group` or `issue`) and, for an issue group, its `issue_keys`;
   the output must list `idle_issue_groups`, the keys of the issue groups that group no commit on this HEAD, and
   `issue_group_problems`, the lines of the issue groups that are not used.

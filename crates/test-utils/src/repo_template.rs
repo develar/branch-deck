@@ -920,6 +920,31 @@ pub mod templates {
       )
   }
 
+  /// Stacked branches on (the symbols are on by default), the robot of 2026-10-22: `lane-run` imports a class that the
+  /// commit of `stills-codec`, a branch it is not built on, adds; `ui-perf-nightly` is built on `lane-run`. git merges
+  /// either, the build of its Safe Push fails: both need `stills-codec` (the landing needs of the repository view)
+  pub fn landing_needs() -> RepoTemplate {
+    RepoTemplate::new("landing_needs")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Lanes\n")], Some(1704117600))
+      .commit_with_timestamp(
+        "(stills-codec) Name lossy stills",
+        &[("bundle/src/Stills.kt", "package bundle\n\nclass Stills\n")],
+        Some(1704119400),
+      )
+      .commit_with_timestamp(
+        "(lane-run) Show each scenario",
+        &[("lane/src/BuildLog.kt", "package lane\n\nimport bundle.Stills\n\nfun show(stills: Stills) = 1\n")],
+        Some(1704121200),
+      )
+      .commit_with_timestamp(
+        "(lane-run/ui-perf-nightly) Measure the UI nightly",
+        &[("perf/src/Nightly.kt", "package perf\n\nfun nightly() = 1\n")],
+        Some(1704123000),
+      )
+  }
+
   /// Stacked branches on, with a stack problem of each kind the app offers a fix for: `publish-viewer` declares
   /// `ci-traces` by its prefix and `trace-tools` by the stack parents (conflicting parents), with `viewer-docs` stacked
   /// on it (blocked); `lane-a` and `lane-b` declare each other (a cycle); `Notes` and `notes` differ only in case

@@ -11,6 +11,8 @@ sync-core = { path = "../sync-core" }
 sync-types = { path = "../sync-types" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
+object-cache = { path = "../object-cache" }
+sync-utils = { path = "../sync-utils" }
 moka = { workspace = true, features = ["sync"] }
 tracing.workspace = true
 

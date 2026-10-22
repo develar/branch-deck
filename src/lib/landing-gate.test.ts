@@ -45,6 +45,7 @@ describe("describeLandingCheck", () => {
       line: 7,
       removedBy: { id: "5e618635aaaa", subject: "Move the control constants", branch: "fake-agent" },
       fixedBy: { id: "6d7aee25bbbb", subject: "Use the control protocol", branch: "lane-document" },
+      fix: { kind: "restack", branch: "fake-agent", onto: "lane-document" },
     }
     const decision = describeLandingCheck({ refusals: [unassigned, dangling, MISSING] }, "the whole air stack", { allowDangling: true })
     expect(decision).toEqual({
@@ -55,6 +56,16 @@ describe("describeLandingCheck", () => {
       anyway: { allowDangling: true, allowMissing: true },
     })
     expect(formatLandingFix(unassigned.fix)).toBeNull()
+  })
+
+  it("says that the branch the start needs is landing in a running Safe Push, which tests it without this start", () => {
+    const landing: LandingRefusal = { ...MISSING, landingIn: { branch: "stills-codec", robotId: "9b82be49", wholeStack: false } }
+    const decision = describeLandingCheck({ refusals: [landing] }, "ui-perf-nightly", {})
+    expect(decision.kind === "refuse" && decision.reason).toBe(
+      "“IJAI-4382 lane-run shows each scenario” of lane-run uses Stills (avl-guest/src/lane/build_log/tests.rs:7), which “IJAI-4382 the bundle manifest names lossy stills” of stills-codec adds: git merges it, but the build of ui-perf-nightly fails. Stack lane-run on stills-codec to land it too. stills-codec is landing in its Safe Push, which tests it without this start: a start beside it fails too.",
+    )
+    const ofChild = describeLandingCheck({ refusals: [{ ...landing, landingIn: { branch: "codec-ui", robotId: "1", wholeStack: false } }] }, "lane-run", {})
+    expect(ofChild.kind === "refuse" && ofChild.reason).toContain("stills-codec is landing in the Safe Push of codec-ui, which tests it without this start")
   })
 
   it("starts when nothing refuses it", () => {

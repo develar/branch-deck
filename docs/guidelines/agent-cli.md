@@ -210,6 +210,21 @@ what they listed.
   "landed_by":{"branch":"oauth","robot":{"id":"7f…","name":"…","state":"success","mode":"safe_push",
     "commit":"9a8b7c6d","url":"https://patronus…/robot/7f…"},"commits":["1a2b3c4d"],"after":["5e6f7a8b"]}
   ```
+- `landing_needs` (on Space) lists what the Safe Push of the branch needs of a commit outside what it lands: the
+  refusals `bd safe-push` would give its start, from one trial check of every branch in one session
+  (`sync_core::landing_gate::landing_needs`, the rule of the gate; about the processes of a `bd check`), less what
+  merged Safe Pushes landed. Each need has its `code` (`missing_declaration`: a commit uses a name only that commit
+  adds; `dangling_reference`: a commit removes or changes a declaration a use still has, which only that commit
+  changes), the `identifier`, `at` (`file:line`), the commit it `needs` and its `needs_branch`, the `fix` and
+  `landing_in`, the robot of the running Safe Push that lands `needs_branch` (its robot tests that branch without this
+  one). A branch built on one that needs a branch needs it too. `[]`: nothing; absent off Space, with `--brief` and
+  when the check can't run, which is unknown, not nothing. Show the user the need and the fix; restack only after they
+  approve.
+
+  ```json
+  "landing_needs":[{"code":"missing_declaration","identifier":"Stills","at":"lane/src/BuildLog.kt:3",
+    "needs":"ecebf000","needs_branch":"stills-codec","fix":"bd restack lane-run stills-codec"}]
+  ```
 - `parked` says the user keeps the branch local (`bd park`, the app's Park Branch): `{note}`, and `with` when a branch
   it is built on is the parked one, whose commits it carries. `bd push` and `bd safe-push` refuse it (`parked`).
   `idle_parked` lists the parked names that group no commit here (another worktree's, or gone); a sync drops one once

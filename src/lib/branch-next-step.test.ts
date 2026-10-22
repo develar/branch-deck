@@ -1,6 +1,6 @@
 // @spec spec/branch/next-step.spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
-import type { ReviewReadiness } from "@/lib/bindings"
+import type { LandingRefusal, ReviewReadiness } from "@/lib/bindings"
 import type { NextStepFacts } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
@@ -320,6 +320,48 @@ describe("getBranchNextStep", () => {
     expect(getBranchNextStep(withReadiness(unknown, { pullRequest: { ...openPullRequest, waitingFor: ["ikorennoy"] }, startBlocker: ancestor })).safePushBlocker).toBe(ancestor)
     // nothing GitHub tells: Safe Push, the start says that Patronus checks the approvals
     expect(getBranchNextStep(withReadiness(unknown)).kind).toBe("safePush")
+  })
+
+  it("row 1′: a branch whose Safe Push needs a branch outside what it lands says so and restacks; unknown needs change nothing", () => {
+    const missingName: LandingRefusal = {
+      kind: "missingDeclaration",
+      branch: "lane-run",
+      identifier: "Stills",
+      file: "build_log/tests.rs",
+      line: 7,
+      usedBy: { id: "a25430833a277000", subject: "lane-run shows each scenario", branch: "lane-run" },
+      declaredBy: { id: "ecebf00037b41000", subject: "the bundle manifest names lossy stills", branch: "stills-codec" },
+      fix: { kind: "restack", branch: "lane-run", onto: "stills-codec" },
+    }
+    // above the restart of a failed robot and the approvals: the robot would fail on the same build
+    const needs = facts({ landingNeeds: [missingName], robot: finished("failed"), restart, readiness: { readiness: missing([group()]), stale: false } })
+    const step = getBranchNextStep(needs)
+    expect(step).toMatchObject({
+      kind: "needsBranch",
+      item: { id: "landing-fix", label: "Needs stills-codec" },
+      landingFix: { id: "landing-fix", label: "Stack lane-run on stills-codec" },
+      // the popover of the Safe Push says why and starts anyway
+      safePushBlocker: null,
+      needsReadiness: false,
+    })
+    expect(step.item?.description).toContain("which “the bundle manifest names lossy stills” of stills-codec adds: git merges it, but the build of wsm-skip-wa-2 fails")
+    step.item?.onSelect(FROM_MENU)
+    expect(needs.actions.fixLanding).toHaveBeenCalledWith(missingName.fix)
+
+    // a move of a commit, which no action of the row runs: the step opens the Safe Push popover, which says it
+    const unassigned = facts({
+      landingNeeds: [{ ...missingName, declaredBy: { ...missingName.declaredBy, branch: "" }, fix: { kind: "moveCommit", commit: missingName.declaredBy, into: "lane-run" } }],
+    })
+    const moveStep = getBranchNextStep(unassigned)
+    expect(moveStep).toMatchObject({ kind: "needsBranch", item: { id: "landing-needs", label: "Needs ecebf000" }, landingFix: null })
+    moveStep.item?.onSelect(FROM_MENU)
+    expect(unassigned.actions.openSafePush).toHaveBeenCalled()
+
+    // row 1 first: a running robot, a sync
+    expect(getBranchNextStep(facts({ landingNeeds: [missingName], syncing: true })).kind).toBe("none")
+    // not computed yet, or nothing needed: the rows below decide
+    expect(getBranchNextStep(facts({ landingNeeds: null })).kind).toBe("safePush")
+    expect(getBranchNextStep(facts({ landingNeeds: [] })).kind).toBe("safePush")
   })
 
   it("row 11: Safe Push… for every other readiness, and before the first answer", () => {

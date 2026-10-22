@@ -5,20 +5,24 @@ use crate::robot_list::read_robots;
 use bd_core::branch_view::{ParentSourceName, StackBlockSummary, StackIssue, read_grouping, stack_issues};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
-use bd_core::output::{ResolvedByWords, SchemaVersion};
+use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use bd_core::stack_summary::StackSummary;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use history_rewrite::store_lines::StoreLineProblem;
 use repository_view::branch_table::BranchTable;
+use repository_view::patronus_view::{landed_commits, with_landing_needs};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use sync_core::grouping::BranchGrouping;
+use sync_core::landing_gate::landing_needs_of;
 use sync_core::parked::parked_state;
 use sync_core::stack_branch::read_stack_branches;
-use sync_types::repository_view::{RemoteFact, RemoteFacts};
+use sync_types::landing::{LandingFix, LandingRefusal};
+use sync_types::repository_view::{LandingNeeds, RemoteFact, RemoteFacts};
 use sync_types::stack::ParentState;
 use sync_types::{BranchOrigin, GroupedBranchInfo};
+use tracing::debug;
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]
@@ -255,6 +259,53 @@ pub struct Head {
   pub branch: Option<String>,
 }
 
+/// A commit outside what the Safe Push of a branch lands that its build needs (`landing_needs`)
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LandingNeed {
+  /// `missing_declaration`: a commit of what lands uses a name that only this commit adds; `dangling_reference`: a
+  /// commit of what lands removes or changes a declaration a use still has, which only this commit changes
+  pub code: &'static str,
+  pub identifier: String,
+  /// Where the use is: `src/b/Use.kt:3`
+  pub at: String,
+  /// The commit the build needs
+  pub needs: String,
+  /// Its branch; omitted for an unassigned commit
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub needs_branch: Option<String>,
+  /// What lands it with the branch: `bd restack <root> <branch>` (ask the user first), else `move <commit> into <branch>`
+  pub fix: String,
+  /// The robot id of the running Safe Push that lands `needs_branch`: it tests that branch without this one, so a start
+  /// beside it fails all the same
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub landing_in: Option<String>,
+}
+
+impl LandingNeed {
+  fn new(context: &RepoContext, refusal: &LandingRefusal, short: &ShortIds) -> Self {
+    let (code, identifier, file, line, fix) = match refusal {
+      LandingRefusal::MissingDeclaration { identifier, file, line, fix, .. } => ("missing_declaration", identifier, file, line, fix),
+      LandingRefusal::DanglingReference { identifier, file, line, fix, .. } => ("dangling_reference", identifier, file, line, fix),
+    };
+    let needs = refusal.needed();
+    Self {
+      code,
+      identifier: identifier.clone(),
+      at: format!("{file}:{line}"),
+      needs: short.get(&needs.id).to_string(),
+      needs_branch: (!needs.branch.is_empty()).then(|| needs.branch.clone()),
+      fix: match fix {
+        LandingFix::Restack { branch, onto } => format!("{} restack {branch} {onto}", context.bd),
+        LandingFix::MoveCommit { commit, into } => format!("move {} into {into}", short.get(&commit.id)),
+      },
+      landing_in: match refusal {
+        LandingRefusal::MissingDeclaration { landing_in, .. } => landing_in.as_ref().map(|robot| robot.robot_id.clone()),
+        LandingRefusal::DanglingReference { .. } => None,
+      },
+    }
+  }
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct BranchStatus {
   /// The group name: the `(prefix)` of the subjects, their issue group or their issue key
@@ -307,6 +358,11 @@ pub struct BranchStatus {
   /// only work left. Asked of Patronus on Space with a Space token; omitted otherwise
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_by: Option<LandedBySummary>,
+  /// What its Safe Push needs of a commit outside what it lands (the branch and those it is built on): the refusals
+  /// `bd safe-push` would give its start, from one trial check of every branch. Empty: its build has what it uses. On
+  /// Space only, where a Safe Push lands it; omitted otherwise, with --brief, and when the check can't run
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub landing_needs: Option<Vec<LandingNeed>>,
   /// The user parked it (`bd park`), or a branch it is built on: kept local, `bd push` and `bd safe-push` refuse it.
   /// Never push or unpark it on your own
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -392,8 +448,8 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   let all_stacks = read_stack_branches(&context.prefix, &grouping, &context.cache(), context.config()?.resolve_mode()?);
   // what merged Safe Pushes landed, until the update archives it, by content: the robots kept in the object cache while
   // they hold, else one list and one poll (`robot_list`)
-  let landed = if args.unassigned || grouping.branches.is_empty() {
-    HashMap::new()
+  let (landed, landing_needs) = if args.unassigned || grouping.branches.is_empty() {
+    (HashMap::new(), None)
   } else {
     let table = BranchTable {
       prefix: context.prefix.clone(),
@@ -421,7 +477,28 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
         .collect(),
       stacks: BTreeMap::new(),
     };
-    landed_branches(&PatronusFacts::read(context, &table, &remote, read_robots(context, environment)))
+    let mut facts = PatronusFacts::read(context, &table, &remote, read_robots(context, environment));
+    // what the Safe Push of each branch needs, where a Safe Push lands it: one trial session of every branch
+    let needs = if args.brief || context.space_repository()?.is_none() {
+      None
+    } else {
+      landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed_commits(&facts.view))
+        .inspect_err(|error| debug!(error = %format!("{error:#}"), "no landing needs"))
+        .ok()
+    };
+    let landing_needs = needs.map(|needs| {
+      with_landing_needs(&mut facts.view, &table, &needs);
+      facts
+        .view
+        .branches
+        .iter()
+        .filter_map(|(name, branch)| match &branch.landing_needs {
+          LandingNeeds::Known { refusals } => Some((name.clone(), refusals.clone())),
+          LandingNeeds::Unknown => None,
+        })
+        .collect::<HashMap<String, Vec<LandingRefusal>>>()
+    });
+    (landed_branches(&facts), landing_needs)
   };
   let stacks = if args.branch.is_some() || args.unassigned { Vec::new() } else { all_stacks };
   let descriptions = if args.brief { HashMap::new() } else { context.config()?.descriptions().clone() };
@@ -506,6 +583,11 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
           commit_count: branch.commits.len(),
           stats: stats.remove(&branch.name),
           landed_by: landed.get(&branch.name).map(|landed| LandedBySummary::new(context, landed, &short)),
+          landing_needs: landing_needs.as_ref().map(|needs| {
+            needs
+              .get(&branch.name)
+              .map_or_default(|refusals| refusals.iter().map(|refusal| LandingNeed::new(context, refusal, &short)).collect())
+          }),
           parked: parked_state(&grouping.branches, &grouping.grouping.parked.entries, &branch.name).map(|parked| ParkedSummary {
             note: parked.note,
             with: parked.with,

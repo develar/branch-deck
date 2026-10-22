@@ -15,12 +15,15 @@
 
 use crate::branch_table::BranchTable;
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use sync_core::landing_gate::name_landing_robots;
 use sync_core::patronus_start::{find_branch_robot, find_stack_robot, is_pushing_robot, is_robot_active};
 use sync_core::robot_landing::{robot_landings_of_grouped, robot_spans_of_grouped};
+use sync_types::landing::LandingRefusal;
 use sync_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use sync_types::repository_view::{
-  BranchPatronus, Carried, HoldKind, HoldView, LandedByView, PatronusView, RemoteFact, RemoteFacts, RobotLandedBranch, RobotMatch, RobotOf, SpanView, StackPatronus, StartRefusal,
+  BranchPatronus, Carried, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RemoteFact, RemoteFacts, RobotLandedBranch, RobotMatch, RobotOf, SpanView, StackPatronus,
+  StartRefusal,
 };
 use sync_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
 use tracing::{debug, instrument};
@@ -586,6 +589,7 @@ pub fn patronus_view(
       start_blocked,
       start,
       dry_run: last_commit,
+      landing_needs: LandingNeeds::Unknown,
     };
     if facts != BranchPatronus::default() {
       view.branches.insert(name.to_string(), facts);
@@ -626,10 +630,40 @@ pub fn patronus_view(
   view
 }
 
+/// The commits (original ids) merged Safe Pushes landed, as `view` names them (`landedBy`): the target has the names
+/// they add, the landing needs count them as landed
+pub fn landed_commits(view: &PatronusView) -> HashSet<String> {
+  view
+    .branches
+    .values()
+    .filter_map(|facts| facts.landed_by.as_ref())
+    .flat_map(|landed| landed.landed.iter().cloned())
+    .collect()
+}
+
+/// Every branch of `table` with its landing needs, known: `needs` lists the branches with a refusal. A missing
+/// declaration names the running Safe Push that lands the branch adding the name, as `view` holds it: its own robot, or
+/// one of a branch built on it or of its whole stack
+pub fn with_landing_needs(view: &mut PatronusView, table: &BranchTable, needs: &BTreeMap<String, Vec<LandingRefusal>>) {
+  let landing: HashMap<String, RobotOf> = view
+    .branches
+    .iter()
+    .filter_map(|(name, facts)| {
+      let running = facts.hold.as_ref().filter(|hold| hold.kind != HoldKind::Landed).map(|hold| hold.by.clone());
+      Some((name.clone(), running.or_else(|| facts.span.as_ref().map(|span| span.by.clone()))?))
+    })
+    .collect();
+  for branch in &table.branches {
+    let mut refusals = needs.get(&branch.name).cloned().unwrap_or_default();
+    name_landing_robots(&mut refusals, |declared_in| landing.get(declared_in).cloned());
+    view.branches.entry(branch.name.clone()).or_default().landing_needs = LandingNeeds::Known { refusals };
+  }
+}
+
 #[cfg(test)]
 #[path = "patronus_view_test.rs"]
 mod patronus_view_test;
 
 #[cfg(test)]
 #[path = "patronus_view_content_test.rs"]
-mod patronus_view_content_test;
+pub(crate) mod patronus_view_content_test;

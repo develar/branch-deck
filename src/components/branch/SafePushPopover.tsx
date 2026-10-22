@@ -30,6 +30,8 @@ import { formatPerson } from "@/lib/branch-next-step"
 import { openBranchReviewWindow, openWholeStackReviewWindow, toReviewGroups } from "@/lib/branch-review-window"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
+import type { LandingDecision } from "@/lib/landing-gate"
+import { describeLandingCheck, formatLandingFix } from "@/lib/landing-gate"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { formatPushMode, formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
@@ -73,9 +75,9 @@ function syncedCommits(commits: readonly StackCommit[]): Commit[] {
 /**
  * The popover of a start that has something to say before it starts (`getSafePushDecision`: S, a stack, a profile other
  * than the default checks, a running Safe Push it cancels, approvals Patronus judges only at the start, a push that
- * dismisses approvals, a start without review), at the slot it was asked from (`anchor`). Its title is what lands: "Lands
+ * dismisses approvals, a start without review, a branch its build needs), at the slot it was asked from (`anchor`). Its title is what lands: "Lands
  * oauth with auth and login, which it is built on: 3 branches · 12 commits into master."; below it only what applies,
- * in sentences: the pull request it comments on, the branches that stay, the profile (the branch's own named as the last
+ * in sentences: why its build fails (the landing needs, with the fix; its start is Start Anyway), the pull request it comments on, the branches that stay, the profile (the branch's own named as the last
  * Safe Push's), the review as Patronus answered it, the running Safe Push it cancels, the second way to land a stacked
  * branch alone (the unstack, the move of what it needs; offered, never decided), and of the root of a stack or a branch
  * of one that forks the whole stack in one robot (`WholeStackOption`). The footer says what it waits for or
@@ -143,13 +145,17 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   const neededInList = useBranchSync(state => neededCommits.every(commit => state.branches[commit.branch]?.commitIndex[commit.id] !== undefined))
 
   const modeName = formatPushMode(mode)
+  // the build of what it lands needs a branch outside it (`landingNeeds`): the reason, the fix, and the start anyway
+  const landingRefusals = read?.facts.landingRefusals ?? []
+  const landingCheck = landingRefusals.length === 0 ? null : describeLandingCheck({ refusals: [...landingRefusals] }, subject, {})
+  const landingRefused = landingCheck?.kind === "refuse" ? landingCheck : null
   const close = () => closeSafePushPopover(branchName)
   const start = () => {
     if (read === null || !canStart) {
       return
     }
     close()
-    void startSafePush(read.start)
+    void startSafePush(landingRefused === null ? read.start : { ...read.start, allow: landingRefused.anyway })
   }
   const dryRun = () => {
     close()
@@ -213,6 +219,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         <h2 className="text-sm font-medium" data-testid="safe-push-lands">
           {title}
         </h2>
+        {landingRefused !== null && <LandingNeedsLine refused={landingRefused} disabled={busy !== null} surface={surface} />}
         {read !== null && <Lines read={read} landing={landing} pullRequest={pullRequest} onProfile={setChosenProfile} />}
         {landing?.alone != null && read !== null && <AloneOption alone={landing.alone} disabled={busy !== null} onUnstack={unstack} onMove={moveHere} />}
         {wholeStackItem !== undefined && wholeStackRoot !== null && <WholeStackOption root={wholeStackRoot} item={wholeStackItem} mode={mode} onSelect={close} />}
@@ -235,11 +242,32 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           </Button>
           <Button ref={startRef} size="xs" disabled={!canStart} focusableWhenDisabled className={cn(!canStart && "opacity-50")} onClick={start} data-testid="safe-push-start">
             {mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
-            {read?.facts.bypassReview === true ? "Safe Push Without Review" : modeName}
+            {landingRefused !== null ? "Start Anyway" : read?.facts.bypassReview === true ? "Safe Push Without Review" : modeName}
           </Button>
         </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/**
+ * Why the build of what the start lands fails (`describeLandingCheck` of the landing needs): the name a branch outside
+ * it adds, with the fix as a button ("Stack lane-run on stills-codec"), which restacks and leaves the popover open to
+ * read the start again; the start below is Start Anyway
+ */
+function LandingNeedsLine({ refused, disabled, surface }: { refused: Extract<LandingDecision, { kind: "refuse" }>; disabled: boolean; surface: string }) {
+  const fix = refused.fix
+  const label = formatLandingFix(fix)
+  return (
+    <div className="flex flex-col items-start gap-1.5" data-testid="safe-push-landing-needs">
+      <Line tone="warning">{refused.reason}</Line>
+      {fix?.kind === "restack" && label !== null && (
+        <Button size="xs" variant="outline" disabled={disabled} onClick={() => void restackBranch(fix.branch, fix.onto, { surface })} data-testid="safe-push-landing-fix">
+          <Layers2Icon data-icon="inline-start" />
+          {label}
+        </Button>
+      )}
+    </div>
   )
 }
 

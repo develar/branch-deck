@@ -7,18 +7,25 @@
 //!   the robots of 2026-10-17 and 2026-10-21 did. Names, not a compiler, but the edges by symbols held 141 of 141
 //!   (docs/design/symbol-dependencies.md), so it refuses the start too, and the user can start anyway.
 //!
-//! The result is typed: the CLI and the app each name it in their own words, and each refusal carries the fix the
-//! user can run (`LandingFix`).
+//! The result is typed (`sync_types::landing`): the CLI and the app each name it in their own words, and each refusal
+//! carries the fix the user can run (`LandingFix`).
+//!
+//! `landing_needs` asks the same of every branch before any start, in one trial check of all of them: what the Safe
+//! Push of each branch would be refused for, by the same rule (`refuses`). The repository view computes it in the
+//! background after a sync (`landing_needs_of`), the row says "Needs util" with the fix (spec/branch/next-step.spec.md),
+//! and `bd status` lists it.
 
-use crate::check::{CheckReport, CheckSession, StackCommit};
+use crate::check::{CheckReport, CheckSession};
 use crate::dangling_references::DanglingKind;
 use crate::missing_declarations::{MissingDeclaration, missing_declarations};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::regroup::RegroupError;
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+use sync_types::landing::{LandingFix, LandingRefusal, ReferenceKind, StackCommit};
 use sync_types::patronus::LandingAllowances;
+use sync_types::repository_view::RobotOf;
 use tracing::instrument;
 
 /// What a start lands
@@ -45,78 +52,14 @@ pub struct LandingGate {
   chains: Vec<(String, Vec<String>)>,
 }
 
-/// Why a start is refused
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum LandingRefusal {
-  /// A commit of `branch` removes or changes a declaration, or adds one again, that the tree it lands still uses; the
-  /// commit outside it that removes the use proves it
-  DanglingReference {
-    branch: String,
-    reference: ReferenceKind,
-    identifier: String,
-    /// Where the use is
-    file: String,
-    line: u32,
-    removed_by: StackCommit,
-    fixed_by: StackCommit,
-  },
-  /// A commit of `branch` uses a name that a commit outside what lands adds
-  MissingDeclaration {
-    branch: String,
-    identifier: String,
-    /// Where the use is
-    file: String,
-    line: u32,
-    used_by: StackCommit,
-    declared_by: StackCommit,
-    fix: LandingFix,
-  },
-}
-
-/// What a branch does to the declaration of a dangling reference
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub enum ReferenceKind {
-  Removed,
-  Changed,
-  Duplicate,
-}
-
-/// How the user gets the missing declaration into what lands
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum LandingFix {
-  /// Stack `branch`, the root of what lands, on `onto`, the branch that adds the name: the start lands it too
-  Restack { branch: String, onto: String },
-  /// Move the commit that adds the name into `into`, the branch that uses it: the commit is unassigned, stacked branches
-  /// are off, or its branch is built on what lands, so a restack would close a cycle
-  MoveCommit { commit: StackCommit, into: String },
-}
-
 /// The check of what the start of `subject` lands, in `session`; `landed` holds the commits (original ids) a merged Safe
 /// Push landed, whose names the target has
 #[instrument(skip(session, landed))]
 pub fn check_landing_gate(session: &CheckSession, subject: LandingSubject<'_>, landed: &HashSet<String>) -> Result<LandingGate, RegroupError> {
-  let snapshot = session.snapshot();
-  let chains: Vec<(String, Vec<String>)> = snapshot.forest.as_ref().map_or_default(|forest| {
-    forest
-      .order
-      .iter()
-      .map(|branch| (branch.clone(), forest.chain(branch).into_iter().skip(1).map(str::to_string).collect()))
-      .collect()
-  });
+  let chains = chains_of(session);
   let (report, lands, root) = match subject {
     LandingSubject::Branch(name) => {
-      let built: Vec<String> = chains
-        .iter()
-        .find(|(branch, _)| branch == name)
-        .map_or_default(|(_, chain)| chain.iter().rev().cloned().collect());
-      let mut lands: Vec<String> = built.into_iter().filter(|branch| chains.iter().any(|(other, _)| other == branch)).collect();
-      lands.push(name.to_string());
+      let lands = lands_of(&chains, name);
       let report = session.check_landing(name, &lands)?;
       let root = lands.first().cloned().unwrap_or_default();
       (report, lands, root)
@@ -133,8 +76,7 @@ pub fn check_landing_gate(session: &CheckSession, subject: LandingSubject<'_>, l
   };
   let missing = missing_declarations(session, &report)?
     .into_iter()
-    .filter(|missing| lands.contains(&missing.branch))
-    .filter(|missing| missing.declared_in.as_ref().is_none_or(|declared_in| !lands.contains(declared_in)) && !landed.contains(&missing.declared_by))
+    .filter(|missing| refuses(missing, &lands, landed))
     .collect();
   Ok(LandingGate {
     lands,
@@ -145,9 +87,124 @@ pub fn check_landing_gate(session: &CheckSession, subject: LandingSubject<'_>, l
   })
 }
 
+/// What the Safe Push of each branch needs that a branch outside it adds, the refusals `check_landing_gate` would give
+/// its start, from one trial check of every branch and one search of the missing declarations in `session`; `landed` as
+/// there. Only the branches with a refusal are listed. The repository view computes it in the background after a sync
+/// (`landing_needs_of`), `bd status` with its sync
+#[instrument(skip(session, landed))]
+pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result<BTreeMap<String, Vec<LandingRefusal>>, RegroupError> {
+  let chains = chains_of(session);
+  let report = session.check(None)?;
+  let missing = missing_declarations(session, &report)?;
+  let mut needs = BTreeMap::new();
+  for check in &report.branches {
+    let lands = lands_of(&chains, &check.name);
+    let landing = Landing {
+      lands: &lands,
+      report: &report,
+      missing: missing.iter().filter(|missing| refuses(missing, &lands, landed)).collect(),
+      root: lands.first().map_or_default(String::as_str),
+      chains: &chains,
+    };
+    let refusals = landing.refusals(session);
+    if !refusals.is_empty() {
+      needs.insert(check.name.clone(), refusals);
+    }
+  }
+  Ok(needs)
+}
+
+/// `landing_needs` in a session of the current grouping: the background computation of the repository view
+#[instrument(skip(git_executor, cache, landed))]
+pub fn landing_needs_of(
+  git_executor: &GitCommandExecutor,
+  cache: &ObjectCache,
+  repository_path: &str,
+  branch_prefix: &str,
+  landed: &HashSet<String>,
+) -> Result<BTreeMap<String, Vec<LandingRefusal>>, RegroupError> {
+  let session = CheckSession::open(git_executor, repository_path, branch_prefix, cache)?;
+  landing_needs(&session, landed)
+}
+
+/// Names in each missing declaration of `refusals` the running Safe Push that lands the branch adding the name
+/// (`landing_of`, by branch): a start beside it fails all the same, its robot tests that branch without this one
+pub fn name_landing_robots(refusals: &mut [LandingRefusal], landing_of: impl Fn(&str) -> Option<RobotOf>) {
+  for refusal in refusals {
+    if let LandingRefusal::MissingDeclaration { declared_by, landing_in, .. } = refusal {
+      *landing_in = if declared_by.branch.is_empty() { None } else { landing_of(&declared_by.branch) };
+    }
+  }
+}
+
+/// The one rule of a missing declaration that refuses a start: a commit of what lands (`lands`) uses a name that a commit
+/// outside it adds, which no merged Safe Push landed (`landed`)
+fn refuses(missing: &MissingDeclaration, lands: &[String], landed: &HashSet<String>) -> bool {
+  lands.contains(&missing.branch) && missing.declared_in.as_ref().is_none_or(|declared_in| !lands.contains(declared_in)) && !landed.contains(&missing.declared_by)
+}
+
+/// Each branch of the snapshot and the branches it is declared on, nearest first
+fn chains_of(session: &CheckSession) -> Vec<(String, Vec<String>)> {
+  session.snapshot().forest.as_ref().map_or_default(|forest| {
+    forest
+      .order
+      .iter()
+      .map(|branch| (branch.clone(), forest.chain(branch).into_iter().skip(1).map(str::to_string).collect()))
+      .collect()
+  })
+}
+
+/// What the Safe Push of `name` lands: the branches it is built on, root first, then the branch
+fn lands_of(chains: &[(String, Vec<String>)], name: &str) -> Vec<String> {
+  let built: Vec<String> = chains
+    .iter()
+    .find(|(branch, _)| branch == name)
+    .map_or_default(|(_, chain)| chain.iter().rev().cloned().collect());
+  let mut lands: Vec<String> = built.into_iter().filter(|branch| chains.iter().any(|(other, _)| other == branch)).collect();
+  lands.push(name.to_string());
+  lands
+}
+
 impl LandingGate {
   /// Every refusal of the start, each with what the user can do; empty when nothing refuses it
   pub fn refusals(&self, session: &CheckSession) -> Vec<LandingRefusal> {
+    Landing {
+      lands: &self.lands,
+      report: &self.report,
+      missing: self.missing.iter().collect(),
+      root: &self.root,
+      chains: &self.chains,
+    }
+    .refusals(session)
+  }
+
+  /// The refusals that hold the start back after the user's overrides
+  pub fn blocking(&self, session: &CheckSession, allow: LandingAllowances) -> Vec<LandingRefusal> {
+    self
+      .refusals(session)
+      .into_iter()
+      .filter(|refusal| match refusal {
+        LandingRefusal::DanglingReference { .. } => !allow.allow_dangling,
+        LandingRefusal::MissingDeclaration { .. } => !allow.allow_missing,
+      })
+      .collect()
+  }
+}
+
+/// What one start lands, borrowed from a gate or from the check of every branch (`landing_needs`)
+struct Landing<'a> {
+  lands: &'a [String],
+  report: &'a CheckReport,
+  /// The missing declarations that refuse it (`refuses`)
+  missing: Vec<&'a MissingDeclaration>,
+  /// The branch a restack puts on the branch the start needs: the root of the chain or of the whole stack
+  root: &'a str,
+  chains: &'a [(String, Vec<String>)],
+}
+
+impl Landing<'_> {
+  /// The refusals of the start: the proven dangling references of what lands, then the missing declarations
+  fn refusals(&self, session: &CheckSession) -> Vec<LandingRefusal> {
     let commit = |id: &str| {
       session.stack_commit_of(id).unwrap_or_else(|| StackCommit {
         id: id.to_string(),
@@ -162,7 +219,7 @@ impl LandingGate {
       .flat_map(|(branch, references)| references.iter().map(move |reference| (branch, reference)))
       .filter(|(_, reference)| reference.is_confirmed())
       .filter_map(|(branch, reference)| {
-        let fixed_by = reference.fixed_by.as_deref()?;
+        let fixed_by = commit(reference.fixed_by.as_deref()?);
         Some(LandingRefusal::DanglingReference {
           branch: branch.clone(),
           reference: match reference.kind {
@@ -174,36 +231,30 @@ impl LandingGate {
           file: reference.file.clone(),
           line: reference.line,
           removed_by: commit(&reference.removed_by),
-          fixed_by: commit(fixed_by),
+          fix: self.fix_of(&fixed_by, branch),
+          fixed_by,
         })
       });
-    let missing = self.missing.iter().map(|missing| LandingRefusal::MissingDeclaration {
-      branch: missing.branch.clone(),
-      identifier: missing.identifier.clone(),
-      file: missing.file.clone(),
-      line: missing.line,
-      used_by: commit(&missing.used_by),
-      declared_by: commit(&missing.declared_by),
-      fix: self.fix_of(missing, &commit),
+    let missing = self.missing.iter().map(|missing| {
+      let declared_by = commit(&missing.declared_by);
+      LandingRefusal::MissingDeclaration {
+        branch: missing.branch.clone(),
+        identifier: missing.identifier.clone(),
+        file: missing.file.clone(),
+        line: missing.line,
+        used_by: commit(&missing.used_by),
+        fix: self.fix_of(&declared_by, &missing.branch),
+        declared_by,
+        landing_in: None,
+      }
     });
     dangling.chain(missing).collect()
   }
 
-  /// The refusals that hold the start back after the user's overrides
-  pub fn blocking(&self, session: &CheckSession, allow: LandingAllowances) -> Vec<LandingRefusal> {
-    self
-      .refusals(session)
-      .into_iter()
-      .filter(|refusal| match refusal {
-        LandingRefusal::DanglingReference { .. } => !allow.allow_dangling,
-        LandingRefusal::MissingDeclaration { .. } => !allow.allow_missing,
-      })
-      .collect()
-  }
-
-  /// A restack of the root onto the branch that adds the name, unless stacked branches are off, that branch is built on
-  /// what lands (a cycle) or the commit is unassigned: then the move of the commit into the branch that uses it
-  fn fix_of(&self, missing: &MissingDeclaration, commit: &dyn Fn(&str) -> StackCommit) -> LandingFix {
+  /// A restack of the root onto the branch of `needed`, the commit the start needs, unless stacked branches are off, that
+  /// branch is built on what lands (a cycle) or the commit is unassigned: then the move of the commit into `into`, the
+  /// branch that needs it
+  fn fix_of(&self, needed: &StackCommit, into: &str) -> LandingFix {
     let built_on_lands = |branch: &str| {
       self
         .chains
@@ -211,15 +262,17 @@ impl LandingGate {
         .find(|(name, _)| name == branch)
         .is_some_and(|(_, chain)| chain.iter().any(|parent| self.lands.contains(parent)))
     };
-    match missing.declared_in.as_deref() {
-      Some(onto) if self.report.stacks && !built_on_lands(onto) => LandingFix::Restack {
-        branch: self.root.clone(),
+    let onto = needed.branch.as_str();
+    if !onto.is_empty() && self.report.stacks && !built_on_lands(onto) {
+      LandingFix::Restack {
+        branch: self.root.to_string(),
         onto: onto.to_string(),
-      },
-      _ => LandingFix::MoveCommit {
-        commit: commit(&missing.declared_by),
-        into: missing.branch.clone(),
-      },
+      }
+    } else {
+      LandingFix::MoveCommit {
+        commit: needed.clone(),
+        into: into.to_string(),
+      }
     }
   }
 }
@@ -299,43 +352,6 @@ pub fn ensure_landing_starts(git_executor: &GitCommandExecutor, cache: &ObjectCa
   )
 }
 
-impl LandingRefusal {
-  /// In a sentence: what breaks the build of what lands
-  pub fn reason(&self) -> String {
-    let named = |commit: &StackCommit| {
-      if commit.branch.is_empty() {
-        format!("\"{}\" (unassigned)", commit.subject)
-      } else {
-        format!("\"{}\" of {}", commit.subject, commit.branch)
-      }
-    };
-    match self {
-      Self::DanglingReference {
-        identifier,
-        file,
-        removed_by,
-        fixed_by,
-        reference,
-        ..
-      } => {
-        let change = match reference {
-          ReferenceKind::Removed => "removes",
-          ReferenceKind::Changed => "changes",
-          ReferenceKind::Duplicate => "declares again",
-        };
-        format!("{} {change} {identifier}, which {file} still uses; {} changes that use", named(removed_by), named(fixed_by))
-      }
-      Self::MissingDeclaration {
-        identifier,
-        file,
-        used_by,
-        declared_by,
-        ..
-      } => format!("{} uses {identifier} in {file}, which {} adds", named(used_by), named(declared_by)),
-    }
-  }
-}
-
 /// "auth would not build: … (2 more)"
 fn refused_message(subject: &str, refusals: &[LandingRefusal]) -> String {
   let Some(first) = refusals.first() else { return format!("{subject} builds") };
@@ -345,3 +361,7 @@ fn refused_message(subject: &str, refusals: &[LandingRefusal]) -> String {
   };
   format!("{subject} would not build: {}{more}", first.reason())
 }
+
+#[cfg(test)]
+#[path = "landing_gate_test.rs"]
+pub(crate) mod landing_gate_test;

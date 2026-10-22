@@ -2,9 +2,10 @@ import { useStore } from "zustand"
 import { toast } from "@/components/ui/toast"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
 import { requestSafePush } from "@/hooks/useSafePush"
+import { restackBranch } from "@/hooks/useStackActions"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
-import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import type { LandingFix, PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { BranchNextStep, NextStepBusy, NextStepFacts, NextStepPullRequest, StackPullRequestFact } from "@/lib/branch-next-step"
 import { formatLandedState, getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
@@ -31,6 +32,7 @@ import {
   getLandedBy,
   getLandingAncestor,
   getLandingBranchCount,
+  getLandingNeeds,
   getLandingSpan,
   getPushHold,
   isPatronusAvailable,
@@ -201,6 +203,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     // the ancestors a merged Safe Push landed are in the target: the robot lands the others
     landsBranches: getLandingBranchCount(name),
     startDescription: null,
+    landingNeeds: getLandingNeeds(name),
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
     stackPullRequest: stackPullRequestFactOf(name),
     actions: {
@@ -215,7 +218,15 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
       // nothing of a branch that landed is left to review: the step decides it, so the item reads its facts here
       createPullRequest: getCreatePullRequestItem(branch, formatLandedState({ landedIn, landedWith, robot: slot, pullRequest: pullRequestFact })),
       requestReview: getRequestReviewItem(pullRequest, readiness?.readiness ?? null, () => openRequestReview(name)),
+      fixLanding,
     },
+  }
+}
+
+/** Runs the fix of what a Safe Push needs (`LandingFix`): the restack of the root of what it lands onto the branch it needs */
+export function fixLanding(fix: LandingFix): void {
+  if (fix.kind === "restack") {
+    void restackBranch(fix.branch, fix.onto)
   }
 }
 

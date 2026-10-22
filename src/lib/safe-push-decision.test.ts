@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { PatronusProfile, PatronusStartOptions } from "@/lib/bindings"
+import type { LandingRefusal, PatronusProfile, PatronusStartOptions } from "@/lib/bindings"
 import type { SafePushFacts } from "@/lib/safe-push-decision"
 import { getSafePushDecision } from "@/lib/safe-push-decision"
 
 const OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
 const LSC: PatronusProfile = { id: "lsc", name: "Large Scale Change", description: null, allowedPushModes: [], skipsReview: null }
+
+const MISSING: LandingRefusal = {
+  kind: "missingDeclaration",
+  branch: "auth",
+  identifier: "controlUrl",
+  file: "src/b/Use.kt",
+  line: 3,
+  usedBy: { id: "a25430833a277000", subject: "Start with controlUrl", branch: "auth" },
+  declaredBy: { id: "ecebf00037b41000", subject: "Add controlUrl", branch: "util" },
+  fix: { kind: "restack", branch: "auth", onto: "util" },
+}
 
 /** A lone branch on GitHub, approved, nothing to push: a click starts at once */
 function facts(patch: Partial<SafePushFacts> = {}): SafePushFacts {
@@ -27,6 +38,7 @@ function facts(patch: Partial<SafePushFacts> = {}): SafePushFacts {
     dismiss: null,
     ancestorCount: 0,
     wholeStackPullRequest: null,
+    landingRefusals: [],
     ...patch,
   }
 }
@@ -54,6 +66,11 @@ describe("getSafePushDecision", () => {
     expect(getSafePushDecision(facts({ via: "key", ancestorCount: 1, replaces: "1a2b3c4" }))).toEqual({ kind: "confirm", reasons: ["key", "stack", "replaces"] })
     // a piece of a stack whose pull request is open: its approvals count for the whole stack only, said first
     expect(getSafePushDecision(facts({ wholeStackPullRequest: 12 }))).toEqual({ kind: "confirm", reasons: ["wholeStack"] })
+  })
+
+  it("opens the popover when the build of what it lands needs a branch outside it: the reason, the fix and Start Anyway before the start", () => {
+    expect(getSafePushDecision(facts({ landingRefusals: [MISSING] }))).toEqual({ kind: "confirm", reasons: ["landing"] })
+    expect(getSafePushDecision(facts({ mode: "dryRun", review: { kind: "none" }, landingRefusals: [MISSING] }))).toEqual({ kind: "confirm", reasons: ["landing"] })
   })
 
   it("refuses with the reason of the next step first, the reason every surface says", () => {

@@ -8,7 +8,9 @@ import type {
   PollPatronusRobotsParams,
   PostPatronusCommandParams,
   GetRepositoryViewParams,
+  LandingRefusal,
   PatronusView,
+  WaitLandingNeedsParams,
 } from "@/lib/bindings"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { FAILURE_PROBLEMS_WAIT_MS, formatFailedRobotToast, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
@@ -27,6 +29,7 @@ import {
   getLandedBy,
   getLandedWithChildrenReason,
   getLandingBranchCount,
+  getLandingNeeds,
   getLandingSpan,
   getPushHold,
   getStackBranchHoldReason,
@@ -67,6 +70,12 @@ const { patronus, branches } = vi.hoisted(() => ({
     replyCalls: 0,
     viewCalls: [] as GetRepositoryViewParams[],
     view: { branches: {}, stacks: {}, landedByRobot: {} } as PatronusView,
+    /** The waits for the landing needs; the view the backend answers once the computation finished, then counted */
+    landingWaits: [] as WaitLandingNeedsParams[],
+    afterLanding: null as PatronusView | null,
+    landingGeneration: 0,
+    /** Holds the wait until a test resolves it: the computation runs meanwhile */
+    landingComputed: null as Promise<void> | null,
     commitMapCalls: [] as GetRobotCommitMapParams[],
   },
   branches: {
@@ -111,7 +120,17 @@ vi.mock("@/lib/bindings", () => ({
     },
     getRepositoryView: async (params: GetRepositoryViewParams) => {
       patronus.viewCalls.push(params)
-      return { status: "ok", data: { revision: params.revision, tableGeneration: 1, patronus: patronus.view } }
+      return { status: "ok", data: { revision: params.revision, tableGeneration: 1, landingGeneration: patronus.landingGeneration, patronus: patronus.view } }
+    },
+    waitLandingNeeds: async (params: WaitLandingNeedsParams) => {
+      patronus.landingWaits.push(params)
+      await patronus.landingComputed
+      if (patronus.afterLanding !== null) {
+        patronus.view = patronus.afterLanding
+        patronus.afterLanding = null
+        patronus.landingGeneration += 1
+      }
+      return { status: "ok", data: patronus.landingGeneration }
     },
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
@@ -298,6 +317,10 @@ beforeEach(() => {
   patronus.replyCalls = 0
   patronus.viewCalls = []
   patronus.view = { branches: {}, stacks: {}, landedByRobot: {} }
+  patronus.landingWaits = []
+  patronus.afterLanding = null
+  patronus.landingGeneration = 0
+  patronus.landingComputed = null
   patronus.commitMapCalls = []
   robotCoverageStore.setState({ maps: {} })
   notices.pullRequestRefreshes = []
@@ -420,6 +443,38 @@ describe("holds", () => {
     await refreshPatronus("sync")
     await whenRepositoryViewCurrent()
     expect(patronus.viewCalls.map(call => call.robots.map(it => it.id))).toEqual([["r1"], ["r1", "r2"]])
+  })
+
+  it("waits for the landing needs Rust computes in the background, unknown until then, and asks the view again once", async () => {
+    branches.current = { auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: null } }
+    patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-old" }))
+    await refreshPatronus("sync")
+    const refusal: LandingRefusal = {
+      kind: "missingDeclaration",
+      branch: "auth",
+      identifier: "controlUrl",
+      file: "src/b/Use.kt",
+      line: 3,
+      usedBy: { id: "a2543083", subject: "Start with controlUrl", branch: "auth" },
+      declaredBy: { id: "ecebf000", subject: "Add controlUrl", branch: "util" },
+      fix: { kind: "restack", branch: "auth", onto: "util" },
+    }
+    patronus.afterLanding = { branches: { auth: branchFacts({ landingNeeds: { state: "known", refusals: [refusal] } }) }, stacks: {}, landedByRobot: {} }
+    let computed = () => {}
+    patronus.landingComputed = new Promise(resolve => {
+      computed = resolve
+    })
+    await answerView({ branches: {} })
+    // not computed yet: unknown, never "nothing"
+    expect(getLandingNeeds("auth")).toBeNull()
+    computed()
+    await vi.waitFor(() => expect(patronus.viewCalls).toHaveLength(2))
+    await whenRepositoryViewCurrent()
+    expect(patronus.landingWaits).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", after: 0 }])
+    expect(getLandingNeeds("auth")).toEqual([refusal])
+    // known: no wait, no view again
+    await whenRepositoryViewCurrent()
+    expect([patronus.landingWaits.length, patronus.viewCalls.length]).toEqual([1, 2])
   })
 
   it("keeps the store as it is when a view asked again says the same, so no row reads it again", async () => {

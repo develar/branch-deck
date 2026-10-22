@@ -50,8 +50,8 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use sync_core::check::{CheckSession, StackCommit, StackIndependence};
-use sync_core::landing_gate::{LandingFix, LandingRefusal, LandingSubject, check_landing_gate};
+use sync_core::check::{CheckSession, StackIndependence};
+use sync_core::landing_gate::{LandingSubject, check_landing_gate};
 use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
@@ -62,6 +62,7 @@ use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
+use sync_types::landing::{LandingFix, LandingRefusal, StackCommit};
 use sync_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
   PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState, UnavailableReadinessReason,
@@ -828,6 +829,7 @@ fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]
     used_by,
     declared_by,
     fix,
+    ..
   }) = missing.first()
   else {
     return String::new();

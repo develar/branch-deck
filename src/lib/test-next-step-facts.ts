@@ -69,6 +69,7 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     pullRequest: openPullRequest,
     target: "master",
     landsBranches: 1,
+    landingNeeds: null,
     readiness: null,
     startDescription: null,
     stackPullRequest: null,
@@ -78,6 +79,7 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
       retarget: vi.fn(),
       createPullRequest,
       requestReview,
+      fixLanding: vi.fn(),
     },
     ...patch,
   }

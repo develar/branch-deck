@@ -473,7 +473,17 @@ pub async fn get_repository_view(
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   let views = state.repository_views.clone();
-  run_command("read the repository view", move || Ok::<_, anyhow::Error>(views.view(&git_executor, &params))).await
+  run_command("read the repository view", move || {
+    Ok::<_, anyhow::Error>(views.view(&git_executor, &ObjectCache::disabled(), &params))
+  })
+  .await
+}
+
+/// The wait of the page for the landing needs of the repository, by the real core, as the app answers it
+pub async fn wait_landing_needs(State(state): State<Arc<AppState>>, Json(params): Json<sync_types::repository_view::WaitLandingNeedsParams>) -> CommandResult<u32> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let views = state.repository_views.clone();
+  run_command("wait for the landing needs", move || Ok::<_, anyhow::Error>(views.wait_landing_needs(&params))).await
 }
 
 /// Without the object cache, as every command of the mock server; nothing cancels it

@@ -5,6 +5,7 @@ import { toast } from "@/components/ui/toast"
 import type {
   KnownRobotStatus,
   LandingAllowances,
+  LandingRefusal,
   PatronusAvailability,
   PatronusCommandSubject,
   PatronusMergeRequest,
@@ -588,6 +589,10 @@ async function askRepositoryView(): Promise<void> {
         if (view !== entry.view || entry.viewOf !== asking) {
           update(key, () => ({ view, viewOf: asking }))
         }
+        // the landing needs of a branch of the table are computed in the background meanwhile
+        if (state.branchOrder.some(name => view.branches[name]?.landingNeeds.state !== "known")) {
+          waitForLandingNeeds(key, project.path, result.data.landingGeneration)
+        }
       }
     })
     .finally(() => {
@@ -595,6 +600,34 @@ async function askRepositoryView(): Promise<void> {
     })
   viewInFlight = asked
   await asked
+}
+
+/** The repository whose landing needs the page waits for, one wait at a time */
+let landingWait: string | null = null
+
+/**
+ * While the landing needs of a branch are unknown, Rust computes them in the background: waits until the computation
+ * after the view's (`after`) finished (`wait_landing_needs`), then asks the view again. A wait that ends without one
+ * (none ran, or it failed for these inputs) asks nothing: the needs stay unknown until the inputs change
+ */
+function waitForLandingNeeds(key: string, repositoryPath: string, after: number): void {
+  if (landingWait === key) {
+    return
+  }
+  landingWait = key
+  void commands
+    .waitLandingNeeds({ repositoryPath, branchPrefix: getEffectiveBranchPrefix(), after })
+    .then(result => {
+      if (result.status === "ok" && result.data !== after && key === currentKey()) {
+        askedView = null
+        void askRepositoryView()
+      }
+    })
+    .finally(() => {
+      if (landingWait === key) {
+        landingWait = null
+      }
+    })
 }
 
 /**
@@ -658,6 +691,26 @@ export function watchRepositoryView(): () => void {
   const unsubscribes = [patronusStore, branchSyncStore].map(store => store.subscribe(schedule))
   schedule()
   return () => unsubscribes.forEach(unsubscribe => unsubscribe())
+}
+
+/**
+ * What the Safe Push of the branch needs of a branch outside what it lands, as Rust computes it in the background after
+ * a sync (`landingNeeds` of the repository view): the refusals the landing gate of its start would give, empty when it
+ * needs nothing; null while unknown (not computed yet), which is never "nothing"
+ */
+export function useLandingNeeds(branchName: string): readonly LandingRefusal[] | null {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => landingNeedsIn(state.repositories[key], branchName))
+}
+
+/** Non-hook variant of `useLandingNeeds`, for menus built on open and the next step */
+export function getLandingNeeds(branchName: string): readonly LandingRefusal[] | null {
+  return landingNeedsIn(currentRepository(), branchName)
+}
+
+function landingNeedsIn(repository: RepositoryPatronus | undefined, branchName: string): readonly LandingRefusal[] | null {
+  const needs = repository?.view?.branches[branchName]?.landingNeeds
+  return needs?.state === "known" ? needs.refusals : null
 }
 
 /**

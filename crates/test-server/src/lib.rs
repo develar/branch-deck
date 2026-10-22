@@ -163,6 +163,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
     .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
     .route("/invoke/get_repository_view", post(tauri_command_bridge::get_repository_view))
+    .route("/invoke/wait_landing_needs", post(tauri_command_bridge::wait_landing_needs))
     .route("/invoke/get_patronus_failing_robots", post(tauri_command_bridge::get_patronus_failing_robots))
     .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
     .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))
@@ -280,6 +281,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   template("stacked_ownership", |path| templates::stacked_ownership().build(path));
   template("stack_push_alone", |path| templates::stack_push_alone().build(path));
   template("stack_uses_parent", |path| templates::stack_uses_parent().build(path));
+  template("landing_needs", |path| templates::landing_needs().build(path));
   template("stack_problems", |path| templates::stack_problems().build(path));
   template("branch_filter", |path| templates::branch_filter().build(path));
   template("empty-non-git", |path| templates::empty_non_git().build(path));
@@ -370,6 +372,8 @@ pub enum RepositoryTemplate {
   StackPushAlone,
   #[serde(rename = "stack_uses_parent")]
   StackUsesParent,
+  #[serde(rename = "landing_needs")]
+  LandingNeeds,
   #[serde(rename = "stack_problems")]
   StackProblems,
   #[serde(rename = "branch_filter")]
@@ -434,6 +438,7 @@ impl RepositoryTemplate {
       Self::StackedOwnership => "stacked_ownership",
       Self::StackPushAlone => "stack_push_alone",
       Self::StackUsesParent => "stack_uses_parent",
+      Self::LandingNeeds => "landing_needs",
       Self::StackProblems => "stack_problems",
       Self::BranchFilter => "branch_filter",
       Self::ArchivedBranches => "archived_branches",

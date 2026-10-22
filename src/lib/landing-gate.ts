@@ -1,4 +1,4 @@
-import type { LandingAllowances, LandingCheck, LandingFix, LandingRefusal, StackCommit } from "@/lib/bindings"
+import type { LandingAllowances, LandingCheck, LandingFix, LandingRefusal, RobotOf, StackCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { getErrorDetails } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
@@ -52,7 +52,7 @@ export function describeLandingCheck(check: LandingCheck, subject: string, allow
   return {
     kind: "refuse",
     reason: `${describeLandingRefusal(first, subject)}${rest}`,
-    fix: first.kind === "missingDeclaration" ? first.fix : null,
+    fix: first.fix,
     anyway,
   }
 }
@@ -65,13 +65,29 @@ export function describeLandingCheck(check: LandingCheck, subject: string, allow
 export function describeLandingRefusal(refusal: LandingRefusal, subject: string): string {
   const place = `${refusal.file}:${refusal.line}`
   switch (refusal.kind) {
-    case "missingDeclaration":
-      return `${describeCommit(refusal.usedBy)} uses ${refusal.identifier} (${place}), which ${describeCommit(refusal.declaredBy)} adds: git merges it, but the build of ${subject} fails. ${describeFix(refusal.fix)}`
+    case "missingDeclaration": {
+      const landing = refusal.landingIn == null ? "" : ` ${describeLanding(refusal.declaredBy.branch, refusal.landingIn)}`
+      return `${describeCommit(refusal.usedBy)} uses ${refusal.identifier} (${place}), which ${describeCommit(refusal.declaredBy)} adds: git merges it, but the build of ${subject} fails. ${describeFix(refusal.fix)}${landing}`
+    }
     case "danglingReference": {
       const change = refusal.reference === "removed" ? "removes" : refusal.reference === "changed" ? "changes" : "declares again"
       return `${describeCommit(refusal.removedBy)} ${change} ${refusal.identifier}, which ${place} still uses, and ${describeCommit(refusal.fixedBy)} changes that use: the build of ${subject} fails. Move that commit into ${refusal.branch}, or stack ${refusal.branch} on its branch.`
     }
   }
+}
+
+/**
+ * "stills-codec is landing in its Safe Push, which tests it without this start: a start beside it fails too.": the
+ * running Safe Push of the branch the start needs (`landingIn`), its own or of a branch built on it or of its stack
+ */
+function describeLanding(branch: string, robot: RobotOf): string {
+  const of = robot.wholeStack ? `the Safe Push of the whole ${robot.branch} stack` : robot.branch === branch ? "its Safe Push" : `the Safe Push of ${robot.branch}`
+  return `${branch} is landing in ${of}, which tests it without this start: a start beside it fails too.`
+}
+
+/** The commit outside what lands that the start needs: the one that adds the name, or that changes the dangling use */
+export function neededCommit(refusal: LandingRefusal): StackCommit {
+  return refusal.kind === "missingDeclaration" ? refusal.declaredBy : refusal.fixedBy
 }
 
 /** The label of the action that applies `fix` ("Stack lane-run on stills-codec"); null for a fix the toast can't run */

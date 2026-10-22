@@ -1,6 +1,8 @@
-import { ClockIcon, FileTextIcon, GitPullRequestArrowIcon, MessageSquareWarningIcon, ShieldCheckIcon, UserPlusIcon } from "lucide-react"
-import type { MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
+import { ClockIcon, FileTextIcon, GitPullRequestArrowIcon, Layers2Icon, MessageSquareWarningIcon, ShieldCheckIcon, TriangleAlertIcon, UserPlusIcon } from "lucide-react"
+import type { LandingFix, LandingRefusal, MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
 import { isLogin } from "@/lib/create-pull-request"
+import { formatShortHash } from "@/lib/hash"
+import { describeLandingCheck, formatLandingFix, neededCommit } from "@/lib/landing-gate"
 import type { MenuItem } from "@/lib/menu"
 import type { ParkedState } from "@/lib/parked"
 import { formatParkedBlocker } from "@/lib/parked"
@@ -17,6 +19,8 @@ export type NextStepKind =
   | "hidden"
   /** Row 1: syncing, failed, blocked, held, parked, landed, a robot runs or merged (also one of another branch that landed it); the Status cell says it */
   | "none"
+  /** Row 1′: the build of what the Safe Push lands needs a branch outside it (`landingNeeds` of the repository view): "Needs util", its fix */
+  | "needsBranch"
   /** Rows 2 and 3: "Restart Safe Push" of the failed or canceled robot */
   | "restart"
   /** A robot that failed for approvals, while nobody can tell yet whether they count: its pull request */
@@ -87,6 +91,8 @@ export interface NextStepActions {
    * reason for a draft and while the remote lacks work of the branch; null without an open pull request
    */
   readonly requestReview: MenuItem | null
+  /** Runs the fix of what the Safe Push needs (`LandingFix`): the restack of the root of what it lands */
+  readonly fixLanding: (fix: LandingFix) => void
 }
 
 /** What decides the next step of a branch; built from the stores by `getBranchNextStepNow`, plain data for the tests */
@@ -153,6 +159,11 @@ export interface NextStepFacts {
    * whole stack, its branches (`describeWholeStackLanding`); null for a branch
    */
   readonly startDescription: string | null
+  /**
+   * What the Safe Push needs of a branch outside what it lands, as Rust computes it after a sync (`landingNeeds` of the
+   * repository view, the refusals its landing gate would give): empty when nothing; null while unknown
+   */
+  readonly landingNeeds: readonly LandingRefusal[] | null
   /** null until asked */
   readonly readiness: ReadinessFact | null
   /**
@@ -200,6 +211,11 @@ export interface BranchNextStep {
    * master with oauth", "Merged by Patronus"; what disables "Create Pull Request…" of a branch. Null while work is left
    */
   readonly landed: string | null
+  /**
+   * Row 1′: the fix of what the Safe Push needs as a menu item ("Stack lane-run on stills-codec"), for the branch menu;
+   * null elsewhere and for a fix no action runs (the move of a commit)
+   */
+  readonly landingFix: MenuItem | null
 }
 
 /** "Ilya Korennoy", the login without a full name */
@@ -317,7 +333,20 @@ function formatNoEligibleReviewer(groups: readonly MissingReviewGroup[]): string
 }
 
 function step(kind: NextStepKind, item: MenuItem | null, safePushBlocker: string | null, dryRunBlocker: string | null, extra: Partial<BranchNextStep> = {}): BranchNextStep {
-  return { kind, item, tone: "default", safePushBlocker, dryRunBlocker, needsReadiness: false, notice: null, retarget: null, withoutReview: null, landed: null, ...extra }
+  return {
+    kind,
+    item,
+    tone: "default",
+    safePushBlocker,
+    dryRunBlocker,
+    needsReadiness: false,
+    notice: null,
+    retarget: null,
+    withoutReview: null,
+    landed: null,
+    landingFix: null,
+    ...extra,
+  }
 }
 
 /** The notice of a blocker no row words itself: "Safe Push of auth can't start" with the reason */
@@ -444,7 +473,8 @@ function decideNextStep(facts: NextStepFacts): BranchNextStep {
   if (isSettled(facts)) {
     return withNotice(facts, step("none", null, general, dryRunBlocker))
   }
-  const result = withNotice(facts, nextStep(facts, general, dryRunBlocker))
+  const needs = facts.landingNeeds
+  const result = withNotice(facts, needs !== null && needs.length > 0 ? needsBranchStep(facts, needs, general, dryRunBlocker) : nextStep(facts, general, dryRunBlocker))
   const busy = facts.busy
   // the retarget the menu offers beside the step runs too
   if (busy !== null && result.retarget?.id === busy.id) {
@@ -467,6 +497,28 @@ function withBusy(result: BranchNextStep, busy: NextStepBusy | null): BranchNext
     }
   }
   return result
+}
+
+/**
+ * Row 1′: the build of what the Safe Push lands needs a commit of a branch outside it, as Rust's landing gate refuses
+ * the start (`landingNeeds`): "Needs stills-codec", which runs the fix ("Stack lane-run on stills-codec"), the reason in
+ * its hover; a fix no action runs (the move of a commit) opens the Safe Push popover, which says it and starts anyway.
+ * The Safe Push stays enabled: its popover shows the reason before the start
+ */
+function needsBranchStep(facts: NextStepFacts, needs: readonly LandingRefusal[], general: string | null, dryRunBlocker: string | null): BranchNextStep {
+  const decision = describeLandingCheck({ refusals: [...needs] }, facts.subject, {})
+  const needed = neededCommit(needs[0]!)
+  const label = `Needs ${needed.branch === "" ? formatShortHash(needed.id) : needed.branch}`
+  const reason = decision.kind === "refuse" ? decision.reason : ""
+  const fix = decision.kind === "refuse" ? decision.fix : null
+  const fixLabel = formatLandingFix(fix)
+  const landingFix: MenuItem | null =
+    fix === null || fixLabel === null ? null : { id: "landing-fix", label: fixLabel, icon: Layers2Icon, description: reason, onSelect: () => facts.actions.fixLanding(fix) }
+  const item: MenuItem =
+    landingFix === null
+      ? { id: "landing-needs", label, icon: TriangleAlertIcon, description: reason, onSelect: facts.actions.openSafePush }
+      : { ...landingFix, label, icon: TriangleAlertIcon }
+  return step("needsBranch", item, general, dryRunBlocker, { landingFix })
 }
 
 /** Rows 2 to 11, for a branch that can start; `general` is why a start can't whatever the approvals */

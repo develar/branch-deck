@@ -888,6 +888,15 @@ edges (141 of 141) is the precision of a refusal, so since 2026-10-21 a missing 
 [Git Operations](git-operations.md#landing-gate)), and the user overrides it for a false alarm (`--allow-missing`, Start
 Anyway).
 
+A refusal at the press came too late on 2026-10-22: the robot of `stills-codec` ran, the user started
+`ui-perf-nightly` (built on `lane-run`) beside it, and nothing on the row had said that `lane-run` needs
+`stills-codec`. So the gate has a second consumer: the landing needs of the repository view
+([Git Operations](git-operations.md#repository-view)) run the same rule for every branch in the background after a
+sync, from one trial check and one symbol graph of the session, and the row says "Needs stills-codec" with the restack
+before any press ([Next Step](../../spec/branch/next-step.spec.md#what-the-safe-push-needs)); `bd status` lists them
+(`landing_needs`). The edges are the same, so the precision is: a false alarm shows on the row too, and the popover
+starts anyway.
+
 ## References
 
 - [Git Operations](git-operations.md): "Symbol summaries", "Dangling references (check)"

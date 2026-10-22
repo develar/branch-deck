@@ -485,6 +485,10 @@ When several sessions or worktrees work on one branch, run `bd help worktrees` f
   its side branches included, in one robot.
 - A branch a merged Safe Push landed says so in `bd status` (`landed_by`) until `bd update`: only its `after` commits
   are left to push or land, and with none `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`).
+- On Space `bd status` lists per branch `landing_needs`: what its Safe Push needs of a commit outside what it lands,
+  the refusals `bd safe-push` would give (a name only another branch adds, a dangling use), each with its `fix` and
+  `landing_in` (a running Safe Push lands that branch: a start beside it fails too). Tell the user before a Safe Push
+  and run the fix (`bd restack …`) only after they approve; `[]` is nothing, absent is unknown.
 - A branch `parked` in `bd status` stays local until the user unparks it: `bd push` and `bd safe-push` refuse it
   (`parked`). Never push or unpark it on your own.
 - `bd unapply <branch>` takes a branch and its files out of the checked out branch, kept as an unapplied one, and

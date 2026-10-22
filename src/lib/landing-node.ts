@@ -24,7 +24,11 @@ export interface LandingNodeLook {
 /** The look of each kind, in the order of the legend */
 export const landingNodeLooks: Readonly<Record<LandingNodeKind, LandingNodeLook>> = {
   ready: { color: "success", filled: true, legend: "Ready to land: Patronus counts the approvals, Safe Push lands it" },
-  yourStep: { color: "primary", filled: true, legend: "Your step first: a pull request, a review, a retarget, a Safe Push whose approvals Patronus checks at the start" },
+  yourStep: {
+    color: "primary",
+    filled: true,
+    legend: "Your step first: a pull request, a review, a retarget, a branch its build needs, a Safe Push whose approvals Patronus checks at the start",
+  },
   needsFix: { color: "error", filled: true, legend: "Needs a fix: a conflict, a failed robot, changes requested" },
   landing: { color: "primary", filled: false, legend: "Landing now" },
   waiting: { color: "neutral", filled: false, legend: "Waits for others: reviewers, its parent, a robot" },
@@ -137,6 +141,7 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
       return ready(next)
     case "retarget":
     case "draft":
+    case "needsBranch":
       return node("yourStep", reason)
     case "pullRequest":
       return node("yourStep", "Approvals count only in a pull request: Patronus checks them when the robot starts")

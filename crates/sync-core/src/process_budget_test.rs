@@ -5,6 +5,8 @@
 
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::check::{CheckSession, check_plan};
+use crate::landing_gate::landing_gate_test;
+use crate::landing_gate::landing_needs_of;
 use crate::pull_request_create::read_new_pull_request;
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
@@ -26,7 +28,7 @@ use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_re
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use sync_test_utils::TestReporter;
 use sync_types::robot_landing::RobotLandingRequest;
 use sync_types::{RemoteStatusUpdate, SyncEvent};
@@ -61,7 +63,7 @@ fn path(repo: &TestRepo) -> String {
 }
 
 /// A repository whose `origin/master` is its initial commit
-fn repo_on_origin() -> TestRepo {
+pub(crate) fn repo_on_origin() -> TestRepo {
   let repo = TestRepo::new();
   let initial = repo.create_commit("Initial commit", "README.md", "# Test Project\n");
   repo.git(&["remote", "add", "origin", "."]);
@@ -495,6 +497,27 @@ async fn a_check_of_synced_branches() {
     &counted_check(&repo, &cache),
     &[("cat-file", 1), ("config", 2), ("for-each-ref", 2), ("log", 4), ("remote", 1), ("rev-parse", 4)],
   );
+}
+
+/// The landing needs of every branch after a sync, the background computation of the repository view: one session (the
+/// snapshot, the config and the tips, as `bd check` reads them), one trial check of all branches, which reuses the copies
+/// the sync wrote (no `fast-import`, no `merge-tree`), and the names the commits use and add, read once with the changed
+/// lines; with the object cache the first filled, the second reads the changes and the summaries from it
+#[tokio::test]
+async fn the_landing_needs_of_every_branch() {
+  let (repo, _) = landing_gate_test::repo();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let (_dir, cache) = empty_cache();
+  let landing = |git: &GitCommandExecutor| {
+    let needs = landing_needs_of(git, &cache, &path(&repo), PREFIX, &HashSet::new()).unwrap();
+    assert_eq!(needs.keys().collect::<Vec<_>>(), ["flow", "ui"]);
+  };
+  let git = counting();
+  landing(&git);
+  assert_processes(&git, &[("cat-file", 4), ("config", 2), ("for-each-ref", 2), ("log", 5), ("remote", 1), ("rev-parse", 4)]);
+  let git = counting();
+  landing(&git);
+  assert_processes(&git, &[("cat-file", 2), ("config", 2), ("for-each-ref", 2), ("log", 3), ("remote", 1), ("rev-parse", 4)]);
 }
 
 /// A check session of `repo` on a counting executor

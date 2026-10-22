@@ -9,6 +9,7 @@ pub mod branch_integration;
 pub mod branch_name_suggestion;
 pub mod issue_navigation;
 pub mod landed;
+pub mod landing;
 pub mod patronus;
 pub mod pull_request;
 pub mod repository_view;

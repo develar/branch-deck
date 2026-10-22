@@ -2352,8 +2352,24 @@ current grouping (`CheckSession::open`) before the push (`checkLandingBeforeStar
 before it asks Patronus (`start_patronus_robot`, `ensure_landing_starts`), so no surface starts past it. The E2E server
 runs the same core without the object cache.
 
+The same rule answers before any start, for every branch (`landing_needs`, the landing needs of the
+[repository view](#repository-view)): one trial check of every branch (`CheckSession::check`, the dangling references
+of all of them), one search of the missing declarations, and per branch the refusals its start would get, filtered by
+the one predicate of the gate (`refuses`: a use by a commit of what lands of a name a commit outside it adds, which
+no merged Safe Push landed). The types are of `sync_types::landing` (`LandingRefusal`, `LandingFix`, `StackCommit`); a
+dangling reference carries its fix too (the restack onto the branch of the commit that changes the use, or its move),
+and a missing declaration the running Safe Push that lands the branch adding the name (`landing_in`,
+`name_landing_robots`, from the holds and spans of the view). The app computes it in the background after a sync
+(`landing_needs_of`, a session of the current grouping through the object cache), keyed by its inputs: the baseline,
+the tips of the table and the landed commits; while they stay, nothing is computed again. On the synced
+`util`/`flow`/`flow/ui` fixture it costs what a `bd check` of the synced branches costs, no `merge-tree` and no
+`fast-import` (the copies of the sync are reused): `cat-file` 4, `config` 2, `for-each-ref` 2, `log` 5, `remote` 1,
+`rev-parse` 4; with the object cache it filled `cat-file` 2 and `log` 3 (`the_landing_needs_of_every_branch`).
+`bd status` runs it on Space in its own session.
+
 Code: `crates/sync-core/src/landing_gate.rs`, `crates/sync-core/src/missing_declarations.rs`,
-`crates/bd-remote/src/safe_push_command.rs`, `src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`.
+`crates/bd-remote/src/safe_push_command.rs`, `src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`;
+the landing needs `crates/repository-view/src/views.rs`, `crates/bd-remote/src/status.rs`.
 
 #### Agent robot status (`bd robot`)
 
@@ -2725,6 +2741,17 @@ which a poll that changed nothing keeps), the matches, the remote facts, or what
 its inputs, `syncedInputs`: a sync of the same inputs left the same table, so it asks nothing). During a sync only a
 change of the robots asks, from the table of the sync before. An answer equal to the view the page has changes no
 store, so no row reads it again.
+
+The landing needs of each branch (`BranchPatronus.landingNeeds`, `{state: unknown} | {state: known, refusals}`) are a
+fact with its inputs: the baseline, the tips of the table and the commits merged Safe Pushes landed (`landedBy` of the
+same view). A view whose inputs have no answer says `unknown` for every branch and starts their computation in the
+background (`RepositoryViews::landing_needs`, a thread of the view's span, one trial session for every branch,
+[Landing gate](#landing-gate)); a view asked meanwhile with other inputs is computed next, by the same thread; a
+failure leaves them unknown until the inputs change, never an empty list. `landingGeneration` counts the finished
+computations: while a branch's needs are unknown the page waits for the next one (`wait_landing_needs`, which returns
+once a computation finished after the view's, or none runs; at most 120 s) and asks the view again. A view of the
+same inputs answers from the last computation: no process. `views_test.rs` pins both: unknown before, known after
+one computation, none again.
 
 ### Index policy
 
