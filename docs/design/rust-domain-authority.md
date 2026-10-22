@@ -640,10 +640,39 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   Fixture-эндпоинты (`/repositories/{id}/pull-requests`, `/patronus`, `/patronus-progress`, `/review-requests`,
   `/review-answers`, `crates/test-server/src/lib.rs:94-102`) пишут состояние fakes;
   новые эндпоинты читают их счётчики и журналы запросов (`start_calls`, `cancel_calls`, записанные тела PATCH/POST).
-  Спецификации e2e, которые `routeCommand`'или remote-запись, утверждают журнал fake. Lint в `tests/e2e`: `routeCommand`
-  мутирующей команды — ошибка (счётчик как храповик). R12 удаляется.
-- **Удаляется:** TS-моки 35 команд; `get_branch_review_readiness` и `resolve_patronus_revisions` в
-  `tauri_command_bridge.rs`.
+  Спецификации e2e, которые `routeCommand`'или remote-запись, утверждают журнал fake. Храповик — скан в
+  `command_registry_test.rs` (четвёртый источник реестра, `tests/e2e/**/*.ts`): `routeCommand` мутирующей команды —
+  ошибка, число `routeCommand` каждой читающей команды закреплено и только падает; `routeCommandError` остаётся путём
+  ошибки. R12 удаляется.
+- **Модель размещения (уточнено по коду при планировании):**
+  - fakes — по одному на `TestRepository`, лениво, каждый на своём loopback-порту (`start_fake` crates `github`,
+    `patronus`, новый `fake` feature crate `youtrack`), сервисы `PatronusService`/`GitHubService`/`YouTrackService` —
+    тоже на репозиторий, с данными приложения в `test_root_dir/{id}/app-data` (token files), без keychain, без
+    `teamcity`; всё гасится вместе с репозиторием. Один общий слушатель невозможен: обработчики fakes держат
+    `State<Arc<FakeX>>`, а префикс пути для репозитория потребовал бы Router на репозиторий.
+  - Space и GitHub репозитории тестового репозитория — факты хоста, а не templates: origin шаблонов — `.`, так что
+    fixture `/patronus` задаёт `SpaceRepository` (нет — `NotPatronus`), fixture `/pull-requests` пишет
+    `branchdeck.githubRepository` в конфиг репозитория, который читает реальный `resolve_github_repository`.
+  - fixture-эндпоинты остаются в форме DTO (`PatronusRobot`, `PullRequest`: 16 и 10 spec-файлов), test-server один раз
+    переводит DTO в wire-JSON fake (`robot_json`, узлы GraphQL `search.nodes`), и round-trip тест на каждую форму
+    держит верность: реальный парсер (`to_robot`, `parse_pull_requests`) возвращает DTO фикстуры. Пустой или `~N`
+    `sourceRevision` разрешается hook'ом fake при ответе по полному `sourceBranch` — имён веток test-server больше
+    не кодирует.
+  - Машины состояний sign-in (`generation`, `pending`, start/wait/cancel/sign-out, `keep`) уезжают из
+    `src-tauri/src/commands/{github,youtrack}.rs` в ядра `github::sign_in_session` и `youtrack::sign_in_session`;
+    команда Tauri и маршрут test-server зовут одно ядро, у Tauri остаётся только `app.emit`; в e2e событие
+    `*-auth-changed` шлёт обёртка `COMMAND_HANDLERS` над маршрутом (как `set_repository_config`). Шаг браузера
+    YouTrack делает тест: из URL, который записал `plugin:opener`, он берёт `redirect_uri` и `state` и сам зовёт
+    callback слушателя. `GITHUB_OAUTH_CLIENT_ID` — параметр ядра, test-server даёт постоянный.
+  - `check_for_updates`, `get_update_status`, `install_update`, `restart_app` получают маршруты (`UpdateInfo` и
+    `UpdateStatus` переезжают в `sync-types`; установка и перезапуск отвечают `CommandFailure` «test server has no
+    updater»): `PAGE_MOCKED` = 4, только окна. `get_review_requests` и `fetch_review_head` остаются на фикстуре
+    (локальный диапазон вместо fetch, не remote-запись).
+- **Удаляется:** TS-моки 31 из 35 команд `PAGE_MOCKED` (27 remote-команд и 4 команды updater и перезапуска; остаются
+  4 команды окон); `get_branch_review_readiness`,
+  `ownership_requirement`, `find_fixture_robot`, ручной отчёт `get_robot_failure` и `resolve_patronus_revisions` в
+  `tauri_command_bridge.rs`; заглушки `get_branch_rules`, `get_github_auth_status`, `get_youtrack_auth_status`,
+  `get_patronus_start_options`.
 - **Проверки:** e2e Safe Push утверждает журнал fake («один старт с профилем X на `refs/heads/u/virtual/oauth`»);
   `pnpm e2e` ≤ baseline + 15 %.
 - **Критерий выхода:** `PAGE_MOCKED` ≤ 5 (только page-local плагины и окна); `e2e-testing.md` описывает fakes и
