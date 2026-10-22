@@ -14,6 +14,7 @@ use std::sync::{Mutex, PoisonError};
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
 use sync_types::{ProgressReporter, SyncEvent};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range};
+use sync_utils::span::in_current_span;
 use sync_utils::timestamp::{days_ago, parse_utc_date};
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -602,7 +603,7 @@ fn detect_in_parallel(
 
   std::thread::scope(|scope| {
     (0..worker_count)
-      .map(|_| scope.spawn(worker))
+      .map(|_| scope.spawn(in_current_span(worker)))
       .try_for_each(|handle| handle.join().unwrap_or_else(|_| Err(anyhow!("integration detection worker panicked"))))
   })?;
 

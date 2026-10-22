@@ -44,6 +44,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use sync_types::stack::{BlockReason, ParentState, StackProblemView};
 use sync_types::{ProgressReporter, SyncEvent};
+use sync_utils::span::in_current_span;
 use tracing::instrument;
 
 #[derive(Debug, Clone)]
@@ -1053,7 +1054,7 @@ pub(crate) fn run_builds(planned: &[Planned], base: Option<&str>, threads: usize
   let lock = || state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
   std::thread::scope(|scope| {
     for _ in 0..threads.clamp(1, planned.len().max(1)) {
-      scope.spawn(|| {
+      scope.spawn(in_current_span(|| {
         loop {
           let job = {
             let mut schedule = lock();
@@ -1080,7 +1081,7 @@ pub(crate) fn run_builds(planned: &[Planned], base: Option<&str>, threads: usize
           drop(schedule);
           woken.notify_all();
         }
-      });
+      }));
     }
   });
   state

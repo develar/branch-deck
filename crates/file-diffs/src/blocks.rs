@@ -8,7 +8,7 @@
 //!   an instance `for_scans` keeps them in its memory cache instead, for the next pass over the same commits.
 
 use crate::model::{BlobText, DiffContent};
-use crate::service::{FileDiffs, MODEL_VERSION, blob_text, options, workers};
+use crate::service::{FileDiffs, MODEL_VERSION, blob_text, options, spawn_workers};
 use anyhow::Result;
 use code_symbols::language::language_of;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -98,16 +98,16 @@ impl FileDiffs {
     let (sender, jobs) = channel::<(usize, [Option<Arc<BlobText>>; 2])>();
     let jobs = Mutex::new(jobs);
     std::thread::scope(|scope| -> Result<()> {
-      for _ in 0..workers().min(pending.len().max(1)) {
-        scope.spawn(|| {
+      spawn_workers(scope, pending.len().max(1), || {
+        || {
           loop {
             let job = jobs.lock().unwrap_or_else(PoisonError::into_inner).recv();
             let Ok((index, [old, new])) = job else { return };
             let diff = compare(old.as_deref(), new.as_deref(), self.limits.file, self.limits.lines);
             computed.lock().unwrap_or_else(PoisonError::into_inner).push((index, diff));
           }
-        });
-      }
+        }
+      });
       // sends a pair whose blobs are all there, and drops the blobs no other pair needs
       let send = |index: usize, have: &mut HashMap<String, Arc<BlobText>>, needs: &mut HashMap<&str, usize>| {
         let side = |id: Option<&str>| id.map(|id| have.get(id).cloned());

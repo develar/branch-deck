@@ -1,7 +1,7 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::commands::github::GitHubState;
 use crate::commands::pull_requests::github_repository;
+use crate::operation::{operation, run_blocking};
 use crate::range_files::RangeFilesCache;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -64,10 +64,13 @@ pub async fn get_review_requests(
   github: State<'_, GitHubState>,
   params: GetReviewRequestsParams,
 ) -> Result<ReviewRequestsResult, CommandError> {
-  let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await? else {
-    return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
-  };
-  Ok(list_review_requests(&github.service, &params.repository_path, &repository).await)
+  operation(async move {
+    let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await? else {
+      return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
+    };
+    Ok(list_review_requests(&github.service, &params.repository_path, &repository).await)
+  })
+  .await
 }
 
 /// Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both
@@ -105,13 +108,16 @@ pub async fn fetch_review_head(
 #[instrument(skip(webview, state))]
 #[specta::specta]
 pub async fn cancel_review_fetch(webview: Webview, state: State<'_, ReviewFetchState>) -> Result<(), CommandError> {
-  state.cancel(webview.label());
-  Ok(())
+  operation(async move {
+    state.cancel(webview.label());
+    Ok(())
+  })
+  .await
 }
 
 /// Deletes the review refs of the pull requests not in `keep` (one CAS transaction)
 #[tauri::command]
-#[instrument(skip(git_executor))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, keep = params.keep.len()))]
 #[specta::specta]
 pub async fn prune_review_refs(git_executor: State<'_, GitCommandExecutor>, params: PruneReviewRefsParams) -> Result<(), CommandError> {
   let git = (*git_executor).clone();

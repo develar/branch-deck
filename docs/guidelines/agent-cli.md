@@ -49,8 +49,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   (`git_ops::revs::short_id`). When two ids of one output share that prefix, all ids in it get longer.
 - `--no-cache` neither reads nor writes the object cache (see below).
 - `-v` logs debug output to stderr and `-vv` logs trace output. Without either, stderr stays empty. Each line starts
-  with the root span of the run, `operation{op=status operation_id=01K…}` (a ULID, `sync_utils::operation_id`), so the
-  lines of two runs that interleave stay apart.
+  with the root span of the run, `operation{op=status operation_id=01K…}` (a ULID, `sync_utils::operation_id`), also
+  the lines of the threads a sync builds its branches on, so the lines of two runs that interleave stay apart.
 - Git comes from `BD_GIT`, else `git` on `PATH`, else Homebrew's git on macOS. It must be 2.54 or newer. Unlike the
   app, the CLI never asks a login shell for git. Without one, the error is `git_not_found`: a line "Cannot find Git:
   <reason>" or "Git 2.39 is too old: Branch Deck requires Git 2.54 or newer", then how to install Git.

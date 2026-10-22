@@ -144,9 +144,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`the_specific_prefix_wins`, `a_local_prefix_is_repository_scoped`)
 - Git must come from `BD_GIT`, else `git` on `PATH`, else Homebrew's git, never from a login shell, and be 2.54 or newer.
   [@test] ../../crates/git-executor/src/git_info.rs (`minimum_version`, `a_missing_explicit_git_is_not_found_with_the_hint`)
-- Logs must go to stderr, and only with `-v` (debug) or `-vv` (trace). Every line of a run must name its operation:
-  the root span `operation{op=<command> operation_id=<ULID>}`, `op` the words of the command (`status`, `lease get`);
-  the JSON output does not carry the id.
+- Logs must go to stderr, and only with `-v` (debug) or `-vv` (trace). Every line of a run must name its operation,
+  the lines of the threads a sync builds its branches on too: the root span
+  `operation{op=<command> operation_id=<ULID>}`, `op` the words of the command (`status`, `lease get`); the JSON output
+  does not carry the id.
   [@test] ../../crates/bd-cli/src/operation_test.rs (`every_log_line_of_a_command_names_its_operation`, `the_operation_of_a_nested_command_names_both_words`)
 
 ### Output contract

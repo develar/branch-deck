@@ -19,6 +19,7 @@ use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::Deserialize;
 use std::time::Duration;
 use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequest, PullRequestState, Reviewer, ReviewerState};
+use sync_utils::span::in_current_span;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::instrument;
 use youtrack::service::YouTrackService;
@@ -97,10 +98,10 @@ pub async fn new_pull_request(git: &GitCommandExecutor, youtrack: Option<&YouTra
       params.base.clone(),
       params.stack_ancestors.clone(),
     );
-    tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(in_current_span(move || {
       let commits = read_new_pull_request(&git, &path, &remote, &head, &base, &ancestors)?;
       Ok::<_, anyhow::Error>((commits, load_issue_navigation_config(&path)))
-    })
+    }))
     .await
     .map_err(|e| anyhow!("The pull request text task failed: {e}"))??
   };

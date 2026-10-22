@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::run_blocking;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::landed::dismiss_landed as dismiss_landed_core;
 use sync_core::update_project::{UpdateProgress, UpdateProjectParams, UpdateProjectResult, update_project_core};

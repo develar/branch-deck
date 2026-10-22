@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::{CommitFiles, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached};
@@ -15,11 +15,14 @@ pub async fn get_commit_files(
   repository_state: State<'_, RepositoryStateCache>,
   params: GetCommitFilesParams,
 ) -> Result<CommitFiles, CommandError> {
-  let commit_id = params.commit_id;
-  read_files(&git_executor, &repository_state, params.repository_path, vec![commit_id.clone()])
-    .await?
-    .pop()
-    .ok_or_else(|| CommandError::new(format!("No files read for {commit_id}")))
+  operation(async move {
+    let commit_id = params.commit_id;
+    read_files(&git_executor, &repository_state, params.repository_path, vec![commit_id.clone()])
+      .await?
+      .pop()
+      .ok_or_else(|| CommandError::new(format!("No files read for {commit_id}")))
+  })
+  .await
 }
 
 /// The changed files of many commits (in the order of the ids), with one `diff-tree` for the ids the cache misses; the
@@ -33,7 +36,7 @@ pub async fn get_commits_files(
   repository_state: State<'_, RepositoryStateCache>,
   params: GetCommitsFilesParams,
 ) -> Result<Vec<CommitFiles>, CommandError> {
-  read_files(&git_executor, &repository_state, params.repository_path, params.commit_ids).await
+  operation(async move { read_files(&git_executor, &repository_state, params.repository_path, params.commit_ids).await }).await
 }
 
 /// The files of `ids` through the object cache of the repository, off the async runtime

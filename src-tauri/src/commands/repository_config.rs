@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::{operation, run_blocking};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use sync_core::repository_config::{RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, read_repository_config, set_config};
@@ -49,11 +49,14 @@ pub async fn get_repository_config(git_executor: State<'_, GitCommandExecutor>, 
 #[instrument(skip(app, git_executor))]
 #[specta::specta]
 pub async fn set_repository_config(app: AppHandle, git_executor: State<'_, GitCommandExecutor>, params: SetRepositoryConfigParams) -> Result<RepositoryConfig, CommandError> {
-  let git = (*git_executor).clone();
-  let SetRepositoryConfigParams { repository_path, change, scope } = params;
-  let key = change.key();
-  let path = repository_path.clone();
-  let config = run_blocking(move || set_config(&git, &path, &change, scope)).await?;
-  app.emit_to("main", REPOSITORY_CONFIG_CHANGED_EVENT, RepositoryConfigChanged { repository_path, key })?;
-  Ok(config)
+  operation(async move {
+    let git = (*git_executor).clone();
+    let SetRepositoryConfigParams { repository_path, change, scope } = params;
+    let key = change.key();
+    let path = repository_path.clone();
+    let config = run_blocking(move || set_config(&git, &path, &change, scope)).await?;
+    app.emit_to("main", REPOSITORY_CONFIG_CHANGED_EVENT, RepositoryConfigChanged { repository_path, key })?;
+    Ok(config)
+  })
+  .await
 }

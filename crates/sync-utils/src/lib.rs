@@ -6,6 +6,7 @@ pub mod operation_id;
 pub mod private_file;
 pub mod process_scan;
 pub mod secret_store;
+pub mod span;
 pub mod timestamp;
 
 #[cfg(test)]

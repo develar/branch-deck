@@ -1,6 +1,7 @@
-#[cfg(feature = "auto-update")]
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::operation;
+#[cfg(feature = "auto-update")]
+use crate::operation::run_blocking;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 #[cfg(feature = "auto-update")]
@@ -161,31 +162,34 @@ fn auto_update_disabled<T>() -> Result<T, CommandError> {
 #[instrument(skip_all)]
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
 pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, CommandError> {
-  #[cfg(feature = "auto-update")]
-  {
-    info!("Checking for updates");
-
-    // Set status to checking
+  operation(async move {
+    #[cfg(feature = "auto-update")]
     {
-      let mut state = lock_state(&update_state)?;
-      state.info.status = UpdateStatus::Checking;
-    }
+      info!("Checking for updates");
 
-    match auto_update_impl::perform_update_check(&app_handle, &update_state).await {
-      Ok(update_info) => {
+      // Set status to checking
+      {
         let mut state = lock_state(&update_state)?;
-        state.info = update_info.clone();
-        Ok(update_info)
+        state.info.status = UpdateStatus::Checking;
       }
-      Err(e) => {
-        error!("Update check failed: {e:?}");
-        Err(record_error(&update_state, CommandError::new(format!("Update check failed: {e:#}"))))
+
+      match auto_update_impl::perform_update_check(&app_handle, &update_state).await {
+        Ok(update_info) => {
+          let mut state = lock_state(&update_state)?;
+          state.info = update_info.clone();
+          Ok(update_info)
+        }
+        Err(e) => {
+          error!("Update check failed: {e:?}");
+          Err(record_error(&update_state, CommandError::new(format!("Update check failed: {e:#}"))))
+        }
       }
     }
-  }
 
-  #[cfg(not(feature = "auto-update"))]
-  auto_update_disabled()
+    #[cfg(not(feature = "auto-update"))]
+    auto_update_disabled()
+  })
+  .await
 }
 
 #[tauri::command]
@@ -193,36 +197,39 @@ pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri
 #[instrument(skip_all)]
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
 pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<(), CommandError> {
-  #[cfg(feature = "auto-update")]
-  {
-    // Get the pending update and downloaded bytes
-    let (update, bytes) = {
-      let mut state = lock_state(&update_state)?;
+  operation(async move {
+    #[cfg(feature = "auto-update")]
+    {
+      // Get the pending update and downloaded bytes
+      let (update, bytes) = {
+        let mut state = lock_state(&update_state)?;
 
-      if state.pending_update.is_none() || state.downloaded_bytes.is_none() {
-        let error = "No update available to install".to_string();
-        state.info.status = UpdateStatus::Error(error.clone());
-        return Err(CommandError::new(error));
+        if state.pending_update.is_none() || state.downloaded_bytes.is_none() {
+          let error = "No update available to install".to_string();
+          state.info.status = UpdateStatus::Error(error.clone());
+          return Err(CommandError::new(error));
+        }
+
+        state.info.status = UpdateStatus::Installing;
+        (state.pending_update.take().unwrap(), state.downloaded_bytes.take().unwrap())
+      };
+
+      // Install the update: unpacking and replacing the app bundle blocks, keep it off the async runtime
+      info!("Installing update");
+      if let Err(e) = run_blocking(move || update.install(&bytes).map_err(|e| CommandError::new(format!("Failed to install update: {e}")))).await {
+        error!("{e}");
+        return Err(record_error(&update_state, e));
       }
 
-      state.info.status = UpdateStatus::Installing;
-      (state.pending_update.take().unwrap(), state.downloaded_bytes.take().unwrap())
-    };
-
-    // Install the update: unpacking and replacing the app bundle blocks, keep it off the async runtime
-    info!("Installing update");
-    if let Err(e) = run_blocking(move || update.install(&bytes).map_err(|e| CommandError::new(format!("Failed to install update: {e}")))).await {
-      error!("{e}");
-      return Err(record_error(&update_state, e));
+      // Restart the app after installation (never returns)
+      info!("Update installed, restarting app");
+      app_handle.restart()
     }
 
-    // Restart the app after installation (never returns)
-    info!("Update installed, restarting app");
-    app_handle.restart()
-  }
-
-  #[cfg(not(feature = "auto-update"))]
-  auto_update_disabled()
+    #[cfg(not(feature = "auto-update"))]
+    auto_update_disabled()
+  })
+  .await
 }
 
 // jscpd:ignore-start: every command repeats this attribute stack and the feature-gated body split
@@ -232,12 +239,15 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
 // jscpd:ignore-end
 pub async fn get_update_status(update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, CommandError> {
-  #[cfg(feature = "auto-update")]
-  {
-    let state = lock_state(&update_state)?;
-    Ok(state.info.clone())
-  }
+  operation(async move {
+    #[cfg(feature = "auto-update")]
+    {
+      let state = lock_state(&update_state)?;
+      Ok(state.info.clone())
+    }
 
-  #[cfg(not(feature = "auto-update"))]
-  auto_update_disabled()
+    #[cfg(not(feature = "auto-update"))]
+    auto_update_disabled()
+  })
+  .await
 }

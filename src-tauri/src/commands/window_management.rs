@@ -1,4 +1,5 @@
 use crate::command_error::CommandError;
+use crate::operation::operation;
 use crate::title_bar::{prepare_title_bar, title_bar_script, with_title_bar};
 use crate::zoom::{apply_zoom, stored_zoom, sub_window_min_size};
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State, Webview, WebviewUrl, WebviewWindowBuilder};
-use tracing::{instrument, warn};
+use tracing::{Instrument, instrument, warn};
 
 /// How long a new sub-window stays hidden at most when its page never loads (a broken page still shows)
 const SHOW_FALLBACK: Duration = Duration::from_secs(3);
@@ -197,74 +198,77 @@ pub struct OpenSubWindowParams {
 #[instrument(skip(app_handle, state, params), fields(window_id = %params.window_id, url = %params.url))]
 #[specta::specta]
 pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowState>, params: OpenSubWindowParams) -> Result<(), CommandError> {
-  let _open = state.open_lock.lock().await;
-  let open = state.next_open(params.opened_at);
-  if let Some(existing_window) = app_handle.get_webview_window(&params.window_id) {
-    // titled for what it shows now
-    existing_window.set_title(&params.title)?;
-    let update = SubWindowUpdate {
-      data: params.data,
-      store_cache: params.store_cache,
-      open,
-    };
-    match state.reopened(&params.window_id, update.clone()) {
-      Reopen::Pending => {}
-      Reopen::Hidden => existing_window.eval(update.script()?)?,
-      Reopen::Shown => {
-        existing_window.eval(update.script()?)?;
-        existing_window.show()?;
-        existing_window.unminimize()?;
-        existing_window.set_focus()?;
+  operation(async move {
+    let _open = state.open_lock.lock().await;
+    let open = state.next_open(params.opened_at);
+    if let Some(existing_window) = app_handle.get_webview_window(&params.window_id) {
+      // titled for what it shows now
+      existing_window.set_title(&params.title)?;
+      let update = SubWindowUpdate {
+        data: params.data,
+        store_cache: params.store_cache,
+        open,
+      };
+      match state.reopened(&params.window_id, update.clone()) {
+        Reopen::Pending => {}
+        Reopen::Hidden => existing_window.eval(update.script()?)?,
+        Reopen::Shown => {
+          existing_window.eval(update.script()?)?;
+          existing_window.show()?;
+          existing_window.unminimize()?;
+          existing_window.set_focus()?;
+        }
       }
+      return Ok(());
     }
-    return Ok(());
-  }
 
-  // the store cache, the window data, the open and how the page draws the title bar, before the page's own scripts
-  let init_script = format!(
-    "
+    // the store cache, the window data, the open and how the page draws the title bar, before the page's own scripts
+    let init_script = format!(
+      "
       window.__TAURI_STORE__ = {};
       window.__INIT_DATA__ = {};
       window.__SUB_WINDOW_OPEN__ = {};
       {}
       ",
-    params.store_cache,
-    params.data,
-    to_json(&open)?,
-    title_bar_script()
-  );
+      params.store_cache,
+      params.data,
+      to_json(&open)?,
+      title_bar_script()
+    );
 
-  // Create new window: its page draws the title bar, as the main window's does
-  let zoom = stored_zoom(&params.store_cache);
-  let (min_width, min_height) = sub_window_min_size(&params.window_id, zoom);
-  let width = params.width.unwrap_or(1400.0).max(min_width);
-  let height = params.height.unwrap_or(900.0).max(min_height);
-  let builder = WebviewWindowBuilder::new(&app_handle, &params.window_id, WebviewUrl::App(params.url.into()))
-    .title(params.title)
-    .inner_size(width, height)
-    .min_inner_size(min_width, min_height)
-    .visible(false)
-    .resizable(true)
-    .initialization_script(&init_script)
-    // the native file drop handler would swallow HTML5 drag and drop (on Windows)
-    .disable_drag_drop_handler();
-  let builder = match centered_on_main_monitor(&app_handle, width, height) {
-    Some((x, y)) => builder.position(x, y),
-    None => builder.center(),
-  };
-  let window = with_title_bar(with_canvas(builder, &app_handle)).build()?;
-  apply_zoom(&window, zoom);
-  // the empty GTK titlebar of a custom title bar on Linux, before the page paints and the window shows
-  prepare_title_bar(&window);
-  state.built(&params.window_id, open);
-  show_after(
-    app_handle,
-    params.window_id,
-    open.id,
-    SHOW_FALLBACK,
-    Some("the page of the sub-window did not load, showing it"),
-  );
-  Ok(())
+    // Create new window: its page draws the title bar, as the main window's does
+    let zoom = stored_zoom(&params.store_cache);
+    let (min_width, min_height) = sub_window_min_size(&params.window_id, zoom);
+    let width = params.width.unwrap_or(1400.0).max(min_width);
+    let height = params.height.unwrap_or(900.0).max(min_height);
+    let builder = WebviewWindowBuilder::new(&app_handle, &params.window_id, WebviewUrl::App(params.url.into()))
+      .title(params.title)
+      .inner_size(width, height)
+      .min_inner_size(min_width, min_height)
+      .visible(false)
+      .resizable(true)
+      .initialization_script(&init_script)
+      // the native file drop handler would swallow HTML5 drag and drop (on Windows)
+      .disable_drag_drop_handler();
+    let builder = match centered_on_main_monitor(&app_handle, width, height) {
+      Some((x, y)) => builder.position(x, y),
+      None => builder.center(),
+    };
+    let window = with_title_bar(with_canvas(builder, &app_handle)).build()?;
+    apply_zoom(&window, zoom);
+    // the empty GTK titlebar of a custom title bar on Linux, before the page paints and the window shows
+    prepare_title_bar(&window);
+    state.built(&params.window_id, open);
+    show_after(
+      app_handle,
+      params.window_id,
+      open.id,
+      SHOW_FALLBACK,
+      Some("the page of the sub-window did not load, showing it"),
+    );
+    Ok(())
+  })
+  .await
 }
 
 /// The page of the calling sub-window loaded: it gets the data of an open that came while it loaded, and the window
@@ -273,12 +277,15 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
 #[instrument(skip(app_handle, webview, state))]
 #[specta::specta]
 pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: State<'_, SubWindowState>) -> Result<Option<SubWindowUpdate>, CommandError> {
-  let label = webview.label().to_string();
-  let (update, build) = state.loaded(&label);
-  if let Some(build) = build {
-    show_after(app_handle, label, build, CONTENT_BUDGET, None);
-  }
-  Ok(update)
+  operation(async move {
+    let label = webview.label().to_string();
+    let (update, build) = state.loaded(&label);
+    if let Some(build) = build {
+      show_after(app_handle, label, build, CONTENT_BUDGET, None);
+    }
+    Ok(update)
+  })
+  .await
 }
 
 /// The page of the calling sub-window settled the content of the open `open_id`: the window shows if that is the latest
@@ -287,30 +294,36 @@ pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: S
 #[instrument(skip(webview, state))]
 #[specta::specta]
 pub async fn sub_window_ready(webview: Webview, state: State<'_, SubWindowState>, open_id: u32) -> Result<(), CommandError> {
-  if state.ready(webview.label(), open_id) {
-    let window = webview.window();
-    window.show()?;
-    window.set_focus()?;
-  }
-  Ok(())
+  operation(async move {
+    if state.ready(webview.label(), open_id) {
+      let window = webview.window();
+      window.show()?;
+      window.set_focus()?;
+    }
+    Ok(())
+  })
+  .await
 }
 
 /// Shows the window `build` of `label` after `delay` unless it showed by then, logging `warning` if it does
 fn show_after(app_handle: AppHandle, label: String, build: u32, delay: Duration, warning: Option<&'static str>) {
-  tauri::async_runtime::spawn(async move {
-    tokio::time::sleep(delay).await;
-    if !app_handle.state::<SubWindowState>().budget_passed(&label, build) {
-      return;
+  tauri::async_runtime::spawn(
+    async move {
+      tokio::time::sleep(delay).await;
+      if !app_handle.state::<SubWindowState>().budget_passed(&label, build) {
+        return;
+      }
+      if let Some(warning) = warning {
+        warn!(label, "{warning}");
+      }
+      if let Some(window) = app_handle.get_webview_window(&label)
+        && let Err(e) = window.show().and_then(|()| window.set_focus())
+      {
+        warn!(label, error = %e, "cannot show the sub-window");
+      }
     }
-    if let Some(warning) = warning {
-      warn!(label, "{warning}");
-    }
-    if let Some(window) = app_handle.get_webview_window(&label)
-      && let Err(e) = window.show().and_then(|()| window.set_focus())
-    {
-      warn!(label, error = %e, "cannot show the sub-window");
-    }
-  });
+    .in_current_span(),
+  );
 }
 
 fn to_json(open: &SubWindowOpen) -> Result<String, CommandError> {

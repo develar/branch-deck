@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::run_blocking;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::autosquash::{AutosquashPlan, GetAutosquashPlanParams, SquashFixupsParams, SquashFixupsResult, get_autosquash_plan_core, squash_fixup_commits_core};
 use history_rewrite::repository_lock::RewriteOptions;

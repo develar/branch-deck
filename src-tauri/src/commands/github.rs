@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::{operation, run_blocking};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::client::{GITHUB_URL, GitHubClient};
 use github::device_flow::{DeviceCode, GITHUB_OAUTH_CLIENT_ID, request_device_code, wait_for_token};
@@ -64,14 +64,17 @@ fn client_id() -> Result<&'static str, CommandError> {
 #[instrument(skip(github))]
 #[specta::specta]
 pub async fn get_github_auth_status(github: State<'_, GitHubState>) -> Result<GitHubAuthStatus, CommandError> {
-  let file = github.token_file.clone();
-  let stored = run_blocking(move || Ok::<_, CommandError>(file.as_deref().and_then(read_token))).await?;
-  Ok(GitHubAuthStatus {
-    sign_in_available: GITHUB_OAUTH_CLIENT_ID.is_some(),
-    signed_in_as: stored.map(|stored| stored.login),
-    token_source: github.service.tokens.first_source().await,
-    manage_url: GITHUB_OAUTH_CLIENT_ID.map(|id| format!("{GITHUB_URL}/settings/connections/applications/{id}")),
+  operation(async move {
+    let file = github.token_file.clone();
+    let stored = run_blocking(move || Ok::<_, CommandError>(file.as_deref().and_then(read_token))).await?;
+    Ok(GitHubAuthStatus {
+      sign_in_available: GITHUB_OAUTH_CLIENT_ID.is_some(),
+      signed_in_as: stored.map(|stored| stored.login),
+      token_source: github.service.tokens.first_source().await,
+      manage_url: GITHUB_OAUTH_CLIENT_ID.map(|id| format!("{GITHUB_URL}/settings/connections/applications/{id}")),
+    })
   })
+  .await
 }
 
 /// Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it.
@@ -79,17 +82,20 @@ pub async fn get_github_auth_status(github: State<'_, GitHubState>) -> Result<Gi
 #[instrument(skip(github))]
 #[specta::specta]
 pub async fn start_github_sign_in(github: State<'_, GitHubState>) -> Result<GitHubDeviceCode, CommandError> {
-  let code = request_device_code(&github.service.client, client_id()?)
-    .await
-    .map_err(|e| CommandError::new(e.to_string()))?;
-  let generation = github.generation.fetch_add(1, Ordering::SeqCst) + 1;
-  let answer = GitHubDeviceCode {
-    user_code: code.user_code.clone(),
-    verification_uri: code.verification_uri.clone(),
-    expires_in: u32::try_from(code.expires_in).unwrap_or(u32::MAX),
-  };
-  *github.sign_in.lock().unwrap() = Some((generation, code));
-  Ok(answer)
+  operation(async move {
+    let code = request_device_code(&github.service.client, client_id()?)
+      .await
+      .map_err(|e| CommandError::new(e.to_string()))?;
+    let generation = github.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let answer = GitHubDeviceCode {
+      user_code: code.user_code.clone(),
+      verification_uri: code.verification_uri.clone(),
+      expires_in: u32::try_from(code.expires_in).unwrap_or(u32::MAX),
+    };
+    *github.sign_in.lock().unwrap() = Some((generation, code));
+    Ok(answer)
+  })
+  .await
 }
 
 /// Waits until the user entered the code of `start_github_sign_in` on GitHub, then keeps the token (`token_store`) and
@@ -98,30 +104,33 @@ pub async fn start_github_sign_in(github: State<'_, GitHubState>) -> Result<GitH
 #[instrument(skip(app, github))]
 #[specta::specta]
 pub async fn wait_github_sign_in(app: AppHandle, github: State<'_, GitHubState>) -> Result<String, CommandError> {
-  let (generation, code) = github
-    .sign_in
-    .lock()
-    .unwrap()
-    .clone()
-    .ok_or_else(|| CommandError::new("No GitHub sign-in is in progress"))?;
-  let client = &github.service.client;
-  let access = wait_for_token(client, client_id()?, &code, || github.generation.load(Ordering::SeqCst) != generation)
-    .await
-    .map_err(|e| CommandError::new(e.to_string()))?;
-  let login = client.viewer_login(&access.token).await.map_err(|e| CommandError::new(e.message()))?;
-  let stored = StoredToken {
-    token: access.token,
-    login: login.clone(),
-    scopes: access.scopes,
-    created_at: unix_now(),
-  };
-  let file = github.token_file()?;
-  run_blocking(move || write_token(&file, &stored).map_err(|e| CommandError::new(format!("Cannot keep the GitHub token: {e}")))).await?;
-  github.sign_in.lock().unwrap().take_if(|(pending, _)| *pending == generation);
-  github.service.tokens.forget().await;
-  info!(%login, "signed in to GitHub");
-  app.emit(GITHUB_AUTH_CHANGED_EVENT, ())?;
-  Ok(login)
+  operation(async move {
+    let (generation, code) = github
+      .sign_in
+      .lock()
+      .unwrap()
+      .clone()
+      .ok_or_else(|| CommandError::new("No GitHub sign-in is in progress"))?;
+    let client = &github.service.client;
+    let access = wait_for_token(client, client_id()?, &code, || github.generation.load(Ordering::SeqCst) != generation)
+      .await
+      .map_err(|e| CommandError::new(e.to_string()))?;
+    let login = client.viewer_login(&access.token).await.map_err(|e| CommandError::new(e.message()))?;
+    let stored = StoredToken {
+      token: access.token,
+      login: login.clone(),
+      scopes: access.scopes,
+      created_at: unix_now(),
+    };
+    let file = github.token_file()?;
+    run_blocking(move || write_token(&file, &stored).map_err(|e| CommandError::new(format!("Cannot keep the GitHub token: {e}")))).await?;
+    github.sign_in.lock().unwrap().take_if(|(pending, _)| *pending == generation);
+    github.service.tokens.forget().await;
+    info!(%login, "signed in to GitHub");
+    app.emit(GITHUB_AUTH_CHANGED_EVENT, ())?;
+    Ok(login)
+  })
+  .await
 }
 
 /// Ends the wait of the sign-in in progress, if any
@@ -129,9 +138,12 @@ pub async fn wait_github_sign_in(app: AppHandle, github: State<'_, GitHubState>)
 #[instrument(skip(github))]
 #[specta::specta]
 pub async fn cancel_github_sign_in(github: State<'_, GitHubState>) -> Result<(), CommandError> {
-  github.generation.fetch_add(1, Ordering::SeqCst);
-  github.sign_in.lock().unwrap().take();
-  Ok(())
+  operation(async move {
+    github.generation.fetch_add(1, Ordering::SeqCst);
+    github.sign_in.lock().unwrap().take();
+    Ok(())
+  })
+  .await
 }
 
 /// Removes the token of the app's own sign-in. GitHub keeps the authorization until it is revoked there
@@ -140,10 +152,13 @@ pub async fn cancel_github_sign_in(github: State<'_, GitHubState>) -> Result<(),
 #[instrument(skip(app, github))]
 #[specta::specta]
 pub async fn sign_out_of_github(app: AppHandle, github: State<'_, GitHubState>) -> Result<(), CommandError> {
-  github.generation.fetch_add(1, Ordering::SeqCst);
-  let file = github.token_file()?;
-  run_blocking(move || remove_token(&file).map_err(|e| CommandError::new(format!("Cannot remove the GitHub token: {e}")))).await?;
-  github.service.tokens.forget().await;
-  app.emit(GITHUB_AUTH_CHANGED_EVENT, ())?;
-  Ok(())
+  operation(async move {
+    github.generation.fetch_add(1, Ordering::SeqCst);
+    let file = github.token_file()?;
+    run_blocking(move || remove_token(&file).map_err(|e| CommandError::new(format!("Cannot remove the GitHub token: {e}")))).await?;
+    github.service.tokens.forget().await;
+    app.emit(GITHUB_AUTH_CHANGED_EVENT, ())?;
+    Ok(())
+  })
+  .await
 }

@@ -24,4 +24,6 @@ mod git_usage_scan_test;
 #[cfg(test)]
 mod source_scan_test;
 #[cfg(test)]
+mod thread_span_scan_test;
+#[cfg(test)]
 mod worktree_safety_test;

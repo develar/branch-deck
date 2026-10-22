@@ -23,6 +23,7 @@ use sync_types::robot_failure::{BuildProblem, FailedBuild, FailedCheck, FailedTe
 use sync_utils::list_cut::kept;
 use sync_utils::timestamp::{parse_rfc3339_timestamp, unix_now};
 use tokio::sync::Semaphore;
+use tracing::Instrument;
 use tracing::{info, instrument};
 
 /// The details of a running robot change: asked again after this
@@ -180,10 +181,13 @@ impl PatronusService {
       }
       let client = self.client().clone();
       let token = token.value.clone();
-      pending.spawn(async move {
-        let answer = client.get_build_progress(&token, &build_id).await;
-        (build_id, answer)
-      });
+      pending.spawn(
+        async move {
+          let answer = client.get_build_progress(&token, &build_id).await;
+          (build_id, answer)
+        }
+        .in_current_span(),
+      );
     }
     while let Some(Ok((build_id, answer))) = pending.join_next().await {
       if let Ok(answer) = self.settle(answer, &token.stamp) {
@@ -246,7 +250,7 @@ impl PatronusService {
       let client = self.client().clone();
       let token = token.value.clone();
       let attempt_id = (*attempt_id).to_string();
-      pending.spawn(async move { (index, client.get_attempt_details(&token, &attempt_id).await) });
+      pending.spawn(async move { (index, client.get_attempt_details(&token, &attempt_id).await) }.in_current_span());
     }
     let mut answers: Vec<Option<TeamCityCheckAttemptDetailsDto>> = vec![None; attempt_ids.len()];
     while let Some(joined) = pending.join_next().await {
@@ -321,10 +325,13 @@ impl PatronusService {
       let client = self.client().clone();
       let token = token.value.clone();
       let requests = Arc::clone(&requests);
-      pending.spawn(async move {
-        let _permit = requests.acquire_owned().await;
-        (index, client.get_test_run_details(&token, &build_id, &test_id, &test_run_id).await)
-      });
+      pending.spawn(
+        async move {
+          let _permit = requests.acquire_owned().await;
+          (index, client.get_test_run_details(&token, &build_id, &test_id, &test_run_id).await)
+        }
+        .in_current_span(),
+      );
     }
     let mut messages = vec![None; count];
     while let Some(Ok((index, answer))) = pending.join_next().await {
@@ -361,10 +368,13 @@ impl PatronusService {
       let client = self.client().clone();
       let token = token.value.clone();
       let robot_id = robot_id.clone();
-      pending.spawn(async move {
-        let answer = client.get_problems(&token, &robot_id).await;
-        (robot_id, answer)
-      });
+      pending.spawn(
+        async move {
+          let answer = client.get_problems(&token, &robot_id).await;
+          (robot_id, answer)
+        }
+        .in_current_span(),
+      );
     }
     let mut failing = Vec::new();
     while let Some(Ok((robot_id, answer))) = pending.join_next().await {
@@ -782,11 +792,11 @@ async fn add_teamcity_details(teamcity: &TeamCityCli, builds: &mut [FailedBuild]
     };
     if wants_log[index] {
       let (teamcity, server, build_id) = (teamcity.clone(), server.to_string(), build.build_id.clone());
-      pending.spawn(async move { (index, TeamCityAnswer::Log(teamcity.log_tail(&server, &build_id).await)) });
+      pending.spawn(async move { (index, TeamCityAnswer::Log(teamcity.log_tail(&server, &build_id).await)) }.in_current_span());
     }
     if !build.failed_tests.is_empty() {
       let (teamcity, server, build_id) = (teamcity.clone(), server.to_string(), build.build_id.clone());
-      pending.spawn(async move { (index, TeamCityAnswer::FirstFailed(teamcity.first_failed_before(&server, &build_id).await)) });
+      pending.spawn(async move { (index, TeamCityAnswer::FirstFailed(teamcity.first_failed_before(&server, &build_id).await)) }.in_current_span());
     }
   }
   let mut truncated = false;

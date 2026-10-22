@@ -116,24 +116,37 @@ Sync pipeline (`sync_core::sync::sync_branches`):
 
 ### Operation spans
 
-Every run of `run_blocking` (`src-tauri/src/blocking.rs`) is an operation with an id of its own
+Every Tauri command that can fail (`Result<_, CommandError>`) and every `bd` run is an operation with an id of its own
 (`sync_utils::operation_id::OperationId`, a ULID: 48 bits of milliseconds, 80 random bits, so the ids of the app and
-of every `bd` process never collide and sort by time):
-- The span `operation{operation_id}` is created on the async side, a child of the current span, the `#[instrument]`
-  span of the command (every Tauri command has one, its `State`, `AppHandle` and window arguments skipped, a long text
-  such as a pull request body or a sub-window's data skipped for a field or two). The blocking closure enters it on its
-  pool thread, where `Span::current()` would be empty: a `spawn_blocking` does not carry the caller's span.
-- An error leaves with the id: `CommandError.operation_id` (an error of an inner run keeps its own), which the page
-  records with its Activity entry (`operationId`) and in its log line of the error.
+of every `bd` process never collide and sort by time). `src-tauri/src/command_scan_test.rs` checks the commands:
+- Every command has an `#[instrument]` span, its `State`, `AppHandle` and window arguments skipped. An argument that
+  holds a collection (a `Vec`, a map, through nested structs) is skipped too, with a field or two in its place
+  (`skip_all, fields(repository_path = %params.repository_path, robots = params.robots.len())`), because every line of
+  the log repeats the fields of the spans it is in: `get_repository_view` with the robots and the remote facts of 141
+  branches would write tens of KB per call. `#[instrument]` with `fields` comes before `#[specta::specta]`, which
+  rejects the `%` of a field.
+- The body of an async command runs in `operation(async move { … }).await`, of a synchronous one (on the main thread) in
+  `operation_now(|| { … })` (`src-tauri/src/operation.rs`): the span `operation{operation_id}`, a child of the command's
+  span, so a line reads `get_pull_requests{…}:operation{operation_id=…}: message`. A blocking step of the body, git or
+  the file system, runs through `run_blocking` on the pool, inside the caller's span; a command whose body is that one
+  step needs no `operation`: `run_blocking` alone is the operation then (a task-local tells it whether one is open).
+- An error leaves with the id: `CommandError.operation_id` (an error that names one keeps it), which the page records
+  with its Activity entry (`operationId`) and in its log line of the error. An error raised outside a command has none.
+- A thread starts without a span: `spawn_blocking`, a `JoinSet`, a scoped thread and `tokio::spawn` would log their
+  lines outside the operation. A closure handed to another thread goes through `sync_utils::span::in_current_span(…)`,
+  a future ends with `.in_current_span()` (`tracing::Instrument`); `crates/git-executor/src/thread_span_scan_test.rs`
+  scans every spawn of the production sources, and exempts a file only with its reason and its number of hits (the pipe
+  threads of a git process, the mock server). So the branch builds of a sync, the integration detection and the file
+  diff workers log inside the operation of the command or the `bd` run.
 - `tracing_log` (`src-tauri/src/tracing_log.rs`) makes the spans reach the log at all: without a subscriber the `log`
   feature of `tracing` hands an event to `log` without its spans. The subscriber formats each event with its spans,
-  `get_pull_requests{…}:operation{operation_id=…}: message`, plus a line when a span starts (`FmtSpan::NEW`, as
-  `tracing` wrote one per span before), and gives the line to `log` with the event's level and target, which
-  `tauri_plugin_log` writes. The devtools build keeps the subscriber of its plugin.
+  plus a line when a span starts (`FmtSpan::NEW`, as `tracing` wrote one per span before), and gives the line to `log`
+  with the event's level and target, which `tauri_plugin_log` writes: 10 MB per file and the last three rotated files
+  (`KeepSome`), so the lines an `operation_id` of Activity names are still there; the plugin's default, 40 KB deleted
+  on rotation, held a few commands. The devtools build keeps the subscriber of its plugin.
 - `bd` opens the root span `operation{op, operation_id}` in `bd_cli::run` before the dispatch, `op` the words of the
-  command (`lease get`); its `-v` lines carry it. Work a core hands to another thread (`JoinSet`, a scoped thread) runs
-  outside the span unless the core enters it there.
-
+  command (`lease get`); every `-v` line carries it, the lines of the sync's threads too
+  (`crates/bd-cli/src/operation_test.rs`, under a global subscriber that sees every thread).
 
 ## Alternatives Considered
 

@@ -1,4 +1,5 @@
 use crate::command_error::CommandError;
+use crate::operation::{operation_now, run_blocking};
 use bd_cli::install::{InstallArgs, install, install_status};
 use bd_core::bd_command::bd_command;
 use bd_core::context::Environment;
@@ -32,7 +33,7 @@ pub struct AgentRules {
 #[specta::specta]
 #[instrument]
 pub async fn install_agent_cli() -> Result<AgentCliInstall, CommandError> {
-  tokio::task::spawn_blocking(|| {
+  run_blocking(|| {
     let mut environment = Environment::from_process();
     // an app started from the Finder has a minimal PATH; the user's shell decides whether `bd` runs there
     if let Some(path) = login_shell_path() {
@@ -40,7 +41,7 @@ pub async fn install_agent_cli() -> Result<AgentCliInstall, CommandError> {
     }
     let output = install(&environment, &InstallArgs::default()).map_err(|e| CommandError::new(e.message))?;
     let agents = output.agents.unwrap_or_else(|| agent_defaults(&environment));
-    Ok(AgentCliInstall {
+    Ok::<_, CommandError>(AgentCliInstall {
       bd: output.bd,
       on_path: output.on_path,
       skills: output.skills,
@@ -51,7 +52,6 @@ pub async fn install_agent_cli() -> Result<AgentCliInstall, CommandError> {
     })
   })
   .await
-  .map_err(|e| CommandError::new(format!("The install task failed: {e}")))?
 }
 
 /// How the prompts the app copies run this app's bd in a repository
@@ -71,10 +71,12 @@ pub struct AgentCliCommand {
 #[instrument]
 #[expect(clippy::needless_pass_by_value, reason = "Tauri deserializes a command argument into an owned value")]
 pub fn agent_cli_command(repository_path: String) -> Result<AgentCliCommand, CommandError> {
-  let command = bd_command(&Environment::from_process()).map_err(|e| CommandError::new(e.message))?;
-  Ok(AgentCliCommand {
-    command: command.for_shell_in(&repository_path),
-    powershell: cfg!(windows),
+  operation_now(|| {
+    let command = bd_command(&Environment::from_process()).map_err(|e| CommandError::new(e.message))?;
+    Ok(AgentCliCommand {
+      command: command.for_shell_in(&repository_path),
+      powershell: cfg!(windows),
+    })
   })
 }
 

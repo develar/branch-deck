@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use file_diffs::model::{
   BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
@@ -26,15 +26,18 @@ pub async fn get_file_diffs(
   params: GetFileDiffsParams,
   events: Channel<FileDiffEvent>,
 ) -> Result<(), CommandError> {
-  let repository_path = params.repository_path.clone();
-  stream_to(
-    &git_executor,
-    &repository_state,
-    &file_diffs,
-    repository_path,
-    events,
-    move |file_diffs, git, cache, send| file_diffs.stream(git, cache, &params, send),
-  )
+  operation(async move {
+    let repository_path = params.repository_path.clone();
+    stream_to(
+      &git_executor,
+      &repository_state,
+      &file_diffs,
+      repository_path,
+      events,
+      move |file_diffs, git, cache, send| file_diffs.stream(git, cache, &params, send),
+    )
+    .await
+  })
   .await
 }
 
@@ -50,15 +53,18 @@ pub async fn get_file_merges(
   params: GetFileMergesParams,
   events: Channel<FileMergeEvent>,
 ) -> Result<(), CommandError> {
-  let repository_path = params.repository_path.clone();
-  stream_to(
-    &git_executor,
-    &repository_state,
-    &file_diffs,
-    repository_path,
-    events,
-    move |file_diffs, git, cache, send| file_diffs.stream_merges(git, cache, &params, send),
-  )
+  operation(async move {
+    let repository_path = params.repository_path.clone();
+    stream_to(
+      &git_executor,
+      &repository_state,
+      &file_diffs,
+      repository_path,
+      events,
+      move |file_diffs, git, cache, send| file_diffs.stream_merges(git, cache, &params, send),
+    )
+    .await
+  })
   .await
 }
 

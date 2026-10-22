@@ -10,7 +10,7 @@
 //!   `file_merge` store. A merge that the time cut short stays in memory only.
 
 use crate::model::{BlobText, FileMerge, FileMergeEvent, FileMergeHeader, GetFileMergesParams, GitConflictKind, MergeContent, MergeSide, MergeSource};
-use crate::service::{FileDiffs, keep_stored, options, priority_order, read_summaries, scopes, to_u32, workers, write_summaries};
+use crate::service::{FileDiffs, keep_stored, options, priority_order, read_summaries, scopes, spawn_workers, to_u32, write_summaries};
 use anyhow::{Result, bail};
 use code_symbols::language::language_of;
 use code_symbols::summary::FileSummary;
@@ -175,7 +175,7 @@ impl FileDiffs {
     let made = Mutex::new(Vec::<((u8, String), FileSummary)>::new());
     std::thread::scope(|scope| {
       let (sender, events) = channel::<FileMergeEvent>();
-      for _ in 0..workers().min(pending.len()) {
+      spawn_workers(scope, pending.len(), || {
         let sender = sender.clone();
         let context = MergeWork {
           service: self,
@@ -186,7 +186,7 @@ impl FileDiffs {
           policy: params.policy,
         };
         let (next, pending, stored, made) = (&next, &pending, &stored, &made);
-        scope.spawn(move || {
+        move || {
           while let Some(&index) = pending.get(next.fetch_add(1, Ordering::Relaxed)) {
             let (store, summaries) = context.merge(index, &mut |event| {
               // the receiver stays until every worker ends
@@ -197,8 +197,8 @@ impl FileDiffs {
             }
             made.lock().unwrap_or_else(PoisonError::into_inner).extend(summaries);
           }
-        });
-      }
+        }
+      });
       drop(sender);
       for event in events {
         emit(event);

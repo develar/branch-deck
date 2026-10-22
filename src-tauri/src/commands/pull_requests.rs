@@ -1,7 +1,7 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::commands::github::GitHubState;
 use crate::commands::youtrack::YouTrackState;
+use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
@@ -31,10 +31,13 @@ pub async fn get_pull_requests(
   github: State<'_, GitHubState>,
   params: GetPullRequestsParams,
 ) -> Result<PullRequestsResult, CommandError> {
-  let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, None).await? else {
-    return Ok(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
-  };
-  Ok(list_pull_requests(&github.service, &params.repository_path, &repository, &params.branch_prefix).await)
+  operation(async move {
+    let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, None).await? else {
+      return Ok(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
+    };
+    Ok(list_pull_requests(&github.service, &params.repository_path, &repository, &params.branch_prefix).await)
+  })
+  .await
 }
 
 /// Changes the base of a pull request of the virtual branches: the push of a stacked branch keeps its pull request on
@@ -48,10 +51,13 @@ pub async fn retarget_pull_request(
   github: State<'_, GitHubState>,
   params: RetargetPullRequestParams,
 ) -> Result<(), CommandError> {
-  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-  core_retarget_pull_request(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.base)
-    .await
-    .map_err(|e| CommandError::new(e.to_string()))
+  operation(async move {
+    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
+    core_retarget_pull_request(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.base)
+      .await
+      .map_err(|e| CommandError::new(e.to_string()))
+  })
+  .await
 }
 
 /// Closes a pull request of the virtual branches with a comment: an ancestor a Safe Push of a stacked branch landed
@@ -65,10 +71,13 @@ pub async fn close_pull_request(
   github: State<'_, GitHubState>,
   params: ClosePullRequestParams,
 ) -> Result<(), CommandError> {
-  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-  core_close_pull_request(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment)
-    .await
-    .map_err(|e| CommandError::new(e.to_string()))
+  operation(async move {
+    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
+    core_close_pull_request(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment)
+      .await
+      .map_err(|e| CommandError::new(e.to_string()))
+  })
+  .await
 }
 
 /// Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed
@@ -81,24 +90,27 @@ pub async fn submit_pull_request_review(
   github: State<'_, GitHubState>,
   params: SubmitPullRequestReviewParams,
 ) -> Result<(), CommandError> {
-  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await?;
-  core_submit_pull_request_review(
-    &github.service,
-    &params.repository_path,
-    &repository,
-    params.pull_request_number,
-    params.event,
-    &params.commit_id,
-    params.body.as_deref(),
-  )
+  operation(async move {
+    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await?;
+    core_submit_pull_request_review(
+      &github.service,
+      &params.repository_path,
+      &repository,
+      params.pull_request_number,
+      params.event,
+      &params.commit_id,
+      params.body.as_deref(),
+    )
+    .await
+    .map_err(|e| CommandError::new(e.to_string()))
+  })
   .await
-  .map_err(|e| CommandError::new(e.to_string()))
 }
 
 /// Asks users to review an open pull request of the virtual branches (Request Review…): whom GitHub asked, and whom it
 /// refused with its reason
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, pull_request_number = params.pull_request_number, reviewers = params.reviewers.len()))]
 #[specta::specta]
 pub async fn request_pull_request_reviewers(
   git_executor: State<'_, GitCommandExecutor>,
@@ -106,10 +118,13 @@ pub async fn request_pull_request_reviewers(
   github: State<'_, GitHubState>,
   params: RequestPullRequestReviewersParams,
 ) -> Result<RequestedReviewers, CommandError> {
-  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-  core_request_pull_request_reviewers(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
-    .await
-    .map_err(|e| CommandError::new(e.to_string()))
+  operation(async move {
+    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
+    core_request_pull_request_reviewers(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
+      .await
+      .map_err(|e| CommandError::new(e.to_string()))
+  })
+  .await
 }
 
 /// The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one
@@ -122,16 +137,19 @@ pub async fn get_pull_request_head(
   github: State<'_, GitHubState>,
   params: GetPullRequestHeadParams,
 ) -> Result<String, CommandError> {
-  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await?;
-  read_pull_request_head(&github.service, &params.repository_path, &repository, params.pull_request_number)
-    .await
-    .map_err(|e| CommandError::new(e.to_string()))
+  operation(async move {
+    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await?;
+    read_pull_request_head(&github.service, &params.repository_path, &repository, params.pull_request_number)
+      .await
+      .map_err(|e| CommandError::new(e.to_string()))
+  })
+  .await
 }
 
 /// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
 /// summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, github, youtrack))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, head = %params.head, base = %params.base, stack_ancestors = params.stack_ancestors.len()))]
 #[specta::specta]
 pub async fn get_new_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
@@ -140,10 +158,13 @@ pub async fn get_new_pull_request(
   youtrack: State<'_, YouTrackState>,
   params: GetNewPullRequestParams,
 ) -> Result<NewPullRequest, CommandError> {
-  let pull_request = new_pull_request(&git_executor, Some(&youtrack.service), "origin", &params)
-    .await
-    .map_err(|e| CommandError::new(e.to_string()))?;
-  with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
+  operation(async move {
+    let pull_request = new_pull_request(&git_executor, Some(&youtrack.service), "origin", &params)
+      .await
+      .map_err(|e| CommandError::new(e.to_string()))?;
+    with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
+  })
+  .await
 }
 
 /// The text of a new pull request with the user of the token, who is its assignee; none when GitHub doesn't answer
@@ -164,7 +185,7 @@ async fn with_viewer(
 /// descriptions of the stack branch and its members, else the subjects of their commits; and the user of the token,
 /// who is the assignee
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, root = %params.root, members = params.members.len()))]
 #[specta::specta]
 pub async fn get_new_stack_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
@@ -172,10 +193,13 @@ pub async fn get_new_stack_pull_request(
   github: State<'_, GitHubState>,
   params: GetNewStackPullRequestParams,
 ) -> Result<NewPullRequest, CommandError> {
-  let git = git_executor.inner().clone();
-  let request = params.clone();
-  let pull_request = run_blocking(move || read_new_stack_pull_request(&git, &request).map_err(|e| CommandError::new(e.to_string()))).await?;
-  with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
+  operation(async move {
+    let git = git_executor.inner().clone();
+    let request = params.clone();
+    let pull_request = run_blocking(move || read_new_stack_pull_request(&git, &request).map_err(|e| CommandError::new(e.to_string()))).await?;
+    with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
+  })
+  .await
 }
 
 /// Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that
@@ -189,10 +213,13 @@ pub async fn create_pull_request(
   github: State<'_, GitHubState>,
   params: CreatePullRequestParams,
 ) -> Result<CreatedPullRequest, CommandError> {
-  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-  core_create_pull_request(&github.service, &repository, &params)
-    .await
-    .map_err(|e| CommandError::new(e.to_string()))
+  operation(async move {
+    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
+    core_create_pull_request(&github.service, &repository, &params)
+      .await
+      .map_err(|e| CommandError::new(e.to_string()))
+  })
+  .await
 }
 
 /// Waits until GitHub has the branch just pushed (a mirror copies it a moment later): false when it still doesn't after
@@ -206,10 +233,13 @@ pub async fn wait_for_github_branch(
   github: State<'_, GitHubState>,
   params: WaitForGitHubBranchParams,
 ) -> Result<bool, CommandError> {
-  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-  wait_for_branch(&github.service, &params.repository_path, &repository, &params.branch, MIRROR_WAIT)
-    .await
-    .map_err(|failure| CommandError::new(failure_message(&failure)))
+  operation(async move {
+    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
+    wait_for_branch(&github.service, &params.repository_path, &repository, &params.branch, MIRROR_WAIT)
+      .await
+      .map_err(|failure| CommandError::new(failure_message(&failure)))
+  })
+  .await
 }
 
 /// The users of the repository a review can be asked from whose login or name matches the query
@@ -222,10 +252,13 @@ pub async fn search_github_users(
   github: State<'_, GitHubState>,
   params: SearchGitHubUsersParams,
 ) -> Result<Vec<GitHubUser>, CommandError> {
-  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-  core_search_github_users(&github.service, &params.repository_path, &repository, &params.query)
-    .await
-    .map_err(|failure| CommandError::new(failure_message(&failure)))
+  operation(async move {
+    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
+    core_search_github_users(&github.service, &params.repository_path, &repository, &params.query)
+      .await
+      .map_err(|failure| CommandError::new(failure_message(&failure)))
+  })
+  .await
 }
 
 /// What the rules of a branch do to the pull requests into it: the Safe Push popover warns before a push that dismisses
@@ -239,10 +272,13 @@ pub async fn get_branch_rules(
   github: State<'_, GitHubState>,
   params: GetBranchRulesParams,
 ) -> Result<BranchRules, CommandError> {
-  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-  read_branch_rules(&github.service, &params.repository_path, &repository, &params.branch)
-    .await
-    .map_err(|failure| CommandError::new(failure_message(&failure)))
+  operation(async move {
+    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
+    read_branch_rules(&github.service, &params.repository_path, &repository, &params.branch)
+      .await
+      .map_err(|failure| CommandError::new(failure_message(&failure)))
+  })
+  .await
 }
 
 /// The GitHub repository the pull requests are listed in: a known `owner/name` (the one the review requests were read

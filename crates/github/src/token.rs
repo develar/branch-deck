@@ -14,6 +14,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 use sync_types::pull_request::TokenSource;
 use sync_utils::child_process::{find_executable, run_child};
+use sync_utils::span::in_current_span;
 use tracing::{debug, info, instrument, warn};
 
 /// `gh auth token` and a credential helper answer at once, unless the helper waits for the user (an unlock dialog)
@@ -219,7 +220,7 @@ impl TokenChain {
 
 /// A source that starts a process, off the async workers
 async fn run_source(read: impl FnOnce() -> Option<Token> + Send + 'static) -> Option<Token> {
-  match tokio::task::spawn_blocking(read).await {
+  match tokio::task::spawn_blocking(in_current_span(read)).await {
     Ok(token) => token,
     Err(e) => {
       warn!(error = %e, "the token source panicked");

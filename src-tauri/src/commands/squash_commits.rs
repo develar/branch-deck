@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::run_blocking;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
@@ -9,8 +9,8 @@ use tracing::instrument;
 /// Squashes commits of the current branch into the oldest of them in one history rewrite that keeps HEAD's tree; the
 /// index and the working tree are not touched.
 #[tauri::command]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, commits = params.commit_ids.len()))]
 #[specta::specta]
-#[instrument(skip(git_executor))]
 pub async fn squash_commits(git_executor: State<'_, GitCommandExecutor>, params: SquashCommitsParams) -> Result<SquashCommitsResult, CommandError> {
   let git = (*git_executor).clone();
   run_blocking(move || squash_commits_core(&git, &params, &RewriteOptions::default())).await

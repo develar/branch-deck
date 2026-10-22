@@ -1,7 +1,8 @@
+import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { describe, expect, it, vi } from "vite-plus/test"
-import { getErrorDetails, getErrorOperationId } from "@/lib/errors"
+import { getErrorDetails, getErrorOperationId, logError } from "@/lib/errors"
 
-vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
+vi.mock("@tauri-apps/plugin-log", () => ({ error: vi.fn(async () => {}) }))
 
 describe("getErrorDetails", () => {
   it('returns the message of an Error, without the "Error:" prefix of its toString', () => {
@@ -19,6 +20,19 @@ describe("getErrorDetails", () => {
   it("stringifies anything else", () => {
     expect(getErrorDetails("offline")).toBe("offline")
     expect(getErrorDetails(42)).toBe("42")
+  })
+})
+
+describe("logError", () => {
+  it("passes the operation a CommandError names to the backend log line, as operation_id", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    logError("Cannot sync", { message: "merge-tree failed", kind: null, operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })
+    expect(logErrorToBackend).toHaveBeenLastCalledWith("Cannot sync", {
+      keyValues: { error: "merge-tree failed", operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" },
+    })
+
+    logError("Cannot open", new Error("closed"))
+    expect(logErrorToBackend).toHaveBeenLastCalledWith("Cannot open", { keyValues: { error: "closed", operation_id: undefined } })
   })
 })
 

@@ -6,7 +6,7 @@
 use crate::blocks::{BlobPair, PairDiff};
 use crate::model::BlobText;
 use crate::scopes::scopes_of_summary;
-use crate::service::{FileDiffs, workers};
+use crate::service::{FileDiffs, spawn_workers};
 use anyhow::Result;
 use code_symbols::extract::summarize;
 use code_symbols::language::language_of;
@@ -74,8 +74,8 @@ impl FileDiffs {
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<Option<T>>> = Mutex::new(std::iter::repeat_with(|| None).take(pairs.len()).collect());
     std::thread::scope(|scope| {
-      for _ in 0..workers().min(pairs.len()) {
-        scope.spawn(|| {
+      spawn_workers(scope, pairs.len(), || {
+        || {
           loop {
             let index = next.fetch_add(1, Ordering::Relaxed);
             let Some(pair) = pairs.get(index) else { return };
@@ -84,8 +84,8 @@ impl FileDiffs {
             let result = work(pair, diff, old, new);
             results.lock().unwrap_or_else(PoisonError::into_inner)[index] = Some(result);
           }
-        });
-      }
+        }
+      });
     });
     Ok(results.into_inner().unwrap_or_else(PoisonError::into_inner))
   }

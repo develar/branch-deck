@@ -98,7 +98,12 @@ fn server_routes() -> Vec<String> {
 
 /// The top-level keys of `COMMAND_HANDLERS` in the page mock, plugin prefixes (`plugin:store`) included
 fn page_handlers() -> Vec<String> {
-  let text = read_workspace_file("tests/e2e/setup/tauri-mocks.ts");
+  page_handlers_of(&read_workspace_file("tests/e2e/setup/tauri-mocks.ts"))
+}
+
+/// The keys of `COMMAND_HANDLERS` in `text`: a `"quoted": …` or `identifier: …` entry at the indentation of the entries;
+/// another form there (a method shorthand `name(cmd, payload) {`, a computed key) fails, because it would hide a handler
+fn page_handlers_of(text: &str) -> Vec<String> {
   let mut lines = text.lines().skip_while(|line| !line.contains("const COMMAND_HANDLERS"));
   let declaration = lines.next().expect("COMMAND_HANDLERS in tauri-mocks.ts");
   let indent = indentation(declaration);
@@ -111,13 +116,15 @@ fn page_handlers() -> Vec<String> {
       continue;
     }
     let entry = line.trim_start();
+    if entry.starts_with("//") || entry.starts_with('}') || entry.starts_with(')') {
+      continue;
+    }
     let key = match entry.strip_prefix('"') {
       Some(quoted) => quoted.split_once('"').map(|(key, _)| key),
       None => entry.split_once(':').map(|(key, _)| key).filter(|key| is_identifier(key)),
     };
-    if let Some(key) = key {
-      keys.push(key.to_owned());
-    }
+    let key = key.unwrap_or_else(|| panic!("unparsed entry of COMMAND_HANDLERS in tauri-mocks.ts: `{entry}`; write it as `name: handler` or `\"name\": handler`"));
+    keys.push(key.to_owned());
   }
   panic!("COMMAND_HANDLERS in tauri-mocks.ts has no closing brace at its own indentation");
 }
@@ -235,4 +242,31 @@ fn page_mocked_only_goes_down() {
     35,
     "PAGE_MOCKED may only shrink: a new command gets a route of the test server, not a page mock; when a command gets its route, lower this number"
   );
+}
+
+#[test]
+fn the_page_handler_parser_reads_every_entry_form_it_knows_and_refuses_another() {
+  let known = r#"
+  const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
+    // a comment between the entries
+    "plugin:store": handleStoreCommand,
+    "plugin:webview": (cmd: string, payload: any) => {
+      return null
+    },
+    get_zoom: () => 1,
+  }
+"#;
+  assert_eq!(page_handlers_of(known), ["plugin:store", "plugin:webview", "get_zoom"]);
+
+  let shorthand = r#"
+  const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
+    "plugin:store": handleStoreCommand,
+    start_patronus_robot(_cmd, payload) {
+      return robot
+    },
+  }
+"#;
+  let failure = std::panic::catch_unwind(|| page_handlers_of(shorthand)).unwrap_err();
+  let message = failure.downcast_ref::<String>().cloned().unwrap_or_default();
+  assert!(message.contains("unparsed entry") && message.contains("start_patronus_robot(_cmd, payload) {"), "{message}");
 }

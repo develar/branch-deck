@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
 
 /// The git config key of the symbol mode (`off`, `report`, `on`)
@@ -225,7 +226,7 @@ fn parse_all(blobs: &[(String, Language)], sources: Vec<Option<Vec<u8>>>) -> Vec
   let threads = std::thread::available_parallelism().map_or(1, usize::from).min(jobs.len().max(1));
   std::thread::scope(|scope| {
     for _ in 0..threads {
-      scope.spawn(|| {
+      scope.spawn(in_current_span(|| {
         loop {
           let index = next.fetch_add(1, Ordering::Relaxed);
           let Some((language, source)) = jobs.get(index) else { break };
@@ -235,7 +236,7 @@ fn parse_all(blobs: &[(String, Language)], sources: Vec<Option<Vec<u8>>>) -> Vec
             *slot = Some(summary);
           }
         }
-      });
+      }));
     }
   });
   results.into_iter().map(|slot| slot.into_inner().ok().flatten()).collect()

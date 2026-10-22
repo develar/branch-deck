@@ -602,13 +602,17 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
     запись, чьего ребра нет или без которой ничего не ломается, роняет тест; `--no-deps` видит внешние crates только
     как прямые зависимости crates workspace.
   - Span на каждую команду Tauri и `bd` с `operation_id`: тип `OperationId` (ULID, `sync-utils`) пока создаётся на
-    каждый вызов (корневой span `operation{op, operation_id}` в `bd_cli::run`, child span в `run_blocking`, который
-    переносит `Span::current()` в `spawn_blocking`); с `s10` его создаёт допуск. `CommandError` несёт `operation_id`
+    каждый вызов (корневой span `operation{op, operation_id}` в `bd_cli::run`; в приложении span
+    `operation{operation_id}` на тело каждой команды, которая может упасть: `operation`, `operation_now`, один
+    blocking-шаг `run_blocking`, `src-tauri/src/operation.rs`; замыкания и futures, отданные другому потоку, входят в
+    span вызывающего — `sync_utils::span::in_current_span`, скан `thread_span_scan_test.rs`); с `s10` его создаёт допуск. `CommandError` несёт `operation_id`
     (аддитивно), запись Activity об ошибке — `operationId`; JSON `bd` до `s10` не меняется. Сделано: `OperationId`
     свой (ULID на `getrandom`, без нового crate); у всех 112 команд (111 `collect_commands!` и `get_blob_syntax`) есть `#[instrument]`;
     поле на проводе `operation_id` (snake_case, как поля Rust в bindings), в записи Activity — `operationId`; без
     подписчика `tracing` отдаёт `log` событие без его span'ов, поэтому приложение ставит подписчика `tracing_log`
-    (строка события со всеми span'ами в `tauri_plugin_log`, строка о начале span'а, как раньше).
+    (строка события со всеми span'ами в `tauri_plugin_log`, строка о начале span'а, как раньше); span команды, чей
+    аргумент держит коллекцию, — `skip_all` и поле-другое, иначе строка лога несла бы весь Debug (скан
+    `command_scan_test.rs`); лог приложения — 10 MB и три ротации (`KeepSome`), а не 40 KB с удалением при ротации.
   - Baseline'ы, записанные в этот документ: `pnpm perf:table` (с новыми счётчиками `tauri-mocks.ts`: события sync и
     вызовы на sync, байты IPC, IPC на hover строки, открытие меню и поповера), `pnpm perf:monorepo pin`/`measure`,
     `pnpm perf:bd-rebuild measure`, длительность nextest и e2e, размер eager JS, байты `SyncEvent` полного sync на
@@ -1017,8 +1021,8 @@ B3 (перерисованные строки) не измеряется: в pro
 | `git-operations.md` | s1: push приложения под lock; s6: «Repository view» → сессия; s9: «Agent push»/«Agent Safe Push»/«App stack push» → «Push and land», HTTP вне lock; s10: «Operations registry», stamp, журнал; s11: rewrites через движок |
 | `rendering-performance.md` | s6: поток патчей вместо `SyncEvent`; s8: части строки и презентеры, числа B3–B5 |
 | `distributed-settings.md` | s5: переписан — один писатель в Rust, версии, `origin` |
-| `e2e-testing.md` | s0b: fakes за реальными сервисами, счётчики, lint `routeCommand`; s4: `ApiError`; s6/s7: сессии, `data-view-version`, `advanceBackendClock`; s12: реестр |
-| `async-patterns.md` | s0a: span `operation{operation_id}` через `run_blocking`; s10: id из допуска; s6: actor сессии |
+| `e2e-testing.md` | s0a: счётчики IPC (`__ipcStats`); s0b: fakes за реальными сервисами, lint `routeCommand`; s4: `ApiError`; s6/s7: сессии, `data-view-version`, `advanceBackendClock`; s12: реестр |
+| `async-patterns.md` | s0a: span `operation{operation_id}` на тело каждой команды (`operation.rs`), span вызывающего в потоках (`in_current_span`); s10: id из допуска; s6: actor сессии |
 | `symbol-dependencies.md` «The gate» | s9: gate как `Reason::LandingRefused` в плане |
 | `agent-cli.md`, `spec/cli/agent-cli.spec.md` | s1: код D1; s9: retarget до push, `pushed_over`, `needs_push`/`--push`, `pull_request_other_base`, HTTP вне lock, `operation_id`, `plan_changed`; s10: `busy`, `bd operation forget` |
 | `spec/branch/{next-step, patronus, whole-stack, stacked-branches, safe-push-failure-prompt}.spec.md` | s8: `targets:` и test-ссылки на Rust-таблицы и презентеры; s1: неизвестные правила |

@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::run_blocking;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, UndoReapplyParams, UndoneReapply, reapply_branch_core, undo_reapply_core};
@@ -8,7 +8,7 @@ use tauri::State;
 use tracing::instrument;
 
 #[tauri::command]
-#[instrument(skip(git_executor))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, original_commits = ?params.original_commit_ids.as_ref().map(Vec::len)))]
 #[specta::specta]
 pub async fn unapply_branch(git_executor: State<'_, GitCommandExecutor>, params: UnapplyBranchParams) -> Result<UnapplyBranchResult, CommandError> {
   let git = (*git_executor).clone();

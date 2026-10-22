@@ -11,6 +11,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_utils::child_process::{ChildOutput, cached_login_shell_path, find_executable, run_child};
+use sync_utils::span::in_current_span;
 use tokio::sync::Semaphore;
 use tracing::{info, instrument, warn};
 
@@ -84,13 +85,13 @@ struct BuildRefDto {
 impl TeamCityCli {
   /// The installed CLI with the servers it is logged in to; None without the CLI, without a server, or when it fails
   pub async fn discover() -> Option<Self> {
-    tokio::task::spawn_blocking(|| {
+    tokio::task::spawn_blocking(in_current_span(|| {
       let Some(binary) = find_teamcity() else {
         info!("no teamcity CLI");
         return None;
       };
       Self::open_blocking(binary, PROCESS_TIMEOUT)
-    })
+    }))
     .await
     .ok()
     .flatten()
@@ -98,7 +99,10 @@ impl TeamCityCli {
 
   /// The CLI at `binary` (e.g. a fake one in a test), each command killed after `timeout`
   pub async fn open(binary: PathBuf, timeout: Duration) -> Option<Self> {
-    tokio::task::spawn_blocking(move || Self::open_blocking(binary, timeout)).await.ok().flatten()
+    tokio::task::spawn_blocking(in_current_span(move || Self::open_blocking(binary, timeout)))
+      .await
+      .ok()
+      .flatten()
   }
 
   /// The same CLI, each later command killed after `timeout`: a test opens it with the usual time and then shortens
@@ -167,10 +171,10 @@ impl TeamCityCli {
     let server = server.to_string();
     let args: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
     let timeout = self.timeout;
-    tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(in_current_span(move || {
       let args: Vec<&str> = args.iter().map(String::as_str).collect();
       run(&binary, &args, Some(&server), timeout)
-    })
+    }))
     .await
     .ok()
     .flatten()

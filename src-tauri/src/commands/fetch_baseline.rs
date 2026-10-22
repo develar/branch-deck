@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::run_blocking;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::baseline_fetch::{FetchBaselineParams, FetchBaselineResult, fetch_baseline_core};
 use sync_core::transfer_progress::TransferProgress;

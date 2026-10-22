@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::run_blocking;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
@@ -9,8 +9,8 @@ use tracing::instrument;
 /// Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 /// This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
 #[tauri::command]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, files = params.files.len()))]
 #[specta::specta]
-#[instrument(skip(git_executor))]
 pub async fn amend_uncommitted_to_branch(git_executor: State<'_, GitCommandExecutor>, params: AmendUncommittedToBranchParams) -> Result<AmendCommandResult, CommandError> {
   let git = (*git_executor).clone();
   run_blocking(move || amend_uncommitted_to_branch_core(&git, params, &RewriteOptions::default())).await

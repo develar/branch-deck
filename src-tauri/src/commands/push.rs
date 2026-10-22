@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::{operation, run_blocking};
 use git_executor::git_command_executor::GitCommandExecutor;
 use repository_view::views::RepositoryViews;
 use std::collections::HashMap;
@@ -24,9 +24,12 @@ pub async fn push_branch(
   params: PushBranchParams,
   progress: Channel<TransferProgress>,
 ) -> Result<PushOutcome, CommandError> {
-  let git = (*git_executor).clone();
-  let not_built = not_built(&views, &params.repository_path, &params.branch_prefix)?;
-  run_blocking(move || core_push_branch(&git, &params, &not_built, &mut |push_progress| send_progress(&progress, push_progress))).await
+  operation(async move {
+    let git = (*git_executor).clone();
+    let not_built = not_built(&views, &params.repository_path, &params.branch_prefix)?;
+    run_blocking(move || core_push_branch(&git, &params, &not_built, &mut |push_progress| send_progress(&progress, push_progress))).await
+  })
+  .await
 }
 
 /// Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
@@ -34,7 +37,7 @@ pub async fn push_branch(
 /// statuses fetched after it. A branch the last sync did not build refuses the push. `progress` receives how far the push
 /// is.
 #[tauri::command]
-#[instrument(skip(git_executor, views, progress))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_prefix = %params.branch_prefix, branches = params.branches.len()))]
 #[specta::specta]
 pub async fn push_branches(
   git_executor: State<'_, GitCommandExecutor>,
@@ -42,9 +45,12 @@ pub async fn push_branches(
   params: PushBranchesParams,
   progress: Channel<TransferProgress>,
 ) -> Result<PushBranchesOutcome, CommandError> {
-  let git = (*git_executor).clone();
-  let not_built = not_built(&views, &params.repository_path, &params.branch_prefix)?;
-  run_blocking(move || core_push_branches(&git, &params, &not_built, &mut |push_progress| send_progress(&progress, push_progress))).await
+  operation(async move {
+    let git = (*git_executor).clone();
+    let not_built = not_built(&views, &params.repository_path, &params.branch_prefix)?;
+    run_blocking(move || core_push_branches(&git, &params, &not_built, &mut |push_progress| send_progress(&progress, push_progress))).await
+  })
+  .await
 }
 
 /// The branches the last sync did not build, from the table it left (`RepositoryViews::not_built`)

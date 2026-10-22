@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::run_blocking;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,7 +17,7 @@ pub struct BranchNameSuggestionState {
 /// Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
 /// logged-out `claude` and its failures are outcomes
 #[tauri::command]
-#[instrument(skip(state, git_executor))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, commits = params.commits.len()))]
 #[specta::specta]
 pub async fn suggest_branch_names(
   state: State<'_, BranchNameSuggestionState>,

@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::run_blocking;
 use branch_integration::archive::{get_archived_branch_commits as get_commits, get_unapplied_branch_commits as get_unapplied_commits};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
@@ -16,23 +16,22 @@ pub async fn get_archived_branch_commits(
   branch_prefix: String,
   branch_name: String,
 ) -> Result<Vec<Commit>, CommandError> {
-  own_commits(&git_executor, repository_path, branch_prefix, branch_name, get_commits).await
+  run_blocking(own_commits(&git_executor, repository_path, branch_prefix, branch_name, get_commits)).await
 }
 
-/// The own commits of the kept branch `branch_name` by `read`, from the baseline of the repository
-async fn own_commits(
+/// The step that reads the own commits of the kept branch `branch_name` by `read`, from the baseline of the repository
+fn own_commits(
   git_executor: &GitCommandExecutor,
   repository_path: String,
   branch_prefix: String,
   branch_name: String,
   read: fn(&GitCommandExecutor, &str, &str, &str, &str) -> anyhow::Result<Vec<Commit>>,
-) -> Result<Vec<Commit>, CommandError> {
+) -> impl FnOnce() -> anyhow::Result<Vec<Commit>> + Send + 'static {
   let git = git_executor.clone();
-  run_blocking(move || {
+  move || {
     let baseline_branch = detect_baseline_branch(&git, &repository_path)?;
     read(&git, &repository_path, &branch_prefix, &branch_name, &baseline_branch)
-  })
-  .await
+  }
 }
 
 #[tauri::command]
@@ -52,7 +51,7 @@ pub async fn get_unapplied_branch_commits(
   branch_prefix: String,
   branch_name: String,
 ) -> Result<Vec<Commit>, CommandError> {
-  own_commits(&git_executor, repository_path, branch_prefix, branch_name, get_unapplied_commits).await
+  run_blocking(own_commits(&git_executor, repository_path, branch_prefix, branch_name, get_unapplied_commits)).await
 }
 
 #[tauri::command]

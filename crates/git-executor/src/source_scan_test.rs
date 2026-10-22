@@ -33,6 +33,35 @@ impl Source {
   }
 }
 
+/// A file a scan rule allows, with its number of hits and why
+pub(crate) struct Exemption {
+  pub(crate) path: &'static str,
+  pub(crate) hits: usize,
+  pub(crate) reason: &'static str,
+}
+
+/// Fails when `find` hits a line outside `exemptions`, or an exempt file has another number of hits than its exemption
+pub(crate) fn check(rule: &str, instead: &str, exemptions: &[Exemption], find: impl Fn(&Source) -> Vec<usize>) {
+  let mut report = Vec::new();
+  let mut exempt_hits = vec![0; exemptions.len()];
+  for source in production_sources() {
+    let lines = find(&source);
+    match exemptions.iter().position(|exemption| exemption.path == source.path) {
+      Some(index) => exempt_hits[index] += lines.len(),
+      None => report.extend(lines.iter().map(|line| format!("  {}:{line}", source.path))),
+    }
+  }
+  for (exemption, hits) in exemptions.iter().zip(exempt_hits) {
+    if hits != exemption.hits {
+      report.push(format!(
+        "  {}: {hits} hits, but its exemption says {} ({}); a new hit there needs a review, a gone one lowers the count",
+        exemption.path, exemption.hits, exemption.reason
+      ));
+    }
+  }
+  assert!(report.is_empty(), "{rule}:\n{}\nInstead: {instead}", report.join("\n"));
+}
+
 /// Every production source of the workspace
 pub(crate) fn production_sources() -> Vec<Source> {
   let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("workspace directory");

@@ -42,6 +42,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
+use sync_utils::span::in_current_span;
 use text_diff::cancellation::Deadline;
 use text_diff::model::{DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts};
 use text_diff::policy::WhitespacePolicy;
@@ -175,6 +176,17 @@ enum Outcome {
 /// The number of worker threads: the cores but one, for the thread that reads the blobs
 pub(crate) fn workers() -> usize {
   std::thread::available_parallelism().map_or(1, |cores| cores.get().saturating_sub(1).max(1))
+}
+
+/// Starts a worker thread per job of `jobs`, at most `workers()`, in `scope`: each runs the closure `worker` makes for
+/// it, in the span of the caller, so its lines name the operation
+pub(crate) fn spawn_workers<'scope, W>(scope: &'scope std::thread::Scope<'scope, '_>, jobs: usize, mut worker: impl FnMut() -> W)
+where
+  W: FnOnce() + Send + 'scope,
+{
+  for _ in 0..workers().min(jobs) {
+    scope.spawn(in_current_span(worker()));
+  }
 }
 
 impl FileDiffs {
@@ -328,10 +340,10 @@ impl FileDiffs {
       let (job_sender, job_receiver) = channel::<Job>();
       let job_receiver = Arc::new(Mutex::new(job_receiver));
       let (outcome_sender, outcomes) = channel::<Outcome>();
-      for _ in 0..workers().min(pending.len()) {
+      spawn_workers(scope, pending.len(), || {
         let (jobs, outcome_sender, context) = (Arc::clone(&job_receiver), outcome_sender.clone(), &context);
-        scope.spawn(move || work_loop(&jobs, &outcome_sender, context));
-      }
+        move || work_loop(&jobs, &outcome_sender, context)
+      });
       drop(outcome_sender);
       let mut deliver = |outcome: Outcome| match outcome {
         Outcome::Event(event) => emit(event),

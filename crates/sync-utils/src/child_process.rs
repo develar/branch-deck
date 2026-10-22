@@ -1,6 +1,7 @@
 //! Runs a CLI that is not git (`gh`, `claude`): input on stdin, both pipes drained while it runs, killed after a timeout
 //! or as soon as the caller no longer wants the answer.
 
+use crate::span::in_current_span;
 use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -59,10 +60,10 @@ pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duratio
   };
   // a writer thread: a child that answers before it reads all of its input must not deadlock us
   if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
-    std::thread::spawn(move || {
+    std::thread::spawn(in_current_span(move || {
       // a child that exits without reading closes the pipe: the write error is expected then
       let _ = pipe.write_all(&input);
-    });
+    }));
   }
   let stdout = read_pipe(child.stdout.take());
   let stderr = read_pipe(child.stderr.take());
@@ -93,13 +94,13 @@ pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duratio
 }
 
 fn read_pipe(pipe: Option<impl Read + Send + 'static>) -> JoinHandle<Vec<u8>> {
-  std::thread::spawn(move || {
+  std::thread::spawn(in_current_span(move || {
     let mut buffer = Vec::new();
     if let Some(mut pipe) = pipe {
       let _ = pipe.read_to_end(&mut buffer);
     }
     buffer
-  })
+  }))
 }
 
 /// The first `name` (with `.exe` on Windows) that is a file in one of the directories of `path`

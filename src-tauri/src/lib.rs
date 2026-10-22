@@ -1,9 +1,9 @@
 pub mod auto_update;
-pub mod blocking;
 pub mod command_error;
 pub mod commands;
 pub mod legacy_model_cache;
 pub mod menu;
+pub mod operation;
 pub mod progress;
 pub mod range_files;
 pub mod repository_state;
@@ -13,6 +13,8 @@ pub mod zoom;
 
 #[cfg(test)]
 mod bindings_test;
+#[cfg(test)]
+mod command_scan_test;
 #[cfg(test)]
 mod menu_test;
 #[cfg(test)]
@@ -70,6 +72,7 @@ use commands::youtrack::{
   YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, set_youtrack_issue_state, sign_out_of_youtrack,
   start_youtrack_sign_in, wait_youtrack_sign_in,
 };
+use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
 
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -205,6 +208,14 @@ fn specta_builder() -> Builder<tauri::Wry> {
   ])
 }
 
+/// The size at which the app's log file rotates, and how many rotated files stay (`tauri_plugin_log`): a sync of a
+/// large repository logs about 100 KB at debug level, and the lines an `operation_id` of Activity names must still be
+/// there a day later
+#[cfg(not(feature = "devtools"))]
+const LOG_FILE_BYTES: u128 = 10 * 1024 * 1024;
+#[cfg(not(feature = "devtools"))]
+const LOG_FILES_KEPT: usize = 3;
+
 /// What the window-state plugin restores: the size, the position, maximized and fullscreen; not the decorations (the page
 /// draws the title bar) and not the visibility (`finish_title_bar` shows a window)
 fn window_state_flags() -> StateFlags {
@@ -227,10 +238,13 @@ pub fn run() {
   // the devtools plugin sets a subscriber of its own
   #[cfg(not(feature = "devtools"))]
   tracing_log::install();
+  // the log an `operation_id` leads to: the plugin's default of 40 KB, deleted on rotation, held a few commands
   #[cfg(not(feature = "devtools"))]
   let builder = builder.plugin(
     tauri_plugin_log::Builder::new()
       .level(log::LevelFilter::Debug)
+      .max_file_size(LOG_FILE_BYTES)
+      .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(LOG_FILES_KEPT))
       .filter(|metadata| {
         // Filter out logs containing default_window_icon in the message
         // This is a workaround since we can't access the message content in the filter
@@ -279,7 +293,7 @@ pub fn run() {
       app.manage(ReviewFetchState::default());
       app.manage(SubWindowState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
-        tauri::async_runtime::spawn_blocking(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir));
+        tauri::async_runtime::spawn_blocking(in_current_span(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir)));
       }
 
       let current_version = app.package_info().version.to_string();

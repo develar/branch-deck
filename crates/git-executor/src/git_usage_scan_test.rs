@@ -2,37 +2,8 @@
 //! safety scan (`source_scan_test.rs`). A failure names the place and what to do instead. Each rule allows a file only
 //! with its reason and exact number of hits, so a new hit and a stale exemption both fail.
 
-use crate::source_scan_test::{Arg, ArgList, Source, argument_lists, line_at, production_sources, skip_trivia};
+use crate::source_scan_test::{Arg, ArgList, Exemption, Source, argument_lists, check, line_at, production_sources, skip_trivia};
 use std::path::Path;
-
-/// A file a rule allows, with its number of hits and why
-struct Exemption {
-  path: &'static str,
-  hits: usize,
-  reason: &'static str,
-}
-
-/// Fails when `find` hits a line outside `exemptions`, or an exempt file has another number of hits than its exemption
-fn check(rule: &str, instead: &str, exemptions: &[Exemption], find: impl Fn(&Source) -> Vec<usize>) {
-  let mut report = Vec::new();
-  let mut exempt_hits = vec![0; exemptions.len()];
-  for source in production_sources() {
-    let lines = find(&source);
-    match exemptions.iter().position(|exemption| exemption.path == source.path) {
-      Some(index) => exempt_hits[index] += lines.len(),
-      None => report.extend(lines.iter().map(|line| format!("  {}:{line}", source.path))),
-    }
-  }
-  for (exemption, hits) in exemptions.iter().zip(exempt_hits) {
-    if hits != exemption.hits {
-      report.push(format!(
-        "  {}: {hits} hits, but its exemption says {} ({}); a new hit there needs a review, a gone one lowers the count",
-        exemption.path, exemption.hits, exemption.reason
-      ));
-    }
-  }
-  assert!(report.is_empty(), "{rule}:\n{}\nInstead: {instead}", report.join("\n"));
-}
 
 /// The lines of the argument lists of `source` that `test` selects
 fn list_lines(source: &Source, test: impl Fn(&ArgList<'_>) -> bool) -> Vec<usize> {

@@ -26,6 +26,7 @@ use sha2::{Digest, Sha256};
 use sync_types::patronus::{
   BranchReviewReadiness, MissingApprovalsReason, PatronusAvailability, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
 };
+use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tracing::{debug, instrument};
 
@@ -64,7 +65,7 @@ pub async fn branch_review_readiness(
   let inputs = {
     let (git, path, cache, baseline) = (git.clone(), repository_path.to_string(), cache.clone(), repository.baseline.to_string());
     let tips: Vec<String> = branches.iter().map(|branch| branch.tip.clone()).collect();
-    tokio::task::spawn_blocking(move || read_inputs(&git, &path, &cache, &baseline, &tips))
+    tokio::task::spawn_blocking(in_current_span(move || read_inputs(&git, &path, &cache, &baseline, &tips)))
       .await
       .map_err(|e| anyhow!("The review input task failed: {e}"))?
   };
@@ -83,7 +84,7 @@ pub async fn branch_review_readiness(
   let (git, path, baseline) = (git.clone(), repository_path.to_string(), repository.baseline.to_string());
   let github = repository.github.is_some();
   let branches = branches.to_vec();
-  tokio::task::spawn_blocking(move || {
+  tokio::task::spawn_blocking(in_current_span(move || {
     let mut answers = answers;
     let mut owed: Vec<(&mut PatronusReviewRequirement, &[String])> = answers
       .iter_mut()
@@ -96,7 +97,7 @@ pub async fn branch_review_readiness(
       .zip(answers)
       .map(|(branch, answer)| to_branch_readiness(branch, answer, github))
       .collect()
-  })
+  }))
   .await
   .map_err(|e| anyhow!("The review readiness task failed: {e}"))
 }

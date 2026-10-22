@@ -1,5 +1,5 @@
-use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
+use crate::operation::run_blocking;
 use serde::Deserialize;
 use sync_core::repository_validation::BrowseResult;
 use tracing::instrument;

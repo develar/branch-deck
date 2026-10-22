@@ -1,4 +1,5 @@
 use crate::command_error::CommandError;
+use crate::operation::operation_now;
 use tracing::instrument;
 
 /// The window manager's menu of the window (Move, Resize, Always on Top, Close…), as a right click on a native title bar
@@ -9,7 +10,7 @@ use tracing::instrument;
 #[specta::specta]
 #[expect(clippy::needless_pass_by_value, reason = "tauri passes the window of a command by value")]
 pub fn show_window_menu(window: tauri::WebviewWindow) -> Result<(), CommandError> {
-  show(&window)
+  operation_now(|| show(&window))
 }
 
 /// Windows: the system menu at the pointer, its choice posted as `WM_SYSCOMMAND`, as `DefWindowProc` does for a caption

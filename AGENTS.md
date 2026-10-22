@@ -447,6 +447,12 @@ The checklist:
 - **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.
 - **Rust**: `snake_case` for variables, functions and modules; `tracing` for structured logging, `#[instrument]` to
   trace a function's entry, exit and arguments; proper `Result` types, not strings.
+- **Operations and spans** ([Operation spans](docs/design/async-patterns.md#operation-spans)): every Tauri command has
+  `#[instrument]`, with `skip_all` and a field or two when an argument holds a collection; a command that can fail runs
+  its body as an operation (`operation`, `operation_now`, or its one blocking step `run_blocking`;
+  `src-tauri/src/operation.rs`), so its error names the `operation_id` of its log lines (`command_scan_test.rs`). A
+  closure or future handed to another thread carries the caller's span: `sync_utils::span::in_current_span(…)` or
+  `.in_current_span()` (`crates/git-executor/src/thread_span_scan_test.rs`).
 - **Clippy**: pedantic, nursery and cargo plus the restriction lints that catch defects (`[workspace.lints]` in
   `Cargo.toml`), on all targets; any warning fails `pnpm lint:backend` and CI (`-D warnings`), Windows included. An
   exception is `#[expect(lint, reason = "…")]` where it holds, never `#[allow]`; a lint that is wrong for this code is

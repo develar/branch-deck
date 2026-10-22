@@ -1,4 +1,5 @@
 use crate::command_error::CommandError;
+use crate::operation::operation_now;
 use std::error::Error;
 use tauri::menu::{CheckMenuItemBuilder, MenuItemBuilder};
 use tauri::{
@@ -168,12 +169,14 @@ pub fn stored_auto_sync_on_focus(store_json: &str) -> bool {
 #[instrument(skip(app))]
 #[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle of a command by value")]
 pub fn set_auto_sync_menu_checked(app: AppHandle, checked: bool) -> Result<(), CommandError> {
-  let Some(checkbox) = app.menu().and_then(|menu| menu.get(AUTO_SYNC_ON_FOCUS)).and_then(|item| item.as_check_menuitem().cloned()) else {
-    return Ok(());
-  };
-  checkbox
-    .set_checked(checked)
-    .map_err(|e| CommandError::new(format!("Cannot check Auto-sync on Focus: {e}")))
+  operation_now(|| {
+    let Some(checkbox) = app.menu().and_then(|menu| menu.get(AUTO_SYNC_ON_FOCUS)).and_then(|item| item.as_check_menuitem().cloned()) else {
+      return Ok(());
+    };
+    checkbox
+      .set_checked(checked)
+      .map_err(|e| CommandError::new(format!("Cannot check Auto-sync on Focus: {e}")))
+  })
 }
 
 /// Sends a menu event to the main window, which runs it

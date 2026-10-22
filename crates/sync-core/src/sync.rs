@@ -47,6 +47,7 @@ use sync_types::issue_navigation::IssueNavigationConfig;
 use sync_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchUpdate};
 use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent, UnappliedBranchInfo};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
+use sync_utils::span::in_current_span;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -385,7 +386,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     TreeIdCache::new()
   };
   // on the blocking pool of the runtime this phase runs on
-  let update_check = tokio::runtime::Handle::current().spawn_blocking({
+  let update_check = tokio::runtime::Handle::current().spawn_blocking(in_current_span({
     let git_executor = git_executor.clone();
     let repository_path = repository_path.to_string();
     let baseline_branch = baseline_branch.clone();
@@ -393,7 +394,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     let grouping = grouping.clone();
     let progress = progress.clone();
     move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, resolve, &progress)
-  });
+  }));
 
   // Use streaming commit processing; with stacked branches the order of the history too, for the stack branches
   let mut grouper = CommitGrouper::new_with(&grouping);
@@ -755,18 +756,18 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
       if let Some((_, Reverse(index))) = schedule.ready.pop() {
         let Some(job) = schedule.jobs.remove(&index) else { continue };
         let (context, permits) = (Arc::clone(&context), permits.clone());
-        tasks.spawn_blocking(move || {
+        tasks.spawn_blocking(in_current_span(move || {
           let _permit = permits.acquire();
           let branch_name = job.branch_name.clone();
           TaskOutput::Built(branch_name, build_branch(&context, job))
-        });
+        }));
       } else if let Some(built) = to_finish.pop() {
         let (context, permits) = (Arc::clone(&context), permits.clone());
-        tasks.spawn_blocking(move || {
+        tasks.spawn_blocking(in_current_span(move || {
           let _permit = permits.acquire();
           let branch_name = built.branch_name().to_string();
           TaskOutput::Finished(branch_name, finish_branch(&context, built))
-        });
+        }));
       } else {
         break;
       }
@@ -824,10 +825,10 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
   // (a copy older than the deterministic dates is kept by checking it against its tree, see `copy_commit`)
   // a stacked branch's base lets the integration detection of its archived branch look at its own commits only
-  let notes_result = tokio::task::spawn_blocking(move || {
+  let notes_result = tokio::task::spawn_blocking(in_current_span(move || {
     move_conflict_refs(&context.git_executor, &context.repository_path, &context.conflict_tips, &conflict_refs);
     write_commit_notes_with(&context.git_executor, &context.repository_path, &notes, Some((STACK_NOTES_REF, &stack_notes)))
-  })
+  }))
   .await
   .map_err(|e| anyhow!("Writing the commit notes failed: {e}"))?;
   match first_error {
@@ -855,12 +856,12 @@ async fn build_stack_branches(
   for index in (0..stacks.plans.len()).filter(|index| stacks.plans[*index].blocked_by.is_none()) {
     let (stacks, builds, tree_id_cache, permits, base) = (Arc::clone(&stacks), Arc::clone(&builds), tree_id_cache.clone(), permits.clone(), base.clone());
     let (git_executor, repository_path) = (git_executor.clone(), repository_path.clone());
-    tasks.spawn_blocking(move || {
+    tasks.spawn_blocking(in_current_span(move || {
       let _permit = permits.acquire();
       let plan = &stacks.plans[index];
       let listed_tip = stacks.tips.get(&plan.full_name).map(String::as_str);
       (index, build_planned(&git_executor, &repository_path, &tree_id_cache, &builds, &base, plan, listed_tip))
-    });
+    }));
   }
   while let Some(joined) = tasks.join_next().await {
     match joined {
@@ -1138,7 +1139,7 @@ impl<P: ProgressReporter + Clone + 'static> SyncTask<P> {
       branch_prefix,
       progress,
     } = self.clone();
-    tokio::task::spawn_blocking(move || task(&git_executor, &repository_path, &branch_prefix, &progress))
+    tokio::task::spawn_blocking(in_current_span(move || task(&git_executor, &repository_path, &branch_prefix, &progress)))
   }
 }
 
