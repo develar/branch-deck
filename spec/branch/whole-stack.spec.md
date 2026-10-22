@@ -178,6 +178,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/bd-remote/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
   [@test] ../../src/lib/git/push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`)
   [@test] ../../crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
 - A robot started on a stack branch must name the root of its stack (`PatronusRobot::stack_root`) and no branch, and
   must belong to no branch, not even by its revision, in `bd` (`find_branch_robot`) as in the app
   (`findBranchRobot`); `find_stack_robot` finds the robot of the whole stack.

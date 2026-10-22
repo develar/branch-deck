@@ -1,0 +1,1297 @@
+[
+  {
+    "id": "row-1-syncing",
+    "group": "next-step-rows",
+    "title": "the app's sync runs: nothing starts until it ends; bd runs its own sync first",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "bd syncs under the repository lock before it plans (spec/cli/agent-cli.spec.md#bd-safe-push): a sync of the app is no state of bd"
+    },
+    "given": {
+      "sync": "running"
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Wait for the sync to finish"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": []
+      }
+    }
+  },
+  {
+    "id": "row-1-sync-failed",
+    "group": "next-step-rows",
+    "title": "the branch failed to sync: its commit changes a file only an unassigned commit creates",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "conflicts": "auth"
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "The branch failed to sync"
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "push_refused"
+      }
+    }
+  },
+  {
+    "id": "row-1-no-commits",
+    "group": "next-step-rows",
+    "title": "a branch without commits: the app has nothing to push, bd knows no such branch",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": []
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "No commits to push"
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "unknown_branch"
+      }
+    }
+  },
+  {
+    "id": "row-1-held-by-its-running-robot",
+    "group": "next-step-rows",
+    "title": "a Safe Push runs on the last commit of the branch: it holds its pushes and every start",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": {
+        "state": "running",
+        "on": "tip"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "A Safe Push of the last commit is running"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"]
+      }
+    }
+  },
+  {
+    "id": "row-1-parked",
+    "group": "next-step-rows",
+    "title": "the user parked the branch: it stays local",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/parked-branches.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "parked": "self"
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Parked: Unpark it to push"
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "parked"
+      }
+    }
+  },
+  {
+    "id": "row-1-landed-in-baseline",
+    "group": "next-step-rows",
+    "title": "origin/master has every commit of the branch: the app says so until the update, the sync of bd archived it",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "landed": "inBaseline"
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Landed in origin/master"
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "unknown_branch"
+      }
+    }
+  },
+  {
+    "id": "row-1-merged-robot",
+    "group": "next-step-rows",
+    "title": "the robot of the branch merged it on its last commit",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/patronus.spec.md#merged", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": {
+        "state": "success",
+        "on": "tip"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Merged by Patronus"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["landed"]
+      }
+    }
+  },
+  {
+    "id": "row-1-merged-pull-request",
+    "group": "next-step-rows",
+    "title": "GitHub merged the pull request #7 with the commits of the branch: the app holds it, bd reads only open pull requests and robots",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "unregistered",
+      "why": "bd lists only the open pull requests and decides what landed by the robots: a pull request merged with the commits of the branch refuses nothing, bd starts through the API; the app holds the branch (row 1)"
+    },
+    "given": {
+      "pullRequest": {
+        "state": "merged"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Pull request #7 is merged"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": null
+      }
+    }
+  },
+  {
+    "id": "row-1-running-robot-of-an-older-commit",
+    "group": "next-step-rows",
+    "title": "a Safe Push of an older commit runs: the app's start replaces it after the popover, bd asks for --cancel-running",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "the refusal of bd names --cancel-running, the confirmation the popover asks for (`replaces`): spec/cli/agent-cli.spec.md#bd-safe-push"
+    },
+    "given": {
+      "robot": {
+        "state": "running",
+        "on": "older"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["replaces"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"]
+      }
+    }
+  },
+  {
+    "id": "row-1-prime-landing-needs",
+    "group": "next-step-rows",
+    "title": "the branch uses a name only codec, outside what it lands, adds: the app says so and lets it start anyway, bd refuses without --allow-missing",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1′", "spec/branch/next-step.spec.md#what-the-safe-push-needs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "--allow-missing of bd is the popover's Start Anyway: spec/cli/agent-cli.spec.md#bd-safe-push"
+    },
+    "given": {
+      "landingNeeds": true
+    },
+    "app": {
+      "step": {
+        "kind": "needsBranch",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["landing"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["missing_declaration"]
+      }
+    }
+  },
+  {
+    "id": "row-2-failed-robot",
+    "group": "next-step-rows",
+    "title": "the robot of an older commit failed, not for approvals: Restart Safe Push",
+    "spec": ["spec/branch/next-step.spec.md#the-table:2", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": {
+        "state": "failure",
+        "on": "older"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "restart",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": []
+      }
+    }
+  },
+  {
+    "id": "row-2-canceled-robot",
+    "group": "next-step-rows",
+    "title": "the robot of an older commit was canceled: Restart Safe Push",
+    "spec": ["spec/branch/next-step.spec.md#the-table:2", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": {
+        "state": "canceled",
+        "on": "older"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "restart",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": []
+      }
+    }
+  },
+  {
+    "id": "row-3-approved-since-the-failure",
+    "group": "next-step-rows",
+    "title": "the robot started from #7 failed for approvals, which arrived since: Restart Safe Push from the pull request",
+    "spec": ["spec/branch/next-step.spec.md#the-table:3", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": {
+        "state": "failure",
+        "on": "older",
+        "reason": "approvals",
+        "fromPullRequest": true
+      },
+      "readiness": "approved",
+      "pullRequest": {
+        "approvers": ["ikorennoy"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "restart",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": 7,
+        "readiness": "approved"
+      }
+    }
+  },
+  {
+    "id": "row-3-unknown-keeps-the-pull-request",
+    "group": "next-step-rows",
+    "title": "the robot failed for approvals and Patronus can't judge them yet: the pull request step stays",
+    "spec": ["spec/branch/next-step.spec.md#the-table:3", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": {
+        "state": "failure",
+        "on": "older",
+        "reason": "approvals",
+        "fromPullRequest": true
+      },
+      "readiness": "unknown",
+      "pullRequest": {
+        "approvers": ["alice"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "pullRequest",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": 7,
+        "readiness": "unknown"
+      }
+    }
+  },
+  {
+    "id": "row-5-into-the-parent",
+    "group": "next-step-rows",
+    "title": "the pull request of login goes into the virtual branch of its parent auth: its approvals don't count",
+    "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "unregistered",
+      "why": "bd retargets an open pull request into a virtual branch as a step of the start and starts from it (`retargeted`); the app refuses the start and offers the retarget as the step (row 5)"
+    },
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "login",
+      "pullRequest": {
+        "base": "test-user/virtual/auth"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "retarget",
+        "safePushBlocker": "Approvals in #7 don't count: its base is test-user/virtual/auth"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": 7,
+        "retargeted": [7]
+      }
+    }
+  },
+  {
+    "id": "row-5-into-another-branch",
+    "group": "next-step-rows",
+    "title": "the pull request of auth goes into the virtual branch of session, another branch of the table: its approvals don't count",
+    "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "unregistered",
+      "why": "bd retargets an open pull request into a virtual branch as a step of the start and starts from it (`retargeted`); the app refuses the start and offers the retarget as the step (row 5)"
+    },
+    "given": {
+      "commits": ["(auth) Add auth", "(session) Add session"],
+      "branch": "auth",
+      "pullRequest": {
+        "base": "test-user/virtual/session"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "retarget",
+        "safePushBlocker": "Approvals in #7 don't count: its base is test-user/virtual/session"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": 7,
+        "retargeted": [7]
+      }
+    }
+  },
+  {
+    "id": "row-5-into-a-landed-branch",
+    "group": "next-step-rows",
+    "title": "the pull request of auth goes into the virtual branch of gone, which landed and was archived: its approvals don't count",
+    "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "unregistered",
+      "why": "bd retargets an open pull request into a virtual branch as a step of the start and starts from it (`retargeted`); the app refuses the start and offers the retarget as the step (row 5)"
+    },
+    "given": {
+      "branch": "auth",
+      "pullRequest": {
+        "base": "test-user/virtual/gone"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "retarget",
+        "safePushBlocker": "Approvals in #7 don't count: its base is test-user/virtual/gone"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": 7,
+        "retargeted": [7]
+      }
+    }
+  },
+  {
+    "id": "row-5-prime-another-base",
+    "group": "next-step-rows",
+    "title": "the pull request #7 goes into release-252, which may be meant: the app refuses, bd ignores it and starts through the API",
+    "spec": ["spec/branch/next-step.spec.md#the-table:5′", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": "D3b",
+    "given": {
+      "pullRequest": {
+        "base": "release-252"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "otherBase",
+        "safePushBlocker": "Approvals in #7 don't count: its base is release-252"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": null
+      },
+      "start": {
+        "started_via": "api"
+      }
+    }
+  },
+  {
+    "id": "row-6-draft",
+    "group": "next-step-rows",
+    "title": "the pull request #7 is a draft: Patronus merges it once it is ready for review",
+    "spec": ["spec/branch/next-step.spec.md#the-table:6", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "pullRequest": {
+        "draft": true
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "draft",
+        "safePushBlocker": "#7 is a draft: Patronus merges it once it is ready for review"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["patronus_refused"],
+        "pull_request": 7
+      }
+    }
+  },
+  {
+    "id": "row-7-no-pull-request",
+    "group": "next-step-rows",
+    "title": "approvals missing and no pull request to count them in: Create Pull Request…",
+    "spec": ["spec/branch/next-step.spec.md#the-table:7", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "missing"
+    },
+    "app": {
+      "step": {
+        "kind": "createPullRequest",
+        "safePushBlocker": "Code owners must approve in a pull request: IJPL Code Platform"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"]
+      }
+    }
+  },
+  {
+    "id": "row-7-closed-pull-request",
+    "group": "next-step-rows",
+    "title": "approvals missing, the pull request #7 closed: Create Pull Request…",
+    "spec": ["spec/branch/next-step.spec.md#the-table:7", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "missing",
+      "pullRequest": {
+        "state": "closed"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "createPullRequest",
+        "safePushBlocker": "Code owners must approve in a pull request: IJPL Code Platform"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "pull_request": null
+      }
+    }
+  },
+  {
+    "id": "row-8-changes-requested",
+    "group": "next-step-rows",
+    "title": "approvals missing, Ilya Korennoy of the missing group requested changes on #7",
+    "spec": ["spec/branch/next-step.spec.md#the-table:8", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "missing",
+      "pullRequest": {
+        "changesRequested": ["ikorennoy"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "changesRequested",
+        "safePushBlocker": "Ilya Korennoy requested changes on #7"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "pull_request": 7
+      }
+    }
+  },
+  {
+    "id": "row-9-request-review",
+    "group": "next-step-rows",
+    "title": "approvals missing, nobody of the missing group is requested on #7: Request Review…",
+    "spec": ["spec/branch/next-step.spec.md#the-table:9", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "missing",
+      "pullRequest": {}
+    },
+    "app": {
+      "step": {
+        "kind": "requestReview",
+        "safePushBlocker": "Waits for the approval of IJPL Code Platform: nobody of it is requested on #7"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "pull_request": 7
+      }
+    }
+  },
+  {
+    "id": "row-10-awaiting",
+    "group": "next-step-rows",
+    "title": "approvals missing, Ilya Korennoy is requested on #7: the wait for him",
+    "spec": ["spec/branch/next-step.spec.md#the-table:10", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "missing",
+      "pullRequest": {
+        "reviewers": ["ikorennoy"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "awaiting",
+        "safePushBlocker": "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #7"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "pull_request": 7
+      }
+    }
+  },
+  {
+    "id": "row-8-prime-changes-requested-unjudged",
+    "group": "next-step-rows",
+    "title": "Patronus can't judge the approvals, bob requested changes on #7: the step says it, the start stays",
+    "spec": ["spec/branch/next-step.spec.md#the-table:8′", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "unknown",
+      "pullRequest": {
+        "approvers": ["alice"],
+        "changesRequested": ["bob"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "changesRequested",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "readiness": "unknown"
+      }
+    }
+  },
+  {
+    "id": "row-10-prime-awaiting-unjudged",
+    "group": "next-step-rows",
+    "title": "Patronus can't judge the approvals, #7 waits for bob: the step says it, the start stays",
+    "spec": ["spec/branch/next-step.spec.md#the-table:10′", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "unknown",
+      "pullRequest": {
+        "approvers": ["alice"],
+        "reviewers": ["bob"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "awaiting",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "readiness": "unknown"
+      }
+    }
+  },
+  {
+    "id": "row-11-approved",
+    "group": "next-step-rows",
+    "title": "the code owners approved #7: Safe Push from the pull request",
+    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "approved",
+      "pullRequest": {
+        "approvers": ["ikorennoy"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": 7,
+        "readiness": "approved"
+      }
+    }
+  },
+  {
+    "id": "row-11-not-required",
+    "group": "next-step-rows",
+    "title": "no approval is needed: Safe Push",
+    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {},
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "readiness": "not_required"
+      }
+    }
+  },
+  {
+    "id": "row-11-unknown",
+    "group": "next-step-rows",
+    "title": "Patronus can't judge the approvals of #7 and GitHub tells no wait: Safe Push, the popover says the start checks them",
+    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "unknown",
+      "pullRequest": {
+        "approvers": ["alice"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["review"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "readiness": "unknown"
+      }
+    }
+  },
+  {
+    "id": "row-11-unavailable",
+    "group": "next-step-rows",
+    "title": "Patronus can't answer for the review: the app confirms, bd fails",
+    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "asymmetry": {
+      "kind": "unregistered",
+      "why": "bd fails the check and the start with patronus_error when Patronus can't answer for the review; the app confirms that the start checks the approvals (as readiness-unavailable)"
+    },
+    "given": {
+      "readiness": "unavailable"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["review"]
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "patronus_error"
+      }
+    }
+  },
+  {
+    "id": "row-11-not-asked-yet",
+    "group": "next-step-rows",
+    "title": "nobody asked Patronus for the review yet: Safe Push; bd always asks",
+    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "notAsked"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "readiness": "not_required"
+      }
+    }
+  },
+  {
+    "id": "row-11-pull-requests-unlisted",
+    "group": "next-step-rows",
+    "title": "GitHub doesn't list the pull requests: rows 5 to 10 don't apply, the start confirms first",
+    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "unlisted"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["review"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": null
+      }
+    }
+  },
+  {
+    "id": "not-on-space-hidden",
+    "group": "next-step-rows",
+    "title": "origin is not on Space: the app offers no start, bd refuses",
+    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "notOnSpace": true
+    },
+    "app": {
+      "step": {
+        "kind": "hidden",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "not_on_space"
+      }
+    }
+  },
+  {
+    "id": "rules-unknown-keep-the-approvals",
+    "group": "next-step-rows",
+    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read: the app reads it as \"keeps the approvals\", bd never asks",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": "D9",
+    "given": {
+      "readiness": "approved",
+      "pullRequest": {
+        "approvers": ["ikorennoy"]
+      },
+      "remote": "unpushed",
+      "rules": "unknown"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true,
+        "pull_request": 7
+      }
+    }
+  },
+  {
+    "id": "landed-by-content-work-left",
+    "group": "next-step-rows",
+    "title": "the baseline landed the commits of auth rebuilt, one commit added since: that commit is the work left",
+    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth) Add login"],
+      "landed": "byContent"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true
+      }
+    }
+  },
+  {
+    "id": "stacked-own-pull-request-awaiting",
+    "group": "stack-and-whole-stack",
+    "title": "login built on auth takes the rows of its own pull request: it waits for Ilya Korennoy on #7",
+    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/branch/next-step.spec.md#the-table:10", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "login",
+      "readiness": "missing",
+      "pullRequest": {
+        "reviewers": ["ikorennoy"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "awaiting",
+        "safePushBlocker": "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #7"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "pull_request": 7,
+        "lands": ["auth", "login"]
+      }
+    }
+  },
+  {
+    "id": "stacked-parent-failed",
+    "group": "stack-and-whole-stack",
+    "title": "auth fails to sync: login built on it is blocked",
+    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "login",
+      "conflicts": "auth"
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Blocked by auth: fix it first, then sync"
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "push_refused"
+      }
+    }
+  },
+  {
+    "id": "stacked-built-on-parked",
+    "group": "stack-and-whole-stack",
+    "title": "auth is parked: login built on it stays local too",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/parked-branches.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "login",
+      "parked": "builtOn"
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Built on parked auth: Unpark auth to push"
+      }
+    },
+    "bd": {
+      "check": {
+        "error": "parked"
+      }
+    }
+  },
+  {
+    "id": "stacked-robot-lands-an-ancestor",
+    "group": "stack-and-whole-stack",
+    "title": "a Safe Push of auth runs: login, which carries its commits, waits until it merges",
+    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "login",
+      "robot": {
+        "state": "running",
+        "on": "ancestor:auth"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": "A Safe Push of auth is running: wait until it merges"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"]
+      }
+    }
+  },
+  {
+    "id": "stacked-dry-run-beside-an-ancestor-robot",
+    "group": "stack-and-whole-stack",
+    "title": "a Safe Push of auth runs: a Dry Run of login may run",
+    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "login",
+      "mode": "dryRun",
+      "robot": {
+        "state": "running",
+        "on": "ancestor:auth"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "dryRunBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["stack"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": []
+      }
+    }
+  },
+  {
+    "id": "row-2-waits-for-the-earlier-piece",
+    "group": "stack-and-whole-stack",
+    "title": "the robot of login failed while a Safe Push of auth runs, which lands a part of it: no restart, the start waits",
+    "spec": ["spec/branch/next-step.spec.md#the-table:2", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "login",
+      "robot": [
+        {
+          "state": "failure",
+          "on": "older"
+        },
+        {
+          "state": "running",
+          "on": "ancestor:auth"
+        }
+      ]
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": "A Safe Push of auth is running: wait until it merges"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["robot_running"]
+      }
+    }
+  },
+  {
+    "id": "landed-with-a-branch-built-on-it",
+    "group": "stack-and-whole-stack",
+    "title": "the merged Safe Push of login landed auth with it",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "robot": {
+        "state": "success",
+        "on": "child:login"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Landed in master with login"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["landed"]
+      }
+    }
+  },
+  {
+    "id": "landed-with-the-whole-stack",
+    "group": "stack-and-whole-stack",
+    "title": "the merged Safe Push of the whole auth stack landed login",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "branch": "login",
+      "robot": {
+        "state": "success",
+        "on": "stack"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Landed in master with the whole auth stack"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["landed"]
+      }
+    }
+  },
+  {
+    "id": "row-7-piece-of-a-whole-stack-whose-pull-request-is-open",
+    "group": "stack-and-whole-stack",
+    "title": "login has no pull request of its own while #12 of the whole auth stack is open: In #12, its approvals count only for the whole stack",
+    "spec": ["spec/branch/next-step.spec.md#the-table:7", "spec/branch/next-step.spec.md#the-whole-stack", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "branch": "login",
+      "readiness": "missing",
+      "stackPullRequest": true
+    },
+    "app": {
+      "step": {
+        "kind": "createPullRequest",
+        "safePushBlocker": "Code owners must approve in a pull request: IJPL Code Platform"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["approvals_missing"],
+        "pull_request": null
+      }
+    }
+  },
+  {
+    "id": "whole-stack-built",
+    "group": "stack-and-whole-stack",
+    "title": "the stack of auth forks, its stack branch is built: Safe Push of the whole stack lands every branch",
+    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "lands": ["auth", "login", "session"]
+      }
+    }
+  },
+  {
+    "id": "whole-stack-conflict",
+    "group": "stack-and-whole-stack",
+    "title": "session conflicts, and so does the stack branch: the stack lands in pieces",
+    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "conflicts": "session"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": "The stack branch conflicts at 0caf9066 in config.txt: the stack lands in pieces"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["stack_conflict"]
+      }
+    }
+  },
+  {
+    "id": "whole-stack-not-built",
+    "group": "stack-and-whole-stack",
+    "title": "session has a stack problem: the stack branch is not built",
+    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "stackBranch": "notBuilt"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": "Blocked by session: fix it first, then sync"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["stack_not_built"]
+      }
+    }
+  },
+  {
+    "id": "whole-stack-lands-the-rest",
+    "group": "stack-and-whole-stack",
+    "title": "the merged Safe Push of login landed auth and login: the whole stack lands session",
+    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "robot": {
+        "state": "success",
+        "on": "child:login"
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "lands": ["session"]
+      }
+    }
+  },
+  {
+    "id": "whole-stack-all-landed",
+    "group": "stack-and-whole-stack",
+    "title": "the merged Safe Pushes of login and session landed every branch: nothing is left",
+    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "robot": [
+        {
+          "state": "success",
+          "on": "child:login"
+        },
+        {
+          "state": "success",
+          "on": "child:session"
+        }
+      ]
+    },
+    "app": {
+      "step": {
+        "kind": "none",
+        "safePushBlocker": "Landed in master with login and session"
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": ["landed"]
+      }
+    }
+  },
+  {
+    "id": "whole-stack-straight-chain",
+    "group": "stack-and-whole-stack",
+    "title": "the stack of auth doesn't fork: its whole stack is the step of its last branch, login",
+    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "subject": "wholeStack"
+    },
+    "app": {
+      "step": {
+        "kind": "safePush",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "lands": ["auth", "login"]
+      }
+    }
+  }
+]

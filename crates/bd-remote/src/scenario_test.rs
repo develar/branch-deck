@@ -4,8 +4,10 @@
 //! the side of the app
 
 use crate::safe_push_command::{SafePushArgs, SafePushOutput, check_output, github_service, patronus_service, plan, start_of, start_output, whole_stack_arg};
-use bd_cli::fixture_test::{PREFIX, run_json};
-use bd_cli::remote_fixture_test::{Space, evaluated_review, fake_github, minutes_ago, pull_request_json, reviewed_on_github, robot, safe_push};
+use bd_cli::fixture_test::{PREFIX, commit_all, git, run_json, write};
+use bd_cli::remote_fixture_test::{
+  LANDED_SUBJECTS, Space, evaluated_review, fake_github, land_auth_by_content, minutes_ago, pull_request_json, reviewed_on_github, robot, safe_push, stack_robot,
+};
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
 use bd_core::sync_command::{lock, sync_locked};
@@ -19,9 +21,7 @@ use std::sync::atomic::Ordering;
 use sync_core::target_conflict::fetch_target;
 
 /// The groups of the cases and their test functions here; the Vitest has the same groups
-const GROUPS: [&str; 3] = ["modes-and-routes", "profiles", "review"];
-
-const BRANCH: &str = "auth";
+const GROUPS: [&str; 5] = ["modes-and-routes", "profiles", "review", "next-step-rows", "stack-and-whole-stack"];
 
 /// A case of the table; `app` and `asymmetry` are the Vitest's
 #[derive(Debug, Deserialize)]
@@ -54,21 +54,31 @@ struct Expected {
 #[serde(deny_unknown_fields, rename_all = "camelCase", default)]
 struct Given {
   mode: Mode,
+  /// The branch the case starts
+  branch: String,
   /// A command is a confirmed start: only the app tells a click from a key
   via: Via,
   subject: GivenSubject,
   commits: Vec<String>,
   target: Target,
   remote: Remote,
-  robot: Option<GivenRobot>,
+  robot: Option<GivenRobots>,
+  /// The app's sync runs: `bd` syncs itself before it plans, so nothing of it is a state of bd
+  sync: Option<IgnoredAny>,
+  /// The first commit of this branch changes a file that only an unassigned commit creates
+  conflicts: Option<String>,
+  not_on_space: Option<bool>,
+  /// The open pull request #12 of the stack branch of the root
+  stack_pull_request: Option<bool>,
   pull_request: Option<GivenPullRequest>,
   readiness: Readiness,
   profile: Option<GivenProfile>,
   flags: Vec<Flag>,
+  /// `bd` reads no branch rules (D1, D9)
   rules: Option<IgnoredAny>,
-  parked: Option<bool>,
-  stack_branch: Option<IgnoredAny>,
-  landed: Option<bool>,
+  parked: Option<Parked>,
+  stack_branch: Option<StackBranch>,
+  landed: Option<Landed>,
   landing_needs: Option<bool>,
 }
 
@@ -76,12 +86,17 @@ impl Default for Given {
   fn default() -> Self {
     Self {
       mode: Mode::SafePush,
+      branch: "auth".to_string(),
       via: Via::Click,
       subject: GivenSubject::Branch,
       commits: vec!["(auth) Add auth".to_string()],
       target: Target::Protected,
       remote: Remote::None,
       robot: None,
+      sync: None,
+      conflicts: None,
+      not_on_space: None,
+      stack_pull_request: None,
       pull_request: None,
       readiness: Readiness::NotRequired,
       profile: None,
@@ -133,12 +148,52 @@ enum Remote {
   RebuiltOnNewerBaseline,
 }
 
+/// One robot, or several
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(untagged)]
+enum GivenRobots {
+  One(GivenRobot),
+  Many(Vec<GivenRobot>),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct GivenRobot {
   state: RobotState,
   /// `tip`, `older`, `stack`, `ancestor:<branch>`, `child:<branch>`
   on: String,
+  /// `approvals`: it failed for the approvals; bd decides nothing by it
+  #[expect(dead_code, reason = "the chip of the app; bd starts a new robot either way")]
+  reason: Option<String>,
+  /// Started by the comment on the pull request #7
+  #[serde(default)]
+  from_pull_request: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum Parked {
+  /// The branch
+  #[serde(rename = "self")]
+  Itself,
+  /// Its parent
+  BuiltOn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum StackBranch {
+  /// The last branch of the stack has a stack problem: the stack branch is not built
+  NotBuilt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum Landed {
+  /// origin/master has every commit
+  InBaseline,
+  /// `land_auth_by_content`: the baseline has the commits rebuilt, one added since
+  ByContent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -151,12 +206,13 @@ enum RobotState {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(deny_unknown_fields, rename_all = "camelCase", default)]
 struct GivenPullRequest {
   base: String,
   draft: bool,
   approvers: Vec<String>,
   reviewers: Vec<String>,
+  changes_requested: Vec<String>,
   state: PullRequestState,
 }
 
@@ -167,6 +223,7 @@ impl Default for GivenPullRequest {
       draft: false,
       approvers: Vec::new(),
       reviewers: Vec::new(),
+      changes_requested: Vec::new(),
       state: PullRequestState::Open,
     }
   }
@@ -190,6 +247,8 @@ enum Readiness {
   Unavailable,
   Unlisted,
   Space,
+  /// The app didn't ask yet; bd always asks: the pre-check needs no approval
+  NotAsked,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -219,36 +278,26 @@ impl Given {
     self.flags.contains(&flag)
   }
 
+  /// The robots of the case, one or several
+  fn robots(&self) -> &[GivenRobot] {
+    match &self.robot {
+      None => &[],
+      Some(GivenRobots::One(robot)) => std::slice::from_ref(robot),
+      Some(GivenRobots::Many(robots)) => robots,
+    }
+  }
+
   /// The values the adapter maps (the README says which); anything else fails the case
   fn check_mapped(&self) {
     let not_mapped = |what: &str| panic!("given.{what} is not mapped yet");
-    if self.subject != GivenSubject::Branch {
-      not_mapped("subject");
-    }
-    if self.commits.len() != 1 {
-      not_mapped("commits (more than one branch)");
-    }
-    if !matches!(self.remote, Remote::None | Remote::UpToDate) {
+    if matches!(self.remote, Remote::Behind | Remote::RebuiltOnNewerBaseline) {
       not_mapped(&format!("remote {:?}", self.remote));
     }
-    if let Some(robot) = &self.robot
-      && (robot.state != RobotState::Failure || robot.on != "older")
-    {
-      not_mapped(&format!("robot {:?} on {}", robot.state, robot.on));
-    }
-    if self.pull_request.as_ref().is_some_and(|pull_request| !pull_request.reviewers.is_empty()) {
-      not_mapped("pullRequest.reviewers");
-    }
-    for (present, what) in [
-      (self.rules.is_some(), "rules"),
-      (self.parked.is_some(), "parked"),
-      (self.stack_branch.is_some(), "stackBranch"),
-      (self.landed.is_some(), "landed"),
-      (self.landing_needs.is_some(), "landingNeeds"),
-    ] {
-      if present {
-        not_mapped(what);
-      }
+    if self.landed == Some(Landed::ByContent) {
+      assert!(
+        self.branch == "auth" && self.commits == LANDED_SUBJECTS,
+        "given.landed byContent is auth of LANDED_SUBJECTS"
+      );
     }
     if let Some(profile) = &self.profile {
       assert!(profile.last_robot.is_none() || self.robot.is_some(), "given.profile.lastRobot needs given.robot");
@@ -267,6 +316,42 @@ impl Given {
     }
   }
 
+  /// The branch of a commit and the parent it declares: `(auth/login) …` is login on auth
+  fn group_of(subject: &str) -> (&str, Option<&str>) {
+    let prefix = subject.strip_prefix('(').and_then(|rest| rest.split_once(')')).map_or("", |(prefix, _)| prefix);
+    match prefix.rsplit_once('/') {
+      Some((parent, name)) => (name, Some(parent)),
+      None => (prefix, None),
+    }
+  }
+
+  /// The parent `name` declares by its first commit
+  fn parent_of(&self, name: &str) -> Option<&str> {
+    self
+      .commits
+      .iter()
+      .map(|subject| Self::group_of(subject))
+      .find(|(branch, _)| *branch == name)
+      .and_then(|(_, parent)| parent)
+  }
+
+  /// The root of the stack of `name`
+  fn root_of<'a>(&'a self, name: &'a str) -> &'a str {
+    let mut root = name;
+    for _ in 0..self.commits.len() {
+      match self.parent_of(root) {
+        Some(parent) => root = parent,
+        None => break,
+      }
+    }
+    root
+  }
+
+  /// Stacked branches: a commit declares a parent, or the landing gate's names need a stack
+  fn stacks(&self) -> bool {
+    self.landing_needs.is_some() || self.commits.iter().any(|subject| Self::group_of(subject).1.is_some())
+  }
+
   fn mode(&self) -> PatronusPushMode {
     match self.mode {
       Mode::SafePush => PatronusPushMode::RebaseAutosquash,
@@ -276,7 +361,7 @@ impl Given {
 
   fn args(&self, check: bool) -> SafePushArgs {
     SafePushArgs {
-      branch: BRANCH.to_string(),
+      branch: self.branch.clone(),
       patronus_dry_run: self.mode == Mode::DryRun,
       profile: self.profile.as_ref().and_then(|profile| profile.chosen.clone()),
       check,
@@ -293,7 +378,7 @@ impl Given {
   /// The command line of `args(false)`
   fn command_line(&self) -> Vec<String> {
     let args = self.args(false);
-    let mut line = vec![BRANCH.to_string()];
+    let mut line = vec![self.branch.clone()];
     let flags = [
       (args.patronus_dry_run, "--patronus-dry-run"),
       (args.without_approvals, "--without-approvals"),
@@ -319,22 +404,49 @@ struct Situation {
   _github: Option<Arc<FakeGitHub>>,
 }
 
-/// The pull request #7 of auth as the GitHub search lists it
-fn pull_request_of(given: &GivenPullRequest) -> Value {
+/// The full name of the virtual branch of `name`
+fn virtual_branch(name: &str) -> String {
+  format!("{PREFIX}/virtual/{name}")
+}
+
+/// The pull request #7 of the case's branch as the GitHub search lists it
+fn pull_request_of(given: &GivenPullRequest, branch: &str) -> Value {
   let approvers: Vec<&str> = given.approvers.iter().map(String::as_str).collect();
   let mut pull_request = pull_request_json(&approvers);
+  let reviews = pull_request["latestReviews"]["nodes"].as_array_mut().unwrap();
+  reviews.extend(
+    given
+      .changes_requested
+      .iter()
+      .map(|login| json!({"author": {"login": login}, "state": "CHANGES_REQUESTED"})),
+  );
+  let requests: Vec<Value> = given
+    .reviewers
+    .iter()
+    .map(|login| json!({"requestedReviewer": {"__typename": "User", "login": login}}))
+    .collect();
+  pull_request["reviewRequests"] = json!({"nodes": requests});
   pull_request["author"] = json!({"login": "me"});
+  pull_request["headRefName"] = json!(virtual_branch(branch));
   pull_request["isDraft"] = json!(given.draft);
   pull_request["baseRefName"] = json!(given.base);
   pull_request["state"] = json!(format!("{:?}", given.state).to_uppercase());
   pull_request
 }
 
-/// The robot `older` of auth as the list and `GET /robots/{id}` answer it: with the profile of `profile.lastRobot`,
-/// whose options say whether it skips the review
-fn add_robot(space: &Space, environment: &mut Environment, given: &GivenRobot, profile: Option<&GivenProfile>) {
-  let state = format!("{:?}", given.state).to_uppercase();
-  let listed = robot("older", &state, BRANCH, "0000");
+/// The open pull request #12 of the stack branch of `root` into master
+fn stack_pull_request_of(root: &str) -> Value {
+  let mut pull_request = pull_request_json(&[]);
+  pull_request["number"] = json!(12);
+  pull_request["url"] = json!("https://github.com/acme/monorepo/pull/12");
+  pull_request["author"] = json!({"login": "me"});
+  pull_request["headRefName"] = json!(format!("{PREFIX}/stack/{root}"));
+  pull_request
+}
+
+/// The options of the robot `older` as `GET /robots/{id}` answers them: the profile of `profile.lastRobot`, and whether
+/// it skips the review
+fn add_profile_details(space: &Space, environment: &mut Environment, listed: &Value, profile: Option<&GivenProfile>) {
   let mut details = listed.clone();
   details["finishDateTime"] = json!(minutes_ago(120));
   details["options"] = match profile.filter(|profile| profile.last_robot.is_some()) {
@@ -349,17 +461,98 @@ fn add_robot(space: &Space, environment: &mut Environment, given: &GivenRobot, p
     space.fake.list_profiles.store(true, Ordering::SeqCst);
   }
   space.fake.details.lock().unwrap().insert("older".to_string(), details);
+}
+
+/// The robots of the case as the list answers them, after the list `reviewed_on_github` left: `older` (`sourceRevision`
+/// `0000`), the others on the tips the sync built of their branch or of the stack branch
+fn add_robots(space: &Space, environment: &mut Environment, given: &Given) {
   let mut robots = space.fake.robots.lock().unwrap().take().unwrap_or_default();
-  robots.push(listed);
+  for (index, robot_of) in given.robots().iter().enumerate() {
+    let state = format!("{:?}", robot_of.state).to_uppercase();
+    let id = if robot_of.on == "older" { "older".to_string() } else { format!("robot-{index}") };
+    let tip_of = |name: &str| space.local_tip(name);
+    let mut listed = match robot_of.on.split_once(':') {
+      Some((_, other)) => robot(&id, &state, other, &tip_of(&virtual_branch(other))),
+      None if robot_of.on == "tip" => robot(&id, &state, &given.branch, &tip_of(&virtual_branch(&given.branch))),
+      None if robot_of.on == "older" => robot(&id, &state, &given.branch, "0000"),
+      None => {
+        let root = given.root_of(&given.branch);
+        stack_robot(&id, &state, &tip_of(&format!("{PREFIX}/stack/{root}")))
+      }
+    };
+    if robot_of.state != RobotState::Running {
+      // in the order of the list: the first merged first
+      listed["finishDateTime"] = json!(minutes_ago(90 - u32::try_from(index).unwrap()));
+    }
+    if robot_of.from_pull_request {
+      listed["githubPrUrl"] = json!("https://github.com/acme/monorepo/pull/7");
+    }
+    if robot_of.on == "older" {
+      add_profile_details(space, environment, &listed, given.profile.as_ref());
+    }
+    robots.push(listed);
+  }
   *space.fake.robots.lock().unwrap() = Some(robots);
+}
+
+/// The commits of the case on the baseline, as `commit_subjects` makes them (`f<i>.txt` with the subject), and what
+/// `conflicts`, `landingNeeds` and `stackBranch` add
+fn commit_given(space: &Space, given: &Given) {
+  let repo = &space.repo;
+  if given.stacks() {
+    repo.set_config("branchdeck.stacks", "true").unwrap();
+  }
+  let mut time = 1_700_000_000;
+  let mut commit = |subject: &str| {
+    commit_all(repo, subject, time);
+    time += 100;
+  };
+  if given.conflicts.is_some() {
+    write(repo, "config.txt", "a\n");
+    commit("Add config");
+  }
+  if given.landing_needs.is_some() {
+    write(repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
+    commit("(codec) Add controlUrl");
+  }
+  let mut conflicted = false;
+  for (index, subject) in given.commits.iter().enumerate() {
+    write(repo, &format!("f{index}.txt"), subject);
+    if !conflicted && given.conflicts.as_deref() == Some(Given::group_of(subject).0) {
+      write(repo, "config.txt", "b\n");
+      conflicted = true;
+    }
+    commit(subject);
+  }
+  if given.landing_needs.is_some() {
+    write(repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
+    commit(&format!("({}) Start with controlUrl", given.branch));
+  }
+  if given.stack_branch == Some(StackBranch::NotBuilt) {
+    let last = given.commits.last().map(|subject| Given::group_of(subject).0).unwrap();
+    write(repo, "loop.txt", "loop\n");
+    commit(&format!("({last}/{last}) Loop"));
+  }
+}
+
+/// `bd <args>` in the repository of the case, which succeeds
+fn bd_ok(environment: &Environment, args: &[&str]) {
+  let mut all_args = vec!["--prefix", PREFIX];
+  all_args.extend_from_slice(args);
+  let (exit_code, output) = run_json(environment, &all_args);
+  assert_eq!(exit_code, 0, "bd {args:?}: {output}");
 }
 
 impl Situation {
   fn of(given: &Given) -> Self {
     given.check_mapped();
-    let subjects: Vec<&str> = given.commits.iter().map(String::as_str).collect();
-    let space = Space::new(&subjects);
-    let pull_requests: Vec<Value> = given.pull_request.iter().map(pull_request_of).collect();
+    let space = Space::new(&[]);
+    commit_given(&space, given);
+    let branch = given.branch.as_str();
+    let mut pull_requests: Vec<Value> = given.pull_request.iter().map(|pull_request| pull_request_of(pull_request, branch)).collect();
+    if given.stack_pull_request.is_some() {
+      pull_requests.push(stack_pull_request_of(given.root_of(branch)));
+    }
     // every repository but one only on Space is reviewed on GitHub
     let (mut environment, github) = if given.readiness == Readiness::Space {
       (space.environment(), None)
@@ -367,11 +560,11 @@ impl Situation {
       let (github, url) = fake_github(&space, &pull_requests);
       (reviewed_on_github(&space, &url), Some(github))
     };
-    let review_required = !matches!(given.readiness, Readiness::NotRequired | Readiness::Unlisted);
+    let review_required = !matches!(given.readiness, Readiness::NotRequired | Readiness::Unlisted | Readiness::NotAsked);
     space.fake.review_required.store(review_required, Ordering::SeqCst);
     let has_pull_request = given.pull_request.is_some();
     match given.readiness {
-      Readiness::NotRequired | Readiness::Space => {}
+      Readiness::NotRequired | Readiness::Space | Readiness::NotAsked => {}
       Readiness::Approved => {
         assert!(has_pull_request, "given.readiness approved needs given.pullRequest");
         *space.fake.pull_request_review.lock().unwrap() = Some(evaluated_review(true, "APPROVED"));
@@ -397,12 +590,40 @@ impl Situation {
     if given.target == Target::Unprotected {
       *space.fake.start_options.lock().unwrap() = Some(json!({"supported": false, "emergencySupported": false, "profiles": []}));
     }
-    if let Some(robot) = &given.robot {
-      add_robot(&space, &mut environment, robot, given.profile.as_ref());
+    match given.landed {
+      Some(Landed::InBaseline) => {
+        git(&space.repo, &["update-ref", "refs/remotes/origin/master", "HEAD"]);
+      }
+      Some(Landed::ByContent) => {
+        bd_ok(&environment, &["push", branch]);
+        land_auth_by_content(&space.repo);
+      }
+      None => {}
     }
-    if given.remote == Remote::UpToDate {
-      let (exit_code, output) = run_json(&environment, &["--prefix", PREFIX, "push", BRANCH]);
-      assert_eq!(exit_code, 0, "bd push: {output}");
+    match given.remote {
+      Remote::UpToDate => bd_ok(&environment, &["push", branch]),
+      Remote::Unpushed => {
+        bd_ok(&environment, &["push", branch]);
+        write(&space.repo, "more.txt", "more\n");
+        commit_all(&space.repo, &format!("({branch}) More {branch}"), 1_700_009_000);
+      }
+      _ => {}
+    }
+    if let Some(parked) = given.parked {
+      let name = match parked {
+        Parked::Itself => branch,
+        Parked::BuiltOn => given.parent_of(branch).expect("given.parked builtOn needs a parent"),
+      };
+      bd_ok(&environment, &["sync"]);
+      bd_ok(&environment, &["park", name]);
+    }
+    if given.robot.is_some() {
+      // the robots ran on the tips the sync builds; a branch that fails to sync fails it
+      let _ = run_json(&environment, &["--prefix", PREFIX, "sync"]);
+      add_robots(&space, &mut environment, given);
+    }
+    if given.not_on_space.is_some() {
+      git(&space.repo, &["remote", "set-url", "origin", space.remote.path().to_str().unwrap()]);
     }
     Self {
       _space: space,
@@ -564,4 +785,14 @@ fn the_safe_push_profile_cases_answer_as_bd_answers_today() {
 #[test_log::test]
 fn the_safe_push_review_cases_answer_as_bd_answers_today() {
   assert_group("review");
+}
+
+#[test_log::test]
+fn the_next_step_row_cases_answer_as_bd_answers_today() {
+  assert_group("next-step-rows");
+}
+
+#[test_log::test]
+fn the_stack_and_whole_stack_cases_answer_as_bd_answers_today() {
+  assert_group("stack-and-whole-stack");
 }

@@ -101,6 +101,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/pull-request.test.ts (`waits for the reviewers asked and not approving since, bots left out; a re-requested approval waits for nobody`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`, `should offer Safe Push once the code owner approved, name whose approval counts, and start it from the pull request with a click`, `should keep Safe Push while Patronus doesn't tell whose approvals count, and say so before it starts`, `should offer Create Pull Request… with the code owner when approvals count only in one`, `should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click`, `should retarget a pull request into the branch of a parent that landed, whose approvals don't count`, `should retarget a pull request into the virtual branch of a branch in the table, as a parent's, whose approvals don't count`, `should retarget the pull request of a stacked branch into its parent's branch from its slot, whose approvals don't count`, `should open a pull request into another base that may be meant, and keep its retarget in the menu`, `should offer nothing after a merge, and say so in the menu`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs`, `should offer no Safe Push of a branch whose pull request merged`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`, `cover every row of the next step table`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
 - Row 1 also holds a branch that a merged Safe Push (not a Dry Run) landed whole (`getLandedBy`, the `landedBy` of the repository view,
   `NextStepFacts.landedWith`): the branch it ran on itself, an ancestor the Safe Push of a branch built on it carried,
   and every branch of a stack whose Safe Push of the whole stack ran on the stack branch, the same conditions under
@@ -173,6 +175,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/branch-next-step.test.ts (`a stacked branch takes the steps of its own pull request into master`, `a stacked branch waits for the reasons of its ancestors`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner a stacked branch's own pull request asks, not for its root`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should wait for the Safe Push of an ancestor, which lands its commits`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
 - An operation on the row ([Running Operations](../../docs/design/operations.md)) disables the action of the slot with
   its busy state ("Renaming auth to login…"), never a quiet step: it only opens the pull request. The slot's own
   action that runs (a retarget, a restart of its robot) is running: disabled, its spinner in place of its icon.
@@ -238,6 +242,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   stack branch does (row 2).
   [@test] ../../src/hooks/useStackNextStep.test.ts (`is the Safe Push of the stack branch of a stack that forks, which needs the readiness of the whole stack`, `is the step of the last branch of a straight chain, which has no stack branch: its Safe Push lands the whole stack`, `waits for the robot of a branch of a straight chain, not the failure of the earlier piece; a new parent commit starts anew`, `is disabled with the reason of a stack branch the sync didn't build, for a Dry Run too: the stack lands in pieces`, `waits for the robot of a branch of the stack, which lands a part of it; a Dry Run doesn't`, `offers nothing while the robot of the whole stack runs: it holds every branch of the stack`, `asks for the pull request of the whole stack where the approvals are missing, then waits in it`, `is settled once the pull request of the whole stack merged with the stack branch as it is`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does, the move made from the click`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
 - The step of the whole stack knows which branches of it merged Safe Pushes landed already (`getWholeStackRest`, the
   same `getLandedBy` as the rows): a piece that landed its main line leaves the rest, which its Safe Push lands. The
   stack branch still carries the landed commits (Patronus finds them in the target), so the start names and counts
@@ -247,6 +253,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   disabled with "Landed in master with deploy and side" ("Merged by Patronus" of its own robot).
   [@test] ../../src/hooks/useStackNextStep.test.ts (`lands only the rest after a piece landed its main line, and offers nothing once every branch of it landed`, `offers nothing once its own robot landed every branch of it`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should land only what is left of the whole stack after a piece landed its main line, and offer nothing once every branch of it landed`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
 - Approvals count only in the pull request whose comment started the robot, so those of the whole stack count for its
   Safe Push only. While its pull request is open, row 7 of a branch of it without a pull request of its own is a quiet
   "In #12" that opens it, the reason on hover ("Approvals in #12, the pull request of the whole air stack, count for
@@ -256,6 +264,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/branch-next-step.test.ts (`row 7: a branch of a whole stack whose pull request is open points to it, quietly: its approvals count for the Safe Push of the whole stack`)
   [@test] ../../src/lib/safe-push-decision.test.ts (`opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
 
 ### The surfaces
 

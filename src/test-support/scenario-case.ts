@@ -7,24 +7,46 @@ const robotState = z.enum(["running", "failure", "canceled", "success"])
 /** `tip`, `older`, `stack`, `ancestor:<branch>`, `child:<branch>` */
 const robotOn = z.union([z.enum(["tip", "older", "stack"]), z.string().regex(/^(ancestor|child):[\w./-]+$/)])
 
+/** A robot of the branch, of a branch around it or of the whole stack; `reason: approvals` failed for the approvals */
+const robot = z.strictObject({
+  state: robotState,
+  on: robotOn,
+  reason: z.literal("approvals").optional(),
+  /** Started by the comment on the pull request #7 */
+  fromPullRequest: z.boolean().default(false),
+})
+
+const branchName = z.string().regex(/^[\w.-]+$/)
+
 export const given = z.strictObject({
   mode: z.enum(["safePush", "dryRun"]).default("safePush"),
+  /** The branch whose step and start the case asks */
+  branch: branchName.default("auth"),
   via: z.enum(["click", "key"]).default("click"),
   subject: z.enum(["branch", "wholeStack"]).default("branch"),
   commits: z.array(z.string().regex(/^\([\w./-]+\) .+/)).default(["(auth) Add auth"]),
   target: z.enum(["protected", "unprotected"]).default("protected"),
   remote: z.enum(["none", "upToDate", "behind", "unpushed", "rebuiltOnNewerBaseline"]).default("none"),
-  robot: z.strictObject({ state: robotState, on: robotOn }).optional(),
+  robot: z.union([robot, z.array(robot).min(2)]).optional(),
+  /** The app's sync runs; `bd` runs its own before it plans */
+  sync: z.literal("running").optional(),
+  /** The first commit of this branch changes a file that only an unassigned commit creates: it fails to sync */
+  conflicts: branchName.optional(),
+  /** `origin` is not on Space */
+  notOnSpace: z.literal(true).optional(),
+  /** The open pull request #12 of the stack branch of the root */
+  stackPullRequest: z.literal(true).optional(),
   pullRequest: z
     .strictObject({
       base: z.string().default("master"),
       draft: z.boolean().default(false),
       approvers: z.array(z.string()).default([]),
       reviewers: z.array(z.string()).default([]),
+      changesRequested: z.array(z.string()).default([]),
       state: z.enum(["open", "closed", "merged"]).default("open"),
     })
     .optional(),
-  readiness: z.enum(["notRequired", "approved", "missing", "unknown", "unavailable", "unlisted", "space"]).default("notRequired"),
+  readiness: z.enum(["notRequired", "approved", "missing", "unknown", "unavailable", "unlisted", "space", "notAsked"]).default("notRequired"),
   profile: z
     .strictObject({
       chosen: z.string().optional(),
@@ -35,13 +57,22 @@ export const given = z.strictObject({
     .optional(),
   flags: z.array(z.enum(["withoutApprovals", "cancelRunning", "createPullRequest", "allowMissing", "allowDangling"])).default([]),
   rules: z.enum(["keep", "dismiss", "unknown", "loading"]).optional(),
-  parked: z.literal(true).optional(),
-  stackBranch: z.enum(["built", "conflict", "notBuilt"]).optional(),
-  landed: z.literal(true).optional(),
+  /** `self`: the branch is parked; `builtOn`: its parent is */
+  parked: z.enum(["self", "builtOn"]).optional(),
+  /** `notBuilt`: a member of the whole stack has a stack problem (a conflict is `conflicts` of a member) */
+  stackBranch: z.literal("notBuilt").optional(),
+  /** `inBaseline`: origin/master has every commit; `byContent`: the baseline landed the commits rebuilt, one added since */
+  landed: z.enum(["inBaseline", "byContent"]).optional(),
   landingNeeds: z.literal(true).optional(),
 })
 
 export type Given = z.infer<typeof given>
+export type GivenRobot = z.infer<typeof robot>
+
+/** The robots of `given`, one or several */
+export function robotsOf(given: Given): GivenRobot[] {
+  return given.robot === undefined ? [] : Array.isArray(given.robot) ? given.robot : [given.robot]
+}
 
 const appExpectation = z.strictObject({
   step: z
@@ -51,13 +82,16 @@ const appExpectation = z.strictObject({
       dryRunBlocker: z.string().nullable().optional(),
     })
     .optional(),
-  decision: z.strictObject({
-    kind: z.enum(["wait", "refuse", "choose", "confirm", "start"]),
-    reason: z.string().optional(),
-    reasons: z.array(z.string()).optional(),
-    what: z.string().optional(),
-    offersPush: z.boolean().optional(),
-  }),
+  /** Where the row feeds a start; without it the class is the step's */
+  decision: z
+    .strictObject({
+      kind: z.enum(["wait", "refuse", "choose", "confirm", "start"]),
+      reason: z.string().optional(),
+      reasons: z.array(z.string()).optional(),
+      what: z.string().optional(),
+      offersPush: z.boolean().optional(),
+    })
+    .optional(),
 })
 
 const bdCheck = z.union([
@@ -96,7 +130,16 @@ export type ScenarioCase = z.infer<typeof scenarioCase>
 export type OutcomeClass = "start" | "refuse" | "wait"
 
 export function appOutcome(scenario: ScenarioCase): OutcomeClass {
-  switch (scenario.app.decision.kind) {
+  const { decision, step } = scenario.app
+  if (decision === undefined) {
+    // a step alone: nothing offered, or the reason every surface disables the start of the mode with
+    const blocker = scenario.given.mode === "dryRun" ? step?.dryRunBlocker : step?.safePushBlocker
+    if (blocker === undefined) {
+      throw new Error(`${scenario.id}: app.step names the blocker of the mode when app.decision is not given`)
+    }
+    return step?.kind === "hidden" || blocker !== null ? "refuse" : "start"
+  }
+  switch (decision.kind) {
     case "refuse":
       return "refuse"
     case "wait":
