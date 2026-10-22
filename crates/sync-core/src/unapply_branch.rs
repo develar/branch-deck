@@ -5,9 +5,9 @@
 use crate::update_project::UndoBlocked;
 use anyhow::Result;
 use branch_integration::archive::{REF_RENAME_MUTEX, own_commits_start, unique_branch_name};
+use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
 use domain_types::commit::Commit;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
 use git_ops::revs::is_object_id;
 use git_ops::unapply::{UnappliedMove, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
 use git_ops::update_branch::{UndoCheck, UpdateUndo, finish_pending_update};

@@ -15,7 +15,7 @@
 //!    ancestor (`stack_clusters`).
 
 use crate::areas::{DEFAULT_AREA_DEPTH, area_lines, area_of};
-use git_ops::branch_names::sanitize_branch_name;
+use domain_types::branch_names::sanitize_branch_name;
 use history_rewrite::move_commits::validate_branch_name;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 axum = { workspace = true, optional = true }
-git-ops = { path = "../git-ops" }
 domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 test-utils = { path = "../test-utils", features = ["http"], optional = true }

@@ -7,8 +7,8 @@
 
 use crate::request_review_command::availability_error;
 use bd_core::context::RepoContext;
+use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
-use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use github::service::GitHubService;
 use schemars::JsonSchema;
 use serde::Serialize;

@@ -4,9 +4,9 @@
 use crate::landing_gate::{LandingGateParams, ensure_landing_starts};
 use crate::remote_url::{origin_push_url, parse_remote_url, split_owner_and_name};
 use crate::update_project::{BaselineUpstream, resolve_baseline_upstream};
+use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::patronus::{PatronusReviewRequirement, ReviewPathsSource, StartPatronusRobotParams};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::commit_files::read_commit_files_cached;
 use git_ops::ownership::OwnershipRules;
 use object_cache::cache::ObjectCache;

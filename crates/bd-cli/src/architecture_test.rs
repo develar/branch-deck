@@ -59,11 +59,6 @@ struct Allowed {
 
 const ALLOWED: &[Allowed] = &[
   Allowed {
-    from: "patronus",
-    to: "git-ops",
-    removed_in: "s2-types",
-  },
-  Allowed {
     from: "sync-core",
     to: "github",
     removed_in: "s3-crates",

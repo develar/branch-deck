@@ -3,8 +3,8 @@
 //! checked out in any worktree is refused.
 
 use anyhow::{Result, anyhow, bail};
+use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use git_ops::ref_transaction::RefTransaction;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;

@@ -5,9 +5,9 @@
 use crate::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
 use crate::repository_lock::RewriteOptions;
 use crate::snapshot::{CommitsAhead, read_grouping_inputs};
-use crate::stack::leaf_of;
 use anyhow::{Result, anyhow, bail};
 use domain_types::commit::Commit;
+use domain_types::stack::leaf_of;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::read_raw_commits;
 use git_ops::history::History;

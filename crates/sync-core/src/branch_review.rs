@@ -11,9 +11,9 @@
 //! review opened again runs only that `for-each-ref`.
 
 use anyhow::{Result, anyhow, bail};
+use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::review_request::ReviewCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use moka::sync::Cache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

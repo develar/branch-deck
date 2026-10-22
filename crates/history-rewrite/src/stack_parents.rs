@@ -9,8 +9,8 @@
 use crate::issue_groups::validate_leaf_name;
 use crate::stack::name_suffix;
 use crate::store_lines::{LineStore, drop_store_lines};
+use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 
 pub const STACK_PARENTS_REF: &str = "refs/branch-deck/stack-parents";
 /// The file of the store's tree

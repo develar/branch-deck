@@ -1,8 +1,8 @@
 //! What the first run needs from git, before anything else runs: git itself, the identity Branch Deck writes notes and
 //! rewritten commits with (one `git var`), and a branch prefix to suggest.
 
+use domain_types::branch_names::sanitize_branch_name;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::sanitize_branch_name;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 

@@ -8,7 +8,7 @@ targets:
   - ../../crates/sync-core/src/branch_processor.rs
   - ../../crates/domain-types/src/stack.rs
   - ../../crates/domain-types/src/lib.rs
-  - ../../crates/git-ops/src/branch_names.rs
+  - ../../crates/domain-types/src/branch_names.rs
   - ../../crates/git-ops/src/tree_id_cache.rs
   - ../../crates/object-cache/src/stack_branch.rs
   - ../../crates/branch-integration/src/common.rs
@@ -121,7 +121,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   cycle is in no stack.
   [@test] ../../crates/sync-core/src/stack_branch_test.rs (`a_stack_forks_where_a_branch_has_two_children_and_takes_its_commits_in_history_order`, `a_fork_below_the_root_and_two_stacks`, `a_straight_chain_and_a_lone_branch_have_none`, `a_member_with_a_problem_blocks_the_stack_and_a_cycle_is_in_none`)
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_straight_stack_has_none`)
-  [@test] ../../crates/git-ops/src/branch_names_test.rs (`the_stack_branch_of_a_root_is_in_its_own_namespace`)
+  [@test] ../../crates/domain-types/src/branch_names_test.rs (`the_stack_branch_of_a_root_is_in_its_own_namespace`)
 - It must hold the original commits of all its branches in the order of the checked out branch's history, on the base
   of the sync, copied as a flat virtual branch of those commits is (the prefix stripped, `branch-deck` the committer,
   the deterministic dates), so a copy on the same parent is the same commit as the flat build's.

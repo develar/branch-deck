@@ -7,6 +7,7 @@ description = "The clustering of `bd suggest`, the areas of a commit and the gen
 publish = false
 
 [dependencies]
+domain-types = { path = "../domain-types" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 history-rewrite = { path = "../history-rewrite" }

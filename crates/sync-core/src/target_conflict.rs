@@ -6,9 +6,9 @@
 
 use crate::baseline_fetch::{FetchBaselineParams, fetch_baseline_core};
 use anyhow::{Result, anyhow};
+use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::update_project::UpdateCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::trial_rebase::{TrialRebase, trial_rebase};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};

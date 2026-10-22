@@ -493,6 +493,7 @@ name = "bd-clustering"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "domain-types",
  "git-executor",
  "git-ops",
  "history-rewrite",
@@ -1708,6 +1709,7 @@ dependencies = [
  "anyhow",
  "serde",
  "specta",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4099,7 +4101,6 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "domain-types",
- "git-ops",
  "moka",
  "pretty_assertions",
  "reqwest",

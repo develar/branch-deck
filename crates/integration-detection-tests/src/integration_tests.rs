@@ -1,8 +1,8 @@
 use super::test_helpers::{detected_branch_info, integrated_branch_names, newly_archived_names, setup_test_repos, sync_user_branches, verify_detection_cache_works};
 use branch_integration::archive::get_archived_branch_commits;
 use branch_integration::strategy::DetectionStrategy;
+use domain_types::branch_names::to_final_branch_name;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::to_final_branch_name;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_utils::timestamp::unix_now;

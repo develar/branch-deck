@@ -7,7 +7,8 @@
 //! What a rewrite reads:
 //! - `baseline`: `detect_baseline_branch`, the baseline outside a sync
 //! - `commit_grouper`: the groups of the commits ahead of the baseline by prefix, issue group and issue key
-//! - `stack`: stacked branches, the parents a prefix declares, the forest and where each branch goes
+//! - `stack`: stacked branches, the parents the prefixes declare, the forest and where each branch goes; the syntax of
+//!   a stack prefix (`stack_path`) is `domain_types::stack`'s
 //! - `snapshot`: the commits ahead of the baseline and what groups them, read once per operation
 //! - `commit_ids`: the commit ids of a request, abbreviated or full, among the commits ahead of the baseline
 //!

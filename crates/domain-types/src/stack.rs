@@ -1,4 +1,6 @@
-//! Stacked branches as a sync reports them (`history_rewrite::stack` computes them)
+//! Stacked branches as a sync reports them (`history_rewrite::stack` computes them), and the syntax of a stack prefix:
+//! `(auth/login)` names the leaf `login` and its parent `auth` (`stack_path`, `stack_of`, `leaf_of`)
+use crate::branch_names::sanitize_branch_name;
 use serde::Serialize;
 
 /// Why a branch of a stack can't be placed; it never fails the other branches
@@ -196,3 +198,46 @@ pub struct StackBranchUpdate {
   /// without a ref or when it could not be computed
   pub remote: Option<crate::RemoteStatusUpdate>,
 }
+
+/// A prefix with an empty stack level, as in `(a//b)`, or no branch name at all, as in `(/)`
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("({prefix}) has an empty stack level")]
+pub struct StackSyntaxError {
+  pub prefix: String,
+  /// The last non-empty level, sanitized: the branch the commit is grouped into anyway; `None` if there is none
+  pub leaf: Option<String>,
+}
+
+/// The levels of a stack prefix, root first and the leaf last, each sanitized like a flat branch name. Empty levels at
+/// the ends are dropped (`(auth/)` is `auth`, `(/login)` is `login`); one in the middle (`(a//b)`) is an error.
+pub fn stack_path(prefix: &str) -> Result<Vec<String>, StackSyntaxError> {
+  let levels: Vec<String> = prefix.split('/').map(|level| sanitize_branch_name(level.trim())).collect();
+  let error = |leaf: Option<&String>| StackSyntaxError {
+    prefix: prefix.to_string(),
+    leaf: leaf.cloned(),
+  };
+  let (Some(first), Some(last)) = (levels.iter().position(|level| !level.is_empty()), levels.iter().rposition(|level| !level.is_empty())) else {
+    return Err(error(None));
+  };
+  let path = &levels[first..=last];
+  if path.iter().any(String::is_empty) {
+    return Err(error(path.last()));
+  }
+  Ok(path.to_vec())
+}
+
+/// The branch a stack prefix names (its last level) and the parent it declares (the level before it)
+pub fn stack_of(prefix: &str) -> Result<(String, Option<String>), StackSyntaxError> {
+  let mut path = stack_path(prefix)?;
+  let leaf = path.pop().expect("a stack path is not empty");
+  Ok((leaf, path.pop()))
+}
+
+/// The leaf of a prefix, for comparing prefixes that name the same branch (`(login)` and `(auth/login)`)
+pub fn leaf_of(prefix: &str) -> Option<String> {
+  stack_of(prefix).ok().map(|(leaf, _)| leaf)
+}
+
+#[cfg(test)]
+#[path = "stack_test.rs"]
+mod stack_test;

@@ -7,6 +7,8 @@
 //!   (`BranchSyncStatus`, `CommitSyncStatus`, `BranchError`), its grouped branches, the remote status of a branch, the
 //!   unapplied branches, the dropped commits and the landed remote commits
 //! - `branch_integration`: the integration of a branch into the baseline (rebase, merge, squash)
+//! - `branch_names`: the names of the branches under the prefix (`{prefix}/virtual/<name>`, `BranchKind`), the prefix,
+//!   a group name valid in a ref
 //! - `branch_name_suggestion`: branch names suggested by the user's Claude Code
 //! - `commit`: a commit of the branch as `git-ops` reads it (`Commit`, its mapping note), and as the page names it
 //! - `conflict`: the merge conflict of a sync, its analysis, and the conflicts a copy resolved by words
@@ -19,7 +21,7 @@
 //! - `review_request`: the review requests of Your Turn
 //! - `robot_failure`: why a robot failed and the commits it checked
 //! - `robot_landing`: what a merged robot landed and what a running one lands
-//! - `stack`: the stacked branches as a sync reports them
+//! - `stack`: the stacked branches as a sync reports them, the syntax of a stack prefix (`(auth/login)`)
 //! - `update`: the update of the app
 //! - `update_project`: Update Project, the check of the branch against its upstream and the applied update
 //! - `upstream_commit`: a commit of the baseline that carries the user's work
@@ -34,6 +36,7 @@ use std::collections::BTreeMap;
 
 pub mod branch_integration;
 pub mod branch_name_suggestion;
+pub mod branch_names;
 pub mod commit;
 pub mod conflict;
 pub mod issue_navigation;

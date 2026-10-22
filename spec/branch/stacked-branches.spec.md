@@ -133,7 +133,8 @@ menu stacks, unstacks and renames branches.
 - The last level of a prefix must name the branch and the level before it its parent. Each level must be sanitized
   like a flat branch name. Empty levels at the ends must be dropped; an empty level in the middle (`(a//b)`) is a
   syntax problem of the last level's branch.
-  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`stack_prefixes_split_into_sanitized_levels`, `an_empty_stack_level_is_a_syntax_error`, `a_syntax_error_is_reported_on_the_last_level`)
+  [@test] ../../crates/domain-types/src/stack_test.rs (`stack_prefixes_split_into_sanitized_levels`, `an_empty_stack_level_is_a_syntax_error`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`a_syntax_error_is_reported_on_the_last_level`)
 - Commits must be grouped by the leaf, and every level pair must declare an edge: `(auth/login/oauth)` also declares
   `auth` as the parent of `login`. An issue-key branch is a root unless the stack parents name its parent
   ([Stack Parents](stack-parents.spec.md#placement)).

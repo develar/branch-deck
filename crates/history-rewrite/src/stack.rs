@@ -10,9 +10,9 @@ use branch_integration::detection_notes::{CachedDetection, NOTES_REF, deserializ
 use branch_integration::detector::{BaselineAncestry, CachePlan, PendingBranch, archived_within_retention, detect_pending_branches, resolve_baseline};
 use branch_integration::strategy::{DetectionStrategy, get_detection_strategy};
 use domain_types::branch_integration::BranchIntegrationStatus;
+use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentSource, ParentState, StackBlock, StackFix, StackProblem, StackProblemView};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use git_ops::notes::read_notes;
 use git_ops::revs::short_id;
 use indexmap::{IndexMap, IndexSet};
@@ -42,45 +42,6 @@ pub fn stacks_enabled(git_executor: &GitCommandExecutor, repo_path: &str) -> Res
     1 => Ok(false),
     _ => Err(anyhow!("Cannot read the git config of {repo_path}: {}", output.trim())),
   }
-}
-
-/// A prefix with an empty stack level, as in `(a//b)`, or no branch name at all, as in `(/)`
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("({prefix}) has an empty stack level")]
-pub struct StackSyntaxError {
-  pub prefix: String,
-  /// The last non-empty level, sanitized: the branch the commit is grouped into anyway; `None` if there is none
-  pub leaf: Option<String>,
-}
-
-/// The levels of a stack prefix, root first and the leaf last, each sanitized like a flat branch name. Empty levels at
-/// the ends are dropped (`(auth/)` is `auth`, `(/login)` is `login`); one in the middle (`(a//b)`) is an error.
-pub fn stack_path(prefix: &str) -> Result<Vec<String>, StackSyntaxError> {
-  let levels: Vec<String> = prefix.split('/').map(|level| sanitize_branch_name(level.trim())).collect();
-  let error = |leaf: Option<&String>| StackSyntaxError {
-    prefix: prefix.to_string(),
-    leaf: leaf.cloned(),
-  };
-  let (Some(first), Some(last)) = (levels.iter().position(|level| !level.is_empty()), levels.iter().rposition(|level| !level.is_empty())) else {
-    return Err(error(None));
-  };
-  let path = &levels[first..=last];
-  if path.iter().any(String::is_empty) {
-    return Err(error(path.last()));
-  }
-  Ok(path.to_vec())
-}
-
-/// The branch a stack prefix names (its last level) and the parent it declares (the level before it)
-pub fn stack_of(prefix: &str) -> Result<(String, Option<String>), StackSyntaxError> {
-  let mut path = stack_path(prefix)?;
-  let leaf = path.pop().expect("a stack path is not empty");
-  Ok((leaf, path.pop()))
-}
-
-/// The leaf of a prefix, for comparing prefixes that name the same branch (`(login)` and `(auth/login)`)
-pub fn leaf_of(prefix: &str) -> Option<String> {
-  stack_of(prefix).ok().map(|(leaf, _)| leaf)
 }
 
 /// A branch of the stack forest: one with commits, or an ancestor that only prefixes or stack parents declare

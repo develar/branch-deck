@@ -9,8 +9,8 @@ use crate::pull_requests::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, det
 use crate::remote_url::split_owner_and_name;
 use crate::symbol_scan::{SYMBOLS_CONFIG_KEY, SymbolMode};
 use anyhow::{Result, anyhow, bail};
+use domain_types::branch_names::{is_valid_branch_prefix, normalize_branch_prefix};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{is_valid_branch_prefix, normalize_branch_prefix};
 use git_ops::commit_list::get_commit_list_with_handler;
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};

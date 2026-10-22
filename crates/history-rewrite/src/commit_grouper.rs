@@ -1,10 +1,11 @@
 //! The group of each commit ahead of the baseline (`CommitGrouper`): its `(prefix)`, else the issue group of its issue
 //! key, else the key itself, else none; a pure function of the subjects and the `GroupingInputs`, no git.
 
-use crate::stack::{StackDeclarations, StackForest, leaf_of, stack_path};
+use crate::stack::{StackDeclarations, StackForest};
 use crate::store_lines::StoreLines;
+use domain_types::branch_names::sanitize_branch_name;
 use domain_types::commit::Commit;
-use git_ops::branch_names::sanitize_branch_name;
+use domain_types::stack::{leaf_of, stack_path};
 use indexmap::IndexMap;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
