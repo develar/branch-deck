@@ -21,22 +21,6 @@
   "remoteTips": {},
   "robots": [
     {
-      "branchName": "other",
-      "cancellationReason": null,
-      "finishTime": null,
-      "id": "from-comment",
-      "name": "IJPL-1 fix the cache",
-      "profile": null,
-      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
-      "pushMode": "rebaseAutosquash",
-      "sourceRevision": "0000",
-      "stackRoot": null,
-      "startTime": 1704189000,
-      "status": "running",
-      "targetBranch": "master",
-      "url": "https://patronus/robot/from-comment"
-    },
-    {
       "branchName": "login",
       "cancellationReason": null,
       "finishTime": 1704189600,
@@ -47,7 +31,7 @@
       "pushMode": "rebaseAutosquash",
       "sourceRevision": "login-tip",
       "stackRoot": null,
-      "startTime": 1704189000,
+      "startTime": 1704190200,
       "status": "success",
       "targetBranch": "master",
       "url": "https://patronus/robot/robot-0"
@@ -63,10 +47,26 @@
       "pushMode": "rebaseAutosquash",
       "sourceRevision": "session-tip",
       "stackRoot": null,
-      "startTime": 1704189000,
+      "startTime": 1704189600,
       "status": "success",
       "targetBranch": "master",
       "url": "https://patronus/robot/robot-1"
+    },
+    {
+      "branchName": "other",
+      "cancellationReason": null,
+      "finishTime": null,
+      "id": "from-comment",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": {"number": 7, "url": "https://github.com/acme/monorepo/pull/7"},
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "0000",
+      "stackRoot": null,
+      "startTime": 1704189000,
+      "status": "running",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/from-comment"
     }
   ],
   "stackTips": {"auth": "stack-auth-tip"},

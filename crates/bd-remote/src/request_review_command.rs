@@ -13,7 +13,7 @@ use bd_core::output::SchemaVersion;
 use bd_core::review_summary::PersonSummary;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
-use domain_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
+use domain_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
 use git_ops::revs::resolve_commit;
 use schemars::JsonSchema;
@@ -242,19 +242,9 @@ fn code_owner_review(
     baseline: &grouping.baseline_branch,
     branch_prefix: &context.prefix,
   };
-  let start = if pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target {
-    ReviewStart::PullRequest { number: pull_request.number }
-  } else {
-    ReviewStart::Rest
-  };
-  let branch = ReviewReadinessBranch {
-    branch_name: name.to_string(),
-    source: None,
-    tip,
-    start,
-    reviewers: pull_request.reviewers.clone(),
-    author: pull_request.author.clone(),
-  };
+  // the robot starts from the pull request only when it goes into the target
+  let into_target = (pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target).then_some(pull_request);
+  let branch = ReviewReadinessBranch::starting_from(name.to_string(), None, tip, into_target);
   review_readiness(context, &service, runtime, &readiness_repository, &branch)
 }
 

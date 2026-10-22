@@ -7,7 +7,7 @@ import { branchSyncStore, getStackDescendants, stackMainLineIn } from "@/stores/
 import { testBranch } from "@/stores/test-branch"
 import type { ExercisedCase, ScenarioCase } from "@/test-support/scenario-case"
 import { appOutcome, bdOutcome, isExercised, scenarioCase } from "@/test-support/scenario-case"
-import { UPDATE_FACTS, factsOf, nextStepOf, safePushReadOf, seedScenario } from "@/test-support/scenario-facts"
+import { UPDATE_FACTS, factsOf, nextStepOf, safePushReadOf, seedReadiness, seedScenario } from "@/test-support/scenario-facts"
 
 vi.mock("@/stores/repository", () => import("@/test-support/scenario-repository-mock"))
 
@@ -186,6 +186,26 @@ describe("scenario cases", () => {
     const named = new Set(cases.flatMap(scenario => scenario.spec).flatMap(spec => /^spec\/branch\/next-step\.spec\.md#the-table:(.+)$/.exec(spec)?.[1] ?? []))
     expect(rows.filter(row => !named.has(row))).toEqual([])
     expect([...named].filter(row => !rows.includes(row))).toEqual([])
+  })
+
+  // the facts of a readiness answer carry the tip and the pull request Rust asked with; the app's input of the branch is
+  // computed by the app's own rule (`getPullRequestStart`): one that drifts from the other fails the seed instead of
+  // filing Rust's answer as fresh under the app's key
+  it("refuse the readiness facts asked with another start or tip than the app computes now", async () => {
+    const scenario = cases.find(candidate => candidate.id === "row-6-draft")
+    if (scenario === undefined || !isExercised(scenario)) {
+      throw new Error("row-6-draft is an exercised case with a pull request start")
+    }
+    await seedScenario(scenario.id, scenario.given)
+    const facts = factsOf(scenario.id)
+    const auth = facts.readiness["auth"]!
+    expect(auth.pullRequest).toBe(7)
+    expect(() => seedReadiness({ ...facts, readiness: { auth: { ...auth, pullRequest: null } } })).toThrow(
+      /auth: the facts asked another input .*"pullRequest":null.* than the app asks now .*"pullRequest":7/,
+    )
+    expect(() => seedReadiness({ ...facts, readiness: { auth: { ...auth, tip: "another-tip" } } })).toThrow(/auth: the facts asked another input .*"tip":"another-tip"/)
+    // a key the app has no input of (no such branch) is refused too
+    expect(() => seedReadiness({ ...facts, readiness: { nobody: auth } })).toThrow(/nobody: the facts asked another input .* than the app asks now \(null\)/)
   })
 
   for (const [group, title] of Object.entries(GROUPS)) {

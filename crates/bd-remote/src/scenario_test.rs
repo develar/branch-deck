@@ -527,7 +527,7 @@ fn add_profile_details(space: &Space, environment: &mut Environment, listed: &Va
 }
 
 /// The robots of the case as the list answers them, after the list `reviewed_on_github` left: `older` (`sourceRevision`
-/// `0000`), the others on the tips the sync built of their branch or of the stack branch
+/// `0000`), the others on the tips the sync built of their branch or of the stack branch; the first the newest
 fn add_robots(space: &Space, environment: &mut Environment, given: &Given) {
   let mut robots = space.fake.robots.lock().unwrap().take().unwrap_or_default();
   for (index, robot_of) in given.robots().iter().enumerate() {
@@ -545,8 +545,12 @@ fn add_robots(space: &Space, environment: &mut Environment, given: &Given) {
         stack_robot(&id, &state, &tip_of(&format!("{PREFIX}/stack/{root}")))
       }
     };
+    // the first the newest, each next started a minute earlier, all after the robot `reviewed_on_github` left (180
+    // minutes ago): the list (by start, the newest first) and the app's preference by start time are the same on every
+    // run, where starts of the same second would tie by whatever order the fake keeps
+    listed["startDateTime"] = json!(minutes_ago(170 + u32::try_from(index).unwrap()));
     if robot_of.state != RobotState::Running {
-      // in the order of the list: the first merged first
+      // in the order of the list: the first finished first
       listed["finishDateTime"] = json!(minutes_ago(90 - u32::try_from(index).unwrap()));
     }
     if robot_of.from_pull_request {
@@ -748,7 +752,7 @@ impl Situation {
 
 /// The facts of the app's side of each exercised case, one file per case id: what the sync, the repository view, the
 /// robot list and the review scan leave of the case's repository, which `src/test-support/scenario-facts.ts` seeds into
-/// the stores instead of computing any of it (`assert_facts`, one test per group)
+/// the stores instead of computing any of it (`assert_facts_kept`, by the group test of the case)
 const FACTS_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../domain-policy/cases/facts");
 
 /// The environment variable that lets the facts test rewrite the files
@@ -808,22 +812,36 @@ fn name_ids(value: &mut Value, names: &HashMap<String, String>) {
   }
 }
 
-/// The robots by id, with the times the fakes give relative to now made the same on every run: every start the same
-/// instant (the fixtures start them all 180 minutes ago, a second apart at most), the finishes by their rank (the
-/// fixtures finish them minutes apart), so the order of the finishes, the one fact the app reads of the times, stays
+/// The rank of every time of `times`: the same for times less than 30 seconds apart (the fixtures take a time of their
+/// own per robot, a second apart at most), one more for each later instant
+fn ranks_of(times: impl Iterator<Item = u64>) -> HashMap<u64, u64> {
+  let mut times: Vec<u64> = times.collect();
+  times.sort_unstable();
+  let mut ranks = HashMap::new();
+  let mut rank = 0;
+  for (index, time) in times.iter().enumerate() {
+    if index > 0 && time - times[index - 1] >= 30 {
+      rank += 1;
+    }
+    ranks.insert(*time, rank);
+  }
+  ranks
+}
+
+/// The robots in the order of the list (by start, the newest first; a tie by the order the fake keeps, which the app
+/// breaks the same way, `isPreferredRanked`), with the times the fakes give relative to now made the same on every
+/// run: the starts and the finishes each by their rank (`add_robots` starts and finishes them minutes apart), so the
+/// order of the starts and of the finishes, what the app reads of the times, stays
 fn settle_robots(robots: &mut Value) {
   let Some(robots) = robots.as_array_mut() else {
     return;
   };
-  robots.sort_by_key(|robot| robot["id"].as_str().unwrap_or_default().to_string());
-  let mut finishes: Vec<u64> = robots.iter().filter_map(|robot| robot["finishTime"].as_u64()).collect();
-  finishes.sort_unstable();
-  finishes.dedup();
-  for robot in robots.iter_mut() {
-    robot["startTime"] = json!(1_704_189_000);
-    if let Some(finish) = robot["finishTime"].as_u64() {
-      let rank = finishes.iter().position(|known| *known == finish).unwrap();
-      robot["finishTime"] = json!(1_704_189_600 + 600 * u64::try_from(rank).unwrap());
+  for (field, from) in [("startTime", 1_704_189_000), ("finishTime", 1_704_189_600)] {
+    let ranks = ranks_of(robots.iter().filter_map(|robot| robot[field].as_u64()));
+    for robot in robots.iter_mut() {
+      if let Some(time) = robot[field].as_u64() {
+        robot[field] = json!(from + 600 * ranks[&time]);
+      }
     }
   }
 }
@@ -950,17 +968,13 @@ impl Situation {
       baseline: &synced.baseline,
       branch_prefix: &context.prefix,
     };
+    // the start as the app chooses it (`getPullRequestStart`: the open pull request into the target), built as every
+    // start of bd is; the facts record the pull request and the tip asked, and `seedReadiness` of the Vitest refuses
+    // an answer whose input the app computes otherwise, so this choice can't drift from the app's unnoticed
     let ask = |key: &str, source: Option<String>, tip: &str, pull_request: Option<&PullRequest>| {
       let start =
         pull_request.filter(|pull_request| pull_request.state == ListedPullRequestState::Open && (pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target));
-      ReviewReadinessBranch {
-        branch_name: key.to_string(),
-        source,
-        tip: tip.to_string(),
-        start: start.map_or(ReviewStart::Rest, |pull_request| ReviewStart::PullRequest { number: pull_request.number }),
-        reviewers: start.map_or_default(|pull_request| pull_request.reviewers.clone()),
-        author: start.and_then(|pull_request| pull_request.author.clone()),
-      }
+      ReviewReadinessBranch::starting_from(key.to_string(), source, tip.to_string(), start)
     };
     let name = given.branch.as_str();
     let mut asks = Vec::new();
@@ -1005,31 +1019,6 @@ impl Situation {
   }
 }
 
-/// The facts of the exercised cases of `group`, each in its own repository on its own thread, by case id
-fn facts_of_group(cases: &[Case], group: &str) -> BTreeMap<String, Value> {
-  let exercised: Vec<&Case> = cases
-    .iter()
-    .filter(|case| case.group == group && case.kind == CaseKind::Exercised && case.given.is_some())
-    .collect();
-  std::thread::scope(|scope| {
-    #[expect(clippy::needless_collect, reason = "every case starts before the first is joined")]
-    let running: Vec<_> = exercised
-      .iter()
-      .map(|case| {
-        let given = case.given.as_ref().unwrap();
-        (case.id.clone(), scope.spawn(move || Situation::of(given).facts(given, &case.raw_given)))
-      })
-      .collect();
-    running
-      .into_iter()
-      .map(|(id, thread)| {
-        let facts = thread.join().unwrap_or_else(|_| panic!("{id}: the facts panicked"));
-        (id, facts)
-      })
-      .collect()
-  })
-}
-
 /// The facts files of `FACTS_DIRECTORY` as they are, by case id
 fn filed_facts() -> BTreeMap<String, Value> {
   std::fs::read_dir(FACTS_DIRECTORY).map_or_default(|entries| {
@@ -1045,16 +1034,15 @@ fn filed_facts() -> BTreeMap<String, Value> {
 }
 
 /// The facts the app's side reads of the cases of `group` are what their fixtures leave today: `facts/<id>.json` of
-/// every exercised case equals what the Rust core computes of its repository. A change of the sync, of `patronus_view`,
-/// of the robot list or of the review scan changes the files: `UPDATE_SCENARIO_FACTS=1` rewrites them, and the diff is
-/// reviewed like code, as the Vitest answers from them
-fn assert_facts(group: &str) {
-  let computed = facts_of_group(&cases(), group);
+/// every exercised case equals what the Rust core computed of its repository (`computed`, by case id). A change of the
+/// sync, of `patronus_view`, of the robot list or of the review scan changes the files: `UPDATE_SCENARIO_FACTS=1`
+/// rewrites them, and the diff is reviewed like code, as the Vitest answers from them
+fn assert_facts_kept(group: &str, computed: &BTreeMap<String, Value>) {
   assert!(!computed.is_empty(), "no exercised case of {group}");
-  let directory = PathBuf::from(FACTS_DIRECTORY);
   if std::env::var_os(UPDATE_FACTS).is_some() {
+    let directory = PathBuf::from(FACTS_DIRECTORY);
     std::fs::create_dir_all(&directory).unwrap();
-    for (id, facts) in &computed {
+    for (id, facts) in computed {
       std::fs::write(directory.join(format!("{id}.json")), format!("{}\n", pretty(facts, 0))).unwrap();
     }
     return;
@@ -1065,59 +1053,28 @@ fn assert_facts(group: &str) {
     pretty_assertions::assert_eq!(
       pretty(filed.get(*id).unwrap_or(&Value::Null), 0),
       pretty(&computed[*id], 0),
-      "the facts of {} cases of {group} differ from their files, {id} first; {UPDATE_FACTS}=1 cargo nextest run -p bd-remote -E 'test(/facts_of/)' rewrites them",
+      "the facts of {} cases of {group} differ from their files, {id} first; {UPDATE_FACTS}=1 cargo nextest run -p bd-remote -E 'test(/scenario/)' rewrites them",
       differing.len()
     );
   }
 }
 
-#[test_log::test]
-fn the_facts_of_the_safe_push_mode_and_route_cases_are_what_the_fixtures_leave() {
-  assert_facts("modes-and-routes");
-}
-
-#[test_log::test]
-fn the_facts_of_the_safe_push_profile_cases_are_what_the_fixtures_leave() {
-  assert_facts("profiles");
-}
-
-#[test_log::test]
-fn the_facts_of_the_safe_push_review_cases_are_what_the_fixtures_leave() {
-  assert_facts("review");
-}
-
-#[test_log::test]
-fn the_facts_of_the_next_step_row_cases_are_what_the_fixtures_leave() {
-  assert_facts("next-step-rows");
-}
-
-#[test_log::test]
-fn the_facts_of_the_stack_and_whole_stack_cases_are_what_the_fixtures_leave() {
-  assert_facts("stack-and-whole-stack");
-}
-
-#[test_log::test]
-fn the_facts_of_the_landing_cases_are_what_the_fixtures_leave() {
-  assert_facts("landing");
-}
-
-#[test_log::test]
-fn the_facts_of_the_discrepancy_cases_are_what_the_fixtures_leave() {
-  assert_facts("discrepancies");
-}
-
-/// A facts file of a case that is gone misleads nobody: it goes with the case (`UPDATE_SCENARIO_FACTS=1` removes it)
+/// A facts file of a case that is gone, or that no fixture builds any more (recorded, or without `given`), misleads
+/// nobody: it goes with the case (`UPDATE_SCENARIO_FACTS=1` removes it)
 #[test_log::test]
 fn no_facts_file_is_of_a_case_that_is_gone() {
   let cases = cases();
-  let stale: Vec<String> = filed_facts().into_keys().filter(|id| !cases.iter().any(|case| case.id == *id)).collect();
+  let stale: Vec<String> = filed_facts()
+    .into_keys()
+    .filter(|id| !cases.iter().any(|case| case.id == *id && case.kind == CaseKind::Exercised && case.given.is_some()))
+    .collect();
   if std::env::var_os(UPDATE_FACTS).is_some() {
     for id in &stale {
       std::fs::remove_file(PathBuf::from(FACTS_DIRECTORY).join(format!("{id}.json"))).unwrap();
     }
     return;
   }
-  assert!(stale.is_empty(), "facts of no case: {stale:?}; {UPDATE_FACTS}=1 removes them");
+  assert!(stale.is_empty(), "facts of no exercised case: {stale:?}; {UPDATE_FACTS}=1 removes them");
 }
 
 /// What a case compares of the `--check` output: the codes of the refusals, the profile and the pull request by id
@@ -1153,8 +1110,23 @@ fn mismatches(id: &str, column: &str, expected: &Map<String, Value>, actual: &Va
     .collect()
 }
 
-/// What bd answers today for the case, against its `bd` column: the failures; a recorded case has none to answer
-fn answer(case: &Case) -> Vec<String> {
+/// What one case's repository answers: the failures of the `bd` column, and the facts of the app's side of an
+/// exercised case
+struct Answer {
+  failures: Vec<String>,
+  facts: Option<Value>,
+}
+
+impl Answer {
+  fn failed(failures: Vec<String>) -> Self {
+    Self { failures, facts: None }
+  }
+}
+
+/// What bd answers today for the case, against its `bd` column, and the facts of the app's side of the same
+/// repository (`Situation::facts`, before the check and the start, which push and start robots); a recorded case has
+/// none to answer
+fn answer(case: &Case) -> Answer {
   assert!(!case.spec.is_empty(), "{}: a case names the requirements it pins", case.id);
   let broken: Vec<String> = case
     .spec
@@ -1163,14 +1135,15 @@ fn answer(case: &Case) -> Vec<String> {
     .map(|broken| format!("{}: {broken}", case.id))
     .collect();
   if !broken.is_empty() {
-    return broken;
+    return Answer::failed(broken);
   }
   let (given, expected) = match (case.kind, &case.given, &case.bd) {
     (CaseKind::Exercised, Some(given), Some(expected)) => (given, expected),
-    (CaseKind::Recorded, None, None) => return Vec::new(),
-    _ => return vec![format!("{}: an exercised case has given and bd, a recorded one neither", case.id)],
+    (CaseKind::Recorded, None, None) => return Answer::failed(Vec::new()),
+    _ => return Answer::failed(vec![format!("{}: an exercised case has given and bd, a recorded one neither", case.id)]),
   };
   let situation = Situation::of(given);
+  let facts = situation.facts(given, &case.raw_given);
   let check = match situation.check(given) {
     Ok(output) => projection(&serde_json::to_value(output).unwrap()),
     Err(error) => json!({"error": error.code}),
@@ -1183,7 +1156,10 @@ fn answer(case: &Case) -> Vec<String> {
     Some(id) => format!(" ({id})"),
     None => String::new(),
   };
-  failures.into_iter().map(|failure| format!("{failure} — {}{context}", case.title)).collect()
+  Answer {
+    failures: failures.into_iter().map(|failure| format!("{failure} — {}{context}", case.title)).collect(),
+    facts: Some(facts),
+  }
 }
 
 fn cases() -> Vec<Case> {
@@ -1208,34 +1184,51 @@ fn cases() -> Vec<Case> {
     .collect()
 }
 
-/// Every case of `group`, each in its own repository on its own thread; one message names every case that answers
-/// otherwise
+/// Every case of `group`, each in its own repository on its own thread, built once for both sides: one message names
+/// every case that answers otherwise, then the facts of the app's side are compared with their files (or written,
+/// `UPDATE_SCENARIO_FACTS=1`, before the answers are judged)
 fn assert_group(group: &str) {
   let cases = cases();
   let unknown: Vec<&str> = cases.iter().map(|case| case.group.as_str()).filter(|known| !GROUPS.contains(known)).collect();
   assert!(unknown.is_empty(), "groups without their test: {unknown:?}");
   let of_group: Vec<&Case> = cases.iter().filter(|case| case.group == group).collect();
   assert!(!of_group.is_empty(), "no case of {group}");
-  let answers: Vec<Vec<String>> = std::thread::scope(|scope| {
+  let answers: Vec<(&str, Answer)> = std::thread::scope(|scope| {
     #[expect(clippy::needless_collect, reason = "every case starts before the first is joined")]
     let running: Vec<_> = of_group.iter().map(|case| (case.id.as_str(), scope.spawn(|| answer(case)))).collect();
     running
       .into_iter()
       .map(|(id, thread)| {
-        thread.join().unwrap_or_else(|panic| {
+        let answer = thread.join().unwrap_or_else(|panic| {
           let message = panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(ToString::to_string));
-          vec![format!("{id}: panicked: {}", message.unwrap_or_default())]
-        })
+          Answer::failed(vec![format!("{id}: panicked: {}", message.unwrap_or_default())])
+        });
+        (id, answer)
       })
       .collect()
   });
-  let failing = answers.iter().filter(|failures| !failures.is_empty()).count();
+  let facts: BTreeMap<String, Value> = answers
+    .iter()
+    .filter_map(|(id, answer)| answer.facts.clone().map(|facts| ((*id).to_string(), facts)))
+    .collect();
+  let failing = answers.iter().filter(|(_, answer)| !answer.failures.is_empty()).count();
+  let exercised = of_group.iter().any(|case| case.kind == CaseKind::Exercised);
+  if exercised && std::env::var_os(UPDATE_FACTS).is_some() {
+    assert_facts_kept(group, &facts);
+  }
   assert!(
     failing == 0,
     "{failing} of {} cases of {group} answer otherwise:\n{}",
     of_group.len(),
-    answers.concat().join("\n")
+    answers
+      .iter()
+      .flat_map(|(_, answer)| answer.failures.iter().map(String::as_str))
+      .collect::<Vec<_>>()
+      .join("\n")
   );
+  if exercised && std::env::var_os(UPDATE_FACTS).is_none() {
+    assert_facts_kept(group, &facts);
+  }
 }
 
 #[test_log::test]

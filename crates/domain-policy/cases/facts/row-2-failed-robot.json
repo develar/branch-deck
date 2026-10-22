@@ -11,6 +11,22 @@
   "remoteTips": {},
   "robots": [
     {
+      "branchName": "auth",
+      "cancellationReason": null,
+      "finishTime": 1704189600,
+      "id": "robot-0",
+      "name": "IJPL-1 fix the cache",
+      "profile": null,
+      "pullRequest": null,
+      "pushMode": "rebaseAutosquash",
+      "sourceRevision": "auth-tip",
+      "stackRoot": null,
+      "startTime": 1704189600,
+      "status": "failure",
+      "targetBranch": "master",
+      "url": "https://patronus/robot/robot-0"
+    },
+    {
       "branchName": "other",
       "cancellationReason": null,
       "finishTime": null,
@@ -25,22 +41,6 @@
       "status": "running",
       "targetBranch": "master",
       "url": "https://patronus/robot/from-comment"
-    },
-    {
-      "branchName": "auth",
-      "cancellationReason": null,
-      "finishTime": 1704189600,
-      "id": "robot-0",
-      "name": "IJPL-1 fix the cache",
-      "profile": null,
-      "pullRequest": null,
-      "pushMode": "rebaseAutosquash",
-      "sourceRevision": "auth-tip",
-      "stackRoot": null,
-      "startTime": 1704189000,
-      "status": "failure",
-      "targetBranch": "master",
-      "url": "https://patronus/robot/robot-0"
     }
   ],
   "stackTips": {},

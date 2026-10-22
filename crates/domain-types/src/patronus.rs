@@ -606,6 +606,24 @@ pub struct ReviewReadinessBranch {
   pub author: Option<String>,
 }
 
+impl ReviewReadinessBranch {
+  /// The branch started from `pull_request`, the open pull request the caller chose as the robot's start, whose
+  /// reviewers and author Patronus evaluates; without one through the API (`Rest`), which counts no approval. The one
+  /// way a start of `bd` is built (`plan()` of `bd safe-push`, `bd request-review`, the scenario facts); the app's is
+  /// `inputOf` of `src/stores/review-readiness.ts`
+  #[must_use]
+  pub fn starting_from(branch_name: String, source: Option<String>, tip: String, pull_request: Option<&crate::pull_request::PullRequest>) -> Self {
+    Self {
+      branch_name,
+      source,
+      tip,
+      start: pull_request.map_or(ReviewStart::Rest, |pull_request| ReviewStart::PullRequest { number: pull_request.number }),
+      reviewers: pull_request.map_or_default(|pull_request| pull_request.reviewers.clone()),
+      author: pull_request.and_then(|pull_request| pull_request.author.clone()),
+    }
+  }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

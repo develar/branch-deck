@@ -1018,8 +1018,10 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `useStackNextStep.ts`: `getWholeStackMembers`, `getWholeStackRest`, `isForkingStack`; `useNextStepStores`,
   `getBranchNextStepNow` и его 5 вызовов (`useBranchNextStep.ts:299,315`, `useStackNextStep.ts:302,337`,
   `useBranchContextActions.ts:650`); `stackBranchHoldReasonIn`/`getStackBranchHoldReason` (`stores/patronus.ts:458-483`)
-  и проверки parked stack branch в `push_command.rs:692`, `safe_push_command.rs:914`; TS-половина таблицы сценариев; решающая половина `plan()` в
-  `safe_push_command.rs`; `stack_summary::whole_stack_of`.
+  и проверки parked stack branch в `push_command.rs:692`, `safe_push_command.rs:914`; TS-половина таблицы сценариев
+  (`scenario-case.ts`, `scenario-facts.ts`, `scenario-cases.test.ts`) и то, что служило только ей: `cases/facts/*.json`,
+  `Situation::facts`, `assert_facts_kept`, `no_facts_file_is_of_a_case_that_is_gone`, `UPDATE_SCENARIO_FACTS` и его
+  упоминание в AGENTS.md; решающая половина `plan()` в `safe_push_command.rs`; `stack_summary::whole_stack_of`.
 - **Проверки:** таблица сценариев с одним ожиданием на случай — D3b, D4 (правило), D5 (кандидаты), D8, D11, D12
   (правило), D13, D14, D15 сходятся;
   табличные тесты покрывают каждую строку `next-step.spec.md`; e2e каждой поверхности next step и Safe Push; B3, B4,
@@ -1206,14 +1208,19 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `--check`, тот же путь, что у команды, затем `bd safe-push` без `--check`) и zod `strictObject`
   (`src/test-support/scenario-case.ts` → `scenario-facts.ts` заполняет сторы так, как их оставляют sync, представление
   репозитория, Patronus, GitHub и опрос review → сами читатели приложения: `getBranchNextStepOf`,
-  `getStackNextStepNow`, `readSafePush`). Ни один адаптер не считает правила: то, что у приложения считает Rust
-  (tips sync'а, список роботов, представление `patronus_view` с landing needs, readiness review), Rust-тест пишет из
-  фикстуры того же `given` в `cases/facts/<id>.json` (`the_facts_of_the_<группа>_cases_are_what_the_fixtures_leave`,
-  id коммитов названы `<ветка>-tip`, `<ветка>-remote`, `stack-<root>-tip`), Vitest их читает; остальное `given` TS
-  отображает в факты сторов (таблица, PR, правила). Изменение sync'а или `patronus_view` краснит Rust-тест фактов;
-  `UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/facts_of/)'` переписывает файлы, diff
-  рецензируется как код; Vitest отказывает фактам другого `given`. Ключ вне словаря отказывает обоим; значение,
-  которое адаптер ещё не отображает, роняет случай («not mapped yet»).
+  `getStackNextStepNow`, `readSafePush`). Ни один адаптер не решает за свою сторону: то, что у приложения считает
+  Rust (tips sync'а, список роботов в порядке списка, представление `patronus_view` с landing needs, readiness review),
+  Rust-тест группы пишет из той же `Situation`, что отвечает за `bd` (`assert_facts_kept`, один фикстурный репозиторий
+  на случай), в `cases/facts/<id>.json` (id коммитов названы `<ветка>-tip`, `<ветка>-remote`, `stack-<root>-tip`),
+  Vitest их читает. Остальное `given` TS по-прежнему моделирует в форме сторов: таблицу sync'а (статусы веток, счётчики,
+  `remoteStatus`, stack branch), отчёт landing, PR, ответ `get_branch_rules` — это не правила решения, а форма входа,
+  и в s8 уходит вместе с адаптером. Правило старта (`getPullRequestStart`: открытый PR в target) живёт только в
+  приложении: факты записывают tip и PR, с которыми спрашивал Rust, и `seedReadiness` отказывает ответу, вход
+  которого приложение считает иначе. Изменение sync'а, `patronus_view` или списка роботов краснит Rust-тест группы;
+  `UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/scenario/)'` переписывает файлы (и удаляет файлы
+  случаев, которых нет или которые больше не exercised), diff рецензируется как код; Vitest отказывает фактам другого
+  `given`. Ключ вне словаря отказывает обоим; значение, которое адаптер ещё не отображает, роняет случай («not mapped
+  yet»).
 - **Имена тестов фиксированы:** по тесту на группу с каждой стороны (`the_<…>_cases_answer_as_bd_answers_today` и
   `the <…> cases answer as the app answers today`, таблица имён — в `README.md`), реестр —
   `the_discrepancy_cases_name_every_id_as_the_register_does`; D8 — отдельная пара тестов
@@ -1226,7 +1233,10 @@ rewrites между процессами через файл `s10`; `s12` ждё
   тест своей стороны. Проверка: `cargo nextest run -p bd-remote -E 'test(/scenario/)'` и
   `pnpm test:unit scenario-cases` (с `--` vp передаёт фильтр мимо и гоняет все файлы).
 - **`s8-policy` сводит два столбца в один:** `domain-policy` читает те же файлы, у случая остаётся одно ожидание без
-  `discrepancy`, а TS-адаптер (`scenario-case.ts`, `scenario-facts.ts`) удаляется вместе с правилами, которые он кормил.
+  `discrepancy`, а TS-адаптер (`scenario-case.ts`, `scenario-facts.ts`) удаляется вместе с правилами, которые он кормил,
+  и с тем, что служило только ему: `cases/facts/*.json`, `Situation::facts`/`assert_facts_kept` и
+  `no_facts_file_is_of_a_case_that_is_gone` в `scenario_test.rs`, `UPDATE_SCENARIO_FACTS` и его упоминание в строке
+  таблицы проверок AGENTS.md.
 
 ## Бюджеты производительности
 

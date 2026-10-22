@@ -354,6 +354,44 @@
     }
   },
   {
+    "id": "row-3-robot-of-the-tip-listed-before-a-canceled-older-one",
+    "group": "next-step-rows",
+    "title": "the robot of the tip failed for approvals Patronus can't judge yet, an older one started at the same time was canceled: the one listed first is the branch's robot, the pull request step stays",
+    "spec": ["spec/branch/next-step.spec.md#the-table:3", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "robot": [
+        {
+          "state": "failure",
+          "on": "tip",
+          "reason": "approvals",
+          "fromPullRequest": true
+        },
+        {
+          "state": "canceled",
+          "on": "older"
+        }
+      ],
+      "readiness": "unknown",
+      "pullRequest": {
+        "approvers": ["alice"]
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "pullRequest",
+        "safePushBlocker": null
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": 7,
+        "readiness": "unknown"
+      }
+    }
+  },
+  {
     "id": "row-5-into-the-parent",
     "group": "next-step-rows",
     "title": "the pull request of login goes into the virtual branch of its parent auth: its approvals don't count",

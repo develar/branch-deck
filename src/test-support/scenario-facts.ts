@@ -3,7 +3,8 @@
 // `getBranchNextStepOf` and `getStackNextStepNow` for the step, `readSafePush` for the decision. What the Rust core
 // computes of the case's repository (the tips, the robots, the repository view, the review readiness) comes from
 // `cases/facts/<id>.json`, which the Rust scenario test writes from the same `given`; the adapter maps the rest of
-// `given` to store-shaped facts and computes no rule of either side. A value the README doesn't map fails with "not
+// `given` to store-shaped facts (the table of the sync, the landing report, the pull requests, the rules: the README
+// names what it still models) and decides nothing of either side. A value the README doesn't map fails with "not
 // mapped yet"
 import { vi } from "vite-plus/test"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
@@ -14,6 +15,7 @@ import { getStackNextStepNow } from "@/hooks/useStackNextStep"
 import type { PatronusProfile, PatronusReviewRequirement, PatronusRobot, PatronusStartOptions, PatronusView, PullRequest, ReviewReadiness } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
+import { waitingReviewers } from "@/lib/pull-request"
 import { robotsById } from "@/lib/test-robot"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
@@ -38,7 +40,7 @@ const GITHUB_REPOSITORY = "acme/monorepo"
 const CONFLICT_COMMIT = "0caf9066d2a4c3b1e5f7a9b8c6d4e2f1a3b5c7d9"
 
 /** The command that rewrites the facts files */
-export const UPDATE_FACTS = "UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/facts_of/)'"
+export const UPDATE_FACTS = "UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/scenario/)'"
 
 /** An answer of the review scan as the facts hold it: what Rust answered for a key of the review-readiness store */
 interface ReadinessFact {
@@ -49,8 +51,8 @@ interface ReadinessFact {
 }
 
 /**
- * What the Rust core computes of the case's repository, written by the `the_facts_of_the_<group>_cases_are_what_the_fixtures_leave` tests
- * (`crates/bd-remote/src/scenario_test.rs`) from the fixtures of the same `given`: the tips of the virtual branches, of
+ * What the Rust core computes of the case's repository, written by the group tests of `crates/bd-remote/src/scenario_test.rs`
+ * (`assert_facts_kept`) from the fixtures of the same `given`: the tips of the virtual branches, of
  * their remote branches and of the stack branches (`<branch>-tip`, `<branch>-remote`, `stack-<root>-tip`), the robots
  * as the list answers them, the repository view (`patronus_view` with the landing needs) and the review readiness of
  * the branch and of its whole stack, by the keys of the review-readiness store
@@ -354,16 +356,23 @@ function seedGitHub(given: Given, facts: ScenarioFacts): void {
 /**
  * The answers of the review scan as the facts hold them (Rust asked Patronus and GitHub for the branch, and for the
  * whole stack of its root while the sync built its stack branch), each under the key of the input the branch has now
- * (`readinessInputOf`, so a start reads them as fresh); none while the app hasn't asked (`notAsked`). Seeded after the
- * branches and the pull requests, which the key is computed from
+ * (`readinessInputOf`, so a start reads them as fresh), with the reviewers waited for and approved as the scan derives
+ * them of the input; none while the app hasn't asked (`notAsked`). Seeded after the branches and the pull requests,
+ * which the input is computed from. An answer asked with another tip or start than the app computes now is refused:
+ * the rule of the start lives in the app (`getPullRequestStart`), and Rust's facts follow it or the Vitest reddens
  */
-function seedReadiness(facts: ScenarioFacts): void {
+export function seedReadiness(facts: ScenarioFacts): void {
   const entries: Record<string, ReadinessEntry> = {}
   for (const [key, answer] of Object.entries(facts.readiness)) {
     const input = readinessInputOf(key)
-    if (input === null) {
-      continue
+    const asked = { tip: answer.tip, pullRequest: answer.pullRequest }
+    const asks = input === null ? null : { tip: input.branch.tip, pullRequest: input.branch.start.kind === "pullRequest" ? input.branch.start.number : null }
+    if (input === null || asks === null || asks.tip !== asked.tip || asks.pullRequest !== asked.pullRequest) {
+      throw new Error(
+        `${key}: the facts asked another input (${JSON.stringify(asked)}) than the app asks now (${JSON.stringify(asks)}): the start rule changed on one side; ${UPDATE_FACTS} rewrites the facts`,
+      )
     }
+    const reviewers = input.branch.reviewers ?? []
     entries[key] = {
       key: input.key,
       readiness: answer.readiness,
@@ -372,8 +381,8 @@ function seedReadiness(facts: ScenarioFacts): void {
       answeredAt: 0,
       tip: answer.tip,
       pullRequest: answer.pullRequest,
-      waitingFor: [],
-      approvedBy: [],
+      waitingFor: waitingReviewers({ reviewers }),
+      approvedBy: reviewers.filter(it => it.state === "approved").map(it => it.login),
     }
   }
   reviewReadinessStore.setState({ repositories: { [KEY]: entries } })

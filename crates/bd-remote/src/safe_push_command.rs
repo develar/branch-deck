@@ -42,7 +42,7 @@ use domain_types::error::ErrorCode;
 use domain_types::landing::{LandingFix, LandingRefusal, StackCommit, Subject};
 use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
-  PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState, UnavailableReadinessReason,
+  PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewerApprovalState, UnavailableReadinessReason,
   UnknownReadinessReason,
 };
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
@@ -1167,17 +1167,13 @@ fn plan(
       baseline: &synced.baseline,
       branch_prefix: &context.prefix,
     };
-    let branch = ReviewReadinessBranch {
-      branch_name: name.to_string(),
-      // the whole stack is asked as its stack branch
-      source: stack_push.as_ref().map(|stack| stack.full_name.clone()),
-      tip: local_tip.unwrap_or_else(|| format!("refs/heads/{full_name}")),
-      start: pull_request
-        .as_ref()
-        .map_or(ReviewStart::Rest, |pull_request| ReviewStart::PullRequest { number: pull_request.number }),
-      reviewers: pull_request.as_ref().map_or_default(|pull_request| pull_request.reviewers.clone()),
-      author: pull_request.as_ref().and_then(|pull_request| pull_request.author.clone()),
-    };
+    // the whole stack is asked as its stack branch
+    let branch = ReviewReadinessBranch::starting_from(
+      name.to_string(),
+      stack_push.as_ref().map(|stack| stack.full_name.clone()),
+      local_tip.unwrap_or_else(|| format!("refs/heads/{full_name}")),
+      pull_request.as_ref(),
+    );
     let review = review_readiness(context, service, runtime, &repository, &branch)?;
     // Patronus judges the approvals of the pull request the robot starts from; an older Patronus that doesn't say
     // whose count leaves the start to the robot

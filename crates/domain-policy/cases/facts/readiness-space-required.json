@@ -61,7 +61,7 @@
       "pushMode": "rebaseAutosquash",
       "sourceRevision": "abc123",
       "stackRoot": null,
-      "startTime": 1704189000,
+      "startTime": 1704189600,
       "status": "running",
       "targetBranch": "master",
       "url": "https://patronus/robot/newer"
