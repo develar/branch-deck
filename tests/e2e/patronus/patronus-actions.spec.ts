@@ -935,15 +935,29 @@ test.describe("Patronus actions", () => {
       await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
     })
 
+    /**
+     * #7 approved by alice, and every read of the rules of master fails with `reason`; the reads recorded. The push of
+     * the start runs through the test server (`origin` is the repository itself), not answered in the page
+     */
+    async function setupUnreadableRules(
+      page: Page,
+      setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+      syncAndWaitForBranches: () => Promise<unknown>,
+      reason: string,
+    ): Promise<{ repo: TestRepositoryBuilder; rules: readonly unknown[] }> {
+      const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice", "approved")] }))
+      await routeCommandError(page, "get_branch_rules", reason)
+      // the later route sees each read first
+      const rules = await recordCommand(page, "get_branch_rules")
+      return { repo, rules }
+    }
+
     test("should confirm a push into an approved pull request whose rules can't be read, never reading them as keeping the approvals", async ({
       page,
       setupRepo,
       syncAndWaitForBranches,
     }) => {
-      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
-      await routeCommandError(page, "get_branch_rules", "GitHub answered 403: Resource not accessible by integration")
-      // the later route sees each read first
-      const rules = await recordCommand(page, "get_branch_rules")
+      const { repo, rules } = await setupUnreadableRules(page, setupRepo, syncAndWaitForBranches, "GitHub answered 403: Resource not accessible by integration")
 
       // the click has something to say: the popover, not a start
       await expectWarnedStart(
@@ -956,9 +970,7 @@ test.describe("Patronus actions", () => {
     })
 
     test("should ask again for the rules a start couldn't read, and confirm with the key", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
-      await routeCommandError(page, "get_branch_rules", "GitHub answered 500")
-      const rules = await recordCommand(page, "get_branch_rules")
+      const { repo, rules } = await setupUnreadableRules(page, setupRepo, syncAndWaitForBranches, "GitHub answered 500")
 
       const first = await openSafePushWithKey(page, "JIRA-456")
       await expect(first.getByTestId("safe-push-rules-unknown")).toContainText("Cannot check whether the push keeps the approvals of #7: GitHub answered 500.")
