@@ -47,7 +47,11 @@ impl OperationId {
   /// (`src-tauri/src/tracing_log_test.rs`, `crates/bd-cli/src/operation_test.rs` quote the text)
   #[must_use]
   pub fn span(self, op: Option<&str>) -> tracing::Span {
-    if let Some(op) = op { tracing::info_span!("operation", %op, operation_id = %self) } else { tracing::info_span!("operation", operation_id = %self) }
+    if let Some(op) = op {
+      tracing::info_span!("operation", %op, operation_id = %self)
+    } else {
+      tracing::info_span!("operation", operation_id = %self)
+    }
   }
 }
 
