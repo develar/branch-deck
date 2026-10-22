@@ -71,7 +71,10 @@ export interface ActivityTarget {
   readonly kind?: ActivityFilter
 }
 
-/** Opens Activity at `target`, from any window: the main window opens it (`useAppCommand("open_activity")` of `IndexPage`) */
+/**
+ * Opens Activity at `target`, from any window: the main window toggles its side panel, or opens the window where the
+ * panel has no room (`useActivityPanel`); a target with a chip opens the panel at it
+ */
 export function openActivity(target: ActivityTarget = {}): void {
   runAppCommand("open_activity", target)
 }

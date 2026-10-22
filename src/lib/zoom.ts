@@ -18,8 +18,11 @@ export function nextZoom(current: number, action: ZoomAction): number {
 
 /** The minimum size of the main window at 100% (`src-tauri/src/zoom.rs`): the header fits one line from 960 px */
 export const MIN_WINDOW = { width: 960, height: 600 } as const
-/** The islands need 768 CSS px (`md`), so a zoom above 125% widens the minimum window */
-const MIN_ISLANDS_WIDTH = 768
+/**
+ * The islands need 768 CSS px (`md`), so a zoom above 125% widens the minimum window; the branch tables keep it beside
+ * the Activity side panel
+ */
+export const MIN_ISLANDS_WIDTH = 768
 
 /** The minimum width of the main window at `zoom`, as `min_window_width` in `src-tauri/src/zoom.rs` */
 export function minWindowWidth(zoom: number): number {

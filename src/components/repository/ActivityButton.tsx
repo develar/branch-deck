@@ -5,8 +5,8 @@ import { openActivity } from "@/lib/activity-window"
 import { useHasActivity } from "@/stores/activity"
 
 /**
- * The header button of Activity, what Branch Deck did in the repository: a click opens its window (or brings it to the
- * front). Hidden while the log of the repository is empty.
+ * The header button of Activity, what Branch Deck did in the repository: a click toggles its side panel (or opens its
+ * window where the panel has no room). Hidden while the log of the repository is empty.
  */
 export function ActivityButton() {
   const hasActivity = useHasActivity()

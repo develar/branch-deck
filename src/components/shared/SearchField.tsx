@@ -18,6 +18,8 @@ export interface SearchFieldProps {
   /** The width: `w-60` in a bar, `w-full` in a sidebar */
   className?: string
   inputRef?: RefObject<HTMLInputElement | null>
+  /** `/` focuses it from anywhere in the window (on by default); off for a second search of a window, which has one `/` */
+  slashFocus?: boolean
 }
 
 /**
@@ -25,10 +27,10 @@ export interface SearchFieldProps {
  * `/` focuses it from anywhere in the window (the `Kbd` at its end while empty), X clears a typed text, Escape clears
  * it, then leaves the field, ↓ moves to the first result.
  */
-export function SearchField({ value, onValueChange, label, onLeave, onArrowDown, className, inputRef }: SearchFieldProps) {
+export function SearchField({ value, onValueChange, label, onLeave, onArrowDown, className, inputRef, slashFocus = true }: SearchFieldProps) {
   const ownRef = useRef<HTMLInputElement>(null)
   const ref = inputRef ?? ownRef
-  useSlashFocus(ref, true)
+  useSlashFocus(ref, slashFocus)
   return (
     <InputGroup className={cn("h-7", className)}>
       <InputGroupAddon>
@@ -60,7 +62,7 @@ export function SearchField({ value, onValueChange, label, onLeave, onArrowDown,
       />
       <InputGroupAddon align="inline-end">
         {value === "" ? (
-          <Kbd>/</Kbd>
+          slashFocus && <Kbd>/</Kbd>
         ) : (
           <InputGroupButton size="icon-xs" aria-label="Clear the filter text" onClick={() => onValueChange("")}>
             <XIcon />

@@ -166,7 +166,7 @@ by the next sync the same way.
   seen), so a restart doesn't show it again; what lands later shows again. The "N landed" chips and the "New" marks stay
   until Dismiss, which the Activity entry of the report offers once the island is hidden, and the entry keeps the
   report ([Activity](activity.spec.md)).
-  [@test] ../../tests/e2e/activity/activity.spec.ts (`should keep the landed report after a sync hid the island`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should keep the landed report after a sync hid the island, in the window`, `should keep the landed report after a sync hid the island, in the panel`)
 - The copy button of a baseline commit (the full hash) shows while its commit row is hovered or the button has keyboard
   focus, as the copy button of the commit that merged an archived branch.
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should show the copy button of a baseline commit on hover`)

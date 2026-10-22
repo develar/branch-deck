@@ -4,6 +4,7 @@ import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { activityEntry, openActivityWindow } from "../helpers/activity-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
+import { MIN_WINDOW } from "../helpers/header-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { emitTauriEvent, enableAutoSyncOnFocus, finishedSyncCount, runAndWaitForSync, syncFromMenu, syncOnWindowFocus, waitForTauriListener } from "../helpers/sync-helpers"
 import { holdCommand, holdCommandCalls } from "../helpers/wait-helpers"
@@ -326,7 +327,9 @@ test.describe("Commit message", () => {
     test("should undo a reword from Activity", async ({ page }) => {
       const { preview, hash } = await rewordPerfCommit(page)
       await expect(rewordToast(page, hash)).toBeVisible()
-      // the native menu item: the preview stays open in the main window
+      // the native menu item, where the side panel has no room: the window opens, the preview stays open in the main
+      // window
+      await page.setViewportSize(MIN_WINDOW)
       const window = await openActivityWindow(page, async () => {
         await waitForTauriListener(page, "open_activity")
         await emitTauriEvent(page, "open_activity")

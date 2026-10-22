@@ -30,21 +30,29 @@
           </button>
         </div>
       </header>
-      <main class="min-h-0 flex-1 overflow-y-auto">
-        <div class="w-full px-2 pb-2">
-          <div class="flex flex-col gap-2" data-testid="branch-creator-root">
-            <div class="alert group/alert relative grid w-full gap-0.5 rounded-2xl border px-4 py-3 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2.5 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4 border-destructive/25 bg-destructive/10 text-destructive *:data-[slot=alert-description]:text-destructive/90" data-slot="alert" data-testid="error-alert" role="alert">
-              <svg aria-hidden="true" class="lucide lucide-circle-x" />
-              <div class="font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground" data-slot="alert-title">
-                Invalid path: [TEMP_PATH]
-              </div>
-              <div class="text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4 whitespace-pre-line" data-slot="alert-description">
-                Not a Git repository
-              </div>
+      <div class="min-h-0 flex-1">
+        <div class="flex h-full w-full aria-[orientation=vertical]:flex-col" data-group="true" data-slot="resizable-panel-group" id="[ID]" style="height: 100%;  width: 100%;  overflow: hidden;  display: flex;  flex-flow: row;  touch-action: pan-y">
+          <div data-panel="true" data-slot="resizable-panel" data-testid="main" id="main" style="min-height: 0px;  max-height: 100%;  height: auto;  min-width: 0px;  max-width: 100%;  width: auto;  border: 0px;  padding: 0px;  margin: 0px;  display: flex;  flex: 100 1 0px;  overflow: visible">
+            <div style="max-height: 100%;  max-width: 100%;  flex-grow: 1;  overflow: auto;  touch-action: pan-y">
+              <main class="h-full overflow-y-auto">
+                <div class="w-full px-2 pb-2">
+                  <div class="flex flex-col gap-2" data-testid="branch-creator-root">
+                    <div class="alert group/alert relative grid w-full gap-0.5 rounded-2xl border px-4 py-3 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2.5 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4 border-destructive/25 bg-destructive/10 text-destructive *:data-[slot=alert-description]:text-destructive/90" data-slot="alert" data-testid="error-alert" role="alert">
+                      <svg aria-hidden="true" class="lucide lucide-circle-x" />
+                      <div class="font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground" data-slot="alert-title">
+                        Invalid path: [TEMP_PATH]
+                      </div>
+                      <div class="text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4 whitespace-pre-line" data-slot="alert-description">
+                        Not a Git repository
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </main>
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   </div>
   <div data-base-ui-portal="" data-slot="toast-portal" id="[ID]" />

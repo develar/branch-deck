@@ -1,12 +1,20 @@
 ---
 name: Activity
-description: Requirements for the log of what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, pull request retargets, history rewrites, errors) and the review requests it told about, opened from the header, with the Undo of a rewrite while its toast's lasts, in a window of its own with the chips of the kinds and a search.
+description: Requirements for the log of what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, pull request retargets, history rewrites, errors) and the review requests it told about, opened from the header, with the Undo of a rewrite while its toast's lasts, in a side panel of the main window or a window of its own, with the chips of the kinds and a search.
 style: plain-1
 targets:
   - ../../src/stores/activity.ts
   - ../../src/components/repository/ActivityButton.tsx
   - ../../src/components/repository/ActivityLog.tsx
   - ../../src/pages/ActivityPage.tsx
+  - ../../src/components/repository/ActivityPanel.tsx
+  - ../../src/components/repository/ActivityPanelContent.tsx
+  - ../../src/hooks/useActivityPanel.ts
+  - ../../src/stores/activity-panel.ts
+  - ../../src/lib/input-modality.ts
+  - ../../src/pages/IndexPage.tsx
+  - ../../src/stores/settings/appSettings.ts
+  - ../../src/components/shared/SearchField.tsx
   - ../../src/lib/activity-window.ts
   - ../../src/lib/activity-window-link.ts
   - ../../src/hooks/useActivityWindowLink.ts
@@ -45,8 +53,9 @@ Date: 2026-10-15
 
 What Branch Deck did lives in toasts of 5 to 10 seconds: the push that dropped remote commits, the update, what landed,
 the Safe Push the user started, the squash and its Undo. Activity keeps them: a `HistoryIcon` button in the header opens
-a window with the log of the selected repository, newest first by day, each entry with what happened, the detail and
-when; chips of the kinds and a search find an entry in a month of them. A branch name shows its row, a landed entry
+a side panel beside the branch tables (or a window of its own) with the log of the selected repository, newest first
+by day, each entry with what happened, the detail and when; chips of the kinds and a search find an entry in a month of
+them. A branch name shows its row, a landed entry
 has the report of the island, a rewrite has its Undo while the toast's lasts. It is the history the landing overview
 leaves out: the overview tells the present, its line of the last day opens Activity at its Robots.
 
@@ -133,7 +142,7 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   rewrite once, closes the toast, and the entry says "undone"; after the window the button goes, and the entry says
   what was done, as its title.
   [@test] ../../src/stores/activity.test.ts (`offers the Undo of a rewrite for the window of its toast, once`, `marks a rewrite undone from its toast`)
-  [@test] ../../tests/e2e/activity/activity.spec.ts (`should offer the Undo of a squash while the toast's lasts`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should offer the Undo of a squash while the toast's lasts, in the window`, `should offer the Undo of a squash while the toast's lasts, in the panel`)
 - The undo itself is not persisted: after a restart no entry has an Undo.
   [@test] ../../src/stores/activity.test.ts (`has no Undo for a rewrite of an earlier session`)
 
@@ -151,15 +160,37 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   header button goes.
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should clear the log of the repository`)
 
+### Side panel
+
+- The header button, View → Activity of ☰ (custom title bar) and the native Window → Activity (macOS) or View →
+  Activity (Windows and Linux) toggle the side panel of the main window; "Show in Activity" of the landing overview
+  opens it at its chip. Every entry point asks the main window (`openActivity`, the app command `open_activity`), which
+  owns the log. An open names its chip ("Show in Activity": Robots; the others none, All) and starts over with it and an
+  empty search. The panel shows the log of the selected repository only, and follows a switch of it.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should toggle the side panel from the header button, show a branch from it, and remember it open`, `should toggle the side panel from the View menu of ☰ and from the native menu`)
+  [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
+- The panel opens only where the area under the header has room for it beside the islands: their minimum (768 CSS px,
+  `MIN_ISLANDS_WIDTH`) plus the panel's (320 px). Without the room an entry point opens the window `activity` instead
+  (or brings the open one to the front), and a panel left open shows again once the window is wide enough.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should record an applied update, the button on the header line at the minimum window width`)
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should undo a reword from Activity`)
+- Open or closed is a setting (`appSettings.activityPanel`), kept across starts; the width of the panel is kept once the
+  user dragged its divider (`useDefaultLayout`, as the sidebar of a review).
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should toggle the side panel from the header button, show a branch from it, and remember it open`)
+- The focus goes into the log of the panel only when the keyboard opened it (the last input of the main window was a
+  key, `isKeyboardInput`); a click and the native menu leave it where it is. Escape closes the panel only while the
+  focus is in it (the search takes its own Escape first) and gives the focus back where it was before it came in; Close
+  (`XIcon`, "Close Activity") does the same.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should take the focus into the panel only when the keyboard opened it, and give it back on Escape`)
+- What the panel does runs where it is: a branch name reveals the row (`requestReveal`), the panel stays; Undo and
+  Dismiss as in the window. Open in Window closes the panel and opens the window at the chip of the open.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should toggle the side panel from the header button, show a branch from it, and remember it open`, `should offer the Undo of a squash while the toast's lasts, in the panel`, `should keep the landed report after a sync hid the island, in the panel`)
+
 ### Window
 
-- The header button, View → Activity of ☰ (custom title bar), the native Window → Activity (macOS) or View → Activity
-  (Windows and Linux) and "Show in Activity" of the landing overview open the window `activity`, or bring the open one
-  to the front: every entry point asks the main window (`openActivity`, the app command `open_activity`), which owns
-  the log. An open names its chip ("Show in Activity": Robots; the others none, All) and starts over with it and an
-  empty search.
-  [@test] ../../tests/e2e/activity/activity.spec.ts (`should open from the View menu of ☰ and from the native menu`, `should filter by the chips of the kinds and the search, an open starting over at its chip`)
-  [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
+- Open in Window of the side panel, and every entry point where the panel has no room, open the window `activity`, or
+  bring the open one to the front; an open starts over with its chip and an empty search.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should filter by the chips of the kinds and the search, an open starting over at its chip`)
 - The window shows the log of the repository the main window shows, and follows a switch of it; its title names the
   repository ("Activity — branch-deck"). The main window tells it the entries, the branches of its table, the commits
   of the undismissed landed report and the links of the landed branches whenever one of them or the selection changes
@@ -169,7 +200,7 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   name brings the main window to the front and reveals the row (`requestReveal`), the window stays; Undo runs the undo
   of this session's rewrite (`canUndoActivity`: "Cannot undo …: its time ran out" past the window); Dismiss and Clear
   Log. A refusal is an error toast in the window.
-  [@test] ../../tests/e2e/activity/activity.spec.ts (`should record the pushes with the remote commits a force push dropped, and show the branch`, `should offer the Undo of a squash while the toast's lasts`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should record the pushes with the remote commits a force push dropped, and show the branch`, `should offer the Undo of a squash while the toast's lasts, in the window`)
 - The chips All, Robots (Patronus), Pushes, Updates (an update and what it landed), Reviews, Rewrites and Errors, with
   their counts of the entries the search keeps, one at a time; the chosen one again goes back to All; a chip shows
   while it counts an entry or is chosen. The search keeps the entries whose title or description has its text,
@@ -183,7 +214,7 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   (`LandedBranchRow`), each expanding to its commits. While its commits are in the undismissed report (their chips and
   the "New" marks show, the island may be hidden since, see [Landed Commits](landed-commits.spec.md)), "Dismiss" clears
   them as the island's Dismiss.
-  [@test] ../../tests/e2e/activity/activity.spec.ts (`should keep the landed report after a sync hid the island`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should keep the landed report after a sync hid the island, in the window`, `should keep the landed report after a sync hid the island, in the panel`)
 
 ## User Experience
 
@@ -191,6 +222,10 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   "Activity" (an icon-only button, [UI Theme](../../docs/design/ui-theme.md)); it is hidden while the log of the
   repository is empty. The header stays on one line from 960 px.
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should record an applied update, the button on the header line at the minimum window width`)
+- The side panel is an island (`Card`) on the canvas beside the islands of the main window, 8px from them, from the
+  window edge and from the bottom, under the header: 24rem until its divider (the 8px gap) is dragged, at least 320 px,
+  at most half the area. Its 40px header has "Activity", Open in Window (`AppWindowIcon`, `xs`) and Close; under it the
+  search (`w-full`, without `/`, which stays the branch table's) and the chips, then the log, which scrolls.
 - The window opens at 560 × 720, at least 440 × 400 (wider above a zoom of 110%: `sub_window_min_size`); "Activity" in
   its title bar. On the canvas the search (`SearchField`, `w-60`, `/` focuses it) and the chips (`ChoiceChip`, as the
   filter bar of the branch table), below them the log in one `Card` island, the entries newest first grouped by day
@@ -213,8 +248,9 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   `src/lib/push-summary.test.ts` (the words of a push).
 - `pnpm e2e`: `tests/e2e/activity/activity.spec.ts` with the templates `issue_links` (pushes through `routePush`, a
   squash), `simple` (a second repository), `behind_upstream`, `update_conflict` and `landed_upstream`. The window is a
-  linked page of its own (`openActivityWindow` of `tests/e2e/helpers/activity-helpers.ts`, `openLinkedSubWindow`).
-  Test ids: `activity-button`, `activity-window`, `activity-filter`, `activity-list`, `activity-empty`,
+  linked page of its own (`openActivityWindow` of `tests/e2e/helpers/activity-helpers.ts`, `openLinkedSubWindow`), opened
+  by Open in Window of the side panel unless a test opens it otherwise. Test ids: `activity-button`, `activity-panel`,
+  `activity-panel-window`, `activity-panel-close`, `activity-window`, `activity-filter`, `activity-list`, `activity-empty`,
   `activity-day`, `activity-entry` with `activity-title`, `activity-description`, `activity-branch`, `activity-undo`,
   `activity-undone`, `activity-landed-toggle`, `activity-landed-dismiss`, `activity-landed-report`;
   `activity-clear`.

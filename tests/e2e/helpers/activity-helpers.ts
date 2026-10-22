@@ -17,11 +17,24 @@ export async function expectActivityOpened(page: Page, count: number): Promise<O
   return opened
 }
 
+/** The Activity side panel of the main window */
+export function activityPanel(page: Page): Locator {
+  return page.getByTestId("activity-panel")
+}
+
+/** Opens the side panel by the header button, then its Open in Window: a window wide enough for the panel */
+export async function openWindowFromPanel(page: Page): Promise<void> {
+  await activityButton(page).click()
+  await activityPanel(page).getByRole("button", { name: "Open in Window" }).click()
+  await expect(activityPanel(page)).toHaveCount(0)
+}
+
 /**
- * Opens Activity by `open` (the header button by default), then shows the window as a linked page of its own
- * (`openLinkedSubWindow`): the main window tells it the log, and runs what it asks for
+ * Opens the Activity window by `open` (Open in Window of the side panel by default; where the panel has no room, an
+ * entry point opens the window itself), then shows the window as a linked page of its own (`openLinkedSubWindow`): the
+ * main window tells it the log, and runs what it asks for
  */
-export async function openActivityWindow(page: Page, open: () => Promise<unknown> = () => activityButton(page).click()): Promise<Page> {
+export async function openActivityWindow(page: Page, open: () => Promise<unknown> = () => openWindowFromPanel(page)): Promise<Page> {
   const count = (await getOpenedSubWindows(page)).length
   await open()
   const window = await openLinkedSubWindow(page, await expectActivityOpened(page, count))

@@ -45,6 +45,7 @@ flowchart TD
     W --> T["Branch table island: Card"]
     W --> U["Unassigned commits island: Card"]
     W --> A["Archived branches island: CollapsibleCard built on Card"]
+    W --> S["Activity side panel island: Card beside the others"]
     T --> R["Rows: hover bg-muted, a translucent tint"]
     T --> P["Inner panels: rounded-lg, e.g. NestedPanel, InfoCard"]
 ```
@@ -380,7 +381,13 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - islands are 8px apart and 8px from the window edges, as the 6px Islands gap on the spacing scale: `gap-2` in
     `BranchCreator` and `WindowPage`, a full-width `Container` with `px-2` (`pb-2` under the toolbar of the main
     window), `px-2 pb-2` under the row of a sub-window;
-  - islands take the full window width, as IntelliJ tool windows do.
+  - islands take the full window width, as IntelliJ tool windows do; the one block beside them is a side panel.
+- **A side panel** (Activity, [Activity](../../spec/repository/activity.spec.md#side-panel)) is an island of its own
+  to the right of the islands, under the toolbar, which stays the full width: a `Card` with a 40px header (the title,
+  its actions, Close), 8px from the islands, the window edge and the bottom. The 8px gap is its divider
+  (`ResizableHandle`, transparent), dragged to a width that is kept (`useDefaultLayout`, as the sidebar of a review).
+  It opens only where the islands keep their minimum beside it (`MIN_ISLANDS_WIDTH`, 768 CSS px, plus the panel's own
+  320 px); without the room, what would open it opens its window instead, never a squeezed table.
 
 ### Branch columns
 

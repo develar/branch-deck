@@ -1,6 +1,7 @@
 // @spec spec/repository/activity.spec.md
+import type { Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
-import { activityButton, activityEntry, expectActivityOpened, openActivityWindow } from "../helpers/activity-helpers"
+import { activityButton, activityEntry, activityPanel, expectActivityOpened, openActivityWindow, openWindowFromPanel } from "../helpers/activity-helpers"
 import {
   collapseBranch,
   expandBranch,
@@ -18,6 +19,7 @@ import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
+import { waitForStorePersistence } from "../helpers/wait-helpers"
 
 // `issue_links`: 7 branches, none pushed, ABC-123 has 4 commits. `behind_upstream` / `update_conflict`: master is behind
 // origin/master, the update rebases cleanly / conflicts in src/app.txt. `landed_upstream`: a robot pushed feature-auth
@@ -97,13 +99,13 @@ testWithIssueLinks.describe("Activity", () => {
     // the next open, of the open window, starts over: its chip, an empty search
     await window.getByRole("textbox", { name: "Filter by branch or text" }).fill("abc")
     const count = (await getOpenedSubWindows(page)).length
-    await activityButton(page).click()
+    await openWindowFromPanel(page)
     await reopenLinkedSubWindow(window, await expectActivityOpened(page, count))
     await expect(window.getByRole("textbox", { name: "Filter by branch or text" })).toHaveValue("")
     await expect(window.getByTestId("activity-title")).toHaveCount(2)
   })
 
-  testWithIssueLinks("should offer the Undo of a squash while the toast's lasts", async ({ page }) => {
+  const squashAndUndo = async ({ page }: { page: Page }, surface: "window" | "panel") => {
     const row = findBranchRow(page, "ABC-123")
     await expandBranch(page, row)
     await selectCommit(getBranchCommitRow(page, "ABC-123", "Add session management"))
@@ -117,15 +119,30 @@ testWithIssueLinks.describe("Activity", () => {
     await expect(dialog).toBeHidden()
     await verifyCommitCount(row, "3 commits")
 
-    const window = await openActivityWindow(page)
-    const entry = activityEntry(window, "Squashed 2 commits")
+    // the Undo of the window is run by the main window, the panel's there itself; both are the toast's: it undoes once
+    // and closes the toast
+    let scope
+    if (surface === "window") {
+      scope = await openActivityWindow(page)
+    } else {
+      await activityButton(page).click()
+      scope = activityPanel(page)
+    }
+    const entry = activityEntry(scope, "Squashed 2 commits")
     await expect(entry).toHaveAttribute("data-kind", "rewrite")
-    // the Undo of Activity is the toast's, run by the main window: it undoes once and closes the toast
     await entry.getByTestId("activity-undo").click()
     await expect(entry.getByTestId("activity-undone")).toHaveText("undone")
     await expect(entry.getByTestId("activity-undo")).toHaveCount(0)
     await verifyCommitCount(row, "4 commits")
     await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0)
+  }
+
+  testWithIssueLinks("should offer the Undo of a squash while the toast's lasts, in the window", async ({ page }) => {
+    await squashAndUndo({ page }, "window")
+  })
+
+  testWithIssueLinks("should offer the Undo of a squash while the toast's lasts, in the panel", async ({ page }) => {
+    await squashAndUndo({ page }, "panel")
   })
 
   testWithIssueLinks("should clear the log of the repository", async ({ page }) => {
@@ -138,6 +155,62 @@ testWithIssueLinks.describe("Activity", () => {
     await expect(activityButton(page)).toHaveCount(0)
     await expect(window.getByTestId("activity-empty")).toHaveText("Nothing yet: what Branch Deck does in the repository shows here")
     await expect(window.getByTestId("activity-clear")).toBeDisabled()
+  })
+})
+
+testWithIssueLinks.describe("Activity side panel", () => {
+  testWithIssueLinks("should toggle the side panel from the header button, show a branch from it, and remember it open", async ({ page }) => {
+    await routePush(page, {})
+    const row = findBranchRow(page, "ABC-123")
+    await getPushButton(row).click()
+    await expectNothingToPush(row)
+
+    await activityButton(page).click()
+    const panel = activityPanel(page)
+    await expect(panel.getByRole("heading", { name: "Activity" })).toBeVisible()
+    const entry = activityEntry(panel, "Pushed ABC-123")
+    await expect(entry.getByTestId("activity-description")).toHaveText("4 commits · created the remote branch")
+    // beside the islands, in the main window: no window opens
+    expect(await getOpenedSubWindows(page)).toEqual([])
+    await waitForStorePersistence(page, "appSettings", settings => (settings as { activityPanel?: boolean } | undefined)?.activityPanel === true)
+
+    // the branch name shows its row, the panel stays
+    await collapseBranch(page, row)
+    await entry.getByTestId("activity-branch").filter({ hasText: "ABC-123" }).click()
+    await verifyBranchState(row, "open")
+    await expect(panel).toBeVisible()
+
+    // the button again closes it, and Close does too
+    await activityButton(page).click()
+    await expect(panel).toHaveCount(0)
+    // a default is not written: closed, the setting goes
+    await waitForStorePersistence(page, "appSettings", settings => (settings as { activityPanel?: boolean } | undefined)?.activityPanel !== true)
+    await activityButton(page).click()
+    await panel.getByRole("button", { name: "Close Activity" }).click()
+    await expect(panel).toHaveCount(0)
+  })
+
+  testWithIssueLinks("should take the focus into the panel only when the keyboard opened it, and give it back on Escape", async ({ page }) => {
+    await routePush(page, {})
+    await getPushButton(findBranchRow(page, "feature-auth")).click()
+    const panel = activityPanel(page)
+
+    // a click: the focus stays on the button, so Escape is not the panel's
+    await activityButton(page).click()
+    await expect(activityEntry(panel, "Pushed feature-auth")).toBeVisible()
+    await expect(activityButton(page)).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(panel).toBeVisible()
+    await activityButton(page).click()
+    await expect(panel).toHaveCount(0)
+
+    // the keyboard: the focus goes into the log, Escape closes the panel and gives it back to the button
+    await activityButton(page).focus()
+    await page.keyboard.press("Enter")
+    await expect(panel.getByTestId("activity-list")).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(panel).toHaveCount(0)
+    await expect(activityButton(page)).toBeFocused()
   })
 })
 
@@ -186,33 +259,39 @@ test.describe("Activity of updates", () => {
     // after the landing indicator, apart from it
     expect(button!.x).toBeGreaterThanOrEqual(landing!.x + landing!.width)
 
-    const window = await openActivityWindow(page)
+    // no room for the side panel beside the islands: the button opens the window
+    const window = await openActivityWindow(page, () => activityButton(page).click())
     await expect(activityEntry(window, "Updated master: rebased 1 commit onto origin/master")).toHaveAttribute("data-kind", "update")
+    await expect(activityPanel(page)).toHaveCount(0)
   })
 
-  test("should open from the View menu of ☰ and from the native menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should toggle the side panel from the View menu of ☰ and from the native menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await useTitleBar(page, TITLE_BARS.gnome)
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     await page.getByTestId("update-project-button").click()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
 
-    const window = await openActivityWindow(page, async () => {
-      await page.getByTestId("main-menu-button").click()
-      // File opens first; the open menu has the focus, → goes to View
-      await expect(page.getByRole("menuitem", { name: /Sync Branches/ })).toBeVisible()
-      await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[role=menu]") !== null)).toBe(true)
-      await page.keyboard.press("ArrowRight")
-      await page.getByRole("menuitem", { name: "Activity" }).click()
-    })
-    await expect(activityEntry(window, "Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    await page.getByTestId("main-menu-button").click()
+    // File opens first; the open menu has the focus, → goes to View
+    await expect(page.getByRole("menuitem", { name: /Sync Branches/ })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[role=menu]") !== null)).toBe(true)
+    await page.keyboard.press("ArrowRight")
+    await page.getByRole("menuitem", { name: "Activity" }).click()
     await expect(page.getByTestId("main-menu")).toHaveCount(0)
+    const panel = activityPanel(page)
+    await expect(activityEntry(panel, "Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    // a click leaves the focus outside the panel
+    await expect(panel.getByTestId("activity-list")).not.toBeFocused()
 
-    // the native item (macOS: Window → Activity) sends its command to the main window
-    const count = (await getOpenedSubWindows(page)).length
+    // the native item (macOS: Window → Activity) sends its command to the main window: it closes the open panel, then
+    // opens it again; no window opens
     await waitForTauriListener(page, "open_activity")
     await emitTauriEvent(page, "open_activity")
-    expect((await expectActivityOpened(page, count)).data.kind).toBeNull()
+    await expect(panel).toHaveCount(0)
+    await emitTauriEvent(page, "open_activity")
+    await expect(activityEntry(panel, "Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    expect(await getOpenedSubWindows(page)).toEqual([])
   })
 
   test("should record a refused update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -229,7 +308,10 @@ test.describe("Activity of updates", () => {
     await expect(entry.getByTestId("activity-description")).toHaveText("Conflicts in 1 file: src/app.txt. Nothing was changed.")
   })
 
-  test("should keep the landed report after a sync hid the island", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
+  const keepLandedReport = async (
+    { page, setupRepo, syncAndWaitForBranches, testStore }: Pick<Parameters<Parameters<typeof test>[2]>[0], "page" | "setupRepo" | "syncAndWaitForBranches" | "testStore">,
+    surface: "window" | "panel",
+  ) => {
     await setupRepo("landed_upstream")
     await syncAndWaitForBranches()
     await page.getByTestId("update-project-button").click()
@@ -248,8 +330,13 @@ test.describe("Activity of updates", () => {
     await expect(chip).toHaveText("1 landed · 1 local")
 
     // the entry of the update keeps the report, with the rows of the island
-    const window = await openActivityWindow(page)
-    const entry = activityEntry(window, "2 branches landed in origin/master")
+    const scope =
+      surface === "window"
+        ? await openActivityWindow(page)
+        : await activityButton(page)
+            .click()
+            .then(() => activityPanel(page))
+    const entry = activityEntry(scope, "2 branches landed in origin/master")
     await expect(entry.getByTestId("activity-description")).toHaveText("feature-auth and search · rebased 2 commits")
     await entry.getByTestId("activity-landed-toggle").click()
     const search = entry.getByTestId("activity-landed-report").locator('[data-testid="landed-branch"][data-branch-name="search"]')
@@ -257,10 +344,18 @@ test.describe("Activity of updates", () => {
     await search.getByRole("button", { expanded: false }).click()
     await expect(search.getByTestId("landed-commits")).toContainText("Add index")
 
-    // Dismiss from the entry, run by the main window, clears the chips; the entry stays
+    // Dismiss from the entry, run by the main window (the panel is in it), clears the chips; the entry stays
     await entry.getByTestId("activity-landed-dismiss").click()
     await expect(chip).toHaveCount(0)
     await expect(entry.getByTestId("activity-landed-dismiss")).toHaveCount(0)
     await expect(entry).toBeVisible()
+  }
+
+  test("should keep the landed report after a sync hid the island, in the window", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
+    await keepLandedReport({ page, setupRepo, syncAndWaitForBranches, testStore }, "window")
+  })
+
+  test("should keep the landed report after a sync hid the island, in the panel", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
+    await keepLandedReport({ page, setupRepo, syncAndWaitForBranches, testStore }, "panel")
   })
 })

@@ -9,14 +9,16 @@ import { activityStore, canUndoActivity, clearActivity, selectActivity, undoActi
 import { branchSyncStore } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { dismissLanded, landedStore } from "@/stores/landed"
-import { getBranchRobot } from "@/stores/patronus"
-import { getPullRequest } from "@/stores/pull-requests"
-import { getSelectedProject } from "@/stores/repository"
+import { getBranchRobot, patronusStore } from "@/stores/patronus"
+import { getPullRequest, pullRequestsStore } from "@/stores/pull-requests"
+import { getSelectedProject, repositoryStore } from "@/stores/repository"
+import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 
 /*
  * The main window's side of the Activity window (`@/lib/activity-window`): the log is the main window's (it records,
  * keeps the Undo of this session's rewrites and the landed report), so it tells the window the log of the selected
- * repository whenever it changed, and runs what the window asks for. The window follows the selected repository.
+ * repository whenever it changed, and runs what the window asks for. The window follows the selected repository. The
+ * side panel of the main window reads the same state from the stores (`buildActivityState`, `subscribeActivityState`).
  */
 
 interface ActivityShown {
@@ -45,7 +47,8 @@ function landedLinks(state: Pick<ActivityWindowState, "entries">): Record<string
   return links
 }
 
-function buildActivityState({ repositoryPath }: ActivityShown): ActivityWindowState {
+/** What Activity shows of the repository: its log, the branches of the table, the undismissed landed report, the links */
+export function buildActivityState({ repositoryPath }: ActivityShown): ActivityWindowState {
   const entries = selectActivity(activityStore.getState(), repositoryPath)
   const landed = landedStore.getState()
   const branches = branchSyncStore.getState()
@@ -57,6 +60,19 @@ function buildActivityState({ repositoryPath }: ActivityShown): ActivityWindowSt
     branches: branches.syncedRepositoryPath === repositoryPath ? branches.branchOrder : [],
     undismissed: landed.repositoryPath === repositoryPath ? landed.landed.flatMap(branch => branch.commits.map(commit => commit.id)) : [],
     links: landedLinks({ entries }),
+  }
+}
+
+/** The stores Activity is built from (`buildActivityState`), the selected repository among them */
+const ACTIVITY_STORES = [activityStore, branchSyncStore, landedStore, pullRequestsStore, patronusStore, repositoryStore, repositorySettingsStore] as const
+
+/** Calls `listener` on every change of what Activity shows; returns the unsubscribe */
+export function subscribeActivityState(listener: () => void): () => void {
+  const unsubscribes = ACTIVITY_STORES.map(store => store.subscribe(listener))
+  return () => {
+    for (const unsubscribe of unsubscribes) {
+      unsubscribe()
+    }
   }
 }
 

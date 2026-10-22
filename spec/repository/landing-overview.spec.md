@@ -110,7 +110,7 @@ indicator, whose states were the same story told twice.
   failed · 1 canceled · 2 dry runs passed in the last 24 hours" (`formatFinishedSummary`, the parts that apply; the
   merged and the failed named, so a glance answers what landed today), the newest robot of each branch, without those
   of the units in master (the In master row says it). "Show in Activity" closes the overview and opens Activity at its
-  Robots, the history of the robots the app told about.
+  Robots (its side panel, or its window where the panel has no room), the history of the robots the app told about.
   [@test] ../../src/lib/landing-overview.test.ts (`names what merged and what failed, counts the canceled and the passed Dry Runs, nothing without a robot`, `leaves out of the last day the robots of what is in master: the In master row says it`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
 - A row of a unit has its node, its name (a click closes the overview and shows the row; of a stack, the stack

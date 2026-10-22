@@ -1,7 +1,7 @@
 // @spec spec/repository/landing-overview.spec.md
 import type { PatronusRobotDetails } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expectActivityOpened } from "../helpers/activity-helpers"
+import { activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import {
@@ -19,7 +19,6 @@ import {
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
-import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 const NOW = ROBOTS_NOW
@@ -68,11 +67,14 @@ test.describe("Landing overview", () => {
     await verifyBranchState(findBranchRow(page, "JIRA-456"), "open")
     await page.mouse.move(0, 0)
 
-    // Activity has the history of the robots: Show in Activity opens it at its Robots
-    const count = (await getOpenedSubWindows(page)).length
+    // Activity has the history of the robots: Show in Activity opens its side panel at its Robots
     await (await openLandingOverview(page)).getByTestId("landing-finished").getByRole("button", { name: "Show in Activity" }).click()
     await expect(popover).toBeHidden()
-    expect((await expectActivityOpened(page, count)).data.kind).toBe("robots")
+    await expect(
+      activityPanel(page)
+        .getByTestId("activity-filter")
+        .getByRole("button", { name: /Robots/ }),
+    ).toHaveAttribute("aria-pressed", "true")
   })
 
   test("should queue the robots nearest to finishing first, and fit the window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
