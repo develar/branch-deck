@@ -109,6 +109,9 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
 "The repository has no commits yet: commit to the main branch, then sync".
 
+The codes are `ErrorCode` of `crates/domain-types/src/error.rs` (its `exit_code` and `retryable`); `CliError`, the error
+object, is in `crates/bd-core/src/error.rs`.
+
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
 `retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `round_moved`, `locked` and `network_error`: retry when it is
 true, whatever the exit code. The message of `locked` names the holder when it wrote its record (`` `bd check --fix` (pid 4242, for 12

@@ -93,7 +93,7 @@ D — одинаковый ввод даёт разный результат в 
 | R7 | Restart, Push and Restart | `getRobotRestartAction` (`patronus.ts:425`), `runPushAndRestart` (`patronus-actions.ts:77-120`); `bd push --restart-running` | intent `RestartRobot` |
 | R8 | Предпросмотр группировки коммита | `groupFor`/`parseSubject`/`findIssueKey`/`sanitizeBranchName` (`src/lib/commit.ts:114-216`, 14 потребителей); `CommitGrouper`, `sync-utils` | Rust `preview_group(message)`, debounce в inline-форме |
 | R9 | Markdown тела коммита | `parseCommitBody` (`src/lib/commit-message.ts`); `commit_body_markdown` (`sync-core/src/pull_request_text.rs`) | Rust; диалог PR получает текст из `get_new_pull_request` |
-| R10 | Валидация имени ветки | `useBranchNameValidation.ts`; `is_valid_branch_prefix` (`git-ops/src/branch_names.rs`), `stack_path` (`history-rewrite/src/stack.rs:58`) | Rust (`domain-types::branch_names`, чистая); при заметной задержке ввода — TS-проверка против Rust-оракула (фикстура, которую пишет Rust-тест) |
+| R10 | Валидация имени ветки | `useBranchNameValidation.ts`; `is_valid_branch_prefix` (`domain-types/src/branch_names.rs`), `stack_path` (`domain-types/src/stack.rs:213`) | Rust (`domain-types::branch_names`, чистая); при заметной задержке ввода — TS-проверка против Rust-оракула (фикстура, которую пишет Rust-тест) |
 | R11 | Эффективный префикс ветки | см. факты | Rust; с `s6-session-table` сессия ключуется разрешённым префиксом |
 | S1 | Таблица веток | страница (`branch-sync.ts`) и Rust (`RepositoryViews::keep`) | сессия в Rust |
 | S2 | Факты о remote | строки страницы, результаты push, `remoteStatusUpdate` отбрасывается во время push | сессия, `Fact<T>` с порядковым номером наблюдения |
@@ -422,7 +422,7 @@ Activity) подписывается на ту же сессию по пути �
 ### Разделение между `bd` и приложением без daemon
 
 - Один код: `bd` строит `Session::one_shot(key)` — без планировщика и подписчиков, факты добираются по
-  `needs(intent)`; те же `prepare`/`execute`, тот же pre-sync, та же JSON-схема и exit codes (`bd-core/src/error.rs`).
+  `needs(intent)`; те же `prepare`/`execute`, тот же pre-sync, та же JSON-схема и exit codes (`domain-types/src/error.rs`).
   `bd status` сохраняет сегодняшние чтения: локальная таблица плюс список роботов Patronus с курсором `since` в
   object cache (`robot_list.rs:135-147`) ради `landed_by` (`status.rs:393-424`); остальные внешние факты — `Unknown`;
   бюджет процессов не меняется (14 на неизменённом sync монорепозитория).
@@ -768,6 +768,17 @@ rewrites между процессами через файл `s10`; `s12` ждё
   - `sync-test-utils` становится модулем `test_utils::sync_fixtures` (`TestReporter`, `placed_branch`); `test-utils`
     зависит от `domain-types`, цикла нет (`domain-types` без dev-dependencies).
   - Комментарии `///` переезжающих типов не меняются: specta пишет их в `bindings.ts`, schemars — в `bd schema`.
+  - Сделано: модули `domain-types` — `commit`, `conflict`, `update_project`, `branch_names`, `stack`, `error`,
+    `landing`; `git-ops/src/model.rs` удалён. Методы, которым нужны внутренности `git-ops`, стали его функциями:
+    `update_branch::blocked_state` (был `UpdateState::blocked`) и `word_replay::resolve_note` (был
+    `UpdateResolvedCommit::note`). `Subject` — `Branch { name }` и `WholeStack { root }`, не newtype-варианты: serde
+    отказывает внутренне тегированному enum (`tag = "kind"`) на newtype-варианте строки; `LandingSubject` удалён,
+    `LandingGateParams::subject()` строит `Subject`. `architecture_test.rs`: `UNREACHABLE` запрещает `domain-types`
+    достигать `git-ops`, `git-executor`, `object-cache`, `reqwest`, `tokio`, Tauri и `clap`, `patronus` — `git-ops`.
+    `cargo tree -p patronus -e normal` всё ещё показывает `git-executor`: через `test-utils` feature `fake`, которую
+    включает `test-server`, а `.cargo/config.toml` объединяет features по workspace; с
+    `--config 'resolver.feature-unification="selected"'` git-crates нет. Убрать ребро — вынести `fake_server` из
+    `test-utils`, вне s2.
 - **Удаляется:** `crates/sync-types`, `crates/sync-test-utils`; записи allowlist `sync-types → git-ops`,
   `patronus → git-ops`.
 - **Проверки:** `bindings.ts` байт в байт (specta не зависит от путей crates); `bd schema` без изменений;
@@ -935,7 +946,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   **Документированные изменения `bd`** в том же коммите: retarget до push (`spec/cli/agent-cli.spec.md` «bd push»,
   `git-operations.md` «Agent push»); HTTP-чтения вне repository lock («Agent Safe Push»); `pushed_over` (D4);
   `needs_push` без `--push` (D5); `pull_request_other_base` (D3b); `plan_changed` — новый `ErrorCode` (exit 3 и повторяемый, как
-  `head_moved` и `locked`, `bd-core/src/error.rs:214,264`), потому что sync `bd` больше не держит repository lock до `execute` и rewrite другой
+  `head_moved` и `locked`, `domain-types/src/error.rs:207,254`), потому что sync `bd` больше не держит repository lock до `execute` и rewrite другой
   сессии между `prepare` и полным witness меняет план; строка в `agent-cli.spec.md`, текст `skill_text()`
   (`crates/bd-cli/src/agent_help.rs`) и `bd schema`. Бюджеты: `a_safe_push_check` и новый
   `a_safe_push_start` в `crates/bd-cli/src/process_budget_test.rs`, HTTP-бюджеты в
@@ -1215,7 +1226,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s0b-remote-bridge | приземлён |
 | s0c-scenarios | не начат |
 | s1-holes | не начат |
-| s2-types | не начат |
+| s2-types | приземлён |
 | s3-crates | не начат |
 | s4-errors | не начат |
 | s5-settings | не начат |
