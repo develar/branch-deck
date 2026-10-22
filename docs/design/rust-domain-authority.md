@@ -2,7 +2,7 @@
 
 **Status:** Draft
 
-**Updated:** 2026-10-21
+**Updated:** 2026-10-22
 
 **Tags:** [architecture, rust, cli, tauri, landing, session, operations]
 
@@ -41,29 +41,30 @@ sync на `(repository, prefix)` и выводит одно правило дл�
 
 | Факт | Где |
 | --- | --- |
-| Допустимость Safe Push решается дважды | `src/lib/safe-push-decision.ts` (факты из `src/hooks/useSafePush.ts:240-345`) и `plan()` в `crates/bd-remote/src/safe_push_command.rs:813-1133` |
-| Исполнение Safe Push оркестрируется дважды | `src/lib/safe-push-start.ts`, цикл ответа `src/stores/patronus.ts:1373-1384`; `safe_push_command.rs:410-600` |
-| `bd safe-push` держит repository lock во время HTTP | список роботов `:867`, `start_options` `:981`, список PR `:997`, readiness `:1086`, retarget `:507-523`, cancel `:524-527`; вне lock — только старт (`:561`) |
+| Допустимость Safe Push решается дважды | `src/lib/safe-push-decision.ts` (факты из `src/hooks/useSafePush.ts:240-345`) и `plan()` в `crates/bd-remote/src/safe_push_command.rs:860-1190` (файл 1943 строки) |
+| Исполнение Safe Push оркестрируется дважды | `src/lib/safe-push-start.ts`, цикл ответа `src/stores/patronus.ts:1373-1384`; `safe_push()` в `safe_push_command.rs:415-601` |
+| `bd safe-push` держит repository lock во время HTTP | lock `:431`; список роботов `:915`, `start_options` `:1042`, список PR `:1056`, readiness `:1146`, retarget `:515-526`, cancel `:531`; `drop(lock)` `:566`, вне lock — только старт (`:572-600`) |
 | Push оркестрируется дважды, с разным порядком retarget | приложение retarget **до** push (`src/lib/git/push.ts:136`, `new-pull-request.ts:128`); `bd push` **после** push и lock (`push_command.rs:235-248`); `bd safe-push` до (`:507-523`) |
 | Push в приложении идёт без repository lock | `src-tauri/src/commands/push.rs:21-47` проверяет только `not_built`; `bd push` держит lock |
-| `start_patronus_robot` без проверок parked, landed, approvals, overlap | `src-tauri/src/commands/patronus.rs:206-231`; после `f3bea2b9` проверяет только landing gate |
-| Правила push hold в трёх копиях | `repository-view/src/patronus_view.rs`, `crates/bd-remote/src/push_hold.rs`, `actionPushBlocker`/`checkPushHold` в `push.ts:249,407` |
-| Таблица, факты и опросы принадлежат странице | `src/stores/branch-sync.ts` (1814 строк, per-commit `SyncEvent`, flush 16 мс); 11 таймеров в `patronus.ts`, `pull-requests.ts`, `review-readiness.ts`, `review-requests.ts`, `usePatronusRobotDetails.ts` |
+| `start_patronus_robot` без проверок parked, landed, approvals, overlap | `src-tauri/src/commands/patronus.rs:208-249`; после `f3bea2b9` проверяет только landing gate |
+| Hold ветки решается один раз, в Rust; продублированы адаптеры и hold stack branch | решение — `hold` в `repository-view/src/patronus_view.rs`; `push_holds()` (`crates/bd-remote/src/push_hold.rs:147-166`) и `getPushHold` (`src/stores/patronus.ts:677`, из `factsOf` `:264-283`) только читают его. Дважды: проверка статуса и cancel/restart держащего робота перед push (`checkPushHold`/`cancelHoldingRobot`, `src/lib/git/push.ts:249-290`; `push_locked`/`--restart-running` в `push_command.rs`) и hold stack branch (`stackBranchHoldReasonIn`, `stores/patronus.ts:468`: parked member, landed, робот стека; `push_command.rs:692`, `safe_push_command.rs:893`) |
+| Таблица, факты и опросы принадлежат странице | `src/stores/branch-sync.ts` (1814 строк, per-commit `SyncEvent`, flush 16 мс); опрос — `setTimeout` в `review-requests.ts:345`, `pull-requests.ts:234`, `patronus.ts:1189,1403`, `review-readiness.ts:319`, единственный `setInterval` — `usePatronusRobotDetails.ts:60` |
 | Страница отправляет выводы обратно в Rust | `RemoteFact.up_to_date` из `remoteFactsIn` (`stores/patronus.ts:511`), `GetRepositoryViewParams.matched` из `robotMatchIn` (`:491`) |
 | `table_generation` — один глобальный `AtomicU32`, страница его игнорирует | `repository-view/src/views.rs:30,53`; приём по `revision` в `stores/patronus.ts:583-584` |
 | `git-ops` владеет UI DTO | `Commit`, `BranchError`, `BranchSyncStatus`, `CommitSyncStatus`, `WordResolutionSummary`, `UpdateCheck`, `CommitInfo` — импорт в `sync-types/src/lib.rs:2-4`, `branch_name_suggestion.rs:3` |
-| `patronus → git-ops` ради одной чистой функции | `strip_branch_namespace`, `crates/patronus/src/service.rs:7` |
+| `patronus → git-ops` ради чистых имён веток | `BranchKind` и `strip_branch_namespace`, `crates/patronus/src/service.rs:7` |
 | У `settings.json` уже два писателя и ручные читатели со своими defaults | `LazyStore` (`src/stores/settings/app-store.ts:65`); `restart_app` (`src-tauri/src/title_bar.rs:250-262`); `zoom.rs:35-40` (1.0), `menu.rs:156-161` (`autoSyncOnFocus` = true), `title_bar.rs:237`, `bd-core/src/context.rs:293-318` |
 | Префикс ветки разрешается дважды | `computeEffectiveBranchPrefix` (`src/stores/repository.ts:107-114`) и `resolve_branch_prefix` (`sync-core/src/branch_prefix.rs:27`) |
-| Неудачное чтение правил GitHub становится `false` на сессию | `src/hooks/useDismissesStaleReviews.ts:19-25` |
+| Неудачное чтение правил GitHub читается как «push сохраняет approvals» | `src/hooks/useDismissesStaleReviews.ts:19-26`: `forget` удаляет ответ и возвращает `false`; до следующего вопроса peek-кэш держит `false` |
 | Matching роботов держится общей фикстурой, которую читают обе стороны | `src/test-support/robot-match-cases.json`: `patronus_start_test.rs:126`, `src/lib/patronus.test.ts:39`; комментарий `patronus_start.rs:49` называет файл неверно |
-| Три реестра команд; 35 команд в e2e никогда не доходят до Rust | `collect_commands!` (108, `src-tauri/src/lib.rs`), 76 ручных маршрутов `crates/test-server/src/lib.rs:108+`, 145 записей `tests/e2e/setup/tauri-mocks.ts`; `routeCommand(page, "start_patronus_robot")` в 25 тестах |
+| Три реестра команд; 35 команд в e2e никогда не доходят до Rust | `collect_commands!` (111, `src-tauri/src/lib.rs`), 77 ручных маршрутов `/invoke/*` в `crates/test-server/src/lib.rs` (75 совпадают с именами команд, плюс `browse_repository/{repo_id}` и `get_blob_syntax`); `tests/e2e/setup/tauri-mocks.ts` — ~20 локальных обработчиков (`:482-570`), всё остальное уже проксируется на сервер (`proxyToTestServer`, `:106`, `:595`), 405 роняет тест (`:153-157`); `routeCommand(page, "start_patronus_robot")` в 25 тестах |
 | Test-server переизобретает логику | `get_branch_review_readiness` (~70 строк поверх `to_branch_readiness`), `resolve_patronus_revisions` в `tauri_command_bridge.rs` |
-| Draft-правило у UI и CLI совпадает | UI `blockedByDraft = isDraft && mode !== "dryRun"` (`src/lib/patronus.ts:867`); CLI отказывает только при `pushes` (`safe_push_command.rs:872,1048`) |
+| Draft-правило у UI и CLI совпадает | UI `blockedByDraft = isDraft && mode !== "dryRun"` (`src/lib/patronus.ts:867`); CLI отказывает только при `pushes` (`safe_push_command.rs:919,1111`) |
+| `bd status` читает Patronus | `landed_by`: `landed_branches(&PatronusFacts::read(.., read_robots(..)))` (`crates/bd-remote/src/status.rs:393-424`); список роботов с курсором `since` в object cache (`robot_list.rs:135-147`); флага `--remote` нет |
 
 Поправки к первой версии документа: «сетевые чтения вне lock, как в CLI» — неверно, вне lock только старт; «один
 писатель settings.json» — уже не так; `tableGeneration` не per-repository, а глобальный; фикстуру matching читают обе
-стороны, сломан только комментарий.
+стороны, сломан только комментарий; «push hold в трёх копиях» — решение одно (`patronus_view`), дублируются адаптеры.
 
 ### Реестр расхождений
 
@@ -73,18 +74,18 @@ D — одинаковый ввод даёт разный результат в 
 | id | Что | Приложение / `bd` (или вторая копия) | Одно правило |
 | --- | --- | --- | --- |
 | D1 | Push сбрасывает approvals, которые считает Patronus | UI отказывает (`safe-push-decision.ts:161-165`); `bd` не вызывает `read_branch_rules` (его единственный вызов — `src-tauri/src/commands/pull_requests.rs:230`) | `domain-policy::review`: отказ `push_dismisses_approvals { pr }`, исправление `push_then_request_review` |
-| D2 | Профиль с `skipsReview` | UI пропускает проверку approvals (`:110-112`); `bd` отказывает при `Missing`, если нет `--without-approvals`/`--create-pull-request` (`:1089`) | `skips_approvals = mode == SafePush && route == Api && (without_approvals \|\| profile.skips_review)`; у comment-маршрута профиля нет (`:1018-1026`) |
+| D2 | Профиль с `skipsReview` | UI пропускает проверку approvals (`:110-112`); `bd` отказывает при `Missing`, если нет `--without-approvals`/`--create-pull-request` (`safe_push_command.rs:1149`) | `skips_approvals = mode == SafePush && route == Api && (without_approvals \|\| profile.skips_review)`; у comment-маршрута профиля нет (`:1078-1088`) |
 | D3a | Порядок retarget при push | приложение до push, `bd push` после, `bd safe-push` до | `Retarget` в плане всегда **перед** `Push`; отказ GitHub на retarget собственного PR останавливает `Land`, а в `Push` только попадает в outcome |
-| D3b | PR в другую базу (release-ветка) | UI блокирует Safe Push (`branch-next-step.ts:505-524` → `safe-push-decision.ts:124`); `bd` стартует через API и игнорирует PR (`:1003-1007`) | `OtherBase` блокирует только старт, чьи approvals считаются (Safe Push по default checks); Dry Run, старт без review и профиль `skips_review` не блокирует; молча не retarget'ит — `Retarget` предлагается как исправление; `bd` получает отказ `pull_request_other_base { number, base }` |
+| D3b | PR в другую базу (release-ветка) | UI блокирует Safe Push (`branch-next-step.ts:505-524` → `safe-push-decision.ts:124`); `bd` стартует через API и игнорирует PR (`:1063`, `other_base_pull_request_start` `:572`) | `OtherBase` блокирует только старт, чьи approvals считаются (Safe Push по default checks); Dry Run, старт без review и профиль `skips_review` не блокирует; молча не retarget'ит — `Retarget` предлагается как исправление; `bd` получает отказ `pull_request_other_base { number, base }` |
 | D4 | Push поверх remote, который сдвинулся, но не имеет коммитов, которых нет у ветки | приложение повторяет push один раз (`push.ts:139-145`); `bd` отвечает `lease_rejected` | `domain-policy::push::over_moved_remote`: один повтор, только если `dropped_commits` пуст и у ветки есть работа; `bd` сообщает `pushed_over`; remote с чужими коммитами — `lease_rejected` у обоих |
 | D5 | Request review | приложение сначала пушит (`RequestReviewForm.tsx:99-103`); `bd request-review` не пушит; кандидаты считаются дважды (`request-review.ts:29`, `request_review_command.rs:263`) | в плане `RequestReview` есть шаг `Push`, если remote отстаёт; приложение подтверждает его, `bd` отказывает `needs_push` без `--push`; одна функция кандидатов |
 | D6 | Create PR | приложение: push → `wait_for_github_branch` → `create_pull_request` (`create-pull-request-context.ts:183-295`); `bd`: `safe-push --create-pull-request` с `wait_for_mirror` | один intent `CreatePullRequest` с `wait_for_mirror`; IPC `wait_for_github_branch` удаляется |
 | D7 | Закрытие PR, которые перенёс слившийся робот | только TS (`landed-stack.ts:45-90`) по опросу роботов (`stores/patronus.ts:910-925`) | правило `domain-policy::landed::pull_requests_to_close`; intent `CloseLandedPullRequests` из сессии приложения; `bd` по-прежнему не закрывает (решение landing.md), но `bd robot`/`bd status` перечисляют `closes` той же функцией |
 | D8 | Родитель для состава whole stack | TS `effectiveBase ?? declaredParent` (`useStackNextStep.ts:51-108`, `branch-sync.ts:355`); Rust `effective_base ?? blocked_by.parent` (`bd-core/src/stack_summary.rs:176`) | одна функция в Rust; конкретный случай расхождения — заблокированная ветка без effective base, чей объявленный родитель не равен `blocked_by.parent` — фиксируется в `s0c-scenarios`, правило выбирает владелец ([Решения владельца](#решения-которые-подтверждает-владелец)) |
-| D9 | Неизвестные правила GitHub становятся `false` | `useDismissesStaleReviews.ts:19-25` | `Fact::Unavailable` никогда не превращается в разрешение; см. D1 и решение владельца о случае без токена |
+| D9 | Неудачное чтение правил GitHub читается как `false` | `useDismissesStaleReviews.ts:19-26` (до следующего вопроса) | `Fact::Unavailable` никогда не превращается в разрешение; см. D1 и решение владельца о случае без токена |
 | D10 | Прямой IPC обходит проверки | `start_patronus_robot`, `restart_`, `cancel_patronus_robot`, `push_branch(es)` без lock | вся допустимость — в движке операций; низкоуровневый IPC удаляется в `s9-engine-remote`; до того `s1-holes` добавляет проверки в Rust |
 | R1 | Needs push, порядок push стека | `isRemoteUpToDate`, `getPushAction` (`push-summary.ts:24-62`), `needsPush`, `stackPushOrder` (`stack.ts:156-188`); `has_work_for_remote` (`push_command.rs:727`), `stack_branches_to_push` (`:674`) | `domain-policy::push::plan` |
-| R2 | Push hold (три копии) | см. факты | `domain-policy::holds`; `push_hold.rs` удаляется |
+| R2 | Hold stack branch и порядок перед push держащего робота | решение hold ветки одно (`patronus_view`); hold stack branch — TS `stackBranchHoldReasonIn` и проверки parked в `push_command.rs:692`, `safe_push_command.rs:893`; статус, cancel и restart держащего робота — `checkPushHold`/`cancelHoldingRobot` (`push.ts:249-290`) и `push_locked`/`--restart-running` | `domain-policy::holds` получает hold ветки из `patronus_view` и hold stack branch (s8); порядок «статус → cancel → push» — `operations::push` (s9); `push_hold.rs` (чтение представления для `bd push`) удаляется в s9 |
 | R3 | Parked | `src/lib/parked.ts:21-63`; `sync_core::parked::parked_state` (`parked.rs:126`) | `domain-policy::parked` |
 | R4 | Отказ в старте | `canStartRobot`, `isStartBlocked`, `allowsPushMode` (`src/lib/patronus.ts:520-625,823`); `BranchPatronus.start`, `is_start_blocked` (`repository_view.rs:131-158`, `patronus_start.rs:88,134`) — Rust-поля читает только `bd` | `domain-policy::land` |
 | R5 | Matching роботов | `findBranchRobot` (`patronus.ts:78`); `find_branch_robot` (`patronus_start.rs:50`) | только Rust; `RobotMatch` перестаёт быть входом |
@@ -92,7 +93,7 @@ D — одинаковый ввод даёт разный результат в 
 | R7 | Restart, Push and Restart | `getRobotRestartAction` (`patronus.ts:425`), `runPushAndRestart` (`patronus-actions.ts:77-120`); `bd push --restart-running` | intent `RestartRobot` |
 | R8 | Предпросмотр группировки коммита | `groupFor`/`parseSubject`/`findIssueKey`/`sanitizeBranchName` (`src/lib/commit.ts:114-216`, 14 потребителей); `CommitGrouper`, `sync-utils` | Rust `preview_group(message)`, debounce в inline-форме |
 | R9 | Markdown тела коммита | `parseCommitBody` (`src/lib/commit-message.ts`); `commit_body_markdown` (`sync-core/src/pull_request_text.rs`) | Rust; диалог PR получает текст из `get_new_pull_request` |
-| R10 | Валидация имени ветки | `useBranchNameValidation.ts`; `is_valid_branch_prefix`/`stack_path` (`git-ops/branch_names.rs`) | Rust (`domain-types::branch_names`, чистая); при заметной задержке ввода — TS-проверка против Rust-оракула (фикстура, которую пишет Rust-тест) |
+| R10 | Валидация имени ветки | `useBranchNameValidation.ts`; `is_valid_branch_prefix` (`git-ops/src/branch_names.rs`), `stack_path` (`history-rewrite/src/stack.rs:58`) | Rust (`domain-types::branch_names`, чистая); при заметной задержке ввода — TS-проверка против Rust-оракула (фикстура, которую пишет Rust-тест) |
 | R11 | Эффективный префикс ветки | см. факты | Rust; с `s6-session-table` сессия ключуется разрешённым префиксом |
 | R12 | Переизобретения в test-server | см. факты | реальные пути за фальшивыми сервисами |
 | S1 | Таблица веток | страница (`branch-sync.ts`) и Rust (`RepositoryViews::keep`) | сессия в Rust |
@@ -150,16 +151,17 @@ flowchart TD
   S["sync-core<br/>sync, сборка, remote status, push, review fetch, rewrites с sync"] --> H
   C["trial-check<br/>check, conflict fix, dangling, symbols, landing gate"] --> S
   U["update-core<br/>update project, pick, resolve session"] --> S
-  L["lease-pool<br/>lease, lease clean, agent workspace"] --> G
+  L["lease-pool<br/>lease, lease clean, agent workspace"] --> S
+  CL["commit-clustering<br/>кластеры bd suggest, области, сгенерированные файлы; без CLI"] --> G
   GH["github · patronus · youtrack<br/>HTTP-клиенты и их fakes"] --> T
-  RF["remote-facts<br/>читатели и писатели remote-фактов; без policy"] --> GH & S
+  RF["remote-facts<br/>читатели и писатели remote-фактов, планировщик опроса; без policy"] --> GH & S & M & P
   M["repository-model<br/>Session (actor), Fact store, derive, ViewPatch"] --> P & S
   ST["app-settings<br/>схема, defaults, resolve, один писатель"] --> T
   O["operations<br/>Intent → Plan → Outcome, admission, реестр, журнал"] --> M & RF & C & U & H & ST
-  API["app-api<br/>реестр команд, AppContext, транспортные traits, планировщики"] --> O
+  API["app-api<br/>реестр команд, AppContext, транспортные traits, планировщики"] --> O & RF & M
   TAURI["src-tauri<br/>окна, меню, тонкие обёртки"] --> API
   TS["test-server<br/>тот же app-api, fakes, TestClock"] --> API
-  BD["bd-core / bd-*<br/>clap, JSON, exit codes"] --> O
+  BD["bd-core / bd-*<br/>clap, JSON, exit codes"] --> O & L & CL
   TAURI --> BD
 ```
 
@@ -169,28 +171,36 @@ flowchart TD
 
 - `domain-types` и `domain-policy` не достигают ничего с IO, в том числе транзитивно: ни `git-ops`, ни executor, ни
   reqwest, tokio, tauri, clap.
-- `sync-core` не достигает `github`, `patronus`, `youtrack`, `code-symbols` (сегодня достигает: `sync-core/Cargo.toml`).
+- `sync-core` не достигает `github`, `patronus`, `youtrack`, `file-diffs`, `code-symbols` (сегодня достигает:
+  `sync-core/Cargo.toml`; `file-diffs` сам зависит от `code-symbols` без feature, `file-diffs/Cargo.toml:9`, поэтому
+  уходит каждый модуль `sync-core`, который читает `file_diffs`, см. `s3-crates`).
 - `patronus` не достигает `git-ops`.
 - `repository-model` не достигает `remote-facts`: модель хранит значения, а не добывает их.
-- Никто не зависит от `app-api`, `src-tauri`, `bd-*`, кроме `src-tauri → bd-cli`.
+- Никто не зависит от `app-api` и `src-tauri`. `bd-*` — слой CLI: `bd-core` — его основа; каждый `bd-<семейство>`
+  (`bd-lease`, `bd-remote`, `bd-rewrite`, `bd-update`) зависит от `bd-core` и библиотек ниже, но не от другого
+  семейства; `bd-cli` собирает все семейства; dev-dependency семейства на `bd-cli` с feature `fixtures` разрешена (тестовый
+  цикл, который cargo допускает). Вне слоя от `bd-*` зависит только `src-tauri`: от `bd-cli` (`bd`/`cli` и `install`)
+  и от `bd-core` (`bd_command`, `Environment`). Сегодняшнее `src-tauri → bd-lease` (`agent_defaults`,
+  `src-tauri/src/commands/agent_cli.rs:5`) уходит в `s3-crates`: `agent_defaults` — ядро `lease-pool`.
+  `bd-clustering` — библиотека без CLI и в `s3-crates` переименовывается в `commit-clustering`.
 - `bd-*` не зависят от `tauri` (сегодня не зависят; `app-settings` поэтому не использует `tauri-plugin-store`).
 
 | Crate | Из чего | Ответственность | Удаляется или поглощается |
 | --- | --- | --- | --- |
-| `domain-types` | переименование `sync-types`; DTO из `git-ops::model`, `commit_list::Commit`, `UpdateCheck`, `CommitInfo`; чистые `branch_names`; `ErrorCode` из `bd-core/src/error.rs:18`; owned-форма `LandingSubject` как единственный `Subject` | единственный дом каждого типа, пересекающего границу процесса или окна; serde, `specta` и `schemars` за features; wire-имена не меняются | `crates/sync-types`; `sync-test-utils` (59 строк) в `test-utils` |
+| `domain-types` | переименование `sync-types`; DTO из `git-ops::model`, `commit_list::Commit`, `UpdateCheck`, `CommitInfo`; чистые `branch_names`; `ErrorCode` из `bd-core/src/error.rs:18`; owned-форма `LandingSubject` как единственный `Subject`; данные отказов landing gate — `LandingRefusal`, `LandingFix`, `ReferenceKind` (`sync-core/src/landing_gate.rs:52,82,92`) и `StackCommit` (`check.rs:165`) | единственный дом каждого типа, пересекающего границу процесса или окна; serde, `specta` и `schemars` за features; wire-имена не меняются | `crates/sync-types`; `sync-test-utils` (59 строк) в `test-utils` |
 | `domain-policy` | новый | чистые функции над явными срезами фактов: `land`, `next_step`, `landing_node`, `holds`, `push`, `parked`, `stack`, `landed`, `pull_request`, `review`, `robot_match`, `actions`, `admission`, `news`, `refresh`, `reason`; только табличные тесты | правила TS-модулей и `bd-remote` ([Реестр расхождений](#реестр-расхождений)) |
 | `git-ops` | без изменений, зависит от `domain-types` | только git | DTO-модули уезжают |
 | `history-rewrite` | без изменений | rewrites, stores, repository lock | — |
 | `sync-core` | сужается | sync и сборка, `stack_branch`, `remote_status`, `push`/`push_lease`/`remote_command`/`transfer_progress`, `review_fetch`, `target_conflict`, `robot_commits`/`robot_landing` (содержимое), rewrites, которым нужен sync, конфигурация | HTTP-модули → `remote-facts`, проверки → `trial-check`, update → `update-core`, lease → `lease-pool` |
-| `trial-check` | из `sync-core` | `check`, `conflict_fix`, `dangling_*`, `inverted_stack`, `missing_declarations`, `dependencies`, `symbol_scan`, `symbol_dependencies`, `module_roots`, `landing_gate` (~7 тыс. строк); `diff_scan` остаётся в `sync-core`, если нужен sync (`cargo tree` в `s3-crates`) | — |
+| `trial-check` | из `sync-core` | `check`, `conflict_fix`, `dangling_*`, `inverted_stack`, `missing_declarations`, `dependencies`, `symbol_scan`, `symbol_dependencies`, `module_roots`, `landing_gate` (~7 тыс. строк); а также всё, что читает `file_diffs`: `diff_scan`, `move_hunk` с `dangling_fix`, `declaration_checks`, проверочная половина `missing_commits` (`changed_files`, `missing_commits`; `CommitOwners`, который читает sync, остаётся в `sync-core`) | — |
 | `update-core` | из `sync-core` | `update_project`, `pick`, `resolve_session`, `resolve_copies` | — |
-| `lease-pool` | из `sync-core` | `lease`, `lease_clean`, `clone_dir`, `agent_workspace`; `git_ops::lease_slot` остаётся в `git-ops` (его считает scan) | — |
-| `remote-facts` | из `sync-core` | читатели: `pull_requests`, `review_requests`, `branch_rules`, `review_readiness`, `patronus` (список, детали, проблемы, профили); писатели: `pull_request_create`, `pull_request_writes`, `patronus_command`, start/restart/cancel; текст: `pull_request_text`, `stack_pull_request`; каждая функция возвращает типизированное значение или типизированный отказ, ни одна не решает policy | `bd-remote/src/patronus_facts.rs`, `robot_list.rs` (половина fetch), `pull_request_retarget.rs` |
+| `lease-pool` | из `sync-core` | `lease`, `lease_clean`, `clone_dir`, `agent_workspace` и `agent_defaults` (из `bd-lease/src/workspace_command.rs`); `git_ops::lease_slot` остаётся в `git-ops` (его считает scan). Зависит от `sync-core` (`repository_config`, `uncommitted_changes`, `agent_workspace.rs:8-9`) и через него от `history-rewrite` (`repository_lock`, `lease.rs:16`); две ссылки в `update-core` (`pick::baseline_tracking_ref`, `resolve_copies::display_path`, `lease.rs:9-10`) уезжают вниз: в `git_ops::revs` и `sync-utils` | — |
+| `remote-facts` | из `sync-core` | читатели: `pull_requests`, `review_requests`, `branch_rules`, `review_readiness`, `patronus_review` (`PreMergeCommitDto`, `patronus_review.rs:10`), `patronus` (список, детали, проблемы, профили); писатели: `pull_request_create`, `pull_request_writes`, `patronus_command`, start/restart/cancel; текст: `pull_request_text`, `stack_pull_request`; каждая функция возвращает типизированное значение или типизированный отказ, ни одна не решает policy; `scheduler` опроса (с s7) спрашивает `domain-policy::refresh`, когда и что читать | `bd-remote/src/patronus_facts.rs`, `robot_list.rs` (половина fetch), `pull_request_retarget.rs` |
 | `repository-model` | вырастает из `repository-view` | `Session` на `SessionKey` — один actor; `Fact<T>`; инкрементальная модель таблицы на `SyncEvent`; `derive()` → `RepositoryView`; диффинг `ViewPatch` по частям; `ContentMemo`; demand | глобальный `AtomicU32`; `GetRepositoryViewParams.{matched, remote, robots, revision}` |
 | `operations` | новый | `Intent`, `Plan`, `Effect`, `Outcome`; `admit`; `prepare`/`execute` по семействам (`land`, `push`, `robot`, `pull_request`, `review`, `rewrite`, `update`, `sign_in`); witness; `reconcile`; реестр `operations.json`; журнал; оборачивает существующие `*_core`, git не добавляет | оркестрация `bd-remote/src/{safe_push_command, push_command, robot_command, request_review_command, landed, status}.rs`; TS-оркестрация |
 | `app-settings` | новый | типизированный `AppSettings`; `SettingsFile { known, other }` с сохранением неизвестных и UI-only ключей; defaults; `resolve_branch_prefix` с источником; единственный писатель (атомарная запись, порядок, версия) | ручные читатели; файловая половина `restart_app` |
 | `app-api` | новый, в `s12-app-api`; тела `src-tauri/src/commands/*` (2,9 тыс. строк) | `AppContext` (executor, cache, sessions, services, settings, clock); реестр `api_commands!` из `async fn(ctx, params) -> Result<T, ApiError>`; транспортные traits `EventSink<T>` (Tauri `Channel`, SSE); планировщики сессий | тела команд; ручные маршруты `test-server/src/lib.rs` |
-| `bd-*` | сжимаются | clap → `Intent`; `Outcome` → JSON-схема и exit codes; сводки check уезжают в `bd-core` | ребро `bd-remote → bd-rewrite/bd-clustering`; `safe_push_command.rs` с 1883 строк до нескольких сотен отображения |
+| `bd-*` | сжимаются | clap → `Intent`; `Outcome` → JSON-схема и exit codes; сводки check уезжают в `bd-core` | ребро `bd-remote → bd-rewrite` (`check_command`, `safe_push_command.rs:39`); `bd-clustering` → `commit-clustering` (библиотека; `bd-remote/src/branch_stats.rs` читает `areas`, `generated`); `safe_push_command.rs` с 1943 строк до нескольких сотен отображения |
 | `test-server` | тонкий | размещает `app-api` с `FakeGitHub`/`FakePatronus`/фальшивым YouTrack за **реальными** сервисами, `TestClock`; fixture-эндпоинты пишут состояние fakes, эндпоинты счётчиков читают их журналы запросов | R12; 76 ручных маршрутов |
 | `integration-detection-tests` | сворачивается | 4,3 тыс. строк тестов становятся `crates/branch-integration/src/*_test.rs` | crate |
 
@@ -204,13 +214,13 @@ flowchart TD
 | Группировка коммитов в ветки | `history-rewrite/src/commit_grouper.rs` (без изменений) | TS-клон в `src/lib/commit.ts` (R8) |
 | Соответствие робота ветке и whole stack | `domain-policy/src/robot_match.rs` | `findBranchRobot`, `patronus_start.rs`, общая фикстура (R5) |
 | Что робот переносит или перенёс, по содержимому | `sync-core/src/robot_landing.rs` (факт с git) | содержательная половина `patronus_view.rs` |
-| Push hold, отказ в старте, предок и span landing | `domain-policy/src/holds.rs`, `land.rs` | правила `patronus_view.rs`, `push_hold.rs`, `actionPushBlocker`, `canStartRobot` (R2, R4) |
+| Hold ветки и stack branch, отказ в старте, предок и span landing | `domain-policy/src/holds.rs`, `land.rs` | hold-правила `patronus_view.rs`, `stackBranchHoldReasonIn`, проверки parked stack branch в `push_command.rs`/`safe_push_command.rs`, `actionPushBlocker`, `canStartRobot` (R2, R4) |
 | Needs push, push action, эквивалентность remote по содержимому | `domain-policy/src/push.rs` | `push-summary.ts`, `has_work_for_remote` (R1, D4) |
 | Piece, предки, whole stack, порядок push, родитель | `domain-policy/src/stack.rs` | `stack.ts`, `useStackNextStep.ts`, `whole_stack_of`, `stack_branches_to_push` (D8) |
 | Parked | `domain-policy/src/parked.rs` | `parked.ts`, `sync_core::parked::parked_state` (R3) |
 | Допустимость Safe Push и Dry Run | `domain-policy/src/land.rs` | `safe-push-decision.ts`, `readSafePush`, решающая половина `plan()` (R6, D2, D3b) |
 | Review: что считается, сброс push'ем, кандидаты | `domain-policy/src/review.rs` | `useDismissesStaleReviews.ts`, `request-review.ts`, `suggested_reviewers` (D1, D5, D9) |
-| База PR, retarget, другая база | `domain-policy/src/pull_request.rs` | `branch-next-step.ts:505-524`, `push.ts:136`, `safe_push_command.rs:1009-1016` (D3a, D3b) |
+| База PR, retarget, другая база | `domain-policy/src/pull_request.rs` | `branch-next-step.ts:505-524`, `push.ts:136`, `safe_push_command.rs:1069-1076` (D3a, D3b) |
 | Next step ветки и whole stack | `domain-policy/src/next_step.rs` | `branch-next-step.ts`, `useStackNextStep.ts` |
 | Landing node | `domain-policy/src/landing_node.rs` | `landing-node.ts` |
 | Что перенесено и какие PR закрыть | `domain-policy/src/landed.rs` | `landed-stack.ts`, `landed_by` (D7) |
@@ -252,6 +262,15 @@ Unavailable(reason) | Unknown`.
   изменилось или которых просит demand; PR — условный GET на фокус и после push; readiness — одна очередь по
   `READINESS_BATCH_SIZE`, упорядоченная demand'ом, со скрытыми строками, ждущими approval; review requests — как
   сегодня. Скрытый webview замедляет свои таймеры, планировщик Rust — нет; `News` приходит патчем и в скрытое окно.
+- **Какие часы.** На `Clock` идут только таймеры, которые решают, что и когда спросить или признать устаревшим: каденция
+  опроса, повторы и backoff, heartbeat реестра и возраст его записей (тест реестра осиротит запись сдвигом `TestClock`;
+  в e2e часы стоят, поэтому ни одна запись не сиротеет). На стенных часах (`Instant`) — то, что ограничивает только
+  задержку доставки: слияние патчей (16 мс) и ограниченное ожидание flock. E2E ждёт их через `data-view-version`,
+  никогда через `advanceBackendClock`.
+- **Опросом владеет не сессия.** Сессия (`repository-model`) хранит значения и выводит представление; читатели —
+  `remote-facts`; планировщик опроса — `remote-facts::scheduler` (с `s7-session-facts`): он читает `Demand` сессии,
+  вызывает читателей и применяет результат (`Session::apply(FactResult)`); его запускает хост (`src-tauri` и
+  `test-server`, с `s12-app-api` — `AppContext`). Ребро идёт `remote-facts → repository-model`, обратного нет.
 
 ### Представление: снимок и патчи
 
@@ -260,7 +279,8 @@ Unavailable(reason) | Unknown`.
 
 `BranchView` разрезан на части, которые меняются по разным причинам: `head` (имя, заголовок, issue, счётчики),
 `commits` (только с sync), `sync` (статус, сводка конфликта без содержимого, проблема стека), `remote` (статус и
-`PushAction`), `landing` (node, next step, hold, робот, PR, readiness, landed-by, блокеры Safe Push и Dry Run),
+`PushAction`), `landing` (node, next step, hold, робот, PR, readiness, landed-by и `LandDecision { blockers,
+confirmations }` для Safe Push и Dry Run — результат того же `land::decide`, который в s9 вызывает `prepare`),
 `actions` (`Vec<ActionState { id, availability: Enabled | Running{op} | Waits{op} | Disabled{reason} }>`).
 `StackView` по корню — то же для whole stack.
 
@@ -298,7 +318,8 @@ Unavailable(reason) | Unknown`.
   `ClosePullRequest`, `CloseLandedPullRequests { robot }`, `SubmitReview { pull_request, verdict, then_land }`,
   `Rewrite(RewriteIntent)` (Move, Rename, Restack, Unstack, Park, Unpark, Unapply, Reapply, Squash, SquashFixups,
   Reword, Amend, MoveHunk, AddIssueReference, ApplyConflictFix, DeleteArchived, DeleteUnapplied, Undo{token}),
-  `UpdateProject`, `FetchBaseline`, `DismissLanded`, `SignIn(provider)`, `SignOut(provider)`, `SetIssueState`.
+  `UpdateProject`, `FetchBaseline`, `DismissLanded`, `SignIn(provider)`, `SignOut(provider)`, `SetIssueState`,
+  `SetRepositoryConfig`, `FetchReview { pull_request }` (fetch и prune refs review), `ForgetStart { op }`.
 - `Plan { intent, fingerprint, lands, effects, confirmations, blockers: Vec<Reason>, waits: Vec<FactWait>,
   alternatives }`. `PlannedEffect`: `Fetch`, `Retarget`, `CancelRobot`, `Push { refs (leases), atomic }`,
   `StartRobot { route: Api{profile} | Comment{pr}, source_ref, tip }`, `CreatePullRequest`, `RequestReviewers`,
@@ -321,13 +342,16 @@ Unavailable(reason) | Unknown`.
   `observed_at`-подобное поле; **любое** изменение readiness, состояния PR, leases, профиля или вовлечённых роботов
   ведёт к новому решению, и если решение (эффекты, `lands`, подтверждения) отличается — `PlanChanged { plan }` без
   единого эффекта. Принятое подтверждение никогда не разрешает больший landing.
-- Witness читается **дважды**: дешёвый — в начале `execute`, до `Retarget` и `CancelRobot` (один `for-each-ref`
-  вовлечённых refs, PR number/head/base/draft, пересекающиеся роботы); полный — под lock перед push. Устаревший
-  план возвращает `PlanChanged` до первого внешнего эффекта.
-- Порядок фаз: факты и fetch (без lock) → дешёвый witness → `Retarget` → `CancelRobot` → lock → полный witness →
+- Witness читается **дважды**: дешёвый — в начале `execute`, без lock (один `for-each-ref` вовлечённых refs, PR
+  number/head/base/draft, пересекающиеся роботы), он отсекает устаревший план без ожидания lock; полный — под lock,
+  **до первого внешнего эффекта**. Поэтому `Retarget` и `CancelRobot` идут под lock после полного witness, как
+  сегодня в `bd` (`safe_push_command.rs:431` lock, `:531` cancel): `locked` или `PlanChanged` ничего не отменяет и не
+  retarget'ит. Под lock остаются только эти две записи и push; чтения фактов — до lock.
+- Порядок фаз: факты и fetch (без lock) → дешёвый witness → lock → полный witness → `Retarget` → `CancelRobot` →
   leased atomic push (`over_moved_remote` один раз) → unlock → перечитать роботов и PR, проверить overlap и
   approvals для comment-маршрута → `pending_start` в реестр → старт → факты и патч → журнал. Отказ, известный из
-  фактов, ничего не отменяет, не пушит и не создаёт.
+  фактов, ничего не отменяет, не пушит и не создаёт; отказ GitHub на retarget собственного PR останавливает `Land`
+  до cancel и push.
 
 ### Поток sync (приложение)
 
@@ -361,7 +385,11 @@ sequenceDiagram
 Окно вызывает `open_session(path)` (или получает снимок при создании) и подписывается. Под-окно (review, conflict,
 Activity) подписывается на ту же сессию по пути репозитория: сессия принадлежит процессу (Tauri state), не окну, и
 создаётся, если её нет; реле через главное окно (`sub-window-link.ts`, большая часть `branch-review-window.ts`)
-сжимается до открытия и фокуса. Один store на сессию (`src/model/store.ts`) применяет патчи по ключу; строка читает
+сжимается до открытия и фокуса. **Жизнь сессии:** она живёт, пока на неё подписано хоть одно окно или идёт её
+операция. Без подписчиков `Demand` пуст, и планировщик опроса этой сессии останавливается сразу (ни одного запроса
+для репозитория, которого не показывает ни одно окно); через 2 мин без подписчиков и операций сессия удаляется (с
+`s13-warm-start` она перед этим сохраняет последнее зафиксированное представление).
+Один store на сессию (`src/model/store.ts`) применяет патчи по ключу; строка читает
 `useRowPart(name, "landing")` — одну сохранённую ссылку вместо 7 подписок `useNextStepStores`. Презентеры
 (`src/presenters/*.ts`, чистые) отображают `NextStep`/`LandingNode`/`Reason`/`ActionState` в подписи, иконки и
 `MenuItem` с `onSelect = execute(intent, surface)`; они не читают stores и ничего не решают. Hover, меню и клавиши
@@ -370,7 +398,7 @@ Activity) подписывается на ту же сессию по пути �
 ### Safe Push (приложение; `bd` совпадает с шага 2)
 
 1. Slot показывает `landing.next`; доступность — из `actions`. Клик, `S` или Enter в поповере.
-2. `prepare(Land{…})`, один IPC. Сессия добавляет факты, которых нет Fresh для этого subject (readiness, правила
+2. `prepare(Land{…})`, один IPC. `operations::prepare` добирает через `remote-facts` и применяет к сессии факты, которых нет Fresh для этого subject (readiness, правила
    target, профили), не более одного запроса на каждый, **без** repository lock (для `bd` это изменение,
    документируется в `s9-engine-remote`). `domain-policy::land::decide` отдаёт `Plan` или блокеры; Loading-факт даёт
    `waits`, slot показывает «Checking the code-owner review…».
@@ -381,7 +409,12 @@ Activity) подписывается на ту же сессию по пути �
 
 ### Регруппировка (Move, Unstack, Rename…)
 
-`execute(Rewrite(…))` без `prepare`: движок готовит план внутри против `expect_version` страницы. Допуск: rewrite
+`execute(Rewrite(…), expect)` без `prepare`: движок готовит план внутри. `expect` — не `Version` (её `seq` растёт с
+каждым патчем фактов, в том числе с опросом роботов), а `TableWitness { head, store_refs }` из части `head`
+представления: HEAD и tips `refs/branch-deck/{issue-groups, stack-parents, parked}`, которые читает rewrite; патч
+фактов о remote его не меняет. Совпал — план из текущей таблицы. Не совпал — движок готовит план заново из текущей
+таблицы и исполняет его, если его эффекты те же для того же subject (ветка на месте, тот же коммит); иначе
+`PlanChanged { plan }` без эффекта. `expect_head` в `RewriteOptions` берётся из того же witness. Допуск: rewrite
 ждёт любой rewrite репозитория (в процессе и между процессами); тот же rewrite того же subject присоединяется.
 `*_core` с `RewriteOptions { held_lock, expect_head }` без изменений; движок последним эффектом запускает sync и
 завершает операцию после его финального патча (решение 3 `operations.md`). `Outcome.undo` → toast с Undo →
@@ -391,13 +424,15 @@ Activity) подписывается на ту же сессию по пути �
 
 - Один код: `bd` строит `Session::one_shot(key)` — без планировщика и подписчиков, факты добираются по
   `needs(intent)`; те же `prepare`/`execute`, тот же pre-sync, та же JSON-схема и exit codes (`bd-core/src/error.rs`).
-  `bd status` остаётся локальным: внешние факты `Unknown`, бюджет процессов не меняется (14 на неизменённом sync
-  монорепозитория).
+  `bd status` сохраняет сегодняшние чтения: локальная таблица плюс список роботов Patronus с курсором `since` в
+  object cache (`robot_list.rs:135-147`) ради `landed_by` (`status.rs:393-424`); остальные внешние факты — `Unknown`;
+  бюджет процессов не меняется (14 на неизменённом sync монорепозитория).
 - На диске: repository lock `$GIT_COMMON_DIR/branch-deck.lock` (git-записи, без изменений); реестр
   `$GIT_COMMON_DIR/branch-deck/operations.json` с собственным `operations.lock`; CAS на refs; LMDB object cache;
   mapping notes; stamp-файл `$GIT_COMMON_DIR/branch-deck/stamp`, который `bd` касается после любой мутации
   (rewrites тоже).
-- Приложение видит `bd`: сессия наблюдает `operations.json` и `stamp` через `notify` (новая зависимость; при отказе
+- Приложение видит `bd`: `operations::registry::watch` (его запускает хост) наблюдает `operations.json` и
+  `stamp` через `notify` и применяет чужие записи к сессии (новая зависимость; при отказе
   наблюдателя — перечитывание на фокус и перед каждым допуском). Чужая запись становится
   `RunningOperation { origin: OtherProcess { tool, pid } }` — строки показывают «bd: Safe Push of auth…» и ждут;
   `stamp` запускает проверку sync inputs, так что `bd group` агента виден в приложении в пределах секунды.
@@ -416,14 +451,17 @@ intent'ов. Ресурсы операции: имена веток (subject, т
 | Rewrite | join | **wait**: допущена, ждёт окончания; граница — `lock_timeout` repository lock, после неё `Busy{op}`; между процессами ту же границу даёт сам lock | run | run | новый rewrite из меню ждёт конца sync; Undo из toast допускается и ждёт в очереди за идущим rewrite, никогда не `Busy` |
 | Remote-действие | join | run | wait, с той же границей | run | push и land допускаются со step `WaitingForSync` и **держат свои ресурсы**, пока ждут |
 
-In-process реестр живёт в сессии (`OpId`, intent, ресурсы, step, origin); представление показывает его, и никто
-другой состояние операций не хранит. Удаляются: допуск `src/stores/operations.ts` (`getOperationBlocker`,
+In-process реестр: его **данные** — раздел `operations` сессии (`RunningOperation { op, intent, resources, step,
+origin }`, тип в `repository-model`), из которого `derive` выводит `Running{op}`/`Waits{op}`; его **писатель** —
+`operations::registry`, который допускает, меняет step и применяет изменения к сессии (`Session::apply(OperationPatch)`)
+и к файлу. Ребро остаётся `operations → repository-model`; никто другой состояние операций не хранит. Удаляются: допуск `src/stores/operations.ts` (`getOperationBlocker`,
 `runOperation`, `findSame`), `safePushStore.starting`, `pushingBranches`/`stackPushes`. `useIndicatorClaim`/
 `useSurfaceBusy` остаются локальным UI (`src/stores/indicators.ts`): TS помнит `opId → surface` из вызова `execute`.
 
 **Файл реестра** `operations.json`: `{ schema, operations: [{ id (ULID), tool, pid, process_started_at,
 heartbeat_at, host, started_at, intent, subject, resources, step, fingerprint, external: { pending_start: {
-source_ref, tip, route, pr, sent_at } } }] }`.
+source_ref, tip, route, pr, comment_id, sent_at } } }] }`; `comment_id` — id комментария `/patronus` из ответа
+GitHub на POST (для comment-маршрута, пока ответ не получен — пусто).
 
 - Lock: read-modify-write под `operations.lock` — flock с ограниченным ожиданием, только на время файловой операции,
   никогда поперёк git или HTTP. Это **отдельный** lock от repository lock, который `bd` держит поперёк sync и push
@@ -432,7 +470,12 @@ source_ref, tip, route, pr, sent_at } } }] }`.
 - Живость: heartbeat каждые 30 с. Запись осиротела, если heartbeat старше 5 мин **и** (тот же host: pid мёртв или
   его start time не совпадает — защита от переиспользования pid; другой host: всегда, живость непроверяема).
   Осиротевшая без `external.pending_*` отбрасывается при следующем допуске; с ним — становится `Unknown`, блокирует
-  те же ресурсы до `reconcile` и **никогда** не отбрасывается автоматически, также с другого host.
+  те же ресурсы до `reconcile` и **никогда** не отбрасывается автоматически, также с другого host. `reconcile`
+  повторяется при каждом допуске этих ресурсов и с каждым опросом роботов. Выход, когда он не может решить (Patronus
+  недоступен, токен истёк): intent `ForgetStart { op }` — действие «Forget This Start» в строке и в toast (с
+  подтверждением «Patronus may still run it»; рядом Open in Patronus) и `bd operation forget <id>`; оно снимает
+  запись и пишет в журнал `StartUnknown → Forgotten`. `bd safe-push` на занятых ресурсах получает `busy` с id
+  держателя и подсказкой этой команды.
 - Не хранит токенов и секретов; записи уходят по завершении, история — в журнале.
 - Писатель только `operations::registry` (scan-тест по образцу исключений `update-ref` с точным числом); файл и
   lock — в clean-правилах `.branchdeck.toml`; раздел «Operations registry» в `git-operations.md` и жёсткое правило в
@@ -444,8 +487,11 @@ Failed и Skipped. Неявного отката нет. Push без старт�
 
 **Потерянный ответ на старт** (timeout, разрыв после POST) даёт `StartUnknown { source_ref, tip, route }`; повторного
 POST нет. `reconcile(op)`: роботы с этим source ref и revision, начатые после `sent_at`; для comment-маршрута —
-комментарий, несущий **HTML-маркер с `operation_id`**, который движок вкладывает в команду `/patronus`, так что
-совпадение точное, а не по автору и окну времени. Найдено — Done с id; доказуемо отсутствует после ответа Patronus за
+ответ бота на комментарий по его `comment_id` (реакции, один условный GET, как `read_patronus_command_reply`,
+`patronus_command.rs:52-67`). Если потерян сам ответ GitHub на POST комментария, `comment_id` ищется среди
+комментариев PR от того же пользователя после `sent_at` с тем же телом (тело — одна из трёх статических команд
+`patronus_command_body`, `:18-24`); допуск резервирует PR, так что второй такой комментарий в окне невозможен. Команда
+`/patronus` не меняется: протокол Patronus не трогаем. Найдено — Done с id; доказуемо отсутствует после ответа Patronus за
 то же окно — Failed, старт можно предложить снова; иначе остаётся Unknown, UI говорит «Cannot tell whether the Safe
 Push started» с Open in Patronus.
 
@@ -473,8 +519,10 @@ Push started» с Open in Patronus.
 ### Настройки
 
 - `app-settings` владеет `AppSettings` для ключей, которые Rust читает или на которых должен сойтись с UI:
-  `globalUserBranchPrefix`, `patronusNewApi`, `zoom`, `autoSyncOnFocus`, `systemTitleBar`, настройки агентов
-  (`bd` их читает). Неизвестные и UI-only ключи (diff view, тема, recent projects, свёрнутые стеки) ходят raw JSON в
+  `globalUserBranchPrefix`, `patronusNewApi`, `zoom`, `autoSyncOnFocus`, `systemTitleBar`. Настройки агентов
+  (`branchdeck.agentLease`, `branchdeck.agentSubjectBranch`, Settings → Agents) — не ключи `settings.json`, а git
+  config: ими владеет `sync-core/src/repository_config.rs` (`:32,36`; scope, отказ при worktree config и `git -c`,
+  правило «Git config writes» AGENTS.md), и `app-settings` их не касается. Неизвестные и UI-only ключи (diff view, тема, recent projects, свёрнутые стеки) ходят raw JSON в
   `other`. Zod остаётся только для UI-only ключей; типы Rust-ключей приходят из bindings.
 - **Один писатель.** `SettingsService` (в `app-settings`, без `tauri`; `src-tauri` даёт ему путь файла) сериализует
   записи по порядку прихода, пишет атомарно, хранит не-default форму (решение 5 `distributed-settings.md`), даёт
@@ -497,13 +545,16 @@ Push started» с Open in Patronus.
   приложения и `bd` в общем реестре). Корневой span `operation{op, intent, subject, tool}` оборачивает `prepare` и
   `execute`; `run_blocking` переносит `Span::current()` в `spawn_blocking`, так что каждый git-процесс, HTTP-запрос и
   ожидание lock логируются с `op`. `bd` печатает `operation_id` в JSON (аддитивно); test-server логирует его.
-- **Журнал** `operations::journal`: одна запись на завершённую операцию (id, tool, intent, subject, эффекты со
+- **Журнал** `operations::journal`: одна запись на завершённую операцию (id, tool, worktree, lease slot или нет, intent, subject, эффекты со
   статусами, длительность, git-процессы по `with_process_stats`, HTTP, код ошибки) в
   `$GIT_COMMON_DIR/branch-deck/journal.jsonl` под `operations.lock`, с ограничением как у Activity (200 записей,
   30 дней). Операции `bd` попадают туда же. Регрессия производительности видна в реальной работе, не только в
   бюджетных тестах.
-- **Activity** становится представлением журналов: окно Activity сливает `journal.jsonl` **всех** репозиториев из
-  списка recent projects (оно остаётся app-wide), а записи только страницы (ошибки чтения, новости review requests)
+- **Activity** становится представлением журналов: окно Activity сливает `journal.jsonl` репозиториев из списка
+  recent projects (оно остаётся app-wide). Путь журнала запоминается в recent projects при открытии репозитория, так
+  что открытие Activity не запускает git; журналы читаются параллельно в blocking pool, недоступный путь (снятый диск)
+  пропускается после 200 мс с пометкой в окне. По умолчанию Activity показывает операции приложения и `bd` вне lease
+  slot'ов; операции агентов в слотах пула (`worktree` из `leases.json`) — за фильтром «Agents», а записи только страницы (ошибки чтения, новости review requests)
   живут в журнале app data dir, куда их пишет `record_activity` через того же писателя; ключ `settings.json` главного
   окна уходит. У записи есть `operationId`; «Copy Diagnostics» копирует строки лога с этим id. Undo остаётся
   сессионным: токен в памяти, журнал помнит только что он был. Спецификация Activity меняется в
@@ -532,11 +583,14 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   - `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` пишет
     `src/lib/bindings.ts` (`src-tauri/src/bindings_test.rs`); сообщение теста называет эту команду; экспорт в `run()`
     (`src-tauri/src/lib.rs`) удаляется; строка Verification в AGENTS.md меняется.
-  - Тест-реестр: каждое имя `collect_commands!` либо маршрутизируется test-server, либо стоит в `PAGE_MOCKED` с
-    причиной и точным числом (сегодня 35); число никогда не растёт. `tauri-mocks.ts` проксирует неизвестные команды
-    на сервер по умолчанию; 405 роняет тест.
-  - `architecture_test.rs` над `cargo metadata` с allowlist сегодняшних нарушений (`sync-types → git-ops`,
-    `patronus → git-ops`, `sync-core → github/patronus/youtrack/code-symbols`, `bd-remote → bd-rewrite/bd-clustering`).
+  - Тест-реестр: каждое из 111 имён `collect_commands!` либо маршрутизируется test-server (сегодня 75 имён из 77
+    маршрутов), либо стоит в `PAGE_MOCKED` с причиной и точным числом (сегодня 35, обработчики `tauri-mocks.ts:482-570`
+    плюс команды без маршрута); число никогда не растёт. Прокси неизвестных команд на сервер и отказ на 405 уже есть
+    (`tauri-mocks.ts:106,153-157,595`) и не пишутся заново.
+  - `architecture_test.rs` над `cargo metadata` с правилами [Crates](#crates-и-направление-зависимостей) и allowlist
+    сегодняшних нарушений: `sync-types → git-ops`, `patronus → git-ops`, `sync-core → github/patronus/youtrack/
+    file-diffs/code-symbols`, `bd-remote → bd-rewrite`, `src-tauri → bd-lease`. `bd-clustering` до переименования
+    тест считает библиотекой, не семейством; dev-dependency на `bd-cli` с `fixtures` правила разрешают.
   - Span на каждую команду Tauri и `bd` с `operation_id`, id в записях Activity.
   - Baseline'ы, записанные в этот документ: `pnpm perf:table` (с новыми счётчиками: патчи или события на sync, байты
     IPC, перерисованные строки, IPC на hover), `pnpm perf:monorepo pin`/`measure`, `pnpm perf:bd-rebuild measure`,
@@ -554,7 +608,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   `FakePatronus` и фальшивый YouTrack за **реальными** `GitHubService`/`PatronusService`/`YouTrackService`;
   (1) старт, restart, cancel, `post_patronus_command`, `read_patronus_command_reply`; (2) create, retarget, close PR,
   request reviewers, submit review, branch rules; (3) sign-ins GitHub и YouTrack, `set_youtrack_issue_state`.
-  Fixture-эндпоинты (`/repositories/{id}/pull-requests`, `/patronus/robots`, `/review-answers`) пишут состояние fakes;
+  Fixture-эндпоинты (`/repositories/{id}/pull-requests`, `/patronus`, `/patronus-progress`, `/review-requests`,
+  `/review-answers`, `crates/test-server/src/lib.rs:94-102`) пишут состояние fakes;
   новые эндпоинты читают их счётчики и журналы запросов (`start_calls`, `cancel_calls`, записанные тела PATCH/POST).
   Спецификации e2e, которые `routeCommand`'или remote-запись, утверждают журнал fake. Lint в `tests/e2e`: `routeCommand`
   мутирующей команды — ошибка (счётчик как храповик). R12 удаляется.
@@ -568,12 +623,13 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 #### s0c-scenarios
 
 - **Цель:** таблица сценариев фиксирует сегодняшнее поведение обеих сторон и каждое расхождение по id.
-- **Объём и файлы:** `crates/domain-policy/cases/*.json` (crate пока только данные; Rust-тест живёт в `crates/bd-cli`, Vitest — в `src/lib`): каждая строка
+- **Объём и файлы:** `crates/domain-policy/cases/*.json` (crate пока только данные; Rust-тест живёт в `crates/bd-remote`,
+  у которого уже есть dev-dependency на фикстуры `bd-cli`, Vitest — в `src/lib`): каждая строка
   Next Step, каждый Safe Push и Dry Run, ветка и whole stack, профиль, bypass, draft, другая база, виртуальная база,
   parked, not built, landed, overlap, неизвестная readiness, неизвестные правила, landing gate; D8 — конкретный случай
   заблокированной ветки без effective base с объявленным родителем ≠ `blocked_by.parent`. У случая ожидания `app` и
-  `bd`; Vitest подаёт их в `getSafePushDecision`/`getBranchNextStep`, Rust-тест — в `plan()` `bd` через фикстуры
-  `bd-cli` с fakes. D1–D10 записаны там, где `app != bd`; suite зелёный, потому что ожидания — текущие.
+  `bd`; Vitest подаёт их в `getSafePushDecision`/`getBranchNextStep`, Rust-тест — в `plan()` `bd` (`fn plan` в
+  `safe_push_command.rs:860` становится `pub(crate)`) через фикстуры `bd-cli` с fakes. D1–D10 записаны там, где `app != bd`; suite зелёный, потому что ожидания — текущие.
 - **Удаляется:** ничего.
 - **Проверки:** оба теста зелёные; каждый D-id встречается в таблице.
 - **Критерий выхода:** таблица покрывает все строки `spec/branch/next-step.spec.md` и матрицу Safe Push.
@@ -588,10 +644,11 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   - D10: `push_branch(es)` берут repository lock и проверяют parked, landed и holds в Rust; `start_patronus_robot`,
     `restart_`, `cancel_` проверяют parked, landed, not built, overlap и отказ в старте **из таблицы `RepositoryViews`
     и списка роботов, который Rust читает сам** (один запрос), не из роботов, переданных страницей.
-  - `bd-remote/src/push_hold.rs` переезжает в `repository-view::hold` (перенос), оба клиента вызывают его.
-  - Спецификации: `agent-cli` (код отказа D1), `patronus.spec` (неизвестные правила), `git-operations` (push
-    приложения под lock).
-- **Удаляется:** `push_hold.rs`; fallback `false` в `useDismissesStaleReviews.ts`.
+  - Hold ветки для этих guard'ов Rust берёт из `patronus_view` (`hold` в `RepositoryViews`), тем же путём, что
+    `push_holds()` в `bd`; `push_hold.rs` не переезжает (он только читает представление и уходит в s9).
+  - Спецификации и документы: `agent-cli` (код отказа D1), `patronus.spec` (неизвестные правила), `git-operations`
+    (push приложения под lock), AGENTS.md «Repository lock» (push приложения — держатель lock).
+- **Удаляется:** fallback `false` в `useDismissesStaleReviews.ts`.
 - **Проверки:** таблица сценариев: D1, D2, D9 — `app == bd`; Rust-тест каждого guard вызывает команду напрямую с
   parked, landed и overlapped subject; бюджет процессов push приложения получает lock и ничего больше.
 - **Критерий выхода:** прямой вызов `start_patronus_robot` с parked subject отказывает.
@@ -601,9 +658,11 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 - **Цель:** один crate типов без IO; `git-ops` зависит от него, а не наоборот.
 - **Объём и файлы:** `sync-types` → `domain-types`; DTO из `git-ops` (`model.rs`, `commit_list::Commit`,
   `update_branch::UpdateCheck`, `CommitInfo`) переезжают, `git-ops → domain-types`; чистые `branch_names`
-  (`to_final_branch_name`, `strip_branch_namespace`, `is_valid_branch_prefix`, `stack_path`) → `domain-types`,
-  `patronus` теряет `git-ops`; `ErrorCode` → `domain-types::error` (serde/schemars без изменений, добавлен specta);
-  owned `Subject` из `LandingSubject`, gate принимает его; `sync-test-utils` → `test-utils`. `targets:` спецификаций,
+  (`BranchKind`, `to_final_branch_name`, `strip_branch_namespace`, `is_valid_branch_prefix` из
+  `git-ops/src/branch_names.rs`; `stack_path` из `history-rewrite/src/stack.rs:58`) → `domain-types`, `patronus`
+  теряет `git-ops`; `ErrorCode` → `domain-types::error` (serde/schemars без изменений, добавлен specta);
+  owned `Subject` из `LandingSubject`, gate принимает его; данные отказов gate (`LandingRefusal`, `LandingFix`,
+  `ReferenceKind`, `StackCommit`) → `domain-types`, `landing_gate`/`check` их только строят; `sync-test-utils` → `test-utils`. `targets:` спецификаций,
   `//!`-карты crates, AGENTS.md File Structure.
 - **Удаляется:** `crates/sync-types`, `crates/sync-test-utils`; записи allowlist `sync-types → git-ops`,
   `patronus → git-ops`.
@@ -616,13 +675,21 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 - **Цель:** `sync-core` перестаёт быть мешком; правка в движке не пересобирает sync.
 - **Объём и файлы** (по одному коммиту на выделение, `git mv`, затем импорты, `touch` против устаревших
   fingerprint'ов): `sync-core` → `sync-core`, `trial-check`, `update-core`, `lease-pool`, `remote-facts`;
-  `repository-view` → `repository-model` (переименование, внутренности пока те же); `bd-remote` теряет
-  `bd-rewrite`/`bd-clustering` (сводки check → `bd-core`); `integration-detection-tests` → `branch-integration/src/*_test.rs`.
+  `repository-view` → `repository-model` (переименование, внутренности пока те же); `bd-remote` теряет `bd-rewrite`
+  (`check_command`: `CheckConflict`, `CheckWarning`, `dangling_references_in`, `session_of_sync` → `bd-core`);
+  `bd-clustering` → `commit-clustering` (`bd-remote` и `bd-rewrite` читают `areas`, `generated`);
+  `agent_defaults` → `lease-pool`, `src-tauri` теряет `bd-lease`; `integration-detection-tests` →
+  `branch-integration/src/*_test.rs`. Каждый модуль, читающий `file_diffs` (`diff_scan`, `move_hunk`, `dangling_fix`,
+  `declaration_checks`, проверочная половина `missing_commits`), уходит в `trial-check`, `pick` — в `update-core`,
+  `patronus_review` — в `remote-facts`; `CommitOwners` остаётся в `sync-core`. `baseline_tracking_ref` → `git_ops::revs`,
+  `display_path` → `sync-utils`, чтобы `lease-pool` не зависел от `update-core`. Шаг начинается с `accio impact`
+  каждого уходящего модуля; модуль, который нужен sync и читает `file_diffs`, — дефект плана, о нём сообщают до переноса.
   Обновляются: `package.json` `test-server:dev`, `.branchdeck.toml`, `adding-git-operation.md`, Feature Index, scan-тесты
   (читают весь workspace).
-- **Удаляется:** `crates/repository-view`, `crates/integration-detection-tests`; записи allowlist
-  `sync-core → github/patronus/youtrack/code-symbols`, `bd-remote → bd-rewrite/bd-clustering`.
-- **Проверки:** `cargo tree -p sync-core` без HTTP- и tree-sitter-crates; `pnpm perf:bd-rebuild compare`: правка в
+- **Удаляется:** `crates/repository-view`, `crates/integration-detection-tests`, `crates/bd-clustering` (как имя);
+  записи allowlist `sync-core → github/patronus/youtrack/file-diffs/code-symbols`, `bd-remote → bd-rewrite`,
+  `src-tauri → bd-lease`.
+- **Проверки:** `cargo tree -p sync-core` без HTTP-crates, `file-diffs`, `code-symbols` и tree-sitter; `pnpm perf:bd-rebuild compare`: правка в
   `remote-facts` или `trial-check` не пересобирает `sync-core`; бюджеты процессов и `bd schema` без изменений.
 - **Критерий выхода:** граф из [Crates](#crates-и-направление-зависимостей) без allowlist, кроме рёбер, которые
   появятся с новыми crates.
@@ -659,8 +726,9 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 - **Цель:** сессия в Rust владеет таблицей, sync и remote tips; страница получает снимок и патчи.
 - **Объём и файлы:** `repository-model::{session, state, runtime (actor), sync_scheduler, patch}`; `Version { epoch,
   seq }`; `SessionKey` по разрешённому префиксу; `open_session`, `get_snapshot`, `subscribe_view(Channel<ViewPatch>)`,
-  `set_window_focus`, `sync(reason)`; applier `SyncEvent` переезжает из `branch-sync.ts:1325-1508` в
-  `repository-model::table`; патчи раз в 16 мс; outcome push обновляет remote tips в сессии по `seq`; под-окна
+  `set_window_focus`, `sync(reason)`; канал, очередь и flush (`branch-sync.ts:1325-1508`) и applier
+  `applySyncEvent` с помощниками (`:1539-1700`: `createBranchFromGroup` `:1594`, `applyBranchesGrouped` `:1660`)
+  переезжают в `repository-model::table`; жизнь сессии (остановка опроса без подписчиков, удаление через 2 мин); патчи раз в 16 мс; outcome push обновляет remote tips в сессии по `seq`; под-окна
   подписываются на сессию по пути; `bd` строит ту же сессию из своего sync. Страница: `src/model/store.ts` применяет
   патчи за прежним API селекторов (`useBranchSync` держит формы, компоненты не меняются); `data-view-version` для
   ожиданий e2e; test-server размещает сессии и шлёт патчи через SSE. `rendering-performance.md` (поток патчей),
@@ -669,7 +737,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   в TS (большая часть 1814 строк), реле состояния таблицы в `branch-review-window.ts`/`sub-window-link.ts`, `Channel<SyncEvent>`
   к странице, глобальный `AtomicU32`, `GetRepositoryViewParams.revision`.
 - **Проверки:** тесты сессии: патч чужой `epoch`, отсутствующая `base` → снимок, смена проекта посреди запроса, sync
-  во время опроса, push без sync, неудачный sync сохраняет таблицу, два worktree одного common dir; B1, B2
+  во время опроса, push без sync, неудачный sync сохраняет таблицу, два worktree одного common dir, последний
+  подписчик ушёл (0 запросов дальше, сессия удалена по `TestClock`); B1, B2
   ([Бюджеты](#бюджеты-производительности)); `perf:table` ≤ baseline; `bd status` без изменений.
 - **Критерий выхода:** страница не получает ни одного `SyncEvent`; `grep SyncEvent src/` пуст.
 
@@ -678,7 +747,7 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 - **Цель:** факты о remote, matching, опрос и demand — в сессии.
 - **Объём и файлы** (шаги: роботы и matching; PR, readiness, правила, профили, review requests; demand и `Clock`):
   `Fact<T>` с `seq` и `inputs`; `domain-policy::robot_match` (первый файл правил; кейсы `robot-match-cases.json`
-  становятся его тестом); `domain-policy::refresh` с сегодняшними константами; планировщик на `Clock` (`TestClock`,
+  становятся его тестом); `domain-policy::refresh` с сегодняшними константами; `remote-facts::scheduler` на `Clock` (`TestClock`,
   `/clock/advance`, хелпер `advanceBackendClock` рядом с `page.clock`); `set_demand`; readiness-очередь и правило
   скрытых строк; `News` как патч; обнаружение слившихся роботов становится фактом (закрытие PR — в `s9`).
   `get_repository_view` исчезает: представление приходит патчами.
@@ -688,7 +757,9 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   `get_branch_review_readiness`, `get_branch_rules`, `get_patronus_start_options`, `get_pull_requests`,
   `get_patronus_robots`, `poll_patronus_robots`, `get_repository_view`.
 - **Проверки:** счётчики fakes (`patronus_list_calls`, `pull_request_calls`, `review_readiness_calls`) равны
-  сегодняшним тестам политики опроса; `grep setInterval src/stores` пуст; B8; e2e опросов через `advanceBackendClock`.
+  сегодняшним тестам политики опроса; в `src/stores` и `src/hooks` нет таймера опроса (`setTimeout`/`setInterval`
+  вне UI-задержек: сегодня `review-requests.ts:345`, `pull-requests.ts:234`, `patronus.ts:1189,1403`,
+  `review-readiness.ts:319`, `usePatronusRobotDetails.ts:60`), правило `lint:arch` с allowlist (`useNow.ts`); B8; e2e опросов через `advanceBackendClock`.
 - **Критерий выхода:** страница не отправляет Rust ни одного вывода; `GetRepositoryViewParams` не существует.
 
 ### s8-policy
@@ -698,7 +769,10 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   TS-правило в том же коммите: (1) remote и push action (R1, D4); (2) stack, whole stack, родитель (D8 по решению
   владельца), parked (R3); (3) holds и отказ в старте (R2, R4); (4) `land::decide`, `review`, `pull_request` (D1, D2,
   D3b, D9); (5) next step и landing node (R6); (6) `actions` и доступность; (7) `news`, `landed` (D7 правило);
-  `reason` и каталог с тестами пары. `BranchView`/`StackView` несут `landing` и `actions`; `src/presenters/`;
+  `reason` и каталог с тестами пары. `BranchView`/`StackView` несут `landing` (с `LandDecision { blockers,
+  confirmations }` из `land::decide`) и `actions`; поповер Safe Push рендерит `landing.land.confirmations` — это
+  замена `ConfirmReason` из `safe-push-decision.ts:73,102`, а не второе понятие: в s9 `prepare` отдаёт тот же
+  `decide` над свежими фактами как `Plan.confirmations`; `src/presenters/`;
   `bd status`/`check` получают `next_step`/`blockers` (аддитивно); `targets:` и test-ссылки 15 TS-файлов
   `next-step.spec.md`, `patronus.spec.md`, `whole-stack.spec.md`, `stacked-branches.spec.md` переезжают на Rust-таблицы;
   индекс правил — в AGENTS.md.
@@ -706,8 +780,10 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   `parked.ts`, `push-summary.ts`; в `patronus.ts`: `canStartRobot`, `isStartBlocked`, `allowsPushMode`,
   `getRobotRestartAction`; в `stack.ts`: `needsPush`, `stackPushOrder`, `stackAskFirst`, `stackAncestors`; в
   `useStackNextStep.ts`: `getWholeStackMembers`, `getWholeStackRest`, `isForkingStack`; `useNextStepStores`,
-  `getBranchNextStepNow` и его 11 вызовов; TS-половина таблицы сценариев; решающая половина `plan()` в
-  `safe_push_command.rs`; `stack_summary::whole_stack_of`; `repository-view::hold`.
+  `getBranchNextStepNow` и его 5 вызовов (`useBranchNextStep.ts:299,315`, `useStackNextStep.ts:302,337`,
+  `useBranchContextActions.ts:650`); `stackBranchHoldReasonIn`/`getStackBranchHoldReason` (`stores/patronus.ts:458-483`)
+  и проверки parked stack branch в `push_command.rs:692`, `safe_push_command.rs:893`; TS-половина таблицы сценариев; решающая половина `plan()` в
+  `safe_push_command.rs`; `stack_summary::whole_stack_of`.
 - **Проверки:** таблица сценариев с одним ожиданием на случай — D3b, D4 (правило), D5 (кандидаты), D8 сходятся;
   табличные тесты покрывают каждую строку `next-step.spec.md`; e2e каждой поверхности next step и Safe Push; B3, B4,
   B6, B10; `lint:arch` запрещает новые модули правил в `src/lib`.
@@ -720,17 +796,34 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   (D6), `RequestReview` (D5), `ClosePullRequest`, `CloseLandedPullRequests` (D7), `SubmitReview`, `SetIssueState`;
   код **извлекается** из `bd-remote` (`plan`/`safe_push`/`push_locked` уже держат порядок и leases), не пишется
   заново; `prepare`/`execute`/`cancel_operation`; in-process реестр и `RunningOperation.moves`; `OperationEvent`
-  (шаги, процент push); поповер Safe Push рендерит `plan.confirmations`; цикл ответа `/patronus` в движке.
+  (шаги, процент push); поповер Safe Push переходит с `landing.land.confirmations` (s8) на `plan.confirmations` того
+  же `decide`; цикл ответа `/patronus` в движке.
+  **Шаги по семействам**, каждый приземляется отдельно; IPC удаляется в шаге, который увёл его последнего вызывающего,
+  `bd`-адаптер семейства переключается в том же коммите: (1) каркас движка, in-process реестр и `Land` (Safe Push и
+  Dry Run, push внутри плана), уходят `safe-push-start.ts`, `landing-gate.ts`, `target-conflict.ts`,
+  `stores/safe-push.ts`, IPC `start_patronus_robot`, `post_patronus_command`, `read_patronus_command_reply`,
+  `check_target_conflict`, `check_landing_gate`, `bd safe-push`; (2) `RestartRobot`, `CancelRobot`, `Retarget`,
+  уходят `patronus-actions.ts`, `restart_`/`cancel_patronus_robot`, `get_patronus_robot_status`,
+  `retarget_pull_request`, `bd robot`; (3) `CreatePullRequest` (D6), `RequestReview` (D5), `SubmitReview`,
+  `ClosePullRequest`, `CloseLandedPullRequests` (D7), каждый со своим шагом `Push`, уходят
+  `create-pull-request-context.ts`, `request-review.ts`, `landed-stack.ts`, `wait_for_github_branch`,
+  `create_pull_request`, `close_pull_request`, `request_pull_request_reviewers`, `submit_pull_request_review`,
+  `bd request-review`; (4) `Push*` — последним, когда у `push_branch(es)` не осталось других вызывающих: уходят
+  `git/push.ts`, `git/stack-push.ts`, `git/new-pull-request.ts`, `git/unapplied-push.ts`, `usePushButton.ts`,
+  `push_branch`, `push_branches`, `push_hold.rs`, `bd push`; (5) `SetIssueState`.
   `bd safe-push`, `push`, `robot`, `request-review` — адаптеры с прежними флагами плюс `--push` у request-review.
   **Документированные изменения `bd`** в том же коммите: retarget до push (`spec/cli/agent-cli.spec.md` «bd push»,
   `git-operations.md` «Agent push»); HTTP-чтения вне repository lock («Agent Safe Push»); `pushed_over` (D4);
-  `needs_push` без `--push` (D5); `pull_request_other_base` (D3b). Бюджеты: `a_safe_push_check` и новый
+  `needs_push` без `--push` (D5); `pull_request_other_base` (D3b); `plan_changed` — новый `ErrorCode` (exit 3 и повторяемый, как
+  `head_moved` и `locked`, `bd-core/src/error.rs:214,264`), потому что sync `bd` больше не держит repository lock до `execute` и rewrite другой
+  сессии между `prepare` и полным witness меняет план; строка в `agent-cli.spec.md`, текст `skill_text()`
+  (`crates/bd-cli/src/agent_help.rs`) и `bd schema`. Бюджеты: `a_safe_push_check` и новый
   `a_safe_push_start` в `crates/bd-cli/src/process_budget_test.rs`, HTTP-бюджеты в
   `crates/operations/src/http_budget_test.rs`, гонка «rewrite между чтением и witness» в
   `crates/operations/src/land_test.rs`. `operations.md` переписан (реестр в Rust, раздел «Outside the registry»
   удалён, индикатор — только TS), `landing.md` (bd и приложение идентичны, закрытие PR), `patronus.spec`,
   `pull-requests.spec`, «Agent push»/«Agent Safe Push»/«App stack push» в `git-operations.md` слиты в «Push and land».
-- **Удаляется:** IPC `start_patronus_robot`, `restart_patronus_robot`, `cancel_patronus_robot`,
+- **Удаляется** (по шагам выше; здесь — сумма этапа): IPC `start_patronus_robot`, `restart_patronus_robot`, `cancel_patronus_robot`,
   `get_patronus_robot_status`, `post_patronus_command`, `read_patronus_command_reply`, `check_target_conflict`,
   `check_landing_gate`, `push_branch`, `push_branches`, `retarget_pull_request`, `create_pull_request`,
   `wait_for_github_branch`, `close_pull_request`, `request_pull_request_reviewers`, `submit_pull_request_review`,
@@ -739,10 +832,12 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   `patronus-actions.ts`, `create-pull-request-context.ts`, `request-review.ts`, `running-move.ts`,
   `stores/safe-push.ts`, `pushingBranches`/`stackPushes`, remote-виды `getOperationBlocker`, `usePushButton.ts`,
   факты `useSafePush.ts` (остаётся презентер поповера ~100 строк); Rust: оркестрация `safe_push_command.rs`,
-  `push_command.rs`, `robot_command.rs`, `request_review_command.rs`, `pull_request_retarget.rs`, `patronus_facts.rs`.
-- **Проверки:** эталонные трассы эффектов на intent; инъекция отказа после каждого эффекта (неудачный push ничего не
+  `push_command.rs`, `robot_command.rs`, `request_review_command.rs`, `pull_request_retarget.rs`, `patronus_facts.rs`,
+  `push_hold.rs`.
+- **Проверки:** каждый шаг оставляет suite зелёным (e2e каждой поверхности его семейства); эталонные трассы эффектов на intent; инъекция отказа после каждого эффекта (неудачный push ничего не
   стартует, отменённый робот виден в outcome, lease rejection без слепого повтора); `PlanChanged` при расширении
-  landing и при сдвиге witness; прямой `execute` с parked, landed, not built отказывает; HTTP и процессы ≤ baseline;
+  landing и при сдвиге witness, и `bd` отвечает `plan_changed`; `locked` и `PlanChanged` под lock ничего не отменили и не
+  retarget'или (журнал fakes пуст); прямой `execute` с parked, landed, not built отказывает; HTTP и процессы ≤ baseline;
   e2e утверждает журналы fakes на каждой поверхности; `bd schema` с аддитивными полями.
 - **Критерий выхода:** ни одна мутирующая remote-команда недостижима мимо `execute`; `PAGE_MOCKED` для этого семейства 0.
 
@@ -750,11 +845,12 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 
 - **Цель:** допуск между процессами, сверка неизвестных стартов, журнал, Activity из журнала.
 - **Объём и файлы:** `operations::registry` (`operations.json`, `operations.lock`, heartbeat, start time, orphan,
-  `reconcile`, `StartUnknown`, HTML-маркер в комментарии `/patronus`); stamp-файл; `notify` с fallback; сессия
+  `reconcile`, `StartUnknown`, `comment_id` в `pending_start`, `ForgetStart` и `bd operation forget`); stamp-файл; `notify` с fallback; сессия
   наблюдает файл, чужие операции в представлении; span через `run_blocking`; `bd` печатает `operation_id`;
   `operations::journal`; Activity из журналов recent projects плюс журнал app data для записей страницы
   (`record_activity`). `git-operations.md` «Operations registry», правило в AGENTS.md «Git Operations», `.branchdeck.toml`,
-  scan-исключение писателя, `activity.spec`, `agent-cli.spec` (`operation_id`, `busy` с держателем).
+  scan-исключение писателя, `activity.spec` (фильтр «Agents», недоступный журнал), `agent-cli.spec` (`operation_id`, `busy` с держателем,
+  `bd operation forget`).
 - **Удаляется:** ключ Activity в `settings.json`, писатели `recordPush`/`recordRobot`/`recordRetarget`/… в
   `src/stores/activity.ts`, которые заменяет журнал.
 - **Проверки:** два реальных процесса (сессия приложения в тестовом harness плюс `bd`; `bd` плюс `bd`) на
@@ -780,22 +876,26 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   `restack_branch`, `park_branches`, `unpark_branches`, `undo_regroup`, `reword`, `squash_commits`,
   `squash_fixup_commits`, `unapply_branch`, `undo_unapply_branch`, `reapply_branch`, `undo_reapply_branch`,
   `amend_uncommitted_to_branch`, `add_issue_reference_to_commits`, `apply_conflict_fix`, `delete_archived_branch`,
-  `delete_unapplied_branch`, `restore_branch_head`, `update_project`, `fetch_baseline`, `dismiss_landed`, пять
-  команд sign-in каждого провайдера).
+  `delete_unapplied_branch`, `restore_branch_head`, `update_project`, `fetch_baseline`, `dismiss_landed`;
+  `set_repository_config` (→ `SetRepositoryConfig`), `prune_review_refs` и `fetch_review_head` (→ `FetchReview`);
+  sign-in GitHub и шесть команд YouTrack (`start_`, `wait_`, `cancel_youtrack_sign_in`, `sign_out_of_youtrack`,
+  `save_youtrack_token` → `SignIn`/`SignOut`; `get_youtrack_auth_status` → факт `auth`)). Команды приложения, а не
+  домена — `install_agent_cli`, `install_update`, `set_auto_sync_menu_checked`, окна и zoom — остаются и стоят в
+  явном списке `APP_COMMANDS` теста реестра.
 - **Проверки:** тройной Unstack даёт один rewrite из двух окон **и** приложение + `bd`; Undo из toast во время sync;
   бюджеты процессов каждого rewrite без изменений; регруппировка из под-окна и главного окна одновременно.
-- **Критерий выхода:** `collect_commands!` не содержит ни одной мутирующей команды кроме `execute`.
+- **Критерий выхода:** `collect_commands!` не содержит ни одной мутирующей команды кроме `execute` и `APP_COMMANDS`.
 
 ### s12-app-api
 
-- **Цель:** один реестр команд, когда IPC-поверхность окончательна (~45 команд вместо 108).
+- **Цель:** один реестр команд, когда IPC-поверхность окончательна (~45 команд вместо 111).
 - **Объём и файлы:** `app-api` с `AppContext`, `api_commands!` и транспортными traits; макрос порождает обёртки
   `#[tauri::command] #[specta::specta]` и `collect_commands!` в `src-tauri`, маршруты `/invoke/<name>` с SSE в
   `test-server`, `commands.json` для `tauri-mocks.ts`; тела `src-tauri/src/commands/*` переезжают по семействам
   (чтения; сессия и операции; окна и приложение); test-server — тонкий хост `app-api` с fakes и `TestClock`.
   `e2e-testing.md` переписан.
 - **Удаляется:** тела `src-tauri/src/commands/*`, ручные маршруты `test-server/src/lib.rs`, `tauri_command_bridge.rs`,
-  ручной список `tauri-mocks.ts`, `PAGE_MOCKED` (остаётся явный типизированный список page-local плагинов).
+  локальные обработчики `tauri-mocks.ts` (~20), `PAGE_MOCKED` (остаётся явный типизированный список page-local плагинов).
 - **Проверки:** тест реестра (список, `bindings.ts` и диспетчер test-server — одно множество); `bindings.ts` без
   изменений; e2e зелёный; `perf:bd-rebuild`: правка в `app-api` не пересобирает `sync-core`.
 - **Критерий выхода:** команда объявляется в одном месте.
@@ -806,7 +906,8 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
 - **Объём и файлы:** сессия сохраняет последнее зафиксированное представление на `SessionKey` в object cache (версия
   схемы в ключе); при старте Rust открывает сессию последнего репозитория и внедряет `window.__BD_MODEL__` рядом с
   `__TAURI_STORE__`; строки помечены `Cached`, мутации `Disabled{Cached}` до первой фиксации sync. По желанию: ETag PR
-  и курсор `since` Patronus в object cache для условных запросов `bd status --remote` и `bd safe-push --check`.
+  в object cache для условных запросов `bd safe-push --check` (курсор `since` списка роботов там уже есть,
+  `robot_list.rs:135-147`; `bd status` его читает).
 - **Удаляется:** стартовая последовательность чтений страницы (префикс, конфиг, статусы auth до первого кадра).
 - **Проверки:** B7, B13; холодный старт release-приложения измеряет владелец (Real App Checks).
 - **Критерий выхода:** первый кадр со строками ≤ 2 IPC.
@@ -851,7 +952,7 @@ Baseline'ы измеряются в `s0a-safety-net` на одной машин�
 | B6 | IPC на hover, открытие меню, открытие поповера строки | интервал на поповер, работа на строку | 0 на hover и меню; 1 `set_demand` на поповер | счётчик IPC в e2e, точное утверждение | s7, s8 |
 | B7 | IPC от старта до первого кадра со строками | много чтений | ≤ 2 (`open_session` + канал) | счётчик IPC в e2e; Real App Check владельца | s13 |
 | B8 | HTTP на холостой опрос Patronus | 1 список + проблемы на каждого упавшего робота | 1 запрос; проблемы только для роботов, чьё состояние изменилось | HTTP-бюджет сессии | s7 |
-| B9 | git-процессов на операцию | `an_unchanged_sync` 12, `a_safe_push_check` 40, монорепозиторий 14 | не выше; Safe Push приложения на свежей таблице = `bd` минус его sync; один `for-each-ref` witness под lock; D1 добавляет один HTTP на target, не процесс | `process_budget_test.rs`, `perf:monorepo` | s9 |
+| B9 | git-процессов на операцию | `an_unchanged_sync` 12, `a_safe_push_check` 34 (`SAFE_PUSH_CHECK`, `process_budget_test.rs:575-592`), его вариант со стеком 40, монорепозиторий 14 | не выше; Safe Push приложения на свежей таблице = `bd` минус его sync; один `for-each-ref` witness под lock; D1 добавляет один HTTP на target, не процесс | `process_budget_test.rs`, `perf:monorepo` | s9 |
 | B10 | derive + diff всей модели, 141 строка | цепочки TS-селекторов | ≤ 2 мс в release-бенче | бенч-тест `repository-model` | s8 |
 | B11 | Пересборка после правки одной строки правила | `perf:bd-rebuild measure` в s0a | правка `domain-policy` не пересобирает `sync-core`, `trial-check`, `git-ops`; правка `operations` — тоже | `perf:bd-rebuild compare`, тест рёбер | s3, s9 |
 | B12 | Длительность e2e | ~38 с, 230 тестов | ≤ base + 15 % при реальных путях за fakes | приёмка этапов | s0b и далее |
@@ -872,10 +973,10 @@ Baseline'ы измеряются в `s0a-safety-net` на одной машин�
 | `e2e-testing.md` | s0b: fakes за реальными сервисами, счётчики, lint `routeCommand`; s4: `ApiError`; s6/s7: сессии, `data-view-version`, `advanceBackendClock`; s12: реестр |
 | `async-patterns.md` | s10: span через `run_blocking`; s6: actor сессии |
 | `symbol-dependencies.md` «The gate» | s9: gate как `Reason::LandingRefused` в плане |
-| `agent-cli.md`, `spec/cli/agent-cli.spec.md` | s1: код D1; s9: retarget до push, `pushed_over`, `needs_push`/`--push`, `pull_request_other_base`, HTTP вне lock, `operation_id`; s10: `busy` |
+| `agent-cli.md`, `spec/cli/agent-cli.spec.md` | s1: код D1; s9: retarget до push, `pushed_over`, `needs_push`/`--push`, `pull_request_other_base`, HTTP вне lock, `operation_id`, `plan_changed`; s10: `busy`, `bd operation forget` |
 | `spec/branch/{next-step, patronus, whole-stack, stacked-branches, safe-push-failure-prompt}.spec.md` | s8: `targets:` и test-ссылки на Rust-таблицы и презентеры; s1: неизвестные правила |
 | `spec/repository/{settings, onboarding, activity, update-project, github-sign-in, youtrack}.spec.md` | s5, s10, s11 |
-| AGENTS.md | s0a: Verification (bindings); s2/s3: File Structure, Feature Index; s8: индекс правил; s10: правило реестра; s14: «Never» |
+| AGENTS.md | s0a: Verification (bindings); s1: «Repository lock» (push приложения); s2/s3: File Structure, Feature Index; s8: индекс правил; s10: правило реестра; s14: «Never» |
 | `adding-git-operation.md` | s3: новые crates; s9: слой `operations` в чеклисте |
 
 ## Альтернативы
