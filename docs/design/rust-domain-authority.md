@@ -604,7 +604,11 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   - Span на каждую команду Tauri и `bd` с `operation_id`: тип `OperationId` (ULID, `sync-utils`) пока создаётся на
     каждый вызов (корневой span `operation{op, operation_id}` в `bd_cli::run`, child span в `run_blocking`, который
     переносит `Span::current()` в `spawn_blocking`); с `s10` его создаёт допуск. `CommandError` несёт `operation_id`
-    (аддитивно), запись Activity об ошибке — `operationId`; JSON `bd` до `s10` не меняется.
+    (аддитивно), запись Activity об ошибке — `operationId`; JSON `bd` до `s10` не меняется. Сделано: `OperationId`
+    свой (ULID на `getrandom`, без нового crate); у всех 112 команд (111 `collect_commands!` и `get_blob_syntax`) есть `#[instrument]`;
+    поле на проводе `operation_id` (snake_case, как поля Rust в bindings), в записи Activity — `operationId`; без
+    подписчика `tracing` отдаёт `log` событие без его span'ов, поэтому приложение ставит подписчика `tracing_log`
+    (строка события со всеми span'ами в `tauri_plugin_log`, строка о начале span'а, как раньше).
   - Baseline'ы, записанные в этот документ: `pnpm perf:table` (с новыми счётчиками `tauri-mocks.ts`: события sync и
     вызовы на sync, байты IPC, IPC на hover строки, открытие меню и поповера), `pnpm perf:monorepo pin`/`measure`,
     `pnpm perf:bd-rebuild measure`, длительность nextest и e2e, размер eager JS, байты `SyncEvent` полного sync на

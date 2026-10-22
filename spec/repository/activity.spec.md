@@ -21,6 +21,8 @@ targets:
   - ../../src/components/branch/DroppedCommitList.tsx
   - ../../src/lib/command.ts
   - ../../src/lib/errors.ts
+  - ../../src-tauri/src/blocking.rs
+  - ../../src-tauri/src/command_error.rs
   - ../../src/lib/landed.ts
   - ../../src/lib/git/push.ts
   - ../../src/lib/git/new-pull-request.ts
@@ -108,6 +110,12 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 - A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack, reword), and every
   error toast (`notifyError`, with its reason).
   [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about`)
+- The entry of an error a command returned keeps the operation it names (`CommandError.operation_id`, the
+  `operation{operation_id=…}` span of `run_blocking`) as `operationId`, the key to the command's lines in the app's log;
+  the page log line of the error carries it as `operation_id`. It is stored, not shown yet; an error raised outside a
+  command has none.
+  [@test] ../../src/stores/activity.test.ts (`keeps the operation a failed command names, for its lines in the log`)
+  [@test] ../../src/lib/errors.test.ts (`returns the operation a CommandError names, and nothing for any other error`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`)
 
 ### Undo

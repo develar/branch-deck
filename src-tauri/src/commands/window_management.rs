@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State, Webview, WebviewUrl, WebviewWindowBuilder};
-use tracing::warn;
+use tracing::{instrument, warn};
 
 /// How long a new sub-window stays hidden at most when its page never loads (a broken page still shows)
 const SHOW_FALLBACK: Duration = Duration::from_secs(3);
@@ -194,6 +194,7 @@ pub struct OpenSubWindowParams {
 /// on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
 /// settled its content (`sub_window_ready`).
 #[tauri::command]
+#[instrument(skip(app_handle, state, params), fields(window_id = %params.window_id, url = %params.url))]
 #[specta::specta]
 pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowState>, params: OpenSubWindowParams) -> Result<(), CommandError> {
   let _open = state.open_lock.lock().await;
@@ -269,6 +270,7 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
 /// The page of the calling sub-window loaded: it gets the data of an open that came while it loaded, and the window
 /// shows once the page settled its content, at most `CONTENT_BUDGET` from now
 #[tauri::command]
+#[instrument(skip(app_handle, webview, state))]
 #[specta::specta]
 pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: State<'_, SubWindowState>) -> Result<Option<SubWindowUpdate>, CommandError> {
   let label = webview.label().to_string();
@@ -282,6 +284,7 @@ pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: S
 /// The page of the calling sub-window settled the content of the open `open_id`: the window shows if that is the latest
 /// open and the window is still hidden
 #[tauri::command]
+#[instrument(skip(webview, state))]
 #[specta::specta]
 pub async fn sub_window_ready(webview: Webview, state: State<'_, SubWindowState>, open_id: u32) -> Result<(), CommandError> {
   if state.ready(webview.label(), open_id) {

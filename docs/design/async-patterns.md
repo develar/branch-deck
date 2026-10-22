@@ -114,6 +114,27 @@ Sync pipeline (`sync_core::sync::sync_branches`):
 - Phase 2, concurrently: integration detection in one `spawn_blocking`, and branch processing as
   semaphore-bounded `JoinSet::spawn_blocking` tasks; joined with `tokio::join!` so one failure doesn't orphan the other
 
+### Operation spans
+
+Every run of `run_blocking` (`src-tauri/src/blocking.rs`) is an operation with an id of its own
+(`sync_utils::operation_id::OperationId`, a ULID: 48 bits of milliseconds, 80 random bits, so the ids of the app and
+of every `bd` process never collide and sort by time):
+- The span `operation{operation_id}` is created on the async side, a child of the current span, the `#[instrument]`
+  span of the command (every Tauri command has one, its `State`, `AppHandle` and window arguments skipped, a long text
+  such as a pull request body or a sub-window's data skipped for a field or two). The blocking closure enters it on its
+  pool thread, where `Span::current()` would be empty: a `spawn_blocking` does not carry the caller's span.
+- An error leaves with the id: `CommandError.operation_id` (an error of an inner run keeps its own), which the page
+  records with its Activity entry (`operationId`) and in its log line of the error.
+- `tracing_log` (`src-tauri/src/tracing_log.rs`) makes the spans reach the log at all: without a subscriber the `log`
+  feature of `tracing` hands an event to `log` without its spans. The subscriber formats each event with its spans,
+  `get_pull_requests{…}:operation{operation_id=…}: message`, plus a line when a span starts (`FmtSpan::NEW`, as
+  `tracing` wrote one per span before), and gives the line to `log` with the event's level and target, which
+  `tauri_plugin_log` writes. The devtools build keeps the subscriber of its plugin.
+- `bd` opens the root span `operation{op, operation_id}` in `bd_cli::run` before the dispatch, `op` the words of the
+  command (`lease get`); its `-v` lines carry it. Work a core hands to another thread (`JoinSet`, a scoped thread) runs
+  outside the span unless the core enters it there.
+
+
 ## Alternatives Considered
 
 - **Async Process Spawning (tokio::process::Command)**:

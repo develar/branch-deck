@@ -5,8 +5,10 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
 use history_rewrite::baseline::detect_baseline_branch;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core, delete_unapplied_branch_core};
+use tracing::instrument;
 
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn get_archived_branch_commits(
   git_executor: tauri::State<'_, GitCommandExecutor>,
@@ -34,6 +36,7 @@ async fn own_commits(
 }
 
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn delete_archived_branch(git_executor: tauri::State<'_, GitCommandExecutor>, params: DeleteArchivedBranchParams) -> Result<(), CommandError> {
   let git = (*git_executor).clone();
@@ -41,6 +44,7 @@ pub async fn delete_archived_branch(git_executor: tauri::State<'_, GitCommandExe
 }
 
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn get_unapplied_branch_commits(
   git_executor: tauri::State<'_, GitCommandExecutor>,
@@ -52,6 +56,7 @@ pub async fn get_unapplied_branch_commits(
 }
 
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn delete_unapplied_branch(git_executor: tauri::State<'_, GitCommandExecutor>, params: DeleteArchivedBranchParams) -> Result<(), CommandError> {
   let git = (*git_executor).clone();

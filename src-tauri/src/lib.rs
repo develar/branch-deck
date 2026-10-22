@@ -8,6 +8,7 @@ pub mod progress;
 pub mod range_files;
 pub mod repository_state;
 pub mod title_bar;
+pub mod tracing_log;
 pub mod zoom;
 
 #[cfg(test)]
@@ -20,6 +21,8 @@ mod range_files_test;
 mod repository_state_test;
 #[cfg(test)]
 mod title_bar_test;
+#[cfg(test)]
+mod tracing_log_test;
 #[cfg(test)]
 mod zoom_test;
 
@@ -221,6 +224,9 @@ pub fn run() {
   #[cfg(not(feature = "devtools"))]
   let builder = tauri::Builder::default();
 
+  // the devtools plugin sets a subscriber of its own
+  #[cfg(not(feature = "devtools"))]
+  tracing_log::install();
   #[cfg(not(feature = "devtools"))]
   let builder = builder.plugin(
     tauri_plugin_log::Builder::new()

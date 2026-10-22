@@ -56,6 +56,7 @@ impl ReviewFetchState {
 /// The pull requests of others that wait for the user's review (requested by name), one GraphQL search; when GitHub
 /// can't answer, the availability says why. A known `github_repository` skips resolving it.
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn get_review_requests(
   git_executor: State<'_, GitCommandExecutor>,
@@ -101,6 +102,7 @@ pub async fn fetch_review_head(
 
 /// Kills the review fetch of the calling window in flight, if any
 #[tauri::command]
+#[instrument(skip(webview, state))]
 #[specta::specta]
 pub async fn cancel_review_fetch(webview: Webview, state: State<'_, ReviewFetchState>) -> Result<(), CommandError> {
   state.cancel(webview.label());
@@ -109,6 +111,7 @@ pub async fn cancel_review_fetch(webview: Webview, state: State<'_, ReviewFetchS
 
 /// Deletes the review refs of the pull requests not in `keep` (one CAS transaction)
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn prune_review_refs(git_executor: State<'_, GitCommandExecutor>, params: PruneReviewRefsParams) -> Result<(), CommandError> {
   let git = (*git_executor).clone();
@@ -118,6 +121,7 @@ pub async fn prune_review_refs(git_executor: State<'_, GitCommandExecutor>, para
 /// The changed files of `base..head` with their line counts, from one `diff-tree` of the two commits
 /// (`RangeFilesCache::read`), kept in memory
 #[tauri::command]
+#[instrument(skip(git_executor, range_files))]
 #[specta::specta]
 pub async fn get_range_files(
   git_executor: State<'_, GitCommandExecutor>,

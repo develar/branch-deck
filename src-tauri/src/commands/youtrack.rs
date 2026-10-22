@@ -56,6 +56,7 @@ impl YouTrackState {
 
 /// The YouTrack sign-in and where the token comes from, for Settings and the popovers
 #[tauri::command]
+#[instrument(skip(youtrack))]
 #[specta::specta]
 pub async fn get_youtrack_auth_status(youtrack: State<'_, YouTrackState>) -> Result<YouTrackAuthStatus, CommandError> {
   Ok(youtrack.service.status().await)
@@ -120,6 +121,7 @@ pub async fn wait_youtrack_sign_in(app: AppHandle, youtrack: State<'_, YouTrackS
 
 /// Ends the wait of the sign-in in progress, if any
 #[tauri::command]
+#[instrument(skip(youtrack))]
 #[specta::specta]
 pub async fn cancel_youtrack_sign_in(youtrack: State<'_, YouTrackState>) -> Result<(), CommandError> {
   youtrack.generation.fetch_add(1, Ordering::SeqCst);
@@ -158,6 +160,7 @@ pub async fn save_youtrack_token(app: AppHandle, youtrack: State<'_, YouTrackSta
 /// Removes the token of the app's own sign-in. The Hub keeps the authorization until it is revoked there (Account
 /// Security of the YouTrack profile).
 #[tauri::command]
+#[instrument(skip(app, youtrack))]
 #[specta::specta]
 pub async fn sign_out_of_youtrack(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<(), CommandError> {
   youtrack.generation.fetch_add(1, Ordering::SeqCst);
@@ -171,6 +174,7 @@ pub async fn sign_out_of_youtrack(app: AppHandle, youtrack: State<'_, YouTrackSt
 
 /// The issue of `key` for the popover, from the YouTrack the token is for
 #[tauri::command]
+#[instrument(skip(youtrack))]
 #[specta::specta]
 pub async fn get_youtrack_issue(youtrack: State<'_, YouTrackState>, key: String) -> Result<YouTrackIssueAnswer, CommandError> {
   Ok(youtrack.service.issue(&key).await)

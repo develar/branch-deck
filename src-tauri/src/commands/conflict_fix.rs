@@ -45,6 +45,7 @@ pub async fn find_conflict_fix(
 
 /// Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts.
 #[tauri::command]
+#[instrument]
 #[specta::specta]
 pub fn cancel_conflict_fix() {
   cancel_running();

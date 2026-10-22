@@ -18,10 +18,12 @@ use sync_core::pull_requests::{GetPullRequestsParams, GitHubRepository, failure_
 use sync_core::stack_pull_request::{GetNewStackPullRequestParams, read_new_stack_pull_request};
 use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use tauri::State;
+use tracing::instrument;
 
 /// The GitHub pull requests of the virtual branches, one GraphQL search; when GitHub can't answer, the availability says
 /// why
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn get_pull_requests(
   git_executor: State<'_, GitCommandExecutor>,
@@ -38,6 +40,7 @@ pub async fn get_pull_requests(
 /// Changes the base of a pull request of the virtual branches: the push of a stacked branch keeps its pull request on
 /// the branch it is built on
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn retarget_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
@@ -54,6 +57,7 @@ pub async fn retarget_pull_request(
 /// Closes a pull request of the virtual branches with a comment: an ancestor a Safe Push of a stacked branch landed
 /// with it
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn close_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
@@ -69,6 +73,7 @@ pub async fn close_pull_request(
 
 /// Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github, params), fields(pull_request = params.pull_request_number, event = ?params.event))]
 #[specta::specta]
 pub async fn submit_pull_request_review(
   git_executor: State<'_, GitCommandExecutor>,
@@ -93,6 +98,7 @@ pub async fn submit_pull_request_review(
 /// Asks users to review an open pull request of the virtual branches (Request Review…): whom GitHub asked, and whom it
 /// refused with its reason
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn request_pull_request_reviewers(
   git_executor: State<'_, GitCommandExecutor>,
@@ -108,6 +114,7 @@ pub async fn request_pull_request_reviewers(
 
 /// The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn get_pull_request_head(
   git_executor: State<'_, GitCommandExecutor>,
@@ -124,6 +131,7 @@ pub async fn get_pull_request_head(
 /// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
 /// summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github, youtrack))]
 #[specta::specta]
 pub async fn get_new_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
@@ -156,6 +164,7 @@ async fn with_viewer(
 /// descriptions of the stack branch and its members, else the subjects of their commits; and the user of the token,
 /// who is the assignee
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn get_new_stack_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
@@ -172,6 +181,7 @@ pub async fn get_new_stack_pull_request(
 /// Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that
 /// already exists is found instead
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github, params), fields(branch = %params.branch_name, head = %params.head, base = %params.base))]
 #[specta::specta]
 pub async fn create_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
@@ -188,6 +198,7 @@ pub async fn create_pull_request(
 /// Waits until GitHub has the branch just pushed (a mirror copies it a moment later): false when it still doesn't after
 /// `MIRROR_WAIT`
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn wait_for_github_branch(
   git_executor: State<'_, GitCommandExecutor>,
@@ -203,6 +214,7 @@ pub async fn wait_for_github_branch(
 
 /// The users of the repository a review can be asked from whose login or name matches the query
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn search_github_users(
   git_executor: State<'_, GitCommandExecutor>,
@@ -219,6 +231,7 @@ pub async fn search_github_users(
 /// What the rules of a branch do to the pull requests into it: the Safe Push popover warns before a push that dismisses
 /// the approvals of the pull request
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn get_branch_rules(
   git_executor: State<'_, GitCommandExecutor>,

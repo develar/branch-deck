@@ -61,6 +61,7 @@ fn client_id() -> Result<&'static str, CommandError> {
 
 /// The app's own sign-in and where the token comes from, for Settings
 #[tauri::command]
+#[instrument(skip(github))]
 #[specta::specta]
 pub async fn get_github_auth_status(github: State<'_, GitHubState>) -> Result<GitHubAuthStatus, CommandError> {
   let file = github.token_file.clone();
@@ -125,6 +126,7 @@ pub async fn wait_github_sign_in(app: AppHandle, github: State<'_, GitHubState>)
 
 /// Ends the wait of the sign-in in progress, if any
 #[tauri::command]
+#[instrument(skip(github))]
 #[specta::specta]
 pub async fn cancel_github_sign_in(github: State<'_, GitHubState>) -> Result<(), CommandError> {
   github.generation.fetch_add(1, Ordering::SeqCst);
@@ -135,6 +137,7 @@ pub async fn cancel_github_sign_in(github: State<'_, GitHubState>) -> Result<(),
 /// Removes the token of the app's own sign-in. GitHub keeps the authorization until it is revoked there
 /// (`manage_url`): revoking needs the client secret, which the app has not.
 #[tauri::command]
+#[instrument(skip(app, github))]
 #[specta::specta]
 pub async fn sign_out_of_github(app: AppHandle, github: State<'_, GitHubState>) -> Result<(), CommandError> {
   github.generation.fetch_add(1, Ordering::SeqCst);

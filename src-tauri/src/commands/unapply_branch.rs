@@ -5,8 +5,10 @@ use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, UndoReapplyParams, UndoneReapply, reapply_branch_core, undo_reapply_core};
 use sync_core::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, UndoUnapplyParams, UndoneUnapply, unapply_branch_core, undo_unapply_core};
 use tauri::State;
+use tracing::instrument;
 
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn unapply_branch(git_executor: State<'_, GitCommandExecutor>, params: UnapplyBranchParams) -> Result<UnapplyBranchResult, CommandError> {
   let git = (*git_executor).clone();
@@ -15,6 +17,7 @@ pub async fn unapply_branch(git_executor: State<'_, GitCommandExecutor>, params:
 }
 
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn undo_unapply_branch(git_executor: State<'_, GitCommandExecutor>, params: UndoUnapplyParams) -> Result<UndoneUnapply, CommandError> {
   let git = (*git_executor).clone();
@@ -27,6 +30,7 @@ pub async fn undo_unapply_branch(git_executor: State<'_, GitCommandExecutor>, pa
 }
 
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn reapply_branch(git_executor: State<'_, GitCommandExecutor>, params: ReapplyBranchParams) -> Result<ReapplyBranchResult, CommandError> {
   let git = (*git_executor).clone();
@@ -34,6 +38,7 @@ pub async fn reapply_branch(git_executor: State<'_, GitCommandExecutor>, params:
 }
 
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn undo_reapply_branch(git_executor: State<'_, GitCommandExecutor>, params: UndoReapplyParams) -> Result<UndoneReapply, CommandError> {
   let git = (*git_executor).clone();

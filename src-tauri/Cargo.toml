@@ -50,6 +50,8 @@ tauri-plugin-notification = "2"
 tauri-plugin-clipboard-manager = "2"
 anyhow.workspace = true
 tracing.workspace = true
+# the events with their spans, as records of `log` (`tracing_log`)
+tracing-subscriber.workspace = true
 thiserror.workspace = true
 log = "0.4"
 

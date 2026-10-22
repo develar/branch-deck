@@ -14,10 +14,23 @@ export function getErrorDetails(error: unknown): string {
   return String(error)
 }
 
-/** Records the errors the user was told about in Activity; set by `@/stores/activity`, which this module can't import */
-let errorRecorder: ((title: string, description: string) => void) | null = null
+/**
+ * The operation a failed command names (`CommandError.operation_id`, set by `run_blocking`): the id of its log lines,
+ * `operation{operation_id=…}`; undefined for any other error
+ */
+export function getErrorOperationId(error: unknown): string | undefined {
+  if (typeof error === "object" && error !== null && "operation_id" in error && typeof error.operation_id === "string") {
+    return error.operation_id
+  }
+  return undefined
+}
 
-export function setErrorRecorder(recorder: (title: string, description: string) => void): void {
+type ErrorRecorder = (title: string, description: string, operationId: string | undefined) => void
+
+/** Records the errors the user was told about in Activity; set by `@/stores/activity`, which this module can't import */
+let errorRecorder: ErrorRecorder | null = null
+
+export function setErrorRecorder(recorder: ErrorRecorder): void {
   errorRecorder = recorder
 }
 
@@ -28,7 +41,7 @@ export function setErrorRecorder(recorder: (title: string, description: string) 
 export function recordError(title: string, error: unknown): string {
   const description = getErrorDetails(error)
   logError(title, error, description)
-  errorRecorder?.(title, description)
+  errorRecorder?.(title, description, getErrorOperationId(error))
   return description
 }
 
@@ -67,7 +80,9 @@ export function notifyError(title: string, error: unknown, action?: ToastActionP
 
 export function logError(title: string, error: unknown, description: string | null = null): void {
   console.error(title, error)
-  logErrorToBackend(title, { keyValues: { error: description ?? getErrorDetails(error) } }).catch((logFailure: unknown) => {
+  // the operation's id leads from this line to the lines the command logged
+  const keyValues = { error: description ?? getErrorDetails(error), operation_id: getErrorOperationId(error) }
+  logErrorToBackend(title, { keyValues }).catch((logFailure: unknown) => {
     console.error("Failed to forward error to backend log", logFailure)
   })
 }

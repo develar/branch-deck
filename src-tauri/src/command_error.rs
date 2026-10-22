@@ -1,11 +1,12 @@
 //! Error type returned by Tauri commands.
 //!
-//! Serialized to the frontend as `{ "message": string, "kind": null }`, `kind` naming a refusal the page tells apart.
+//! Serialized to the frontend as `{ "message": string, "kind": null, "operation_id": null }`, `kind` naming a refusal the
+//! page tells apart, `operation_id` the operation whose log lines tell what failed.
 
 use serde::Serialize;
 use sync_core::sync::SyncDeferred;
 
-/// Error returned by Tauri commands, serialized as `{ message, kind }`.
+/// Error returned by Tauri commands, serialized as `{ message, kind, operation_id }`.
 #[derive(Debug, Clone, Serialize, specta::Type, thiserror::Error)]
 #[error("{message}")]
 pub struct CommandError {
@@ -13,6 +14,10 @@ pub struct CommandError {
   /// What the page acts on without reading the message; null for any other failure
   #[specta(optional)]
   pub kind: Option<CommandErrorKind>,
+  /// The operation that failed, the `operation_id` of its log lines: `run_blocking` names it; null for an error raised
+  /// outside one
+  #[specta(optional)]
+  pub operation_id: Option<String>,
 }
 
 /// A refusal of a command that is a precondition, not a failure
@@ -30,6 +35,7 @@ impl CommandError {
     Self {
       message: message.into(),
       kind: None,
+      operation_id: None,
     }
   }
 }
@@ -44,6 +50,7 @@ impl From<anyhow::Error> for CommandError {
     Self {
       message: format!("{err:#}"),
       kind,
+      operation_id: None,
     }
   }
 }
@@ -81,13 +88,16 @@ mod tests {
   #[test]
   fn serializes_as_message_object() {
     let json = serde_json::to_string(&CommandError::new("boom")).unwrap();
-    assert_eq!(json, r#"{"message":"boom","kind":null}"#);
+    assert_eq!(json, r#"{"message":"boom","kind":null,"operation_id":null}"#);
   }
 
   #[test]
   fn names_a_deferred_sync_by_its_kind() {
     let command_error = CommandError::from(anyhow::Error::new(sync_core::sync::SyncDeferred::OperationInProgress("a rebase")));
     let json = serde_json::to_string(&command_error).unwrap();
-    assert_eq!(json, r#"{"message":"Not synced: a rebase is in progress","kind":"operationInProgress"}"#);
+    assert_eq!(
+      json,
+      r#"{"message":"Not synced: a rebase is in progress","kind":"operationInProgress","operation_id":null}"#
+    );
   }
 }

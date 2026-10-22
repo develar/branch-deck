@@ -766,11 +766,16 @@ export type ClosePullRequestParams = {
 	comment: string,
 };
 
-/**  Error returned by Tauri commands, serialized as `{ message, kind }`. */
+/**  Error returned by Tauri commands, serialized as `{ message, kind, operation_id }`. */
 export type CommandError = {
 	message: string,
 	/**  What the page acts on without reading the message; null for any other failure */
 	kind?: CommandErrorKind | null,
+	/**
+	 *  The operation that failed, the `operation_id` of its log lines: `run_blocking` names it; null for an error raised
+	 *  outside one
+	 */
+	operation_id?: string | null,
 };
 
 /**  A refusal of a command that is a precondition, not a failure */

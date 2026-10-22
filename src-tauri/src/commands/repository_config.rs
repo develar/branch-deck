@@ -4,6 +4,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use sync_core::repository_config::{RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, read_repository_config, set_config};
 use tauri::{AppHandle, Emitter, State};
+use tracing::instrument;
 
 /// Sent to the main window after a write of Settings → Repository: the main window syncs, or reloads the branch prefix
 pub const REPOSITORY_CONFIG_CHANGED_EVENT: &str = "repository_config_changed";
@@ -35,6 +36,7 @@ pub struct SetRepositoryConfigParams {
 
 /// The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn get_repository_config(git_executor: State<'_, GitCommandExecutor>, params: GetRepositoryConfigParams) -> Result<RepositoryConfig, CommandError> {
   let git = (*git_executor).clone();
@@ -44,6 +46,7 @@ pub async fn get_repository_config(git_executor: State<'_, GitCommandExecutor>, 
 /// Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
 /// read again
 #[tauri::command]
+#[instrument(skip(app, git_executor))]
 #[specta::specta]
 pub async fn set_repository_config(app: AppHandle, git_executor: State<'_, GitCommandExecutor>, params: SetRepositoryConfigParams) -> Result<RepositoryConfig, CommandError> {
   let git = (*git_executor).clone();

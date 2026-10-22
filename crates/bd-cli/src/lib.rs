@@ -36,11 +36,12 @@ use bd_update::unapply_command::{ReapplyArgs, UnapplyArgs, reapply, unapply};
 use bd_update::undo_command::{UndoArgs, undo};
 use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, update};
 use clap::error::ErrorKind;
-use clap::{ArgAction, CommandFactory, Parser, Subcommand};
+use clap::{ArgAction, ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use serde::Serialize;
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
+use sync_utils::operation_id::OperationId;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -198,35 +199,68 @@ pub fn run(args: impl Iterator<Item = OsString>) -> i32 {
   let stdout = std::io::stdout();
   let mut out = stdout.lock();
   let environment = Environment::from_process();
-  let cli = match parse(args, &environment, &mut out) {
-    Ok(cli) => cli,
+  let invocation = match parse(args, &environment, &mut out) {
+    Ok(invocation) => invocation,
     Err(exit_code) => return exit_code,
   };
-  init_logging(cli.verbose);
-  execute(&cli, &environment, &mut out)
+  init_logging(invocation.cli.verbose);
+  execute_operation(&invocation, &environment, &mut out)
 }
 
 /// `run` with an injected environment and output, for tests
 pub fn run_with(args: impl IntoIterator<Item = OsString>, environment: &Environment, out: &mut dyn Write) -> i32 {
   match parse(args, environment, out) {
-    Ok(cli) => execute(&cli, environment, out),
+    Ok(invocation) => execute_operation(&invocation, environment, out),
     Err(exit_code) => exit_code,
   }
 }
 
-fn parse(args: impl IntoIterator<Item = OsString>, environment: &Environment, out: &mut dyn Write) -> Result<Cli, i32> {
-  Cli::try_parse_from(std::iter::once(OsString::from("bd")).chain(args)).map_err(|e| match e.kind() {
-    ErrorKind::DisplayHelp => {
-      let _ = write!(out, "{}", e.render());
-      0
-    }
-    // JSON as everything else on stdout, the same as `bd version`
-    ErrorKind::DisplayVersion => match print(out, &version(environment)) {
-      Ok(()) => 0,
-      Err(error) => print_error(out, &error),
-    },
-    _ => print_error(out, &CliError::new(ErrorCode::InvalidArguments, e.render().to_string().trim())),
-  })
+/// The parsed command line and the name of its command, `status` or `lease get`
+struct Invocation {
+  cli: Cli,
+  op: String,
+}
+
+fn parse(args: impl IntoIterator<Item = OsString>, environment: &Environment, out: &mut dyn Write) -> Result<Invocation, i32> {
+  Cli::command()
+    .try_get_matches_from(std::iter::once(OsString::from("bd")).chain(args))
+    .and_then(|matches| {
+      Cli::from_arg_matches(&matches).map(|cli| Invocation {
+        cli,
+        op: operation_name(&matches),
+      })
+    })
+    .map_err(|e| match e.kind() {
+      ErrorKind::DisplayHelp => {
+        let _ = write!(out, "{}", e.render());
+        0
+      }
+      // JSON as everything else on stdout, the same as `bd version`
+      ErrorKind::DisplayVersion => match print(out, &version(environment)) {
+        Ok(()) => 0,
+        Err(error) => print_error(out, &error),
+      },
+      _ => print_error(out, &CliError::new(ErrorCode::InvalidArguments, e.render().to_string().trim())),
+    })
+}
+
+/// The subcommands of `matches` joined by spaces: `lease get`
+fn operation_name(matches: &ArgMatches) -> String {
+  let mut names = Vec::new();
+  let mut current = matches;
+  while let Some((name, subcommand)) = current.subcommand() {
+    names.push(name);
+    current = subcommand;
+  }
+  names.join(" ")
+}
+
+/// Runs the command inside its root span `operation{op, operation_id}`, so every log line of it names the operation
+/// (docs/design/async-patterns.md#operation-spans); the JSON output does not carry the id yet
+fn execute_operation(invocation: &Invocation, environment: &Environment, out: &mut dyn Write) -> i32 {
+  let operation_id = OperationId::new();
+  let _operation = tracing::info_span!("operation", op = %invocation.op, %operation_id).entered();
+  execute(&invocation.cli, environment, out)
 }
 
 fn init_logging(verbose: u8) {
@@ -375,6 +409,8 @@ mod error_test;
 pub mod fixture_test;
 #[cfg(test)]
 mod install_test;
+#[cfg(test)]
+mod operation_test;
 #[cfg(test)]
 mod process_budget_test;
 #[cfg(any(test, feature = "fixtures"))]

@@ -191,6 +191,16 @@ describe("activity", () => {
     expect(entries()[0]).toMatchObject({ kind: "error", title: "Couldn't push auth", description: "rejected" })
   })
 
+  it("keeps the operation a failed command names, for its lines in the log", () => {
+    notifyError("Cannot push auth", { message: "rejected", kind: null, operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })
+    expect(entries()[0]).toMatchObject({ kind: "error", title: "Cannot push auth", operationId: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })
+
+    // an error raised outside a command names none
+    notifyError("Cannot open the review", new Error("closed"))
+    expect(entries()[0]!.title).toBe("Cannot open the review")
+    expect(entries()[0]).not.toHaveProperty("operationId")
+  })
+
   it("records a landed report once, whether the update or the sync after one brings it", () => {
     const update: UpdateProjectResult = {
       check: { branch: "master", upstream: "origin/master", head: "h", upstreamHead: "u", base: "b", state: { status: "clean", kind: "rebase" }, fetchedAt: null },

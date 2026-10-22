@@ -81,6 +81,8 @@ const ActivityEntrySchema = z.object({
    * once the user undid it, from the toast or from Activity
    */
   undo: z.object({ until: z.number(), undone: z.boolean().optional() }).optional(),
+  /** The operation of a failed command (`CommandError.operation_id`): the id its lines in the app's log carry */
+  operationId: z.string().optional(),
 })
 
 export type ActivityEntry = z.infer<typeof ActivityEntrySchema>
@@ -306,7 +308,7 @@ export function recordRetarget(title: string, description: string, url: string):
 }
 
 // every error the user was told about (`notifyError`); errors.ts can't import the store, which imports errors.ts
-setErrorRecorder((title, description) => recordActivity({ kind: "error", title, description }))
+setErrorRecorder((title, description, operationId) => recordActivity({ kind: "error", title, description, ...(operationId !== undefined && { operationId }) }))
 
 // ---- days ----
 

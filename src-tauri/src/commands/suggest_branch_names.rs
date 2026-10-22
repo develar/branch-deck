@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use sync_core::branch_name_suggestion::suggest_branch_names as core_suggest_branch_names;
 use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use tauri::State;
+use tracing::instrument;
 
 /// The latest request for branch names: an older one still running is `Superseded`, its `claude` killed
 #[derive(Default)]
@@ -16,6 +17,7 @@ pub struct BranchNameSuggestionState {
 /// Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
 /// logged-out `claude` and its failures are outcomes
 #[tauri::command]
+#[instrument(skip(state, git_executor))]
 #[specta::specta]
 pub async fn suggest_branch_names(
   state: State<'_, BranchNameSuggestionState>,

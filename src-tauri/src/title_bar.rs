@@ -2,6 +2,7 @@ use crate::command_error::CommandError;
 use serde::Serialize;
 use std::sync::OnceLock;
 use tauri::{Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
+use tracing::instrument;
 
 /// How every window draws its title bar, decided once per process (`init_title_bar`) and passed to the page as
 /// `window.__BD_TITLE_BAR__` (`src/lib/title-bar.ts`):
@@ -245,6 +246,7 @@ pub fn stored_system_title_bar(store_json: &str) -> bool {
 /// (`init_title_bar`). The value is written to `settings.json` here, before the restart: the page saves its settings
 /// debounced, and the new process reads the file (`stored_system_title_bar`).
 #[tauri::command]
+#[instrument(skip(app_handle))]
 #[specta::specta]
 #[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle of a command by value")]
 pub fn restart_app(app_handle: tauri::AppHandle, system_title_bar: bool) -> Result<(), CommandError> {

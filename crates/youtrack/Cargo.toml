@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 base64 = "0.22.1"
-getrandom = "0.3.4"
+getrandom.workspace = true
 moka.workspace = true
 reqwest = { workspace = true, features = ["form"] }
 serde.workspace = true

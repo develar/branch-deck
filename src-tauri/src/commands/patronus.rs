@@ -94,6 +94,7 @@ async fn target_branch(git_executor: &GitCommandExecutor, repository_path: &str,
 /// The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
 /// `since`. When Patronus can't be asked, the availability says why.
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, patronus))]
 #[specta::specta]
 pub async fn get_patronus_robots(
   git_executor: State<'_, GitCommandExecutor>,
@@ -116,6 +117,7 @@ pub async fn get_patronus_robots(
 
 /// The robots of `params.robots` whose status changed since the app saw it; the others are not in the result
 #[tauri::command]
+#[instrument(skip(patronus))]
 #[specta::specta]
 pub async fn poll_patronus_robots(patronus: State<'_, PatronusState>, params: PollPatronusRobotsParams) -> Result<PatronusRobotsResult, CommandError> {
   Ok(patronus.service.poll(&params.branch_prefix, &params.robots).await)
@@ -123,6 +125,7 @@ pub async fn poll_patronus_robots(patronus: State<'_, PatronusState>, params: Po
 
 /// The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover
 #[tauri::command]
+#[instrument(skip(patronus))]
 #[specta::specta]
 pub async fn get_patronus_robot_details(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotDetails, CommandError> {
   patronus
@@ -135,6 +138,7 @@ pub async fn get_patronus_robot_details(patronus: State<'_, PatronusState>, para
 /// Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
 /// with the failed builds, their tests and the log tails of the `teamcity` CLI
 #[tauri::command]
+#[instrument(skip(git_executor, patronus))]
 #[specta::specta]
 pub async fn get_robot_failure(
   git_executor: State<'_, GitCommandExecutor>,
@@ -155,6 +159,7 @@ pub async fn get_robot_failure(
 /// Which commits of the branches a running robot covers, by the hashes of the checked-out branch: the commit rows mark
 /// the commits added or changed since it started (`robot_subject_commit_map`). No commits for a stack without members.
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn get_robot_commit_map(git_executor: State<'_, GitCommandExecutor>, params: GetRobotCommitMapParams) -> Result<RobotCommitMap, CommandError> {
   let git = git_executor.inner().clone();
@@ -179,6 +184,7 @@ pub async fn get_robot_commit_map(git_executor: State<'_, GitCommandExecutor>, p
 
 /// The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default
 #[tauri::command]
+#[instrument(skip(git_executor, patronus))]
 #[specta::specta]
 pub async fn get_patronus_start_options(
   git_executor: State<'_, GitCommandExecutor>,
@@ -204,6 +210,7 @@ pub async fn get_patronus_start_options(
 /// stack; the frontend pushes it first. First the landing gate (`sync_core::landing_gate`), as `bd safe-push` refuses
 /// it: a proven dangling reference or a missing declaration refuses the start unless `allow` lets it. The new robot.
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, patronus))]
 #[specta::specta]
 pub async fn start_patronus_robot(
   git_executor: State<'_, GitCommandExecutor>,
@@ -269,6 +276,7 @@ pub async fn check_landing_gate(
 /// Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
 /// of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn check_target_conflict(git_executor: State<'_, GitCommandExecutor>, params: TargetConflictParams) -> Result<TargetCheck, CommandError> {
   let git = git_executor.inner().clone();
@@ -277,6 +285,7 @@ pub async fn check_target_conflict(git_executor: State<'_, GitCommandExecutor>, 
 
 /// Starts the robot again on the newest commit of its branch; the new robot
 #[tauri::command]
+#[instrument(skip(patronus))]
 #[specta::specta]
 pub async fn restart_patronus_robot(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobot, CommandError> {
   patronus.service.restart(&params.branch_prefix, &params.robot_id).await.map_err(CommandError::new)
@@ -284,6 +293,7 @@ pub async fn restart_patronus_robot(patronus: State<'_, PatronusState>, params: 
 
 /// Asks Patronus to cancel the robot; it answers it canceling
 #[tauri::command]
+#[instrument(skip(patronus))]
 #[specta::specta]
 pub async fn cancel_patronus_robot(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobot, CommandError> {
   patronus.service.cancel(&params.branch_prefix, &params.robot_id).await.map_err(CommandError::new)
@@ -291,6 +301,7 @@ pub async fn cancel_patronus_robot(patronus: State<'_, PatronusState>, params: P
 
 /// The current status of one robot, read right before a push into its branch
 #[tauri::command]
+#[instrument(skip(patronus))]
 #[specta::specta]
 pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotStatus, CommandError> {
   patronus.service.robot_status(&params.robot_id).await.map_err(CommandError::new)
@@ -298,6 +309,7 @@ pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, param
 
 /// The error problems of a finished robot, once per session: the chip names a missing review
 #[tauri::command]
+#[instrument(skip(patronus))]
 #[specta::specta]
 pub async fn get_patronus_robot_problems(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<Vec<PatronusProblem>, CommandError> {
   patronus.service.robot_problems(&params.robot_id).await.map_err(CommandError::new)
@@ -305,6 +317,7 @@ pub async fn get_patronus_robot_problems(patronus: State<'_, PatronusState>, par
 
 /// Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known
 #[tauri::command]
+#[instrument(skip(patronus))]
 #[specta::specta]
 pub async fn get_patronus_failing_robots(patronus: State<'_, PatronusState>, params: PatronusFailingRobotsParams) -> Result<Vec<String>, CommandError> {
   patronus.service.failing_robots(&params.robot_ids).await.map_err(CommandError::new)
@@ -359,6 +372,7 @@ pub async fn get_branch_review_readiness(
 /// branch: Patronus links the robot to the pull request only from its comment. The posted comment; the bot answers
 /// with a reaction (`read_patronus_command_reply`).
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn post_patronus_command(
   git_executor: State<'_, GitCommandExecutor>,
@@ -383,6 +397,7 @@ pub async fn post_patronus_command(
 
 /// How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason
 #[tauri::command]
+#[instrument(skip(git_executor, repository_state, github))]
 #[specta::specta]
 pub async fn read_patronus_command_reply(
   git_executor: State<'_, GitCommandExecutor>,
@@ -407,6 +422,7 @@ fn unknown_github_repository() -> CommandError {
 /// The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
 /// of origin
 #[tauri::command]
+#[instrument(skip(git_executor))]
 #[specta::specta]
 pub async fn get_patronus_target_branch(git_executor: State<'_, GitCommandExecutor>, params: GetPatronusTargetBranchParams) -> Result<Option<String>, CommandError> {
   let git = (*git_executor).clone();

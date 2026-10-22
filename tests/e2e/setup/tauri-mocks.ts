@@ -140,13 +140,18 @@ export const tauriMockScript = () => {
   }
 
   /**
-   * The rejection of a failed command: Tauri rejects with its CommandError ({ message }), which the bindings return as
-   * `{ status: "error", error }`; an Error instance they would throw instead
+   * The rejection of a failed command: Tauri rejects with its CommandError, which the bindings return as
+   * `{ status: "error", error }` (an Error instance they would throw instead): its message, the kind of a refusal the
+   * page tells apart (`CommandErrorKind`) and the operation that failed (`operation_id`, null unless the server names one)
    */
-  /** The `CommandError` of the app: its message, and the kind of a refusal the page tells apart (`CommandErrorKind`) */
-  function commandError(error: any): { name: "CommandError"; message: string; kind: string | null } {
+  function commandError(error: any): { name: "CommandError"; message: string; kind: string | null; operation_id: string | null } {
     const isObject = typeof error === "object" && error !== null
-    return { name: "CommandError", message: isObject ? error.message : String(error), kind: isObject ? (error.kind ?? null) : null }
+    return {
+      name: "CommandError",
+      message: isObject ? error.message : String(error),
+      kind: isObject ? (error.kind ?? null) : null,
+      operation_id: isObject ? (error.operation_id ?? null) : null,
+    }
   }
 
   /**
