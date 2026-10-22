@@ -1,6 +1,6 @@
 // @spec spec/branch/whole-stack.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { PatronusReviewRequirement, PatronusRobot, PullRequest, PullRequestsResult } from "../../../src/lib/bindings"
+import type { PatronusReviewRequirement, PatronusRobot, PullRequest } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchDetailsRow, getLandingNode } from "../helpers/branch-helpers"
@@ -17,7 +17,7 @@ import {
   setupRunningRobot,
   wholeStackStartRequest,
 } from "../helpers/patronus-helpers"
-import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, type GitHubFixture, getOpenedUrls, gitHubWrites, pullRequest, reviewer } from "../helpers/pull-request-helpers"
 import type { PushRequest } from "../helpers/push-helpers"
 import { pushOutcome, routeHeldPush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
@@ -26,7 +26,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, routeCommand } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand, routeCommand } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
@@ -62,7 +62,7 @@ async function openWholeStackReview(page: Page): Promise<Page> {
   await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
   await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
   const opened = (await getOpenedSubWindows<BranchReviewWindowData>(page))[0]!
-  return openLinkedSubWindow(page, opened, { beforeLoad: review => routeNewPullRequest(review) })
+  return openLinkedSubWindow(page, opened)
 }
 
 /** The open pull request of the stack branch of `root`; its empty head is the stack branch the sync built */
@@ -70,8 +70,25 @@ function stackPullRequest(root: string, number: number, patch: Partial<PullReque
   return pullRequest(root, number, { title: `The whole ${root} stack`, headRefName: `user-name/stack/${root}`, ...patch })
 }
 
-function withStackPullRequests(result: PullRequestsResult, stacks: Record<string, PullRequest>): PullRequestsResult {
+function withStackPullRequests(result: GitHubFixture, stacks: Record<string, PullRequest>): GitHubFixture {
   return { ...result, stackPullRequests: stacks }
+}
+
+/** No pull request yet, the code owner Ilya Korennoy a collaborator; the next pull request created is #12 */
+const BEFORE_STACK_PULL_REQUEST: GitHubFixture = { ...availablePullRequests(), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }], nextNumber: 12 }
+
+/** The pull requests GitHub closed, by number, as the log has them: a comment, then the close */
+async function closedPullRequests(repo: TestRepositoryBuilder): Promise<number[]> {
+  const writes = gitHubWrites(await repo.getGitHubLog())
+  return writes.filter(([method, , body]) => method === "PATCH" && (body as { state?: string }).state === "closed").map(([, path]) => Number(path.split("/").at(-1)))
+}
+
+/** The comments GitHub got, by pull request number */
+async function pullRequestComments(repo: TestRepositoryBuilder): Promise<[number, string][]> {
+  const writes = gitHubWrites(await repo.getGitHubLog())
+  return writes
+    .filter(([method, path]) => method === "POST" && path.endsWith("/comments"))
+    .map(([, path, body]) => [Number(path.split("/").at(-2)), (body as { body: string }).body])
 }
 
 /**
@@ -122,7 +139,7 @@ async function setupAwaitingCodeOwner(
   setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<void>,
 ): Promise<Locator> {
-  const repo = await setupRepo("stack_island", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
+  const repo = await setupRepo("stack_island", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: BEFORE_STACK_PULL_REQUEST })
   await repo.setReviewAnswers({ answers: { "stack:air": AWAITING_CODE_OWNER } })
   await syncAndWaitForBranches()
   const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
@@ -206,11 +223,11 @@ test.describe("Whole stack", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setupRepo("stack_island", { patronus: availableRobots(), pullRequests: availablePullRequests() })
+    await setupRepo("stack_island", { patronus: availableRobots(), pullRequests: BEFORE_STACK_PULL_REQUEST })
     await syncAndWaitForBranches()
     const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
     const created = stackPullRequest("air", 12)
-    const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(created))
+    const creates = await recordCommand(page, "create_pull_request")
     const dialog = createPullRequestDialog(page)
     // the menus are built on open: Patronus and GitHub answered once a branch's menu offers its pull request
     await expect(island(page, "air").getByTestId("stack-island-actions").getByTestId("safe-push-button")).toBeVisible()
@@ -272,7 +289,7 @@ test.describe("Whole stack", () => {
   }) => {
     const slot = await setupAwaitingCodeOwner(page, setupRepo, syncAndWaitForBranches)
     await routePushBranches(page, {})
-    const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(stackPullRequest("air", 12)))
+    const creates = await recordCommand(page, "create_pull_request")
 
     // the step of the header opens the dialog of the stack branch, the code owner Patronus suggests asked to review
     await slot.getByTestId("next-step").click()
@@ -561,10 +578,10 @@ test.describe("Whole stack", () => {
     syncAndWaitForBranches,
   }) => {
     // no Patronus: no next step in any row, the request asks GitHub
-    await setupRepo("stacked_branches", { pullRequests: withStackPullRequests(availablePullRequests(), { auth: stackPullRequest("auth", 12) }) })
+    const carol = { login: "carol", name: "Carol Danvers" }
+    await setupRepo("stacked_branches", { pullRequests: withStackPullRequests({ ...availablePullRequests(), users: [carol] }, { auth: stackPullRequest("auth", 12) }) })
     await syncAndWaitForBranches()
     await routePushBranches(page, {})
-    await routeCommand(page, "search_github_users", params => ((params.query as string).startsWith("ca") ? [{ login: "carol", name: "Carol Danvers" }] : []))
     const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["carol"], refused: [] }))
     const popover = page.getByTestId("request-review-popover")
     const root = findBranchRow(page, "auth")
@@ -758,7 +775,7 @@ test.describe("Whole stack", () => {
 
     // Create: the main window pushes the stack branch alone and creates it; the toast is in the window
     const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
-    const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(stackPullRequest("air", 12)))
+    const creates = await recordCommand(page, "create_pull_request")
     await dialog.getByTestId("create-pull-request-submit").click()
     release()
     await expect.poll(() => creates.length).toBe(1)
@@ -843,7 +860,6 @@ test.describe("Whole stack", () => {
       return event.type === "stackBranchUpdate" ? { ...event, data: { ...event.data, remote } } : event
     })
     await syncAndWaitForBranches()
-    const closes = await routeCommand(page, "close_pull_request", () => null)
     await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with the whole auth stack")
     // the merge reads the pull requests, which load after the sync
     await expect(findBranchRow(page, "auth").getByTestId("pull-request-chip")).toBeVisible()
@@ -854,8 +870,10 @@ test.describe("Whole stack", () => {
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Whole auth stack merged into master" })).toContainText(
       "closes the pull requests of 3 branches: they landed with the whole stack",
     )
-    await expect.poll(() => closes.map(close => close.pullRequestNumber as number).sort((a, b) => a - b)).toEqual([4, 5, 6])
-    expect(closes[0]!.comment).toContain("the Safe Push of the whole auth stack")
+    await expect.poll(async () => (await closedPullRequests(repo)).sort((a, b) => a - b)).toEqual([4, 5, 6])
+    for (const [, comment] of await pullRequestComments(repo)) {
+      expect(comment).toContain("the Safe Push of the whole auth stack")
+    }
   })
 
   test("should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them", async ({
@@ -1031,13 +1049,12 @@ test.describe("Whole stack", () => {
     await expect(findBranchRow(page, "auth").getByTestId("landing-span")).toHaveText("lands with login")
     // the merge reads the pull requests, which load after the sync: #12 is known once its Request Review… is at the root
     await expect(findBranchRow(page, "auth").getByTestId("request-review-anchor")).toBeAttached()
-    const closes = await routeCommand(page, "close_pull_request", () => null)
 
     // the Safe Push of login lands auth, the root: the pull request of the whole stack shows a stack that is no more
     await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
     await emitTauriEvent(page, "tauri://focus")
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "login merged into master" })).toContainText("Safe Push · #12 no longer matches the auth stack: login landed")
-    expect(closes).toEqual([])
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([])
 
     // the root's preview says it and asks in the root's row
     const preview = await openBranchPreview(page, "auth")
@@ -1049,14 +1066,14 @@ test.describe("Whole stack", () => {
     await expect(confirm).toContainText("Close pull request #12")
     await page.keyboard.press("Escape")
     await expect(confirm).toHaveCount(0)
-    expect(closes).toEqual([])
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([])
 
     // the root's menu: the same, and the close goes to GitHub only from the confirmation
     await openWholeStackSubmenu(page, "auth")
     await page.getByRole("menuitem", { name: "Close Pull Request #12…" }).click()
     await confirm.getByRole("button", { name: "Close Pull Request", exact: true }).click()
-    await expect.poll(() => closes.length).toBe(1)
-    expect(closes[0]).toMatchObject({ pullRequestNumber: 12, comment: "Closed in Branch Deck: #12 no longer matches the auth stack: login landed." })
+    await expect.poll(() => closedPullRequests(repo)).toEqual([12])
+    expect(await pullRequestComments(repo)).toEqual([[12, "Closed in Branch Deck: #12 no longer matches the auth stack: login landed."]])
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Closed pull request #12" })).toBeVisible()
   })
 

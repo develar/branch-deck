@@ -15,7 +15,6 @@ import type {
 import { test, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getLandingNode, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import {
-  APPROVED_BY_CODE_OWNER,
   availableRobots,
   missingApprovals,
   robot,
@@ -24,15 +23,17 @@ import {
   setupRobots,
   setupRobotsWith,
   startRequest,
+  setupApprovalsDismissedByPush,
 } from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
-  createdPullRequest,
   createPullRequestDialog,
+  dismissingApprovals,
   getOpenedUrls,
+  gitHubWrites,
   pullRequest,
+  repoPath,
   reviewer,
-  routeNewPullRequest,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
 import type { PushResult } from "../helpers/push-helpers"
@@ -66,21 +67,6 @@ function chip(page: Page, branchName: string) {
 /** The toast whose text has `text` */
 function toastWith(page: Page, text: string): Locator {
   return page.locator("[data-slot=toast]", { hasText: text })
-}
-
-/**
- * Answers `command` in the page with `answer` only once `release` is called. `calls` are the params of each call.
- */
-async function routeHeld(page: Page, command: string, answer: unknown): Promise<{ calls: Record<string, unknown>[]; release: () => void }> {
-  let release!: () => void
-  const held = new Promise<void>(resolve => (release = resolve))
-  const calls: Record<string, unknown>[] = []
-  await page.route(`**/invoke/${command}`, async route => {
-    calls.push(route.request().postDataJSON() as Record<string, unknown>)
-    await held
-    await route.fulfill({ json: answer })
-  })
-  return { calls, release }
 }
 
 /** "Safe Push" of the branch menu (the right-click): a click, which starts at once when there is nothing to say */
@@ -783,7 +769,7 @@ test.describe("Patronus actions", () => {
       const repo = await setupRepo("issue_links", {
         patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
         patronusProfiles: { profiles: PROFILES },
-        pullRequests: availablePullRequests(...pullRequests),
+        pullRequests: { ...availablePullRequests(...pullRequests), users: [{ login: "alice-gh", name: "Alice" }] },
       })
       await syncAndWaitForBranches()
       await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
@@ -802,7 +788,6 @@ test.describe("Patronus actions", () => {
       await routeReviewRequirement(page, () => REVIEW_REQUIRED)
       const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches)
       const pushes = await routePush(page, {})
-      await routeNewPullRequest(page)
       return { repo, pushes }
     }
 
@@ -891,8 +876,10 @@ test.describe("Patronus actions", () => {
     })
 
     test("should warn before a push that dismisses the approvals of the pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
-      const rules = await routeCommand(page, "get_branch_rules", () => ({ dismissStaleReviewsOnPush: true }))
+      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
+      // the rules of the repository dismiss stale reviews
+      await repo.setPullRequests(dismissingApprovals(pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice", "approved")] })))
+      const rules = await recordCommand(page, "get_branch_rules")
       const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
 
       // the approvals of alice don't count for Patronus, the push dismisses them: the click says so first
@@ -911,7 +898,7 @@ test.describe("Patronus actions", () => {
 
     test("should wait for the rules before a push into an approved pull request: Enter must not dismiss its approvals", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
-      const rules = await routeHeld(page, "get_branch_rules", { dismissStaleReviewsOnPush: false })
+      const rules = await holdCommandCalls(page, "get_branch_rules")
       const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
 
       const popover = await openSafePushWithKey(page, "JIRA-456")
@@ -936,11 +923,8 @@ test.describe("Patronus actions", () => {
       /** #7 approved by the code owner Patronus counts, and the rules dismiss stale reviews; JIRA-456 has commits the remote lacks */
       async function setupApproved(page: Page, setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>) {
         const approved = pullRequest("JIRA-456", 7, { reviewers: [reviewer("ikorennoy", "approved")] })
-        const repo = await setupRepo("issue_links", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(approved) })
-        await repo.setReviewAnswers({ answers: { "JIRA-456": APPROVED_BY_CODE_OWNER } })
-        await syncAndWaitForBranches()
+        await setupApprovalsDismissedByPush(setupRepo, syncAndWaitForBranches, "JIRA-456", approved)
         await expect(findBranchRow(page, "JIRA-456").getByTestId("pull-request-chip")).toBeVisible()
-        await routeCommand(page, "get_branch_rules", () => ({ dismissStaleReviewsOnPush: true }))
         const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
         const pushes = await routePush(page, {})
         return { posts, pushes }
@@ -1015,7 +999,7 @@ test.describe("Patronus actions", () => {
       // Patronus names the code owner without a GitHub login: the user finds the person
       const suggestions = dialog.getByTestId("create-pull-request-suggestions")
       await expect(suggestions.getByRole("button")).toHaveText(["Alice"])
-      const searches = await routeCommand(page, "search_github_users", () => [{ login: "alice-gh", name: "Alice" }])
+      const searches = await recordCommand(page, "search_github_users")
       await suggestions.getByRole("button", { name: "Alice" }).click()
       await expect(dialog.getByTestId("create-pull-request-reviewer-search")).toHaveValue("Alice")
       await page.getByRole("option", { name: /alice-gh/ }).click()
@@ -1067,13 +1051,14 @@ test.describe("Patronus actions", () => {
       }
 
       test("should ask the code owner Patronus names, and the row then awaits the review in the pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-        const repo = await setupRepo("issue_links", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
+        const repo = await setupRepo("issue_links", {
+          patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+          pullRequests: { ...availablePullRequests(), users: [{ login: "alice-gh", name: "Alice" }], nextNumber: 7 },
+        })
         await repo.setReviewAnswers({ answers: { "JIRA-456": CODE_OWNERS } })
         await syncAndWaitForBranches()
         const pushes = await routePush(page, {})
-        await routeNewPullRequest(page)
-        const created = pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice-gh", "requested")] })
-        const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(created))
+        const creates = await recordCommand(page, "create_pull_request")
 
         const dialog = await openCreatePullRequestFromSlot(page)
         const slot = findBranchRow(page, "JIRA-456").getByTestId("next-step-slot")
@@ -1084,6 +1069,7 @@ test.describe("Patronus actions", () => {
         // pushed first: GitHub opens a pull request of a branch it has
         expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
         expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", reviewers: ["alice-gh"], assignSelf: true, waitForMirror: true })])
+        expect(gitHubWrites(await repo.getGitHubLog())).toContainEqual(["POST", repoPath("pulls", 7, "requested_reviewers"), { reviewers: ["alice-gh"] }])
         // the approvals count in it: the row waits for the code owner asked there, whom its hover names
         await expect(slot).toHaveAttribute("data-step", "awaiting")
         await expect(slot.getByTestId("next-step")).toHaveText("Awaiting Review")
@@ -1095,7 +1081,6 @@ test.describe("Patronus actions", () => {
         await setupRepo("issue_links", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: unavailablePullRequests({ status: "signedOut" }) })
         await syncAndWaitForBranches()
         await routePush(page, {})
-        await routeNewPullRequest(page, { viewerLogin: null })
         await pushFromRowMenu(page, "JIRA-456")
         await pushedToast(page, "JIRA-456").getByRole("button", { name: "Create Pull Request…" }).click()
         const dialog = createPullRequestDialog(page)
@@ -1105,7 +1090,10 @@ test.describe("Patronus actions", () => {
         await expect(dialog.getByTestId("create-pull-request-assign")).toHaveCount(0)
         await dialog.getByTestId("create-pull-request-on-github").click()
         await expect(dialog).toHaveCount(0)
-        expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/compare/master...user-name/virtual/JIRA-456?expand=1&title=Add+auth&body=-+**Add+login**"])
+        // the text of its commits, and no assignee: nobody is known without a token
+        const form =
+          /^https:\/\/github\.com\/acme\/monorepo\/compare\/master\.\.\.user-name\/virtual\/JIRA-456\?expand=1&title=JIRA-456\+Fix\+database\+connection\+pool\+timeout&body=[^&]+$/
+        expect(await getOpenedUrls(page)).toEqual([expect.stringMatching(form)])
       })
     })
   })

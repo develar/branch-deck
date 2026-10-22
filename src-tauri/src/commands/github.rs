@@ -1,11 +1,12 @@
 use crate::command_error::CommandError;
 use crate::operation::{operation, run_blocking};
 use git_executor::git_command_executor::GitCommandExecutor;
-use github::client::{GITHUB_URL, GitHubClient};
+use github::client::GitHubClient;
 use github::device_flow::{DeviceCode, GITHUB_OAUTH_CLIENT_ID, request_device_code, wait_for_token};
 use github::service::GitHubService;
+use github::sign_in_session::auth_status;
 use github::token::{TokenChain, TokenSources};
-use github::token_store::{StoredToken, read_token, remove_token, token_file, write_token};
+use github::token_store::{StoredToken, remove_token, token_file, write_token};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -64,17 +65,7 @@ fn client_id() -> Result<&'static str, CommandError> {
 #[instrument(skip(github))]
 #[specta::specta]
 pub async fn get_github_auth_status(github: State<'_, GitHubState>) -> Result<GitHubAuthStatus, CommandError> {
-  operation(async move {
-    let file = github.token_file.clone();
-    let stored = run_blocking(move || Ok::<_, CommandError>(file.as_deref().and_then(read_token))).await?;
-    Ok(GitHubAuthStatus {
-      sign_in_available: GITHUB_OAUTH_CLIENT_ID.is_some(),
-      signed_in_as: stored.map(|stored| stored.login),
-      token_source: github.service.tokens.first_source().await,
-      manage_url: GITHUB_OAUTH_CLIENT_ID.map(|id| format!("{GITHUB_URL}/settings/connections/applications/{id}")),
-    })
-  })
-  .await
+  operation(async move { Ok(auth_status(&github.service, github.token_file.clone(), GITHUB_OAUTH_CLIENT_ID).await) }).await
 }
 
 /// Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it.

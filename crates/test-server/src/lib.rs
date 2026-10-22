@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
+
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -28,6 +28,9 @@ mod command_registry_test;
 
 #[cfg(test)]
 mod commit_files_test;
+
+#[cfg(test)]
+mod github_host_test;
 
 #[cfg(test)]
 mod repository_config_test;
@@ -101,7 +104,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}", axum::routing::delete(delete_repository))
     .route("/repositories/{id}/reword", post(reword_commit))
     .route("/repositories/{id}/commit", post(commit_on_head))
-    .route("/repositories/{id}/pull-requests", post(set_pull_requests).get(get_pull_request_fixture))
+    .route(
+      "/repositories/{id}/pull-requests",
+      post(remote_fixtures::set_pull_requests).get(remote_fixtures::get_github_log),
+    )
     .route(
       "/repositories/{id}/branch-name-suggestions",
       post(set_branch_name_suggestions).get(get_branch_name_suggestion_fixture),
@@ -158,6 +164,13 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_github_auth_status", post(tauri_command_bridge::get_github_auth_status))
     .route("/invoke/get_youtrack_auth_status", post(tauri_command_bridge::get_youtrack_auth_status))
     .route("/invoke/get_branch_rules", post(tauri_command_bridge::get_branch_rules))
+    .route("/invoke/retarget_pull_request", post(tauri_command_bridge::retarget_pull_request))
+    .route("/invoke/close_pull_request", post(tauri_command_bridge::close_pull_request))
+    .route("/invoke/get_pull_request_head", post(tauri_command_bridge::get_pull_request_head))
+    .route("/invoke/get_new_pull_request", post(tauri_command_bridge::get_new_pull_request))
+    .route("/invoke/create_pull_request", post(tauri_command_bridge::create_pull_request))
+    .route("/invoke/wait_for_github_branch", post(tauri_command_bridge::wait_for_github_branch))
+    .route("/invoke/search_github_users", post(tauri_command_bridge::search_github_users))
     .route("/invoke/fetch_review_head", post(tauri_command_bridge::fetch_review_head))
     .route("/invoke/cancel_review_fetch", post(tauri_command_bridge::cancel_review_fetch))
     .route("/invoke/prune_review_refs", post(tauri_command_bridge::prune_review_refs))
@@ -574,7 +587,6 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     path: path.to_string(),
     in_flight: Arc::default(),
     store,
-    pull_requests: std::sync::RwLock::new(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)),
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
     review_requests: std::sync::RwLock::default(),
     review_request_calls: std::sync::atomic::AtomicU32::new(0),
@@ -664,18 +676,6 @@ pub async fn commit_on_head(
   }
 }
 
-/// Sets what `get_pull_requests` answers for the repository. A pull request with an empty `headRefOid` shows the
-/// local tip of its branch at the time of the request (the test doesn't know the commit ids the sync creates).
-pub async fn set_pull_requests(
-  axum::extract::Path(id): axum::extract::Path<String>,
-  State(state): State<Arc<AppState>>,
-  Json(result): Json<PullRequestsResult>,
-) -> Result<StatusCode, StatusCode> {
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  *repo.pull_requests.write().expect("pull request fixture lock") = result;
-  Ok(StatusCode::OK)
-}
-
 /// Sets what `suggest_branch_names` answers for the repository, and how long it takes
 pub async fn set_branch_name_suggestions(
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -734,12 +734,6 @@ pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::
     "fetchCalls": repo.review_fetch_calls.load(ordering),
     "prunes": repo.review_prune_keeps.lock().expect("review prune lock").clone(),
   })))
-}
-
-/// How often the app asked for pull requests
-pub async fn get_pull_request_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  Ok(Json(serde_json::json!({ "calls": repo.pull_request_calls.load(Ordering::SeqCst) })))
 }
 
 /// How long a deletion waits for the commands still running for the repository; a command that takes longer is stuck

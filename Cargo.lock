@@ -6417,6 +6417,7 @@ dependencies = [
  "fs_extra",
  "git-executor",
  "git-ops",
+ "github",
  "history-rewrite",
  "object-cache",
  "patronus",

@@ -84,6 +84,9 @@ pub const GITHUB_REPOSITORY_CONFIG: &str = "branchdeck.githubRepository";
 /// Failed check names kept for the popover (all of them when only one more, `list_cut::kept`)
 const MAX_FAILED_NAMES: usize = 3;
 
+/// The message of a request about the pull requests of a repository whose branches are not on GitHub
+pub const NOT_ON_GITHUB_MESSAGE: &str = "The pull requests of the branches are not on GitHub";
+
 /// The message of a write without any GitHub token
 pub const SIGNED_OUT_MESSAGE: &str = "No GitHub token: run gh auth login, set GH_TOKEN, or store HTTPS credentials of github.com in git";
 
@@ -459,8 +462,14 @@ struct GhReviewRequest {
 
 /// Parses the `data` of `PULL_REQUESTS_QUERY`: the pull requests of the virtual branches, see `to_pull_requests`
 pub fn parse_pull_requests(json: &[u8], branch_prefix: &str, owner: &str) -> serde_json::Result<BTreeMap<String, PullRequest>> {
+  Ok(parse_pull_request_maps(json, branch_prefix, owner)?.0)
+}
+
+/// Parses the `data` of `PULL_REQUESTS_QUERY`: the pull requests of the virtual branches and of the stack branches, as
+/// `list_pull_requests` answers them (`to_pull_requests`)
+pub fn parse_pull_request_maps(json: &[u8], branch_prefix: &str, owner: &str) -> serde_json::Result<(BTreeMap<String, PullRequest>, BTreeMap<String, PullRequest>)> {
   let data: PullRequestsData = serde_json::from_slice(json)?;
-  Ok(to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, owner).0)
+  Ok(to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, owner))
 }
 
 /// The pull requests of virtual branches pushed to `owner`'s repository, by virtual branch name, and those of the stack

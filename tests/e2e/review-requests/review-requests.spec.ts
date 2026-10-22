@@ -224,7 +224,7 @@ test.describe("Your Turn card", () => {
     await verifyBranchState(findBranchRow(page, "JIRA-456"), "open")
     await row.focus()
     await page.keyboard.press("o")
-    expect(await getOpenedUrls(page)).toEqual(["https://github.com/JetBrains/ultimate/pull/760"])
+    expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/760"])
     // D, and Review Changes of its menu: the review of its branch, where the changes requested are read
     await row.focus()
     await page.keyboard.press("d")

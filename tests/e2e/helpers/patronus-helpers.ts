@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test"
 import type {
+  PullRequest,
   BranchReviewReadiness,
   PatronusAvailability,
   PatronusReviewer,
@@ -12,6 +13,7 @@ import type {
 } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
+import { dismissingApprovals } from "./pull-request-helpers"
 import type { SetupRepoOptions } from "./setup-options"
 import { emitTauriEvent } from "./sync-helpers"
 import type { PatronusStartRequest, TestRepositoryBuilder } from "./test-repository"
@@ -394,4 +396,24 @@ export const DAY_ROBOTS = {
   running: robot("JIRA-456", "running-robot", { startTime: ROBOTS_NOW - minutes(18) }),
   failed: robot("ABC-123", "failed-robot", { status: "failure", startTime: ROBOTS_NOW - minutes(80), finishTime: ROBOTS_NOW - minutes(50) }),
   merged: robot("feature-db", "merged-robot", { status: "success", startTime: ROBOTS_NOW - minutes(120), finishTime: ROBOTS_NOW - minutes(80) }),
+}
+
+/**
+ * issue_links on Space, mirrored to `acme/monorepo`, synced with `approved`, the pull request of `branch` whose approval
+ * by the code owner Patronus counts (`APPROVED_BY_CODE_OWNER`), in a repository whose rules dismiss the approvals of a
+ * pull request on a push of new commits
+ */
+export async function setupApprovalsDismissedByPush(
+  setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  branch: string,
+  approved: PullRequest,
+): Promise<TestRepositoryBuilder> {
+  const repo = await setupRepo("issue_links", {
+    patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+    pullRequests: dismissingApprovals(approved),
+  })
+  await repo.setReviewAnswers({ answers: { [branch]: APPROVED_BY_CODE_OWNER } })
+  await syncAndWaitForBranches()
+  return repo
 }

@@ -6,7 +6,7 @@ use std::sync::RwLock;
 use std::sync::atomic::AtomicU32;
 use sync_types::branch_name_suggestion::BranchNameSuggestionOutcome;
 use sync_types::patronus::PatronusReviewRequirement;
-use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
+use sync_types::pull_request::PullRequestAvailability;
 use sync_types::review_request::ReviewRequestsResult;
 
 pub struct AppState {
@@ -35,8 +35,6 @@ pub struct TestRepository {
   /// writing by `delete_repository`, so a repository is deleted only after the commands still running for it
   pub in_flight: std::sync::Arc<tokio::sync::RwLock<()>>,
   pub store: DashMap<String, serde_json::Value>,
-  /// What `get_pull_requests` answers (E2E never runs gh); not on GitHub until a test sets it
-  pub pull_requests: RwLock<PullRequestsResult>,
   /// How often the app asked for pull requests, so a test can check the refresh policy
   pub pull_request_calls: AtomicU32,
   /// What `get_review_requests` answers and how `fetch_review_head` fails (E2E never runs gh); not on GitHub until a

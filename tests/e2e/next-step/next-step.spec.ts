@@ -15,8 +15,9 @@ import {
   evaluatedGroup,
   robot,
   startRequest,
+  setupApprovalsDismissedByPush,
 } from "../helpers/patronus-helpers"
-import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubWrites, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
@@ -24,7 +25,7 @@ import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popover
 import { openSubmenu } from "../helpers/selection-helpers"
 import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, routeCommand } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand, routeCommand } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
@@ -55,23 +56,28 @@ async function setup(
       status.branchName === BRANCH ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
     )
   }
-  const repo = await setupRepo("issue_links", { patronus: { ...robots, githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(...pullRequests), ...options })
+  const repo = await setupRepo("issue_links", { patronus: { ...robots, githubRepository: "acme/monorepo" }, pullRequests: gitHubOf(...pullRequests), ...options })
   await repo.setReviewAnswers({ answers: { [BRANCH]: answer } })
   await syncAndWaitForBranches()
   await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
   return repo
 }
 
+/** The GitHub of these pull requests, the code owner Ilya Korennoy a collaborator; the next pull request created is #1079 */
+function gitHubOf(...pullRequests: PullRequest[]) {
+  return { ...availablePullRequests(...pullRequests), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }], nextNumber: 1079 }
+}
+
 /**
  * JIRA-456 not on the remote (as `rewriteNextRemoteStatus` before it leaves it), its approvals missing, no pull
- * request: the pushes and the creations of its "Create pull request" dialog, answered in the page
+ * request: the pushes of its "Create pull request" dialog, answered in the page, and its creations, recorded on the way
+ * to the fake GitHub
  */
 async function setupUnpushedCreation(page: Page, setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>) {
-  await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true })
-  await routeNewPullRequest(page)
+  const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true })
   const pushes = await routePush(page, {})
-  const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(pullRequest(BRANCH, 1079)))
-  return { pushes, creates }
+  const creates = await recordCommand(page, "create_pull_request")
+  return { pushes, creates, repo }
 }
 
 function slot(page: Page) {
@@ -126,22 +132,24 @@ async function expectStartedToast(page: Page) {
   await expect(toast.getByRole("button", { name: "Cancel Safe Push" })).toBeVisible()
 }
 
-/** JIRA-456 with its open pull request #7 into `base`, a virtual branch: the step retargets it; the retargets it sends */
+/** JIRA-456 with its open pull request #7 into `base`, a virtual branch: the step retargets it */
 async function setupRetarget(
   page: Page,
   setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
   base: string,
-): Promise<Record<string, unknown>[]> {
-  await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [pullRequest(BRANCH, 7, { baseRefName: base })])
-  const retargets = await routeCommand(page, "retarget_pull_request", () => null)
+): Promise<TestRepositoryBuilder> {
+  const repo = await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [pullRequest(BRANCH, 7, { baseRefName: base })])
   await expect(slot(page)).toHaveAttribute("data-step", "retarget")
-  return retargets
+  return repo
 }
 
-/** Pull request `number` went into master, the toast said so, and the step of `stepSlot` is the Safe Push that counts its approvals now */
-async function expectRetargeted(page: Page, retargets: Record<string, unknown>[], number = 7, stepSlot = slot(page)) {
-  await expect.poll(() => retargets).toEqual([expect.objectContaining({ pullRequestNumber: number, base: "master" })])
+/**
+ * GitHub got the retarget of pull request `number` into master, the toast said so, and the step of `stepSlot` is the
+ * Safe Push that counts its approvals now
+ */
+async function expectRetargeted(page: Page, repo: TestRepositoryBuilder, number = 7, stepSlot = slot(page)) {
+  await expect.poll(async () => gitHubWrites(await repo.getGitHubLog())).toEqual([["PATCH", repoPath("pulls", number), { base: "master" }]])
   await expect(page.locator("[data-slot=toast]", { hasText: `Retargeted #${number} to master` })).toBeVisible()
   await expect(stepSlot).toHaveAttribute("data-step", "safePush")
 }
@@ -333,7 +341,6 @@ test.describe("Next step", () => {
 
   test("should offer Create Pull Request… with the code owner when approvals count only in one", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [])
-    await routeNewPullRequest(page)
     await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
     const step = slot(page).getByTestId("next-step")
     await expect(step).toHaveText("Create Pull Request…")
@@ -353,7 +360,7 @@ test.describe("Next step", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const { pushes, creates } = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches)
+    const { pushes, creates, repo } = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches)
     // the step of the slot, never a "push first": the push is the dialog's to make
     await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
     const step = slot(page).getByTestId("next-step")
@@ -380,15 +387,20 @@ test.describe("Next step", () => {
     await expect(dialog).toHaveCount(0)
     expect(pushes.map(push => push.branchName)).toEqual([BRANCH])
     expect(creates).toEqual([expect.objectContaining({ branchName: BRANCH, waitForMirror: true })])
+    // GitHub got the pull request with the code owner Patronus suggests as its reviewer
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([
+      ["POST", repoPath("pulls"), expect.objectContaining({ head: `user-name/virtual/${BRANCH}`, base: "master" })],
+      ["POST", repoPath("issues", 1079, "assignees"), { assignees: ["user-name"] }],
+      ["POST", repoPath("pulls", 1079, "requested_reviewers"), { reviewers: ["ikorennoy"] }],
+    ])
     // one action, one toast: the push says nothing of its own
     await expect(pushedToast(page, BRANCH)).toHaveCount(0)
   })
 
   test("should open GitHub's form of a branch not on the remote yet from its preview, after the push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [], availableRobots(), { unpushed: true })
-    await routeNewPullRequest(page)
     const pushes = await routePush(page, {})
-    const waits = await routeCommand(page, "wait_for_github_branch", () => true)
+    const waits = await recordCommand(page, "wait_for_github_branch")
     const preview = await openBranchPreview(page, BRANCH)
     await preview.getByRole("button", { name: "Create Pull Request…" }).click()
     const dialog = createPullRequestDialog(page)
@@ -420,7 +432,6 @@ test.describe("Next step", () => {
     syncAndWaitForBranches,
   }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [])
-    await routeNewPullRequest(page)
 
     // S: the popover says that no review is needed
     const popover = await openSafePushWithKey(page, BRANCH)
@@ -448,7 +459,7 @@ test.describe("Next step", () => {
   test("should ask the code owner nobody asked yet from Request Review…, then wait for him from the click on", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the bot approved, nobody of IJPL Code Platform is asked
     const unasked = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
-    await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked])
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked])
     const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
     await expect(slot(page)).toHaveAttribute("data-step", "requestReview")
     const step = slot(page).getByTestId("next-step")
@@ -463,7 +474,7 @@ test.describe("Next step", () => {
     await expect(popover).toContainText("Request a review on #1078")
     await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
     // GitHub lists the request from now on
-    await routeCommand(page, "get_pull_requests", () => availablePullRequests({ ...unasked, reviewers: [...unasked.reviewers, reviewer("ikorennoy", "requested")] }))
+    await repo.setPullRequests(gitHubOf({ ...unasked, reviewers: [...unasked.reviewers, reviewer("ikorennoy", "requested")] }))
     const node = getLandingNode(findBranchRow(page, BRANCH))
     await expect(node).toHaveAttribute("data-kind", "yourStep")
     const releaseRequest = await holdCommand(page, "request_pull_request_reviewers")
@@ -534,14 +545,14 @@ test.describe("Next step", () => {
 
   test("should retarget a pull request into the branch of a parent that landed, whose approvals don't count", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the base is the branch of a parent that is no branch of the table any more
-    const retargets = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/landed-parent")
+    const repo = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/landed-parent")
     const menu = await openMenu(page)
     await menu.getByRole("menuitem", SAFE_PUSH_ITEM).hover()
     await expect(page.getByRole("tooltip", { name: "Approvals" })).toHaveText("Approvals in #7 don't count: its base is user-name/virtual/landed-parent")
     await page.keyboard.press("Escape")
 
     await slot(page).getByRole("button", { name: "Retarget #7" }).click()
-    await expectRetargeted(page, retargets)
+    await expectRetargeted(page, repo)
   })
 
   test("should retarget a pull request into the virtual branch of a branch in the table, as a parent's, whose approvals don't count", async ({
@@ -550,13 +561,13 @@ test.describe("Next step", () => {
     syncAndWaitForBranches,
   }) => {
     // the base is the branch of another branch of the table: every pull request of a virtual branch goes into master
-    const retargets = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/feature-auth")
+    const repo = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/feature-auth")
     await slot(page).getByRole("button", { name: "Retarget #7" }).hover()
     await expect(page.getByTestId("next-step-hover")).toContainText("Approvals in #7 don't count: its base is user-name/virtual/feature-auth, a virtual branch.")
     // the menu offers the same retarget
     const menu = await openMenu(page)
     await menu.getByRole("menuitem", { name: "Retarget #7 to master" }).click()
-    await expectRetargeted(page, retargets)
+    await expectRetargeted(page, repo)
   })
 
   test("should retarget the pull request of a stacked branch into its parent's branch from its slot, whose approvals don't count", async ({
@@ -569,12 +580,11 @@ test.describe("Next step", () => {
     const repo = await setupRepo("stacked_branches", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(own) })
     await repo.setReviewAnswers({ answers: { oauth: NO_REVIEW_NEEDED } })
     await syncAndWaitForBranches()
-    const retargets = await routeCommand(page, "retarget_pull_request", () => null)
 
     const oauthSlot = findBranchRow(page, "oauth").getByTestId("next-step-slot")
     await expect(oauthSlot).toHaveAttribute("data-step", "retarget")
     await oauthSlot.getByRole("button", { name: "Retarget #8" }).click()
-    await expectRetargeted(page, retargets, 8, oauthSlot)
+    await expectRetargeted(page, repo, 8, oauthSlot)
   })
 
   test("should open a pull request into another base that may be meant, and keep its retarget in the menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -640,10 +650,7 @@ test.describe("Next step", () => {
         : status,
     )
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "approved")] })
-    const repo = await setupRepo("issue_links", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(approved) })
-    await repo.setReviewAnswers({ answers: { [BRANCH]: APPROVED_BY_CODE_OWNER } })
-    await syncAndWaitForBranches()
-    await routeCommand(page, "get_branch_rules", () => ({ dismissStaleReviewsOnPush: true }))
+    await setupApprovalsDismissedByPush(setupRepo, syncAndWaitForBranches, BRANCH, approved)
     // the remote still lacks a commit after each push: both surfaces can push
     const pushes = await routePush(page, { [BRANCH]: { unpushedCommits: ["c1"] } })
     const reason = "The push dismisses the approvals of #1078: push first, then ask for the review again"
@@ -700,7 +707,6 @@ test.describe("Next step", () => {
     /** Row 7 for JIRA-456 (the code owner must approve in a pull request it doesn't have), with `PROFILES`; the repository */
     async function setupRow7(page: Page, setupRepo: Parameters<typeof setup>[1], syncAndWaitForBranches: () => Promise<unknown>): Promise<TestRepositoryBuilder> {
       const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { patronusProfiles: PROFILES })
-      await routeNewPullRequest(page)
       return repo
     }
 
@@ -836,7 +842,6 @@ test.describe("Next step", () => {
 
     test("should not offer it in the dialog of a branch whose Safe Push needs no pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [])
-      await routeNewPullRequest(page)
       const menu = await openMenu(page)
       await menu.getByRole("menuitem", { name: "Create Pull Request…" }).click()
       const dialog = createPullRequestDialog(page)

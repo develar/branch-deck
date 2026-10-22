@@ -123,7 +123,7 @@ Mock implementation:
   for Patronus, GitHub and YouTrack), never both; a stale entry, or a route or a handler without its command, fails;
   the four handlers over a route (`get_file_diffs`, `get_file_merges`, `sync_branches`, `set_repository_config`) are
   pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw bytes). The number of
-  commands (111) and `PAGE_MOCKED` (30) are pinned; `PAGE_MOCKED` only goes down: a new command gets a route
+  commands (111) and `PAGE_MOCKED` (23) are pinned; `PAGE_MOCKED` only goes down: a new command gets a route
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
   (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
   and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the
@@ -138,8 +138,9 @@ Mock implementation:
   plugins, the sub-window and updater handlers) do not. `pnpm perf:table` reads it
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view))
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
-  functions; Patronus is asked through the app's own service behind a fake ([Remote services](#remote-services)); an
-  answer that GitHub or claude would give comes from a fixture of the repository, or from a route of the test
+  functions; Patronus and GitHub are asked through the app's own services behind fakes
+  ([Remote services](#remote-services)); an answer that claude would give, and the review requests, come from a
+  fixture of the repository, or from a route of the test
 - **Review requests**: `get_review_requests` answers `NotGitHub` until a test posts a fixture to
   `/repositories/{id}/review-requests` (a `ReviewRequestsResult` plus an optional `fetchError`; `GET` returns the
   counts of asks and fetches, and the `keep` of every prune). `fetch_review_head` never fetches: an empty `headRefOid`
@@ -237,7 +238,7 @@ the remote service; a test sets what the fake answers and reads what reached it.
 
 - **Host** (`crates/test-server/src/remote_host.rs`): each test repository gets its `RemoteHost` on the first need
   (`TestRepository::remote`), stopped when the repository is deleted (`FakeServer` aborts its listener on drop). It
-  holds `FakePatronus` (`crates/patronus/src/fake_patronus.rs`, `state_only`: nothing built in) and the
+  holds a fake GitHub (below) and `FakePatronus` (`crates/patronus/src/fake_patronus.rs`, `state_only`: nothing built in) and the
   `PatronusService` of the app on it, with a fixed token, no `teamcity` CLI, and the robot pages on `PATRONUS_URL`
   (`PatronusClient::with_web_url`), so a robot links where the app links it. The service is replaced on each Patronus
   fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
@@ -287,6 +288,38 @@ the remote service; a test sets what the fake answers and reads what reached it.
   start, a restart, a cancel, the start options, a robot status or the target branch in the page; the order of a push
   answered in the page and the robot actions around it is the log the push's route reads when it comes
   (`routePushNotingPatronus` in `patronus-actions.spec.ts`)
+- **GitHub**: the host holds `FakeGitHub` with a `FakeGitHubRepository` (`crates/github/src/fake_repository.rs`) and
+  the `GitHubService` of the app on it, whose token chain asks only the token file of the host's own app data directory
+  (no `GH_TOKEN`, no `gh`, no git credentials, no keychain): signed in as `user-name`, the author of the fixtures' pull
+  requests, until a fixture says `signedOut`. The fake answers as GitHub does what `sync_core` asks: `GET /user`, the
+  GraphQL search of the user's pull requests (`author:@me`, newest first) and of the assignable users, `POST pulls`
+  (422 for an open pull request of the head, for a head or a base it doesn't have), `GET`/`PATCH pulls/<n>`, `POST
+  pulls/<n>/requested_reviewers` (422 for the author and for a user who is no collaborator), `POST issues/<n>/comments`
+  and `assignees`, `GET branches/<b>` and `GET rules/branches/<b>`; a write changes what the next read answers. A branch
+  is on GitHub when the test repository has it (its `origin` is itself). The service is replaced on each fixture.
+- **GitHub bridge**: `get_pull_requests`, `get_branch_rules`, `get_github_auth_status` (the page's repository by
+  `X-Repository-Id`; this build has no OAuth app of its own), `create_pull_request`, `retarget_pull_request`,
+  `close_pull_request`, `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request` (the text of
+  the real core, the viewer GitHub answers), `wait_for_github_branch` and `search_github_users` call the cores as
+  `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository the real `resolve_github_repository` reads.
+- **GitHub fixture**: `POST /repositories/{id}/pull-requests` (`setPullRequests`, the `pullRequests` setup option) takes
+  a `PullRequestsResult` (`availablePullRequests`, `unavailablePullRequests` in `pull-request-helpers.ts`) and what only
+  the writes see (`GitHubFixture`: `repository` of an availability that names none, `users`, the collaborators a review
+  can be asked from, `dismissStaleReviewsOnPush`, `nextNumber`, `missingBranches` a mirror has not copied yet). Its
+  availability is what GitHub answers: `available` names the repository, written as `branchdeck.githubRepository`
+  (`acme/monorepo` in the helpers; a Patronus fixture's `githubRepository` names the same fact), `notGitHub` unsets it,
+  `signedOut` removes the token file, `notAuthenticated` answers 401, `noAccess` 404 with its message, `rateLimited`
+  and `ssoRequired` 403 with their headers, `error` 400 with its message; a failure of a token names the Branch Deck
+  sign-in, the one source. The pull requests are checked first: the real parser must read the search of them back into
+  the fixture (`fixture_pulls`, `github_host_test.rs`), so a fixture GitHub could not answer (another author, a
+  requested reviewer before one who reviewed) fails the setup; an empty `headRefOid` is the tip of the head branch when
+  GitHub answers.
+- **GitHub log**: `GET /repositories/{id}/pull-requests` (`getGitHubLog`) answers `calls`, the page's
+  `get_pull_requests`, and `requests`, every request that reached the fake in order (`method`, `path`, JSON `body`);
+  `gitHubWrites` keeps the writes and `repoPath` names a path of the repository. A test asserts what GitHub got (the
+  `POST pulls`, the `PATCH` of a retarget, the comment and the close), not the parameters the page sent; it records the
+  page's parameters on their way to the server where they matter (`recordCommand`), and no test answers a pull request
+  command or the text of a new pull request in the page.
 
 ## Alternatives Considered
 

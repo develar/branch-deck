@@ -6,12 +6,13 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import {
   availablePullRequests,
-  createdPullRequest,
   createPullRequestDialog,
+  type GitHubFixture,
   getOpenedUrls,
+  gitHubWrites,
   pullRequest,
+  repoPath,
   reviewer,
-  routeNewPullRequest,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
 import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
@@ -20,7 +21,7 @@ import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { routeCommand, routeCommandError } from "../helpers/wait-helpers"
+import { recordCommand, routeCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const APPROVED = pullRequest("JIRA-456", 760, {
@@ -39,7 +40,13 @@ const MERGED = pullRequest("feature-db", 763, { state: "merged", reviewDecision:
 const CLOSED = pullRequest("feature-ui", 764, { state: "closed" })
 // shows a commit the local branch no longer is at, and the remote doesn't have (the branch is not pushed)
 const OUTDATED = pullRequest("feature-api", 765, { headRefOid: EARLIER_COMMIT })
-const ALL = availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, MERGED, CLOSED, OUTDATED)
+// the collaborators of the repository, whom a review can be asked from; the next pull request created is #900
+const USERS = [
+  { login: "user-name", name: "Bobby Me" },
+  { login: "bob", name: "Bob Builder" },
+  { login: "carol", name: "Carol Danvers" },
+]
+const ALL: GitHubFixture = { ...availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, MERGED, CLOSED, OUTDATED), users: USERS, nextNumber: 900 }
 
 const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
   repo: [
@@ -54,6 +61,10 @@ const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
     { auto: true },
   ],
 })
+
+/** The text the dialog of feature-auth starts with: its one commit, as the real core writes it */
+const AUTH_TITLE = "JIRA-123: Add authentication service"
+const AUTH_BODY = "[JIRA-123](https://jira.example.com/browse/JIRA-123)"
 
 /** Pushes feature-auth and opens the "Create pull request" dialog from the push toast */
 async function openDialogAfterPush(page: Page): Promise<Locator> {
@@ -177,7 +188,7 @@ test.describe("Pull request chip", () => {
 
   test("should offer to create the pull request of a branch in the push toast, the branch menu and the preview", async ({ page }) => {
     const pushes = await routePush(page, {})
-    const texts = await routeNewPullRequest(page)
+    const texts = await recordCommand(page, "get_new_pull_request")
     const dialog = createPullRequestDialog(page)
     const row = findBranchRow(page, "feature-auth")
 
@@ -202,8 +213,8 @@ test.describe("Pull request chip", () => {
     await expect(dialog).toBeVisible()
     // the baseline `origin/master` is `master` on the remote
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("feature-auth → master")
-    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add auth")
-    await expect(dialog.getByTestId("create-pull-request-body")).toHaveValue("- **Add login**")
+    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue(AUTH_TITLE)
+    await expect(dialog.getByTestId("create-pull-request-body")).toHaveValue(AUTH_BODY)
     expect(texts.at(-1)).toEqual({ repositoryPath: expect.any(String), head: "user-name/virtual/feature-auth", base: "master", stackAncestors: [] })
     await page.keyboard.press("Escape")
     await expect(dialog).toHaveCount(0)
@@ -225,23 +236,14 @@ test.describe("Pull request chip", () => {
     expect(await getOpenedUrls(page)).toEqual([])
   })
 
-  test("should create the pull request with the reviewers it searched and the user as its assignee", async ({ page }) => {
+  test("should create the pull request with the reviewers it searched and the user as its assignee", async ({ page, repo }) => {
     await routePush(page, {})
-    await routeNewPullRequest(page)
-    const searches = await routeCommand(page, "search_github_users", params =>
-      (params.query as string).startsWith("bo")
-        ? [
-            { login: "user-name", name: "Me" },
-            { login: "bob", name: "Bob Builder" },
-          ]
-        : [],
-    )
-    const created = pullRequest("feature-auth", 900, { title: "Add auth & login", reviewers: [reviewer("bob", "requested")] })
-    const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(created))
+    const searches = await recordCommand(page, "search_github_users")
+    const creates = await recordCommand(page, "create_pull_request")
 
     const dialog = await openDialogAfterPush(page)
     const title = dialog.getByTestId("create-pull-request-title")
-    await expect(title).toHaveValue("Add auth")
+    await expect(title).toHaveValue(AUTH_TITLE)
     await title.fill("Add auth & login")
 
     const search = dialog.getByTestId("create-pull-request-reviewer-search")
@@ -265,55 +267,60 @@ test.describe("Pull request chip", () => {
         head: "user-name/virtual/feature-auth",
         base: "master",
         title: "Add auth & login",
-        body: "- **Add login**",
+        body: AUTH_BODY,
         reviewers: ["bob"],
         assignSelf: true,
         // pushed before the dialog opened: no push, no wait for a mirror
         waitForMirror: false,
       },
     ])
+    // GitHub got the pull request, then the user as its assignee, then the reviewer
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([
+      ["POST", repoPath("pulls"), { title: "Add auth & login", body: AUTH_BODY, head: "user-name/virtual/feature-auth", base: "master" }],
+      ["POST", repoPath("issues", 900, "assignees"), { assignees: ["user-name"] }],
+      ["POST", repoPath("pulls", 900, "requested_reviewers"), { reviewers: ["bob"] }],
+    ])
     const toast = page.locator("[data-slot=toast]", { hasText: "Created pull request #900" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("feature-auth → master · review requested from bob · assigned to you")
     // the row has it at once, before GitHub's search lists it
     await expect(getChip(page, "feature-auth")).toBeVisible()
     await toast.getByRole("button", { name: "Open Pull Request" }).click()
-    expect(await getOpenedUrls(page)).toEqual([created.url])
+    expect(await getOpenedUrls(page)).toEqual([pullRequest("feature-auth", 900).url])
   })
 
-  test("should say whom GitHub refused, and keep the dialog when GitHub creates nothing", async ({ page }) => {
+  test("should say whom GitHub refused, and keep the dialog when GitHub creates nothing", async ({ page, repo }) => {
     await routePush(page, {})
-    await routeNewPullRequest(page)
+    // a branch GitHub doesn't have yet, and a reviewer who is no collaborator
+    await repo.setPullRequests({ ...ALL, missingBranches: ["user-name/virtual/feature-auth"], users: [...USERS, { login: "stranger", name: null }] })
     const dialog = await openDialogAfterPush(page)
     const title = dialog.getByTestId("create-pull-request-title")
     await title.fill("Add auth & login")
+    await dialog.getByTestId("create-pull-request-reviewer-search").fill("stranger")
+    await page.getByRole("option", { name: /stranger/ }).click()
 
-    // a branch GitHub doesn't have yet: nothing was created, the text stays for another try
-    await routeCommandError(page, "create_pull_request", "GitHub doesn't have user-name/virtual/feature-auth yet: a mirror copies a pushed branch a moment later; try again")
+    // nothing was created, the text stays for another try
     await dialog.getByTestId("create-pull-request-submit").click()
-    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot create pull request" })).toBeVisible()
+    const failed = page.locator("[data-slot=toast]", { hasText: "Cannot create pull request" })
+    await expect(failed).toContainText("GitHub doesn't have user-name/virtual/feature-auth yet: a mirror copies a pushed branch a moment later; try again")
     await expect(dialog).toBeVisible()
     await expect(title).toHaveValue("Add auth & login")
 
-    await page.unroute("**/invoke/create_pull_request")
-    const created = pullRequest("feature-auth", 901)
-    await routeCommand(page, "create_pull_request", () =>
-      createdPullRequest(created, { assignees: [], warnings: ["cannot request review from stranger: Reviews may only be requested from collaborators"] }),
-    )
+    // the mirror copied the branch; the stranger lost the access the search saw
+    await repo.setPullRequests(ALL)
     await dialog.getByTestId("create-pull-request-submit").click()
     await expect(dialog).toHaveCount(0)
-    const toast = page.locator("[data-slot=toast]", { hasText: "Created pull request #901" })
+    const toast = page.locator("[data-slot=toast]", { hasText: "Created pull request #900" })
     await expect(toast.locator("[data-slot=toast-icon] .lucide-triangle-alert")).toBeVisible()
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
-      "feature-auth → master · cannot request review from stranger: Reviews may only be requested from collaborators",
+      "feature-auth → master · assigned to you · cannot request review from stranger: Reviews may only be requested from collaborators. One or more of the users or teams you specified is not a collaborator of the acme/monorepo repository.",
     )
   })
 
   test("should say why it can't create, and offer only Open Pull Request once the branch has one", async ({ page, repo }) => {
     await routePush(page, {})
-    await routeNewPullRequest(page)
     const dialog = await openDialogAfterPush(page)
     const title = dialog.getByTestId("create-pull-request-title")
-    await expect(title).toHaveValue("Add auth")
+    await expect(title).toHaveValue(AUTH_TITLE)
 
     // a disabled Create says why on hover
     await title.fill("")
@@ -377,7 +384,6 @@ test.describe("Pull request chip", () => {
 test.describe("Request Review without Patronus", () => {
   test("should ask for a review from the branch menu, the row's ⋯ and the preview, the popover at the row", async ({ page }) => {
     const pushes = await routePush(page, {})
-    await routeCommand(page, "search_github_users", params => ((params.query as string).startsWith("ca") ? [{ login: "carol", name: "Carol Danvers" }] : []))
     const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["carol"], refused: [] }))
     const row = findBranchRow(page, "ABC-123")
     const popover = page.getByTestId("request-review-popover")
@@ -445,10 +451,10 @@ test.describe("Pull requests in the landing overview", () => {
 
 baseTest.describe("Pull requests without GitHub", () => {
   baseTest("should hint quietly when GitHub rejects the token", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("issue_links", { pullRequests: unavailablePullRequests({ status: "notAuthenticated", source: "gh" }) })
+    await setupRepo("issue_links", { pullRequests: unavailablePullRequests({ status: "notAuthenticated", source: "branchDeck" }) })
     await syncAndWaitForBranches()
     const popover = await openLandingOverview(page)
-    await expect(popover.getByTestId("pull-request-status-line")).toContainText("GitHub rejected the token from gh")
+    await expect(popover.getByTestId("pull-request-status-line")).toContainText("GitHub rejected the token from the Branch Deck sign-in")
     await expect(page.getByTestId("pull-request-chip")).toHaveCount(0)
     // never a toast
     await expect(page.locator("[data-slot=toast]")).toHaveCount(0)

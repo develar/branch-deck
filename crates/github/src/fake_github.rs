@@ -1,6 +1,9 @@
-//! An in-process GitHub for the tests: answers each `METHOD /path` as the test says and records every request.
+//! An in-process GitHub for the tests: answers each `METHOD /path` as the test says and records every request. With a
+//! repository (`with_repository`, `fake_repository.rs`) the requests no answer is scripted for are answered from its
+//! state, as GitHub would.
 
 use crate::client::GitHubClient;
+use crate::fake_repository::FakeGitHubRepository;
 use axum::body::Bytes;
 use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
@@ -58,9 +61,24 @@ pub struct FakeGitHub {
   /// By `METHOD /path`: the answers still to give; the last one is given again and again
   answers: Mutex<HashMap<String, VecDeque<FakeAnswer>>>,
   requests: Mutex<Vec<FakeRequest>>,
+  /// Answers what no answer is scripted for
+  repository: Option<Arc<FakeGitHubRepository>>,
 }
 
 impl FakeGitHub {
+  /// A fake that answers from `repository` what no answer is scripted for
+  pub fn with_repository(repository: Arc<FakeGitHubRepository>) -> Self {
+    Self {
+      repository: Some(repository),
+      ..Self::default()
+    }
+  }
+
+  /// The repository behind the fake, if any
+  pub fn repository(&self) -> Option<&FakeGitHubRepository> {
+    self.repository.as_deref()
+  }
+
   /// Answers `method path` (without the query) with `answer` from now on
   pub fn answer(&self, method: &str, path: &str, answer: FakeAnswer) {
     self.answer_in_turn(method, path, vec![answer]);
@@ -88,15 +106,19 @@ impl FakeGitHub {
 
   fn respond(&self, method: &Method, uri: &Uri, headers: &HeaderMap, body: &Bytes) -> Response {
     let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_string);
-    self.requests.lock().unwrap().push(FakeRequest {
+    let request = FakeRequest {
       method: method.to_string(),
       path: uri.path().to_string(),
       query: uri.query().map(str::to_string),
       authorization: header("authorization"),
       if_none_match: header("if-none-match"),
       body: String::from_utf8_lossy(body).into_owned(),
-    });
-    let Some(answer) = self.next_answer(&format!("{method} {}", uri.path())) else {
+    };
+    self.requests.lock().unwrap().push(request.clone());
+    let answer = self
+      .next_answer(&format!("{method} {}", uri.path()))
+      .or_else(|| self.repository.as_ref().and_then(|repository| repository.answer(&request)));
+    let Some(answer) = answer else {
       return (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({"message": "Not Found"}))).into_response();
     };
     let status = StatusCode::from_u16(answer.status).unwrap();
@@ -124,15 +146,19 @@ pub async fn start_fake() -> (Arc<FakeGitHub>, GitHubClient) {
 /// and its Hub
 pub async fn start_fake_server() -> (Arc<FakeGitHub>, String) {
   let fake = Arc::new(FakeGitHub::default());
-  let state = Arc::clone(&fake);
-  let app = axum::Router::new().fallback(move |method: Method, uri: Uri, headers: HeaderMap, body: Bytes| {
-    let fake = Arc::clone(&state);
-    async move { fake.respond(&method, &uri, &headers, &body) }
-  });
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let address = listener.local_addr().unwrap();
+  let app = router(Arc::clone(&fake));
   tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
   (fake, format!("http://{address}"))
+}
+
+/// The routes of `fake`, every path: for a server of the caller's (the E2E test server serves one per test repository)
+pub fn router(fake: Arc<FakeGitHub>) -> axum::Router {
+  axum::Router::new().fallback(move |method: Method, uri: Uri, headers: HeaderMap, body: Bytes| {
+    let fake = Arc::clone(&fake);
+    async move { fake.respond(&method, &uri, &headers, &body) }
+  })
 }
 
 /// A fake GitHub and a service of it that asks with `token` only (no `gh`, no git credentials of the developer)

@@ -3,7 +3,7 @@
 //! answer the page gets went through the real client and service. `remote_fixtures_test.rs` keeps each form faithful:
 //! the real parser of the wire form gives back the fixture.
 
-use crate::remote_host::RemoteHost;
+use crate::remote_host::{GITHUB_TOKEN, GITHUB_VIEWER, PAGE_CLOCK_START, RemoteHost};
 use crate::state::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -11,13 +11,16 @@ use axum::http::StatusCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::revs::resolve_commit;
+use github::fake_github::FakeAnswer;
+use github::fake_repository::{FakePull, RepositoryState, search_data};
 use patronus::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, REVIEW_APPROVAL_CHECK_SKIP_OPTION};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use sync_core::pull_requests::GITHUB_REPOSITORY_CONFIG;
+use sync_core::pull_requests::{GITHUB_REPOSITORY_CONFIG, GitHubRepository, parse_known_github_repository, parse_pull_request_maps};
 use sync_types::patronus::{PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
+use sync_types::pull_request::{GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, TokenSource};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::{format_utc_timestamp, unix_now};
 
@@ -172,18 +175,29 @@ fn host_of(state: &AppState, id: &str) -> Result<(Arc<RemoteHost>, String), (Sta
 }
 
 /// Sets what Patronus answers from now on: the robots of the list, of a poll (those whose status changed) and of the
-/// details; a `githubRepository` is written as the repository's `branchdeck.githubRepository`; not on Space for `notPatronus`, the token rejected for `notLoggedIn`, a failure of Patronus for `error`. The
+/// details; a `githubRepository` is written as the repository's `branchdeck.githubRepository` and is the repository of
+/// the fake GitHub (`set_pull_requests` sets it too); not on Space for `notPatronus`, the token rejected for `notLoggedIn`, a failure of Patronus for `error`. The
 /// source branch of a robot is the full ref under the repository's `branchdeck.branchPrefix`; an empty `sourceRevision`
 /// is the tip of that branch when Patronus answers, `~N` its Nth first parent
 pub async fn set_patronus(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(result): Json<PatronusRobotsResult>) -> FixtureResult {
   let (host, path) = host_of(&state, &id)?;
   let git = state.git_executor.clone();
   let robots_of = result.robots;
-  let github_repository = result.github_repository;
+  let github_repository = match result.github_repository.as_deref() {
+    Some(known) => Some(parse_known_github_repository(Some(known)).ok_or_else(|| (StatusCode::UNPROCESSABLE_ENTITY, format!("{known} is no owner/name")))?),
+    None => None,
+  };
+  if let Some(github) = &github_repository {
+    // the one fact of both fixtures: the repository the config names is the one the fake GitHub has
+    host.github_repository().update(|state| {
+      state.owner.clone_from(&github.owner);
+      state.name.clone_from(&github.name);
+    });
+  }
   let robots = tokio::task::spawn_blocking(in_current_span(move || -> anyhow::Result<Vec<serde_json::Value>> {
     // the GitHub mirror is the repository's, as the app reads it (`resolve_github_repository`)
-    if let Some(github) = github_repository {
-      git.execute_command(&["config", "--local", GITHUB_REPOSITORY_CONFIG, &github], &path)?;
+    if let Some(github) = &github_repository {
+      write_github_repository(&git, &path, Some(github))?;
     }
     let prefix = crate::tauri_command_bridge::read_local_branch_prefix(&git, &path)?.prefix;
     robots_of.iter().map(|robot| fixture_robot(robot, &prefix)).collect()
@@ -268,4 +282,174 @@ pub async fn get_patronus_fixture(Path(id): Path<String>, State(state): State<Ar
     "cancels": fake.canceled.lock().expect("patronus cancels lock").clone(),
     "statusReads": fake.status_calls.lock().expect("patronus status calls lock").clone(),
   })))
+}
+
+/// What the GitHub of a test repository holds (`POST /repositories/{id}/pull-requests`): the answer of
+/// `get_pull_requests` the page knows (`PullRequestsResult`), and what only the writes and the other reads see
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubFixture {
+  /// The availability says what GitHub answers: `available` names the repository, `notGitHub` names none (no
+  /// `branchdeck.githubRepository`), `signedOut` has no token file, the others answer every request with their failure
+  #[serde(flatten)]
+  pub result: PullRequestsResult,
+  /// `owner/name` of the repository of an availability that doesn't name it
+  #[serde(default)]
+  pub repository: Option<String>,
+  /// Who can be assigned and asked to review
+  #[serde(default)]
+  pub users: Vec<GitHubUser>,
+  /// The rules of every branch dismiss the approvals of a pull request on a push
+  #[serde(default)]
+  pub dismiss_stale_reviews_on_push: bool,
+  /// The number of the next pull request created; one more than the highest of the fixture without it
+  #[serde(default)]
+  pub next_number: Option<u32>,
+  /// Branches GitHub doesn't have yet although the test repository does: a mirror has not copied them
+  #[serde(default)]
+  pub missing_branches: std::collections::BTreeSet<String>,
+}
+
+/// The GitHub repository a fixture names, and how GitHub answers: signed in, and the failure of every request
+pub struct GitHubAnswers {
+  pub repository: Option<GitHubRepository>,
+  pub signed_in: bool,
+  pub refusal: Option<FakeAnswer>,
+}
+
+/// How the fake answers `fixture`'s availability. The token is the one of the app's sign-in, so a failure of a token
+/// names that source (`branchDeck`)
+pub fn github_answers(fixture: &GitHubFixture) -> anyhow::Result<GitHubAnswers> {
+  let repository = match &fixture.result.availability {
+    PullRequestAvailability::Available { owner, name } => Some(GitHubRepository {
+      owner: owner.clone(),
+      name: name.clone(),
+    }),
+    PullRequestAvailability::NotGitHub => None,
+    _ => Some(parse_known_github_repository(fixture.repository.as_deref()).ok_or_else(|| anyhow::anyhow!("the fixture names no repository (`repository`)"))?),
+  };
+  let only_sign_in = |source: TokenSource| {
+    anyhow::ensure!(
+      source == TokenSource::BranchDeck,
+      "the token of the test server is the one of the app's sign-in (`branchDeck`), not {source:?}"
+    );
+    Ok(())
+  };
+  let message = |message: &str| serde_json::json!({"message": message});
+  let refusal = match &fixture.result.availability {
+    PullRequestAvailability::Available { .. } | PullRequestAvailability::NotGitHub | PullRequestAvailability::SignedOut => None,
+    PullRequestAvailability::NotAuthenticated { source } => {
+      only_sign_in(*source)?;
+      Some(FakeAnswer::status(401, message("Bad credentials")))
+    }
+    PullRequestAvailability::NoAccess { source, message: text } => {
+      only_sign_in(*source)?;
+      Some(FakeAnswer::status(404, message(text)))
+    }
+    PullRequestAvailability::RateLimited { retry_at } => Some(
+      FakeAnswer::status(403, message("API rate limit exceeded"))
+        .header("x-ratelimit-remaining", "0")
+        .header("x-ratelimit-reset", &retry_at.to_string()),
+    ),
+    PullRequestAvailability::SsoRequired { url } => Some(
+      FakeAnswer::status(403, message("Resource protected by organization SAML enforcement"))
+        .header("x-github-sso", &url.as_ref().map_or_else(|| "required".to_string(), |url| format!("required; url={url}"))),
+    ),
+    PullRequestAvailability::Error { message: text } => Some(FakeAnswer::status(400, message(text))),
+  };
+  Ok(GitHubAnswers {
+    repository,
+    signed_in: fixture.result.availability != PullRequestAvailability::SignedOut,
+    refusal,
+  })
+}
+
+/// The pull requests of `result` as the fake holds them, after a check that the real parser reads the search of them
+/// back into `result` (`parse_pull_request_maps`): a fixture GitHub could not answer fails, e.g. one of another author
+/// or a requested reviewer listed before one who reviewed
+pub fn fixture_pulls(result: &PullRequestsResult, owner: &str, branch_prefix: &str) -> anyhow::Result<Vec<FakePull>> {
+  let pull_requests: Vec<PullRequest> = result.pull_requests.values().chain(result.stack_pull_requests.values()).cloned().collect();
+  let data = serde_json::to_vec(&search_data(owner, GITHUB_VIEWER, pull_requests.clone()))?;
+  let (branches, stacks) = parse_pull_request_maps(&data, branch_prefix, owner)?;
+  anyhow::ensure!(
+    branches == result.pull_requests && stacks == result.stack_pull_requests,
+    "GitHub can't answer these pull requests: the real parser reads {branches:?} and the stacks {stacks:?}"
+  );
+  Ok(
+    pull_requests
+      .into_iter()
+      .map(|pull_request| FakePull {
+        pull_request,
+        body: String::new(),
+        comments: Vec::new(),
+        assignees: Vec::new(),
+      })
+      .collect(),
+  )
+}
+
+/// `branchdeck.githubRepository` of the test repository, the GitHub repository the app resolves (its `origin` is a
+/// local path): `owner/name`, or unset for none
+pub fn write_github_repository(git: &GitCommandExecutor, repository_path: &str, repository: Option<&GitHubRepository>) -> anyhow::Result<()> {
+  if let Some(repository) = repository {
+    git.execute_command(&["config", "--local", GITHUB_REPOSITORY_CONFIG, &repository.full_name()], repository_path)?;
+  } else {
+    // 5: it was not set
+    let (output, code) = git.execute_command_with_status(&["config", "--local", "--unset-all", GITHUB_REPOSITORY_CONFIG], repository_path)?;
+    anyhow::ensure!(code == 0 || code == 5, "Cannot unset {GITHUB_REPOSITORY_CONFIG}: {output}");
+  }
+  Ok(())
+}
+
+/// Sets what the GitHub of the repository holds and answers from now on (`GitHubFixture`), read by the real service; a
+/// fixture the real parser would not read back as it is fails (`fixture_pulls`)
+pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<GitHubFixture>) -> FixtureResult {
+  let (host, path) = host_of(&state, &id)?;
+  let answers = github_answers(&fixture).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
+  let (git, repository, result) = (state.git_executor.clone(), answers.repository.clone(), fixture.result.clone());
+  let pulls = tokio::task::spawn_blocking(in_current_span(move || -> anyhow::Result<Vec<FakePull>> {
+    write_github_repository(&git, &path, repository.as_ref())?;
+    let prefix = crate::tauri_command_bridge::read_local_branch_prefix(&git, &path)?.prefix;
+    match &repository {
+      Some(repository) => fixture_pulls(&result, &repository.owner, &prefix),
+      None if result.pull_requests.is_empty() && result.stack_pull_requests.is_empty() => Ok(Vec::new()),
+      None => anyhow::bail!("pull requests of a repository that is not on GitHub"),
+    }
+  }))
+  .await
+  .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+  .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
+  let next_number = fixture
+    .next_number
+    .unwrap_or_else(|| pulls.iter().map(|pull| pull.pull_request.number).max().unwrap_or(0) + 1);
+  let (owner, name) = answers.repository.map_or_default(|repository| (repository.owner, repository.name));
+  let github = RepositoryState {
+    owner,
+    name,
+    token: GITHUB_TOKEN.to_string(),
+    viewer: GITHUB_VIEWER.to_string(),
+    refusal: answers.refusal,
+    pulls,
+    next_number,
+    users: fixture.users,
+    missing_branches: fixture.missing_branches,
+    dismiss_stale_reviews_on_push: fixture.dismiss_stale_reviews_on_push,
+    clock: PAGE_CLOCK_START,
+  };
+  host.set_github(github, answers.signed_in);
+  Ok(StatusCode::OK)
+}
+
+/// What the page asked of GitHub (`calls`: its `get_pull_requests`) and every request that reached the fake GitHub, in
+/// order: method, path and JSON body (null for none)
+pub async fn get_github_log(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let repo = state.repositories.get(&id).ok_or_else(unknown_repository)?;
+  let requests: Vec<serde_json::Value> = repo
+    .remote(&state.git_executor)
+    .github()
+    .requests()
+    .iter()
+    .map(|request| serde_json::json!({"method": request.method, "path": request.path, "body": request.json()}))
+    .collect();
+  Ok(Json(serde_json::json!({"calls": repo.pull_request_calls.load(Ordering::SeqCst), "requests": requests})))
 }

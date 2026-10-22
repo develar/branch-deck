@@ -1,14 +1,23 @@
 //! The remote services of one test repository: a fake on a loopback port of its own behind the real service the app
 //! uses, so a bridged command runs the app's client and service against what the test set (`remote_fixtures.rs`).
 //! Started on the first need of the repository, stopped when it is deleted; nothing of the developer is reached (a
-//! fixed token, no `teamcity` CLI).
+//! fixed Space token, no `teamcity` CLI; the GitHub token is only the token file of the host's own app data directory:
+//! no `GH_TOKEN`, no `gh`, no git credentials, no keychain).
 
 use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::revs::resolve_commit;
+use github::client::GitHubClient;
+use github::fake_github::FakeGitHub;
+use github::fake_repository::{FakeGitHubRepository, RepositoryState};
+use github::service::GitHubService;
+use github::token::{GhSource, TokenChain, TokenSources};
+use github::token_store::{StoredToken, remove_token, token_file, write_token};
 use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::fake_patronus::{FakePatronus, FakeServer, router};
 use patronus::service::PatronusService;
 use patronus::token::{Token, TokenLookup, TokenStamp};
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use sync_core::patronus::SpaceRepository;
@@ -21,12 +30,24 @@ pub const SPACE_REPOSITORY: &str = "repository";
 /// robot a test starts starts then for the page, after the robots of its fixtures
 pub const PAGE_CLOCK_START: u32 = 1_704_189_600;
 
+/// The token of the app's sign-in the GitHub of a test repository accepts, and its user: the author of the pull
+/// requests of the fixtures (`VIEWER_LOGIN` of pull-request-helpers.ts)
+pub const GITHUB_TOKEN: &str = "e2e-github-token";
+pub const GITHUB_VIEWER: &str = "user-name";
+
 pub struct RemoteHost {
   patronus: Arc<FakePatronus>,
   patronus_server: FakeServer,
   /// Replaced on each Patronus fixture: no answer cached, no backoff and no rejected token of the answers before holds
   patronus_service: RwLock<Arc<PatronusService>>,
   on_space: std::sync::atomic::AtomicBool,
+  github: Arc<FakeGitHub>,
+  github_server: FakeServer,
+  /// Replaced on each GitHub fixture: no token the chain accepted, denied or rejected before holds
+  github_service: RwLock<Arc<GitHubService>>,
+  /// The app data directory of the host: the token file of the GitHub sign-in
+  app_data: tempfile::TempDir,
+  git: GitCommandExecutor,
 }
 
 impl RemoteHost {
@@ -37,16 +58,42 @@ impl RemoteHost {
     patronus.state_only.store(true, Ordering::SeqCst);
     *patronus.start_options.lock().expect("start options lock") = Some(fixture_start_options(&PatronusProfilesFixture::default()));
     *patronus.clock.lock().expect("patronus clock lock") = Some(PAGE_CLOCK_START);
-    let (git, path) = (git.clone(), repository_path.to_string());
-    *patronus.robots_hook.lock().expect("robots hook lock") = Some(Box::new(move |robot| crate::remote_fixtures::resolve_source_revision(&git, &path, robot)));
+    let git = git.clone();
+    let (git_of_hook, path) = (git.clone(), repository_path.to_string());
+    *patronus.robots_hook.lock().expect("robots hook lock") = Some(Box::new(move |robot| crate::remote_fixtures::resolve_source_revision(&git_of_hook, &path, robot)));
     let patronus_server = FakeServer::serve(router(Arc::clone(&patronus)));
     let patronus_service = RwLock::new(Arc::new(new_patronus_service(&patronus_server.url)));
-    Self {
+
+    let repository = Arc::new(FakeGitHubRepository::default());
+    repository.set(RepositoryState {
+      token: GITHUB_TOKEN.to_string(),
+      viewer: GITHUB_VIEWER.to_string(),
+      next_number: 1,
+      clock: PAGE_CLOCK_START,
+      ..RepositoryState::default()
+    });
+    // the remote of a test repository is the repository itself (`origin` is `.`): GitHub has its branches
+    let (git_of_tip, path_of_tip) = (git.clone(), repository_path.to_string());
+    repository.set_branch_tip(Box::new(move |branch| {
+      resolve_commit(&git_of_tip, &path_of_tip, &format!("refs/heads/{branch}")).ok().flatten()
+    }));
+    let github = Arc::new(FakeGitHub::with_repository(repository));
+    let github_server = FakeServer::serve(github::fake_github::router(Arc::clone(&github)));
+    let app_data = tempfile::tempdir().expect("the app data directory of the test repository");
+    let github_service = RwLock::new(Arc::new(new_github_service(&github_server.url, app_data.path(), &git)));
+    let host = Self {
       patronus,
       patronus_server,
       patronus_service,
       on_space: std::sync::atomic::AtomicBool::new(false),
-    }
+      github,
+      github_server,
+      github_service,
+      app_data,
+      git,
+    };
+    host.set_github_signed_in(true);
+    host
   }
 
   pub fn patronus(&self) -> &FakePatronus {
@@ -79,6 +126,48 @@ impl RemoteHost {
     self.renew_patronus_service();
   }
 
+  /// The fake GitHub of the repository: its request log; `github_repository` holds its state
+  pub fn github(&self) -> &FakeGitHub {
+    &self.github
+  }
+
+  pub fn github_repository(&self) -> &FakeGitHubRepository {
+    self.github.repository().expect("the GitHub repository of the test repository")
+  }
+
+  pub fn github_service(&self) -> Arc<GitHubService> {
+    Arc::clone(&self.github_service.read().expect("github service lock"))
+  }
+
+  /// The token file of the app's sign-in to GitHub
+  pub fn github_token_file(&self) -> PathBuf {
+    token_file(self.app_data.path())
+  }
+
+  /// What GitHub holds and answers from now on, signed in with the host's token or not; a new service
+  pub fn set_github(&self, state: RepositoryState, signed_in: bool) {
+    self.github_repository().set(state);
+    self.set_github_signed_in(signed_in);
+  }
+
+  /// Stores the token of the app's sign-in (`GITHUB_TOKEN` of `GITHUB_VIEWER`), or removes it; a new service
+  pub fn set_github_signed_in(&self, signed_in: bool) {
+    let file = self.github_token_file();
+    let written = if signed_in {
+      let token = StoredToken {
+        token: GITHUB_TOKEN.to_string(),
+        login: GITHUB_VIEWER.to_string(),
+        scopes: "read:org,repo".to_string(),
+        created_at: PAGE_CLOCK_START,
+      };
+      write_token(&file, &token)
+    } else {
+      remove_token(&file)
+    };
+    written.expect("the GitHub token file of the test repository");
+    *self.github_service.write().expect("github service lock") = Arc::new(new_github_service(&self.github_server.url, self.app_data.path(), &self.git));
+  }
+
   fn renew_patronus_service(&self) {
     *self.patronus_service.write().expect("patronus service lock") = Arc::new(new_patronus_service(&self.patronus_server.url));
   }
@@ -92,4 +181,15 @@ fn new_patronus_service(url: &str) -> PatronusService {
   // the robot pages where Patronus has them, as the robots of a fixture link them
   let client = PatronusClient::new(url, "Branch Deck test server").with_web_url(PATRONUS_URL);
   PatronusService::new(client, move |_| TokenLookup::Found(token.clone()))
+}
+
+/// The GitHub service of the app on the fake, asking only with the token file in `app_data_dir`
+fn new_github_service(url: &str, app_data_dir: &std::path::Path, git: &GitCommandExecutor) -> GitHubService {
+  let sources = TokenSources {
+    environment: None,
+    gh: GhSource::None,
+    token_file: Some(token_file(app_data_dir)),
+    git_credential: false,
+  };
+  GitHubService::new(GitHubClient::with_urls(url, url, "Branch Deck test server"), TokenChain::new(sources, git.clone()))
 }

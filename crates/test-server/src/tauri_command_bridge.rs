@@ -11,6 +11,7 @@ use file_diffs::model::{
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
+use github::sign_in_session::auth_status;
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::{RewordRequest, RewordResult, reword_request_core};
@@ -22,9 +23,20 @@ use std::sync::atomic::Ordering;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::branch_name_suggestion::clean_names;
 use sync_core::branch_prefix::GitBranchPrefix;
+use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::patronus::{SpaceRepository, find_target_branch, prepare_robot_start, required_target_branch};
-use sync_core::pull_requests::resolve_github_repository;
+use sync_core::pull_request_create::{
+  CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
+  new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
+};
+use sync_core::pull_request_writes::{
+  ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, close_pull_request as core_close_pull_request, read_pull_request_head,
+  retarget_pull_request as core_retarget_pull_request,
+};
+use sync_core::pull_requests::{
+  GetPullRequestsParams, GitHubRepository, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests, parse_known_github_repository, resolve_github_repository,
+};
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
   write_global_config, write_repository_config,
@@ -37,6 +49,7 @@ use sync_types::patronus::{
   GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot,
   PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, StartPatronusRobotParams,
 };
+use sync_types::pull_request::{CreatedPullRequest, GitHubAuthStatus, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult};
 use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
@@ -650,48 +663,115 @@ pub async fn push_branches(State(state): State<Arc<AppState>>, Json(params): Jso
   .await
 }
 
-/// The fixture set by `POST /repositories/{id}/pull-requests`; GitHub is never asked in E2E
-pub async fn get_pull_requests(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::pull_requests::GetPullRequestsParams>,
-) -> CommandResult<sync_types::pull_request::PullRequestsResult> {
-  let mut result = {
-    let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.pull_request_calls.fetch_add(1, Ordering::SeqCst);
-    repo.pull_requests.read().expect("pull request fixture lock").clone()
+/// The GitHub repository of the repository at `path` as the app resolves it (`commands/pull_requests.rs`): a known
+/// `owner/name`, else `branchdeck.githubRepository` (a fixture writes it), else none; with the fake services
+async fn github_of(state: &AppState, path: &str, known: Option<&str>) -> Result<(Arc<RemoteHost>, Option<GitHubRepository>), CommandFailure> {
+  let host = remote_of(state, path)?;
+  if let Some(repository) = parse_known_github_repository(known) {
+    return Ok((host, Some(repository)));
+  }
+  let (git, path) = (config_git(state, path)?, path.to_string());
+  let Json(repository) = run_command("resolve the GitHub repository", move || resolve_github_repository(&git, &path)).await?;
+  Ok((host, repository))
+}
+
+/// `github_of` for a request that needs the repository: none fails as the app fails it
+async fn required_github_of(state: &AppState, path: &str, known: Option<&str>, operation: &str) -> Result<(Arc<RemoteHost>, GitHubRepository), CommandFailure> {
+  match github_of(state, path, known).await? {
+    (host, Some(repository)) => Ok((host, repository)),
+    (_, None) => Err(CommandFailure::error(operation, NOT_ON_GITHUB_MESSAGE)),
+  }
+}
+
+/// The pull requests of the virtual branches as the app lists them: the real service asks the fake GitHub of the
+/// repository, which holds the fixture of `POST /repositories/{id}/pull-requests`
+pub async fn get_pull_requests(State(state): State<Arc<AppState>>, Json(params): Json<GetPullRequestsParams>) -> CommandResult<PullRequestsResult> {
+  repository_by_path(&state, &params.repository_path)?.pull_request_calls.fetch_add(1, Ordering::SeqCst);
+  let (host, repository) = github_of(&state, &params.repository_path, None).await?;
+  let Some(repository) = repository else {
+    return Ok(Json(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)));
   };
-  let git_executor = state.git_executor.clone();
-  run_command("list pull requests", move || {
-    // the pull request of a stack branch too: its head is the stack branch the sync built
-    for pull_request in result.pull_requests.values_mut().chain(result.stack_pull_requests.values_mut()) {
-      if pull_request.head_ref_oid.is_empty() {
-        let full_ref = format!("refs/heads/{}", pull_request.head_ref_name);
-        pull_request.head_ref_oid = git_executor
-          .execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], &params.repository_path)
-          .unwrap_or_default();
-      }
-    }
-    anyhow::Ok(result)
-  })
-  .await
+  Ok(Json(
+    list_pull_requests(&host.github_service(), &params.repository_path, &repository, &params.branch_prefix).await,
+  ))
 }
 
-/// No rule dismisses stale reviews: GitHub is never asked in E2E, a test of the warning answers it in the page
-/// (`routeCommand`)
-pub async fn get_branch_rules() -> CommandResult<sync_core::branch_rules::BranchRules> {
-  Ok(Json(sync_core::branch_rules::BranchRules {
-    dismiss_stale_reviews_on_push: false,
-  }))
+/// What the rules of a branch do to the pull requests into it, as the app reads them
+pub async fn get_branch_rules(State(state): State<Arc<AppState>>, Json(params): Json<GetBranchRulesParams>) -> CommandResult<BranchRules> {
+  let operation = "read the rules of the branch";
+  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
+  let rules = read_branch_rules(&host.github_service(), &params.repository_path, &repository, &params.branch).await;
+  rules.map(Json).map_err(|failure| CommandFailure::error(operation, failure_message(&failure)))
 }
 
-/// Not signed in, no token, no sign-in in the build: a test of the sign-in answers it in the page (`routeCommand`)
-pub async fn get_github_auth_status() -> CommandResult<sync_types::pull_request::GitHubAuthStatus> {
-  Ok(Json(sync_types::pull_request::GitHubAuthStatus {
-    sign_in_available: false,
-    signed_in_as: None,
-    token_source: None,
-    manage_url: None,
-  }))
+/// The sign-in of the requesting page's repository, as the app reads it; this build has no OAuth app of its own
+pub async fn get_github_auth_status(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<GitHubAuthStatus> {
+  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  Ok(Json(auth_status(&host.github_service(), Some(host.github_token_file()), None).await))
+}
+
+/// Changes the base of a pull request, as the app does
+pub async fn retarget_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<RetargetPullRequestParams>) -> CommandResult<()> {
+  let operation = "retarget the pull request";
+  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
+  let retarget = core_retarget_pull_request(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.base).await;
+  retarget.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
+/// Closes a pull request with a comment, as the app does
+pub async fn close_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<ClosePullRequestParams>) -> CommandResult<()> {
+  let operation = "close the pull request";
+  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
+  let close = core_close_pull_request(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.comment).await;
+  close.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
+/// The commit a pull request shows now on GitHub, as the app reads it
+pub async fn get_pull_request_head(State(state): State<Arc<AppState>>, Json(params): Json<GetPullRequestHeadParams>) -> CommandResult<String> {
+  let operation = "read the head of the pull request";
+  let (host, repository) = required_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
+  let head = read_pull_request_head(&host.github_service(), &params.repository_path, &repository, params.pull_request_number).await;
+  head.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
+/// The text a new pull request starts with and the user of the token, as the app reads them; no YouTrack yet
+pub async fn get_new_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<GetNewPullRequestParams>) -> CommandResult<NewPullRequest> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let pull_request = new_pull_request(&state.git_executor, None, "origin", &params).await;
+  let pull_request = pull_request.map_err(|e| CommandFailure::error("read the text of the pull request", e))?;
+  with_viewer(&state, &params.repository_path, pull_request).await
+}
+
+/// The text of a new pull request with the user of the token, who is its assignee; none when GitHub doesn't answer
+async fn with_viewer(state: &AppState, path: &str, mut pull_request: NewPullRequest) -> CommandResult<NewPullRequest> {
+  if let (host, Some(repository)) = github_of(state, path, None).await? {
+    pull_request.viewer_login = read_viewer_login(&host.github_service(), path, &repository).await.ok();
+  }
+  Ok(Json(pull_request))
+}
+
+/// Opens the pull request of a pushed virtual branch, as the app does
+pub async fn create_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<CreatePullRequestParams>) -> CommandResult<CreatedPullRequest> {
+  let operation = "create the pull request";
+  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
+  let created = core_create_pull_request(&host.github_service(), &repository, &params).await;
+  created.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
+/// Waits until GitHub has the branch just pushed, as the app does
+pub async fn wait_for_github_branch(State(state): State<Arc<AppState>>, Json(params): Json<WaitForGitHubBranchParams>) -> CommandResult<bool> {
+  let operation = "wait for the branch on GitHub";
+  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
+  let has = wait_for_branch(&host.github_service(), &params.repository_path, &repository, &params.branch, MIRROR_WAIT).await;
+  has.map(Json).map_err(|failure| CommandFailure::error(operation, failure_message(&failure)))
+}
+
+/// The users a review can be asked from, as the app searches them
+pub async fn search_github_users(State(state): State<Arc<AppState>>, Json(params): Json<SearchGitHubUsersParams>) -> CommandResult<Vec<GitHubUser>> {
+  let operation = "search the GitHub users";
+  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
+  let users = core_search_github_users(&host.github_service(), &params.repository_path, &repository, &params.query).await;
+  users.map(Json).map_err(|failure| CommandFailure::error(operation, failure_message(&failure)))
 }
 
 /// Not signed in to YouTrack: a test of the sign-in or the issue popover answers it in the page (`routeCommand`)
@@ -791,18 +871,18 @@ pub async fn prefetch_branch_review() -> CommandResult<()> {
   Ok(Json(()))
 }
 
-/// The text of the pull request of the whole stack, from the real core (`read_new_stack_pull_request`); the viewer is
-/// GitHub's, which the test server has not
+/// The text of the pull request of the whole stack and the user of the token, as the app reads them
 pub async fn get_new_stack_pull_request(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::stack_pull_request::GetNewStackPullRequestParams>,
-) -> CommandResult<sync_types::pull_request::NewPullRequest> {
+) -> CommandResult<NewPullRequest> {
   ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the text of the stack's pull request", move || {
-    sync_core::stack_pull_request::read_new_stack_pull_request(&git_executor, &params)
+  let (git_executor, path, request) = (state.git_executor.clone(), params.repository_path.clone(), params);
+  let Json(pull_request) = run_command("read the text of the stack's pull request", move || {
+    sync_core::stack_pull_request::read_new_stack_pull_request(&git_executor, &request)
   })
-  .await
+  .await?;
+  with_viewer(&state, &path, pull_request).await
 }
 
 pub async fn get_branch_review(

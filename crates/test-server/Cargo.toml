@@ -31,6 +31,7 @@ git-ops = { path = "../git-ops" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
+github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils" }
 sync-core = { path = "../sync-core" }

@@ -123,7 +123,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   sort:updated-desc`, first 50, with the fields `gh pr list --json` reads, and `repository(owner, name)`. Newest first,
   unlike `gh pr list`: the virtual branches under review are among the 50 most recently updated.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
-- An answer that lists the pull requests names the repository it asked, its owner and name (`JetBrains/ultimate`), for
+- An answer that lists the pull requests names the repository it asked, its owner and name (`acme/monorepo`), for
   links to GitHub that no pull request carries; the app knows the repository only while GitHub lists its pull requests
   (`getGitHubRepository()`).
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
@@ -556,11 +556,15 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   (`crates/github/src/client_test.rs`) and the token chain with a fake `gh` and a credential helper script
   (`token_test.rs`, `service_test.rs`). No test asks the developer's `gh` or git credentials.
 - `pnpm test:unit` covers the refresh policy and the chip mapping.
-- `pnpm e2e` covers the chip, the popover, the preview section and the overview (`tests/e2e/pull-requests`). E2E never
-  asks GitHub: `POST /repositories/{id}/pull-requests` sets what `get_pull_requests` answers (an empty `headRefOid` means
-  the local tip; `availablePullRequests` answers for `JetBrains/ultimate`), and `GET` returns how often the app asked. The opener plugin is mocked and records the opened URLs in
-  `window.__OPENED_URLS__`. The E2E repositories have no remote: a push answered in the page (`routePush`,
-  `pushBranchFromRow`) gives a branch its remote tip.
+- `pnpm e2e` covers the chip, the popover, the preview section, the overview and the creation (`tests/e2e/pull-requests`).
+  E2E never asks GitHub: the test server runs the app's service and cores against a fake GitHub per test repository
+  ([Remote services](../../docs/design/e2e-testing.md#remote-services)); `POST /repositories/{id}/pull-requests` sets
+  what it holds (an empty `headRefOid` means the local tip; `availablePullRequests` answers for `acme/monorepo`), and
+  `GET` returns how often the app asked and every request GitHub got. The opener plugin is mocked and records the
+  opened URLs in `window.__OPENED_URLS__`. The E2E repositories have no remote: a push answered in the page
+  (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
+  [@test] ../../crates/test-server/src/github_host_test.rs (`pull_requests_are_listed_created_retargeted_and_closed_through_the_real_service`)
+  [@test] ../../crates/test-server/src/github_host_test.rs (`a_fixture_pull_request_reads_back_through_the_real_parser`)
 
 ## Open Questions / Risks
 

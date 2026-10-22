@@ -30,7 +30,7 @@ import {
   startRequest,
   wholeStackStartRequest,
 } from "../helpers/patronus-helpers"
-import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubWrites, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
 import type { PushRequest } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
@@ -50,9 +50,9 @@ import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, d
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, holdCommandCalls, routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import { holdCommand, holdCommandCalls, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
-const GITHUB_COMPARE = "https://github.com/JetBrains/ultimate/compare"
+const GITHUB_COMPARE = "https://github.com/acme/monorepo/compare"
 
 /**
  * While the held unstack of oauth runs, the rewrites of another row wait for it, disabled with its busy state; released,
@@ -557,8 +557,8 @@ test.describe("Stacked branches", () => {
   })
 
   test("should push a stack parents first and create each pull request into master", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // on GitHub, no pull request yet
-    await setupRepo("stacked_branches", { pullRequests: availablePullRequests() })
+    // on GitHub, no pull request yet; the next one created is #900
+    const repo = await setupRepo("stacked_branches", { pullRequests: { ...availablePullRequests(), nextNumber: 900 } })
     await syncAndWaitForBranches()
     // the E2E server has no remote: answer the pushes and record their order
     const pushes = await routePush(page, {})
@@ -583,7 +583,7 @@ test.describe("Stacked branches", () => {
     const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth, login and oauth" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("3 commits · created 3 remote branches")
     await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
-    const texts = await routeNewPullRequest(page)
+    const texts = await recordCommand(page, "get_new_pull_request")
     await toast.getByRole("button", { name: "Create Pull Request…" }).click()
     // into master, with the commits of the branches oauth is built on: what its Safe Push lands
     const dialog = createPullRequestDialog(page)
@@ -593,11 +593,12 @@ test.describe("Stacked branches", () => {
     expect(texts).toEqual([expect.objectContaining({ head: "user-name/virtual/oauth", base: "master", stackAncestors: ["user-name/virtual/auth", "user-name/virtual/login"] })])
     // GitHub's form, as "Continue on GitHub" opens it, takes the same base
     await dialog.getByTestId("create-pull-request-on-github").click()
-    await expect.poll(() => getOpenedUrls(page)).toEqual([`${GITHUB_COMPARE}/master...user-name/virtual/oauth?expand=1&title=Add+auth&body=-+**Add+login**&assignees=user-name`])
+    const body = "Built+on+auth%2C+then+login%3A+their+commits+are+in+this+pull+request+too.%0A%0A**auth**%0A-+Add+auth+module%0A%0A**login**%0A-+Add+login+form"
+    await expect.poll(() => getOpenedUrls(page)).toEqual([`${GITHUB_COMPARE}/master...user-name/virtual/oauth?expand=1&title=Add+OAuth+provider&body=${body}&assignees=user-name`])
     await expect(dialog).toHaveCount(0)
 
     // the root's pull request goes into master too, and holds only its own commits
-    const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(pullRequest("auth", 900)))
+    const creates = await recordCommand(page, "create_pull_request")
     await openContextMenu(page, findBranchRow(page, "auth"))
     await clickContextMenuItem(page, "Create Pull Request…")
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("auth → master")
@@ -605,6 +606,10 @@ test.describe("Stacked branches", () => {
     await dialog.getByTestId("create-pull-request-submit").click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #900" }).locator("[data-slot=toast-description]")).toHaveText("auth → master · assigned to you")
     expect(creates).toEqual([expect.objectContaining({ branchName: "auth", head: "user-name/virtual/auth", base: "master" })])
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([
+      ["POST", repoPath("pulls"), expect.objectContaining({ head: "user-name/virtual/auth", base: "master" })],
+      ["POST", repoPath("issues", 900, "assignees"), { assignees: ["user-name"] }],
+    ])
     expect(texts[1]).toEqual(expect.objectContaining({ head: "user-name/virtual/auth", stackAncestors: [] }))
   })
 
@@ -816,10 +821,13 @@ test.describe("Stacked branches", () => {
       pullRequest("login", 801, { baseRefName: "user-name/virtual/auth", reviewers: [reviewer("alice", "approved")] }),
       pullRequest("session", 803, { baseRefName: "release-252" }),
     )
-    await setupRepo("stacked_branches", { pullRequests })
+    const repo = await setupRepo("stacked_branches", { pullRequests })
     await syncAndWaitForBranches()
     const pushes = await routePush(page, {})
-    const retargets = await routeCommand(page, "retarget_pull_request", () => null)
+    const retargets = [
+      ["PATCH", repoPath("pulls", 802), { base: "master" }],
+      ["PATCH", repoPath("pulls", 801), { base: "master" }],
+    ]
     // GitHub listed them: the menu is built of what the rows show
     await expect(findBranchRow(page, "auth").getByTestId("pull-request-chip")).toHaveText("#802")
     await expect(page.getByTestId("pull-request-chip")).toHaveCount(3)
@@ -842,7 +850,7 @@ test.describe("Stacked branches", () => {
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
       "2 commits · created 2 remote branches · retargeted pull request #802 of auth to master · retargeted pull request #801 of login to master",
     )
-    expect(retargets).toEqual([expect.objectContaining({ pullRequestNumber: 802, base: "master" }), expect.objectContaining({ pullRequestNumber: 801, base: "master" })])
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual(retargets)
     expect(pushes.map(push => push.branchName)).toEqual(["auth", "login"])
     // Activity names each retarget, with its pull request
     const activity = await openActivityWindow(page)
@@ -857,7 +865,7 @@ test.describe("Stacked branches", () => {
     await closeMenus(page)
     await getPushButton(findBranchRow(page, "session")).click()
     await expect(pushedToast(page, "session").locator("[data-slot=toast-description]")).toHaveText("1 commit · created the remote branch")
-    expect(retargets).toHaveLength(2)
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual(retargets)
   })
 
   test.describe("Safe Push", () => {
@@ -1197,7 +1205,6 @@ test.describe("Stacked branches", () => {
       await syncAndWaitForBranches()
       await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
-      const retargets = await routeCommand(page, "retarget_pull_request", () => null)
       const oauthRow = findBranchRow(page, "oauth")
       await expect(oauthRow.getByTestId("pull-request-chip")).toBeVisible()
       await slotSafePush(page, "oauth").click()
@@ -1236,7 +1243,7 @@ test.describe("Stacked branches", () => {
       // the retarget of the slot (its own test in next-step.spec.ts) runs from the notice too
       await expect(retarget).toBeVisible()
       await notice.getByRole("button", { name: "Retarget #8 to master" }).click()
-      await expect.poll(() => retargets).toEqual([expect.objectContaining({ pullRequestNumber: 8, base: "master" })])
+      await expect.poll(async () => gitHubWrites(await repo.getGitHubLog())).toEqual([["PATCH", repoPath("pulls", 8), { base: "master" }]])
       await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #8 to master" })).toBeVisible()
       // into master again: its approvals count, the start comments on it
       await expect(slot).toHaveAttribute("data-step", "safePush")
@@ -1349,7 +1356,9 @@ test.describe("Stacked branches", () => {
 
     test("should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // on GitHub, no pull request yet
-      await setupTakenRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", robot("oauth", "oauth-robot"), "auth", { pullRequests: availablePullRequests() })
+      await setupTakenRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", robot("oauth", "oauth-robot"), "auth", {
+        pullRequests: { ...availablePullRequests(), nextNumber: 901 },
+      })
       await expect(findBranchRow(page, "docs").getByTestId("landing-span")).toHaveCount(0)
 
       // docs below auth, after the Safe Push of oauth took its commit: the robot lands none of docs
@@ -1380,8 +1389,7 @@ test.describe("Stacked branches", () => {
       await docsRow.focus()
       await page.keyboard.press("p")
       await expect.poll(() => pushes.map(it => it.branchName)).toEqual(["docs", "docs"])
-      await routeNewPullRequest(page)
-      const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(pullRequest("docs", 901)))
+      const creates = await recordCommand(page, "create_pull_request")
       await openContextMenu(page, docsRow)
       await clickContextMenuItem(page, "Create Pull Request…")
       const dialog = createPullRequestDialog(page)
@@ -1527,7 +1535,6 @@ test.describe("Stacked branches", () => {
       await syncAndWaitForBranches()
       expect(taken).toMatch(/^[0-9a-f]{40}$/)
       await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with oauth")
-      const closes = await routeCommand(page, "close_pull_request", () => null)
 
       // a new commit of auth behind the app's back: the sync rebuilds login and oauth on it, no hash is the robot's now
       await onRemote()
@@ -1540,8 +1547,11 @@ test.describe("Stacked branches", () => {
       await emitTauriEvent(page, "tauri://focus")
       await expect(page.locator("[data-slot=toast]").filter({ hasText: "oauth merged into master" })).toContainText("closes the pull request of login: it landed with oauth")
       // login landed whole and its pull request holds nothing it lacks; auth has the new commit left, its pull request stays
-      await expect.poll(() => closes.map(close => close.pullRequestNumber as number)).toEqual([5])
-      expect(closes[0]!.comment).toContain("the Safe Push of user-name/virtual/oauth")
+      const closes = async () => gitHubWrites(await repo.getGitHubLog())
+      await expect.poll(closes).toEqual([
+        ["POST", repoPath("issues", 5, "comments"), { body: expect.stringContaining("the Safe Push of user-name/virtual/oauth") }],
+        ["PATCH", repoPath("pulls", 5), { state: "closed" }],
+      ])
       await expect(findBranchRow(page, "auth").getByTestId("landed-with")).toHaveText("Landed with oauth · 1 commit after it")
     })
 

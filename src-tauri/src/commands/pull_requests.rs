@@ -14,7 +14,7 @@ use sync_core::pull_request_writes::{
   close_pull_request as core_close_pull_request, read_pull_request_head, request_pull_request_reviewers as core_request_pull_request_reviewers,
   retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
 };
-use sync_core::pull_requests::{GetPullRequestsParams, GitHubRepository, failure_message, list_pull_requests, parse_known_github_repository};
+use sync_core::pull_requests::{GetPullRequestsParams, GitHubRepository, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests, parse_known_github_repository};
 use sync_core::stack_pull_request::{GetNewStackPullRequestParams, read_new_stack_pull_request};
 use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use tauri::State;
@@ -304,5 +304,5 @@ async fn required_github_repository(
 ) -> Result<GitHubRepository, CommandError> {
   github_repository(git_executor, repository_state, repository_path, known)
     .await?
-    .ok_or_else(|| CommandError::new("The pull requests of the branches are not on GitHub"))
+    .ok_or_else(|| CommandError::new(NOT_ON_GITHUB_MESSAGE))
 }

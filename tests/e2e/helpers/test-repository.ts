@@ -4,9 +4,9 @@ import type {
   PatronusReviewRequirement,
   PatronusRobotProgress,
   PatronusRobotsResult,
-  PullRequestsResult,
   ReviewRequestsResult,
 } from "../../../src/lib/bindings"
+import type { GitHubFixture, GitHubLog } from "./pull-request-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
 
 /** What reached the fake Patronus: the requests by kind, the robots whose problems and progress were asked, in order */
@@ -117,14 +117,23 @@ export class TestRepositoryBuilder {
     return data.commitId
   }
 
-  /** Sets what `get_pull_requests` answers from now on (E2E never runs gh) */
-  async setPullRequests(result: PullRequestsResult): Promise<void> {
-    await this.setFixture("pull-requests", result)
+  /**
+   * Sets what the fake GitHub of the repository holds from now on (`GitHubFixture`), read and written by the real
+   * service (docs/design/e2e-testing.md#remote-services); an empty `headRefOid` is the tip of the head branch when
+   * GitHub answers
+   */
+  async setPullRequests(fixture: GitHubFixture): Promise<void> {
+    await this.setFixture("pull-requests", fixture)
   }
 
   /** How often the app asked for pull requests */
   async getPullRequestCalls(): Promise<number> {
-    return (await this.getFixture<{ calls: number }>("pull-requests")).calls
+    return (await this.getGitHubLog()).calls
+  }
+
+  /** What the page asked of GitHub and every request that reached the fake GitHub, in order */
+  async getGitHubLog(): Promise<GitHubLog> {
+    return this.getFixture<GitHubLog>("pull-requests")
   }
 
   /**

@@ -6,7 +6,10 @@ pub mod client;
 pub mod device_flow;
 #[cfg(any(test, feature = "fake"))]
 pub mod fake_github;
+#[cfg(any(test, feature = "fake"))]
+pub mod fake_repository;
 pub mod service;
+pub mod sign_in_session;
 pub mod token;
 pub mod token_store;
 
@@ -14,6 +17,8 @@ pub mod token_store;
 mod client_test;
 #[cfg(test)]
 mod device_flow_test;
+#[cfg(test)]
+mod fake_repository_test;
 #[cfg(test)]
 mod service_test;
 #[cfg(test)]

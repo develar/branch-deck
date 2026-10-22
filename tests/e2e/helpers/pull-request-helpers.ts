@@ -1,12 +1,42 @@
 import type { Locator, Page } from "@playwright/test"
-import type { CreatedPullRequest, NewPullRequest, PullRequest, PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState } from "../../../src/lib/bindings"
-import { routeCommand } from "./wait-helpers"
+import type { GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState } from "../../../src/lib/bindings"
 
 /** The branch prefix of the E2E repositories */
 const BRANCH_PREFIX = "user-name"
 
-/** The GitHub repository that `get_pull_requests` names, and that the pull requests are on */
-export const GITHUB_REPOSITORY = { owner: "JetBrains", name: "ultimate" }
+/** The GitHub repository of a test repository with pull requests (`branchdeck.githubRepository`), on its fake GitHub */
+export const GITHUB_REPOSITORY = { owner: "acme", name: "monorepo" }
+
+/**
+ * What the fake GitHub of a test repository holds (`setPullRequests`): the answer of `get_pull_requests` the page knows,
+ * which the real service reads back through the real parser (the server refuses one it would not), and what only the
+ * writes see: `repository` of an availability that names none, the `users` a review can be asked from and assigned
+ * (the collaborators: GitHub refuses a review request of anyone else), whether the rules of every branch dismiss
+ * approvals on a push, the number of the next pull request created, the branches a mirror has not copied yet
+ */
+export type GitHubFixture = PullRequestsResult & {
+  repository?: string
+  users?: GitHubUser[]
+  dismissStaleReviewsOnPush?: boolean
+  nextNumber?: number
+  missingBranches?: string[]
+}
+
+/** A request that reached the fake GitHub: method, path and JSON body (null for none) */
+export type GitHubRequest = { method: string; path: string; body: unknown }
+
+/** What the page asked of GitHub (`calls`: its `get_pull_requests`) and every request that reached the fake, in order */
+export type GitHubLog = { calls: number; requests: GitHubRequest[] }
+
+/** The REST path of the fake's repository: `repoPath("pulls", 7)` is `/repos/acme/monorepo/pulls/7` */
+export function repoPath(...segments: (string | number)[]): string {
+  return ["", "repos", GITHUB_REPOSITORY.owner, GITHUB_REPOSITORY.name, ...segments].join("/")
+}
+
+/** The writes of a log (every request but a GET and a GraphQL query), as `[method, path, body]` */
+export function gitHubWrites(log: GitHubLog): [string, string, unknown][] {
+  return log.requests.filter(it => it.method !== "GET" && it.path !== "/graphql").map(it => [it.method, it.path, it.body])
+}
 
 /**
  * An open pull request of a virtual branch that waits for a review, without checks. The empty `headRefOid` makes the
@@ -38,16 +68,23 @@ export function reviewer(login: string, state: ReviewerState, requested = state 
   return { login, state, requested }
 }
 
-/** The answer of `get_pull_requests` for these pull requests, keyed by their branch */
-export function availablePullRequests(...pullRequests: PullRequest[]): PullRequestsResult {
+/** The GitHub of these pull requests, keyed by their branch as `get_pull_requests` answers them */
+export function availablePullRequests(...pullRequests: PullRequest[]): GitHubFixture {
   return {
     availability: { status: "available", ...GITHUB_REPOSITORY },
     pullRequests: Object.fromEntries(pullRequests.map(it => [it.headRefName.slice(`${BRANCH_PREFIX}/virtual/`.length), it])),
   }
 }
 
-export function unavailablePullRequests(availability: PullRequestAvailability): PullRequestsResult {
-  return { availability, pullRequests: {} }
+/** The GitHub of these pull requests whose rules dismiss the approvals of a pull request on a push of new commits */
+export function dismissingApprovals(...pullRequests: PullRequest[]): GitHubFixture {
+  return { ...availablePullRequests(...pullRequests), dismissStaleReviewsOnPush: true }
+}
+
+/** A GitHub that answers every request with the failure of `availability` (a repository for any but `notGitHub`) */
+export function unavailablePullRequests(availability: PullRequestAvailability): GitHubFixture {
+  const repository = availability.status === "notGitHub" ? {} : { repository: `${GITHUB_REPOSITORY.owner}/${GITHUB_REPOSITORY.name}` }
+  return { availability, pullRequests: {}, ...repository }
 }
 
 /** The URLs the app opened in the browser (the opener plugin is mocked) */
@@ -57,19 +94,6 @@ export async function getOpenedUrls(page: Page): Promise<string[]> {
 
 /** The user of the GitHub token in E2E: the dialog leaves the user out of the reviewers */
 export const VIEWER_LOGIN = "user-name"
-
-/**
- * Answers `get_new_pull_request` (the text the "Create pull request" dialog starts with) in the page: the test server
- * pushes nothing, so there are no remote branches to read the commits of
- */
-export function routeNewPullRequest(page: Page, patch: Partial<NewPullRequest> = {}): Promise<Record<string, unknown>[]> {
-  return routeCommand(page, "get_new_pull_request", () => ({ title: "Add auth", body: "- **Add login**", viewerLogin: VIEWER_LOGIN, ...patch }) satisfies NewPullRequest)
-}
-
-/** The answer of `create_pull_request` for a pull request GitHub created, assigned to the user */
-export function createdPullRequest(created: PullRequest, patch: Partial<CreatedPullRequest> = {}): CreatedPullRequest {
-  return { pullRequest: created, created: true, assignees: [VIEWER_LOGIN], warnings: [], ...patch }
-}
 
 export function createPullRequestDialog(page: Page): Locator {
   return page.getByTestId("create-pull-request-dialog")

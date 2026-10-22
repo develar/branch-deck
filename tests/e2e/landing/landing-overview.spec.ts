@@ -16,7 +16,7 @@ import {
   setupRobots,
   startRequest,
 } from "../helpers/patronus-helpers"
-import { availablePullRequests, createPullRequestDialog, getOpenedUrls, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, getOpenedUrls } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
@@ -191,7 +191,6 @@ test.describe("Landing overview", () => {
     await repo.setReviewAnswers({ answers: { docs: NO_REVIEW_NEEDED, "stack:auth": AWAITING_CODE_OWNER } })
     await syncAndWaitForBranches()
     await routePush(page, {})
-    await routeNewPullRequest(page)
     let popover = await openLandingOverview(page)
     await expect(landingRow(popover, "auth").getByText("4 branches · 4 commits")).toBeVisible()
     await expect(landingRow(popover, "login")).toHaveCount(0)

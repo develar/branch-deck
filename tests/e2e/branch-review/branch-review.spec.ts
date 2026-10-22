@@ -7,13 +7,13 @@ import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/bran
 import { readClipboard, setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
 import { getCommitPreview } from "../helpers/preview-helpers"
-import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { routePush, routePushBranches } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
-import { routeCommand } from "../helpers/wait-helpers"
+import { recordCommand, routeCommand } from "../helpers/wait-helpers"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
 async function reviewedPaths(page: Page): Promise<string[]> {
@@ -70,7 +70,8 @@ async function setupAuthWithoutPullRequest(
   )
   const repo = await setupRepo("stacked_ownership", {
     patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
-    pullRequests: availablePullRequests(),
+    // the code owner a collaborator; the next pull request created is #77
+    pullRequests: { ...availablePullRequests(), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }], nextNumber: 77 },
     patronusProfiles: PROFILES,
   })
   await repo.setReviewAnswers({ answers: { auth: AWAITING_CODE_OWNER } })
@@ -534,16 +535,16 @@ test.describe("Branch review window", () => {
 
   test("should create the pull request in the window it was asked in, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
-    const created = await routeCommand(page, "create_pull_request", () => createdPullRequest(pullRequest("auth", 77)))
+    const created = await recordCommand(page, "create_pull_request")
 
-    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"), { beforeLoad: window => routeNewPullRequest(window) })
+    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
     const actions = reviewPage.getByTestId("branch-review-actions")
     const windowCalls = () => reviewPage.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])
 
     // the dialog opens here, with the code owner Patronus suggests; the main window stays where it is
     await actions.getByRole("button", { name: "Create Pull Request…" }).click()
     const dialog = createPullRequestDialog(reviewPage)
-    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add auth")
+    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add the token")
     await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
     await expect(createPullRequestDialog(page)).toHaveCount(0)
     expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])).not.toContain("set_focus")
@@ -552,7 +553,7 @@ test.describe("Branch review window", () => {
     // S and O are letters of the title while the dialog is open, not the keys of the review
     await expect(dialog.getByTestId("create-pull-request-title")).toBeFocused()
     await reviewPage.keyboard.type(" so")
-    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add auth so")
+    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add the token so")
     expect(await windowRequests(reviewPage)).toEqual([expect.objectContaining({ branchName: "auth", dialog: "open" })])
     expect(await getOpenedUrls(reviewPage)).toEqual([])
 
@@ -567,7 +568,7 @@ test.describe("Branch review window", () => {
     await expect(dialog).toBeHidden()
     const toast = reviewPage.locator("[data-slot=toast]", { hasText: "Created pull request #77" })
     await expect(toast).toBeVisible()
-    expect(created).toEqual([expect.objectContaining({ branchName: "auth", title: "Add auth", reviewers: ["ikorennoy"] })])
+    expect(created).toEqual([expect.objectContaining({ branchName: "auth", title: "Add the token", reviewers: ["ikorennoy"] })])
     await toast.getByRole("button", { name: "Open Pull Request" }).click()
     await expect.poll(() => getOpenedUrls(reviewPage)).toEqual([pullRequest("auth", 77).url])
 
@@ -592,7 +593,7 @@ test.describe("Branch review window", () => {
     syncAndWaitForBranches,
   }) => {
     await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
-    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "login"), { beforeLoad: window => routeNewPullRequest(window) })
+    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
     await expect(reviewPage.getByTestId("range-review-commit-header")).toHaveCount(0)
     await reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" }).click()
     const dialog = createPullRequestDialog(reviewPage)
@@ -677,7 +678,7 @@ test.describe("Branch review window", () => {
   test("should start the Safe Push without review the window's dialog offers in the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
 
-    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"), { beforeLoad: window => routeNewPullRequest(window) })
+    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
     await reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" }).click()
     const dialog = createPullRequestDialog(reviewPage)
     await dialog.getByRole("button", { name: "Safe Push Without Review…" }).click()
