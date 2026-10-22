@@ -77,9 +77,13 @@ export async function recordCommand(page: Page, command: string): Promise<Record
   return calls
 }
 
-/** Fails `command` with `message`, as the mock server answers a failed command and Tauri rejects it with the CommandError */
-export async function routeCommandError(page: Page, command: string, message: string): Promise<void> {
-  await page.route(`**/invoke/${command}`, route => route.fulfill({ json: { status: "error", error: { message } } }))
+/**
+ * Fails `command` with `message` (and the `kind` of a refusal the page tells apart, `CommandErrorKind`), as the mock
+ * server answers a failed command and Tauri rejects it with the CommandError
+ */
+export async function routeCommandError(page: Page, command: string, message: string, kind?: string): Promise<void> {
+  const error = kind === undefined ? { message } : { message, kind }
+  await page.route(`**/invoke/${command}`, route => route.fulfill({ json: { status: "error", error } }))
 }
 
 /**

@@ -57,8 +57,8 @@ sync на `(repository, prefix)` и выводит одно правило дл�
 | Префикс ветки разрешается дважды | `computeEffectiveBranchPrefix` (`src/stores/repository.ts:107-114`) и `resolve_branch_prefix` (`sync-core/src/branch_prefix.rs:27`) |
 | Неудачное чтение правил GitHub читается как «push сохраняет approvals» | `src/hooks/useDismissesStaleReviews.ts:19-26`: `forget` удаляет ответ и возвращает `false`; до следующего вопроса peek-кэш держит `false` |
 | Matching роботов держится общей фикстурой, которую читают обе стороны | `src/test-support/robot-match-cases.json`: `patronus_start_test.rs:126`, `src/lib/patronus.test.ts:39`; комментарий `patronus_start.rs:49` называет файл неверно |
-| Три реестра команд; 35 команд в e2e никогда не доходят до Rust | `collect_commands!` (111, `src-tauri/src/lib.rs`), 77 ручных маршрутов `/invoke/*` в `crates/test-server/src/lib.rs` (75 совпадают с именами команд, плюс `browse_repository/{repo_id}` и `get_blob_syntax`); `tests/e2e/setup/tauri-mocks.ts` — ~20 локальных обработчиков (`:482-570`), всё остальное уже проксируется на сервер (`proxyToTestServer`, `:106`, `:595`), 405 роняет тест (`:153-157`); `routeCommand(page, "start_patronus_robot")` в 25 тестах |
-| Test-server переизобретает логику | `get_branch_review_readiness` (~70 строк поверх `to_branch_readiness`), `resolve_patronus_revisions` в `tauri_command_bridge.rs` |
+| Три реестра команд; 35 команд в e2e никогда не доходили до Rust (после `s0b-remote-bridge` — 4, только окна) | `collect_commands!` (111, `src-tauri/src/lib.rs`), ручные маршруты `/invoke/*` в `crates/test-server/src/lib.rs` (до s0b 77, после 106 по командам плюс `browse_repository/{repo_id}` и `get_blob_syntax`); `tests/e2e/setup/tauri-mocks.ts` — локальные обработчики окон и плагинов, всё остальное проксируется на сервер (`proxyToTestServer`), 405 роняет тест; `routeCommand(page, "start_patronus_robot")` был в 25 тестах, после s0b ни одного: `command_registry_test.rs` держит `PAGE_MOCKED` (4) и храповик ответов страницы в `tests/e2e` |
+| Test-server переизобретал логику (снято в `s0b-remote-bridge`) | `get_branch_review_readiness` (~70 строк поверх `to_branch_readiness`), `resolve_patronus_revisions` в `tauri_command_bridge.rs`; теперь маршрут зовёт реальное ядро (`branch_review_readiness`, `prepare_robot_start`) с реальными сервисами за fakes репозитория (`remote_host.rs`) |
 | Draft-правило у UI и CLI совпадает | UI `blockedByDraft = isDraft && mode !== "dryRun"` (`src/lib/patronus.ts:867`); CLI отказывает только при `pushes` (`safe_push_command.rs:919,1111`) |
 | `bd status` читает Patronus | `landed_by`: `landed_branches(&PatronusFacts::read(.., read_robots(..)))` (`crates/bd-remote/src/status.rs:393-424`); список роботов с курсором `since` в object cache (`robot_list.rs:135-147`); флага `--remote` нет |
 
@@ -95,7 +95,6 @@ D — одинаковый ввод даёт разный результат в 
 | R9 | Markdown тела коммита | `parseCommitBody` (`src/lib/commit-message.ts`); `commit_body_markdown` (`sync-core/src/pull_request_text.rs`) | Rust; диалог PR получает текст из `get_new_pull_request` |
 | R10 | Валидация имени ветки | `useBranchNameValidation.ts`; `is_valid_branch_prefix` (`git-ops/src/branch_names.rs`), `stack_path` (`history-rewrite/src/stack.rs:58`) | Rust (`domain-types::branch_names`, чистая); при заметной задержке ввода — TS-проверка против Rust-оракула (фикстура, которую пишет Rust-тест) |
 | R11 | Эффективный префикс ветки | см. факты | Rust; с `s6-session-table` сессия ключуется разрешённым префиксом |
-| R12 | Переизобретения в test-server | см. факты | реальные пути за фальшивыми сервисами |
 | S1 | Таблица веток | страница (`branch-sync.ts`) и Rust (`RepositoryViews::keep`) | сессия в Rust |
 | S2 | Факты о remote | строки страницы, результаты push, `remoteStatusUpdate` отбрасывается во время push | сессия, `Fact<T>` с порядковым номером наблюдения |
 | S3 | Идущие операции | `src/stores/operations.ts` (только приложение), `pushingBranches`/`stackPushes`, `safePushStore.starting`, repository lock (между процессами, только ожидание) | реестр в Rust: in-process плюс общий файл |
@@ -201,7 +200,7 @@ flowchart TD
 | `app-settings` | новый | типизированный `AppSettings`; `SettingsFile { known, other }` с сохранением неизвестных и UI-only ключей; defaults; `resolve_branch_prefix` с источником; единственный писатель (атомарная запись, порядок, версия) | ручные читатели; файловая половина `restart_app` |
 | `app-api` | новый, в `s12-app-api`; тела `src-tauri/src/commands/*` (2,9 тыс. строк) | `AppContext` (executor, cache, sessions, services, settings, clock); реестр `api_commands!` из `async fn(ctx, params) -> Result<T, ApiError>`; транспортные traits `EventSink<T>` (Tauri `Channel`, SSE); планировщики сессий | тела команд; ручные маршруты `test-server/src/lib.rs` |
 | `bd-*` | сжимаются | clap → `Intent`; `Outcome` → JSON-схема и exit codes; сводки check уезжают в `bd-core` | ребро `bd-remote → bd-rewrite` (`check_command`, `safe_push_command.rs:39`); `bd-clustering` → `commit-clustering` (библиотека; `bd-remote/src/branch_stats.rs` читает `areas`, `generated`); `safe_push_command.rs` с 1943 строк до нескольких сотен отображения |
-| `test-server` | тонкий | размещает `app-api` с `FakeGitHub`/`FakePatronus`/фальшивым YouTrack за **реальными** сервисами, `TestClock`; fixture-эндпоинты пишут состояние fakes, эндпоинты счётчиков читают их журналы запросов | R12; 76 ручных маршрутов |
+| `test-server` | тонкий | размещает `app-api` с `FakeGitHub`/`FakePatronus`/фальшивым YouTrack за **реальными** сервисами, `TestClock`; fixture-эндпоинты пишут состояние fakes, эндпоинты счётчиков читают их журналы запросов | ручные маршруты `test-server/src/lib.rs` (108) |
 | `integration-detection-tests` | сворачивается | 4,3 тыс. строк тестов становятся `crates/branch-integration/src/*_test.rs` | crate |
 
 ### Индекс правил
@@ -643,7 +642,10 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   Спецификации e2e, которые `routeCommand`'или remote-запись, утверждают журнал fake. Храповик — скан в
   `command_registry_test.rs` (четвёртый источник реестра, `tests/e2e/**/*.ts`): `routeCommand` мутирующей команды —
   ошибка, число `routeCommand` каждой читающей команды закреплено и только падает; `routeCommandError` остаётся путём
-  ошибки. R12 удаляется.
+  ошибки. Ответом страницы считается и `page.route` на `/invoke/<name>`, который отвечает без `route.fetch()`.
+  Исключение среди записей — push (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`): origin шаблонов — `.`, отказ
+  или сдвиг remote взять неоткуда; его число тоже закреплено и только падает. R12 (переизобретения в test-server)
+  удаляется из реестра расхождений.
 - **Модель размещения (уточнено по коду при планировании):**
   - fakes — по одному на `TestRepository`, лениво, каждый на своём loopback-порту (`start_fake` crates `github`,
     `patronus`, новый `fake` feature crate `youtrack`), сервисы `PatronusService`/`GitHubService`/`YouTrackService` —
@@ -1141,7 +1143,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | Этап | Состояние |
 | --- | --- |
 | s0a-safety-net | приземлён |
-| s0b-remote-bridge | в работе: s0b-1…s0b-5 (Patronus, Safe Push, pull requests, ревьюеры, ревью, команда `/patronus` и code-owner readiness через реальные сервисы за fakes; `PAGE_MOCKED` 19) |
+| s0b-remote-bridge | приземлён |
 | s0c-scenarios | не начат |
 | s1-holes | не начат |
 | s2-types | не начат |

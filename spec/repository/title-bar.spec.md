@@ -171,6 +171,10 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   native menu sends a command to the main window as an event named as it (`sync_branches`, `update_project`,
   `check_for_updates`, `install_agent_cli`, `zoom` with its step, `open_settings`): the main window opens Settings
   ([Settings](settings.spec.md)), as it has the current settings to start it from.
+- Check for Updates… says that the app is up to date, with its version, or offers the update the check downloaded
+  (Install and Restart, a toast that stays until the user acts); a failed check or install says why ("Cannot check for
+  updates", "Cannot install the update"). The main window also checks silently a few seconds after its start.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should say the app is up to date, offer the downloaded update, and say why its install failed`)
 - Alt+\ and F10 open File, Alt+F, Alt+V and Alt+H their menu (the physical keys), the mnemonics underlined; on Windows a
   lone Alt tap highlights File, unless a key, a click or leaving the window came between Alt down and up (IntelliJ's
   `WinAltKeyProcessor`); a held Alt that repeats is still a tap on its release.

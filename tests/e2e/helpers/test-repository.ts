@@ -277,6 +277,14 @@ export class TestRepositoryBuilder {
     await this.setFixture("github-answer", { method, path, status, body })
   }
 
+  /**
+   * Sets the version a check for updates finds, downloaded and ready to install (the install fails on the test server,
+   * which has no updater), or `null`: the app is up to date, as without the fixture
+   */
+  async setAvailableUpdate(availableVersion: string | null): Promise<void> {
+    await this.setFixture("update", { availableVersion })
+  }
+
   private async setFixture(name: string, value: unknown): Promise<void> {
     const response = await fetch(`${this.baseUrl}/repositories/${this.id}/${name}`, {
       method: "POST",

@@ -217,6 +217,11 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command
   directly only to set up a state the user path cannot reach in a test. An error path fails the command with
   `routeCommandError`, not by breaking the repository.
+- **Remote answers come from the fakes**: Patronus, GitHub and YouTrack are fakes of each test repository behind the
+  app's real services; a test sets their fixture (`setPatronus`, `setPullRequests`, `setYouTrack`, …) and asserts what
+  the fake got (`getPatronusLog`, `getGitHubLog`, `getYouTrack`). A page answer of a write (`routeCommand`, a
+  fulfilling `page.route`) fails `command_registry_test.rs`, and each read's page answers are pinned and only go down
+  ([Remote services](docs/design/e2e-testing.md#remote-services)).
 - **Linked**: every requirement of a spec names its test (`[@test]` with the exact test title, the link a line of its
   own); a renamed, split or deleted test updates its links in the same commit, which `pnpm lint:specs` checks.
 - **Snapshots**: `captureHtmlSnapshot` for structure; `pnpm e2e-up` rewrites them, and the diff is reviewed like code: a

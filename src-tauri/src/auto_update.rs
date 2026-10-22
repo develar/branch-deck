@@ -2,31 +2,11 @@ use crate::command_error::CommandError;
 use crate::operation::operation;
 #[cfg(feature = "auto-update")]
 use crate::operation::run_blocking;
-use serde::{Deserialize, Serialize};
-use specta::Type;
 #[cfg(feature = "auto-update")]
 use tracing::info;
 use tracing::{error, instrument};
 
-// Always export these types regardless of feature flags
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct UpdateInfo {
-  pub current_version: String,
-  /// Empty when no update is available
-  pub available_version: String,
-  pub is_update_available: bool,
-  pub status: UpdateStatus,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub enum UpdateStatus {
-  Idle,
-  Checking,
-  Downloading,
-  Downloaded,
-  Installing,
-  Error(String),
-}
+use sync_types::update::{UpdateInfo, UpdateStatus};
 
 pub struct UpdateState {
   pub info: UpdateInfo,
@@ -62,8 +42,9 @@ pub type SharedUpdateState = std::sync::Mutex<UpdateState>;
 
 #[cfg(feature = "auto-update")]
 mod auto_update_impl {
-  use super::{SharedUpdateState, UpdateInfo, UpdateStatus};
+  use super::SharedUpdateState;
   use anyhow::anyhow;
+  use sync_types::update::{UpdateInfo, UpdateStatus};
   use tauri::AppHandle;
   use tauri_plugin_updater::UpdaterExt;
   use tracing::{debug, info, instrument};

@@ -23,6 +23,7 @@ pub mod review_fixtures;
 pub mod state;
 pub mod static_files;
 pub mod tauri_command_bridge;
+pub mod updater;
 pub mod youtrack_fixtures;
 
 #[cfg(test)]
@@ -137,6 +138,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     )
     .route("/repositories/{id}/patronus-replies", post(review_fixtures::set_patronus_replies))
     .route("/repositories/{id}/github-answer", post(review_fixtures::set_github_answer))
+    .route("/repositories/{id}/update", post(updater::set_update))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
@@ -248,6 +250,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
     .route("/invoke/install_agent_cli", post(tauri_command_bridge::install_agent_cli))
     .route("/invoke/agent_cli_status", post(tauri_command_bridge::agent_cli_status))
+    // the updater, by the update of the fixture; the install and the restart of the app fail
+    .route("/invoke/check_for_updates", post(updater::check_for_updates))
+    .route("/invoke/get_update_status", post(updater::get_update_status))
+    .route("/invoke/install_update", post(updater::install_update))
+    .route("/invoke/restart_app", post(updater::restart_app))
     // Health check
     .route("/health", get(health_check))
     // Serve static files from dist with SPA fallback
@@ -630,6 +637,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),
     branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
     agent_cli_installed: std::sync::atomic::AtomicBool::new(false),
+    available_update: std::sync::RwLock::default(),
   };
   state.repositories.insert(id.to_string(), repo);
 }

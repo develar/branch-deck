@@ -362,6 +362,36 @@ test.describe("Main menu", () => {
   })
 })
 
+test.describe("Check for Updates", () => {
+  test("should say the app is up to date, offer the downloaded update, and say why its install failed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await page.setViewportSize(MIN_WINDOW)
+    await useTitleBar(page, { ...TITLE_BARS.gnome, checkForUpdates: true })
+    const silentCheck = page.waitForResponse(response => response.url().endsWith("/invoke/check_for_updates"))
+    const repo = await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    const toast = (text: string) => page.locator("[data-slot=toast]").filter({ hasText: text })
+    const checkForUpdates = async () => {
+      await page.keyboard.press("Alt+KeyH")
+      await page.getByRole("menuitem", { name: "Check for Updates…" }).click()
+    }
+
+    // the silent check a few seconds after the start finds the app up to date and says nothing
+    await page.clock.fastForward(3_000)
+    await silentCheck
+    await expect(toast("is up to date")).toHaveCount(0)
+    await checkForUpdates()
+    await expect(toast("BranchDeck is up to date")).toContainText("0.0.0-test is the newest version.")
+
+    await repo.setAvailableUpdate("1.2.3")
+    await checkForUpdates()
+    const available = toast("Update available")
+    await expect(available).toContainText("Version 1.2.3 is ready to install.")
+    await available.getByRole("button", { name: "Install and Restart" }).click()
+    await expect(available).toHaveCount(0)
+    await expect(toast("Cannot install the update")).toContainText("The E2E test server has no updater")
+  })
+})
+
 test.describe("Keys of the native menu", () => {
   test("should leave the keys to the native menu where the window has one", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await useTitleBar(page, TITLE_BARS.macos)

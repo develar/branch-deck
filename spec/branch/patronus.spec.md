@@ -1308,6 +1308,10 @@ explicit choice of the user, offered only where the approvals count in a pull re
   `OWNERSHIP` files). The `/patronus` comment goes to the fake GitHub, whose bot replies as `…/patronus-replies` says
   (👍 by default); a test asserts the comment GitHub got. The E2E repositories
   have no remote: a push answered in the page (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
+  No test answers a Patronus write in the page (`routeCommand`, a fulfilling `page.route`): the registry test fails it,
+  and the page answers of the reads are pinned and only go down (`ROUTED_IN_PAGE`).
+  [@test] ../../crates/test-server/src/command_registry_test.rs (`no_e2e_test_answers_a_write_in_the_page`)
+  [@test] ../../crates/test-server/src/command_registry_test.rs (`the_page_answers_of_the_e2e_tests_are_pinned`)
 - Against the real Patronus: `pnpm run tauri dev`, open a checkout of `ultimate`; the log has one line per request
   ("listed Patronus robots", "polled Patronus robots") with its duration.
 

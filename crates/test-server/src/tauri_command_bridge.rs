@@ -83,7 +83,7 @@ pub enum CommandFailure {
 }
 
 impl CommandFailure {
-  fn error(operation: &str, error: impl std::fmt::Display) -> Self {
+  pub(crate) fn error(operation: &str, error: impl std::fmt::Display) -> Self {
     let message = format!("{error:#}");
     tracing::debug!("Cannot {operation}: {message}");
     Self::Error(message)
@@ -100,7 +100,7 @@ impl IntoResponse for CommandFailure {
   }
 }
 
-type CommandResult<T> = Result<Json<T>, CommandFailure>;
+pub(crate) type CommandResult<T> = Result<Json<T>, CommandFailure>;
 
 /// Runs a command off the async runtime, as the app runs its git work (`spawn_blocking`)
 async fn run_command<T, E, F>(operation: &'static str, command: F) -> CommandResult<T>
@@ -1535,7 +1535,7 @@ pub async fn agent_cli_command(Json(request): Json<AgentCliCommandRequest>) -> J
 const AGENT_SKILLS: [&str; 2] = ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"];
 
 /// The repository of the page that sends a command (`X-Repository-Id`)
-fn requesting_repository<'a>(state: &'a AppState, headers: &axum::http::HeaderMap) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, CommandFailure> {
+pub(crate) fn requesting_repository<'a>(state: &'a AppState, headers: &axum::http::HeaderMap) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, CommandFailure> {
   headers
     .get(crate::REPOSITORY_ID_HEADER)
     .and_then(|value| value.to_str().ok())

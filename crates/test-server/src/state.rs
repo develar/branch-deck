@@ -59,6 +59,8 @@ pub struct TestRepository {
   pub branch_name_suggestion_calls: AtomicU32,
   /// The Agent CLI was installed (`install_agent_cli`): `agent_cli_status` names the skills then
   pub agent_cli_installed: std::sync::atomic::AtomicBool,
+  /// The version a check for updates finds (`updater.rs`); none: the app is up to date
+  pub available_update: RwLock<Option<String>>,
 }
 
 impl TestRepository {

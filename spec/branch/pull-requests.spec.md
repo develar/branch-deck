@@ -563,6 +563,10 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   `GET` returns how often the app asked and every request GitHub got. The opener plugin is mocked and records the
   opened URLs in `window.__OPENED_URLS__`. The E2E repositories have no remote: a push answered in the page
   (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
+  No test answers a GitHub write in the page (`routeCommand`, a fulfilling `page.route`): the registry test fails it,
+  and the page answers of the reads are pinned and only go down (`ROUTED_IN_PAGE`).
+  [@test] ../../crates/test-server/src/command_registry_test.rs (`no_e2e_test_answers_a_write_in_the_page`)
+  [@test] ../../crates/test-server/src/command_registry_test.rs (`the_page_answers_of_the_e2e_tests_are_pinned`)
   [@test] ../../crates/test-server/src/github_host_test.rs (`pull_requests_are_listed_created_retargeted_and_closed_through_the_real_service`)
   [@test] ../../crates/test-server/src/github_host_test.rs (`a_fixture_pull_request_reads_back_through_the_real_parser`)
 

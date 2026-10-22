@@ -1,7 +1,7 @@
 # E2E Testing Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-11  
+**Updated:** 2026-10-22  
 **Tags:** [testing, playwright, mocking, snapshots]
 
 ## Problem
@@ -12,7 +12,7 @@ The challenge: How to provide complete test isolation while accurately simulatin
 
 ## Solution Overview
 
-A custom test server (port 3030, or `E2E_PORT`) provides isolated Git repositories from templates for each test. Tauri commands are mocked to route through this server, which maintains separate state per test via repository IDs. Templates are pre-created for fast test startup, and the mock layer accurately simulates Tauri's Result type system.
+A custom test server (port 3030, or `E2E_PORT`) provides isolated Git repositories from templates for each test. Tauri commands are mocked to route through this server, which maintains separate state per test via repository IDs. Templates are pre-created for fast test startup, and the mock layer accurately simulates Tauri's Result type system. The remote services (Patronus, GitHub, YouTrack) are fakes of each test repository behind the app's real services, so a remote command runs the app's Rust path and a test asserts what the fake got ([Remote services](#remote-services)).
 
 ## Design
 
@@ -35,6 +35,7 @@ flowchart TB
         F[Template System]
         G[State Isolation]
         H[Command Handlers]
+        L[Remote Host: the real services on fake Patronus, GitHub, YouTrack]
     end
     
     subgraph "Test Resources"
@@ -54,6 +55,8 @@ flowchart TB
     G --> K
     D --> H
     H --> I
+    H --> L
+    B -->|fixtures, logs| L
 ```
 
 ### Test Isolation Flow
@@ -119,13 +122,28 @@ Mock implementation:
   `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and `COMMAND_HANDLERS` of `tauri-mocks.ts`. The mock
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
-  entry with its reason (a page handler for the windows, the window menu and the updater; no E2E test installs an
-  update or restarts the app), never both; a stale entry, or a route or a handler without its command, fails; the nine
+  entry with its reason (a page handler for the windows and the window menu), never both; a stale entry, or a route
+  or a handler without its command, fails; the nine
   handlers over a route (`get_file_diffs`, `get_file_merges` and `sync_branches` adapt a channel;
   `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
   and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (111) and `PAGE_MOCKED` (8) are pinned; `PAGE_MOCKED` only goes down: a new command
-  gets a route of the server, not a page mock.
+  bytes). The number of commands (111) and `PAGE_MOCKED` (4) are pinned; `PAGE_MOCKED` only goes down: a new command
+  gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
+  answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
+  date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
+  updater (`updater.rs`).
+- **The ratchet of page answers**: the fourth source of the registry test is the E2E tests themselves
+  (`tests/e2e/**/*.ts`). It counts every answer a test gives in the page: each `routeCommand(page, "<name>", …)` and
+  each `.route("**/invoke/<name>", …)` whose handler fulfills without `route.fetch()` (a hold, a record and a rewrite
+  of the server's answer, `rewriteNextSyncEvents`, let the command run on the server). A write (`MUTATING`: the
+  Patronus, GitHub and YouTrack writes, the sign-ins, the git writes, the app's settings) has no page answer: the test
+  server runs it behind the fake of its service and the test asserts the fake's log ([Remote services](#remote-services));
+  its failure stays `routeCommandError`, the one page answer that is no route count. The page answers of the read
+  commands are pinned per command (`ROUTED_IN_PAGE`, ten commands: a robot a `/patronus` comment started, the
+  build progress of a running robot's details, a refused landing gate, …), and the pushes (`PUSHES_IN_PAGE`,
+  `routePush`/`routePushBranches`: the templates name the repository itself as `origin`, so a rejected or moved remote
+  has nowhere to come from) are the one exception among the writes. A new page answer fails, a removed one lowers its
+  number; `routeCommand` and a fulfilling route name their command by a string literal.
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
   (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
   and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the
@@ -137,7 +155,7 @@ Mock implementation:
   `channelBytes` (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`), and `pending`, the commands
   whose answer has not been read; `reset()` zeroes the counts, not `pending`. It counts at the fetch of `/invoke/<cmd>`,
   so an answer of a `routeCommand` counts too; the commands the page answers itself (the store, event, window and log
-  plugins, the sub-window and updater handlers) do not. `pnpm perf:table` reads it
+  plugins, the sub-window handlers) do not. `pnpm perf:table` reads it
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view))
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
   functions; Patronus and GitHub are asked through the app's own services behind fakes
@@ -240,7 +258,10 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
 ### Remote services
 
 A remote command of the page runs the app's real client and service, which ask a fake on a loopback port instead of
-the remote service; a test sets what the fake answers and reads what reached it.
+the remote service; a test sets what the fake answers (the fixture endpoints `/repositories/{id}/…` below, in the
+shapes the page knows) and reads what reached it (their `GET`: the counters of the page's commands and the request
+log of the fake). No test answers a remote write in the page: the registry test fails it
+([the ratchet of page answers](#implementation-notes)).
 
 - **Host** (`crates/test-server/src/remote_host.rs`): each test repository gets its `RemoteHost` on the first need
   (`TestRepository::remote`), stopped when the repository is deleted (`FakeServer` aborts its listener on drop). It

@@ -3973,6 +3973,7 @@ export type UpdateCommit = {
 	files: string[],
 };
 
+/**  The version the app runs and the one it can install */
 export type UpdateInfo = {
 	current_version: string,
 	/**  Empty when no update is available */
@@ -4051,6 +4052,7 @@ paths: string[];
 /**  All paths: untracked files that the upstream adds can be thousands */
 pathCount: number };
 
+/**  Where the update is: an available update is downloaded by the check, then installed on request */
 export type UpdateStatus = "Idle" | "Checking" | "Downloading" | "Downloaded" | "Installing" | { Error: string };
 
 /**  A commit of the baseline that carries the user's work */

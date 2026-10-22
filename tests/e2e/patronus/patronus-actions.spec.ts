@@ -48,7 +48,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { rewriteNextRemoteStatus, syncFromMenu } from "../helpers/sync-helpers"
 import type { PatronusLog, TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommand } from "../helpers/wait-helpers"
+import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const RUNNING = robot("JIRA-456", "running-robot")
@@ -292,11 +292,8 @@ test.describe("Patronus actions", () => {
     const checks = await routeCommand(page, "check_landing_gate", params =>
       (params.allow as LandingAllowances | undefined)?.allowMissing === true ? ({ refusals: [] } satisfies LandingCheck) : ({ refusals: [refusal] } satisfies LandingCheck),
     )
-    const restacks: Record<string, unknown>[] = []
-    await page.route("**/invoke/restack_branch", async route => {
-      restacks.push(route.request().postDataJSON() as Record<string, unknown>)
-      await route.fulfill({ json: { status: "error", error: { message: "Stacked branches are off" } } })
-    })
+    await routeCommandError(page, "restack_branch", "Stacked branches are off")
+    const restacks = await recordCommand(page, "restack_branch")
     const reason =
       "“Show each scenario” of JIRA-456 uses Stills (src/lane/BuildLog.kt:7), which “Name lossy stills” of ABC-123 adds: git merges it, but the build of JIRA-456 fails. Stack JIRA-456 on ABC-123 to land it too."
 
@@ -1094,6 +1091,8 @@ test.describe("Patronus actions", () => {
         await expect(dialog.getByTestId("create-pull-request-submit")).toHaveCount(0)
         await expect(dialog.getByTestId("create-pull-request-reviewers")).toHaveCount(0)
         await expect(dialog.getByTestId("create-pull-request-assign")).toHaveCount(0)
+        // the text of its commits fills the form first (under load it comes after the dialog)
+        await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("JIRA-456 Fix database connection pool timeout")
         await dialog.getByTestId("create-pull-request-on-github").click()
         await expect(dialog).toHaveCount(0)
         // the text of its commits, and no assignee: nobody is known without a token

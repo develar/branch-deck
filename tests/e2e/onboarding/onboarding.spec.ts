@@ -6,6 +6,7 @@ import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/bra
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
 import { windowCalls } from "../helpers/title-bar-helpers"
+import { routeCommandError } from "../helpers/wait-helpers"
 
 /** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
@@ -244,9 +245,7 @@ test.describe("Deferred sync", () => {
     await syncAndWaitForBranches()
     const rows = await page.getByTestId("branch-row").count()
     // the backend refuses the sync while git is in the middle of a rebase (`SyncDeferred`)
-    await page.route("**/invoke/sync_branches", route =>
-      route.fulfill({ json: { status: "error", error: { message: "Not synced: a rebase is in progress", kind: "operationInProgress" } } }),
-    )
+    await routeCommandError(page, "sync_branches", "Not synced: a rebase is in progress", "operationInProgress")
     await page.getByTestId("sync-button").click()
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Not synced: a rebase is in progress" })
     await expect(toast).toContainText("The branches sync once git finished it")

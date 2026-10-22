@@ -533,8 +533,6 @@ export const tauriMockScript = () => {
 
   // === Command Registry ===
 
-  const NO_UPDATE = { current_version: "0.0.0-test", available_version: "", is_update_available: false, status: "Idle" }
-
   const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
     // Plugin commands
     "plugin:store": handleStoreCommand,
@@ -550,6 +548,13 @@ export const tauriMockScript = () => {
     },
     "plugin:path": handlePathCommand,
     "plugin:log": () => null, // Ignore log commands
+    // the app's name (`getName` of `@tauri-apps/api/app`): the `productName` of tauri.conf.json
+    "plugin:app": (cmd: string) => {
+      if (cmd !== "plugin:app|name") {
+        throw new Error(`[Test Mock] Unmocked app command: ${cmd}`)
+      }
+      return "BranchDeck"
+    },
     // the notification plugin goes through the browser's `Notification`; its permission check never notifies
     "plugin:notification": () => false,
     // a sub-window is a page of its own in the app: record what opens it (`window.__e2eSubWindows`, with the parsed data
@@ -624,11 +629,6 @@ export const tauriMockScript = () => {
     wait_youtrack_sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
     save_youtrack_token: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
     sign_out_of_youtrack: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
-
-    // Updater commands: the test server has no updater, the app is always up to date
-    // (the main window runs a silent check a few seconds after startup)
-    check_for_updates: () => NO_UPDATE,
-    get_update_status: () => NO_UPDATE,
   }
 
   /**

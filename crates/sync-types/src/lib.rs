@@ -17,6 +17,7 @@ pub mod review_request;
 pub mod robot_failure;
 pub mod robot_landing;
 pub mod stack;
+pub mod update;
 pub mod upstream_commit;
 pub mod youtrack;
 
