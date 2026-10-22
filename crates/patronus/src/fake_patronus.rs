@@ -9,6 +9,7 @@ use axum::routing::{get, post, put};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use sync_utils::span::in_current_span;
 use test_utils::fake_server::FakeServer;
 
 /// Rewrites a robot of an answer in place (`FakePatronus::robots_hook`); runs on the blocking pool, outside every lock
@@ -141,7 +142,7 @@ impl FakePatronus {
         })
         .collect()
     };
-    tokio::task::spawn_blocking(rewrite).await.expect("the robots hook")
+    tokio::task::spawn_blocking(in_current_span(rewrite)).await.expect("the robots hook")
   }
 
   /// `robot` as `robots_hook` rewrites it
@@ -154,7 +155,7 @@ impl FakePatronus {
   async fn review_hooked(&self, body: &serde_json::Value) -> Option<(u16, serde_json::Value)> {
     let hook = self.review_hook.lock().unwrap().clone()?;
     let body = body.clone();
-    tokio::task::spawn_blocking(move || hook(&body)).await.expect("the review hook")
+    tokio::task::spawn_blocking(in_current_span(move || hook(&body))).await.expect("the review hook")
   }
 
   /// The robots of the list; none until set when `state_only`
