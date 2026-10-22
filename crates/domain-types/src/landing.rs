@@ -33,6 +33,11 @@ impl Subject {
     matches!(self, Self::WholeStack { .. })
   }
 
+  /// The branch `name` itself, not the whole stack of it: the robot of this subject is the branch's own
+  pub fn is_branch(&self, name: &str) -> bool {
+    matches!(self, Self::Branch { name: own } if own == name)
+  }
+
   /// "auth", or "the whole auth stack": the subject as a sentence names it, the one wording of `bd` and the app's errors
   pub fn words(&self) -> String {
     match self {
@@ -165,10 +170,11 @@ impl LandingRefusal {
         ..
       } => {
         let landing = landing_in.as_ref().map_or_default(|robot| {
-          let of = if !robot.whole_stack && robot.branch == declared_by.branch {
+          let subject = robot.subject();
+          let of = if subject.is_branch(&declared_by.branch) {
             "its Safe Push".to_string()
           } else {
-            format!("the Safe Push of {}", robot.subject().words())
+            format!("the Safe Push of {}", subject.words())
           };
           format!("; {} is landing in {of}, which tests it without this start", declared_by.branch)
         });

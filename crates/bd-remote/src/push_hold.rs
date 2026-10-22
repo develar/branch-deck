@@ -40,7 +40,7 @@ pub struct PushHold {
 impl PushHold {
   /// The robot runs on the held branch itself: `--restart-running` cancels it, pushes and restarts it
   pub fn is_own(&self, name: &str) -> bool {
-    matches!(&self.by, Subject::Branch { name: by } if by == name) && self.landed.is_none()
+    self.by.is_branch(name) && self.landed.is_none()
   }
 
   /// "A Safe Push of auth is running: …", in the words of the app
@@ -90,7 +90,8 @@ impl PushHolds {
     let robot = self.stack_robots.get(root)?;
     let mode = push_mode_name(robot.push_mode);
     Some(format!(
-      "a {mode} of the whole {root} stack is running on it: a push moves the branch it took its commit from and fails the {mode} at the end; wait until it merges ({})",
+      "a {mode} of {} is running on it: a push moves the branch it took its commit from and fails the {mode} at the end; wait until it merges ({})",
+      Subject::WholeStack { root: root.to_string() }.words(),
       robot.url
     ))
   }

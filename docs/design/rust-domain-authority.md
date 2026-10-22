@@ -167,9 +167,13 @@ flowchart TD
 **Запрещённые рёбра** проверяет тест над `cargo metadata` (`crates/bd-cli/src/architecture_test.rs`, рядом с `process_budget_test.rs`, с
 `s0a-safety-net`; первый allowlist перечисляет сегодняшние нарушения и сжимается на каждом этапе, в `s14-fence` он
 пуст). Он идёт по обычным рёбрам; optional ребро идёт как обычное, если его включает `default` или любая feature, кроме
-тестовых (`TEST_FEATURES`: `fake` сервиса, `fixtures` bd), которые включает только dev-dependency чужих тестов: `specta`
-и `schemars`, которые включают приложение и `bd-core`, — это то, что crate есть, fake — нет. `cargo tree -p <crate>`
-показывает ребро fake из-за объединения features по workspace (`.cargo/config.toml`). Правила:
+тестовых (`TEST_FEATURES`: `fake` сервиса, `fixtures` bd): `specta` и `schemars`, которые включают приложение и
+`bd-core`, — это то, что crate есть, fake, который включает dev-dependency чужих тестов, — нет. Тестовую feature может
+включить и обычное ребро (`patronus = { features = ["fake"] }` в `[dependencies]` test-server): тогда fake есть в каждой
+сборке зависимого crate, поэтому обход несёт features, которые включает каждое ребро (`features` ребра и `x/f` из
+включённых features crate перед ним), и идёт по optional рёбрам, которые они активируют; переименованную зависимость
+(`ops = { package = "git-ops" }`) он узнаёт по имени из манифеста (`rename`), как пишут её записи features.
+`cargo tree -p <crate>` показывает ребро fake из-за объединения features по workspace (`.cargo/config.toml`). Правила:
 
 - `domain-types` и `domain-policy` не достигают ничего с IO, в том числе транзитивно: ни `git-ops`, ни executor, ни
   reqwest, tokio, tauri, clap.
@@ -314,8 +318,10 @@ confirmations }` для Safe Push и Dry Run — результат того ж�
 - `Subject = Branch { name } | WholeStack { root }` (`domain_types::landing`, s2) — один enum в `domain-types`,
   struct-варианты ради `tag = "kind"` на проводе; внутри процесса это единственная форма «ветка или весь стек»: её
   строят `bd safe-push` (`Start`), gate, `patronus_view` (`RobotSpanFacts`, `RobotOf` через `Subject::robot_of`),
-  `LandedBranch` и `PushHold` bd; слова «auth» / «the whole auth stack» даёт только `Subject::words`
-  (`landing_test.rs`). Формы провода остаются до своих этапов: `RobotOf { branch, whole_stack }` (`RobotOf::subject`
+  `LandedBranch` и `PushHold` bd; слова «auth» / «the whole auth stack» даёт только `Subject::words`, предложение
+  вставляет их (`the_words_of_a_whole_stack_come_only_from_subject_words` в `landing_test.rs` ищет формат по всем
+  исходникам); «свой робот» — `Subject::is_branch` (`LandedBranch::is_own`, `PushHold::is_own`,
+  `LandingRefusal::words`). Формы провода остаются до своих этапов: `RobotOf { branch, whole_stack }` (`RobotOf::subject`
   читает его обратно), `whole_stack: bool` в `RobotArgs`, `GetBranchReviewParams`, `StackPushBranch`,
   `LandedBySummary`, `stack_root` в `PatronusRobot`, `RobotLandingRequest`, `GetRobotCommitMapParams` — их заменяет
   `Intent { subject }` в `s9-engine-remote`. `WholeStack::{Chain, Forking}` в `safe_push_command.rs` — не субъект, а
@@ -787,13 +793,16 @@ rewrites между процессами через файл `s10`; `s12` ждё
     WholeStack(&StackBranchUpdate)` (один enum: субъект и ветка старта не расходятся), `patronus_view` держит его в
     `RobotSpanFacts` и строит из него `RobotOf` (`Subject::robot_of(robot_id)`), `LandedBranch` и `PushHold` bd держат
     его вместо пары `by: String, whole_stack: bool`; `RobotSource` из `patronus_start` удалён, `find_robot` и
-    `is_push_into_robot_risky` берут `&Subject`; слова «the whole auth stack» даёт только `Subject::words`.
+    `is_push_into_robot_risky` берут `&Subject`; слова «the whole auth stack» даёт только `Subject::words`, и
+    scan-тест `the_words_of_a_whole_stack_come_only_from_subject_words` не пускает формат в другое место (пять
+    предложений `bd safe-push`, `bd push` и `bd robot` вставляют `words()`); «свой робот» — `Subject::is_branch`.
     `architecture_test.rs`: `UNREACHABLE` запрещает `domain-types` достигать `git-ops`, `git-executor`,
     `object-cache`, `reqwest`, `tokio`, Tauri и `clap`, `patronus` — `git-ops` и `git-executor`; optional ребро тест
     проходит как обычное, если его включает `default` или feature вне `TEST_FEATURES` (`fake`, `fixtures`) — по
-    `packages[].features` из `cargo metadata` (`dep:x`, `x/f`, цепочки features), поэтому `test-utils` за feature
-    `fake` (`fake_server` для `fake_patronus`) правило не нарушает, а `default = ["fake"]` или optional `git-ops` за
-    `schemars` нарушили бы. `cargo tree -p patronus -e normal` всё же показывает `git-executor` через ребро fake:
+    `packages[].features` из `cargo metadata` (`dep:x`, `x/f`, цепочки features, `rename` зависимости), — или
+    тестовая feature, которую включило обычное ребро обхода (`features` ребра, `x/f` включённых features), поэтому
+    `test-utils` за feature `fake` (`fake_server` для `fake_patronus`) правило не нарушает, а `default = ["fake"]`,
+    optional `git-ops` за `schemars` или `github = { features = ["fake"] }` в `[dependencies]` patronus нарушили бы. `cargo tree -p patronus -e normal` всё же показывает `git-executor` через ребро fake:
     `.cargo/config.toml` объединяет features по workspace; с `--config 'resolver.feature-unification="selected"'`
     git-crates нет. Убрать ребро совсем — вынести `fake_server` из `test-utils`, вне s2.
 - **Удаляется:** `crates/sync-types`, `crates/sync-test-utils`; записи allowlist `sync-types → git-ops`,

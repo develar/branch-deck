@@ -742,7 +742,7 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r Patr
     refusals.push(Refusal {
       code: ErrorCode::PushRefused,
       message: format!(
-        "Nothing was pushed or started: the remote branch {} has {} commits the whole {root} stack doesn't; `bd push {root} --with-children --force` replaces them, after the user approves",
+        "Nothing was pushed or started: the remote branch {} has {} commits {subject} doesn't; `bd push {root} --with-children --force` replaces them, after the user approves",
         update.branch_name, remote.commits_behind
       ),
     });
@@ -800,7 +800,8 @@ fn stack_conflict_message(context: &RepoContext, synced: &SyncOutput, update: &S
     None => short.get(&conflict.commit).to_string(),
   };
   format!(
-    "Nothing was pushed or started: the whole {root} stack doesn't build as one branch: {commit} conflicts in {} with the commits of the stack before it, though each branch builds. Land it in pieces: `bd safe-push <branch> --check` lands a branch with what it is built on; or regroup so that the commits it needs come before it",
+    "Nothing was pushed or started: {} doesn't build as one branch: {commit} conflicts in {} with the commits of the stack before it, though each branch builds. Land it in pieces: `bd safe-push <branch> --check` lands a branch with what it is built on; or regroup so that the commits it needs come before it",
+    Subject::WholeStack { root: root.clone() }.words(),
     join_names(&conflict.files)
   )
 }
@@ -904,7 +905,12 @@ fn plan(
       .members
       .iter()
       .find_map(|member| parked_state(&report.branches, &report.grouping.parked.entries, member).map(|parked| parked.reason(member)))
-      .map(|reason| format!("the whole {} stack holds what is parked: {reason}; land the stack in pieces", update.root)),
+      .map(|reason| {
+        format!(
+          "{} holds what is parked: {reason}; land the stack in pieces",
+          Subject::WholeStack { root: update.root.clone() }.words()
+        )
+      }),
   };
   if let Some(reason) = parked {
     return Err(CliError::new(

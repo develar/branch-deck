@@ -13,6 +13,7 @@ use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::stack_summary::{WholeStack, whole_stack_of};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
+use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusRobot, PatronusRobotDetails, PatronusRobotStatus};
 use domain_types::robot_failure::{FailedBuild, FailedCheck, OmittedFailures, RobotCommit, RobotCommitState, RobotFailure, RobotFailureKind, RobotFailureProblem};
 use patronus::service::PatronusService;
@@ -418,7 +419,10 @@ fn check_robot_of(robot: &PatronusRobot, name: &str, descendants: &[&str], stack
     return Ok(());
   }
   let message = match (&robot.stack_root, &robot.branch_name) {
-    (Some(root), _) => format!("Robot {id} runs on the whole {root} stack, not on {name}: `bd robot {root} --whole-stack --robot {id}`"),
+    (Some(root), _) => format!(
+      "Robot {id} runs on {}, not on {name}: `bd robot {root} --whole-stack --robot {id}`",
+      Subject::WholeStack { root: root.clone() }.words()
+    ),
     (None, Some(other)) => format!("Robot {id} runs on {other}, not on {name}: `bd robot {other} --robot {id}`"),
     (None, None) => format!("Robot {id} does not run on {name}"),
   };

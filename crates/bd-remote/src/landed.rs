@@ -34,7 +34,7 @@ impl LandedBranch {
 
   /// The robot of the landed branch itself
   fn is_own(&self, name: &str) -> bool {
-    matches!(&self.by, Subject::Branch { name: by } if by == name)
+    self.by.is_branch(name)
   }
 
   /// "auth landed in master with the Safe Push of oauth (<url>)", of its own robot "oauth merged into master (<url>)"

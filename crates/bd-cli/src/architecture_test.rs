@@ -7,8 +7,11 @@
 //! the first external crate (`reqwest` is seen, the `tokio` that `reqwest` pulls in is not). An optional dependency is
 //! followed as a plain one unless only the test features (`TEST_FEATURES`) activate it: a `default` feature or a
 //! feature a build of the app enables (`specta`, `schemars`) is what the crate is, the fake of a service that another
-//! crate's tests enable through a dev-dependency is not; the workspace's feature unification (`.cargo/config.toml`) is
-//! why `cargo tree -p <crate>` shows the fake's edge all the same.
+//! crate's tests enable through a dev-dependency is not. A test feature that a normal edge of the reach enables
+//! (`patronus = { features = ["fake"] }` in `[dependencies]`, as the e2e server declares it) is in every build of the
+//! dependent crate, so the reach carries the features each edge enables (the edge's `features` and what the enabled
+//! features of the crate before it turn on with `x/f`) and follows the optional edges they activate. The workspace's feature unification (`.cargo/config.toml`) is why
+//! `cargo tree -p <crate>` shows the fake's edge all the same.
 
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -112,11 +115,23 @@ enum Kind {
 
 /// One dependency of a workspace crate as its manifest declares it
 struct Dependency {
+  /// The package name
   name: String,
+  /// The name the manifest gives it (`ops = { package = "git-ops" }`), which its feature entries use (`dep:ops`,
+  /// `ops/f`); the package name without one
+  rename: Option<String>,
   kind: Kind,
   /// Behind a feature of the crate (`optional = true`)
   optional: bool,
+  /// The features the edge enables on the dependency
   features: Vec<String>,
+}
+
+impl Dependency {
+  /// The name the crate's feature entries call it
+  fn key(&self) -> &str {
+    self.rename.as_deref().unwrap_or(&self.name)
+  }
 }
 
 /// One workspace crate: its dependencies and its features, each with the entries that enable it (`dep:x`, `x/f`, another
@@ -154,6 +169,7 @@ fn parse_metadata(metadata: &Value) -> Graph {
         .iter()
         .map(|dependency| Dependency {
           name: text(&dependency["name"], "name"),
+          rename: dependency["rename"].as_str().map(str::to_owned),
           kind: match dependency["kind"].as_str() {
             None => Kind::Normal,
             Some("dev") => Kind::Dev,
@@ -180,26 +196,63 @@ fn parse_metadata(metadata: &Value) -> Graph {
     .collect()
 }
 
-/// Whether `feature` of `package` activates the optional dependency `dependency`: by `dep:x`, by `x/f` (not `x?/f`), or
-/// through a feature it enables
-fn activates<'p>(package: &'p Package, feature: &'p str, dependency: &str, seen: &mut BTreeSet<&'p str>) -> bool {
+/// Whether `feature` of `package` activates the optional dependency `key` (its name in the feature entries): by `dep:x`,
+/// by `x/f` (not `x?/f`), or through a feature it enables
+fn activates<'p>(package: &'p Package, feature: &'p str, key: &str, seen: &mut BTreeSet<&'p str>) -> bool {
   seen.insert(feature)
     && package.features.get(feature).into_iter().flatten().any(|entry| {
-      entry.strip_prefix("dep:") == Some(dependency)
-        || entry.split_once('/').is_some_and(|(name, _)| name == dependency)
-        || (package.features.contains_key(entry) && activates(package, entry, dependency, seen))
+      entry.strip_prefix("dep:") == Some(key)
+        || entry.split_once('/').is_some_and(|(name, _)| name == key)
+        || (package.features.contains_key(entry) && activates(package, entry, key, seen))
     })
 }
 
-/// Whether a reach follows `dependency` of `package`: a plain dependency always, an optional one when `default` or a
-/// feature outside `TEST_FEATURES` activates it
-fn follows(package: &Package, dependency: &Dependency) -> bool {
+/// The features of `package` that `enabled` and `default` turn on, themselves included: a feature enables the features
+/// its entries name. `default` is on in every build of the crate (what the crate is), whatever the edges say
+fn enabled_closure<'p>(package: &'p Package, enabled: impl IntoIterator<Item = &'p str>) -> BTreeSet<&'p str> {
+  let mut closure = BTreeSet::new();
+  let mut queue: Vec<&str> = enabled.into_iter().chain(["default"]).filter(|feature| package.features.contains_key(*feature)).collect();
+  while let Some(feature) = queue.pop() {
+    if closure.insert(feature) {
+      queue.extend(
+        package
+          .features
+          .get(feature)
+          .into_iter()
+          .flatten()
+          .map(String::as_str)
+          .filter(|entry| package.features.contains_key(*entry)),
+      );
+    }
+  }
+  closure
+}
+
+/// Whether a reach with `enabled` of `package` on (`enabled_closure`, `default` included) follows its `dependency`: a
+/// plain dependency always, an optional one when a feature outside `TEST_FEATURES` or an enabled feature activates it
+fn follows(package: &Package, enabled: &BTreeSet<&str>, dependency: &Dependency) -> bool {
   !dependency.optional
     || package
       .features
       .keys()
-      .filter(|feature| activates(package, feature, &dependency.name, &mut BTreeSet::new()))
-      .any(|feature| feature == "default" || !TEST_FEATURES.contains(&feature.as_str()))
+      .filter(|feature| activates(package, feature, dependency.key(), &mut BTreeSet::new()))
+      .any(|feature| !TEST_FEATURES.contains(&feature.as_str()) || enabled.contains(feature.as_str()))
+}
+
+/// The features the edge `dependency` of `package` enables on its target when `enabled` of `package` is on: the edge's
+/// own and the `x/f` and `x?/f` of the enabled features
+fn enabled_on<'p>(package: &'p Package, enabled: &BTreeSet<&'p str>, dependency: &'p Dependency) -> BTreeSet<&'p str> {
+  let mut features: BTreeSet<&str> = dependency.features.iter().map(String::as_str).collect();
+  for feature in enabled {
+    for entry in package.features.get(*feature).into_iter().flatten() {
+      if let Some((name, of)) = entry.split_once('/')
+        && name.strip_suffix('?').unwrap_or(name) == dependency.key()
+      {
+        features.insert(of);
+      }
+    }
+  }
+  features
 }
 
 /// Whether `name` is `pattern`, or starts with it when it ends in `*`
@@ -221,18 +274,31 @@ fn is_family(name: &str) -> bool {
   is_layer(name) && name != BD_CORE && name != BD_CLI
 }
 
-/// Every crate that `from` reaches over normal edges outside `allowed` (an optional edge as `follows` decides), with its
-/// path from `from`
-fn reach(graph: &Graph, allowed: &[&Allowed], from: &str) -> BTreeMap<String, Vec<String>> {
+/// Every crate that `from` reaches over normal edges outside `allowed` (an optional edge as `follows` decides, with the
+/// features the edges of the reach enable on each crate), with its first path from `from`
+fn reach<'g>(graph: &'g Graph, allowed: &[&Allowed], from: &str) -> BTreeMap<String, Vec<String>> {
   let mut paths = BTreeMap::from([(from.to_owned(), vec![from.to_owned()])]);
+  let mut enabled: BTreeMap<String, BTreeSet<&'g str>> = BTreeMap::new();
   let mut queue = VecDeque::from([from.to_owned()]);
   while let Some(name) = queue.pop_front() {
     let path = paths[&name].clone();
     let Some(package) = graph.get(&name) else {
       continue;
     };
+    let closure = enabled_closure(package, enabled.get(&name).into_iter().flatten().copied());
     for dependency in &package.dependencies {
-      if dependency.kind != Kind::Normal || !follows(package, dependency) || is_allowed(allowed, &name, &dependency.name) || paths.contains_key(&dependency.name) {
+      if dependency.kind != Kind::Normal || !follows(package, &closure, dependency) || is_allowed(allowed, &name, &dependency.name) {
+        continue;
+      }
+      let on = enabled_on(package, &closure, dependency);
+      let known = enabled.entry(dependency.name.clone()).or_default();
+      let grew = !on.is_subset(known);
+      known.extend(on);
+      if paths.contains_key(&dependency.name) {
+        // a feature new to a crate already reached may turn on an optional edge of it: visit it again
+        if grew {
+          queue.push_back(dependency.name.clone());
+        }
         continue;
       }
       let mut next = path.clone();
@@ -339,6 +405,7 @@ fn graph_of(edges: &[(&str, &str, Kind, &[&str])]) -> Graph {
   for (from, to, kind, features) in edges {
     graph.entry((*from).to_owned()).or_default().dependencies.push(Dependency {
       name: (*to).to_owned(),
+      rename: None,
       kind: *kind,
       optional: false,
       features: features.iter().map(|feature| (*feature).to_owned()).collect(),
@@ -347,21 +414,32 @@ fn graph_of(edges: &[(&str, &str, Kind, &[&str])]) -> Graph {
   graph
 }
 
+/// An optional normal dependency on `name`, as `rename` when the manifest renames it, enabling `features` of it
+fn optional(name: &str, rename: Option<&str>, features: &[&str]) -> Dependency {
+  Dependency {
+    name: name.to_owned(),
+    rename: rename.map(str::to_owned),
+    kind: Kind::Normal,
+    optional: true,
+    features: features.iter().map(|feature| (*feature).to_owned()).collect(),
+  }
+}
+
+/// The features of a package, as `cargo metadata` lists them
+fn features_of(features: &[(&str, &[&str])]) -> BTreeMap<String, Vec<String>> {
+  features
+    .iter()
+    .map(|(feature, entries)| ((*feature).to_owned(), entries.iter().map(|entry| (*entry).to_owned()).collect()))
+    .collect()
+}
+
 /// `patronus` with its plain edge to `sync-utils` and an optional one to `test-utils`, which reaches git; `features`
 /// are the package's, as `cargo metadata` lists them
 fn patronus_with_optional_test_utils(features: &[(&str, &[&str])]) -> Graph {
   let mut graph = graph_of(&[("test-utils", "git-executor", Kind::Normal, &[]), ("patronus", "sync-utils", Kind::Normal, &[])]);
   let patronus = graph.get_mut("patronus").unwrap();
-  patronus.dependencies.push(Dependency {
-    name: "test-utils".to_owned(),
-    kind: Kind::Normal,
-    optional: true,
-    features: vec!["http".to_owned()],
-  });
-  patronus.features = features
-    .iter()
-    .map(|(feature, entries)| ((*feature).to_owned(), entries.iter().map(|entry| (*entry).to_owned()).collect()))
-    .collect();
+  patronus.dependencies.push(optional("test-utils", None, &["http"]));
+  patronus.features = features_of(features);
   graph
 }
 
@@ -411,11 +489,69 @@ fn the_architecture_check_follows_an_optional_edge_a_default_feature_enables() {
   // through a chain of features, and by a feature of the dependency (`x/f` activates the optional `x`)
   let graph = patronus_with_optional_test_utils(&[("default", &["full"]), ("full", &["fake"]), ("fake", &["test-utils/http"])]);
   assert_eq!(violations(&graph, &[]), [PATRONUS_REACHES_GIT]);
-  // `x?/f` activates nothing, and a feature nothing enables is no reach
+  // `x?/f` activates nothing; `other`, which nothing enables, is a reach all the same: any feature outside
+  // `TEST_FEATURES` counts, enabled or not, as the build of the app may enable it
   let graph = patronus_with_optional_test_utils(&[("default", &["fake"]), ("fake", &["test-utils?/http"]), ("other", &["dep:test-utils"])]);
+  let patronus = &graph["patronus"];
+  assert!(!activates(patronus, "fake", "test-utils", &mut BTreeSet::new()));
+  assert!(activates(patronus, "other", "test-utils", &mut BTreeSet::new()));
   assert_eq!(violations(&graph, &[]), [PATRONUS_REACHES_GIT]);
-  let graph = patronus_with_optional_test_utils(&[("default", &[]), ("fake", &["test-utils?/http"])]);
+  // with only `x?/f`, cargo lists the implicit feature `x = ["dep:x"]`, which is no test feature: a reach
+  let graph = patronus_with_optional_test_utils(&[("default", &[]), ("fake", &["test-utils?/http"]), ("test-utils", &["dep:test-utils"])]);
+  assert_eq!(violations(&graph, &[]), [PATRONUS_REACHES_GIT]);
+}
+
+#[test]
+fn the_architecture_check_follows_an_optional_edge_a_test_feature_a_normal_dependency_enables() {
+  // every build of a crate whose `[dependencies]` enable `fake` of github links the fake, so the reach follows the
+  // optional edge behind `fake` from there, though from github itself it does not
+  let fake = [("fake", &["dep:test-utils"] as &[&str])];
+  let mut graph = graph_of(&[("patronus", "github", Kind::Normal, &["fake"]), ("test-utils", "git-executor", Kind::Normal, &[])]);
+  let github = graph.entry("github".to_owned()).or_default();
+  github.dependencies.push(optional("test-utils", None, &[]));
+  github.features = features_of(&fake);
+  assert_eq!(
+    violations(&graph, &[]),
+    ["  patronus reaches git-executor (patronus -> github -> test-utils -> git-executor): the Patronus client runs no git"]
+  );
+  // the same edge without the feature: the fake stays off, the reach stops at github
+  graph.get_mut("patronus").unwrap().dependencies[0].features.clear();
   assert_eq!(violations(&graph, &[]), Vec::<String>::new());
+  // a feature of the dependent that enables it (`fixtures = ["patronus/fake"]` of bd-cli), itself enabled by the edge
+  // before, and a crate reached first without the feature is visited again with it
+  let mut graph = graph_of(&[
+    ("domain-types", "bd-cli", Kind::Normal, &["fixtures"]),
+    ("domain-types", "patronus", Kind::Normal, &[]),
+    ("bd-cli", "patronus", Kind::Normal, &[]),
+    ("test-utils", "git-executor", Kind::Normal, &[]),
+  ]);
+  graph.get_mut("bd-cli").unwrap().features = features_of(&[("fixtures", &["patronus/fake"])]);
+  let patronus = graph.entry("patronus".to_owned()).or_default();
+  patronus.dependencies.push(optional("test-utils", None, &[]));
+  patronus.features = features_of(&fake);
+  assert_eq!(
+    violations(&graph, &[]),
+    [
+      "  domain-types reaches git-executor (domain-types -> patronus -> test-utils -> git-executor): the crate of the types does no IO",
+      "  domain-types depends on bd-cli (Normal): outside the CLI layer only the app depends on it, and only on bd-cli and bd-core",
+    ]
+  );
+}
+
+#[test]
+fn the_architecture_check_follows_an_optional_edge_by_the_name_the_manifest_gives_it() {
+  // `ops = { package = "git-ops", optional = true }`: the feature entries say `dep:ops`, the package is git-ops
+  let mut graph = graph_of(&[("domain-types", "serde", Kind::Normal, &[]), ("git-ops", "git-executor", Kind::Normal, &[])]);
+  let types = graph.get_mut("domain-types").unwrap();
+  types.dependencies.push(optional("git-ops", Some("ops"), &[]));
+  types.features = features_of(&[("default", &["dep:ops"])]);
+  assert_eq!(
+    violations(&graph, &[]),
+    [
+      "  domain-types reaches git-executor (domain-types -> git-ops -> git-executor): the crate of the types does no IO",
+      "  domain-types reaches git-ops (domain-types -> git-ops): the crate of the types does no IO",
+    ]
+  );
 }
 
 #[test]
@@ -423,13 +559,8 @@ fn the_architecture_check_follows_an_optional_edge_a_build_feature_enables() {
   // `schemars` of domain-types, which bd-core enables for `bd schema`: an optional git-ops behind it is a reach
   let mut graph = graph_of(&[("domain-types", "serde", Kind::Normal, &[]), ("git-ops", "git-executor", Kind::Normal, &[])]);
   let types = graph.get_mut("domain-types").unwrap();
-  types.dependencies.push(Dependency {
-    name: "git-ops".to_owned(),
-    kind: Kind::Normal,
-    optional: true,
-    features: Vec::new(),
-  });
-  types.features = BTreeMap::from([("schemars".to_owned(), vec!["dep:schemars".to_owned(), "dep:git-ops".to_owned()])]);
+  types.dependencies.push(optional("git-ops", None, &[]));
+  types.features = features_of(&[("schemars", &["dep:schemars", "dep:git-ops"])]);
   assert_eq!(
     violations(&graph, &[]),
     [
