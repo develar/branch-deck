@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 bd-core = { path = "../bd-core" }
+domain-types = { path = "../domain-types" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 history-rewrite = { path = "../history-rewrite" }

@@ -7,9 +7,10 @@ use bd_core::bd_command::{BdCommand, app_binary, bd_command, display, io_error};
 #[cfg(unix)]
 use bd_core::bd_command::{LINK_DIR, links_to};
 use bd_core::context::Environment;
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_lease::workspace_command::{AgentDefaults, agent_defaults};
+use domain_types::error::ErrorCode;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::{Path, PathBuf};

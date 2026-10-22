@@ -5,8 +5,9 @@
 use crate::lease_command::counted_git;
 use bd_core::bd_command::shell_word;
 use bd_core::context::Environment;
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
+use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use schemars::JsonSchema;
 use serde::Serialize;

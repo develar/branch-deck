@@ -2,7 +2,8 @@
 //! UTF-16 with its byte order mark, which Windows PowerShell 5.1 writes (`Set-Content -Encoding UTF8` adds a UTF-8
 //! BOM, `Out-File` and `>` write UTF-16LE)
 
-use crate::error::{CliError, ErrorCode};
+use crate::error::CliError;
+use domain_types::error::ErrorCode;
 use std::path::Path;
 
 /// The text of `bytes`: UTF-8 without its byte order mark, or UTF-16 (little or big endian) with one

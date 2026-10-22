@@ -1,6 +1,6 @@
 //! What every `bd` command builds on, below the commands, so that an edit of one command doesn't rebuild the others:
 //! - `context`: the environment of a run and the repository it resolves (`RepoContext`), the caches and the config
-//! - `error`: `CliError`, its `ErrorCode` and exit code, and the JSON every failed command prints
+//! - `error`: `CliError` with its `ErrorCode` (`domain_types::error`), and the JSON every failed command prints
 //! - `output`: the schema version, short ids, the JSON writer
 //! - `text_input`: a text argument or stdin
 //! - `version`: the version of Branch Deck (`build.rs`) and `bd version`

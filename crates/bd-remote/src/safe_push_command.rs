@@ -31,14 +31,15 @@ use crate::push_command::{
 use crate::push_hold::PushHolds;
 use crate::robot_list::list_robots;
 use bd_core::context::{Environment, RepoContext};
-use bd_core::error::{CliError, ErrorBranch, ErrorCode, regroup_error};
+use bd_core::error::{CliError, ErrorBranch, regroup_error};
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
 use bd_core::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use bd_rewrite::check_command::{CheckConflict, CheckWarning, dangling_reference_message, dangling_references_in, session_of_sync};
 use domain_types::branch_names::to_final_branch_name;
-use domain_types::landing::{LandingFix, LandingRefusal, StackCommit};
+use domain_types::error::ErrorCode;
+use domain_types::landing::{LandingFix, LandingRefusal, StackCommit, Subject};
 use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
   PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState, UnavailableReadinessReason,
@@ -59,7 +60,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::check::{CheckSession, StackIndependence};
-use sync_core::landing_gate::{LandingSubject, check_landing_gate};
+use sync_core::landing_gate::check_landing_gate;
 use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
@@ -403,7 +404,7 @@ struct StackPush {
 }
 
 /// What a start lands, from which branch
-enum Subject<'a> {
+enum StartSubject<'a> {
   /// A branch with the branches it is built on, from its virtual branch
   Branch(String),
   /// The whole stack of a stack that forks, from its stack branch
@@ -440,9 +441,9 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     None
   };
   let subject = match &whole_stack {
-    None => Subject::Branch(args.branch.clone()),
-    Some(WholeStack::Chain { leaf, .. }) => Subject::Branch(leaf.clone()),
-    Some(WholeStack::Forking(update)) => Subject::Stack(update),
+    None => StartSubject::Branch(args.branch.clone()),
+    Some(WholeStack::Chain { leaf, .. }) => StartSubject::Branch(leaf.clone()),
+    Some(WholeStack::Forking(update)) => StartSubject::Stack(update),
   };
   let plan = plan(context, args, &service, &github, runtime, &synced, mode, &subject, target_fetch)?;
   let mut output = SafePushOutput {
@@ -494,7 +495,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     if refusal.code == ErrorCode::ApprovalsMissing {
       error.review = output.review.take().map(Box::new);
     }
-    if let (ErrorCode::StackConflict, Subject::Stack(update)) = (refusal.code, &subject)
+    if let (ErrorCode::StackConflict, StartSubject::Stack(update)) = (refusal.code, &subject)
       && let Some(conflict) = &update.conflict
     {
       error.commits = vec![context.short_ids(std::iter::once(conflict.commit.as_str())).get(&conflict.commit).to_string()];
@@ -867,10 +868,10 @@ fn plan(
   runtime: &Runtime,
   synced: &SyncOutput,
   mode: PatronusPushMode,
-  subject: &Subject<'_>,
+  subject: &StartSubject<'_>,
   target_fetch: Option<TargetFetch>,
 ) -> Result<Plan, CliError> {
-  if let Subject::Branch(name) = subject {
+  if let StartSubject::Branch(name) = subject {
     let branch = synced
       .branches
       .iter()
@@ -887,8 +888,8 @@ fn plan(
   // a parked branch stays local, and so does what carries its commits: a branch built on it, the whole stack
   let report = &synced.report;
   let parked = match subject {
-    Subject::Branch(name) => parked_state(&report.branches, &report.grouping.parked.entries, name).map(|parked| parked.reason(name)),
-    Subject::Stack(update) => update
+    StartSubject::Branch(name) => parked_state(&report.branches, &report.grouping.parked.entries, name).map(|parked| parked.reason(name)),
+    StartSubject::Stack(update) => update
       .members
       .iter()
       .find_map(|member| parked_state(&report.branches, &report.grouping.parked.entries, member).map(|parked| parked.reason(member)))
@@ -920,8 +921,8 @@ fn plan(
   let landed = landed_branches(&facts);
   let pushes = mode != PatronusPushMode::DryRun;
   let landing = match subject {
-    Subject::Branch(name) => branch_landing(context, synced, &table, &facts, name, pushes)?,
-    Subject::Stack(update) => stack_landing(context, synced, &facts, update, pushes)?,
+    StartSubject::Branch(name) => branch_landing(context, synced, &table, &facts, name, pushes)?,
+    StartSubject::Stack(update) => stack_landing(context, synced, &facts, update, pushes)?,
   };
   let Landing {
     name,
@@ -976,11 +977,11 @@ fn plan(
   let session = session_of_sync(context, &synced.report)?;
   let built: Vec<&str> = lands.iter().map(String::as_str).collect();
   let gate_subject = match subject {
-    Subject::Branch(name) => LandingSubject::Branch(name),
-    Subject::Stack(update) => LandingSubject::WholeStack(&update.root),
+    StartSubject::Branch(name) => Subject::Branch { name: name.clone() },
+    StartSubject::Stack(update) => Subject::WholeStack { root: update.root.clone() },
   };
   let landed_commits: HashSet<String> = landed.values().flat_map(|landed| landed.landed.iter().cloned()).collect();
-  let gate = check_landing_gate(&session, gate_subject, &landed_commits).map_err(regroup_error)?;
+  let gate = check_landing_gate(&session, &gate_subject, &landed_commits).map_err(regroup_error)?;
   let (dangling, warnings) = dangling_references_in(context, &session, &gate.report, &built)?;
   if !dangling.is_empty() && !args.allow_dangling {
     // the whole stack is built on nothing: the branch that removes the declaration names it

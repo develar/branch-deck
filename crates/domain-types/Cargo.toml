@@ -8,10 +8,12 @@ license.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
+schemars = { workspace = true, optional = true }
 specta = { workspace = true, optional = true }
 
 [features]
 default = []
+schemars = ["dep:schemars"]
 specta = ["dep:specta"]
 
 [lints]

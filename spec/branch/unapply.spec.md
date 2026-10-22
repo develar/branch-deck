@@ -16,7 +16,7 @@ targets:
   - ../../src/components/branch/InlineUnapplyConfirm.tsx
   - ../../crates/bd-update/src/unapply_command.rs
   - ../../crates/bd-update/src/undo_command.rs
-  - ../../crates/bd-core/src/error.rs
+  - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/domain-types/src/lib.rs

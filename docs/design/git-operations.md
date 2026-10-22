@@ -2333,9 +2333,9 @@ Code: `crates/sync-core/src/target_conflict.rs`, `crates/git-ops/src/trial_rebas
 git merges a branch that uses a name only another branch adds, and the robot's build fails, as the robots of
 2026-10-17 (an override of an overload of another branch) and 2026-10-21 (`StillEncoding`, `Stills` and
 `Manifest.stills` of `stills-codec`, used by `lane-run`) failed. So every start of a Safe Push or a Dry Run, of
-`bd safe-push` and of the app, asks one core first (`sync_core::landing_gate`, `check_landing_gate`): a trial check of
-what lands, the branch and the branches it is built on (`CheckSession::check_landing`), every branch for a whole
-stack, then
+`bd safe-push` and of the app, asks one core first (`sync_core::landing_gate`, `check_landing_gate` of a
+`domain_types::landing::Subject`: a branch, or the whole stack of a root): a trial check of what lands, the branch and
+the branches it is built on (`CheckSession::check_landing`), every branch for a whole stack, then
 
 - the dangling references a commit proves (`dangling_references`), and
 - with `branchdeck.symbols on`, the missing declarations (`missing_declarations`): the edges by symbols from a commit
@@ -2367,9 +2367,9 @@ the tips of the table and the landed commits; while they stay, nothing is comput
 `rev-parse` 4; with the object cache it filled `cat-file` 2 and `log` 3 (`the_landing_needs_of_every_branch`).
 `bd status` runs it on Space in its own session.
 
-Code: `crates/sync-core/src/landing_gate.rs`, `crates/sync-core/src/missing_declarations.rs`,
-`crates/bd-remote/src/safe_push_command.rs`, `src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`;
-the landing needs `crates/repository-view/src/views.rs`, `crates/bd-remote/src/status.rs`.
+Code: `crates/sync-core/src/landing_gate.rs`, `crates/domain-types/src/landing.rs`,
+`crates/sync-core/src/missing_declarations.rs`, `crates/bd-remote/src/safe_push_command.rs`,
+`src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`; the landing needs `crates/repository-view/src/views.rs`, `crates/bd-remote/src/status.rs`.
 
 #### Agent robot status (`bd robot`)
 

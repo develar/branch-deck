@@ -2,9 +2,9 @@
 //! would give, by one trial check of every branch
 
 use crate::check::CheckSession;
-use crate::landing_gate::{LandingSubject, check_landing_gate, landing_needs, landing_needs_of, name_landing_robots};
+use crate::landing_gate::{check_landing_gate, landing_needs, landing_needs_of, name_landing_robots};
 use crate::process_budget_test::repo_on_origin;
-use domain_types::landing::{LandingFix, LandingRefusal};
+use domain_types::landing::{LandingFix, LandingRefusal, Subject};
 use domain_types::repository_view::RobotOf;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -70,7 +70,7 @@ fn the_needs_of_a_branch_are_the_refusals_of_its_start() {
   let session = CheckSession::open(&git, repo.path_str(), PREFIX, &cache).unwrap();
   let needs = landing_needs(&session, &HashSet::new()).unwrap();
   for name in ["flow", "ui", "util"] {
-    let gate = check_landing_gate(&session, LandingSubject::Branch(name), &HashSet::new()).unwrap();
+    let gate = check_landing_gate(&session, &Subject::Branch { name: name.to_string() }, &HashSet::new()).unwrap();
     assert_eq!(gate.refusals(&session), needs.get(name).cloned().unwrap_or_default(), "{name}");
   }
 }

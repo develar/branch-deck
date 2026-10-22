@@ -5,7 +5,7 @@ style: plain-1
 targets:
   - ../../crates/bd-update/src/update_command.rs
   - ../../crates/bd-cli/src/agent_help.rs
-  - ../../crates/bd-core/src/error.rs
+  - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/sync-core/src/update_project.rs
   - ../../crates/sync-core/src/resolve_session.rs

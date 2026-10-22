@@ -2,9 +2,10 @@
 //! the stack ancestors and the parent of a branch, and its stack problems and blocks as the outputs print them
 
 use crate::context::RepoContext;
-use crate::error::{CliError, ErrorCode};
+use crate::error::CliError;
 use crate::output::ShortIds;
 use domain_types::GroupedBranchInfo;
+use domain_types::error::ErrorCode;
 use domain_types::stack::{BlockReason, BranchStack, ParentSource};
 use history_rewrite::regroup::problem_commits;
 use history_rewrite::stack::describe_problem;

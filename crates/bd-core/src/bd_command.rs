@@ -2,7 +2,8 @@
 //! word quoted for the user's shell. `bd install` writes the symlink these read
 
 use crate::context::Environment;
-use crate::error::{CliError, ErrorCode};
+use crate::error::CliError;
+use domain_types::error::ErrorCode;
 use std::path::{Path, PathBuf};
 use sync_core::resolve_copies::display_path;
 

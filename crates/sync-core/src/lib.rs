@@ -47,8 +47,9 @@
 //! - `dangling_fix`: the fix of a mutual dangling reference, offered when a trial build proves it
 //! - `inverted_stack`: a branch that needs a commit of a branch stacked on it, and its fixes
 //! - `missing_declarations`: the names a built branch uses that a commit outside it adds
-//! - `landing_gate`: what refuses the start of a Safe Push or a Dry Run, for `bd safe-push` and the app: a name what
-//!   lands uses and a branch outside it adds, a dangling reference a commit proves
+//! - `landing_gate`: what refuses the start of a Safe Push or a Dry Run of a `domain_types::landing::Subject`, for
+//!   `bd safe-push` and the app: a name what lands uses and a branch outside it adds, a dangling reference a commit
+//!   proves
 //! - `dependencies`: which commits depend on which, from the hunks of `diff_scan`
 //! - `diff_scan`: the changes of many commits from one `log --raw -z` and the blocks of the diff views
 //! - `symbol_scan`: the syntax summaries of the changed source files, by blob id

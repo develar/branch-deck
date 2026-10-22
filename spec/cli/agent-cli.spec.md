@@ -12,6 +12,7 @@ targets:
   - ../../crates/bd-core/src/context.rs
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/bd-core/src/error.rs
+  - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-core/src/output.rs
   - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-core/src/branch_view.rs
@@ -92,6 +93,7 @@ targets:
   - ../../crates/sync-core/src/inverted_stack.rs
   - ../../crates/sync-core/src/missing_declarations.rs
   - ../../crates/sync-core/src/landing_gate.rs
+  - ../../crates/domain-types/src/landing.rs
   - ../../crates/git-ops/src/object_texts.rs
   - ../../crates/object-cache/src/commit_lines.rs
   - ../../crates/git-executor/src/git_info.rs

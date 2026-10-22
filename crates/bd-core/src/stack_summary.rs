@@ -3,12 +3,13 @@
 //! `bd safe-push --whole-stack` lands and `bd robot --whole-stack` watches
 
 use crate::branch_view::{block_reason_name, placement};
-use crate::error::{CliError, ErrorCode};
+use crate::error::CliError;
 use crate::output::ShortIds;
 use crate::sync_command::{ConflictSummary, RemoteSummary};
 use domain_types::GroupedBranchInfo;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
+use domain_types::error::ErrorCode;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use schemars::JsonSchema;
 use serde::Serialize;

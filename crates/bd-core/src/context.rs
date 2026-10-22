@@ -1,6 +1,7 @@
 use crate::bd_command::bd_command;
-use crate::error::{CliError, ErrorCode};
+use crate::error::CliError;
 use crate::output::ShortIds;
+use domain_types::error::ErrorCode;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;

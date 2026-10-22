@@ -539,6 +539,7 @@ dependencies = [
  "bd-cli",
  "bd-core",
  "clap",
+ "domain-types",
  "git-executor",
  "git-ops",
  "history-rewrite",
@@ -1707,6 +1708,7 @@ name = "domain-types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "schemars 1.2.3",
  "serde",
  "specta",
  "thiserror 2.0.21",

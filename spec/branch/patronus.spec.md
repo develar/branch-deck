@@ -23,6 +23,7 @@ targets:
   - ../../crates/sync-core/src/remote_status.rs
   - ../../src-tauri/src/commands/patronus.rs
   - ../../crates/sync-core/src/landing_gate.rs
+  - ../../crates/domain-types/src/landing.rs
   - ../../src/lib/landing-gate.ts
   - ../../crates/sync-core/src/patronus_review.rs
   - ../../src/stores/patronus.ts

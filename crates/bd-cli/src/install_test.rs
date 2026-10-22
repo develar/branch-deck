@@ -8,7 +8,7 @@ use crate::install::{InstallStatus, SKILL_DIRS, SKILL_NAME, install_status};
 use bd_core::bd_command::app_binary_path;
 #[cfg(unix)]
 use bd_core::bd_command::{BdCommand, bd_command};
-use bd_core::error::ErrorCode;
+use domain_types::error::ErrorCode;
 use pretty_assertions::assert_eq;
 #[cfg(unix)]
 use serde_json::{Value, json};

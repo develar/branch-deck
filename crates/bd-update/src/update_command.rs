@@ -5,9 +5,10 @@
 //! nothing; bd never stashes
 
 use bd_core::context::RepoContext;
-use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
+use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
+use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_ops::revs::short_id;

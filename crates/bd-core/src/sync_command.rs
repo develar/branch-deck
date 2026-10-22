@@ -5,11 +5,12 @@
 use crate::bd_command::shell_word;
 use crate::branch_view::placement;
 use crate::context::RepoContext;
-use crate::error::{CliError, ErrorCode};
+use crate::error::CliError;
 use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use crate::stack_summary::StackSummary;
 use domain_types::branch_integration::BranchIntegrationStatus;
 use domain_types::branch_names::to_final_branch_name;
+use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
 use domain_types::stack::BranchStack;
 use domain_types::update_project::{UpdateKind, UpdateState};

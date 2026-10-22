@@ -18,7 +18,7 @@
 use crate::check::{CheckReport, CheckSession};
 use crate::dangling_references::DanglingKind;
 use crate::missing_declarations::{MissingDeclaration, missing_declarations};
-use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind, StackCommit};
+use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind, StackCommit, Subject};
 use domain_types::patronus::LandingAllowances;
 use domain_types::repository_view::RobotOf;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -27,15 +27,6 @@ use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use tracing::instrument;
-
-/// What a start lands
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LandingSubject<'a> {
-  /// The branch and the branches it is built on: one chain, one robot
-  Branch(&'a str),
-  /// Every branch of the stack of this root, which may fork: the robot of the whole stack
-  WholeStack(&'a str),
-}
 
 /// The check of a start: what lands, its trial report and the names it misses
 #[derive(Debug, Clone)]
@@ -55,23 +46,23 @@ pub struct LandingGate {
 /// The check of what the start of `subject` lands, in `session`; `landed` holds the commits (original ids) a merged Safe
 /// Push landed, whose names the target has
 #[instrument(skip(session, landed))]
-pub fn check_landing_gate(session: &CheckSession, subject: LandingSubject<'_>, landed: &HashSet<String>) -> Result<LandingGate, RegroupError> {
+pub fn check_landing_gate(session: &CheckSession, subject: &Subject, landed: &HashSet<String>) -> Result<LandingGate, RegroupError> {
   let chains = chains_of(session);
   let (report, lands, root) = match subject {
-    LandingSubject::Branch(name) => {
+    Subject::Branch { name } => {
       let lands = lands_of(&chains, name);
       let report = session.check_landing(name, &lands)?;
       let root = lands.first().cloned().unwrap_or_default();
       (report, lands, root)
     }
-    LandingSubject::WholeStack(root) => {
+    Subject::WholeStack { root } => {
       let lands: Vec<String> = chains
         .iter()
         .filter(|(branch, chain)| branch == root || chain.iter().any(|parent| parent == root))
         .map(|(branch, _)| branch.clone())
         .collect();
       let report = session.check_with_dangling_of(None, &lands)?;
-      (report, lands, root.to_string())
+      (report, lands, root.clone())
     }
   };
   let missing = missing_declarations(session, &report)?
@@ -299,6 +290,14 @@ pub struct LandingGateParams {
   pub allow: LandingAllowances,
 }
 
+impl LandingGateParams {
+  /// What the start lands: `branch_name`, or with `stack` the whole stack of that root
+  pub fn subject(&self) -> Subject {
+    let name = self.branch_name.clone();
+    if self.stack { Subject::WholeStack { root: name } } else { Subject::Branch { name } }
+  }
+}
+
 /// The refusals that hold a start back after the user's overrides; empty: it starts
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -319,13 +318,8 @@ pub struct LandingRefused {
 #[instrument(skip(git_executor, cache))]
 pub fn landing_check(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &LandingGateParams) -> anyhow::Result<LandingCheck> {
   let session = CheckSession::open(git_executor, &params.repository_path, &params.branch_prefix, cache)?;
-  let subject = if params.stack {
-    LandingSubject::WholeStack(&params.branch_name)
-  } else {
-    LandingSubject::Branch(&params.branch_name)
-  };
   let landed: HashSet<String> = params.landed_commits.iter().cloned().collect();
-  let gate = check_landing_gate(&session, subject, &landed)?;
+  let gate = check_landing_gate(&session, &params.subject(), &landed)?;
   Ok(LandingCheck {
     refusals: gate.blocking(&session, params.allow),
   })
@@ -338,10 +332,9 @@ pub fn ensure_landing_starts(git_executor: &GitCommandExecutor, cache: &ObjectCa
   if check.refusals.is_empty() {
     return Ok(());
   }
-  let subject = if params.stack {
-    format!("the whole {} stack", params.branch_name)
-  } else {
-    params.branch_name.clone()
+  let subject = match params.subject() {
+    Subject::Branch { name } => name,
+    Subject::WholeStack { root } => format!("the whole {root} stack"),
   };
   Err(
     LandingRefused {

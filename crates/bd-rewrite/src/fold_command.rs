@@ -3,8 +3,9 @@
 //! keeps HEAD's tree, so the index and the working tree stay as they are; `bd undo` takes it back
 
 use bd_core::context::RepoContext;
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
+use domain_types::error::ErrorCode;
 use git_ops::revs::{DetachedHead, current_branch};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
 use history_rewrite::autosquash::{AutosquashScope, PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};

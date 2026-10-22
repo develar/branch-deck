@@ -3,8 +3,9 @@
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
 use bd_core::context::Environment;
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
+use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
 use git_ops::lease_slot::lease_config;

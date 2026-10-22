@@ -8,10 +8,11 @@
 use crate::safe_push_command::{Review, UNKNOWN_GITHUB_REPOSITORY, github_error, github_service, patronus_service, readiness_names, review_readiness};
 use bd_core::branch_view::read_grouping;
 use bd_core::context::{Environment, RepoContext};
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::PersonSummary;
 use domain_types::branch_names::to_final_branch_name;
+use domain_types::error::ErrorCode;
 use domain_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
 use git_ops::revs::resolve_commit;

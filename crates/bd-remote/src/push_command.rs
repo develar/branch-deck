@@ -17,10 +17,11 @@ use crate::pull_request_retarget::{RetargetedPullRequest, retarget_listed, retar
 use crate::push_hold::{PushHolds, read_push_holds};
 use crate::safe_push_command::{github_service, youtrack_service};
 use bd_core::context::{Environment, RepoContext};
-use bd_core::error::{CliError, ErrorBranch, ErrorCode};
+use bd_core::error::{CliError, ErrorBranch};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
+use domain_types::error::ErrorCode;
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{PullRequestState, PullRequestsResult};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};

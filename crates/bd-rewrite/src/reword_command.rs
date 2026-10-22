@@ -4,8 +4,9 @@
 
 use crate::rewrite::{RewriteArgs, RewriteOutput, rewrite};
 use bd_core::context::RepoContext;
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
 use bd_core::text_input::read_text;
+use domain_types::error::ErrorCode;
 use history_rewrite::reword::{CommitReword, RewordText, reword_core};
 use serde::Deserialize;
 use std::collections::BTreeMap;

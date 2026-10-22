@@ -5,6 +5,28 @@
 use crate::repository_view::RobotOf;
 use serde::{Deserialize, Serialize};
 
+/// The owned subject of a landing: a branch with what it is built on, or the whole stack of a root. Struct variants,
+/// as an internally tagged enum can't serialize a newtype variant of a string
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Subject {
+  /// The branch and the branches it is built on: one chain, one robot
+  Branch { name: String },
+  /// Every branch of the stack of this root, which may fork: the robot of the whole stack
+  WholeStack { root: String },
+}
+
+impl Subject {
+  /// The branch it names: the branch, or the root of the whole stack
+  pub fn name(&self) -> &str {
+    match self {
+      Self::Branch { name } => name,
+      Self::WholeStack { root } => root,
+    }
+  }
+}
+
 /// A commit ahead of the baseline, as `StackIndependence` and the refusals of the landing gate name it
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

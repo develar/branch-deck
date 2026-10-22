@@ -3,7 +3,8 @@
 
 use crate::describe::{description_branch, write_description};
 use bd_core::context::RepoContext;
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
+use domain_types::error::ErrorCode;
 use git_ops::branch_description::Description;
 use history_rewrite::regroup::{RegroupError, RegroupPlan, RegroupedCommit};
 use std::collections::{BTreeMap, BTreeSet};

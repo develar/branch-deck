@@ -2,9 +2,10 @@
 //! send it and the app shows it apart from the branches to land (spec/branch/parked-branches.spec.md)
 
 use bd_core::context::RepoContext;
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::lock;
+use domain_types::error::ErrorCode;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::parked::{ParkError, ParkLine, ParkOutcome, park_core, unpark_core};
 use history_rewrite::repository_lock::RewriteOptions;

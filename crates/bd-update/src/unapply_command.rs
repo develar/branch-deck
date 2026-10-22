@@ -5,9 +5,10 @@
 
 use crate::update_command::{core_error, uncommitted_overlap};
 use bd_core::context::RepoContext;
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::lock;
+use domain_types::error::ErrorCode;
 use git_ops::unapply::{DropRefused, MoveBlocked};
 use history_rewrite::repository_lock::RewriteOptions;
 use schemars::JsonSchema;

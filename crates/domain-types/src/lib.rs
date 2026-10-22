@@ -12,6 +12,7 @@
 //! - `branch_name_suggestion`: branch names suggested by the user's Claude Code
 //! - `commit`: a commit of the branch as `git-ops` reads it (`Commit`, its mapping note), and as the page names it
 //! - `conflict`: the merge conflict of a sync, its analysis, and the conflicts a copy resolved by words
+//! - `error`: the stable error codes of `bd` (`ErrorCode`), their exit codes and retries
 //! - `issue_navigation`: the issue links of the IntelliJ IDEA configuration
 //! - `landed`: the landed commits and branches
 //! - `landing`: what refuses a Safe Push or a Dry Run before the push, and the fix of each refusal
@@ -39,6 +40,7 @@ pub mod branch_name_suggestion;
 pub mod branch_names;
 pub mod commit;
 pub mod conflict;
+pub mod error;
 pub mod issue_navigation;
 pub mod landed;
 pub mod landing;

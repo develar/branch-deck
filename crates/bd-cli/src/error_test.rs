@@ -1,5 +1,6 @@
 use crate::fixture_test::{environment, run_json};
-use bd_core::error::{CONFLICT_EXIT, ErrorCode};
+use bd_core::error::CONFLICT_EXIT;
+use domain_types::error::ErrorCode;
 use pretty_assertions::assert_eq;
 
 /// Every code with its exit code and whether the same command again may succeed: 2 invalid input, 3 stale (retry), 4

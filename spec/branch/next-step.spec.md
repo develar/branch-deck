@@ -36,6 +36,7 @@ targets:
   - ../../src/components/branch/LandedChip.tsx
   - ../../crates/sync-core/src/robot_landing.rs
   - ../../crates/sync-core/src/landing_gate.rs
+  - ../../crates/domain-types/src/landing.rs
   - ../../crates/repository-view/src/views.rs
   - ../../src/lib/landing-gate.ts
 ---

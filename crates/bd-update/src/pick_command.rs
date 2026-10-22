@@ -5,9 +5,10 @@
 
 use crate::update_command::{core_error, uncommitted_overlap};
 use bd_core::context::{Environment, RepoContext};
-use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
+use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::suggest_plan::SuggestPlan;
+use domain_types::error::ErrorCode;
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
 use history_rewrite::repository_lock::RewriteOptions;
 use schemars::JsonSchema;

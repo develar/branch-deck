@@ -3,10 +3,11 @@
 
 use bd_core::branch_view::read_grouping;
 use bd_core::context::RepoContext;
-use bd_core::error::{CliError, ErrorCode};
+use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_core::text_input::read_text;
 use domain_types::branch_names::to_final_branch_name;
+use domain_types::error::ErrorCode;
 use git_ops::branch_description::{Description, clear_description};
 use schemars::JsonSchema;
 use serde::Serialize;
