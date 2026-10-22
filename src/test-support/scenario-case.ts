@@ -126,7 +126,7 @@ const discrepancy = z.enum(["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D
 const today = z.strictObject({
   app: z.array(z.string()).min(1),
   bd: z.array(z.string()).min(1),
-  /** Why the sides differ although their classes agree (D9), or what the pointers show */
+  /** Why the sides differ although their classes agree (D9 until s1-holes), or what the pointers show */
   why: z.string().optional(),
 })
 

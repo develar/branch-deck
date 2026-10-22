@@ -738,5 +738,38 @@
         "started_via": "pull_request"
       }
     }
+  },
+  {
+    "id": "rules-unknown-allowed",
+    "group": "review",
+    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read, and the start is told to start anyway: the popover's confirmation, --allow-unknown-rules",
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "readiness": "approved",
+      "pullRequest": {
+        "approvers": ["ikorennoy"]
+      },
+      "remote": "unpushed",
+      "rules": "unknown",
+      "flags": ["allowUnknownRules"]
+    },
+    "app": {
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["rulesUnknown"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "push_needed": true,
+        "pull_request": 7,
+        "rules": null
+      },
+      "start": {
+        "started_via": "pull_request"
+      }
+    }
   }
 ]

@@ -400,8 +400,8 @@ function seedLanded(given: Given): void {
 
 /**
  * The rules of the repository as the app read them (`readDismissesStaleReviews` of the target): `get_branch_rules`
- * answers `keep` or `dismiss`, fails for `unknown` (the app keeps a failed read as `false`, D9), `loading` has no
- * answer yet
+ * answers `keep` or `dismiss`, fails for `unknown` (a failed read, never "keeps the approvals": the start confirms
+ * `rulesUnknown`), `loading` has no answer yet
  */
 async function seedRules(given: Given): Promise<void> {
   resetDismissesStaleReviews()

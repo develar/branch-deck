@@ -460,9 +460,10 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   request is a draft ("#1078 is a draft: mark it ready for review on GitHub first"). Work the remote lacks by content is
   no reason: the request pushes it first (`pushForAction`, no push toast; one only rebuilt on a newer baseline is up to
   date, an unknown remote status pushes nothing), so the reviewers see the commits. A push that dismisses the
-  approvals the pull request has (the rules of the repository, `useDismissesStaleReviews`) is said in the popover, a
-  consequence the user decides by Request: "The push of the new commits dismisses the approvals of #1078: the rules of
-  the repository dismiss stale reviews when new commits are pushed." A refused push ("Cannot request a review on
+  approvals the pull request has (the rules of the repository, `useDismissesStaleReviews` answers `dismiss`) is said in
+  the popover, a consequence the user decides by Request: "The push of the new commits dismisses the approvals of
+  #1078: the rules of the repository dismiss stale reviews when new commits are pushed." Rules that can't be read say
+  nothing here (the request counts no approvals) and are asked again by the next form. A refused push ("Cannot request a review on
   #1078" with its reason) asks nobody. Its hover names whom it asks: "Ask Ilya Korennoy to review #1078".
   [@test] ../../src/lib/request-review.test.ts (`asks the chosen code owners on the open pull request`, `is disabled with the reason for a draft only: work the remote lacks is pushed by the request`, `is not there without an open pull request`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should push the commits the remote lacks as the first step of Request Review…`)

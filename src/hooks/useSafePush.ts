@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useStore } from "zustand"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
-import { peekDismissesStaleReviews, readDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
+import { forgetUnknownRules, peekDismissesStaleReviews, readDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
 import { getStackNextStepNow, getWholeStackRest, isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
 import type { PatronusProfile, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, PullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
@@ -610,6 +610,9 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   if (placement === "row" && !getShownBranchTableOrder().includes(row)) {
     requestReveal({ branchName: row, commitIds: [] })
   }
+  // a failed read of the rules is asked again by each start: it waits for the new answer, the popover reads anew
+  forgetUnknownRules()
+  shownRead = null
   const ask: SafePushAsk = {
     branchName,
     mode,

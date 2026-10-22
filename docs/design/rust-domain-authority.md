@@ -82,7 +82,7 @@ D — одинаковый ввод даёт разный результат в 
 | D6 | Create PR | приложение: push → `wait_for_github_branch` → `create_pull_request` (`create-pull-request-context.ts:183-295`); `bd`: `safe-push --create-pull-request` с `wait_for_mirror` | один intent `CreatePullRequest` с `wait_for_mirror`; IPC `wait_for_github_branch` удаляется |
 | D7 | Закрытие PR, которые перенёс слившийся робот | только TS (`landed-stack.ts:45-90`) по опросу роботов (`stores/patronus.ts:910-925`) | правило `domain-policy::landed::pull_requests_to_close`; intent `CloseLandedPullRequests` из сессии приложения; `bd` по-прежнему не закрывает (решение landing.md), но `bd robot`/`bd status` перечисляют `closes` той же функцией |
 | D8 | Родитель для состава whole stack | TS `effectiveBase ?? declaredParent` (`useStackNextStep.ts:51-108`, `branch-sync.ts:355`); Rust `effective_base ?? blocked_by.parent` (`bd-core/src/stack_summary.rs:176`) | одна функция в Rust; конкретный случай (`s0c-scenarios`): A с проблемой стека (`(A/A)`) ← B без коммитов, сохранённый родитель B → A (`bd restack`) ← C `(B/C)`; у C нет effective base, объявленный родитель B, `blocked_by.parent` A: whole stack `bd` — цепочка A → C (корень A), у приложения C — корень своего стека (корень C), а у A whole stack нет; правило выбирает владелец ([Решения владельца](#решения-которые-подтверждает-владелец)) |
-| D9 | Неудачное чтение правил GitHub читается как `false` | `useDismissesStaleReviews.ts:19-26` (до следующего вопроса); `bd` с s1 отказывает `rules_unknown`, который снимает `--allow-unknown-rules` | `Fact::Unavailable` никогда не превращается в разрешение; см. D1 и решение владельца о случае без токена |
+| D9 | Неудачное чтение правил GitHub читается как `false` | **закрыт (s1)**: приложение читало ошибку как «approvals остаются» и стартовало, теперь `useDismissesStaleReviews` отвечает `keep` \| `dismiss` \| `unknown` с причиной (неудача не кешируется, каждый старт спрашивает снова), а `getSafePushDecision` подтверждает `rulesUnknown` (строка поповера `safe-push-rules-unknown`); `bd` отказывает `rules_unknown`, который снимает `--allow-unknown-rules` | `Fact::Unavailable` никогда не превращается в разрешение; см. D1 и решение владельца о случае без токена |
 | D10 | Прямой IPC обходит проверки | `start_patronus_robot`, `restart_`, `cancel_patronus_robot`, `push_branch(es)` без lock | вся допустимость — в движке операций; низкоуровневый IPC удаляется в `s9-engine-remote`; до того `s1-holes` добавляет проверки в Rust |
 | D11 | PR в виртуальную базу (ветка родителя, другая ветка таблицы, приземлённая) | приложение отказывает в Safe Push и предлагает retarget как шаг (строка 5, `branch-next-step.ts`: `baseIsVirtualBranch`); `bd safe-push` делает retarget шагом старта и стартует от этого PR (`virtual_base_retargets`) | `Retarget` — шаг плана `Land` у обеих сторон, подтверждаемый там же, где `Push`; приложение перестаёт отказывать; решает владелец ([Решения владельца](#решения-которые-подтверждает-владелец)) |
 | D12 | Push поверх чужого коммита на remote (`dropped_commits` непуст) | решение Safe Push в приложении не читает чужие коммиты: старт делает force push (спрашивает только кнопка push); `bd` отказывает `push_refused` | `domain-policy::push`: отказ `drops_remote_commits` у обеих сторон, подтверждение — явный шаг плана, не кнопка |
@@ -147,11 +147,16 @@ D — одинаковый ввод даёт разный результат в 
 - **D8.** Сегодняшнее поведение закреплено:
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the whole stack of a blocked branch with an inactive declared parent is d8`)
-- **D9.** Сегодняшнее поведение закреплено (`bd` с s1-holes отказывает `rules_unknown`, приложение ещё стартует до
-  s1-3):
+- **D9.** Закрыт в s1-holes (`closed: "s1-holes"`; приложение подтверждает `rulesUnknown`, `bd` отказывает
+  `rules_unknown` — асимметрия по замыслу, решение владельца 6; `rules-unknown-allowed` — подтверждение и
+  `--allow-unknown-rules`, обе стороны стартуют):
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`)
+  [@test] ../../src/lib/safe-push-decision.test.ts (`confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should confirm a push into an approved pull request whose rules can't be read, never reading them as keeping the approvals`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
 - **D10.** Сегодняшнее поведение закреплено:
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
 - **D11.** Сегодняшнее поведение закреплено (три случая строки 5):
@@ -843,6 +848,14 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `--allow-missing`). Один GET правил, тем же `read_branch_rules`. Сделано (`rules_check`, поле `rules` вывода
     `{dismiss_stale_reviews_on_push: bool | null, message}`); fake GitHub фикстур `bd` отвечает правилам `master`
     `[]` («keep»), `given.rules` сценария — `dismiss` (правило `pull_request`), `unknown` (500), `loading` = `keep`.
+  - D9 в приложении (s1-3): `useDismissesStaleReviews` отвечает `keep` | `dismiss` | `{ kind: "unknown", reason }`;
+    неудача не кешируется (следующее чтение спрашивает снова), и каждый старт (`requestSafePush`) забывает пришедшую
+    неудачу (`forgetUnknownRules`), так что ждёт нового ответа. `DismissFact.dismisses` — этот ответ или `null`
+    (ожидание). `getSafePushDecision`: `dismiss` при `approved` — отказ, как раньше; `unknown` у PR с approval —
+    подтверждение `rulesUnknown` при любой readiness, как `rules_unknown` у `bd`; строка поповера
+    `safe-push-rules-unknown`. Request Review предупреждает только о `dismiss`. «`app == bd`» для D9 — по классу у
+    `rules-unknown-allowed` (подтверждение и `--allow-unknown-rules`); без флага запись реестра несёт `asymmetry`
+    `byDesign`, как `--allow-missing`.
   - D2: `skips_approvals = pushes && !create_pull_request && (without_approvals || pull_request.is_none() &&
     profile.skips_review == Some(true))` над выбранным профилем (`--profile` или профиль последнего робота;
     `ApprovalsSkippedBy::of` в `safe_push_command.rs`); `--without-approvals` и со стартом из PR остаётся «стартовать

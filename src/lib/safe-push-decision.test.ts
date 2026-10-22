@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vite-plus/test"
+import { afterEach, describe, expect, it, vi } from "vite-plus/test"
+import { forgetUnknownRules, peekDismissesStaleReviews, readDismissesStaleReviews, resetDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
 import type { LandingRefusal, PatronusProfile, PatronusStartOptions } from "@/lib/bindings"
+import { commands } from "@/lib/bindings"
 import type { SafePushFacts } from "@/lib/safe-push-decision"
 import { getSafePushDecision } from "@/lib/safe-push-decision"
 
@@ -81,7 +83,12 @@ describe("getSafePushDecision", () => {
     })
   })
 
-  it("waits for the profiles, the remote status, the review and the rules, each saying what it waits for", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    resetDismissesStaleReviews()
+  })
+
+  it("waits for the profiles, the remote status, the review and the rules, each saying what it waits for, the rules asked again after a failed read", async () => {
     expect(getSafePushDecision(facts({ options: { status: "loading" } }))).toEqual({ kind: "wait", what: "Asking Patronus for the merge profiles…" })
     expect(getSafePushDecision(facts({ startPush: { kind: "unknown" } }))).toEqual({ kind: "wait", what: "Checking auth…" })
     expect(getSafePushDecision(facts({ review: { kind: "loading" } }))).toEqual({ kind: "wait", what: "Checking the code-owner review…" })
@@ -89,6 +96,33 @@ describe("getSafePushDecision", () => {
       kind: "wait",
       what: "Checking whether the push keeps the approvals of #7…",
     })
+    // a failed read is no answer kept for the session: the next read asks GitHub again, and the start waits for it
+    const rules = vi
+      .spyOn(commands, "getBranchRules")
+      .mockResolvedValueOnce({ status: "error", error: { message: "GitHub answered 500." } })
+      .mockResolvedValueOnce({ status: "ok", data: { dismissStaleReviewsOnPush: false } })
+    expect(await readDismissesStaleReviews("/repo", "master")).toEqual({ kind: "unknown", reason: "GitHub answered 500" })
+    expect(peekDismissesStaleReviews("/repo", "master")).toEqual({ kind: "unknown", reason: "GitHub answered 500" })
+    // the next start forgets it: its decision waits (null) while the read asks again
+    forgetUnknownRules()
+    expect(peekDismissesStaleReviews("/repo", "master")).toBeNull()
+    const again = readDismissesStaleReviews("/repo", "master")
+    expect(await again).toBe("keep")
+    // an answer is kept: no third ask
+    expect(await readDismissesStaleReviews("/repo", "master")).toBe("keep")
+    expect(rules).toHaveBeenCalledTimes(2)
+  })
+
+  it("confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals", () => {
+    const unknown = { startPush: { kind: "branch", action: "push" }, dismiss: { pullRequest: 7, dismisses: { kind: "unknown", reason: "GitHub answered 500" } } } as const
+    expect(getSafePushDecision(facts(unknown))).toEqual({ kind: "confirm", reasons: ["rulesUnknown"] })
+    // whatever Patronus says of the approvals: the push may take them away
+    expect(getSafePushDecision(facts({ ...unknown, review: { kind: "loaded", readiness: { kind: "unknown", reason: "approvalsNotEvaluated" } } }))).toEqual({
+      kind: "confirm",
+      reasons: ["review", "rulesUnknown"],
+    })
+    // read rules that keep the approvals say nothing
+    expect(getSafePushDecision(facts({ ...unknown, dismiss: { pullRequest: 7, dismisses: "keep" } }))).toEqual({ kind: "start" })
   })
 
   it("refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones", () => {
@@ -106,7 +140,7 @@ describe("getSafePushDecision", () => {
       kind: "refuse",
       offersPush: false,
     })
-    expect(getSafePushDecision(facts({ startPush: { kind: "branch", action: "push" }, dismiss: { pullRequest: 7, dismisses: true } }))).toEqual({
+    expect(getSafePushDecision(facts({ startPush: { kind: "branch", action: "push" }, dismiss: { pullRequest: 7, dismisses: "dismiss" } }))).toEqual({
       kind: "refuse",
       reason: "The push dismisses the approvals of #7: push first, then ask for the review again",
       offersPush: true,
@@ -115,7 +149,7 @@ describe("getSafePushDecision", () => {
 
   it("tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't", () => {
     const notCounted = { review: { kind: "loaded", readiness: { kind: "unknown", reason: "approvalsNotEvaluated" } } } as const
-    expect(getSafePushDecision(facts({ ...notCounted, startPush: { kind: "branch", action: "push" }, dismiss: { pullRequest: 7, dismisses: true } }))).toEqual({
+    expect(getSafePushDecision(facts({ ...notCounted, startPush: { kind: "branch", action: "push" }, dismiss: { pullRequest: 7, dismisses: "dismiss" } }))).toEqual({
       kind: "confirm",
       reasons: ["review", "dismisses"],
     })

@@ -1,3 +1,4 @@
+import type { BranchRulesAnswer } from "@/hooks/useDismissesStaleReviews"
 import type { LandingRefusal, PatronusProfile, PatronusStartOptions, ReviewReadiness } from "@/lib/bindings"
 import type { NextStepKind } from "@/lib/branch-next-step"
 import type { PullRequestStart, StartPush } from "@/lib/patronus"
@@ -21,10 +22,13 @@ export type ReviewFact =
   | { readonly kind: "loaded"; readonly readiness: ReviewReadiness }
   | { readonly kind: "space"; readonly required: boolean }
 
-/** A push into an approved pull request: whether the rules of the repository dismiss its approvals; null while asked */
+/**
+ * A push into an approved pull request: what the rules of the repository do to its approvals (`readDismissesStaleReviews`),
+ * `unknown` when they can't be read; null while asked
+ */
 export interface DismissFact {
   readonly pullRequest: number
-  readonly dismisses: boolean | null
+  readonly dismisses: BranchRulesAnswer | null
 }
 
 /** Everything a start of a robot decides on, read when it is asked (`readSafePushFacts`) and while its popover is open */
@@ -88,6 +92,8 @@ export type ConfirmReason =
   | "review"
   /** The push dismisses approvals of the pull request (not the ones Patronus counts) */
   | "dismisses"
+  /** The rules of the repository can't be read: whether the push keeps the approvals of the pull request is not known */
+  | "rulesUnknown"
   /** Without review: the profile skips the code-owner review */
   | "bypass"
   /** A piece of a stack whose pull request is open: the approvals of that pull request don't count for this start */
@@ -123,7 +129,8 @@ function skipsApprovals(facts: SafePushFacts): boolean {
  * the review window, the island header) and of its popover: first what holds it back (the next step of the branch, the
  * profiles, the remote, a hold, the review, the rules of the repository), each a wait while it loads; then whether it
  * has something to say before it starts (`confirm`): it lands more than its row, runs another profile than the default
- * checks, cancels a running Safe Push, Patronus can't judge the approvals yet, it lands a piece of a stack whose pull
+ * checks, cancels a running Safe Push, Patronus can't judge the approvals yet, the rules of the repository can't be read
+ * for a push into an approved pull request (`rulesUnknown`), it lands a piece of a stack whose pull
  * request is open (whose approvals count for the whole stack only), or its build needs a branch outside what it lands
  * (the fix, or Start Anyway). A key always confirms.
  */
@@ -166,9 +173,10 @@ export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
   if (dismiss?.dismisses === null) {
     return { kind: "wait", what: `Checking whether the push keeps the approvals of #${dismiss.pullRequest}…` }
   }
-  const dismisses = dismiss?.dismisses === true
+  const dismisses = dismiss?.dismisses === "dismiss"
+  const approved = review.kind === "loaded" && review.readiness.kind === "approved"
   // the approvals Patronus counts would be gone with the push: the robot would start without them and fail
-  if (dismisses && review.kind === "loaded" && review.readiness.kind === "approved") {
+  if (dismisses && approved) {
     return { kind: "refuse", reason: `The push dismisses the approvals of #${dismiss!.pullRequest}: push first, then ask for the review again`, offersPush: true }
   }
   if (facts.bypassReview && facts.profile === null) {
@@ -193,6 +201,10 @@ export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
   }
   if (dismisses) {
     reasons.push("dismisses")
+  }
+  // a failed read of the rules is never "keeps them": the approvals of the pull request may be gone with the push
+  if (dismiss !== null && dismiss.dismisses !== null && typeof dismiss.dismisses === "object") {
+    reasons.push("rulesUnknown")
   }
   if (facts.bypassReview) {
     reasons.push("bypass")

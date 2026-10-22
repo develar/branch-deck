@@ -18,6 +18,7 @@ import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { isRulesUnknown } from "@/hooks/useDismissesStaleReviews"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import type { SafePushRead } from "@/hooks/useSafePush"
 import { pushAlone, requestSafePush, useSafePushRead } from "@/hooks/useSafePush"
@@ -291,7 +292,7 @@ function Line({ tone = "muted", testId, children }: { tone?: "muted" | "plain" |
 
 /**
  * What applies of the start below its title: the pull request it comments on, the branches that stay, the profile, the
- * review, the running Safe Push it cancels, a push that dismisses approvals
+ * review, the running Safe Push it cancels, a push that dismisses approvals or rules that can't be read
  */
 function Lines({
   read,
@@ -339,9 +340,14 @@ function Lines({
           {`Cancels the ${formatPushMode(facts.mode)} of ${facts.subject} running on ${formatShortHash(facts.replaces)}.`}
         </Line>
       )}
-      {facts.dismiss?.dismisses === true && (
+      {facts.dismiss?.dismisses === "dismiss" && (
         <Line tone="warning" testId="safe-push-dismisses">
           {`The push dismisses the approvals of #${facts.dismiss.pullRequest}: the rules of the repository dismiss stale reviews when new commits are pushed.`}
+        </Line>
+      )}
+      {facts.dismiss !== null && facts.dismiss.dismisses !== null && isRulesUnknown(facts.dismiss.dismisses) && (
+        <Line tone="warning" testId="safe-push-rules-unknown">
+          {`Cannot check whether the push keeps the approvals of #${facts.dismiss.pullRequest}: ${facts.dismiss.dismisses.reason}. Patronus counts them when the robot starts.`}
         </Line>
       )}
     </>

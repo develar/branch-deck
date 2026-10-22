@@ -818,6 +818,21 @@ test.describe("Patronus actions", () => {
     }
 
     /**
+     * A click on the slot of JIRA-456 confirms first with the warning `testId` saying `text`, after one read of the rules
+     * of master and before any comment; a warning, not a refusal: the start comments on #7
+     */
+    async function expectWarnedStart(page: Page, repo: TestRepositoryBuilder, rules: readonly unknown[], testId: string, text: string): Promise<void> {
+      await slotSafePush(page, "JIRA-456").click()
+      const popover = safePushPopover(page)
+      await expect(popover).toHaveAttribute("data-decision", "confirm")
+      await expect(popover.getByTestId(testId)).toHaveText(text)
+      expect(rules).toEqual([expect.objectContaining({ branch: "master" })])
+      expect(await comments(repo)).toEqual([])
+      await popoverStart(page).click()
+      await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+    }
+
+    /**
      * The comment posted, then the fake clock over the app's wait before it reads the bot's reply (`COMMAND_REPLY_INTERVAL_MS`,
      * 3 s, in src/stores/patronus.ts) until it read it, instead of waiting it out
      */
@@ -889,17 +904,13 @@ test.describe("Patronus actions", () => {
       const rules = await recordCommand(page, "get_branch_rules")
 
       // the approvals of alice don't count for Patronus, the push dismisses them: the click says so first
-      await slotSafePush(page, "JIRA-456").click()
-      const popover = safePushPopover(page)
-      await expect(popover).toHaveAttribute("data-decision", "confirm")
-      await expect(popover.getByTestId("safe-push-dismisses")).toHaveText(
+      await expectWarnedStart(
+        page,
+        repo,
+        rules,
+        "safe-push-dismisses",
         "The push dismisses the approvals of #7: the rules of the repository dismiss stale reviews when new commits are pushed.",
       )
-      expect(rules).toEqual([expect.objectContaining({ branch: "master" })])
-      expect(await comments(repo)).toEqual([])
-      // a warning, not a refusal: the start comments
-      await popoverStart(page).click()
-      await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
     })
 
     test("should wait for the rules before a push into an approved pull request: Enter must not dismiss its approvals", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -921,6 +932,46 @@ test.describe("Patronus actions", () => {
       await expect(popoverStart(page)).toBeFocused()
       await page.keyboard.press("Enter")
       // only the Enter after the rules started it
+      await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+    })
+
+    test("should confirm a push into an approved pull request whose rules can't be read, never reading them as keeping the approvals", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
+      await routeCommandError(page, "get_branch_rules", "GitHub answered 403: Resource not accessible by integration")
+      // the later route sees each read first
+      const rules = await recordCommand(page, "get_branch_rules")
+
+      // the click has something to say: the popover, not a start
+      await expectWarnedStart(
+        page,
+        repo,
+        rules,
+        "safe-push-rules-unknown",
+        "Cannot check whether the push keeps the approvals of #7: GitHub answered 403: Resource not accessible by integration. Patronus counts them when the robot starts.",
+      )
+    })
+
+    test("should ask again for the rules a start couldn't read, and confirm with the key", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
+      await routeCommandError(page, "get_branch_rules", "GitHub answered 500")
+      const rules = await recordCommand(page, "get_branch_rules")
+
+      const first = await openSafePushWithKey(page, "JIRA-456")
+      await expect(first.getByTestId("safe-push-rules-unknown")).toContainText("Cannot check whether the push keeps the approvals of #7: GitHub answered 500.")
+      await page.keyboard.press("Escape")
+      await expect(first).toHaveCount(0)
+      expect(rules).toHaveLength(1)
+
+      // a failed read is not kept: the next start asks GitHub again, and Enter confirms the start
+      const popover = await openSafePushWithKey(page, "JIRA-456")
+      await expect(popover.getByTestId("safe-push-rules-unknown")).toBeVisible()
+      await expect.poll(() => rules.length).toBe(2)
+      await expect(popoverStart(page)).toBeFocused()
+      await page.keyboard.press("Enter")
       await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
     })
 

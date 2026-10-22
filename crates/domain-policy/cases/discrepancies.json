@@ -162,13 +162,18 @@
   {
     "id": "rules-unknown-keep-the-approvals",
     "group": "discrepancies",
-    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read: the app reads it as \"keeps the approvals\" and starts, bd refuses rules_unknown unless --allow-unknown-rules",
+    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read: the app read it as \"keeps the approvals\" and started; now it confirms rulesUnknown, bd refuses rules_unknown unless --allow-unknown-rules",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
     "discrepancy": "D9",
+    "closed": "s1-holes",
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "--allow-unknown-rules of bd is the popover's confirmation (owner decision 6): docs/design/rust-domain-authority.md#решения-которые-подтверждает-владелец"
+    },
     "given": {
       "readiness": "approved",
       "pullRequest": {
@@ -183,7 +188,8 @@
         "safePushBlocker": null
       },
       "decision": {
-        "kind": "start"
+        "kind": "confirm",
+        "reasons": ["rulesUnknown"]
       }
     },
     "bd": {
@@ -196,11 +202,6 @@
       "start": {
         "error": "rules_unknown"
       }
-    },
-    "today": {
-      "app": ["src/hooks/useDismissesStaleReviews.ts#.then(result => (result.status === \"ok\" ? result.data.dismissStaleReviewsOnPush : forget()), forget)"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#code: ErrorCode::RulesUnknown,"],
-      "why": "the app starts, because it reads a failed read of the rules as \"keeps the approvals\" (a GitHub error is `false`); bd refuses rules_unknown, which --allow-unknown-rules lifts"
     }
   },
   {

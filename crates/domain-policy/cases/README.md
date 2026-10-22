@@ -118,7 +118,9 @@ design doc, whose register row says «закрыт»): its former twins answer a
 entry has no `twins`; `today` of a recorded entry names where each side does it now, and an exercised one whose sides
 agree needs no `today.why` (D2, `closed: "s1-holes"`: both sides skip the approvals for a profile that skips the review,
 its former twin `skips-review-profile`; D1, exercised: both refuse a push that dismisses the approvals Patronus counts,
-`bd` with `push_dismisses_approvals`). Only an entry of the registry is closed.
+`bd` with `push_dismisses_approvals`). A closed entry whose classes still differ by design carries an `asymmetry` too
+(D9: the app confirms `rulesUnknown` where `bd` refuses `rules_unknown`, which `--allow-unknown-rules` lifts, as the
+review case `rules-unknown-allowed` shows). Only an entry of the registry is closed.
 
 Both tests check the registry: each id once, the twins, no recorded or closed case outside it, no twins of a closed
 entry; the Rust one also that every pointer of `today` resolves and that a closed entry names a stage whose row says
@@ -154,7 +156,7 @@ request of a whole stack #12.
 | `readiness` | `notRequired` · `approved` · `missing` · `unknown` · `unavailable` · `unlisted` · `space` · `notAsked` [`notRequired`] | the pre-check answer, see below | the answer of the facts (Rust asked as the app's scan asks, `readinessInputOf`) in the review-readiness store under the key of the branch's input, the availability of the pull requests |
 | `profile` | `{ chosen: <id>·none, lastRobot: lsc, skipsReview, newApi }` | `--profile`; the last robot's options | `ask.profileId`; `options` |
 | `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` | the flags of the same names | `withoutApprovals` = `ask.bypassReview`; the others have no input of the decision |
-| `rules` | `keep` · `dismiss` · `unknown` · `loading` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none (`fake_github`), `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500; `loading` is `keep` (bd waits for its own read) | what `get_branch_rules` answered `readDismissesStaleReviews` of the target: `unknown` a failed answer (read as `false`, D9), `loading` no answer yet |
+| `rules` | `keep` · `dismiss` · `unknown` · `loading` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none (`fake_github`), `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500; `loading` is `keep` (bd waits for its own read) | what `get_branch_rules` answered `readDismissesStaleReviews` of the target: `unknown` a failed answer (the start confirms `rulesUnknown`), `loading` no answer yet |
 | `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named | `parked`; of the whole stack `wholeStackParkedState` |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) | the stack branch `Blocked` by it |
 | `landed` | `inBaseline` · `byContent` | `origin/master` at HEAD; `land_auth_by_content` after `bd push` (`LANDED_SUBJECTS` only) | the landing report of the baseline check (`inBaseline`); one commit left (`byContent`) |
