@@ -5711,7 +5711,7 @@ dependencies = [
 name = "sync-utils"
 version = "0.1.0"
 dependencies = [
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "jiff",
  "libc",
  "memchr",
@@ -8177,7 +8177,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "domain-types",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "github",
  "moka",
  "pretty_assertions",
