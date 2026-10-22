@@ -20,6 +20,16 @@ pub enum Subject {
 }
 
 impl Subject {
+  /// The branch `name` with the branches it is built on
+  pub fn branch(name: &str) -> Self {
+    Self::Branch { name: name.to_string() }
+  }
+
+  /// The whole stack of `root`
+  pub fn whole_stack(root: &str) -> Self {
+    Self::WholeStack { root: root.to_string() }
+  }
+
   /// The branch it names: the branch, or the root of the whole stack
   pub fn name(&self) -> &str {
     match self {

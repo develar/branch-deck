@@ -5,10 +5,9 @@
 use bd_core::context::RepoContext;
 use bd_core::sync_command::SyncOutput;
 use domain_types::patronus::PatronusRobot;
-use domain_types::repository_view::{BranchPatronus, PatronusView, RobotMatch, StackPatronus, StartRefusal};
+use domain_types::repository_view::{BranchPatronus, PatronusView, RobotMatch, StackPatronus};
 use repository_view::branch_table::BranchTable;
 use repository_view::patronus_view::{ContentMemo, match_robots, patronus_view};
-use sync_core::patronus_start::{carried_ids, carried_words, push_mode_name};
 
 /// The robots and the Patronus view of a table
 pub struct PatronusFacts {
@@ -47,29 +46,6 @@ impl PatronusFacts {
 
   pub fn stack(&self, root: &str) -> Option<&StackPatronus> {
     self.view.stacks.get(root)
-  }
-
-  fn mode_of(&self, robot_id: &str) -> &'static str {
-    self.robot(robot_id).map_or("Robot", |robot| push_mode_name(robot.push_mode))
-  }
-
-  /// Why a start of `subject` ("auth", "the whole auth stack") is not possible, in the words of the app; the commits a
-  /// descendant lands named by their ids
-  pub fn start_refusal_text(&self, refusal: &StartRefusal, subject: &str) -> String {
-    match refusal {
-      StartRefusal::LastCommit { robot_id } => format!("A {} of the last commit is running", self.mode_of(robot_id)),
-      StartRefusal::Descendant { span } => {
-        let carried = span.carried.as_ref();
-        format!(
-          "A {} of {} is running: it lands {} with it{}",
-          self.mode_of(&span.by.robot_id),
-          span.by.subject().words(),
-          carried_words(subject, carried),
-          carried_ids(carried)
-        )
-      }
-      StartRefusal::Ancestor { landing } => format!("A {} of {} is running: wait until it merges", self.mode_of(&landing.robot_id), landing.subject().words()),
-    }
   }
 }
 

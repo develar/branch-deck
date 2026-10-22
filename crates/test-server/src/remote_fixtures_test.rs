@@ -1,5 +1,5 @@
 use crate::remote_fixtures::{HistoryRobotFixture, fixture_history_robot, fixture_progress, fixture_robot};
-use crate::test_support::{create_repository, post, start_test_server};
+use crate::test_support::{create_repository, post, start_test_server, sync};
 use domain_types::patronus::{
   PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
 };
@@ -182,12 +182,12 @@ async fn the_robots_of_the_fixture_come_through_the_real_service() {
   assert_eq!(log["requests"]["list"], 1);
 }
 
-/// The merge profiles of the fixture, written as `robot-start-supported` answers them, read back through the real
-/// service as the fixture; a start, a restart and a cancel run the app's core and the real service against the fake,
-/// which lists the robots they started, answers their status, and logs each request (`GET …/patronus`)
-#[tokio::test]
-async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
-  let (addr, client, id, repository_path, tip) = repository_with_branch("test-branch", "HEAD").await;
+/// A server with a repository of the simple template on Space (a Patronus fixture without robots), its branches parked
+/// as `parked` names them (branch, note), synced: the server, its client, the repository's id and path
+async fn synced_on_space(parked: &[(&str, &str)]) -> (std::net::SocketAddr, reqwest::Client, String, String) {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, repository_path) = create_repository(&client, addr).await;
   post(
     &client,
     addr,
@@ -195,6 +195,45 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
     json!({"availability": {"status": "available"}, "robots": []}),
   )
   .await;
+  if !parked.is_empty() {
+    let branches: Vec<serde_json::Value> = parked.iter().map(|(branch, note)| json!({"branchName": branch, "note": note})).collect();
+    post(&client, addr, "/invoke/park_branches", json!({"repositoryPath": repository_path, "branches": branches})).await;
+  }
+  sync(&client, addr, &repository_path).await;
+  (addr, client, id, repository_path)
+}
+
+/// A start the IPC asks for a parked branch is refused in Rust, by the checks of the app's command, before Patronus is
+/// asked: the fake logs no start
+#[tokio::test]
+async fn a_start_of_a_parked_branch_is_refused_before_patronus_is_asked() {
+  let (addr, client, id, repository_path) = synced_on_space(&[("test-branch", "IJPL-1")]).await;
+  let start = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "baselineBranch": "origin/master", "branchName": "test-branch",
+    "mode": "rebaseAutosquash", "profileId": null, "mergeRequest": null});
+  let answer = post(&client, addr, "/invoke/start_patronus_robot", start).await;
+  assert_eq!(answer["status"], "error");
+  let refusal = answer["error"]["message"].as_str().unwrap();
+  assert!(
+    refusal.ends_with("Nothing was started: test-branch is parked: IJPL-1; it stays local until the user unparks it"),
+    "{refusal}"
+  );
+
+  let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
+  assert_eq!(log["starts"], json!([]));
+}
+
+/// The merge profiles of the fixture, written as `robot-start-supported` answers them, read back through the real
+/// service as the fixture; a start, a restart and a cancel run the app's core and the real service against the fake,
+/// which lists the robots they started, answers their status, and logs each request (`GET …/patronus`)
+#[tokio::test]
+async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
+  let (addr, client, id, repository_path) = synced_on_space(&[]).await;
+  let tip = git_command()
+    .args(["rev-parse", "user-name/virtual/test-branch"])
+    .current_dir(&repository_path)
+    .output()
+    .unwrap();
+  let tip = String::from_utf8(tip.stdout).unwrap().trim().to_string();
   let lsc = PatronusProfile {
     id: "lsc".to_string(),
     name: "Large Scale Change".to_string(),

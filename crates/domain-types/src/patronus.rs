@@ -334,11 +334,6 @@ pub struct StartPatronusRobotParams {
   pub profile_id: Option<String>,
   /// The merge request whose approvals the review check of the robot counts; null without one
   pub merge_request: Option<PatronusMergeRequest>,
-  /// The commits (original ids) merged Safe Pushes landed, whose names the target has (`landedBy` of the repository
-  /// view): a name one of them adds is no missing declaration
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub landed_commits: Vec<String>,
   /// What the user started anyway (Start Anyway); without it the refusals of `sync_core::landing_gate` fail the start
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]

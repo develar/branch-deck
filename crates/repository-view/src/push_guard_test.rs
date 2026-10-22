@@ -39,7 +39,7 @@ fn check(table: BranchTable, robots: &[PatronusRobot], branches: &[StackPushBran
 }
 
 /// `chain` (auth, login built on it, oauth on login) whose whole auth stack has a built stack branch at `stack-tip`
-fn stacked_chain() -> BranchTable {
+pub(crate) fn stacked_chain() -> BranchTable {
   let mut table = chain();
   table.stack_branches.push(StackBranchUpdate {
     root: "auth".to_string(),

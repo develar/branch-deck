@@ -8,9 +8,13 @@
 //!   (`sync_core::robot_landing`), once per state (`ContentMemo`)
 //! - `push_guard`: the checks of the app's push under the repository lock, by the rules of `bd push`: parked, landed
 //!   whole, held by a running Safe Push; the words of the holds for both sides
+//! - `start_guard`: the checks of the app's start, restart and cancel of a robot, by the rules of `bd safe-push`: parked,
+//!   landed whole, not built, a robot on its last commit or one that lands a part of it; the words of the robot refusals
+//!   for both sides, and the whole sequence of the action (`start_robot`, `restart_robot`, `cancel_robot`)
 //! - `views`: what the app keeps to answer `get_repository_view`: the table of the last sync and the memo, by repository
 
 pub mod branch_table;
 pub mod patronus_view;
 pub mod push_guard;
+pub mod start_guard;
 pub mod views;

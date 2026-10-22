@@ -451,6 +451,12 @@ async fn an_action_without_a_token_tells_how_to_log_in() {
   let (service, _) = service(client, TokenLookup::Missing);
   assert_eq!(service.cancel("me", "running").await.unwrap_err(), "Run ./safePush.cmd once to log in to Patronus");
   assert_eq!(fake.canceled.lock().unwrap().len(), 0);
+  // the list the checks of an action read fails it in the same words, where the checks of a push see no robots
+  assert_eq!(
+    service.robots_for_action("ultimate", "me").await.unwrap_err(),
+    "Run ./safePush.cmd once to log in to Patronus"
+  );
+  assert_eq!(service.robots_for_checks("ultimate", "me").await, Vec::new());
 }
 
 fn failed_check(name: &str, build_id: &str, attempt: u32, limit: u32) -> FailedCheck {

@@ -1381,7 +1381,6 @@ export async function startPatronusRobot(
     mode,
     profileId,
     mergeRequest,
-    landedCommits: getLandedCommits(),
     allow,
   })
   if (result.status === "error") {

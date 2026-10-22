@@ -543,10 +543,7 @@ pub fn patronus_view(
     let last_commit = start_blocked.then(|| StartRefusal::LastCommit {
       robot_id: robot.map_or_default(|robot| robot.id.clone()),
     });
-    let start = last_commit
-      .clone()
-      .or_else(|| span.clone().map(|span| StartRefusal::Descendant { span }))
-      .or_else(|| landing_ancestor.clone().map(|landing| StartRefusal::Ancestor { landing }));
+    let start = branch_start_refusal(last_commit.clone(), span.as_ref(), landing_ancestor.as_ref());
     let facts = BranchPatronus {
       landed_by: landed,
       span,
@@ -584,7 +581,7 @@ pub fn patronus_view(
       robot_id: robot.map_or_default(|robot| robot.id.clone()),
     });
     let facts = StackPatronus {
-      start: last_commit.clone().or_else(|| landing_member.clone().map(|landing| StartRefusal::Ancestor { landing })),
+      start: stack_start_refusal(last_commit.clone(), landing_member.as_ref()),
       landing_member,
       hold_robot_id,
       start_blocked,
@@ -595,6 +592,20 @@ pub fn patronus_view(
     }
   }
   view
+}
+
+/// Why a Safe Push of a branch can't start (`BranchPatronus::start`): a robot on the commit it is at (`last_commit`),
+/// else a robot of a branch built on it that lands it with more (`span`), else one that lands an ancestor
+pub fn branch_start_refusal(last_commit: Option<StartRefusal>, span: Option<&SpanView>, landing_ancestor: Option<&RobotOf>) -> Option<StartRefusal> {
+  last_commit
+    .or_else(|| span.map(|span| StartRefusal::Descendant { span: span.clone() }))
+    .or_else(|| landing_ancestor.map(|landing| StartRefusal::Ancestor { landing: landing.clone() }))
+}
+
+/// Why a Safe Push of the whole stack can't start (`StackPatronus::start`): a robot on the commit of its stack branch,
+/// else the robot of a member that lands a part of it
+pub fn stack_start_refusal(last_commit: Option<StartRefusal>, landing_member: Option<&RobotOf>) -> Option<StartRefusal> {
+  last_commit.or_else(|| landing_member.map(|landing| StartRefusal::Ancestor { landing: landing.clone() }))
 }
 
 /// The commits (original ids) merged Safe Pushes landed, as `view` names them (`landedBy`): the target has the names

@@ -2,6 +2,7 @@
 //! Push CLI renews it, background requests stop while Patronus fails (exponential backoff), and a full list asked by
 //! two windows of one repository within a few seconds is fetched once.
 
+use crate::actions::{ActionError, availability_message};
 use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, REVIEW_APPROVAL_CHECK_SKIP_OPTION, RobotDto, RobotUpdateRequest};
 use crate::token::{TokenLookup, TokenStamp};
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
@@ -132,6 +133,17 @@ impl PatronusService {
       info!(availability = ?result.availability, "no robots for the checks: nothing holds");
     }
     result.robots
+  }
+
+  /// The user's robots in `repository` for the check of an action that asks Patronus anyway (a start, a restart, a
+  /// cancel: `repository_view::start_guard`): one full list, as `bd safe-push` reads it; a list Patronus doesn't give
+  /// fails the action, in the words of a failed action
+  pub async fn robots_for_action(&self, repository: &str, branch_prefix: &str) -> Result<Vec<PatronusRobot>, ActionError> {
+    let result = self.robots(repository, branch_prefix, None, false, false).await;
+    match result.availability {
+      PatronusAvailability::Available => Ok(result.robots),
+      availability => Err(availability_message(availability)),
+    }
   }
 
   /// The robots of `known` whose status changed; the others are not in the result. Always a background request.

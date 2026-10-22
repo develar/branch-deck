@@ -56,6 +56,7 @@ targets:
   - ../../crates/git-ops/src/trial_rebase.rs
   - ../../src/stores/safe-push.ts
   - ../../crates/repository-view/src/push_guard.rs
+  - ../../crates/repository-view/src/start_guard.rs
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/hooks/useDismissesStaleReviews.ts
   - ../../crates/sync-core/src/branch_rules.rs
@@ -656,8 +657,23 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   `POST /robots` starts the robot on the pushed virtual branch, as the web UI does (`ROBOT_WEB_UI`, the source branch
   `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart takes the newest commit of the
   branch; the request names the profile chosen (`mergeProfileId`, null for the default checks), the mode
-  (`REBASE_AUTOSQUASH`, `DRY_RUN`) and the Space merge request whose approvals count (`spaceReview`). The landing gate
-  and the target are checked in Rust before it (`prepare_robot_start`). The robot shows at once and is polled.
+  (`REBASE_AUTOSQUASH`, `DRY_RUN`) and the Space merge request whose approvals count (`spaceReview`). The robot shows
+  at once and is polled.
+- The start command checks the start in Rust before it asks Patronus, by the rules of `bd safe-push`
+  (`repository_view::start_guard`), on the table of the last sync and the user's robots it lists itself (one request; a
+  list Patronus doesn't give fails the start, never the robots the page knows): a parked branch, one built on parked
+  and a whole stack with a parked member ("Nothing was started: login is parked: IJPL-1; it stays local until the user
+  unparks it"), a branch or a whole stack merged Safe Pushes landed whole ("…: nothing of it is left to land"), a branch
+  the sync did not build and a stack branch that is not built or conflicts as one branch, then the robot part of the
+  repository view, in the words of the page ("A Safe Push of the last commit is running", "A Safe Push of login is
+  running: wait until it merges"; a Dry Run waits only for a robot on the last commit). Then the landing gate, with the
+  commits the view names landed (`landedBy`, the page sends none), and the target (`prepare_robot_start`). The page
+  checks the same before it asks; the command refuses a start that raced with another one (the IDE, `bd`) or came by
+  IPC, and the E2E server runs the same sequence (`start_robot`).
+  [@test] ../../crates/repository-view/src/start_guard_test.rs (`a_parked_branch_a_branch_built_on_parked_and_a_whole_stack_with_a_parked_member_are_refused`, `a_branch_and_a_whole_stack_merged_safe_pushes_landed_whole_are_refused`)
+  [@test] ../../crates/repository-view/src/start_guard_test.rs (`a_branch_and_a_stack_branch_the_sync_did_not_build_are_refused`, `a_robot_on_the_last_commit_or_one_that_lands_a_part_of_the_subject_is_refused`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_of_a_parked_branch_is_refused_before_patronus_is_asked`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`an_action_without_a_token_tells_how_to_log_in`)
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`, `should start a Safe Push with the profile chosen in the popover of S and of Safe Push With Profile…`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`, `should name the approvals a Safe Push needs on Space, and start with the merge request found open`)
@@ -1105,6 +1121,14 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
+- The restart and the cancel command check in Rust too, on the user's robots they list themselves
+  (`repository_view::start_guard`): a restart is a start of the robot's subject in its mode that the robot itself does
+  not refuse (its own robot on the last commit restarts); a robot the list lacks and one of a temporary ref are
+  refused ("Nothing was restarted: the Safe Push is of a temporary ref (the IDE, the CLI): a restart would test its old
+  commit"), a branch without a row restarts on its remote branch. A cancel of a robot the list lacks or one that
+  finished is refused ("Nothing was canceled: the Safe Push is not running"); a canceling one is canceled again.
+  [@test] ../../crates/repository-view/src/start_guard_test.rs (`a_restart_is_a_start_its_own_robot_does_not_refuse_never_of_a_temporary_ref`, `a_cancel_of_a_robot_not_in_the_list_or_finished_is_refused`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_restart_and_cancel_run_the_real_service_against_the_fake`)
 - A restart or a cancel runs once per robot (an operation of the robot, [Running Operations](../../docs/design/operations.md)):
   while it runs, it is running on every surface of the robot (the slot, the details, the landing overview: disabled,
   a spinner in place of its icon, `aria-busy`), a second click joins it, the other one of the robot waits with its busy

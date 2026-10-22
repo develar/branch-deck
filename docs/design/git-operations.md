@@ -2383,6 +2383,37 @@ Code: `crates/sync-core/src/landing_gate.rs`, `crates/domain-types/src/landing.r
 `crates/sync-core/src/missing_declarations.rs`, `crates/bd-remote/src/safe_push_command.rs`,
 `src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`; the landing needs `crates/repository-view/src/views.rs`, `crates/bd-remote/src/status.rs`.
 
+#### Robot start guard
+
+The page decides a start, a restart and a cancel of a robot before it asks, but the IPC of each is a command anyone can
+call (another window, a start raced by the IDE or `bd`). So each command checks in Rust before it asks Patronus, by the
+rules of `bd safe-push`, on the table of the last sync the app keeps ([Repository view](#repository-view)) and the
+user's robots it lists itself, never the page's (`repository_view::start_guard`; the E2E server runs the same sequence,
+`start_robot`, `restart_robot`, `cancel_robot`):
+
+1. One full list of the user's robots (`PatronusService::robots_for_action`, the cached list of the last 10 s or one
+   request): a list Patronus doesn't give fails the action, in the words of a failed action ("Run ./safePush.cmd once
+   to log in to Patronus"), where the [app's push](#app-stack-push) sees no robots and pushes.
+2. The Patronus view of the kept table with them (`RepositoryViews::guard_facts`): no git where the hashes tell, else
+   the content walks of the memo. A repository not synced yet is refused.
+3. The checks (`check_start`): a parked subject (the branch, one it is built on, any member of the whole stack), one
+   merged Safe Pushes landed whole (`HoldKind::Landed`, every member for a whole stack), one the sync did not build (a
+   branch of `not_built`, a stack branch that is not `built`: blocked, stale or conflicting as one branch, in the words
+   `bd` uses too, `stack_not_built_words`, `stack_conflict_words`), then the robot part of the view (`BranchPatronus.start`
+   or `StackPatronus.start`, `dry_run` for a Dry Run) in the words of `start_refusal_text`, which `bd` uses too. A
+   restart (`check_restart`) is a start of the robot's subject in its mode that the robot itself does not refuse as the
+   robot of the last commit; a robot the list lacks or of a temporary ref is refused, a subject without a row of the
+   table is not checked (Patronus restarts on its remote branch). A cancel (`check_cancel`) needs a robot of the list
+   that is running or canceling, and no table.
+4. For a start, the [landing gate](#landing-gate) with the commits the view names landed (`landed_commits` of
+   `landedBy`; the page sends none) and the target (`prepare_robot_start`), then `POST /robots`.
+
+No lock: the start changes no ref of the repository, and `bd safe-push` starts after its lock too.
+
+Code: `crates/repository-view/src/start_guard.rs`, `crates/patronus/src/service.rs` (`robots_for_action`),
+`crates/sync-core/src/patronus.rs` (`prepare_robot_start`), `src-tauri/src/commands/patronus.rs`,
+`crates/test-server/src/tauri_command_bridge.rs`.
+
 #### Agent robot status (`bd robot`)
 
 Read-only, without the repository lock and without a sync: `bd robot` reads the branches as the last sync left them.

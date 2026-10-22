@@ -4825,6 +4825,7 @@ dependencies = [
  "history-rewrite",
  "moka",
  "object-cache",
+ "patronus",
  "pretty_assertions",
  "serde",
  "serde_json",

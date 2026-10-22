@@ -46,7 +46,7 @@ use domain_types::patronus::{
   UnknownReadinessReason,
 };
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
-use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
+use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
 use github::token::TokenChain;
@@ -55,6 +55,7 @@ use patronus::review_readiness::evaluates_pull_request;
 use patronus::service::PatronusService;
 use patronus::token::{TokenLookup, find_token};
 use repository_view::branch_table::BranchTable;
+use repository_view::start_guard::{stack_conflict_words, stack_not_built_words, start_refusal_text};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -736,7 +737,7 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, table: &Branch
   if let Some(refusal) = facts_of.and_then(|branch| if pushes { branch.start.as_ref() } else { branch.dry_run.as_ref() }) {
     refusals.push(Refusal {
       code: ErrorCode::RobotRunning,
-      message: facts.start_refusal_text(refusal, name),
+      message: start_refusal_text(refusal, name, &facts.robots),
     });
   }
 
@@ -834,7 +835,7 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r Patr
   if let Some(refusal) = facts_of.and_then(|stack| if pushes { stack.start.as_ref() } else { stack.dry_run.as_ref() }) {
     refusals.push(Refusal {
       code: ErrorCode::RobotRunning,
-      message: facts.start_refusal_text(refusal, &subject),
+      message: start_refusal_text(refusal, &subject, &facts.robots),
     });
   }
   let base = target_branch_of(synced.report.upstream.as_ref()).unwrap_or_default();
@@ -861,48 +862,22 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r Patr
   })
 }
 
-/// "Nothing was pushed or started: the stack branch of auth conflicts at …": the commit and its files, and the way out
+/// "Nothing was pushed or started: the whole auth stack doesn't build as one branch: …": the commit and its files
+/// (`stack_conflict_words`, the app's words too), and the way out
 fn stack_conflict_message(context: &RepoContext, synced: &SyncOutput, update: &StackBranchUpdate) -> String {
-  let root = &update.root;
   let Some(conflict) = &update.conflict else {
-    return format!("Nothing was pushed or started: the stack branch of {root} conflicts; `bd sync` names the commit");
+    return format!("Nothing was pushed or started: the stack branch of {} conflicts; `bd sync` names the commit", update.root);
   };
   let short = context.short_ids(std::iter::once(conflict.commit.as_str()));
-  let found = synced.report.branches.iter().find_map(|branch| {
-    branch
-      .commits
-      .iter()
-      .find(|commit| commit.id == conflict.commit)
-      .map(|commit| (branch.name.as_str(), commit))
-  });
-  let commit = match found {
-    Some((branch, commit)) => format!("{} ({}, of {branch})", short.get(&conflict.commit), commit.stripped_subject),
-    None => short.get(&conflict.commit).to_string(),
-  };
   format!(
-    "Nothing was pushed or started: {} doesn't build as one branch: {commit} conflicts in {} with the commits of the stack before it, though each branch builds. Land it in pieces: `bd safe-push <branch> --check` lands a branch with what it is built on; or regroup so that the commits it needs come before it",
-    Subject::WholeStack { root: root.clone() }.words(),
-    join_names(&conflict.files)
+    "Nothing was pushed or started: {}. Land it in pieces: `bd safe-push <branch> --check` lands a branch with what it is built on; or regroup so that the commits it needs come before it",
+    stack_conflict_words(&synced.report.branches, update, &|id| short.get(id).to_string())
   )
 }
 
-/// Why a stack branch that is not built can't land, in words: the member that keeps it from being built, or the reason
+/// Why a stack branch that is not built can't land (`stack_not_built_words`, the app's words too), and the way out
 fn stack_not_built_message(update: &StackBranchUpdate) -> String {
-  let root = &update.root;
-  let why = match (&update.blocked_by, &update.error) {
-    (Some(block), _) => {
-      let reason = match block.reason {
-        BlockReason::Conflict => "conflicts",
-        BlockReason::Problem => "has a stack problem",
-        BlockReason::Error => "failed",
-        BlockReason::Blocked => "is blocked by its parent",
-      };
-      format!("{} {reason}, so the stack branch was not rebuilt", block.member)
-    }
-    (None, Some(error)) => error.clone(),
-    (None, None) => "the stack branch was not rebuilt".to_string(),
-  };
-  format!("Nothing was pushed or started: the stack branch of {root} is not the build of its commits: {why}. `bd sync` says what to fix")
+  format!("Nothing was pushed or started: {}. `bd sync` says what to fix", stack_not_built_words(update))
 }
 
 /// What the build of what lands misses: the first missing declaration with its fix, and the count of the rest, which

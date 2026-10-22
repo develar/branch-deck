@@ -173,9 +173,10 @@ export const commands = {
 	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, CommandError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
 	/**
 	 *  Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
-	 *  stack; the frontend pushes it first. First the landing gate and the target (`sync_core::patronus::prepare_robot_start`,
-	 *  which the test server runs too), as `bd safe-push` refuses it: a proven dangling reference or a missing declaration
-	 *  refuses the start unless `allow` lets it. The new robot.
+	 *  stack; the frontend pushes it first. The whole sequence is `repository_view::start_guard::start_robot`, which the test
+	 *  server runs too: the user's robots (one list; a failed list fails the start), the checks of the kept table (parked,
+	 *  landed whole, not built, a robot on its last commit or one that lands a part of it), the landing gate with the
+	 *  commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot.
 	 */
 	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("start_patronus_robot", { params })),
 	/**
@@ -188,9 +189,12 @@ export const commands = {
 	 *  of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
 	 */
 	checkTargetConflict: (params: TargetConflictParams) => typedError<TargetCheck, CommandError>(__TAURI_INVOKE("check_target_conflict", { params })),
-	/**  Starts the robot again on the newest commit of its branch; the new robot */
+	/**
+	 *  Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
+	 *  a start (`start_guard::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
+	 */
 	restartPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("restart_patronus_robot", { params })),
-	/**  Asks Patronus to cancel the robot; it answers it canceling */
+	/**  Asks Patronus to cancel a running robot of the user's list (`start_guard::cancel_robot`); it answers it canceling */
 	cancelPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("cancel_patronus_robot", { params })),
 	/**  The current status of one robot, read right before a push into its branch */
 	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, CommandError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),
@@ -3666,11 +3670,6 @@ export type StartPatronusRobotParams = {
 	profileId: string | null,
 	/**  The merge request whose approvals the review check of the robot counts; null without one */
 	mergeRequest: PatronusMergeRequest | null,
-	/**
-	 *  The commits (original ids) merged Safe Pushes landed, whose names the target has (`landedBy` of the repository
-	 *  view): a name one of them adds is no missing declaration
-	 */
-	landedCommits?: string[],
 	/**  What the user started anyway (Start Anyway); without it the refusals of `sync_core::landing_gate` fail the start */
 	allow?: LandingAllowances,
 };

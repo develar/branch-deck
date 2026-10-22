@@ -38,3 +38,16 @@ pub(crate) async fn post(client: &reqwest::Client, addr: SocketAddr, path: &str,
   assert_eq!(response.status(), 200, "{path}");
   response.json().await.unwrap_or(Value::Null)
 }
+
+/// Syncs the repository at `path` with the prefix `user-name` as the page does (`/invoke/sync_branches`), to the end of
+/// its event stream: the server keeps the branch table of it, which the checks of a push or a start read
+pub(crate) async fn sync(client: &reqwest::Client, addr: SocketAddr, path: &str) {
+  let response = client
+    .post(format!("http://{addr}/invoke/sync_branches"))
+    .json(&json!({ "repositoryPath": path, "branchPrefix": "user-name" }))
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(response.status(), 200, "sync");
+  response.text().await.unwrap();
+}

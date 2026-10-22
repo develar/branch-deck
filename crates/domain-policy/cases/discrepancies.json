@@ -208,16 +208,26 @@
     "id": "direct-ipc-skips-the-checks",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the IPC of a start, a restart and a cancel runs without the checks of the decision; bd checks in its commands. The push of both sides holds the repository lock and refuses parked, landed and held branches in Rust (s1-holes)",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#bd-push"],
+    "title": "the IPC of a start, a restart, a cancel and a push ran without the checks of the decision; bd checks in its commands. Since s1-holes the app's commands check in Rust too: the push under the repository lock refuses parked, landed and held branches, the start, the restart and the cancel refuse parked, landed, not built and overlapped subjects on the robots Rust lists itself",
+    "spec": [
+      "docs/design/rust-domain-authority.md#реестр-расхождений",
+      "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
+      "spec/branch/patronus.spec.md#restart-and-cancel",
+      "spec/cli/agent-cli.spec.md#bd-push"
+    ],
     "discrepancy": "D10",
+    "closed": "s1-holes",
     "today": {
       "app": [
-        "src-tauri/src/commands/patronus.rs#pub async fn start_patronus_robot",
-        "src-tauri/src/commands/patronus.rs#pub async fn cancel_patronus_robot",
+        "crates/repository-view/src/start_guard.rs#if let Err(refusal) = check_start(facts, &subject, start.mode) {",
+        "crates/repository-view/src/start_guard.rs#check_restart(facts, &robot_id)",
+        "crates/repository-view/src/start_guard.rs#check_cancel(&robots, &params.robot_id)",
         "crates/repository-view/src/push_guard.rs#pub fn push_guarded("
       ],
-      "bd": ["crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;"]
+      "bd": [
+        "crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;",
+        "crates/bd-remote/src/safe_push_command.rs#message: start_refusal_text(refusal, name, &facts.robots),"
+      ]
     }
   },
   {

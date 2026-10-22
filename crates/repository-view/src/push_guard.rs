@@ -48,8 +48,23 @@ impl GuardFacts {
     &self.synced.table
   }
 
-  fn robot(&self, id: &str) -> Option<&PatronusRobot> {
+  pub fn robot(&self, id: &str) -> Option<&PatronusRobot> {
     self.robots.iter().find(|robot| robot.id == id)
+  }
+
+  /// The merged robot that landed all of `name` (its hold is `Landed`), with what it ran on
+  pub(crate) fn landed_whole(&self, name: &str) -> Option<(Subject, &PatronusRobot)> {
+    let hold = self.view.branches.get(name)?.hold.as_ref().filter(|hold| hold.kind == HoldKind::Landed)?;
+    Some((hold.by.subject(), self.robot(&hold.by.robot_id)?))
+  }
+
+  /// "every branch of the whole auth stack landed in master with the Safe Push of oauth": merged robots landed all of
+  /// every member of the stack of `root` (`every_branch_landed`); `None` while one has work left
+  pub(crate) fn stack_landed_whole(&self, root: &str) -> Option<String> {
+    let stack = self.table().stack(root)?;
+    let landed: Vec<(Subject, &PatronusRobot)> = stack.members.iter().map(|member| self.landed_whole(member)).collect::<Option<_>>()?;
+    let what = Subject::WholeStack { root: root.to_string() }.words();
+    (!landed.is_empty()).then(|| every_branch_landed(&what, &landed))
   }
 }
 
@@ -80,10 +95,13 @@ fn branch_refusal(facts: &GuardFacts, name: &str) -> Option<String> {
   if let Some(parked) = parked_state(&table.branches, &table.parked, name) {
     return Some(format!("{}; it stays local until the user unparks it", parked.reason(name)));
   }
+  if let Some((by, robot)) = facts.landed_whole(name) {
+    return Some(format!("{}: nothing of it is left to push", landed_words(name, &by, robot)));
+  }
   let hold = facts.view.branches.get(name)?.hold.as_ref()?;
   let robot = facts.robot(&hold.by.robot_id)?;
   Some(match hold.kind {
-    HoldKind::Landed => format!("{}: nothing of it is left to push", landed_words(name, &hold.by.subject(), robot)),
+    HoldKind::Landed => return None,
     HoldKind::Own => {
       let source = to_final_branch_name(&table.prefix, name).ok();
       own_hold_words(name, robot, source.as_deref(), APP_OWN_HOLD_REMEDY)
@@ -100,17 +118,8 @@ fn stack_refusal(facts: &GuardFacts, root: &str) -> Option<String> {
   if let Some(parked) = stack.members.iter().find(|member| facts.table().parked.contains_key(*member)) {
     return Some(format!("{branch} holds parked {parked}; land the stack in pieces"));
   }
-  let landed: Option<Vec<(Subject, &PatronusRobot)>> = stack
-    .members
-    .iter()
-    .map(|member| {
-      let hold = facts.view.branches.get(member)?.hold.as_ref().filter(|hold| hold.kind == HoldKind::Landed)?;
-      Some((hold.by.subject(), facts.robot(&hold.by.robot_id)?))
-    })
-    .collect();
-  if let Some(landed) = landed.filter(|landed| !landed.is_empty()) {
-    let what = Subject::WholeStack { root: root.to_string() }.words();
-    return Some(format!("{branch}: {}: nothing of it is left to push", every_branch_landed(&what, &landed)));
+  if let Some(landed) = facts.stack_landed_whole(root) {
+    return Some(format!("{branch}: {landed}: nothing of it is left to push"));
   }
   let robot = facts.robot(facts.view.stacks.get(root)?.hold_robot_id.as_deref()?)?;
   Some(format!("{branch}: {}", stack_hold_words(root, robot)))
@@ -238,4 +247,4 @@ fn locked_refusal(locked: &RepositoryLocked) -> String {
 
 #[cfg(test)]
 #[path = "push_guard_test.rs"]
-mod push_guard_test;
+pub(crate) mod push_guard_test;

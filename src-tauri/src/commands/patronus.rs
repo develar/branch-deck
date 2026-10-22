@@ -17,10 +17,12 @@ use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
+use repository_view::start_guard::{RobotActions, cancel_robot, restart_robot, start_robot};
+use repository_view::views::RepositoryViews;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::landing_gate::{LandingCheck, LandingGateParams, landing_check};
-use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, prepare_robot_start, required_target_branch};
+use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, required_target_branch};
 use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
 use sync_core::robot_stats::{RobotStatsSource, robot_stats_core};
@@ -281,41 +283,39 @@ pub async fn get_patronus_start_options(
 }
 
 /// Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
-/// stack; the frontend pushes it first. First the landing gate and the target (`sync_core::patronus::prepare_robot_start`,
-/// which the test server runs too), as `bd safe-push` refuses it: a proven dangling reference or a missing declaration
-/// refuses the start unless `allow` lets it. The new robot.
+/// stack; the frontend pushes it first. The whole sequence is `repository_view::start_guard::start_robot`, which the test
+/// server runs too: the user's robots (one list; a failed list fails the start), the checks of the kept table (parked,
+/// landed whole, not built, a robot on its last commit or one that lands a part of it), the landing gate with the
+/// commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot.
 #[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack, mode = ?params.mode, landed_commits = params.landed_commits.len()))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack, mode = ?params.mode))]
 #[specta::specta]
 pub async fn start_patronus_robot(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
+  views: State<'_, RepositoryViews>,
   params: StartPatronusRobotParams,
 ) -> Result<PatronusRobot, CommandError> {
   operation(async move {
-    let (git, repository_state_cache, start) = ((*git_executor).clone(), (*repository_state).clone(), params.clone());
-    let branches = run_blocking(move || {
-      let cache = repository_state_cache.object_cache(&git, &start.repository_path);
-      prepare_robot_start(&git, &cache, &start)
-    })
-    .await?;
     let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
-    patronus
-      .service
-      .start(
-        &repository.name,
-        &params.branch_prefix,
-        &branches.source_branch,
-        &branches.target_branch,
-        params.mode,
-        params.profile_id,
-        params.merge_request,
-      )
+    let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
+    let actions = robot_actions(&patronus, &repository, &git_executor, &views);
+    start_robot(&actions, move || repository_state.object_cache(&git, &path), &params)
       .await
-      .map_err(CommandError::new)
+      .map_err(CommandError::from)
   })
   .await
+}
+
+/// What an action on a robot runs on (`start_guard`)
+fn robot_actions<'a>(patronus: &'a PatronusState, repository: &'a SpaceRepository, git_executor: &'a GitCommandExecutor, views: &'a RepositoryViews) -> RobotActions<'a> {
+  RobotActions {
+    service: &patronus.service,
+    repository: &repository.name,
+    git_executor,
+    views,
+  }
 }
 
 /// What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`sync_core::landing_gate`): the
@@ -346,20 +346,54 @@ pub async fn check_target_conflict(git_executor: State<'_, GitCommandExecutor>, 
   run_blocking(move || Ok::<_, CommandError>(target_conflict_core(&git, &params))).await
 }
 
-/// Starts the robot again on the newest commit of its branch; the new robot
+/// Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
+/// a start (`start_guard::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
 #[tauri::command]
-#[instrument(skip(patronus))]
+#[instrument(skip(git_executor, patronus, views))]
 #[specta::specta]
-pub async fn restart_patronus_robot(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobot, CommandError> {
-  operation(async move { patronus.service.restart(&params.branch_prefix, &params.robot_id).await.map_err(CommandError::new) }).await
+pub async fn restart_patronus_robot(
+  git_executor: State<'_, GitCommandExecutor>,
+  patronus: State<'_, PatronusState>,
+  views: State<'_, RepositoryViews>,
+  params: PatronusRobotParams,
+) -> Result<PatronusRobot, CommandError> {
+  operation(act_on_robot(&git_executor, &patronus, &views, &params, RobotAction::Restart)).await
 }
 
-/// Asks Patronus to cancel the robot; it answers it canceling
+/// Asks Patronus to cancel a running robot of the user's list (`start_guard::cancel_robot`); it answers it canceling
 #[tauri::command]
-#[instrument(skip(patronus))]
+#[instrument(skip(git_executor, patronus, views))]
 #[specta::specta]
-pub async fn cancel_patronus_robot(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobot, CommandError> {
-  operation(async move { patronus.service.cancel(&params.branch_prefix, &params.robot_id).await.map_err(CommandError::new) }).await
+pub async fn cancel_patronus_robot(
+  git_executor: State<'_, GitCommandExecutor>,
+  patronus: State<'_, PatronusState>,
+  views: State<'_, RepositoryViews>,
+  params: PatronusRobotParams,
+) -> Result<PatronusRobot, CommandError> {
+  operation(act_on_robot(&git_executor, &patronus, &views, &params, RobotAction::Cancel)).await
+}
+
+/// What the user does with a robot of the list
+enum RobotAction {
+  Restart,
+  Cancel,
+}
+
+/// The restart or the cancel of the robot of `params` on the Space repository of the repository (`start_guard`)
+async fn act_on_robot(
+  git_executor: &GitCommandExecutor,
+  patronus: &PatronusState,
+  views: &RepositoryViews,
+  params: &PatronusRobotParams,
+  action: RobotAction,
+) -> Result<PatronusRobot, CommandError> {
+  let repository = patronus.required_space_repository(git_executor, &params.repository_path).await?;
+  let actions = robot_actions(patronus, &repository, git_executor, views);
+  match action {
+    RobotAction::Restart => restart_robot(&actions, params).await,
+    RobotAction::Cancel => cancel_robot(&actions, params).await,
+  }
+  .map_err(CommandError::from)
 }
 
 /// The current status of one robot, read right before a push into its branch

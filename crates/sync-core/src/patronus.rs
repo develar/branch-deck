@@ -66,16 +66,23 @@ pub struct RobotStartBranches {
   pub target_branch: String,
 }
 
-/// What the app checks before it asks Patronus to start `params` (`start_patronus_robot`): the landing gate, as
-/// `bd safe-push` refuses it (`ensure_landing_starts`), then the branch the robot pushes into; the full ref of the pushed
-/// virtual branch, or of the stack branch with `stack`
-pub fn prepare_robot_start(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &StartPatronusRobotParams) -> anyhow::Result<RobotStartBranches> {
+/// What the app checks before it asks Patronus to start `params`, after the checks of the repository view
+/// (`repository_view::start_guard`): the landing gate, as `bd safe-push` refuses it (`ensure_landing_starts`), with
+/// `landed_commits`, the commits (original ids) merged Safe Pushes landed as the view names them, whose names the target
+/// has; then the branch the robot pushes into. The full ref of the pushed virtual branch, or of the stack branch with
+/// `stack`
+pub fn prepare_robot_start(
+  git_executor: &GitCommandExecutor,
+  cache: &ObjectCache,
+  params: &StartPatronusRobotParams,
+  landed_commits: Vec<String>,
+) -> anyhow::Result<RobotStartBranches> {
   let gate = LandingGateParams {
     repository_path: params.repository_path.clone(),
     branch_prefix: params.branch_prefix.clone(),
     branch_name: params.branch_name.clone(),
     stack: params.stack,
-    landed_commits: params.landed_commits.clone(),
+    landed_commits,
     allow: params.allow,
   };
   ensure_landing_starts(git_executor, cache, &gate)?;
