@@ -14,7 +14,7 @@
 //!   (`robot_landing`), once per state of the branches (`ContentMemo`).
 
 use crate::branch_table::BranchTable;
-use domain_types::landing::LandingRefusal;
+use domain_types::landing::{LandingRefusal, Subject};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::{
   BranchPatronus, Carried, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RemoteFact, RemoteFacts, RobotLandedBranch, RobotMatch, RobotOf, SpanView, StackPatronus,
@@ -37,28 +37,6 @@ const MEMO_LIMIT: usize = 512;
 pub struct ContentMemo {
   landings: HashMap<String, Vec<BranchLanding>>,
   spans: HashMap<String, Option<Vec<BranchSpan>>>,
-}
-
-/// What a robot ran on: a branch (the one it was matched to, a robot of a temporary ref included), or the stack branch
-/// of the whole stack of a root
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Subject<'a> {
-  Branch(&'a str),
-  Stack(&'a str),
-}
-
-impl Subject<'_> {
-  fn robot_of(self, robot: &PatronusRobot) -> RobotOf {
-    let (branch, whole_stack) = match self {
-      Self::Branch(name) => (name, false),
-      Self::Stack(root) => (root, true),
-    };
-    RobotOf {
-      branch: branch.to_string(),
-      robot_id: robot.id.clone(),
-      whole_stack,
-    }
-  }
 }
 
 /// The robot of each branch and of each whole stack of the table, as the rows match them (`find_branch_robot`: started
@@ -94,9 +72,9 @@ fn took_as_is(source: &str, tip: Option<&str>, fact: Option<&RemoteFact>) -> boo
 
 /// What the hashes tell of the commit a robot took of its subject: the commits of the branch above it (original ids,
 /// newest first; empty when it took the subject as it is), or None when only the content tells
-fn hashes_tell(table: &BranchTable, remote: &RemoteFacts, subject: Subject<'_>, source: &str) -> Option<Vec<String>> {
+fn hashes_tell(table: &BranchTable, remote: &RemoteFacts, subject: &Subject, source: &str) -> Option<Vec<String>> {
   match subject {
-    Subject::Branch(name) => {
+    Subject::Branch { name } => {
       let branch = table.branch(name)?;
       if took_as_is(source, table.tip_of(name), remote.branches.get(name)) {
         return Some(Vec::new());
@@ -108,7 +86,7 @@ fn hashes_tell(table: &BranchTable, remote: &RemoteFacts, subject: Subject<'_>, 
       }
       Some(branch.commits[..at].iter().map(|commit| commit.id.clone()).collect())
     }
-    Subject::Stack(root) => {
+    Subject::WholeStack { root } => {
       let stack = table.stack(root)?;
       took_as_is(source, stack.tip.as_deref(), remote.stacks.get(root)).then(Vec::new)
     }
@@ -116,18 +94,18 @@ fn hashes_tell(table: &BranchTable, remote: &RemoteFacts, subject: Subject<'_>, 
 }
 
 /// The tip of the ref the robot of `subject` ran on
-fn subject_tip(table: &BranchTable, subject: Subject<'_>) -> Option<String> {
+fn subject_tip(table: &BranchTable, subject: &Subject) -> Option<String> {
   match subject {
-    Subject::Branch(name) => table.tip_of(name).map(str::to_string),
-    Subject::Stack(root) => table.stack(root).and_then(|stack| stack.tip.clone()),
+    Subject::Branch { name } => table.tip_of(name).map(str::to_string),
+    Subject::WholeStack { root } => table.stack(root).and_then(|stack| stack.tip.clone()),
   }
 }
 
 /// The question by content about the robot of `subject` and its `branches` (root first)
-fn content_request(table: &BranchTable, robot: &PatronusRobot, subject: Subject<'_>, source: &str, branches: Vec<String>) -> RobotLandingRequest {
+fn content_request(table: &BranchTable, robot: &PatronusRobot, subject: &Subject, source: &str, branches: Vec<String>) -> RobotLandingRequest {
   let (branch_name, stack_root) = match subject {
-    Subject::Branch(name) => (Some(name.to_string()), None),
-    Subject::Stack(root) => (None, Some(root.to_string())),
+    Subject::Branch { name } => (Some(name.clone()), None),
+    Subject::WholeStack { root } => (None, Some(root.clone())),
   };
   RobotLandingRequest {
     robot_id: robot.id.clone(),
@@ -176,9 +154,9 @@ enum Told<T> {
 }
 
 /// A robot with its subject, the candidates it may land and what tells what it does
-struct Planned<'r, 's, T> {
+struct Planned<'r, T> {
   robot: &'r PatronusRobot,
-  subject: Subject<'s>,
+  subject: Subject,
   candidates: Vec<String>,
   told: Told<T>,
 }
@@ -186,17 +164,17 @@ struct Planned<'r, 's, T> {
 /// The plan of a robot the hashes don't answer: its question by content (about `branches`), asked once per key unless
 /// the memo has the answer (`known`)
 #[expect(clippy::too_many_arguments, reason = "the robot, its subject and question, and where the questions gather")]
-fn ask_content<'r, 's, T>(
+fn ask_content<'r, T>(
   table: &BranchTable,
   robot: &'r PatronusRobot,
-  subject: Subject<'s>,
+  subject: Subject,
   source: &str,
   branches: Vec<String>,
   candidates: Vec<String>,
   known: impl Fn(&str) -> bool,
   asked: &mut Vec<(String, RobotLandingRequest)>,
-) -> Planned<'r, 's, T> {
-  let request = content_request(table, robot, subject, source, branches);
+) -> Planned<'r, T> {
+  let request = content_request(table, robot, &subject, source, branches);
   let key = content_key(table, &request);
   if !known(&key) && !asked.iter().any(|(question, _)| *question == key) {
     asked.push((key.clone(), request));
@@ -235,22 +213,22 @@ fn merged_landings<'r>(
 
   // by robot: the subject, and what the hashes told or the key of the content
   let mut asked: Vec<(String, RobotLandingRequest)> = Vec::new();
-  let mut planned: Vec<Planned<'_, '_, Vec<BranchLanding>>> = Vec::new();
+  let mut planned: Vec<Planned<'_, Vec<BranchLanding>>> = Vec::new();
   for robot in merged {
     let source = robot.source_revision.as_deref().unwrap_or_default();
     let subject = match (&robot.branch_name, &robot.stack_root) {
-      (Some(name), _) if table.branch(name).is_some() => Subject::Branch(name),
-      (None, Some(root)) if table.stack(root).is_some() => Subject::Stack(root),
+      (Some(name), _) if table.branch(name).is_some() => Subject::Branch { name: name.clone() },
+      (None, Some(root)) if table.stack(root).is_some() => Subject::WholeStack { root: root.clone() },
       _ => continue,
     };
-    let candidates: Vec<String> = match subject {
-      Subject::Branch(name) => table.ancestors_of(name).into_iter().chain(std::iter::once(name.to_string())).collect(),
-      Subject::Stack(root) => table.stack(root).map_or_else(Vec::new, |stack| stack.members.clone()),
+    let candidates: Vec<String> = match &subject {
+      Subject::Branch { name } => table.ancestors_of(name).into_iter().chain(std::iter::once(name.clone())).collect(),
+      Subject::WholeStack { root } => table.stack(root).map_or_else(Vec::new, |stack| stack.members.clone()),
     };
-    if let Some(above) = hashes_tell(table, remote, subject, source) {
-      let own = match subject {
-        Subject::Branch(name) => Some(name),
-        Subject::Stack(_) => None,
+    if let Some(above) = hashes_tell(table, remote, &subject, source) {
+      let own = match &subject {
+        Subject::Branch { name } => Some(name.as_str()),
+        Subject::WholeStack { .. } => None,
       };
       let branches = candidates
         .iter()
@@ -314,8 +292,8 @@ fn merged_landings<'r>(
         robot,
         by: subject.robot_of(robot),
         subject_branch: match subject {
-          Subject::Branch(name) => Some(name.to_string()),
-          Subject::Stack(_) => None,
+          Subject::Branch { name } => Some(name),
+          Subject::WholeStack { .. } => None,
         },
         branches,
       }
@@ -345,20 +323,20 @@ fn running_spans<'r>(
   memo: &mut ContentMemo,
 ) -> Vec<RobotSpanFacts<'r>> {
   let lands = |robot: &&PatronusRobot| is_robot_active(robot) && is_pushing_robot(robot);
-  let mut subjects: Vec<(&PatronusRobot, Subject<'_>, Vec<String>)> = Vec::new();
+  let mut subjects: Vec<(&PatronusRobot, Subject, Vec<String>)> = Vec::new();
   for branch in &table.branches {
     let ancestors = table.ancestors_of(&branch.name);
     if let Some(robot) = robot_of(&branch.name).filter(lands)
       && !ancestors.is_empty()
     {
-      subjects.push((robot, Subject::Branch(&branch.name), ancestors));
+      subjects.push((robot, Subject::Branch { name: branch.name.clone() }, ancestors));
     }
   }
   for stack in &table.stack_branches {
     if let Some(robot) = stack_robot_of(&stack.root).filter(lands)
       && !stack.members.is_empty()
     {
-      subjects.push((robot, Subject::Stack(&stack.root), stack.members.clone()));
+      subjects.push((robot, Subject::WholeStack { root: stack.root.clone() }, stack.members.clone()));
     }
   }
 
@@ -377,7 +355,7 @@ fn running_spans<'r>(
       .collect()
   };
   let mut asked: Vec<(String, RobotLandingRequest)> = Vec::new();
-  let mut planned: Vec<Planned<'_, '_, Option<HashMap<String, Carried>>>> = Vec::new();
+  let mut planned: Vec<Planned<'_, Option<HashMap<String, Carried>>>> = Vec::new();
   for (robot, subject, candidates) in subjects {
     let Some(source) = robot.source_revision.as_deref() else {
       // just started: its commit is not known yet
@@ -389,7 +367,7 @@ fn running_spans<'r>(
       });
       continue;
     };
-    if hashes_tell(table, remote, subject, source).is_some() {
+    if hashes_tell(table, remote, &subject, source).is_some() {
       let carried = all_commits(&candidates);
       planned.push(Planned {
         robot,
@@ -399,9 +377,9 @@ fn running_spans<'r>(
       });
       continue;
     }
-    let branches = match subject {
-      Subject::Branch(name) => candidates.iter().cloned().chain(std::iter::once(name.to_string())).collect(),
-      Subject::Stack(_) => candidates.clone(),
+    let branches = match &subject {
+      Subject::Branch { name } => candidates.iter().cloned().chain(std::iter::once(name.clone())).collect(),
+      Subject::WholeStack { .. } => candidates.clone(),
     };
     let spans = &memo.spans;
     planned.push(ask_content(table, robot, subject, source, branches, candidates, |key| spans.contains_key(key), &mut asked));
@@ -548,7 +526,7 @@ pub fn patronus_view(
       }),
       (_, Some(robot)) if holds(robot) && robot.branch_name.as_deref() == Some(name) => Some(HoldView {
         kind: HoldKind::Own,
-        by: Subject::Branch(name).robot_of(robot),
+        by: Subject::Branch { name: name.to_string() }.robot_of(robot),
         carried: None,
       }),
       _ => hold_span_of.get(name).map(|span| HoldView {
@@ -564,7 +542,7 @@ pub fn patronus_view(
       .iter()
       .rev()
       .find_map(|ancestor| match robot_of(ancestor).filter(|robot| lands(robot)) {
-        Some(robot) => Some(Subject::Branch(ancestor).robot_of(robot)),
+        Some(robot) => Some(Subject::Branch { name: ancestor.clone() }.robot_of(robot)),
         None => span_of.get(ancestor).filter(|span| span.by.branch != name).map(|span| span.by.clone()),
       });
     let start_blocked = robot.is_some_and(|robot| {
@@ -599,10 +577,11 @@ pub fn patronus_view(
   for stack in table.stack_branches.iter().filter(|stack| !stack.members.is_empty()) {
     let root = stack.root.as_str();
     let robot = stack_robot_of(root);
-    let landing_member = stack
-      .members
-      .iter()
-      .find_map(|member| robot_of(member).filter(|robot| lands(robot)).map(|robot| Subject::Branch(member).robot_of(robot)));
+    let landing_member = stack.members.iter().find_map(|member| {
+      robot_of(member)
+        .filter(|robot| lands(robot))
+        .map(|robot| Subject::Branch { name: member.clone() }.robot_of(robot))
+    });
     let hold_robot_id = robot
       .filter(|robot| holds(robot) && robot.stack_root.as_deref() == Some(root))
       .map(|robot| robot.id.clone());

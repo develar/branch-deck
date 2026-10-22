@@ -1,7 +1,8 @@
 //! The types that cross a process or window boundary: what the cores hand to `bd` (JSON) and to the app (Tauri
-//! commands and events, `src/lib/bindings.ts`), and what the page sends back. Data only, no IO: serde, and `specta`
-//! behind the feature of the same name. `git-ops` depends on this crate, never the other way round: it reads and
-//! reports these types, the functions that build them stay there.
+//! commands and events, `src/lib/bindings.ts`), and what the page sends back. Data only, no IO: serde, and behind the
+//! features of the same names `specta` (the bindings of the app) and `schemars` (`bd schema`, which `bd-core` enables).
+//! `git-ops` depends on this crate, never the other way round: it reads and reports these types, the functions that
+//! build them stay there.
 //!
 //! - the crate root: the events of a sync (`SyncEvent`, `ProgressReporter`), the statuses of its branches and commits
 //!   (`BranchSyncStatus`, `CommitSyncStatus`, `BranchError`), its grouped branches, the remote status of a branch, the

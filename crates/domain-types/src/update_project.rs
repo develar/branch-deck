@@ -1,5 +1,9 @@
 //! Update Project: whether the checked out branch can be brought onto its upstream, and what the update did
-//! (`git-ops`: `update_branch`, `word_replay`). The update of the app is `update`
+//! (`git-ops`: `update_branch`, `word_replay`). The update of the app is `update`.
+//!
+//! The limits the `///` comments name are constants of the functions that build these types, not of this crate:
+//! `MAX_ATTRIBUTED_FILES` in `git_ops::paths`, `MAX_UPSTREAM_COMMITS` and `MAX_BLOCKED_PATHS` in
+//! `git_ops::update_branch`. The `///` comments themselves stay as they are: specta writes them into `bindings.ts`.
 
 use crate::conflict::ResolvedFileSummary;
 use serde::{Deserialize, Serialize};

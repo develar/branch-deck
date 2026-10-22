@@ -1710,6 +1710,7 @@ dependencies = [
  "anyhow",
  "schemars 1.2.3",
  "serde",
+ "serde_json",
  "specta",
  "thiserror 2.0.21",
 ]

@@ -31,9 +31,9 @@ master, можно ли её запустить, что нужно подтве�
 sync на `(repository, prefix)` и выводит одно правило для обоих клиентов (`patronus_view`). Приложение и `bd` — один
 бинарник: `src-tauri/src/main.rs` передаёт `bd`/`cli` в `bd_cli::run`. Фальшивые сервисы существуют:
 `crates/github/src/fake_github.rs`, `crates/patronus/src/fake_patronus.rs` (feature `fake`). Landing gate
-(`sync_core::landing_gate`: `check_landing_gate`, `LandingSubject`, `LandingRefusal`, `LandingFix`,
-`LandingAllowances` в `sync_types::patronus`) уже решается в Rust и показывается поповером — это образец того, как
-должно быть устроено всё остальное.
+(`sync_core::landing_gate`: `check_landing_gate` над `Subject`, `LandingRefusal` и `LandingFix` из
+`domain_types::landing`, `LandingAllowances` в `domain_types::patronus`) уже решается в Rust и показывается поповером —
+это образец того, как должно быть устроено всё остальное.
 
 ### Проверенные факты (master `f3bea2b9`)
 
@@ -166,7 +166,9 @@ flowchart TD
 
 **Запрещённые рёбра** проверяет тест над `cargo metadata` (`crates/bd-cli/src/architecture_test.rs`, рядом с `process_budget_test.rs`, с
 `s0a-safety-net`; первый allowlist перечисляет сегодняшние нарушения и сжимается на каждом этапе, в `s14-fence` он
-пуст):
+пуст). Он идёт по обычным, не optional рёбрам: зависимость за feature (fake сервиса для тестов, `specta`) добавляет
+тот, кто включает feature, а не сам crate; `cargo tree -p <crate>` показывает её из-за объединения features по
+workspace (`.cargo/config.toml`). Правила:
 
 - `domain-types` и `domain-policy` не достигают ничего с IO, в том числе транзитивно: ни `git-ops`, ни executor, ни
   reqwest, tokio, tauri, clap.
@@ -308,8 +310,9 @@ confirmations }` для Safe Push и Dry Run — результат того ж�
 
 ### Контракты
 
-- `Subject = Branch(name) | WholeStack { root }` — owned-форма существующего `LandingSubject`, один enum в
-  `domain-types`; строковый `stack:<root>` исчезает.
+- `Subject = Branch { name } | WholeStack { root }` (`domain_types::landing`, s2) — один enum в `domain-types`,
+  struct-варианты ради `tag = "kind"` на проводе; `bd safe-push`, gate и роботы `patronus_view` строят его, других
+  форм «ветка или весь стек» нет; строковый `stack:<root>` исчезает.
 - `Intent`: `Land { subject, mode: SafePush | DryRun, profile: Default | Id | None, without_approvals, allow:
   LandingAllowances }`, `Push { subject, scope: Alone | WithAncestors | WithChildren | UpTo{commit} | Unapplied,
   expect_remote, force, restart_running }`, `RestartRobot`, `CancelRobot`, `Retarget { pull_request }`,
@@ -773,16 +776,20 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `update_branch::blocked_state` (был `UpdateState::blocked`) и `word_replay::resolve_note` (был
     `UpdateResolvedCommit::note`). `Subject` — `Branch { name }` и `WholeStack { root }`, не newtype-варианты: serde
     отказывает внутренне тегированному enum (`tag = "kind"`) на newtype-варианте строки; `LandingSubject` удалён,
-    `LandingGateParams::subject()` строит `Subject`. `architecture_test.rs`: `UNREACHABLE` запрещает `domain-types`
-    достигать `git-ops`, `git-executor`, `object-cache`, `reqwest`, `tokio`, Tauri и `clap`, `patronus` — `git-ops`.
-    `cargo tree -p patronus -e normal` всё ещё показывает `git-executor`: через `test-utils` feature `fake`, которую
-    включает `test-server`, а `.cargo/config.toml` объединяет features по workspace; с
-    `--config 'resolver.feature-unification="selected"'` git-crates нет. Убрать ребро — вынести `fake_server` из
-    `test-utils`, вне s2.
+    `LandingGateParams::subject()` строит `Subject`; `bd safe-push` держит его в `Start` вместе со stack-веткой
+    ветвящегося стека, `patronus_view` строит из него `RobotOf` (`Subject::robot_of`). `architecture_test.rs`:
+    `UNREACHABLE` запрещает `domain-types` достигать `git-ops`, `git-executor`, `object-cache`, `reqwest`, `tokio`,
+    Tauri и `clap`, `patronus` — `git-ops` и `git-executor`; optional рёбра тест не проходит (`Dependency::optional`
+    из `cargo metadata`), поэтому `test-utils` за feature `fake` (`fake_server` для `fake_patronus`) правило не
+    нарушает. `cargo tree -p patronus -e normal` всё же показывает `git-executor` через это ребро: `.cargo/config.toml`
+    объединяет features по workspace; с `--config 'resolver.feature-unification="selected"'` git-crates нет. Убрать
+    ребро совсем — вынести `fake_server` из `test-utils`, вне s2.
 - **Удаляется:** `crates/sync-types`, `crates/sync-test-utils`; записи allowlist `sync-types → git-ops`,
   `patronus → git-ops`.
 - **Проверки:** `bindings.ts` байт в байт (specta не зависит от путей crates); `bd schema` без изменений;
-  `cargo tree -p domain-types` и `-p patronus` без git- и IO-crates.
+  `cargo tree -p domain-types` без git- и IO-crates; `cargo tree -p patronus -e normal --config
+  'resolver.feature-unification="selected"'` без git-crates (без `--config` виден `git-executor` за feature `fake`, см.
+  выше); `architecture_test` держит оба правила.
 - **Критерий выхода:** `domain-policy` может зависеть от `domain-types`, не наследуя IO.
 
 ### s3-crates

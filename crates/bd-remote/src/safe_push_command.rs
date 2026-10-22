@@ -403,12 +403,13 @@ struct StackPush {
   draft: PullRequestDraft,
 }
 
-/// What a start lands, from which branch
-enum StartSubject<'a> {
-  /// A branch with the branches it is built on, from its virtual branch
-  Branch(String),
-  /// The whole stack of a stack that forks, from its stack branch
-  Stack(&'a StackBranchUpdate),
+/// What a start lands, and from which branch: a branch with the branches it is built on starts from its virtual
+/// branch, the whole stack of a straight chain from its last branch, the whole stack of a stack that forks from its
+/// stack branch
+struct Start<'a> {
+  subject: Subject,
+  /// The stack branch the whole stack of a stack that forks starts from; the other starts have none
+  forking: Option<&'a StackBranchUpdate>,
 }
 
 /// What to do with an unapplied branch instead of its Safe Push
@@ -440,12 +441,21 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   } else {
     None
   };
-  let subject = match &whole_stack {
-    None => StartSubject::Branch(args.branch.clone()),
-    Some(WholeStack::Chain { leaf, .. }) => StartSubject::Branch(leaf.clone()),
-    Some(WholeStack::Forking(update)) => StartSubject::Stack(update),
+  let start = match &whole_stack {
+    None => Start {
+      subject: Subject::Branch { name: args.branch.clone() },
+      forking: None,
+    },
+    Some(WholeStack::Chain { leaf, .. }) => Start {
+      subject: Subject::Branch { name: leaf.clone() },
+      forking: None,
+    },
+    Some(WholeStack::Forking(update)) => Start {
+      subject: Subject::WholeStack { root: update.root.clone() },
+      forking: Some(update),
+    },
   };
-  let plan = plan(context, args, &service, &github, runtime, &synced, mode, &subject, target_fetch)?;
+  let plan = plan(context, args, &service, &github, runtime, &synced, mode, &start, target_fetch)?;
   let mut output = SafePushOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -495,7 +505,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     if refusal.code == ErrorCode::ApprovalsMissing {
       error.review = output.review.take().map(Box::new);
     }
-    if let (ErrorCode::StackConflict, StartSubject::Stack(update)) = (refusal.code, &subject)
+    if let (ErrorCode::StackConflict, Some(update)) = (refusal.code, start.forking)
       && let Some(conflict) = &update.conflict
     {
       error.commits = vec![context.short_ids(std::iter::once(conflict.commit.as_str())).get(&conflict.commit).to_string()];
@@ -868,10 +878,10 @@ fn plan(
   runtime: &Runtime,
   synced: &SyncOutput,
   mode: PatronusPushMode,
-  subject: &StartSubject<'_>,
+  start: &Start<'_>,
   target_fetch: Option<TargetFetch>,
 ) -> Result<Plan, CliError> {
-  if let StartSubject::Branch(name) = subject {
+  if let Subject::Branch { name } = &start.subject {
     let branch = synced
       .branches
       .iter()
@@ -887,9 +897,12 @@ fn plan(
   }
   // a parked branch stays local, and so does what carries its commits: a branch built on it, the whole stack
   let report = &synced.report;
-  let parked = match subject {
-    StartSubject::Branch(name) => parked_state(&report.branches, &report.grouping.parked.entries, name).map(|parked| parked.reason(name)),
-    StartSubject::Stack(update) => update
+  let parked = match start.forking {
+    None => {
+      let name = start.subject.name();
+      parked_state(&report.branches, &report.grouping.parked.entries, name).map(|parked| parked.reason(name))
+    }
+    Some(update) => update
       .members
       .iter()
       .find_map(|member| parked_state(&report.branches, &report.grouping.parked.entries, member).map(|parked| parked.reason(member)))
@@ -920,9 +933,9 @@ fn plan(
   let facts = PatronusFacts::read(context, &table, &remote_of(context, synced), user_robots);
   let landed = landed_branches(&facts);
   let pushes = mode != PatronusPushMode::DryRun;
-  let landing = match subject {
-    StartSubject::Branch(name) => branch_landing(context, synced, &table, &facts, name, pushes)?,
-    StartSubject::Stack(update) => stack_landing(context, synced, &facts, update, pushes)?,
+  let landing = match start.forking {
+    None => branch_landing(context, synced, &table, &facts, start.subject.name(), pushes)?,
+    Some(update) => stack_landing(context, synced, &facts, update, pushes)?,
   };
   let Landing {
     name,
@@ -976,12 +989,8 @@ fn plan(
   // a branch outside it adds; git merges either, the build fails
   let session = session_of_sync(context, &synced.report)?;
   let built: Vec<&str> = lands.iter().map(String::as_str).collect();
-  let gate_subject = match subject {
-    StartSubject::Branch(name) => Subject::Branch { name: name.clone() },
-    StartSubject::Stack(update) => Subject::WholeStack { root: update.root.clone() },
-  };
   let landed_commits: HashSet<String> = landed.values().flat_map(|landed| landed.landed.iter().cloned()).collect();
-  let gate = check_landing_gate(&session, &gate_subject, &landed_commits).map_err(regroup_error)?;
+  let gate = check_landing_gate(&session, &start.subject, &landed_commits).map_err(regroup_error)?;
   let (dangling, warnings) = dangling_references_in(context, &session, &gate.report, &built)?;
   if !dangling.is_empty() && !args.allow_dangling {
     // the whole stack is built on nothing: the branch that removes the declaration names it

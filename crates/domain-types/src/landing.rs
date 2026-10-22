@@ -2,11 +2,14 @@
 //! builds it for `bd safe-push`, the start of the app and the landing needs of the repository view: typed, so the CLI
 //! and the app each name it in their own words, and each refusal carries the fix the user can run (`LandingFix`).
 
+use crate::patronus::PatronusRobot;
 use crate::repository_view::RobotOf;
 use serde::{Deserialize, Serialize};
 
-/// The owned subject of a landing: a branch with what it is built on, or the whole stack of a root. Struct variants,
-/// as an internally tagged enum can't serialize a newtype variant of a string
+/// The owned subject of a landing, the one shape of "a branch, or the whole stack of a root" (`bd safe-push`, the
+/// landing gate, the robot of the repository view): a branch with what it is built on, or the whole stack of a root.
+/// Struct variants, as an internally tagged enum can't serialize a newtype variant of a string; on the wire
+/// `{"kind":"branch","name":…}` and `{"kind":"wholeStack","root":…}` (`landing_test.rs`)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -23,6 +26,15 @@ impl Subject {
     match self {
       Self::Branch { name } => name,
       Self::WholeStack { root } => root,
+    }
+  }
+
+  /// The robot that ran on this subject, as the repository view names it
+  pub fn robot_of(&self, robot: &PatronusRobot) -> RobotOf {
+    RobotOf {
+      branch: self.name().to_string(),
+      robot_id: robot.id.clone(),
+      whole_stack: matches!(self, Self::WholeStack { .. }),
     }
   }
 }
@@ -153,3 +165,7 @@ impl LandingRefusal {
     }
   }
 }
+
+#[cfg(test)]
+#[path = "landing_test.rs"]
+mod landing_test;

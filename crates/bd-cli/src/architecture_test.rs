@@ -4,7 +4,10 @@
 //! breaks no rule fails too, so the list only shrinks. A failure names the edge, or the path of a forbidden reach.
 //!
 //! `--no-deps` lists the dependencies of the workspace crates only: a reach goes through workspace crates and ends at
-//! the first external crate (`reqwest` is seen, the `tokio` that `reqwest` pulls in is not).
+//! the first external crate (`reqwest` is seen, the `tokio` that `reqwest` pulls in is not). An optional dependency is
+//! not followed: a feature adds it for the crate that enables the feature (the fake of a service for its tests, `specta`
+//! for the app), it is not what the crate is; the workspace's feature unification (`.cargo/config.toml`) is why
+//! `cargo tree -p <crate>` shows it all the same.
 
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
@@ -40,7 +43,7 @@ const UNREACHABLE: &[Unreachable] = &[
   },
   Unreachable {
     from: "patronus",
-    forbidden: &["git-ops"],
+    forbidden: &["git-ops", "git-executor"],
     why: "the Patronus client runs no git",
   },
   Unreachable {
@@ -106,6 +109,8 @@ enum Kind {
 struct Dependency {
   name: String,
   kind: Kind,
+  /// Behind a feature of the crate (`optional = true`)
+  optional: bool,
   features: Vec<String>,
 }
 
@@ -142,6 +147,7 @@ fn parse_metadata(metadata: &Value) -> Graph {
             Some("build") => Kind::Build,
             Some(other) => panic!("unknown dependency kind {other}"),
           },
+          optional: dependency["optional"].as_bool().expect("no optional in a dependency"),
           features: dependency["features"].as_array().into_iter().flatten().map(|feature| text(feature, "feature")).collect(),
         })
         .collect();
@@ -169,14 +175,14 @@ fn is_family(name: &str) -> bool {
   is_layer(name) && name != BD_CORE && name != BD_CLI
 }
 
-/// Every crate that `from` reaches over normal edges outside `allowed`, with its path from `from`
+/// Every crate that `from` reaches over normal, non-optional edges outside `allowed`, with its path from `from`
 fn reach(graph: &Graph, allowed: &[&Allowed], from: &str) -> BTreeMap<String, Vec<String>> {
   let mut paths = BTreeMap::from([(from.to_owned(), vec![from.to_owned()])]);
   let mut queue = VecDeque::from([from.to_owned()]);
   while let Some(name) = queue.pop_front() {
     let path = paths[&name].clone();
     for dependency in graph.get(&name).into_iter().flatten() {
-      if dependency.kind != Kind::Normal || is_allowed(allowed, &name, &dependency.name) || paths.contains_key(&dependency.name) {
+      if dependency.kind != Kind::Normal || dependency.optional || is_allowed(allowed, &name, &dependency.name) || paths.contains_key(&dependency.name) {
         continue;
       }
       let mut next = path.clone();
@@ -277,13 +283,14 @@ fn the_rules_of_the_architecture_name_crates_of_the_workspace() {
   assert!(unknown.is_empty(), "the architecture rules name crates the workspace lacks (renamed?): {unknown:?}");
 }
 
-/// A graph of `(from, to, kind, features)` edges, each `from` a workspace crate
+/// A graph of `(from, to, kind, features)` edges, none optional, each `from` a workspace crate
 fn graph_of(edges: &[(&str, &str, Kind, &[&str])]) -> Graph {
   let mut graph = Graph::new();
   for (from, to, kind, features) in edges {
     graph.entry((*from).to_owned()).or_default().push(Dependency {
       name: (*to).to_owned(),
       kind: *kind,
+      optional: false,
       features: features.iter().map(|feature| (*feature).to_owned()).collect(),
     });
   }
@@ -313,6 +320,25 @@ fn the_architecture_check_names_the_path_of_a_forbidden_reach() {
   assert_eq!(
     violations(&graph, &[&allowed]),
     ["  domain-types depends on tauri-build (Build): only the app depends on Tauri"]
+  );
+}
+
+#[test]
+fn the_architecture_check_follows_no_optional_edge() {
+  // the fake of a service, behind its `fake` feature, reaches the test utilities and git; the client does not
+  let mut graph = graph_of(&[("test-utils", "git-executor", Kind::Normal, &[]), ("patronus", "sync-utils", Kind::Normal, &[])]);
+  graph.get_mut("patronus").unwrap().push(Dependency {
+    name: "test-utils".to_owned(),
+    kind: Kind::Normal,
+    optional: true,
+    features: vec!["http".to_owned()],
+  });
+  assert_eq!(violations(&graph, &[]), Vec::<String>::new());
+  // the same edge as a plain dependency is the reach it hides
+  graph.get_mut("patronus").unwrap().last_mut().unwrap().optional = false;
+  assert_eq!(
+    violations(&graph, &[]),
+    ["  patronus reaches git-executor (patronus -> test-utils -> git-executor): the Patronus client runs no git"]
   );
 }
 
