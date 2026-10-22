@@ -18,13 +18,11 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import {
   AWAITING_CODE_OWNER,
-  NO_REVIEW_NEEDED,
   availableRobots,
   expectPatronusStarts,
   mergeRunningRobot,
   mergeRunningRobots,
   robot,
-  routeReviewRequirement,
   setupRunningRobot,
   setupTakenRobot,
   startRequest,
@@ -885,8 +883,9 @@ test.describe("Stacked branches", () => {
     ): Promise<{ pushes: PushRequest[]; repo: TestRepositoryBuilder }> {
       const repo = await setupRepo("stacked_branches", { patronus: availableRobots() })
       await syncAndWaitForBranches()
+      // the robots load after the sync, with the Safe Push slots: S before them finds no Patronus and does nothing
+      await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
       const pushes = await routePush(page, {})
-      await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
       if (refuseStarts) {
         await repo.refusePatronusStarts("Patronus is restarting")
       }
@@ -1203,7 +1202,6 @@ test.describe("Stacked branches", () => {
         pullRequests: availablePullRequests(pullRequest("oauth", 8)),
       })
       await syncAndWaitForBranches()
-      await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
       const oauthRow = findBranchRow(page, "oauth")
       await expect(oauthRow.getByTestId("pull-request-chip")).toBeVisible()
@@ -1404,7 +1402,6 @@ test.describe("Stacked branches", () => {
       const repo = await setupRepo("stacked_branches", { patronus: availableRobots() })
       await syncAndWaitForBranches()
       await routePush(page, {})
-      await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
       await routeCommandError(page, "get_stack_independence", "The trial build failed")
       // the robot the fake Patronus starts
       const started = robot("oauth", "started-1")

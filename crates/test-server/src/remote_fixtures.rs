@@ -162,14 +162,14 @@ pub struct PatronusDetailsFixture {
   attempt_builds: HashMap<String, serde_json::Value>,
 }
 
-type FixtureResult = Result<StatusCode, (StatusCode, String)>;
+pub(crate) type FixtureResult = Result<StatusCode, (StatusCode, String)>;
 
-fn unknown_repository() -> (StatusCode, String) {
+pub(crate) fn unknown_repository() -> (StatusCode, String) {
   (StatusCode::UNPROCESSABLE_ENTITY, "no such test repository".to_string())
 }
 
 /// The remote host of the repository `id` and its path
-fn host_of(state: &AppState, id: &str) -> Result<(Arc<RemoteHost>, String), (StatusCode, String)> {
+pub(crate) fn host_of(state: &AppState, id: &str) -> Result<(Arc<RemoteHost>, String), (StatusCode, String)> {
   let repo = state.repositories.get(id).ok_or_else(unknown_repository)?;
   Ok((repo.remote(&state.git_executor), repo.path.clone()))
 }
@@ -382,6 +382,7 @@ pub fn fixture_pulls(result: &PullRequestsResult, owner: &str, branch_prefix: &s
         pull_request,
         body: String::new(),
         comments: Vec::new(),
+        reviews: Vec::new(),
         assignees: Vec::new(),
       })
       .collect(),
@@ -435,6 +436,8 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
     missing_branches: fixture.missing_branches,
     dismiss_stale_reviews_on_push: fixture.dismiss_stale_reviews_on_push,
     clock: PAGE_CLOCK_START,
+    // the host keeps the replies of the fixture before
+    patronus_replies: std::collections::BTreeMap::new(),
   };
   host.set_github(github, answers.signed_in);
   Ok(StatusCode::OK)

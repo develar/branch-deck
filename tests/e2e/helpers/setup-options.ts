@@ -61,6 +61,13 @@ export const SetupRepoOptionsSchema = z.object({
    * Default: undefined - no merge profile, only the default checks
    */
   patronusProfiles: z.any().optional(),
+
+  /**
+   * What the fake Patronus answers the code-owner pre-check with, by branch (see `TestRepositoryBuilder.setReviewAnswers`),
+   * set before the first sync
+   * Default: undefined - the owners of the files a branch changes by the `OWNERSHIP` files of the target
+   */
+  reviewAnswers: z.any().optional(),
 })
 
 /**

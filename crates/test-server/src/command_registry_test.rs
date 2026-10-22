@@ -14,8 +14,6 @@ const COMMAND_COUNT: usize = 112;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 const UPDATER: &str = "the test server has no updater: the page mock answers that the app is up to date (`NO_UPDATE`)";
-const PATRONUS: &str = "Patronus: a test answers it with `routeCommand` (patronus-helpers.ts); unrouted it fails with 405";
-const GITHUB: &str = "GitHub: a test answers it with `routeCommand` (pull-request-helpers.ts); unrouted it fails with 405";
 const GITHUB_SIGN_IN: &str = "the GitHub device flow: a test answers it with `routeCommand`; unrouted it fails with 405";
 const YOUTRACK: &str = "YouTrack: a test answers it with `routeCommand` (youtrack-helpers.ts); unrouted it fails with 405";
 const NOT_TESTED: &str = "no E2E test installs an update or restarts the app: a call fails with 405";
@@ -31,10 +29,6 @@ const PAGE_MOCKED: &[(&str, &str)] = &[
   ("check_for_updates", UPDATER),
   ("get_update_status", UPDATER),
   // reached only through `routeCommand` of a test
-  ("post_patronus_command", PATRONUS),
-  ("read_patronus_command_reply", PATRONUS),
-  ("request_pull_request_reviewers", GITHUB),
-  ("submit_pull_request_review", GITHUB),
   ("start_github_sign_in", GITHUB_SIGN_IN),
   ("wait_github_sign_in", GITHUB_SIGN_IN),
   ("cancel_github_sign_in", GITHUB_SIGN_IN),
@@ -227,7 +221,7 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
 fn page_mocked_only_goes_down() {
   assert_eq!(
     PAGE_MOCKED.len(),
-    23,
+    19,
     "PAGE_MOCKED may only shrink: a new command gets a route of the test server, not a page mock; when a command gets its route, lower this number"
   );
 }

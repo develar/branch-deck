@@ -7,17 +7,24 @@ import { findBranchRow, getBranchDetailsRow, getLandingNode } from "../helpers/b
 import {
   AWAITING_CODE_OWNER,
   NOT_EVALUATED,
-  NO_REVIEW_NEEDED,
   availableRobots,
   expectPatronusStarts,
   mergeRunningRobot,
   mergeRunningRobots,
   robot,
-  routeReviewRequirement,
   setupRunningRobot,
   wholeStackStartRequest,
 } from "../helpers/patronus-helpers"
-import { availablePullRequests, createPullRequestDialog, type GitHubFixture, getOpenedUrls, gitHubWrites, pullRequest, reviewer } from "../helpers/pull-request-helpers"
+import {
+  availablePullRequests,
+  createPullRequestDialog,
+  type GitHubFixture,
+  getOpenedUrls,
+  gitHubRequests,
+  gitHubWrites,
+  pullRequest,
+  reviewer,
+} from "../helpers/pull-request-helpers"
 import type { PushRequest } from "../helpers/push-helpers"
 import { pushOutcome, routeHeldPush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
@@ -26,7 +33,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, recordCommand, routeCommand } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
@@ -121,7 +128,6 @@ function wholeStackRobot(root: string, id: string, patch: Partial<PatronusRobot>
  */
 async function routeWholeStackStart(page: Page): Promise<PushRequest[][]> {
   const { stackPushes } = await routePushBranches(page, {})
-  await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
   return stackPushes
 }
 
@@ -156,13 +162,20 @@ async function setupUnaskedStackPullRequest(
   syncAndWaitForBranches: () => Promise<void>,
   template: string,
   root: string,
-): Promise<void> {
+): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo(template, {
     patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
-    pullRequests: withStackPullRequests(availablePullRequests(), { [root]: stackPullRequest(root, 12) }),
+    // the code owner a collaborator, whom a review can be asked from
+    pullRequests: withStackPullRequests({ ...availablePullRequests(), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }] }, { [root]: stackPullRequest(root, 12) }),
+    reviewAnswers: { [`stack:${root}`]: AWAITING_CODE_OWNER },
   })
-  await repo.setReviewAnswers({ answers: { [`stack:${root}`]: AWAITING_CODE_OWNER } })
   await syncAndWaitForBranches()
+  return repo
+}
+
+/** The reviewers asked on #12 of the fake GitHub, by request */
+function reviewRequestsOf12(repo: TestRepositoryBuilder): Promise<unknown[]> {
+  return gitHubRequests(repo, "POST", "pulls", 12, "requested_reviewers")
 }
 
 /**
@@ -395,9 +408,8 @@ test.describe("Whole stack", () => {
   }) => {
     // the code owner of the whole stack has to approve in #12, and nobody asked him yet
     await stackBranchAheadOfRemote(page, "air")
-    await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stack_island", "air")
+    const repo = await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stack_island", "air")
     const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
-    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
     const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
     await expect(slot).toHaveAttribute("data-step", "requestReview")
     await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "yourStep")
@@ -411,14 +423,14 @@ test.describe("Whole stack", () => {
     const push = islandPush(page, "air")
     await expect(push).toHaveAccessibleName("Pushing the whole stack 45%")
     await expect(push).toHaveAttribute("aria-busy", "true")
-    expect(requests).toEqual([])
+    expect(await reviewRequestsOf12(repo)).toEqual([])
     // the request is the move made: the whole stack waits for the reviewer from the click on, its push included
     await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "waiting")
 
     release()
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #12" })).toBeVisible()
     expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: "stack-pushed" })]])
-    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 12, reviewers: ["ikorennoy"] })])
+    expect(await reviewRequestsOf12(repo)).toEqual([{ reviewers: ["ikorennoy"] }])
     await expect(push).not.toHaveAttribute("aria-busy", "true")
   })
 
@@ -428,8 +440,7 @@ test.describe("Whole stack", () => {
     syncAndWaitForBranches,
   }) => {
     // auth forks, no island: the code owner of the whole stack has to approve in #12, and nobody asked him yet
-    await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stacked_branches", "auth")
-    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
+    const repo = await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stacked_branches", "auth")
     const popover = page.getByTestId("request-review-popover")
     const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
     const ask = "Waits for the approval of IJPL Code Platform: nobody of it is requested on #12. Ask Ilya Korennoy to review #12"
@@ -444,7 +455,7 @@ test.describe("Whole stack", () => {
     await expectPopoverAtSlot(popover, rootSlot)
     await page.keyboard.press("Escape")
     await expect(popover).toHaveCount(0)
-    expect(requests).toEqual([])
+    expect(await reviewRequestsOf12(repo)).toEqual([])
 
     // a menu is built on open: with the readiness known, the item's hover says whom it asks and why, and it asks him
     await openWholeStackSubmenu(page, "auth")
@@ -456,7 +467,7 @@ test.describe("Whole stack", () => {
     await expectPopoverAtSlot(popover, rootSlot)
     await popover.getByTestId("request-review-submit").click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #12" })).toBeVisible()
-    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 12, reviewers: ["ikorennoy"] })])
+    expect(await reviewRequestsOf12(repo)).toEqual([{ reviewers: ["ikorennoy"] }])
     await expect(popover).toHaveCount(0)
 
     // "⋯" of the root's row: the same item, the same popover
@@ -579,10 +590,11 @@ test.describe("Whole stack", () => {
   }) => {
     // no Patronus: no next step in any row, the request asks GitHub
     const carol = { login: "carol", name: "Carol Danvers" }
-    await setupRepo("stacked_branches", { pullRequests: withStackPullRequests({ ...availablePullRequests(), users: [carol] }, { auth: stackPullRequest("auth", 12) }) })
+    const repo = await setupRepo("stacked_branches", {
+      pullRequests: withStackPullRequests({ ...availablePullRequests(), users: [carol] }, { auth: stackPullRequest("auth", 12) }),
+    })
     await syncAndWaitForBranches()
     await routePushBranches(page, {})
-    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["carol"], refused: [] }))
     const popover = page.getByTestId("request-review-popover")
     const root = findBranchRow(page, "auth")
     await expect(root.getByTestId("request-review-anchor")).toHaveCount(1)
@@ -594,7 +606,7 @@ test.describe("Whole stack", () => {
     await page.getByRole("option", { name: /carol/ }).click()
     await popover.getByTestId("request-review-submit").click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Carol Danvers on #12" })).toBeVisible()
-    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 12, reviewers: ["carol"] })])
+    expect(await reviewRequestsOf12(repo)).toEqual([{ reviewers: ["carol"] }])
     await expect(popover).toHaveCount(0)
   })
 

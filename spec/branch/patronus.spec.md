@@ -1303,8 +1303,10 @@ explicit choice of the user, offered only where the approvals count in a pull re
   running robot `started-<n>` on the commit its branch is at, a restart `restarted-<n>`, a cancel makes the robot
   canceling. `GET …/patronus` (`getPatronusLog`) returns how often the app listed, polled and
   read details, and the start requests, the restarts, the cancels and the status reads the fake got, in order.
-  `get_branch_review_readiness` answers per branch what `POST /repositories/{id}/review-answers` sets, else "not
-  required". The `/patronus` comment and its reply are still answered in the page (`page.route`). The E2E repositories
+  `get_branch_review_readiness` runs the real core against the fake's pre-check, which answers per branch what
+  `POST /repositories/{id}/review-answers` sets, else by the code owners of the branch's paths (none without
+  `OWNERSHIP` files). The `/patronus` comment goes to the fake GitHub, whose bot replies as `…/patronus-replies` says
+  (👍 by default); a test asserts the comment GitHub got. The E2E repositories
   have no remote: a push answered in the page (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
 - Against the real Patronus: `pnpm run tauri dev`, open a checkout of `ultimate`; the log has one line per request
   ("listed Patronus robots", "polled Patronus robots") with its duration.

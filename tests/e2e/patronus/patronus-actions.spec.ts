@@ -30,10 +30,12 @@ import {
   createPullRequestDialog,
   dismissingApprovals,
   getOpenedUrls,
+  gitHubRequests,
   gitHubWrites,
   pullRequest,
   repoPath,
   reviewer,
+  skipCommandReplyWait,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
 import type { PushResult } from "../helpers/push-helpers"
@@ -676,8 +678,9 @@ test.describe("Patronus actions", () => {
     })
 
     test("should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupRobots(page, setupRepo, syncAndWaitForBranches)
-      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
+      const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+      // only on Space: Patronus finds no merge request, its pre-check needs the code owners
+      await repo.setReviewAnswers({ answers: { "JIRA-456": REVIEW_REQUIRED } })
 
       await slotSafePush(page, "JIRA-456").click()
       const popover = safePushPopover(page)
@@ -695,7 +698,7 @@ test.describe("Patronus actions", () => {
 
     test("should not check the review of a dry run", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupStarts(page, setupRepo, syncAndWaitForBranches)
-      const checks = await routeReviewRequirement(page, () => REVIEW_REQUIRED)
+      await repo.setReviewAnswers({ answers: { "JIRA-456": REVIEW_REQUIRED, "ABC-123": REVIEW_REQUIRED } })
 
       // "Dry Run" of the menu: the code owners don't check it, nothing to say, it starts
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
@@ -703,7 +706,7 @@ test.describe("Patronus actions", () => {
       await page.getByRole("menuitem", { name: "Dry Run", exact: true }).click()
       await expect(toastWith(page, "Dry Run started").locator("[data-slot=toast-description]")).toHaveText("JIRA-456 → master")
       expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456", { mode: "DRY_RUN" })])
-      expect(checks).toHaveLength(0)
+      expect(await repo.getReviewChecks()).toEqual({ calls: [], checks: [] })
       await expect(safePushPopover(page)).toHaveCount(0)
 
       // "Dry Run" of the Safe Push popover: it closes, and the dry run starts as the menu's does
@@ -757,8 +760,6 @@ test.describe("Patronus actions", () => {
   })
 
   test.describe("branches reviewed in GitHub pull requests", () => {
-    const NO_REVIEW: PatronusReviewRequirement = { required: false, mergeRequest: null, groups: [], skipped: false }
-
     /** issue_links mirrored to the GitHub repository `acme/monorepo`, with these pull requests and the profiles */
     async function setupGitHub(
       page: Page,
@@ -766,7 +767,19 @@ test.describe("Patronus actions", () => {
       syncAndWaitForBranches: () => Promise<unknown>,
       ...pullRequests: PullRequest[]
     ): Promise<TestRepositoryBuilder> {
+      return setupGitHubWith(page, setupRepo, syncAndWaitForBranches, undefined, ...pullRequests)
+    }
+
+    /** `setupGitHub` with what the pre-check answers by branch; without, no review is needed (no `OWNERSHIP` files) */
+    async function setupGitHubWith(
+      page: Page,
+      setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+      syncAndWaitForBranches: () => Promise<unknown>,
+      reviewAnswers: Record<string, PatronusReviewRequirement> | undefined,
+      ...pullRequests: PullRequest[]
+    ): Promise<TestRepositoryBuilder> {
       const repo = await setupRepo("issue_links", {
+        reviewAnswers,
         patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
         patronusProfiles: { profiles: PROFILES },
         pullRequests: { ...availablePullRequests(...pullRequests), users: [{ login: "alice-gh", name: "Alice" }] },
@@ -785,13 +798,12 @@ test.describe("Patronus actions", () => {
       setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
       syncAndWaitForBranches: () => Promise<unknown>,
     ) {
-      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
-      const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches)
+      const repo = await setupGitHubWith(page, setupRepo, syncAndWaitForBranches, { "JIRA-456": REVIEW_REQUIRED })
       const pushes = await routePush(page, {})
       return { repo, pushes }
     }
 
-    /** JIRA-456 with the open pull request #7 and no review needed; its push is answered in the page */
+    /** JIRA-456 with the open pull request #7 and no review needed (no `OWNERSHIP` files); its push is answered in the page */
     async function setupPullRequestStart(
       page: Page,
       setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
@@ -800,29 +812,26 @@ test.describe("Patronus actions", () => {
     ): Promise<TestRepositoryBuilder> {
       const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, patch))
       await routePush(page, {})
-      await routeReviewRequirement(page, () => NO_REVIEW)
       return repo
     }
 
+    /** The comments the app posted on #7 of the fake GitHub, by their text */
+    function comments(repo: TestRepositoryBuilder): Promise<unknown[]> {
+      return gitHubRequests(repo, "POST", "issues", 7, "comments")
+    }
+
     /**
-     * Runs the fake clock over the app's wait before it reads the bot's reply to the posted comment
-     * (`COMMAND_REPLY_INTERVAL_MS`, 3 s, in src/stores/patronus.ts) until it read it, instead of waiting it out
+     * The comment posted, then the fake clock over the app's wait before it reads the bot's reply (`COMMAND_REPLY_INTERVAL_MS`,
+     * 3 s, in src/stores/patronus.ts) until it read it, instead of waiting it out
      */
-    async function skipReplyWait(page: Page, posts: unknown[], replies: unknown[]) {
-      await expect.poll(() => posts.length).toBe(1)
+    async function skipReplyWait(page: Page, repo: TestRepositoryBuilder) {
+      await expect.poll(async () => (await comments(repo)).length).toBe(1)
       // the wait starts once the app has the posted comment, so a step can come before it: step until the read
-      await expect
-        .poll(async () => {
-          await page.clock.fastForward(3000)
-          return replies.length
-        })
-        .toBeGreaterThan(0)
+      await skipCommandReplyWait(page, repo)
     }
 
     test("should start a Safe Push from the pull request with a /patronus merge comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
-      const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "4402154133", url: "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133" }))
-      const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "accepted" }))
       const started = robot("JIRA-456", "pr-robot", {
         sourceRevision: null,
         startTime: Math.floor(Date.now() / 1000),
@@ -845,11 +854,15 @@ test.describe("Patronus actions", () => {
       await expect(popover.getByTestId("safe-push-review")).toHaveText("No code-owner review needed.")
       await expect(popover.getByTestId("safe-push-profile-field")).toHaveCount(0)
       await popoverStart(page).click()
-      await skipReplyWait(page, posts, replies)
+      await skipReplyWait(page, repo)
 
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
-      expect(posts).toEqual([expect.objectContaining({ pullRequestNumber: 7, mode: "rebaseAutosquash" })])
-      expect(replies).toEqual([expect.objectContaining({ pullRequestNumber: 7, commentId: "4402154133" })])
+      // the own branch stays: the sync archives it once merged
+      expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+      // the reply read is the one of the comment posted
+      const posted = (await repo.getGitHubLog()).requests.findIndex(it => it.method === "POST" && it.path === repoPath("issues", 7, "comments"))
+      const reads = (await repo.getGitHubLog()).requests.slice(posted + 1).filter(it => it.method === "GET" && it.path.startsWith(repoPath("issues", "comments")))
+      expect(reads.length).toBeGreaterThan(0)
       expect(lists.at(-1)?.since).not.toBeNull()
       // the comment started it: no start through the API
       expect((await repo.getPatronusLog()).starts).toEqual([])
@@ -860,16 +873,13 @@ test.describe("Patronus actions", () => {
     })
 
     test("should say why Patronus refused the comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
-      const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
-      const replies = await routeCommand(page, "read_patronus_command_reply", () => ({
-        status: "rejected",
-        reason: "Patronus did not start the robot due to an error. A robot is already running for the branch.",
-      }))
+      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
+      // the bot answers 👎 and says why in a comment of its own
+      await repo.setPatronusReplies({ 7: { status: "rejected", reason: "Patronus did not start the robot due to an error. A robot is already running for the branch." } })
 
       // nothing to say: the click comments at once
       await slotSafePush(page, "JIRA-456").click()
-      await skipReplyWait(page, posts, replies)
+      await skipReplyWait(page, repo)
       const error = toastWith(page, "Cannot start the Safe Push")
       await expect(error).toContainText("A robot is already running for the branch.")
       await expect(chip(page, "JIRA-456")).toHaveCount(0)
@@ -880,7 +890,6 @@ test.describe("Patronus actions", () => {
       // the rules of the repository dismiss stale reviews
       await repo.setPullRequests(dismissingApprovals(pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice", "approved")] })))
       const rules = await recordCommand(page, "get_branch_rules")
-      const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
 
       // the approvals of alice don't count for Patronus, the push dismisses them: the click says so first
       await slotSafePush(page, "JIRA-456").click()
@@ -890,16 +899,15 @@ test.describe("Patronus actions", () => {
         "The push dismisses the approvals of #7: the rules of the repository dismiss stale reviews when new commits are pushed.",
       )
       expect(rules).toEqual([expect.objectContaining({ branch: "master" })])
-      expect(posts).toEqual([])
+      expect(await comments(repo)).toEqual([])
       // a warning, not a refusal: the start comments
       await popoverStart(page).click()
-      await expect.poll(() => posts).toEqual([expect.objectContaining({ pullRequestNumber: 7 })])
+      await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
     })
 
     test("should wait for the rules before a push into an approved pull request: Enter must not dismiss its approvals", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
+      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
       const rules = await holdCommandCalls(page, "get_branch_rules")
-      const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
 
       const popover = await openSafePushWithKey(page, "JIRA-456")
       const status = popover.getByTestId("safe-push-status")
@@ -916,33 +924,32 @@ test.describe("Patronus actions", () => {
       await expect(popoverStart(page)).toBeFocused()
       await page.keyboard.press("Enter")
       // only the Enter after the rules started it
-      await expect.poll(() => posts).toEqual([expect.objectContaining({ pullRequestNumber: 7 })])
+      await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
     })
 
     test.describe("a push that dismisses the approvals Patronus counts", () => {
       /** #7 approved by the code owner Patronus counts, and the rules dismiss stale reviews; JIRA-456 has commits the remote lacks */
       async function setupApproved(page: Page, setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>) {
         const approved = pullRequest("JIRA-456", 7, { reviewers: [reviewer("ikorennoy", "approved")] })
-        await setupApprovalsDismissedByPush(setupRepo, syncAndWaitForBranches, "JIRA-456", approved)
+        const repo = await setupApprovalsDismissedByPush(setupRepo, syncAndWaitForBranches, "JIRA-456", approved)
         await expect(findBranchRow(page, "JIRA-456").getByTestId("pull-request-chip")).toBeVisible()
-        const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
         const pushes = await routePush(page, {})
-        return { posts, pushes }
+        return { repo, pushes }
       }
 
       test("should refuse the click with the push alone in its toast", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-        const { posts, pushes } = await setupApproved(page, setupRepo, syncAndWaitForBranches)
+        const { repo, pushes } = await setupApproved(page, setupRepo, syncAndWaitForBranches)
         await slotSafePush(page, "JIRA-456").click()
         // the robot would start without the approvals and fail: no start, the push is the step before it
         const refused = toastWith(page, "Safe Push of JIRA-456 can't start")
         await expect(refused).toContainText("The push dismisses the approvals of #7: push first, then ask for the review again")
         await refused.getByRole("button", { name: "Push", exact: true }).click()
         await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
-        expect(posts).toEqual([])
+        expect(await comments(repo)).toEqual([])
       })
 
       test("should say in the popover why it can't start, and push alone from it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-        const { posts, pushes } = await setupApproved(page, setupRepo, syncAndWaitForBranches)
+        const { repo, pushes } = await setupApproved(page, setupRepo, syncAndWaitForBranches)
         const popover = await openSafePushWithKey(page, "JIRA-456")
         const status = popover.getByTestId("safe-push-status")
         await expect(status).toHaveAttribute("data-kind", "refuse")
@@ -950,14 +957,13 @@ test.describe("Patronus actions", () => {
         await expect(popoverStart(page)).toBeDisabled()
         await popover.getByTestId("safe-push-push-only").click()
         await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
-        expect(posts).toEqual([])
+        expect(await comments(repo)).toEqual([])
       })
     })
 
     test("should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { isDraft: true, reviewers: [reviewer("alice", "approved")] }))
+      const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { isDraft: true, reviewers: [reviewer("alice", "approved")] }))
       await routePush(page, {})
-      const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "1", url: "u" }))
 
       // the state as the label, quiet, opening the pull request it waits in
       const step = findBranchRow(page, "JIRA-456").getByTestId("next-step")
@@ -974,7 +980,7 @@ test.describe("Patronus actions", () => {
       await expect(page.getByRole("menuitem", { name: "Safe Push With Profile…", exact: true })).toBeDisabled()
       // a dry run pushes nothing into the target: a draft doesn't hold it back, it comments on the pull request
       await page.getByRole("menuitem", { name: "Dry Run", exact: true }).click()
-      await expect.poll(() => posts).toEqual([expect.objectContaining({ pullRequestNumber: 7, mode: "dryRun" })])
+      await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus dry-run" }])
     })
 
     test("should offer no Safe Push of a branch whose pull request merged", async ({ page, setupRepo, syncAndWaitForBranches }) => {

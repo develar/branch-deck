@@ -6,13 +6,11 @@ import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { columnLefts, expectColumnAligned } from "../helpers/column-helpers"
 import {
-  NO_REVIEW_NEEDED,
   availableRobots,
   expectPatronusStarts,
   mergeRunningRobot,
   mergeRunningRobots,
   robot,
-  routeReviewRequirement,
   setupRunningRobot,
   startRequest,
   wholeStackStartRequest,
@@ -48,7 +46,6 @@ async function expectWholeStackPopoverAt(popover: Locator, slot: Locator): Promi
  * (logged, no robot holds the next start); the island, the slot of its header and the popover
  */
 async function refuseIslandStarts(page: Page, repo: TestRepositoryBuilder): Promise<{ air: Locator; headerSlot: Locator; popover: Locator }> {
-  await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
   await repo.refusePatronusStarts("Patronus is restarting")
   const air = island(page, "air")
   return { air, headerSlot: air.getByTestId("stack-island-actions").getByTestId("next-step-slot"), popover: safePushPopover(page) }

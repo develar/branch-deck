@@ -358,8 +358,10 @@ branch from all the facts (the branch, its robots, its pull request and the read
 ## Testing / Local Run
 
 - `pnpm test:unit`: `src/lib/branch-next-step.test.ts`, `src/stores/review-readiness.test.ts`.
-- `pnpm e2e`: `tests/e2e/next-step` (`TestRepositoryBuilder.setReviewAnswers`, the fixtures `AWAITING_CODE_OWNER`,
-  `APPROVED_BY_CODE_OWNER`, `NOT_EVALUATED`, `NO_REVIEW_NEEDED` of `tests/e2e/helpers/patronus-helpers.ts`).
+- `pnpm e2e`: `tests/e2e/next-step` (`TestRepositoryBuilder.setReviewAnswers`, the answers of the fake Patronus's
+  pre-check `AWAITING_CODE_OWNER`, `APPROVED_BY_CODE_OWNER`, `NOT_EVALUATED`, `NO_REVIEW_NEEDED` of
+  `tests/e2e/helpers/patronus-helpers.ts`, judged by the real core); a start from the pull request asserts the
+  `/patronus merge` comment the fake GitHub got, a review request the `requested_reviewers` request.
 
 ## References
 

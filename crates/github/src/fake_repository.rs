@@ -1,18 +1,25 @@
 //! One GitHub repository with state, behind `FakeGitHub` (`FakeGitHub::with_repository`): its pull requests, the
 //! user of its token, the users a review can be asked from, the branches GitHub has and the rules of a branch. It
 //! answers the REST and GraphQL requests of `sync_core` as GitHub does (`GET /user`, `POST pulls`, `GET`/`PATCH
-//! pulls/<n>`, `POST pulls/<n>/requested_reviewers`, `POST issues/<n>/comments` and `assignees`, `GET branches/<b>`,
-//! `GET rules/branches/<b>`, the GraphQL search of the user's pull requests and of the assignable users), and a write
-//! changes what the next read answers. A request of another repository is a 404, one without the token a 401, and
+//! pulls/<n>`, `POST pulls/<n>/requested_reviewers` and `reviews`, `POST issues/<n>/comments` and `assignees`, `GET
+//! issues/comments/<id>`, `GET issues/<n>/comments`, `GET branches/<b>`, `GET rules/branches/<b>`, the GraphQL search of
+//! the user's pull requests and of the assignable users), and a write changes what the next read answers. The Patronus
+//! bot answers a `/patronus` comment at once, as `patronus_replies` says: a reaction, and for a rejection its `⚠️`
+//! comment. A request of another repository is a 404, one without the token a 401, and
 //! `refusal` answers every request about the repository (a rate limit, no access). A scripted answer of `FakeGitHub`
 //! still wins over all of it.
 
 use crate::fake_github::FakeAnswer;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Mutex;
+use sync_types::patronus::PatronusCommandReply;
 use sync_types::pull_request::{GitHubUser, PullRequest, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
-use sync_utils::timestamp::format_utc_timestamp;
+use sync_utils::timestamp::{format_utc_timestamp, parse_rfc3339_timestamp};
+
+/// The login of the bot that answers the `/patronus` comments
+pub const PATRONUS_BOT: &str = "patronus-jb[bot]";
 
 /// The commit a branch of the repository points to, None for a branch GitHub doesn't have: the tests answer it from the
 /// git repository the branches are pushed to
@@ -30,13 +37,30 @@ pub struct FakePull {
   /// The comments of its conversation, in order
   pub comments: Vec<FakeComment>,
   pub assignees: Vec<String>,
+  /// The reviews submitted, in order
+  pub reviews: Vec<FakeReview>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FakeComment {
   pub id: u64,
   pub body: String,
   pub created_at: u32,
+  pub author: String,
+  pub bot: bool,
+  /// 👍 and 👎 reactions
+  pub plus_one: u32,
+  pub minus_one: u32,
+}
+
+/// A submitted review (`POST pulls/<n>/reviews`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FakeReview {
+  pub login: String,
+  /// `APPROVE`, `REQUEST_CHANGES` or `COMMENT`
+  pub event: String,
+  pub commit_id: String,
+  pub body: Option<String>,
 }
 
 /// What the repository is and holds; replaced as a whole by a test (`FakeGitHubRepository::set`)
@@ -61,6 +85,8 @@ pub struct RepositoryState {
   pub dismiss_stale_reviews_on_push: bool,
   /// Unix seconds: when a pull request a test creates is updated, and a comment created
   pub clock: u32,
+  /// How the Patronus bot answers a `/patronus` comment, by pull request number; accepted for one not named
+  pub patronus_replies: BTreeMap<u32, PatronusCommandReply>,
 }
 
 #[derive(Default)]
@@ -155,17 +181,41 @@ impl FakeGitHubRepository {
         request_reviewers(state, index, &body)?;
         Ok(this.rest_pull(state, index))
       })),
+      ("POST", ["pulls", number, "reviews"]) => Some(self.with_pull(&mut state, number, |_, state, index| submit_review(state, index, &body))),
       ("POST", ["issues", number, "comments"]) => Some(self.with_pull(&mut state, number, |_, state, index| {
-        let id = u64::try_from(state.pulls.iter().map(|pull| pull.comments.len()).sum::<usize>()).unwrap_or(u64::MAX - 1) + 1;
-        let comment = FakeComment {
-          id,
-          body: body["body"].as_str().unwrap_or_default().to_string(),
-          created_at: state.clock,
-        };
-        let answer = json!({"id": id, "body": comment.body, "created_at": format_utc_timestamp(comment.created_at)});
-        state.pulls[index].comments.push(comment);
-        Ok(FakeAnswer::status(201, answer))
+        let text = body["body"].as_str().unwrap_or_default().to_string();
+        let viewer = state.viewer.clone();
+        let id = add_comment(state, index, text.clone(), &viewer, false);
+        if text.trim_start().starts_with("/patronus") {
+          let number = state.pulls[index].pull_request.number;
+          let reply = state.patronus_replies.get(&number).cloned().unwrap_or(PatronusCommandReply::Accepted);
+          bot_reply(state, index, id, reply);
+        }
+        let comment = state.pulls[index].comments.iter().find(|comment| comment.id == id).cloned().unwrap_or_default();
+        Ok(FakeAnswer::status(201, comment_json(state, index, &comment)))
       })),
+      ("GET", ["issues", "comments", id]) => {
+        let found = state
+          .pulls
+          .iter()
+          .enumerate()
+          .find_map(|(index, pull)| Some((index, pull.comments.iter().find(|comment| comment.id.to_string() == *id)?.clone())));
+        Some(found.map_or_else(|| not_found("Not Found"), |(index, comment)| FakeAnswer::ok(comment_json(&state, index, &comment))))
+      }
+      ("GET", ["issues", number, "comments"]) => {
+        let since = query_value(request.query.as_deref(), "since")
+          .and_then(|since| parse_rfc3339_timestamp(&since))
+          .unwrap_or(0);
+        Some(self.with_pull(&mut state, number, |_, state, index| {
+          let comments: Vec<Value> = state.pulls[index]
+            .comments
+            .iter()
+            .filter(|comment| comment.created_at >= since)
+            .map(|comment| comment_json(state, index, comment))
+            .collect();
+          Ok(FakeAnswer::ok(Value::from(comments)))
+        }))
+      }
       ("POST", ["issues", number, "assignees"]) => Some(self.with_pull(&mut state, number, |_, state, index| {
         let assignable: Vec<String> = string_list(&body["assignees"])
           .into_iter()
@@ -242,6 +292,7 @@ impl FakeGitHubRepository {
       },
       body: body["body"].as_str().unwrap_or_default().to_string(),
       comments: Vec::new(),
+      reviews: Vec::new(),
       assignees: Vec::new(),
     });
     let mut answer = self.rest_pull(state, state.pulls.len() - 1);
@@ -302,6 +353,108 @@ impl FakeGitHubRepository {
     }
     None
   }
+}
+
+/// Adds a comment to the pull request at `index`; its id, one more than every comment of the repository so far
+fn add_comment(state: &mut RepositoryState, index: usize, body: String, author: &str, bot: bool) -> u64 {
+  let id = state.pulls.iter().flat_map(|pull| &pull.comments).map(|comment| comment.id).max().unwrap_or(0) + 1;
+  let comment = FakeComment {
+    id,
+    body,
+    created_at: state.clock,
+    author: author.to_string(),
+    bot,
+    ..FakeComment::default()
+  };
+  state.pulls[index].comments.push(comment);
+  id
+}
+
+/// The answer of the Patronus bot to the command comment `id`: 👍 for a start, 👎 and the `⚠️` comment of the reason
+/// for a rejection, nothing while pending
+fn bot_reply(state: &mut RepositoryState, index: usize, id: u64, reply: PatronusCommandReply) {
+  let comment = state.pulls[index].comments.iter_mut().find(|comment| comment.id == id);
+  let Some(comment) = comment else { return };
+  match reply {
+    PatronusCommandReply::Pending => {}
+    PatronusCommandReply::Accepted => comment.plus_one += 1,
+    PatronusCommandReply::Rejected { reason } => {
+      comment.minus_one += 1;
+      if let Some(reason) = reason {
+        add_comment(state, index, format!("⚠️ {reason}"), PATRONUS_BOT, true);
+      }
+    }
+  }
+}
+
+/// An issue comment of the REST API
+fn comment_json(state: &RepositoryState, index: usize, comment: &FakeComment) -> Value {
+  json!({
+    "id": comment.id,
+    "html_url": format!("{}#issuecomment-{}", state.pulls[index].pull_request.url, comment.id),
+    "body": comment.body,
+    "created_at": format_utc_timestamp(comment.created_at),
+    "updated_at": format_utc_timestamp(comment.created_at),
+    "user": {"login": comment.author, "type": if comment.bot { "Bot" } else { "User" }},
+    "reactions": {"+1": comment.plus_one, "-1": comment.minus_one},
+  })
+}
+
+/// `POST pulls/<n>/reviews`: the review of the token's user, who is then a reviewer in its state, no longer asked; the
+/// 422 of GitHub for a review of the author or of an event it doesn't know
+fn submit_review(state: &mut RepositoryState, index: usize, body: &Value) -> Result<FakeAnswer, FakeAnswer> {
+  let event = body["event"].as_str().unwrap_or_default().to_string();
+  let reviewer_state = match event.as_str() {
+    "APPROVE" => ReviewerState::Approved,
+    "REQUEST_CHANGES" => ReviewerState::ChangesRequested,
+    "COMMENT" => ReviewerState::Commented,
+    _ => return Err(validation_failed(&json!({"resource": "PullRequestReview", "field": "event", "code": "invalid"}))),
+  };
+  let viewer = state.viewer.clone();
+  let pull = &mut state.pulls[index];
+  if pull.pull_request.author.as_deref().is_some_and(|author| author.eq_ignore_ascii_case(&viewer)) && reviewer_state != ReviewerState::Commented {
+    let what = if reviewer_state == ReviewerState::Approved { "approve" } else { "request changes on" };
+    return Err(FakeAnswer::status(
+      422,
+      json!({"message": "Unprocessable Entity", "errors": [format!("Review Can not {what} your own pull request")]}),
+    ));
+  }
+  let commit_id = body["commit_id"].as_str().unwrap_or_default().to_string();
+  pull.reviews.push(FakeReview {
+    login: viewer.clone(),
+    event,
+    commit_id: commit_id.clone(),
+    body: body["body"].as_str().map(str::to_string),
+  });
+  let reviewers = &mut pull.pull_request.reviewers;
+  match reviewers.iter_mut().find(|reviewer| reviewer.login.eq_ignore_ascii_case(&viewer)) {
+    Some(reviewer) => {
+      reviewer.state = reviewer_state;
+      reviewer.requested = false;
+    }
+    None => reviewers.push(Reviewer {
+      login: viewer.clone(),
+      state: reviewer_state,
+      requested: false,
+    }),
+  }
+  let review_state = match reviewer_state {
+    ReviewerState::Approved => "APPROVED",
+    ReviewerState::ChangesRequested => "CHANGES_REQUESTED",
+    _ => "COMMENTED",
+  };
+  Ok(FakeAnswer::ok(
+    json!({"id": pull.reviews.len(), "user": {"login": viewer}, "state": review_state, "commit_id": commit_id}),
+  ))
+}
+
+/// The decoded value of `name` in a query string
+fn query_value(query: Option<&str>, name: &str) -> Option<String> {
+  query?
+    .split('&')
+    .filter_map(|pair| pair.split_once('='))
+    .find(|(key, _)| *key == name)
+    .map(|(_, value)| percent_decoded(&value.replace('+', " ")))
 }
 
 /// `POST pulls/<n>/requested_reviewers`: every login a requested reviewer, or the 422 of the first GitHub refuses (the

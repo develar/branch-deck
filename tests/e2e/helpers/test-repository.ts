@@ -1,5 +1,6 @@
 import type {
   BranchNameSuggestionOutcome,
+  PatronusCommandReply,
   PatronusProfile,
   PatronusReviewRequirement,
   PatronusRobotProgress,
@@ -213,18 +214,37 @@ export class TestRepositoryBuilder {
   }
 
   /**
-   * Sets what the Patronus pre-check of `get_branch_review_readiness` answers, by branch (see `patronus-helpers.ts`); the
-   * test server computes the readiness from it as the app does. A branch without an answer: the owners of its files by
-   * the `OWNERSHIP` files of the baseline, as a Patronus that doesn't evaluate pull requests. `unavailable` fails every
-   * check with that message
+   * Sets what the fake Patronus answers the pre-check of `get_branch_review_readiness` with, by branch (see
+   * `patronus-helpers.ts`): a virtual branch by its name, the stack branch of a whole stack as `stack:<root>`, the
+   * answer of the pre-check whose newest commit is that branch's tip; the real core judges it. A branch without an
+   * answer: the owners of its files by the `OWNERSHIP` files of the target, as a Patronus that doesn't evaluate pull
+   * requests. An answer Patronus could not give is refused
    */
-  async setReviewAnswers(fixture: { answers?: Record<string, PatronusReviewRequirement>; unavailable?: string }): Promise<void> {
+  async setReviewAnswers(fixture: { answers: Record<string, PatronusReviewRequirement> }): Promise<void> {
     await this.setFixture("review-answers", fixture)
   }
 
-  /** The `get_branch_review_readiness` calls: the branches each asked and whether it was a recheck */
+  /** The page's `get_branch_review_readiness` calls: the branches each asked and whether it was a recheck */
   async getReviewReadinessCalls(): Promise<{ branches: string[]; recheck: boolean }[]> {
-    return (await this.getFixture<{ calls: { branches: string[]; recheck: boolean }[] }>("review-answers")).calls
+    return (await this.getReviewChecks()).calls
+  }
+
+  /** The page's readiness calls, and the pre-checks that reached the fake Patronus: the tip and the pull request of each */
+  async getReviewChecks(): Promise<{ calls: { branches: string[]; recheck: boolean }[]; checks: { tip: string; pullRequest: { repository: string; number: number } | null }[] }> {
+    return this.getFixture("review-answers")
+  }
+
+  /** How the Patronus bot answers a `/patronus` comment of a pull request, by its number; accepted for one not named */
+  async setPatronusReplies(replies: Record<number, PatronusCommandReply>): Promise<void> {
+    await this.setFixture("patronus-replies", { replies })
+  }
+
+  /**
+   * The fake GitHub answers `method path` (without the query) with `status` and `body` from now on, before its state:
+   * a failure no state of it gives, e.g. GitHub refusing a review
+   */
+  async answerGitHub(method: string, path: string, status: number, body: unknown): Promise<void> {
+    await this.setFixture("github-answer", { method, path, status, body })
   }
 
   private async setFixture(name: string, value: unknown): Promise<void> {

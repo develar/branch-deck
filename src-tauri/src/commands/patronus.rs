@@ -420,10 +420,8 @@ pub async fn read_patronus_command_reply(
   .await
 }
 
-/// The repository of the pull request a `/patronus` comment goes to is the one the review requests name, else the
-/// mirror of the Space repository: neither is known
 fn unknown_github_repository() -> CommandError {
-  CommandError::new("The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run git config branchdeck.githubRepository <owner>/<name>")
+  CommandError::new(sync_core::patronus_command::UNKNOWN_GITHUB_REPOSITORY_MESSAGE)
 }
 
 /// The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch

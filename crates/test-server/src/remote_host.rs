@@ -5,11 +5,12 @@
 //! no `GH_TOKEN`, no `gh`, no git credentials, no keychain).
 
 use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
+use crate::review_fixtures::review_check_answer;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
 use github::client::GitHubClient;
 use github::fake_github::FakeGitHub;
-use github::fake_repository::{FakeGitHubRepository, RepositoryState};
+use github::fake_repository::{FakeGitHubRepository, FakePull, RepositoryState};
 use github::service::GitHubService;
 use github::token::{GhSource, TokenChain, TokenSources};
 use github::token_store::{StoredToken, remove_token, token_file, write_token};
@@ -17,9 +18,10 @@ use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::fake_patronus::{FakePatronus, FakeServer, router};
 use patronus::service::PatronusService;
 use patronus::token::{Token, TokenLookup, TokenStamp};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use sync_core::patronus::SpaceRepository;
 
 /// The Space project and repository of a test repository on Space (its origin is a local path, so the host holds it)
@@ -47,6 +49,10 @@ pub struct RemoteHost {
   github_service: RwLock<Arc<GitHubService>>,
   /// The app data directory of the host: the token file of the GitHub sign-in
   app_data: tempfile::TempDir,
+  /// What the pre-check answers by branch, in wire form (`review_fixtures::ReviewAnswersFixture`)
+  review_answers: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+  /// The pull requests of the review requests: GitHub keeps them beside the ones of a GitHub fixture
+  review_pulls: Mutex<Vec<FakePull>>,
   git: GitCommandExecutor,
 }
 
@@ -61,6 +67,12 @@ impl RemoteHost {
     let git = git.clone();
     let (git_of_hook, path) = (git.clone(), repository_path.to_string());
     *patronus.robots_hook.lock().expect("robots hook lock") = Some(Box::new(move |robot| crate::remote_fixtures::resolve_source_revision(&git_of_hook, &path, robot)));
+    let review_answers: Arc<RwLock<HashMap<String, serde_json::Value>>> = Arc::default();
+    let (git_of_review, path_of_review, answers) = (git.clone(), repository_path.to_string(), Arc::clone(&review_answers));
+    *patronus.review_hook.lock().expect("review hook lock") = Some(Box::new(move |body| {
+      let answers = answers.read().expect("review answers lock");
+      Some(review_check_answer(&git_of_review, &path_of_review, &answers, body))
+    }));
     let patronus_server = FakeServer::serve(router(Arc::clone(&patronus)));
     let patronus_service = RwLock::new(Arc::new(new_patronus_service(&patronus_server.url)));
 
@@ -90,6 +102,8 @@ impl RemoteHost {
       github_server,
       github_service,
       app_data,
+      review_answers,
+      review_pulls: Mutex::default(),
       git,
     };
     host.set_github_signed_in(true);
@@ -144,10 +158,43 @@ impl RemoteHost {
     token_file(self.app_data.path())
   }
 
-  /// What GitHub holds and answers from now on, signed in with the host's token or not; a new service
-  pub fn set_github(&self, state: RepositoryState, signed_in: bool) {
+  /// What GitHub holds and answers from now on, with the pull requests of the review requests and the replies of the
+  /// Patronus bot kept; signed in with the host's token or not; a new service
+  pub fn set_github(&self, mut state: RepositoryState, signed_in: bool) {
+    let before = self.github_repository().state();
+    state.patronus_replies = before.patronus_replies;
+    let review_pulls = self.review_pulls.lock().expect("review pulls lock").clone();
+    add_pulls(&mut state, review_pulls);
     self.github_repository().set(state);
     self.set_github_signed_in(signed_in);
+  }
+
+  /// The pull requests of review requests GitHub holds from now on, besides the ones before (a request that leaves
+  /// the list keeps its pull request), in the repository `owner/name` unless a GitHub fixture named one
+  pub fn add_review_pulls(&self, owner: &str, name: &str, pulls: Vec<FakePull>) {
+    {
+      let mut review_pulls = self.review_pulls.lock().expect("review pulls lock");
+      review_pulls.retain(|old| !pulls.iter().any(|pull| pull.pull_request.number == old.pull_request.number));
+      review_pulls.extend(pulls.iter().cloned());
+    }
+    self.github_repository().update(|state| {
+      add_pulls(state, pulls);
+      if state.owner.is_empty() {
+        owner.clone_into(&mut state.owner);
+        name.clone_into(&mut state.name);
+      }
+    });
+  }
+
+  /// How the Patronus bot answers a `/patronus` comment from now on, by pull request number
+  pub fn set_patronus_replies(&self, replies: std::collections::BTreeMap<u32, sync_types::patronus::PatronusCommandReply>) {
+    self.github_repository().update(|state| state.patronus_replies = replies);
+  }
+
+  /// What the pre-check answers by branch from now on (wire form); a new service, which has kept no answer
+  pub fn set_review_answers(&self, answers: HashMap<String, serde_json::Value>) {
+    *self.review_answers.write().expect("review answers lock") = answers;
+    self.renew_patronus_service();
   }
 
   /// Stores the token of the app's sign-in (`GITHUB_TOKEN` of `GITHUB_VIEWER`), or removes it; a new service
@@ -170,6 +217,15 @@ impl RemoteHost {
 
   fn renew_patronus_service(&self) {
     *self.patronus_service.write().expect("patronus service lock") = Arc::new(new_patronus_service(&self.patronus_server.url));
+  }
+}
+
+/// `pulls` added to `state`, but none of a number it has
+fn add_pulls(state: &mut RepositoryState, pulls: Vec<FakePull>) {
+  for pull in pulls {
+    if !state.pulls.iter().any(|it| it.pull_request.number == pull.pull_request.number) {
+      state.pulls.push(pull);
+    }
   }
 }
 

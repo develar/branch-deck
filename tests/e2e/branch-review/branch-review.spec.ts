@@ -13,6 +13,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, routeCommand } from "../helpers/wait-helpers"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
@@ -62,7 +63,7 @@ const LOGIN_PULL_REQUEST = pullRequest("login", 42)
 /** stacked_ownership with auth pushed, without a pull request: its code owner has to approve in one (row 7) */
 async function setupAuthWithoutPullRequest(
   page: Page,
-  setupRepo: (template: string, options: object) => Promise<{ setReviewAnswers: (answers: object) => Promise<unknown> }>,
+  setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
 ) {
   await rewriteNextRemoteStatus(page, status =>

@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicU32;
 use sync_types::branch_name_suggestion::BranchNameSuggestionOutcome;
-use sync_types::patronus::PatronusReviewRequirement;
 use sync_types::pull_request::PullRequestAvailability;
 use sync_types::review_request::ReviewRequestsResult;
 
@@ -52,8 +51,6 @@ pub struct TestRepository {
   pub patronus_poll_calls: AtomicU32,
   /// How often the app asked for the details of a robot: the build progress of its checks comes only with them
   pub patronus_detail_calls: AtomicU32,
-  /// What Patronus answers the review pre-check of `get_branch_review_readiness` with (E2E never calls Patronus)
-  pub review_answers: RwLock<ReviewAnswersFixture>,
   /// The `get_branch_review_readiness` calls, in order: the branches asked and whether it was a recheck
   pub review_readiness_calls: std::sync::Mutex<Vec<serde_json::Value>>,
   /// What `suggest_branch_names` answers (E2E never runs claude)
@@ -95,20 +92,6 @@ impl Default for ReviewRequestsFixture {
       fetch_error: None,
     }
   }
-}
-
-/// The answers of the Patronus pre-check (`POST /repositories/{id}/review-answers`); the readiness is computed from them
-/// as the app does (`patronus::review_readiness`), with the reviewers and the start the page sends
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewAnswersFixture {
-  /// By virtual branch name. A branch without one: the owners of the files it changes by the `OWNERSHIP` files of the
-  /// baseline, one group per owner, none approved, no reviewers, as a Patronus that doesn't evaluate pull requests
-  #[serde(default)]
-  pub answers: std::collections::HashMap<String, PatronusReviewRequirement>,
-  /// Patronus fails every check with this message
-  #[serde(default)]
-  pub unavailable: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

@@ -19,6 +19,7 @@ use tower_http::trace::TraceLayer;
 
 pub mod remote_fixtures;
 pub mod remote_host;
+pub mod review_fixtures;
 pub mod state;
 pub mod static_files;
 pub mod tauri_command_bridge;
@@ -121,7 +122,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/patronus-progress", post(remote_fixtures::set_patronus_progress))
     .route("/repositories/{id}/patronus-profiles", post(remote_fixtures::set_patronus_profiles))
     .route("/repositories/{id}/patronus-start-refusal", post(remote_fixtures::set_patronus_start_refusal))
-    .route("/repositories/{id}/review-answers", post(set_review_answers).get(get_review_answers_fixture))
+    .route(
+      "/repositories/{id}/review-answers",
+      post(review_fixtures::set_review_answers).get(review_fixtures::get_review_answers),
+    )
+    .route("/repositories/{id}/patronus-replies", post(review_fixtures::set_patronus_replies))
+    .route("/repositories/{id}/github-answer", post(review_fixtures::set_github_answer))
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
@@ -189,6 +195,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/wait_landing_needs", post(tauri_command_bridge::wait_landing_needs))
     .route("/invoke/get_patronus_failing_robots", post(tauri_command_bridge::get_patronus_failing_robots))
     .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
+    .route("/invoke/post_patronus_command", post(tauri_command_bridge::post_patronus_command))
+    .route("/invoke/read_patronus_command_reply", post(tauri_command_bridge::read_patronus_command_reply))
+    .route("/invoke/submit_pull_request_review", post(tauri_command_bridge::submit_pull_request_review))
+    .route("/invoke/request_pull_request_reviewers", post(tauri_command_bridge::request_pull_request_reviewers))
     .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))
     .route("/invoke/get_patronus_target_branch", post(tauri_command_bridge::get_patronus_target_branch))
     .route("/invoke/start_patronus_robot", post(tauri_command_bridge::start_patronus_robot))
@@ -596,7 +606,6 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     patronus_list_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_poll_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_detail_calls: std::sync::atomic::AtomicU32::new(0),
-    review_answers: std::sync::RwLock::default(),
     review_readiness_calls: std::sync::Mutex::default(),
     branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),
     branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
@@ -696,24 +705,6 @@ pub async fn get_branch_name_suggestion_fixture(
   Ok(Json(serde_json::json!({ "calls": repo.branch_name_suggestion_calls.load(Ordering::SeqCst) })))
 }
 
-/// Sets what the Patronus pre-check of `get_branch_review_readiness` answers, by branch
-pub async fn set_review_answers(
-  axum::extract::Path(id): axum::extract::Path<String>,
-  State(state): State<Arc<AppState>>,
-  Json(fixture): Json<state::ReviewAnswersFixture>,
-) -> Result<StatusCode, StatusCode> {
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  *repo.review_answers.write().expect("review answers fixture lock") = fixture;
-  Ok(StatusCode::OK)
-}
-
-/// The `get_branch_review_readiness` calls: the branches each asked and whether it was a recheck
-pub async fn get_review_answers_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
-  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  let calls = repo.review_readiness_calls.lock().expect("review readiness calls lock").clone();
-  Ok(Json(serde_json::json!({ "calls": calls })))
-}
-
 /// Sets what `get_review_requests` answers for the repository and how `fetch_review_head` fails (`fetchError`)
 pub async fn set_review_requests(
   axum::extract::Path(id): axum::extract::Path<String>,
@@ -721,6 +712,11 @@ pub async fn set_review_requests(
   Json(fixture): Json<state::ReviewRequestsFixture>,
 ) -> Result<StatusCode, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  // GitHub has the pull requests the user is asked to review: the reviews and the comments go there
+  if let sync_types::pull_request::PullRequestAvailability::Available { owner, name } = &fixture.result.availability {
+    let pulls = review_fixtures::review_request_pulls(&fixture.result);
+    repo.remote(&state.git_executor).add_review_pulls(owner, name, pulls);
+  }
   *repo.review_requests.write().expect("review request fixture lock") = fixture;
   Ok(StatusCode::OK)
 }

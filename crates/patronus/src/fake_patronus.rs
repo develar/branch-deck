@@ -13,6 +13,10 @@ use std::sync::{Arc, Mutex};
 /// Rewrites a robot of an answer in place (`FakePatronus::robots_hook`)
 pub type RobotsHook = Box<dyn Fn(&mut serde_json::Value) + Send + Sync>;
 
+/// The answer of a pre-check request (its body): the status and the body Patronus answers, None for the built-in one
+/// (`FakePatronus::review_hook`)
+pub type ReviewHook = Box<dyn Fn(&serde_json::Value) -> Option<(u16, serde_json::Value)> + Send + Sync>;
+
 /// Answers `status` (200 = the robots) and counts the requests
 #[derive(Default)]
 pub struct FakePatronus {
@@ -58,6 +62,11 @@ pub struct FakePatronus {
   pub checked_review_keys: Mutex<Vec<Option<String>>>,
   /// The `githubPullRequest` of the pre-checks, in order (null without one)
   pub checked_pull_requests: Mutex<Vec<serde_json::Value>>,
+  /// The newest commit of each pre-check, in order: the tip of the branch it is about
+  pub checked_tips: Mutex<Vec<String>>,
+  /// Answers a pre-check before everything else: the test server answers it for the branch whose tip the request
+  /// names, else by the code owners of its paths
+  pub review_hook: Mutex<Option<ReviewHook>>,
   /// The answer of a pre-check with a pull request instead of the built-in one (`review_required`): Patronus evaluated
   /// its reviews
   pub pull_request_review: Mutex<Option<serde_json::Value>>,
@@ -608,6 +617,14 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         let required = fake.review_required.load(Ordering::SeqCst) && !(review_key.is_some() && fake.review_approved.load(Ordering::SeqCst));
         fake.checked_review_keys.lock().unwrap().push(review_key);
         fake.checked_pull_requests.lock().unwrap().push(body["githubPullRequest"].clone());
+        // the commits are newest first
+        let tip = body["commits"][0]["hash"].as_str().unwrap_or_default().to_string();
+        fake.checked_tips.lock().unwrap().push(tip);
+        if *fake.status.lock().unwrap() == 200
+          && let Some((status, answer)) = fake.review_hook.lock().unwrap().as_ref().and_then(|hook| hook(&body))
+        {
+          return (StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), Json(answer)).into_response();
+        }
         let evaluated = fake.pull_request_review.lock().unwrap().clone().filter(|_| body["githubPullRequest"].is_object());
         if let Some(answer) = evaluated {
           return fake.answer(answer);

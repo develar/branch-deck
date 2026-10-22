@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test"
 import type { Locator, Page } from "@playwright/test"
 import type { GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState } from "../../../src/lib/bindings"
 
@@ -31,6 +32,25 @@ export type GitHubLog = { calls: number; requests: GitHubRequest[] }
 /** The REST path of the fake's repository: `repoPath("pulls", 7)` is `/repos/acme/monorepo/pulls/7` */
 export function repoPath(...segments: (string | number)[]): string {
   return ["", "repos", GITHUB_REPOSITORY.owner, GITHUB_REPOSITORY.name, ...segments].join("/")
+}
+
+/** The requests of `method` to the path `segments` of the fake's repository, a `*` segment any: their bodies, in order */
+export async function gitHubRequests(repo: { getGitHubLog(): Promise<GitHubLog> }, method: string, ...segments: (string | number)[]): Promise<unknown[]> {
+  const pattern = new RegExp(`^${repoPath(...segments).replaceAll("*", "[^/]+")}$`)
+  return (await repo.getGitHubLog()).requests.filter(it => it.method === method && pattern.test(it.path)).map(it => it.body)
+}
+
+/**
+ * Runs the fake clock over the app's wait before it reads the reply of the Patronus bot to its comment
+ * (`COMMAND_REPLY_INTERVAL_MS`, 3 s) until it read it from the fake GitHub
+ */
+export async function skipCommandReplyWait(page: Page, repo: { getGitHubLog(): Promise<GitHubLog> }): Promise<void> {
+  await expect
+    .poll(async () => {
+      await page.clock.fastForward(3000)
+      return (await gitHubRequests(repo, "GET", "issues", "comments", "*")).length
+    })
+    .toBeGreaterThan(0)
 }
 
 /** The writes of a log (every request but a GET and a GraphQL query), as `[method, path, body]` */

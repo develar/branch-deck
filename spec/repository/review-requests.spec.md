@@ -509,9 +509,12 @@ Safe Push it allows.
   `crates/test-server/src/review_requests_test.rs`.
   [@test] ../../crates/test-server/src/review_requests_test.rs (`review_routes_answer_the_fixture_without_a_network`)
 - `pnpm e2e`: `tests/e2e/review-requests/review-requests.spec.ts` with the `issue_links` template.
-  `submit_pull_request_review` is answered in the page (`routeCommand`, `routeCommandError`), which records the calls.
   `POST /repositories/{id}/review-requests` sets what `get_review_requests` answers (`availableReviewRequests` for
   `acme/monorepo`) and, with `fetchError`, makes `fetch_review_head` fail; `GET` returns `{ calls, fetchCalls, prunes }`.
+  Its pull requests are in the fake GitHub of the test server too: `submit_pull_request_review`,
+  `get_pull_request_head`, `post_patronus_command` and `read_patronus_command_reply` run the real cores against it, and
+  a test asserts the requests GitHub got (`gitHubRequests`: the review with its event and commit, the `/patronus merge`
+  comment); `answerGitHub` scripts a refused review or another head (e2e-testing.md, Remote services).
   `fetch_review_head` runs the real function on the template: an empty head is the branch the request names, an empty
   base the baseline, the source `local`; a test holds it in the page for the progress (`routeReviewFetch`). The Dock and
   ⌘-click tests take the user agent of macOS. The review window is the page `/pull-request-review` with the recorded

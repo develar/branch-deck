@@ -26,6 +26,9 @@ use sync_core::branch_prefix::GitBranchPrefix;
 use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::patronus::{SpaceRepository, find_target_branch, prepare_robot_start, required_target_branch};
+use sync_core::patronus_command::{
+  UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
+};
 use sync_core::pull_request_create::{
   CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
   new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
@@ -41,15 +44,17 @@ use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
   write_global_config, write_repository_config,
 };
+use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::robot_commits::robot_failure_report;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use sync_types::patronus::{
-  GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot,
-  PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, StartPatronusRobotParams,
+  GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
+  PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
+  PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
-use sync_types::pull_request::{CreatedPullRequest, GitHubAuthStatus, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult};
+use sync_types::pull_request::{CreatedPullRequest, GitHubAuthStatus, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use sync_types::{ProgressReporter, SyncEvent};
 use tokio::sync::mpsc;
@@ -734,6 +739,39 @@ pub async fn get_pull_request_head(State(state): State<Arc<AppState>>, Json(para
   head.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
 
+/// Submits the user's review of a pull request, as the app does: the fake GitHub records it
+pub async fn submit_pull_request_review(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::pull_request_writes::SubmitPullRequestReviewParams>,
+) -> CommandResult<()> {
+  let operation = "submit the review";
+  let (host, repository) = required_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
+  let review = sync_core::pull_request_writes::submit_pull_request_review(
+    &host.github_service(),
+    &params.repository_path,
+    &repository,
+    params.pull_request_number,
+    params.event,
+    &params.commit_id,
+    params.body.as_deref(),
+  )
+  .await;
+  review.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
+/// Asks users to review a pull request, as the app does: the fake GitHub asks its collaborators only
+pub async fn request_pull_request_reviewers(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::pull_request_writes::RequestPullRequestReviewersParams>,
+) -> CommandResult<RequestedReviewers> {
+  let operation = "request the reviews";
+  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
+  let requested =
+    sync_core::pull_request_writes::request_pull_request_reviewers(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
+      .await;
+  requested.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
 /// The text a new pull request starts with and the user of the token, as the app reads them; no YouTrack yet
 pub async fn get_new_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<GetNewPullRequestParams>) -> CommandResult<NewPullRequest> {
   ensure_repository_exists(&state, &params.repository_path)?;
@@ -983,15 +1021,16 @@ pub async fn get_patronus_failing_robots(State(state): State<Arc<AppState>>, Jso
   failing.map(Json).map_err(|e| CommandFailure::error("read the failing Patronus robots", e))
 }
 
-/// The readiness of each branch from the answer of the fixture (`POST /repositories/{id}/review-answers`), computed as
-/// the app computes it. Without an answer for a branch: no review needed, unless the baseline has `OWNERSHIP` files;
-/// then the owners of the files the branch changes (its commits at the tip the page sent, ahead of the baseline) review,
-/// one group per owner, none approved, as a Patronus that doesn't evaluate pull requests answers
+/// The readiness of each branch as the app reads it (`sync_core::review_readiness`, without the object cache, so every
+/// call asks): the fake Patronus answers the pre-check of a branch whose tip is the tip of a branch of
+/// `POST /repositories/{id}/review-answers`, else by the owners of its paths (`remote_fixtures::review_check_answer`).
+/// The page's calls are logged with their `recheck`, which only the page knows
 pub async fn get_branch_review_readiness(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_types::patronus::GetBranchReviewReadinessParams>,
 ) -> CommandResult<Vec<sync_types::patronus::BranchReviewReadiness>> {
-  let fixture = {
+  let operation = "read the code-owner review";
+  {
     let repo = repository_by_path(&state, &params.repository_path)?;
     let branches: Vec<&str> = params.branches.iter().map(|branch| branch.branch_name.as_str()).collect();
     repo
@@ -999,80 +1038,65 @@ pub async fn get_branch_review_readiness(
       .lock()
       .expect("review readiness calls lock")
       .push(serde_json::json!({"branches": branches, "recheck": params.recheck}));
-    repo.review_answers.read().expect("review answers fixture lock").clone()
+  }
+  if let Some(branch) = params.branches.iter().find(|branch| !git_ops::revs::is_object_id(&branch.tip)) {
+    return Err(CommandFailure::error(operation, format!("Not a commit id: {}", branch.tip)));
+  }
+  let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
+  let (_, github) = github_of(&state, &params.repository_path, None).await?;
+  let (git_executor, path, baseline) = (state.git_executor.clone(), params.repository_path.clone(), params.baseline_branch.clone());
+  let Json(target) = run_command(operation, move || required_target_branch(&git_executor, &path, &baseline)).await?;
+  let repository = ReadinessRepository {
+    space: &space,
+    github: github.as_ref(),
+    target: &target,
+    baseline: &params.baseline_branch,
+    branch_prefix: &params.branch_prefix,
   };
-  let git_executor = state.git_executor.clone();
-  run_command("read the code-owner review", move || {
-    let tips: Vec<String> = params.branches.iter().map(|branch| branch.tip.clone()).collect();
-    let inputs = sync_core::patronus_review::read_review_inputs(&git_executor, &params.repository_path, &ObjectCache::disabled(), &params.baseline_branch, &tips)?;
-    params
-      .branches
-      .into_iter()
-      .zip(inputs)
-      .map(|(branch, input)| {
-        let requirement = match fixture.answers.get(&branch.branch_name) {
-          _ if fixture.unavailable.is_some() => None,
-          Some(answer) => Some(answer.clone()),
-          None => Some(ownership_requirement(
-            &git_executor,
-            &params.repository_path,
-            &params.baseline_branch,
-            &input.map_or_default(|input| input.paths),
-          )?),
-        };
-        let readiness = match &requirement {
-          Some(requirement) => {
-            let reviewers = matches!(branch.start, sync_types::patronus::ReviewStart::PullRequest { .. }).then_some(branch.reviewers.as_slice());
-            patronus::review_readiness::review_readiness(requirement, reviewers, branch.start)
-          }
-          None => sync_types::patronus::ReviewReadiness::Unavailable {
-            reason: sync_types::patronus::UnavailableReadinessReason::Error,
-            message: fixture.unavailable.clone().unwrap_or_default(),
-          },
-        };
-        anyhow::Ok(sync_types::patronus::BranchReviewReadiness {
-          branch_name: branch.branch_name,
-          tip: branch.tip,
-          requirement,
-          readiness,
-        })
-      })
-      .collect::<anyhow::Result<Vec<_>>>()
-  })
-  .await
+  let readiness = branch_review_readiness(
+    &state.git_executor,
+    &params.repository_path,
+    &ObjectCache::disabled(),
+    &host.patronus_service(),
+    &repository,
+    &params.branches,
+    params.recheck,
+  )
+  .await;
+  readiness.map(Json).map_err(|e| CommandFailure::error(operation, format!("{e:#}")))
 }
 
-/// The owners of `paths` by the `OWNERSHIP` files of the baseline, one group per owner, none approved
-fn ownership_requirement(
-  git_executor: &git_executor::git_command_executor::GitCommandExecutor,
-  repository_path: &str,
-  baseline_branch: &str,
-  paths: &[String],
-) -> anyhow::Result<sync_types::patronus::PatronusReviewRequirement> {
-  let owners = git_ops::ownership::read_file_owners(git_executor, repository_path, baseline_branch, paths)?;
-  let mut groups: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
-  for owner in owners {
-    groups.entry(owner.owner).or_default().push(owner.path);
+/// Starts a Safe Push or a Dry Run from the pull request's comment, as the app does: the fake GitHub posts it and its
+/// Patronus bot answers (`POST /repositories/{id}/patronus-replies`)
+pub async fn post_patronus_command(State(state): State<Arc<AppState>>, Json(params): Json<PostPatronusCommandParams>) -> CommandResult<PatronusCommandComment> {
+  let operation = "post the Patronus command";
+  let (host, repository) = commented_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
+  let posted = core_post_patronus_command(
+    &host.github_service(),
+    &params.repository_path,
+    &repository,
+    params.pull_request_number,
+    params.mode,
+    params.subject,
+  )
+  .await;
+  posted.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
+/// How the bot answered the command comment, as the app reads it
+pub async fn read_patronus_command_reply(State(state): State<Arc<AppState>>, Json(params): Json<ReadPatronusCommandReplyParams>) -> CommandResult<PatronusCommandReply> {
+  let operation = "read the reply of Patronus";
+  let (host, repository) = commented_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
+  let reply = core_read_patronus_command_reply(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.comment_id).await;
+  reply.map(Json).map_err(|e| CommandFailure::error(operation, e))
+}
+
+/// `github_of` for a `/patronus` comment: none fails as the app fails it
+async fn commented_github_of(state: &AppState, path: &str, known: Option<&str>, operation: &str) -> Result<(Arc<RemoteHost>, GitHubRepository), CommandFailure> {
+  match github_of(state, path, known).await? {
+    (host, Some(repository)) => Ok((host, repository)),
+    (_, None) => Err(CommandFailure::error(operation, UNKNOWN_GITHUB_REPOSITORY_MESSAGE)),
   }
-  Ok(sync_types::patronus::PatronusReviewRequirement {
-    required: !groups.is_empty(),
-    merge_request: None,
-    groups: groups
-      .into_iter()
-      .map(|(name, paths)| sync_types::patronus::PatronusReviewerGroup {
-        name,
-        reviewers: Vec::new(),
-        paths,
-        branch_wide: false,
-        paths_source: sync_types::patronus::ReviewPathsSource::Ownership,
-        required_approvals: None,
-        collected_approvals: None,
-        approved: None,
-        self_approval_allowed: None,
-      })
-      .collect(),
-    skipped: false,
-  })
 }
 
 /// The Space repository of the repository at `path` for an action: not on Space is the app's error

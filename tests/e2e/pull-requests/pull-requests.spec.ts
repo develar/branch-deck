@@ -9,6 +9,7 @@ import {
   createPullRequestDialog,
   type GitHubFixture,
   getOpenedUrls,
+  gitHubRequests,
   gitHubWrites,
   pullRequest,
   repoPath,
@@ -21,7 +22,7 @@ import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordCommand, routeCommand } from "../helpers/wait-helpers"
+import { recordCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const APPROVED = pullRequest("JIRA-456", 760, {
@@ -382,9 +383,8 @@ test.describe("Pull request chip", () => {
 })
 
 test.describe("Request Review without Patronus", () => {
-  test("should ask for a review from the branch menu, the row's ⋯ and the preview, the popover at the row", async ({ page }) => {
+  test("should ask for a review from the branch menu, the row's ⋯ and the preview, the popover at the row", async ({ page, repo }) => {
     const pushes = await routePush(page, {})
-    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["carol"], refused: [] }))
     const row = findBranchRow(page, "ABC-123")
     const popover = page.getByTestId("request-review-popover")
     // no next step where Patronus doesn't answer; the anchor of the popover takes no room: "⋯" follows the push at its
@@ -413,7 +413,7 @@ test.describe("Request Review without Patronus", () => {
     await page.getByRole("option", { name: /carol/ }).click()
     await popover.getByTestId("request-review-submit").click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Carol Danvers on #761" })).toBeVisible()
-    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 761, reviewers: ["carol"] })])
+    expect(await gitHubRequests(repo, "POST", "pulls", 761, "requested_reviewers")).toEqual([{ reviewers: ["carol"] }])
     expect(pushes.map(push => push.branchName)).toEqual(["ABC-123"])
     await expect(popover).toHaveCount(0)
 

@@ -120,10 +120,10 @@ Mock implementation:
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
   entry with its reason (a page handler for the windows, the window menu and the updater; a `routeCommand` of the test
-  for Patronus, GitHub and YouTrack), never both; a stale entry, or a route or a handler without its command, fails;
+  for the GitHub and YouTrack sign-ins and YouTrack), never both; a stale entry, or a route or a handler without its command, fails;
   the four handlers over a route (`get_file_diffs`, `get_file_merges`, `sync_branches`, `set_repository_config`) are
   pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw bytes). The number of
-  commands (111) and `PAGE_MOCKED` (23) are pinned; `PAGE_MOCKED` only goes down: a new command gets a route
+  commands (111) and `PAGE_MOCKED` (19) are pinned; `PAGE_MOCKED` only goes down: a new command gets a route
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
   (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
   and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the
@@ -148,15 +148,19 @@ Mock implementation:
   an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real function finds both commits local and
   answers a range of source `local`; `fetchError` fails it instead. `get_range_files` and
   `prune_review_refs` run the real functions, `cancel_review_fetch` does nothing (`review_requests_test.rs`)
-- **Code-owner review**: `get_branch_review_readiness` computes the readiness with the real
-  `patronus::review_readiness` from the answer `POST /repositories/{id}/review-answers` sets per branch
-  (`{answers: {<branch>: PatronusReviewRequirement}, unavailable?: message}`, `setReviewAnswers`; `AWAITING_CODE_OWNER`,
-  `APPROVED_BY_CODE_OWNER`, `NOT_EVALUATED` in `patronus-helpers.ts`) and the reviewers and start the page sends; `GET`
-  returns its calls (the branches, the recheck). A branch without an answer needs no review, unless the baseline of
-  the repository has `OWNERSHIP` files (`stacked_ownership`, `stack_push_alone`): then the owners of the files of the
-  branch's commits at the tip the page sent, ahead of the baseline, review, one group per owner, none approved, as a
-  Patronus that doesn't evaluate pull requests (`review_readiness_test.rs`). A test of one surface answers in the page
-  instead (`routeReviewRequirement`). So an unstack shows in the review
+- **Code-owner review**: `get_branch_review_readiness` runs the app's core (`sync_core::review_readiness`, without the
+  object cache, so every call asks the fake Patronus; Space and the target branch as the app needs them), see
+  [Remote services](#remote-services). `POST /repositories/{id}/review-answers` (`setReviewAnswers`, the `reviewAnswers`
+  setup option) sets what the pre-check answers by branch (`{answers: {<branch> | stack:<root>: PatronusReviewRequirement}}`;
+  `AWAITING_CODE_OWNER`, `APPROVED_BY_CODE_OWNER`, `NOT_EVALUATED` in `patronus-helpers.ts`), written once in the wire
+  form the real parser reads back (`fixture_review_answer`; an answer Patronus could not give, a skipped review or
+  paths of the `OWNERSHIP` files, is refused with 422). The fake answers a pre-check whose newest commit is the tip of
+  `{prefix}/virtual/<branch>` (or `{prefix}/stack/<root>`) with its answer, any other by the code owners of the paths of
+  its commits by the `OWNERSHIP` files of the target (`origin/<target>`), one group per owner, none approved, as a
+  Patronus that doesn't evaluate pull requests; the core attributes the paths (`review_readiness_test.rs`). A template
+  without `OWNERSHIP` files needs no review. `GET` returns the page's `calls` (the branches, the recheck: only the page
+  knows it) and the `checks` the fake got (the tip, the pull request). A test of one surface that only Space answers
+  (a merge request) still answers in the page (`routeReviewRequirement`)
 - **Window**: `plugin:window` answers from `__e2eWindowState` (fullscreen, maximized) and records the actions in
   `__e2eWindowCalls` (with `show_window_menu`); a test fires `tauri://resize`, `tauri://focus` and `tauri://blur` with
   `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar renders as under a native title bar
@@ -294,14 +298,19 @@ the remote service; a test sets what the fake answers and reads what reached it.
   requests, until a fixture says `signedOut`. The fake answers as GitHub does what `sync_core` asks: `GET /user`, the
   GraphQL search of the user's pull requests (`author:@me`, newest first) and of the assignable users, `POST pulls`
   (422 for an open pull request of the head, for a head or a base it doesn't have), `GET`/`PATCH pulls/<n>`, `POST
-  pulls/<n>/requested_reviewers` (422 for the author and for a user who is no collaborator), `POST issues/<n>/comments`
-  and `assignees`, `GET branches/<b>` and `GET rules/branches/<b>`; a write changes what the next read answers. A branch
+  pulls/<n>/requested_reviewers` (422 for the author and for a user who is no collaborator), `POST pulls/<n>/reviews`
+  (the user a reviewer in its state, no longer asked; 422 for a review of the author), `POST issues/<n>/comments` and
+  `assignees`, `GET issues/comments/<id>` (its reactions), `GET issues/<n>/comments?since`, `GET branches/<b>` and
+  `GET rules/branches/<b>`; a write changes what the next read answers. Its Patronus bot answers a `/patronus` comment
+  at once: 👍, or 👎 and a `⚠️` comment of the reason, as `patronus_replies` says (accepted by default). A branch
   is on GitHub when the test repository has it (its `origin` is itself). The service is replaced on each fixture.
 - **GitHub bridge**: `get_pull_requests`, `get_branch_rules`, `get_github_auth_status` (the page's repository by
   `X-Repository-Id`; this build has no OAuth app of its own), `create_pull_request`, `retarget_pull_request`,
   `close_pull_request`, `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request` (the text of
-  the real core, the viewer GitHub answers), `wait_for_github_branch` and `search_github_users` call the cores as
-  `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository the real `resolve_github_repository` reads.
+  the real core, the viewer GitHub answers), `wait_for_github_branch`, `search_github_users`,
+  `request_pull_request_reviewers` and `submit_pull_request_review` call the cores as
+  `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository the real `resolve_github_repository` reads
+  (or the one the page names); `post_patronus_command` and `read_patronus_command_reply` as `commands/patronus.rs` does.
 - **GitHub fixture**: `POST /repositories/{id}/pull-requests` (`setPullRequests`, the `pullRequests` setup option) takes
   a `PullRequestsResult` (`availablePullRequests`, `unavailablePullRequests` in `pull-request-helpers.ts`) and what only
   the writes see (`GitHubFixture`: `repository` of an availability that names none, `users`, the collaborators a review
@@ -313,13 +322,19 @@ the remote service; a test sets what the fake answers and reads what reached it.
   sign-in, the one source. The pull requests are checked first: the real parser must read the search of them back into
   the fixture (`fixture_pulls`, `github_host_test.rs`), so a fixture GitHub could not answer (another author, a
   requested reviewer before one who reviewed) fails the setup; an empty `headRefOid` is the tip of the head branch when
-  GitHub answers.
+  GitHub answers. The review requests (`/review-requests`, an available repository) put their pull requests there too,
+  of their authors, the user asked; a pull request whose request left the list stays, and a GitHub fixture keeps them.
+  `/patronus-replies` (`setPatronusReplies`) sets the bot's reply by pull request number (a `PatronusCommandReply`);
+  `/github-answer` (`answerGitHub(method, path, status, body)`) scripts the answer of one request before the state, for
+  a failure no state gives (GitHub refusing a review, another head than the one reviewed).
 - **GitHub log**: `GET /repositories/{id}/pull-requests` (`getGitHubLog`) answers `calls`, the page's
   `get_pull_requests`, and `requests`, every request that reached the fake in order (`method`, `path`, JSON `body`);
   `gitHubWrites` keeps the writes and `repoPath` names a path of the repository. A test asserts what GitHub got (the
-  `POST pulls`, the `PATCH` of a retarget, the comment and the close), not the parameters the page sent; it records the
-  page's parameters on their way to the server where they matter (`recordCommand`), and no test answers a pull request
-  command or the text of a new pull request in the page.
+  `POST pulls`, the `PATCH` of a retarget, the reviewers asked, the review, the `/patronus` comment and the reads of its
+  reply, the comment and the close; `gitHubRequests(repo, method, …segments)` filters them, `skipCommandReplyWait` runs
+  the page clock until the app read the bot's reply), not the parameters the page sent; it records the page's
+  parameters on their way to the server where they matter (`recordCommand`), and no test answers a pull request
+  command, a review, a `/patronus` comment or the text of a new pull request in the page.
 
 ## Alternatives Considered
 

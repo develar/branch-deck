@@ -5,7 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
-import { availablePullRequests, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
+import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest, repoPath, reviewer, skipCommandReplyWait } from "../helpers/pull-request-helpers"
 import {
   NOW,
   availableReviewRequests,
@@ -21,7 +21,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { routeCommand, routeCommandError } from "../helpers/wait-helpers"
+import { holdCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the requests review them as the branches of others
 const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
@@ -46,29 +46,18 @@ async function setupRequests(
 }
 
 /**
- * The requests in a repository Patronus guards, its target master; the reviews and the comment are answered in the
- * page, GitHub showing `head` (by default the commit the user approved). Returns the recorded calls.
+ * The requests in a repository Patronus guards, its target master; the fake GitHub holds their pull requests, its bot
+ * accepts a `/patronus` comment, and with `head` GitHub shows that commit as the head of #101 (someone pushed since)
  */
 async function setupSafePush(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>, requests: ReturnType<typeof reviewRequest>[], head?: string) {
   // the card reads it (master, the baseline) once it shows: the menus of its rows say which pull requests Patronus merges into it
-  await setupRepo("issue_links", { reviewRequests: availableReviewRequests(requests), patronus: availableRobots() })
+  const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests(requests), patronus: availableRobots() })
   await syncAndWaitForBranches()
   await expect(getYourTurnCard(page)).toBeVisible()
-  const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
-  const heads = await routeCommand(page, "get_pull_request_head", () => head ?? reviews[0]?.commitId)
-  const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "4402154133", url: "https://github.com/acme/monorepo/pull/101#issuecomment-4402154133" }))
-  const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "accepted" }))
-  return { reviews, heads, posts, replies }
-}
-
-/** Runs the fake clock over the app's 3 s wait before it reads the bot's reply, until it read it */
-async function skipReplyWait(page: Page, replies: unknown[]): Promise<void> {
-  await expect
-    .poll(async () => {
-      await page.clock.fastForward(3000)
-      return replies.length
-    })
-    .toBeGreaterThan(0)
+  if (head !== undefined) {
+    await repo.answerGitHub("GET", repoPath("pulls", 101), 200, { number: 101, head: { ref: "user-name/virtual/ABC-123", sha: head } })
+  }
+  return repo
 }
 
 /** The calls of the window API of a page: `close` is Escape closing the review window */
@@ -439,7 +428,6 @@ test.describe("Review window", () => {
   test("should approve the commit the review shows, in the review too, and keep its place once it left the list", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     // the main window runs the write
-    const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
     const { window: reviewPage, review } = await openReviewWindow(page, 101)
     const approve = review.getByTestId("review-approve")
     // nothing to approve before the commit the user sees is there
@@ -456,12 +444,12 @@ test.describe("Review window", () => {
     // the toast is the window's; the main window records it in Activity
     await expect(reviewToast(reviewPage, "Approved #101")).toBeVisible()
     await expect(reviewToast(page, "Approved #101")).toHaveCount(0)
-    expect(reviews).toEqual([expect.objectContaining({ pullRequestNumber: 101, event: "approve", commitId: expect.stringMatching(/^[0-9a-f]{40}$/), body: null })])
+    expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([{ event: "APPROVE", commit_id: expect.stringMatching(/^[0-9a-f]{40}$/) }])
     // done: "Approved", and A approves nothing again
     await expect(approve).toHaveText("Approved")
     await expect(approve).toHaveAttribute("data-approved")
     await reviewPage.keyboard.press("a")
-    expect(reviews).toHaveLength(1)
+    expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toHaveLength(1)
     // Open Pull Request of the toast: the main window opens it
     await reviewToast(reviewPage, "Approved #101").getByRole("button", { name: "Open Pull Request" }).click()
     await expect.poll(() => getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/101"])
@@ -478,13 +466,8 @@ test.describe("Review window", () => {
   })
 
   test("should keep the window while a write runs, and tell its result in the main window once the window closed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
-    let answer = () => {}
-    const answered = new Promise<void>(resolve => (answer = resolve))
-    await page.route("**/invoke/submit_pull_request_review", async route => {
-      await answered
-      await route.fulfill({ json: { status: "ok", data: null } })
-    })
+    const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    const answer = await holdCommand(page, "submit_pull_request_review")
     const { window: reviewPage, review } = await openReviewWindow(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await reviewPage.keyboard.press("a")
@@ -497,6 +480,7 @@ test.describe("Review window", () => {
     await emitTauriEvent(page, "tauri://destroyed", null, "pull-request-review")
     answer()
     await expect(reviewToast(page, "Approved #101")).toBeVisible()
+    expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
   })
 
   test("should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request", async ({
@@ -504,8 +488,7 @@ test.describe("Review window", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
-    const reviews = await routeCommand(page, "submit_pull_request_review", () => null)
+    const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     // the row's menu opens the window with the form, once the pull request is fetched
     await getReviewRow(page, 101).click({ button: "right" })
     await page.getByRole("menuitem", { name: "Request Changes…" }).click()
@@ -522,9 +505,9 @@ test.describe("Review window", () => {
     await expect(comment).toBeFocused()
     await comment.pressSequentially("a d o r: sort by the snapshot")
     await reviewPage.keyboard.press("ArrowDown")
-    expect(reviews).toEqual([])
-    expect(await getOpenedUrls(page)).toEqual([])
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+    expect(await gitHubRequests(repo, "POST", "pulls", "*", "reviews")).toEqual([])
+    expect(await getOpenedUrls(page)).toEqual([])
 
     // Escape closes the form (Base UI prevents it), not the window, and keeps the draft; the focus stays in the review,
     // whose keys work again
@@ -553,7 +536,9 @@ test.describe("Review window", () => {
     await reviewPage.keyboard.press("Control+Enter")
     await expect(form).toBeHidden()
     await expect(reviewToast(reviewPage, "Requested changes on #101")).toBeVisible()
-    expect(reviews).toEqual([expect.objectContaining({ pullRequestNumber: 101, event: "requestChanges", body: "a d o r: sort by the snapshot" })])
+    expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([
+      { event: "REQUEST_CHANGES", commit_id: expect.stringMatching(/^[0-9a-f]{40}$/), body: "a d o r: sort by the snapshot" },
+    ])
     await expect(review.getByTestId("review-dialog-submitted")).toHaveText("changes requested by you")
     // sent: the draft is gone
     await reviewPage.keyboard.press("r")
@@ -561,8 +546,11 @@ test.describe("Review window", () => {
   })
 
   test("should say why GitHub refused a review", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
-    await routeCommandError(page, "submit_pull_request_review", "User can only have one pending review per pull request")
+    const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    await repo.answerGitHub("POST", repoPath("pulls", 101, "reviews"), 422, {
+      message: "Unprocessable Entity",
+      errors: ["User can only have one pending review per pull request"],
+    })
     const { window: reviewPage, review } = await openReviewWindow(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await review.getByTestId("review-approve").click()
@@ -576,7 +564,7 @@ test.describe("Review window", () => {
     syncAndWaitForBranches,
   }) => {
     // GitHub shows the commit the user approved
-    const { reviews, heads, posts, replies } = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD, RELEASE])
+    const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD, RELEASE])
     // the robot is not among the user's: the thumbs up is the start
     await routeCommand(page, "get_patronus_robots", () => availableRobots())
 
@@ -605,19 +593,20 @@ test.describe("Review window", () => {
     )
     // the keys of the review wait while the form is open
     await reviewPage.keyboard.press("a")
-    expect(reviews).toEqual([])
     await expect(form.getByTestId("review-safe-push-start")).toBeFocused()
+    expect(await gitHubRequests(repo, "POST", "pulls", "*", "reviews")).toEqual([])
     await reviewPage.keyboard.press("Enter")
-    await skipReplyWait(page, replies)
+    await skipCommandReplyWait(page, repo)
     await expect
       .poll(async () => {
         await page.clock.fastForward(3000)
         return reviewPage.locator("[data-slot=toast]", { hasText: "Safe Push started" }).count()
       })
       .toBe(1)
-    expect(reviews).toEqual([expect.objectContaining({ pullRequestNumber: 101, event: "approve" })])
-    expect(heads).toEqual([expect.objectContaining({ pullRequestNumber: 101, githubRepository: "acme/monorepo" })])
-    expect(posts).toEqual([expect.objectContaining({ pullRequestNumber: 101, mode: "rebaseAutosquash", subject: "reviewedPullRequest", githubRepository: "acme/monorepo" })])
+    // the approval, the head GitHub shows, then the plain command: Patronus deletes the branch of a reviewed pull request
+    expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
+    expect(await gitHubRequests(repo, "GET", "pulls", 101)).toHaveLength(1)
+    expect(await gitHubRequests(repo, "POST", "issues", 101, "comments")).toEqual([{ body: "/patronus merge" }])
     await expect(form).toBeHidden()
     // approved: the Safe Push alone is left, the primary now
     await expect(safePush).toHaveText("Safe Push…M")
@@ -633,7 +622,7 @@ test.describe("Review window", () => {
   })
 
   test("should watch the robot of a reviewed pull request: listed by what it tests, its merge told", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const { replies } = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD])
+    const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD])
     // the page's clock is at 2024-01-02 10:00Z; the robot runs on no branch of the user's
     const started = robot("ABC-123", "review-robot", { branchName: null, startTime: 1704189600, pullRequest: { number: 101, url: "https://github.com/acme/monorepo/pull/101" } })
     await routeCommand(page, "get_patronus_robots", () => availableRobots(started))
@@ -643,7 +632,7 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await reviewPage.keyboard.press("m")
     await reviewPage.getByTestId("review-safe-push-form").getByTestId("review-safe-push-start").click()
-    await skipReplyWait(page, replies)
+    await skipCommandReplyWait(page, repo)
     await expect(reviewPage.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
 
     // the header of the main window lists it by the pull request, without a row to show
@@ -663,7 +652,7 @@ test.describe("Review window", () => {
   })
 
   test("should not Safe Push a pull request that got commits since the user reviewed it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const { posts } = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD], "f".repeat(40))
+    const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD], "f".repeat(40))
     // from the row's menu: the window opens with the confirmation once the pull request is fetched
     await getReviewRow(page, 101).click({ button: "right" })
     await page.getByRole("menuitem", { name: "Approve and Safe Push…" }).click()
@@ -673,7 +662,8 @@ test.describe("Review window", () => {
     const form = reviewPage.getByTestId("review-safe-push-form")
     await form.getByTestId("review-safe-push-start").click()
     await expect(reviewToast(reviewPage, "Cannot start the Safe Push")).toContainText(/#101 has new commits since you reviewed [0-9a-f]{8}: review ffffffff first/)
-    expect(posts).toEqual([])
+    expect(await gitHubRequests(repo, "GET", "pulls", 101)).toHaveLength(1)
+    expect(await gitHubRequests(repo, "POST", "issues", "*", "comments")).toEqual([])
   })
 
   test("should keep the review when the request is withdrawn meanwhile, and its refs", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { availableRobots, failedFastTests, robot, setupRobots } from "../helpers/patronus-helpers"
+import { availableRobots, failedFastTests, robot, setupRobots, setupRobotsWith } from "../helpers/patronus-helpers"
 import { hoverStatusChip } from "../helpers/review-status-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the fake Patronus fails the robot with one failed check
@@ -16,8 +16,8 @@ async function openMenu(page: Page, branchName: string): Promise<void> {
 
 test.describe("Prompt for an agent of a failed Safe Push", () => {
   test("should copy the prompt from the menu of the branch, with the TeamCity build and the commits by their local hash", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING, FAILED)
-    await repo.setPatronusDetails(failedFastTests("failed-robot"))
+    // the checks before the first sync: the service keeps what it read of a finished robot
+    await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: failedFastTests("failed-robot") }, RUNNING, FAILED)
 
     // a running robot whose checks did not fail has no prompt
     await openMenu(page, "JIRA-456")
@@ -41,8 +41,8 @@ test.describe("Prompt for an agent of a failed Safe Push", () => {
   })
 
   test("should collect the CI details for the full prompt, and say what it copied", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING, FAILED)
-    await repo.setPatronusDetails(failedFastTests("failed-robot"))
+    // the checks before the first sync: the service keeps what it read of a finished robot
+    await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: failedFastTests("failed-robot") }, RUNNING, FAILED)
     await openMenu(page, "ABC-123")
     await page.getByRole("menuitem", { name: "Copy Prompt with CI Details" }).click()
 

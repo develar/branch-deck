@@ -29,6 +29,9 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   if (parsedOptions.patronusProfiles !== undefined) {
     await repoBuilder.setPatronusProfiles(parsedOptions.patronusProfiles)
   }
+  if (parsedOptions.reviewAnswers !== undefined) {
+    await repoBuilder.setReviewAnswers({ answers: parsedOptions.reviewAnswers })
+  }
   if (parsedOptions.patronusDetails !== undefined) {
     await repoBuilder.setPatronusDetails(parsedOptions.patronusDetails)
   }

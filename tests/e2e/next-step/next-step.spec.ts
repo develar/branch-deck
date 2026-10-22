@@ -17,7 +17,17 @@ import {
   startRequest,
   setupApprovalsDismissedByPush,
 } from "../helpers/patronus-helpers"
-import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubWrites, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
+import {
+  availablePullRequests,
+  createPullRequestDialog,
+  getOpenedUrls,
+  gitHubRequests,
+  gitHubWrites,
+  pullRequest,
+  repoPath,
+  reviewer,
+  skipCommandReplyWait,
+} from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
@@ -97,30 +107,21 @@ async function clickSafePushForPopover(page: Page) {
 const SAFE_PUSH_ITEM = { name: /^Safe Push( S)?$/ }
 
 /**
- * The start of JIRA-456 from #1078 (`/patronus merge`): the comment posted, the bot's 👍, the robot it started in the
- * list asked for after it; the comments and the reads of the reply
+ * The start of JIRA-456 from #1078 (`/patronus merge`): the fake GitHub's bot answers the comment with 👍; the robot
+ * it started is in the list asked for after it
  */
 async function routePullRequestStart(page: Page) {
-  const posts = await routeCommand(page, "post_patronus_command", () => ({ id: "4402154133", url: `${AWAITED.url}#issuecomment-4402154133` }))
-  const replies = await routeCommand(page, "read_patronus_command_reply", () => ({ status: "accepted" }))
   const started = robot(BRANCH, "pr-robot", { sourceRevision: null, startTime: Math.floor(Date.now() / 1000), pullRequest: { number: 1078, url: AWAITED.url } })
   await routeCommand(page, "get_patronus_robots", params => (params.since === null ? availableRobots() : availableRobots(started)))
-  return { posts, replies }
 }
 
 /**
- * Runs the fake clock over the app's wait before it reads the bot's reply (`COMMAND_REPLY_INTERVAL_MS`, 3 s) until it
- * read it; then the toast of the started robot, with Open in Patronus and Cancel Safe Push
+ * The comment of the start on #1078 reached the fake GitHub, the app read the bot's reply over its wait; then the
+ * toast of the started robot, with Open in Patronus and Cancel Safe Push
  */
-async function expectStartedFromPullRequest(page: Page, { posts, replies }: Awaited<ReturnType<typeof routePullRequestStart>>) {
-  await expect.poll(() => posts.length).toBe(1)
-  await expect
-    .poll(async () => {
-      await page.clock.fastForward(3000)
-      return replies.length
-    })
-    .toBeGreaterThan(0)
-  expect(posts).toEqual([expect.objectContaining({ pullRequestNumber: 1078, mode: "rebaseAutosquash" })])
+async function expectStartedFromPullRequest(page: Page, repo: TestRepositoryBuilder) {
+  await expect.poll(() => gitHubRequests(repo, "POST", "issues", 1078, "comments")).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+  await skipCommandReplyWait(page, repo)
   await expectStartedToast(page)
 }
 
@@ -273,8 +274,8 @@ test.describe("Next step", () => {
     syncAndWaitForBranches,
   }) => {
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })
-    await setup(page, setupRepo, syncAndWaitForBranches, APPROVED_BY_CODE_OWNER, [approved])
-    const starts = await routePullRequestStart(page)
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, APPROVED_BY_CODE_OWNER, [approved])
+    await routePullRequestStart(page)
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
     await slotSafePush(page, BRANCH).hover()
     await expect(page.getByRole("tooltip", { name: "Lands" })).toHaveText(`Lands ${BRANCH} into master once the checks passS`)
@@ -289,20 +290,20 @@ test.describe("Next step", () => {
 
     // nothing to say: the click starts at once, a comment on the pull request
     await slotSafePush(page, BRANCH).click()
-    await expectStartedFromPullRequest(page, starts)
+    await expectStartedFromPullRequest(page, repo)
     await expect(safePushPopover(page)).toHaveCount(0)
   })
 
   test("should keep Safe Push while Patronus doesn't tell whose approvals count, and say so before it starts", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const botApproved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
-    await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [botApproved])
-    const starts = await routePullRequestStart(page)
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [botApproved])
+    await routePullRequestStart(page)
     const popover = await clickSafePushForPopover(page)
     await expect(popover.getByTestId("safe-push-review")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's approval.")
     await expect(popoverStart(page)).toHaveText("Safe Push")
     await popoverStart(page).click()
     await expect(popover).toHaveCount(0)
-    await expectStartedFromPullRequest(page, starts)
+    await expectStartedFromPullRequest(page, repo)
   })
 
   test("should wait for the reviewer GitHub asks while Patronus can't judge the approvals, keep Safe Push, and tell the approval", async ({
@@ -460,7 +461,6 @@ test.describe("Next step", () => {
     // the bot approved, nobody of IJPL Code Platform is asked
     const unasked = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked])
-    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
     await expect(slot(page)).toHaveAttribute("data-step", "requestReview")
     const step = slot(page).getByTestId("next-step")
     await expect(step).toHaveText("Request Review…")
@@ -485,7 +485,7 @@ test.describe("Next step", () => {
     await expect(node).toHaveAttribute("data-kind", "waiting")
     releaseRequest()
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
-    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 1078, reviewers: ["ikorennoy"] })])
+    expect(await gitHubRequests(repo, "POST", "pulls", 1078, "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
     await expect(popover).toHaveCount(0)
     // the pull request asks him now: the wait, while Patronus is still to answer again
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
@@ -502,9 +502,8 @@ test.describe("Next step", () => {
         ? { ...status, remoteExists: true, unpushedCommits: [status.unpushedCommits[0] ?? "new"], myUnpushedCount: 1, commitsBehind: 0, fastForward: true }
         : status,
     )
-    await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked], availableRobots(), { unpushed: true })
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked], availableRobots(), { unpushed: true })
     const pushes = await routePush(page, {})
-    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
     await expect(slot(page)).toHaveAttribute("data-step", "requestReview")
     const step = slot(page).getByTestId("next-step")
     await expect(step).toBeEnabled()
@@ -513,7 +512,7 @@ test.describe("Next step", () => {
     await popover.getByTestId("request-review-submit").click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
     expect(pushes.map(push => push.branchName)).toEqual([BRANCH])
-    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 1078, reviewers: ["ikorennoy"] })])
+    expect(await gitHubRequests(repo, "POST", "pulls", 1078, "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
     // one action, one toast
     await expect(pushedToast(page, BRANCH)).toHaveCount(0)
   })
@@ -633,9 +632,9 @@ test.describe("Next step", () => {
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
 
     // the toast's Safe Push has nothing to say: it starts at once, a comment on the pull request
-    const starts = await routePullRequestStart(page)
+    await routePullRequestStart(page)
     await toast.getByRole("button", { name: "Safe Push", exact: true }).click()
-    await expectStartedFromPullRequest(page, starts)
+    await expectStartedFromPullRequest(page, repo)
     await expect(safePushPopover(page)).toHaveCount(0)
     // Activity keeps it
     const activity = await openActivityWindow(page)

@@ -108,3 +108,94 @@ async fn another_token_another_repository_a_missing_branch_and_a_refusal_fail_as
   fake.answer("GET", "/user", FakeAnswer::ok(json!({"login": "scripted"})));
   assert_eq!(client.viewer_login(TOKEN).await.unwrap(), "scripted");
 }
+
+async fn get(client: &GitHubClient, path: &[String], query: &[(&str, &str)]) -> Result<Value, GitHubError> {
+  let path: Vec<&str> = path.iter().map(String::as_str).collect();
+  client.get(TOKEN, &path, query).await
+}
+
+/// A pull request of bob on user/virtual/auth, number 7, that alice reviews
+fn bob_pull(repository: &FakeGitHubRepository) {
+  repository.update(|state| {
+    state.pulls.push(crate::fake_repository::FakePull {
+      pull_request: sync_types::pull_request::PullRequest {
+        number: 7,
+        title: "Add auth".to_string(),
+        url: "https://github.com/acme/monorepo/pull/7".to_string(),
+        state: sync_types::pull_request::PullRequestState::Open,
+        is_draft: false,
+        review_decision: None,
+        head_ref_name: "user/virtual/auth".to_string(),
+        base_ref_name: "master".to_string(),
+        head_ref_oid: String::new(),
+        checks: None,
+        updated_at: 0,
+        reviewers: Vec::new(),
+        author: Some("bob".to_string()),
+      },
+      body: String::new(),
+      comments: Vec::new(),
+      assignees: Vec::new(),
+      reviews: Vec::new(),
+    });
+  });
+}
+
+#[tokio::test]
+async fn a_review_makes_the_user_a_reviewer_and_the_author_cannot_review() {
+  let (_fake, repository, client) = setup().await;
+  post(&client, &pulls(&["pulls"]), json!({"title": "Own", "head": "user/virtual/auth", "base": "master"}))
+    .await
+    .unwrap();
+  let own = post(&client, &pulls(&["pulls", "7", "reviews"]), json!({"event": "APPROVE", "commit_id": "a"})).await;
+  assert!(matches!(own, Err(GitHubError::Http { status: 422, .. })), "{own:?}");
+
+  repository.update(|state| state.pulls.clear());
+  bob_pull(&repository);
+  let review = post(&client, &pulls(&["pulls", "7", "reviews"]), json!({"event": "APPROVE", "commit_id": "abc"}))
+    .await
+    .unwrap();
+  assert_eq!((review["state"].clone(), review["commit_id"].clone()), (json!("APPROVED"), json!("abc")));
+  let pull = &repository.state().pulls[0];
+  assert_eq!(pull.reviews[0].event, "APPROVE");
+  assert_eq!(
+    pull.pull_request.reviewers,
+    vec![sync_types::pull_request::Reviewer {
+      login: "alice".to_string(),
+      state: sync_types::pull_request::ReviewerState::Approved,
+      requested: false,
+    }]
+  );
+}
+
+#[tokio::test]
+async fn the_patronus_bot_answers_a_command_comment_with_a_reaction_and_a_rejection_with_its_reason() {
+  let (_fake, repository, client) = setup().await;
+  bob_pull(&repository);
+  let accepted = post(&client, &pulls(&["issues", "7", "comments"]), json!({"body": "/patronus merge"})).await.unwrap();
+  assert_eq!(
+    accepted["html_url"],
+    json!(format!("https://github.com/acme/monorepo/pull/7#issuecomment-{}", accepted["id"]))
+  );
+  let read = get(&client, &pulls(&["issues", "comments", &accepted["id"].to_string()]), &[]).await.unwrap();
+  assert_eq!(read["reactions"], json!({"+1": 1, "-1": 0}));
+
+  repository.update(|state| {
+    state.patronus_replies.insert(
+      7,
+      sync_types::patronus::PatronusCommandReply::Rejected {
+        reason: Some("The pull request is a draft".to_string()),
+      },
+    );
+  });
+  let rejected = post(&client, &pulls(&["issues", "7", "comments"]), json!({"body": "/patronus dry-run"})).await.unwrap();
+  let read = get(&client, &pulls(&["issues", "comments", &rejected["id"].to_string()]), &[]).await.unwrap();
+  assert_eq!(read["reactions"], json!({"+1": 0, "-1": 1}));
+  let since = read["created_at"].as_str().unwrap().to_string();
+  let after = get(&client, &pulls(&["issues", "7", "comments"]), &[("since", &since)]).await.unwrap();
+  let bodies: Vec<&str> = after.as_array().unwrap().iter().filter_map(|comment| comment["body"].as_str()).collect();
+  assert_eq!(bodies, ["/patronus merge", "/patronus dry-run", "⚠️ The pull request is a draft"]);
+  assert_eq!(after[2]["user"]["type"], "Bot");
+  let missing = get(&client, &pulls(&["issues", "comments", "99"]), &[]).await;
+  assert!(matches!(missing, Err(GitHubError::NoAccess { status: 404, .. })), "{missing:?}");
+}

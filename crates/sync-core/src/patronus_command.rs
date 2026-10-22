@@ -10,6 +10,11 @@ use serde::Deserialize;
 use sync_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
 use tracing::instrument;
 
+/// The repository of the pull request a `/patronus` comment goes to is the one the review requests name, else the
+/// mirror of the Space repository: neither is known
+pub const UNKNOWN_GITHUB_REPOSITORY_MESSAGE: &str =
+  "The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run git config branchdeck.githubRepository <owner>/<name>";
+
 /// The reason of a rejection is a hint in a toast, not the whole comment
 const MAX_REASON_CHARS: usize = 500;
 

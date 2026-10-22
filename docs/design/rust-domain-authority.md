@@ -1140,7 +1140,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | Этап | Состояние |
 | --- | --- |
 | s0a-safety-net | приземлён |
-| s0b-remote-bridge | в работе: s0b-1 (чтения Patronus через реальный `PatronusService` за `FakePatronus`) |
+| s0b-remote-bridge | в работе: s0b-1…s0b-5 (Patronus, Safe Push, pull requests, ревьюеры, ревью, команда `/patronus` и code-owner readiness через реальные сервисы за fakes; `PAGE_MOCKED` 19) |
 | s0c-scenarios | не начат |
 | s1-holes | не начат |
 | s2-types | не начат |
