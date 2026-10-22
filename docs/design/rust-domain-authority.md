@@ -915,6 +915,25 @@ rewrites между процессами через файл `s10`; `s12` ждё
 - **Проверки:** таблица сценариев: D1, D2, D9 — `app == bd`; Rust-тест каждого guard вызывает команду напрямую с
   parked, landed и overlapped subject; бюджет процессов push приложения получает lock и ничего больше.
 - **Критерий выхода:** прямой вызов `start_patronus_robot` с parked subject отказывает.
+- **Сделано:** все четыре дыры закрыты на месте, записи D1, D2, D9 и D10 реестра несут `closed: "s1-holes"`.
+  - `bd`: правила target читает `plan()` (`rules_check` в `crates/bd-remote/src/safe_push_command.rs`, один GET
+    `read_branch_rules`; отказы `push_dismisses_approvals` и `rules_unknown`, флаг `--allow-unknown-rules`, поле
+    `rules`); профиль, пропускающий review, на API-маршруте — `ApprovalsSkippedBy::of` и `review.skipped_by`.
+  - Приложение: `useDismissesStaleReviews` отвечает `keep` | `dismiss` | `unknown` и не кеширует неудачу
+    (`forgetUnknownRules` перед каждым стартом); `getSafePushDecision` подтверждает `rulesUnknown`.
+  - Таблица: `BranchTable.remote` (`remote_facts` в `crates/repository-view/src/branch_table.rs`) из статусов, которые
+    собирает `RemoteStatusCollector` (`crates/sync-core/src/remote_status.rs`), — одни remote-факты обеих сторон.
+  - Guard'ы приложения в Rust: `crates/repository-view/src/push_guard.rs` (lock, затем parked, landed whole и hold —
+    `push_branch(es)` и маршруты test-server) и `crates/repository-view/src/start_guard.rs` (`check_start`,
+    `check_restart`, `check_cancel` и последовательности `start_robot`, `restart_robot`, `cancel_robot` по таблице
+    `RepositoryViews` и роботам, которых читает `PatronusService::robots_for_action`).
+  - Удалено: fallback `false` в `useDismissesStaleReviews.ts`; `remote_of` в `bd-remote/patronus_facts.rs` (его место —
+    `BranchTable.remote`); поле `landed_commits` в `StartPatronusRobotParams` (gate берёт `landed_commits(&view)`);
+    слова отказов и hold'ов в `bd-remote` (`start_refusal_text`, `landed_words` и соседи живут в guard'ах, `bd` их
+    вызывает).
+  - Приёмка этапа пройдена в lease: `pnpm lint:backend`, `cargo nextest run --workspace`, `pnpm lint:frontend`,
+    `pnpm test:unit`, `pnpm e2e`, `pnpm lint:cpd`, `pnpm lint:specs`; `cli status` отладочной сборки и установленного
+    `bd` на одной фикстуре отвечают одним и тем же JSON (`schema` 2), не создав ни одного ref.
 
 ### s2-types
 
@@ -1479,7 +1498,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s0a-safety-net | приземлён |
 | s0b-remote-bridge | приземлён |
 | s0c-scenarios | приземлён |
-| s1-holes | в работе |
+| s1-holes | приземлён |
 | s2-types | приземлён |
 | s3-crates | не начат |
 | s4-errors | не начат |
