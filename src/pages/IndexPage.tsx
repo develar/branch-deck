@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react"
+import { Activity as KeepMounted, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react"
 import pDebounce from "p-debounce"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { BranchCreator } from "@/components/branch/BranchCreator"
 import { DragTargetBar } from "@/components/branch/DragTargetBar"
 import { CommandPalette } from "@/components/command-palette/CommandPalette"
+import { LandingView } from "@/components/landing/LandingView"
 import { Container } from "@/components/layout/Container"
 import { ActivityPanel } from "@/components/repository/ActivityPanel"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
@@ -28,6 +29,7 @@ import { openSubWindow } from "@/lib/window-management"
 import { MIN_ISLANDS_WIDTH } from "@/lib/zoom"
 import { syncIfChanged } from "@/stores/branch-sync"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
+import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
 import { getSelectedProject, initRepository } from "@/stores/repository"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 
@@ -53,6 +55,56 @@ const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePul
 
 /** The width of the Activity side panel until its divider is dragged: the search and a line of an entry */
 const ACTIVITY_PANEL_WIDTH = "24rem"
+
+/**
+ * The views keep what the user left (`spec/repository/main-views.spec.md`): both stay mounted (React's `Activity`, here
+ * `KeepMounted`), so the rows, their forms and their selection live on; the scroll position and the focused element of
+ * the branches are kept at the switch and given back on the return, as `display: none` drops the focus. The focus moves
+ * into a view only when it was inside the one that hid, so a click on the switcher keeps it on the switcher.
+ */
+function useKeptViewPlace() {
+  const view = useMainView()
+  const branches = useRef<HTMLElement>(null)
+  const landing = useRef<HTMLElement>(null)
+  const landingHeading = useRef<HTMLHeadingElement>(null)
+  const kept = useRef<{ element: HTMLElement | null; scrollTop: number; moveFocus: boolean }>({ element: null, scrollTop: 0, moveFocus: false })
+  // at the switch, before React hides the view: what the user leaves
+  useEffect(
+    () =>
+      mainViewStore.subscribe((state, previous) => {
+        if (state.view === previous.view) {
+          return
+        }
+        const active = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null
+        const left = previous.view === "branches" ? branches.current : landing.current
+        const moveFocus = active === null || (left?.contains(active) ?? false)
+        if (previous.view === "branches") {
+          kept.current = { element: moveFocus ? active : kept.current.element, scrollTop: branches.current?.scrollTop ?? 0, moveFocus }
+        } else {
+          kept.current = { ...kept.current, moveFocus }
+        }
+      }),
+    [],
+  )
+  const isFirst = useRef(true)
+  useLayoutEffect(() => {
+    if (isFirst.current) {
+      isFirst.current = false
+      return
+    }
+    if (view === "branches") {
+      if (branches.current !== null) {
+        branches.current.scrollTop = kept.current.scrollTop
+      }
+      if (kept.current.moveFocus && kept.current.element?.isConnected === true) {
+        kept.current.element.focus({ preventScroll: true })
+      }
+    } else if (kept.current.moveFocus) {
+      landingHeading.current?.focus({ preventScroll: true })
+    }
+  }, [view])
+  return { view, branches, landing, landingHeading }
+}
 
 /**
  * The main window: the toolbar on the canvas, then the islands in their own scroller, so the toolbar stays where the
@@ -90,6 +142,10 @@ export function IndexPage() {
   const isActivityPanelShown = useActivityPanel(area)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "activity-panel", storage: localStorage, onlySaveAfterUserInteractions: true })
   useActivityWindowLink()
+  // Branches · Landing (⌘1, ⌘2): the native View menu, ☰ and its keys, the palette
+  const { view, branches, landing, landingHeading } = useKeptViewPlace()
+  useAppCommand("show_branches", () => showMainView("branches"))
+  useAppCommand("show_landing", () => showMainView("landing"))
   // "Create Pull Request…" of a branch (the review window has its own, `WindowCreatePullRequestDialog`)
   const createPullRequestOpen = useCreatePullRequestBranch() !== null
   const [isCreatePullRequestLoaded, setCreatePullRequestLoaded] = useState(false)
@@ -104,13 +160,23 @@ export function IndexPage() {
       <div ref={area} className="min-h-0 flex-1">
         <ResizablePanelGroup orientation="horizontal" defaultLayout={isActivityPanelShown ? defaultLayout : undefined} onLayoutChanged={onLayoutChanged}>
           <ResizablePanel id="main" minSize={`${MIN_ISLANDS_WIDTH}px`}>
-            <main className="h-full overflow-y-auto">
-              <Container className="pb-2">
-                <BranchCreator />
-              </Container>
-              {/* after the content, out of its gaps: its room at the end moves no row */}
-              <DragTargetBar />
-            </main>
+            {/* each view in its own scroller, both kept mounted (`useKeptViewPlace`) */}
+            <KeepMounted mode={view === "branches" ? "visible" : "hidden"}>
+              <main ref={branches} className="h-full overflow-y-auto" data-testid="branches-view">
+                <Container className="pb-2">
+                  <BranchCreator />
+                </Container>
+                {/* after the content, out of its gaps: its room at the end moves no row */}
+                <DragTargetBar />
+              </main>
+            </KeepMounted>
+            <KeepMounted mode={view === "landing" ? "visible" : "hidden"}>
+              <main ref={landing} className="h-full overflow-y-auto">
+                <Container className="pb-2">
+                  <LandingView visible={view === "landing"} headingRef={landingHeading} />
+                </Container>
+              </main>
+            </KeepMounted>
           </ResizablePanel>
           {isActivityPanelShown && (
             <>

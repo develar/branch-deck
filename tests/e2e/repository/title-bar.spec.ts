@@ -13,9 +13,11 @@ import { waitForConflictViewer } from "../helpers/wait-helpers"
 
 /** The empty part of the main window's row, between the repository and the actions: it drags the window */
 async function emptyPartOfRow(page: Page): Promise<{ x: number; y: number }> {
-  const browse = await boxOf(page.getByTestId("browse-repository-button"))
+  // after the last control of the start: the switcher of the views of a repository, else the browse button
+  const switcher = page.getByTestId("main-view-switcher")
+  const start = await boxOf((await switcher.count()) > 0 ? switcher : page.getByTestId("browse-repository-button"))
   const update = await boxOf(page.getByTestId("update-project-button"))
-  return { x: (browse.x + browse.width + update.x) / 2, y: 20 }
+  return { x: (start.x + start.width + update.x) / 2, y: 20 }
 }
 
 /** The window enters fullscreen, as the mock tells the page */

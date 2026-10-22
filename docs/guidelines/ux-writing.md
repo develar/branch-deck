@@ -59,6 +59,9 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
   clipboard". One failure verb: not "Failed to …", "… Failed", "Can't …", "Couldn't …".
 - **The description is the reason**, the `message` of the error (`getErrorDetails`), never prefixed with "Error:".
 - The same words in a tooltip or an inline error: "Cannot check the update: <reason>".
+- **A read nobody asked for is a state, not an error**: a view that reads as it shows (the Landing view's statistics)
+  says its failure in the view, as its state ("Cannot read the robots", kept numbers marked as of an earlier read),
+  without a toast; Rust logs it. The same read asked for (Refresh) goes through `notifyError`.
 - **Typing a field refuses says what is wrong**, under the field, without "Cannot …": nothing was attempted ("A prefix
   cannot contain spaces, …", "acme/app/x is not a GitHub repository: use owner/name").
 

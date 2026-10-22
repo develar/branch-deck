@@ -1,0 +1,244 @@
+<div aria-busy="false" class="@container flex flex-col gap-2" data-testid="landing-view">
+  <div class="flex min-h-9 items-center gap-3 px-1">
+    <h1 class="text-sm font-semibold text-foreground outline-none" tabindex="-1">
+      Safe Push Statistics
+    </h1>
+    <span class="min-w-0 truncate text-xs text-muted-foreground" data-testid="landing-window">
+      Into master · the last 70 days · UTC
+    </span>
+    <div class="ml-auto flex items-center gap-2">
+      <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-slot="button" data-testid="landing-refresh" tabindex="0" type="button">
+        <svg aria-hidden="true" class="lucide lucide-refresh-cw" data-icon="inline-start" />
+        Refresh
+      </button>
+    </div>
+  </div>
+  <div class="grid gap-2 @4xl:grid-cols-2">
+    <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-delivery">
+      <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
+        <h2 class="text-sm font-semibold text-foreground">
+          Into master
+        </h2>
+        <span class="truncate text-xs text-muted-foreground">
+          against everyone else, the median of 5 people
+        </span>
+      </div>
+      <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
+        <div class="grid grid-cols-2 gap-4 @2xl:grid-cols-4">
+          <div class="flex min-w-0 flex-col gap-0.5" data-testid="landing-merged">
+            <span class="text-xs text-muted-foreground">
+              Merged
+            </span>
+            <span class="text-xl font-semibold text-foreground tabular-nums">
+              2
+            </span>
+            <span class="text-xs text-muted-foreground">
+              2 failed · + 1 dry runs
+            </span>
+          </div>
+          <div class="flex min-w-0 flex-col gap-0.5" data-testid="landing-robots-per-merge">
+            <span class="text-xs text-muted-foreground">
+              Robots per merge
+            </span>
+            <span class="text-xl font-semibold text-foreground tabular-nums">
+              2.0
+            </span>
+            <span class="text-xs text-muted-foreground">
+              everyone else 1.0
+            </span>
+          </div>
+          <div class="flex min-w-0 flex-col gap-0.5" data-testid="landing-merge-time">
+            <span class="text-xs text-muted-foreground">
+              Time to merge
+            </span>
+            <span class="text-xl font-semibold text-foreground tabular-nums">
+              1h 20m
+            </span>
+            <span class="text-xs text-muted-foreground">
+              p90 2h · everyone else 1h
+            </span>
+          </div>
+          <div class="flex min-w-0 flex-col gap-0.5" data-testid="landing-first-try">
+            <span class="text-xs text-muted-foreground">
+              First try
+            </span>
+            <span class="text-xl font-semibold text-foreground tabular-nums">
+              50%
+            </span>
+            <span class="text-xs text-muted-foreground">
+              1 of 2 merges, estimated
+            </span>
+          </div>
+        </div>
+        <figure class="flex flex-col gap-1">
+          <div class="relative" />
+          <figcaption class="flex justify-between text-xs text-muted-foreground">
+            <span>
+              Oct 30
+            </span>
+            <span>
+              Jan 1
+            </span>
+          </figcaption>
+        </figure>
+      </div>
+    </div>
+    <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-time">
+      <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
+        <h2 class="text-sm font-semibold text-foreground">
+          Where the time went
+        </h2>
+      </div>
+      <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
+        <figure class="flex flex-col gap-2">
+          <div class="relative" />
+          <figcaption>
+            <ul class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              <li class="flex items-center gap-1.5">
+                <span aria-hidden="true" class="size-2 rounded-sm bg-success" />
+                <span class="text-muted-foreground">
+                  Merged robots
+                </span>
+                <span class="font-medium text-foreground tabular-nums">
+                  3 h
+                </span>
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span aria-hidden="true" class="size-2 rounded-sm bg-destructive" />
+                <span class="text-muted-foreground">
+                  Failed robots
+                </span>
+                <span class="font-medium text-foreground tabular-nums">
+                  2 h
+                </span>
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span aria-hidden="true" class="size-2 rounded-sm bg-muted-foreground/50" />
+                <span class="text-muted-foreground">
+                  Canceled robots
+                </span>
+                <span class="font-medium text-foreground tabular-nums">
+                  0 min
+                </span>
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span aria-hidden="true" class="size-2 rounded-sm bg-warning" />
+                <span class="text-muted-foreground">
+                  Waiting to restart
+                </span>
+                <span class="font-medium text-foreground tabular-nums">
+                  23 h
+                </span>
+              </li>
+            </ul>
+          </figcaption>
+        </figure>
+        <p class="text-xs text-muted-foreground" data-testid="landing-time-lost">
+          Failures and the waits after them took 25 h, 90% of the time on the way into master
+        </p>
+      </div>
+    </div>
+    <div aria-busy="false" class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-failures">
+      <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
+        <h2 class="text-sm font-semibold text-foreground">
+          Why robots failed
+        </h2>
+        <span class="truncate text-xs text-muted-foreground">
+          the last 14 days
+        </span>
+      </div>
+      <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
+        <ul aria-label="Failures by kind" class="flex flex-col gap-1.5">
+          <li class="grid grid-cols-[10rem_1fr_2rem] items-center gap-2 text-xs">
+            <span class="text-muted-foreground">
+              Checks failed
+            </span>
+            <span class="h-2 rounded-sm bg-destructive/70" style="width: 100%" />
+            <span class="text-right font-medium text-foreground tabular-nums">
+              1
+            </span>
+          </li>
+          <li class="grid grid-cols-[10rem_1fr_2rem] items-center gap-2 text-xs">
+            <span class="text-muted-foreground">
+              Unknown
+            </span>
+            <span class="h-2 rounded-sm bg-destructive/70" style="width: 100%" />
+            <span class="text-right font-medium text-foreground tabular-nums">
+              1
+            </span>
+          </li>
+        </ul>
+        <div class="grid gap-4 @2xl:grid-cols-2">
+          <section aria-label="Failed the most" class="flex flex-col gap-1" data-testid="landing-failed-checks">
+            <h3 class="text-xs font-medium text-muted-foreground">
+              Failed the most
+            </h3>
+            <ul class="flex flex-col gap-0.5 text-xs">
+              <li class="flex justify-between gap-2">
+                <span class="truncate text-foreground">
+                  Fast Tests
+                </span>
+                <span class="shrink-0 text-muted-foreground tabular-nums">
+                  1
+                </span>
+              </li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </div>
+    <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-hours">
+      <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
+        <h2 class="text-sm font-semibold text-foreground">
+          When robots run fastest
+        </h2>
+        <span class="truncate text-xs text-muted-foreground">
+          workdays, by the hour a merged robot started (UTC)
+        </span>
+      </div>
+      <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
+        <figure class="flex flex-col gap-1">
+          <div class="relative">
+            <div aria-label="Median time to merge by start hour: 09:00 · everyone 1h (15), among the fastest" class="flex h-24 items-end gap-0.5 border-b border-border" data-testid="hour-profile" role="img" />
+            <div class="pointer-events-none absolute -top-1 z-10 -translate-x-1/2 -translate-y-full rounded-md bg-popover px-2 py-1 text-xs whitespace-nowrap text-popover-foreground shadow-md ring-1 ring-foreground/10" data-testid="chart-tooltip" role="status" style="left: 39.5833%">
+              09:00 · everyone 1h (15), among the fastest
+            </div>
+          </div>
+          <figcaption class="flex flex-col gap-1 text-xs text-muted-foreground">
+            <div class="flex justify-between">
+              <span>
+                00:00
+              </span>
+              <span>
+                06:00
+              </span>
+              <span>
+                12:00
+              </span>
+              <span>
+                18:00
+              </span>
+              <span>
+                23:00
+              </span>
+            </div>
+            <ul class="flex gap-4">
+              <li class="flex items-center gap-1.5">
+                <span aria-hidden="true" class="size-2 rounded-sm bg-primary" />
+                Everyone else, median
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span aria-hidden="true" class="size-2 rounded-sm bg-success" />
+                The fastest hours
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span aria-hidden="true" class="size-2 rounded-full bg-foreground" />
+                You
+              </li>
+            </ul>
+          </figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</div>

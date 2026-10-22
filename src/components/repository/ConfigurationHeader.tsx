@@ -7,6 +7,7 @@ import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { ActivityButton } from "@/components/repository/ActivityButton"
 import { LandingIndicator } from "@/components/repository/LandingIndicator"
 import { MainMenuButton } from "@/components/repository/MainMenuButton"
+import { MainViewSwitcher } from "@/components/repository/MainViewSwitcher"
 import { PatronusStatusLine } from "@/components/repository/PatronusStatusLine"
 import { PullRequestStatusLine } from "@/components/repository/PullRequestStatusLine"
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
@@ -104,6 +105,8 @@ export function ConfigurationHeader() {
         {hasCustomTitleBar && <MainMenuButton />}
         {/* repository info: gives way to the actions on a narrow window, the repository selector first */}
         <RepositorySelector disabled={isSyncing} />
+        {/* where the user is: the view of the repository (Branches · Landing) */}
+        {hasSelectedProject && pathValidation.valid && <MainViewSwitcher />}
 
         {/* the filter bar says it from FILTER_BAR_MIN_BRANCHES on ("All 35") */}
         {hasSelectedProject && branchCount > 0 && !hasFilterBar && pathValidation.valid && (

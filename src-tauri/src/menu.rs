@@ -87,8 +87,14 @@ pub fn configure_app_menu(app: &mut App, store_json: &str) -> Result<(), Box<dyn
   let zoom_out = MenuItemBuilder::with_id("zoom_out", "Zoom Out").accelerator("CmdOrCtrl+-").build(app)?;
   // the command palette of the main window (⌘K): its views, Activity, the commands of the app, a branch
   let command_palette = MenuItemBuilder::with_id(OPEN_COMMAND_PALETTE, "Command Palette…").accelerator("CmdOrCtrl+K").build(app)?;
+  // the views of the main window (`MAIN_VIEWS` of `src/stores/main-view.ts`)
+  let show_branches = MenuItemBuilder::with_id(SHOW_BRANCHES, "Branches").accelerator("CmdOrCtrl+1").build(app)?;
+  let show_landing = MenuItemBuilder::with_id(SHOW_LANDING, "Landing").accelerator("CmdOrCtrl+2").build(app)?;
   let view_menu_builder = SubmenuBuilder::new(app, VIEW)
     .item(&command_palette)
+    .separator()
+    .item(&show_branches)
+    .item(&show_landing)
     .separator()
     .item(&actual_size)
     .item(&zoom_in)
@@ -154,6 +160,8 @@ const ZOOM_IN: &str = "Zoom In";
 const OPEN_SETTINGS: &str = "open_settings";
 const OPEN_ACTIVITY: &str = "open_activity";
 const OPEN_COMMAND_PALETTE: &str = "open_command_palette";
+const SHOW_BRANCHES: &str = "show_branches";
+const SHOW_LANDING: &str = "show_landing";
 const SYNC_BRANCHES: &str = "sync_branches";
 const UPDATE_PROJECT: &str = "update_project";
 const INSTALL_AGENT_CLI: &str = "install_agent_cli";
@@ -233,7 +241,9 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
   match event.id().as_ref() {
     "github_link" => open_url("https://github.com/develar/branch-deck"),
     "getting_started" => open_url("https://github.com/develar/branch-deck#getting-started"),
-    id @ (SYNC_BRANCHES | UPDATE_PROJECT | OPEN_SETTINGS | OPEN_ACTIVITY | OPEN_COMMAND_PALETTE | INSTALL_AGENT_CLI | CHECK_FOR_UPDATES) => emit_to_main(app, id, ()),
+    id @ (SYNC_BRANCHES | UPDATE_PROJECT | OPEN_SETTINGS | OPEN_ACTIVITY | OPEN_COMMAND_PALETTE | SHOW_BRANCHES | SHOW_LANDING | INSTALL_AGENT_CLI | CHECK_FOR_UPDATES) => {
+      emit_to_main(app, id, ());
+    }
     // one level for all windows: the main window changes it, the settings sync carries it to the others
     id @ ("zoom_in" | "zoom_out" | "zoom_reset") => emit_to_main(app, "zoom", &id["zoom_".len()..]),
     // the item checked itself; the main window saves the setting, and its sync reaches the other windows

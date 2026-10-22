@@ -23,6 +23,7 @@ import { getRobotTiming } from "@/lib/robot-eta"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
 import { orderLandingRobots } from "@/lib/robot-overview"
 import { requestReveal } from "@/stores/commit-move"
+import { showMainView } from "@/stores/main-view"
 import { getRobotEstimate } from "@/stores/patronus"
 import { useShowReviewReadiness } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -100,7 +101,7 @@ export function LandingPopover({ overview, onClose, renderPullRequest, footer }:
           </Section>
         )}
       </div>
-      {finished !== null && <FinishedLine summary={finished} onClose={onClose} />}
+      <FinishedLine summary={finished} onClose={onClose} />
       {/* hidden when every part renders nothing (a local baseline, no GitHub) */}
       <div className="flex min-w-0 shrink-0 flex-col gap-2 border-t border-border pt-3 text-xs empty:hidden">{footer}</div>
     </>
@@ -120,8 +121,11 @@ function useLandingQueue(running: readonly RobotOverviewEntry[]): readonly Robot
   return running.toSorted((a, b) => (rank.get(a.robot.id) ?? rank.size) - (rank.get(b.robot.id) ?? rank.size))
 }
 
-/** The robots of the last day in one line, their history in Activity ("Show in Activity", its Robots) */
-function FinishedLine({ summary, onClose }: { summary: string; onClose: () => void }) {
+/**
+ * The robots of the last day in one line, their history in Activity ("Show in Activity", its Robots), and how the
+ * landings went (Show Statistics, the Landing view)
+ */
+function FinishedLine({ summary, onClose }: { summary: string | null; onClose: () => void }) {
   return (
     <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground" data-testid="landing-finished">
       <span className="min-w-0 flex-1">{summary}</span>
@@ -131,11 +135,24 @@ function FinishedLine({ summary, onClose }: { summary: string; onClose: () => vo
         className="shrink-0"
         onClick={() => {
           onClose()
-          openActivity({ kind: "robots" })
+          showMainView("landing")
         }}
       >
-        Show in Activity
+        Show Statistics
       </Button>
+      {summary !== null && (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="shrink-0"
+          onClick={() => {
+            onClose()
+            openActivity({ kind: "robots" })
+          }}
+        >
+          Show in Activity
+        </Button>
+      )}
     </div>
   )
 }

@@ -15,6 +15,8 @@ targets:
   - ../../src-tauri/src/commands/patronus.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../crates/test-server/src/remote_fixtures.rs
+  - ../../src/components/landing/LandingView.tsx
+  - ../../src/stores/robot-stats.ts
 ---
 
 # Safe Push Statistics
@@ -127,6 +129,8 @@ it for little.
   (`RobotStatsEvent::Partial`) through its channel before the checks are read; two reads of one repository at once
   read once. The E2E server answers it from the real core at the page's clock, in UTC.
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_history_robot_reads_back_through_the_parser_of_the_statistics`)
+- The Landing view of the main window shows them ([Main Views](main-views.spec.md)).
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
 
 ## Testing / Local Run
 

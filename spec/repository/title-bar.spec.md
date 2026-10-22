@@ -164,7 +164,8 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should expand the menu bar in place of ☰, go through the menus, and collapse on Escape`)
 - The items are those of the native menu (`src/lib/main-menu.ts`): File: Sync Branches (Ctrl+R, disabled with the
   reason of the Sync button), Update Project (Ctrl+T), Auto-sync on Focus (checked), Settings… (Ctrl+,); View: Command
-  Palette… (Ctrl+K, [Command Palette](command-palette.spec.md)), Actual Size (Ctrl+0), Zoom In (Ctrl+=), Zoom Out
+  Palette… (Ctrl+K, [Command Palette](command-palette.spec.md)), Branches (Ctrl+1) and Landing (Ctrl+2)
+  ([Main Views](main-views.spec.md)), Actual Size (Ctrl+0), Zoom In (Ctrl+=), Zoom Out
   (Ctrl+-), Activity ([Activity](activity.spec.md)); Help: Getting Started, Install Agent CLI…, Check for
   Updates… (a build with the `auto-update` feature, as the native menu: `checkForUpdates` of the title bar), GitHub
   Repository. No Edit menu: the webview's Ctrl+C/V/X/A stay. Each item runs the
@@ -202,6 +203,9 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
 
 ### Every platform
 
+- After the repository the switcher of the views, Branches · Landing ([Main Views](main-views.spec.md)): where the
+  user is, as the left side of the row says; its names give way to the icons on a narrow window.
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should open from the native View menu and Show Statistics, and give the branches back as they were`)
 - The empty parts of the row drag the window (`data-tauri-drag-region="deep"`); a double click does what the system's
   title bar does there (macOS `AppleActionOnDoubleClick`, GTK's `gtk-titlebar-double-click`: zoom or maximize,
   minimize, nothing; `installTitleBarMouse` takes the second click before Tauri's drag script, which always maximizes).

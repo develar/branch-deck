@@ -6,6 +6,7 @@ import type { AppCommand } from "@/lib/app-commands"
 import { notifyError } from "@/lib/errors"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { openSettings } from "@/lib/settings-window"
+import { MAIN_VIEWS } from "@/stores/main-view"
 import { setAutoSyncOnFocus } from "@/stores/settings/appSettings"
 
 /*
@@ -68,6 +69,14 @@ export function mainMenus(state: MainMenuState): MainMenu[] {
       mnemonic: "V",
       groups: [
         [{ id: "open_command_palette", label: "Command Palette…", icon: CommandIcon, kbds: ["mod", "k"], onSelect: () => runAppCommand("open_command_palette") }],
+        // the views of the main window (`MAIN_VIEWS`), each with its key
+        MAIN_VIEWS.map(entry => ({
+          id: `show_${entry.view}`,
+          label: entry.label,
+          icon: entry.icon,
+          ...(entry.kbds && { kbds: [...entry.kbds] }),
+          onSelect: () => runAppCommand(`show_${entry.view}`),
+        })),
         zoomMenuItems(),
         [{ id: "open_activity", label: "Activity", icon: HistoryIcon, onSelect: () => openActivity() }],
       ],
@@ -101,7 +110,7 @@ export function zoomMenuItems(): MenuItem[] {
 }
 
 /**
- * The command of a key the native menu's accelerator had: Ctrl+R, Ctrl+T, Ctrl+,, Ctrl+K and the zoom keys (Ctrl+0,
+ * The command of a key the native menu's accelerator had: Ctrl+R, Ctrl+T, Ctrl+,, Ctrl+K, Ctrl+1 and Ctrl+2 and the zoom keys (Ctrl+0,
  * Ctrl+=, Ctrl+-). The physical key, as the native accelerators go by the virtual key: a Cyrillic layout's Ctrl+R still syncs
  * (and WebView2 doesn't reload). Ctrl+Shift+= is `useZoom`'s other Zoom In key.
  */
@@ -118,6 +127,10 @@ export function matchMainMenuKey(event: Pick<KeyboardEvent, "code" | "ctrlKey" |
       return { command: "open_settings" }
     case "KeyK":
       return { command: "open_command_palette" }
+    case "Digit1":
+      return { command: "show_branches" }
+    case "Digit2":
+      return { command: "show_landing" }
     case "Digit0":
     case "Numpad0":
       return { command: "zoom", payload: "reset" }

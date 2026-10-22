@@ -12,7 +12,31 @@ import { TEST_SERVER_URL } from "./test-server-url"
 import type { YouTrackFixture, YouTrackLog } from "./youtrack-helpers"
 
 /** What reached the fake Patronus: the requests by kind, the robots whose problems and progress were asked, in order */
-export type PatronusRequests = { list: number; updates: number; details: number; problems: string[]; progress: string[]; startOptions: number }
+export type PatronusRequests = {
+  list: number
+  updates: number
+  details: number
+  problems: string[]
+  progress: string[]
+  startOptions: number
+  /** The query of each list request, in order */
+  listQueries: Record<string, string>[]
+  /** The robots whose TeamCity checks were asked, in order */
+  checks: string[]
+}
+
+/** A robot of the history the statistics count (`HistoryRobotFixture` of the test server): owner `1` is the user */
+export type HistoryRobotFixture = {
+  id: string
+  owner: string
+  status: "success" | "failure" | "canceled" | "running"
+  startTime: number
+  finishTime: number | null
+  /** The virtual branch of the user's robot */
+  branch?: string
+  dryRun?: boolean
+  sourceRobotId?: string
+}
 
 /** A start request as the fake Patronus logs it (`BranchRobotStartRequest` of the patronus crate); see `startRequest` */
 export type PatronusStartRequest = {
@@ -236,6 +260,11 @@ export class TestRepositoryBuilder {
    */
   async setPatronusDetails(fixture: { checks?: Record<string, unknown[]>; problems?: Record<string, unknown[]>; attemptBuilds?: Record<string, unknown[]> }): Promise<void> {
     await this.setFixture("patronus-details", fixture)
+  }
+
+  /** Adds the robots of the history the Safe Push statistics count to the list of the fake Patronus, after `setPatronus` */
+  async setPatronusHistory(robots: HistoryRobotFixture[]): Promise<void> {
+    await this.setFixture("patronus-history", { robots })
   }
 
   /** What the page asked of Patronus and what the fake Patronus got and did (`PatronusLog`) */

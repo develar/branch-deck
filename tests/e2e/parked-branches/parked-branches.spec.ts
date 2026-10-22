@@ -292,7 +292,7 @@ test.describe("Parked branches", () => {
     await expect(parkedCard(page)).toHaveCount(0)
 
     // a row where the bar shows: the window ends so that its middle is the middle of the bar
-    await page.locator("main").evaluate(main => main.scrollTo(0, 0))
+    await page.getByTestId("branches-view").evaluate(main => main.scrollTo(0, 0))
     const row = rows.nth(2)
     const rowName = (await row.getAttribute("data-branch-name"))!
     const rowBox = (await row.boundingBox())!

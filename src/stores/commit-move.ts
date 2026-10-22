@@ -2,7 +2,7 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { Commit } from "@/lib/bindings"
 import { selectBranchRange, toggleBranch } from "@/lib/branch-selection"
-import { showMainView } from "@/stores/main-view"
+import { showMainViewNow } from "@/stores/main-view"
 
 /** Source key of the unassigned commits list; branch lists use the branch name (never empty). */
 export const UNASSIGNED_SOURCE = ""
@@ -199,10 +199,13 @@ export function setNewBranchDrop(drop: NewBranchDrop | null): void {
   commitMoveStore.setState({ newBranchDrop: drop })
 }
 
-/** Shows a branch (a toast, the Activity window, a review window, F2): the main window switches to the branches first */
+/**
+ * Shows a branch (a toast, the Activity window, a review window, F2, the palette): the main window switches to the
+ * branches first, committed at once, so the caller can focus the row next
+ */
 export function requestReveal(reveal: RevealRequest | null): void {
   if (reveal !== null) {
-    showMainView("branches")
+    showMainViewNow("branches")
   }
   commitMoveStore.setState({ reveal })
 }
@@ -210,7 +213,7 @@ export function requestReveal(reveal: RevealRequest | null): void {
 /** Opens a form of commits of a branch in its list, which expands for it (`requestReveal`); null once consumed */
 export function requestCommitForm(form: CommitFormRequest | null): void {
   if (form !== null) {
-    showMainView("branches")
+    showMainViewNow("branches")
   }
   commitMoveStore.setState(form === null ? { form } : { form, reveal: { branchName: form.branchName, commitIds: form.commitIds } })
 }

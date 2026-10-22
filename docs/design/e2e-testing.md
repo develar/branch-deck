@@ -317,6 +317,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   stack branch of its whole stack under the repository's `branchdeck.branchPrefix`, its profile in the options; an
   empty `sourceRevision` is resolved when Patronus answers (`robots_hook`) to the tip of that ref, `~N` to its Nth first
   parent. `/patronus-progress` sets what `robots/progress` folds per robot (the new API of Settings → Patronus), and
+  `/patronus-history` adds the robots the Safe Push statistics count, the user's (owner `1`) and other people's
+  (`setPatronusHistory`), and the list filters as Patronus does (`owner=me`, `targetBranch`, `[start, end)` with an
+  end); `get_robot_stats` runs the real core at the page's clock in UTC without the object cache.
   `/patronus-details` the TeamCity checks and problems per robot and the failed builds per check attempt in the wire
   form (`setPatronusDetails`, `failedFastTests` and `buildsNeverStarted` in `patronus-helpers.ts`); a robot without
   them has none. `/patronus-profiles` (`setPatronusProfiles`, the `patronusProfiles` setup option) sets the merge

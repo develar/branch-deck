@@ -389,6 +389,12 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   It opens only where the islands keep their minimum beside it (`MIN_ISLANDS_WIDTH`, 768 CSS px, plus the panel's own
   320 px); without the room, what would open it opens its window instead, never a squeezed table.
 
+- **The views of the main window** ([Main Views](../../spec/repository/main-views.spec.md)): the switcher after the
+  repository in the toolbar, two `xs` ghost buttons, the shown one soft primary (a tint, no surface on the canvas);
+  each view its own scroller of islands under the toolbar, both kept mounted. Landing's charts are HTML bars in the
+  semantic tokens (merges `bg-primary`, the parts of the time `bg-success`/`bg-destructive`/`bg-muted-foreground`/
+  `bg-warning` with a legend, 2px gaps, rounded data ends), values in the text tokens, every mark with its tooltip.
+
 ### Branch columns
 
 The branch table and every stack island are cards of their own, each a `<table>`, read under the one row of column

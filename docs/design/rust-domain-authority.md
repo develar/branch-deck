@@ -231,7 +231,7 @@ flowchart TD
 | Next step ветки и whole stack | `domain-policy/src/next_step.rs` | `branch-next-step.ts`, `useStackNextStep.ts` |
 | Landing node | `domain-policy/src/landing_node.rs` | `landing-node.ts` |
 | Что перенесено и какие PR закрыть | `domain-policy/src/landed.rs` | `landed-stack.ts`, `landed_by` (D7) |
-| Доступность каждого действия (disabled с причиной) | `domain-policy/src/actions.rs` | предметная половина `useBranchContextActions.ts` (860 строк), `getRobotActions` |
+| Доступность каждого действия (disabled с причиной) | `domain-policy/src/actions.rs` | предметная половина `useBranchContextActions.ts` (860 строк), `getRobotActions`; палитра ⌘K получит действия веток отсюда, по `BranchView.actions` (`spec/repository/command-palette.spec.md`) |
 | Допуск операции (join, wait, side by side) | `domain-policy/src/admission.rs` | `getOperationBlocker` (`src/stores/operations.ts:87`) |
 | Когда обновлять факт (каденция, demand, батчи) | `domain-policy/src/refresh.rs` | константы и таймеры `patronus.ts:56-72`, `pull-requests.ts`, `review-readiness.ts`, `review-requests.ts` |
 | Новости (approvals пришли, робот слился или упал, запрошен review) | `domain-policy/src/news.rs` | `findApprovalNews`, новости роботов в stores |
@@ -310,7 +310,8 @@ confirmations }` для Safe Push и Dry Run — результат того ж�
 
 `Demand { focused, visible_branches, visible_stacks, previewed, review_windows, robot_details, issues }` — единственное,
 что страница сообщает о себе. Он управляет readiness, деталями роботов (вместо интервала на поповер в
-`usePatronusRobotDetails.ts`), issue YouTrack и каденцией опроса. `set_demand` — debounce ≤ 4 в секунду, без ожидания.
+`usePatronusRobotDetails.ts`), issue YouTrack и каденцией опроса. Вид Landing добавит член `robot_stats`: пока он
+виден, `remote-facts` читает статистику (`sync_core::robot_stats`, сейчас это `get_robot_stats` при показе и фокусе окна). `set_demand` — debounce ≤ 4 в секунду, без ожидания.
 
 ## Планирование и исполнение операций
 
