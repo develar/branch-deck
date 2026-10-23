@@ -90,7 +90,7 @@ async function openTreeReview(page: Page): Promise<Locator> {
   return showReviewWindow(page, await openedReview(page, 1))
 }
 
-/** The colour a `--syntax-*` token of the theme resolves to, as `getComputedStyle` gives a colour */
+/** The fields of the persisted `appSettings` that the window tests read */
 type AppSettings = { activityPanel?: boolean; reviewSidebar?: boolean; zoom?: number }
 
 /**
@@ -128,6 +128,7 @@ function webviewZoom(page: Page): Promise<number> {
   return page.evaluate(() => (window as unknown as { __e2eWebviewZoom?: number }).__e2eWebviewZoom ?? 1)
 }
 
+/** The colour a `--syntax-*` token of the theme resolves to, as `getComputedStyle` gives a colour */
 async function tokenColor(review: Locator, token: string): Promise<string> {
   return review.evaluate((element, name) => {
     const probe = document.createElement("span")
