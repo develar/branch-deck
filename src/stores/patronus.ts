@@ -1409,6 +1409,21 @@ export type OwnPullRequestStart = Omit<PullRequestStartBranch, "branchPrefix">
 export interface CommentStart {
   readonly robot: PatronusRobot | null
   readonly commentUrl: string
+  /**
+   * The robot once Patronus lists it: `robot`, or for a start accepted without one what the look in the background
+   * finds, null when it found none within `LATE_ROBOT_WAIT_MS`
+   */
+  readonly listed: Promise<PatronusRobot | null>
+}
+
+/**
+ * The accepted comment starts of the user's branches whose robot Patronus lists not yet, by repository, pull request
+ * and mode (`lateStartKey`), until the look in the background ends: a repeat joins it and posts no second comment
+ */
+const lateCommentStarts = new Map<string, CommentStart>()
+
+function lateStartKey(key: string, pullRequestNumber: number, mode: PatronusPushMode): string {
+  return `${key}\0${pullRequestNumber}\0${mode}`
 }
 
 /** After a minute without the robot of an accepted comment, it is looked for in the background this long */
@@ -1423,7 +1438,8 @@ export const LATE_ROBOT_INTERVAL_MS = 15_000
  * `start_patronus_robot` checks it (parked, landed, not built, a robot in its way, the landing gate). Posts the comment,
  * then waits up to a minute for the bot: 👎 throws its reason, no answer throws; after 👍 the start is made, and the new
  * robot of the pull request is listed, stored and returned (polled while it runs). A robot Patronus doesn't list within
- * the minute is null: the 👍 started it, and it is looked for in the background for `LATE_ROBOT_WAIT_MS` more.
+ * the minute is null: the 👍 started it, and it is looked for in the background for `LATE_ROBOT_WAIT_MS` more; a
+ * repeat meanwhile (the same pull request and mode) joins that start and posts no second comment.
  */
 export async function startPatronusFromPullRequest(
   pullRequestNumber: number,
@@ -1491,6 +1507,11 @@ async function askPatronusOnPullRequest(
   // the repository the start was asked in: the answer of the bot applies there, also after a switch
   const { repositoryPath, branchPrefix } = request ?? patronusRequest()
   const key = repositoryKey(repositoryPath, branchPrefix)
+  const late = lateStartKey(key, pullRequestNumber, mode)
+  const joined = start === null ? undefined : lateCommentStarts.get(late)
+  if (joined !== undefined) {
+    return joined
+  }
   const known = new Set(Object.keys(patronusStore.getState().repositories[key]?.robots ?? {}))
   const postedAt = Date.now()
   const posted = await commands.postPatronusCommand({
@@ -1539,27 +1560,39 @@ async function askPatronusOnPullRequest(
     }
     const robot = await lookUp()
     if (robot !== undefined) {
-      return { robot, commentUrl: posted.data.url }
+      return { robot, commentUrl: posted.data.url, listed: Promise.resolve(robot) }
     }
   }
   if (acceptedAt === null) {
     throw new Error(`Patronus did not answer the comment within a minute: see pull request #${pullRequestNumber}`)
   }
-  if (robotWait === Number.POSITIVE_INFINITY) {
-    void lookUpLate(lookUp)
+  if (start === null) {
+    return { robot: null, commentUrl: posted.data.url, listed: Promise.resolve(null) }
   }
-  return { robot: null, commentUrl: posted.data.url }
+  const pending: CommentStart = { robot: null, commentUrl: posted.data.url, listed: lookUpLate(lookUp) }
+  lateCommentStarts.set(late, pending)
+  void pending.listed.then(() => {
+    if (lateCommentStarts.get(late) === pending) {
+      lateCommentStarts.delete(late)
+    }
+  })
+  return pending
 }
 
-/** Looks for the robot of an accepted comment every `LATE_ROBOT_INTERVAL_MS` for `LATE_ROBOT_WAIT_MS`, until listed */
-async function lookUpLate(lookUp: () => Promise<PatronusRobot | undefined>): Promise<void> {
+/**
+ * Looks for the robot of an accepted comment every `LATE_ROBOT_INTERVAL_MS` for `LATE_ROBOT_WAIT_MS`, until listed;
+ * resolves to it, null when none came
+ */
+async function lookUpLate(lookUp: () => Promise<PatronusRobot | undefined>): Promise<PatronusRobot | null> {
   const until = Date.now() + LATE_ROBOT_WAIT_MS
   while (Date.now() < until) {
     await new Promise(resolve => setTimeout(resolve, LATE_ROBOT_INTERVAL_MS))
-    if ((await lookUp()) !== undefined) {
-      return
+    const robot = await lookUp()
+    if (robot !== undefined) {
+      return robot
     }
   }
+  return null
 }
 
 /** The branch Patronus pushes into for the baseline of the selected repository; null when the baseline is no branch of origin */
@@ -1631,6 +1664,7 @@ export function setPatronusWindowFocus(focused: boolean): void {
 /** Forgets the gates, the timer and the data (tests) */
 export function resetPatronus(): void {
   problemsInFlight.clear()
+  lateCommentStarts.clear()
   failingInFlight.clear()
   listGates.reset()
   pollGates.reset()

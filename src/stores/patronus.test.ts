@@ -912,7 +912,9 @@ describe("pull request start", () => {
     patronus.list = available(ofPullRequest)
     const started = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
     await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
-    expect(await started).toEqual({ robot: ofPullRequest, commentUrl: COMMENT_URL })
+    const { listed, ...answer } = await started
+    expect(answer).toEqual({ robot: ofPullRequest, commentUrl: COMMENT_URL })
+    expect(await listed).toBe(ofPullRequest)
     // the merge of an own branch keeps it, in the GitHub repository of the Space mirror; Rust checks the start of the
     // branch before the comment
     expect(patronus.commands).toEqual([
@@ -958,15 +960,41 @@ describe("pull request start", () => {
     patronus.list = available()
     const asked = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
-    expect(await asked).toEqual({ robot: null, commentUrl: COMMENT_URL })
+    const { listed, ...answer } = await asked
+    expect(answer).toEqual({ robot: null, commentUrl: COMMENT_URL })
     const asks = patronus.lists.length
 
     patronus.list = available(ofPullRequest)
     await vi.advanceTimersByTimeAsync(LATE_ROBOT_INTERVAL_MS)
     expect(getBranchRobot("auth")?.id).toBe("pr")
+    expect(await listed).toBe(ofPullRequest)
     // found: no more lists for it
     await vi.advanceTimersByTimeAsync(LATE_ROBOT_WAIT_MS)
     expect(patronus.lists).toHaveLength(asks + 1)
+  })
+
+  it("joins a repeat of an accepted comment whose robot Patronus lists not yet, and posts no second comment", async () => {
+    patronus.replies = [{ status: "accepted" }]
+    patronus.list = available()
+    const first = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
+    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
+    const accepted = await first
+    expect(accepted.robot).toBeNull()
+
+    // a second Safe Push of #7 while the robot is looked for joins the first start
+    const repeat = await startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
+    expect(repeat).toBe(accepted)
+    expect(patronus.commands).toHaveLength(1)
+
+    // none came within the wait: the start is over, the next one posts its own comment
+    await vi.advanceTimersByTimeAsync(LATE_ROBOT_WAIT_MS + LATE_ROBOT_INTERVAL_MS)
+    expect(await accepted.listed).toBeNull()
+    patronus.replies = [{ status: "accepted" }]
+    patronus.list = available(robot({ id: "pr-2", startTime: Date.now() / 1000, pullRequest: ofPullRequest.pullRequest }))
+    const next = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
+    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
+    expect((await next).robot?.id).toBe("pr-2")
+    expect(patronus.commands).toHaveLength(2)
   })
 
   it("throws the reason the bot gave with its thumbs down", async () => {

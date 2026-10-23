@@ -16,7 +16,7 @@ import { recordActivity, recordRobot } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { StartRepository } from "@/stores/patronus"
 import { startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patronus"
-import { getRepositorySwitchReason, vcsRequestFactory } from "@/stores/repository"
+import { getRepositorySwitchReason, getSelectedProject, repositoryStore, vcsRequestFactory } from "@/stores/repository"
 import type { SafePushMode, SafePushStarting } from "@/stores/safe-push"
 import { getSafePushStarting, setSafePushStarting } from "@/stores/safe-push"
 import { runUpdateProjectOf } from "@/stores/update-project"
@@ -54,7 +54,8 @@ export interface SafePushStart {
  * or through the API with the profile. Its steps show in the button of the slot (`SafePushStarting`); the one toast of
  * the action is the start's ("Safe Push started", with Open in Patronus and Cancel Safe Push, and a sentence when the
  * check did not run or used the last fetched target), the push has none (Activity records it). A failure is "Cannot
- * start the Safe Push" with the reason; a failed push starts nothing. Resolves to whether the robot started.
+ * start the Safe Push" with the reason; a failed push starts nothing. A comment Patronus accepted without a listed robot
+ * keeps the slot "Starting…" until the robot is listed (`holdUntilListed`). Resolves to whether the robot started.
  */
 export async function startSafePush(start: SafePushStart, repository: StartRepository | null = null): Promise<boolean> {
   const { branchName, mode } = start
@@ -74,6 +75,8 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
   }
   const root = start.wholeStack
   const setStep = (step: SafePushStarting["step"] | null) => setSafePushStarting(branchName, step === null ? null : { mode, step }, repositoryPath)
+  // an accepted comment whose robot Patronus lists not yet keeps the start until it does (`holdUntilListed`)
+  let held = false
   try {
     setStep("target")
     const allow = start.allow ?? {}
@@ -114,6 +117,7 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
     const started = await startPatronusFromPullRequest(number, mode, { branchName: root ?? branchName, stack: root !== null, allow }, request)
     if (started.robot === null) {
       announceCommentStart(title, number, started.commentUrl, note === "" ? null : note, repositoryPath)
+      held = holdUntilListed(branchName, mode, started.listed, repositoryPath)
     } else {
       announceStart(title, started.robot, null, note === "" ? null : note, repositoryPath)
     }
@@ -122,7 +126,9 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
     notifyError(errorTitle, error)
     return false
   } finally {
-    setStep(null)
+    if (!held) {
+      setStep(null)
+    }
   }
 }
 
@@ -137,6 +143,33 @@ export function admitStart(errorTitle: string): StartRepository | null {
     notifyError(errorTitle, error)
     return null
   }
+}
+
+/**
+ * Keeps the start of `branchName` "Starting…" while Patronus lists not yet the robot of the comment it accepted: the
+ * row offers no second start, whose check would see no robot and post a second `/patronus` comment. Ends once
+ * `listed` settles (the robot holds the next start back then) or another repository is selected. Returns true.
+ */
+function holdUntilListed(branchName: string, mode: SafePushMode, listed: Promise<unknown>, repositoryPath: string): true {
+  let unsubscribe: (() => void) | null = null
+  const release = () => {
+    if (unsubscribe === null) {
+      return
+    }
+    unsubscribe()
+    unsubscribe = null
+    if (getSafePushStarting(branchName, repositoryPath)?.step === "starting") {
+      setSafePushStarting(branchName, null, repositoryPath)
+    }
+  }
+  unsubscribe = repositoryStore.subscribe(() => {
+    if (getSelectedProject()?.path !== repositoryPath) {
+      release()
+    }
+  })
+  setSafePushStarting(branchName, { mode, step: "starting" }, repositoryPath)
+  void listed.then(release)
+  return true
 }
 
 /**

@@ -859,6 +859,15 @@ test.describe("Patronus actions", () => {
       return repo
     }
 
+    /** The Safe Push of JIRA-456 a comment on #7 starts now, as Patronus lists it */
+    function robotOfComment(): PatronusRobot {
+      return robot("JIRA-456", "pr-robot", {
+        sourceRevision: null,
+        startTime: Math.floor(Date.now() / 1000),
+        pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" },
+      })
+    }
+
     /** The comments the app posted on #7 of the fake GitHub, by their text */
     function comments(repo: TestRepositoryBuilder): Promise<unknown[]> {
       return gitHubRequests(repo, "POST", "issues", 7, "comments")
@@ -891,11 +900,7 @@ test.describe("Patronus actions", () => {
 
     test("should start a Safe Push from the pull request with a /patronus merge comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
-      const started = robot("JIRA-456", "pr-robot", {
-        sourceRevision: null,
-        startTime: Math.floor(Date.now() / 1000),
-        pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" },
-      })
+      const started = robotOfComment()
       // the robot the comment started is in the list asked for after the 👍
       const lists = await routeCommand(page, "get_patronus_robots", params => (params.since === null ? availableRobots() : availableRobots(started)))
 
@@ -929,6 +934,37 @@ test.describe("Patronus actions", () => {
       const robotPopover = await hoverStatusChip(page, chip(page, "JIRA-456"), "patronus-popover")
       await robotPopover.getByRole("button", { name: "Open Pull Request #7" }).click()
       expect(await getOpenedUrls(page)).toContain("https://github.com/acme/monorepo/pull/7")
+    })
+
+    test("should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
+      const started = robotOfComment()
+      // the 👍 comes, the robot is listed only later
+      let listed = false
+      await routeCommand(page, "get_patronus_robots", params => (params.since !== null && listed ? availableRobots(started) : availableRobots()))
+
+      await openSafePushWithKey(page, "JIRA-456")
+      await popoverStart(page).click()
+      await skipReplyWait(page, repo)
+      // the minute the app lists the robots after the 👍 runs out
+      await page.clock.fastForward(60_000)
+      const toast = toastWith(page, "Safe Push started")
+      await expect(toast.locator("[data-slot=toast-description]")).toHaveText("Patronus accepted the comment on #7: the robot shows once Patronus lists it")
+      await expect(slotSafePush(page, "JIRA-456")).toHaveText("Starting…")
+      await expect(slotSafePush(page, "JIRA-456")).toHaveAttribute("aria-busy", "true")
+
+      // a second start meanwhile opens no popover and posts nothing: the press that opened the popover above
+      await findBranchRow(page, "JIRA-456").focus()
+      await page.keyboard.press("s")
+      await expect(safePushPopover(page)).toHaveCount(0)
+      expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+
+      // the look in the background finds the robot, which takes the slot of the start ("Starting…" above)
+      listed = true
+      await page.clock.fastForward(15_000)
+      await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+      await expect(slotSafePush(page, "JIRA-456")).toHaveCount(0)
+      expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
     })
 
     test("should say why Patronus refused the comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -448,6 +448,14 @@ fn needs_review_on_github() -> (Space, Arc<FakeGitHub>, Environment) {
   (space, github, environment)
 }
 
+/// auth with its open pull request #7 on GitHub, not approved: its start is a `/patronus` comment there
+fn open_pull_request_on_github() -> (Space, Arc<FakeGitHub>, Environment) {
+  let space = Space::new(&["(auth) Add auth"]);
+  let (github, url) = fake_github(&space, &[pull_request_json(&[])]);
+  let environment = reviewed_on_github(&space, &url);
+  (space, github, environment)
+}
+
 /// `bd safe-push auth --create-pull-request`, which succeeds
 fn create_pull_request(environment: &Environment) -> Value {
   let (exit_code, output) = safe_push(environment, &["auth", "--create-pull-request"]);
@@ -457,9 +465,7 @@ fn create_pull_request(environment: &Environment) -> Value {
 
 #[test_log::test]
 fn a_branch_with_an_open_pull_request_starts_from_a_comment() {
-  let space = Space::new(&["(auth) Add auth"]);
-  let (github, url) = fake_github(&space, &[pull_request_json(&[])]);
-  let environment = reviewed_on_github(&space, &url);
+  let (space, github, environment) = open_pull_request_on_github();
 
   // a comment can't choose a profile
   let (exit_code, output) = safe_push(&environment, &["auth", "--profile", "lsc"]);
@@ -483,19 +489,20 @@ fn a_branch_with_an_open_pull_request_starts_from_a_comment() {
   );
 }
 
-/// The robot a comment started is never an earlier one of the same pull request: a Dry Run of #7 canceled a minute ago,
-/// newer than the robot of the comment, is listed before and after the comment, and is of the other mode; the Safe Push
-/// the comment started is the robot
+/// The robot a comment started is never an earlier one of the same pull request: a Safe Push and a Dry Run of #7
+/// canceled a minute ago, newer than the robot of the comment, are listed before and after the comment. The Safe Push
+/// the comment started is the robot, never the canceled one of its mode; a Dry Run whose robot Patronus lists not yet
+/// has none, never the canceled Dry Run
 #[test_log::test]
 fn the_robot_of_a_comment_is_never_an_earlier_robot_of_the_pull_request() {
-  let space = Space::new(&["(auth) Add auth"]);
-  let (_github, url) = fake_github(&space, &[pull_request_json(&[])]);
-  let environment = reviewed_on_github(&space, &url);
+  let (space, github, environment) = open_pull_request_on_github();
   let mut robots = space.fake.robots.lock().unwrap().clone().unwrap();
-  let mut dry_run = robot_json("canceled-dry-run", "CANCELED", "refs/heads/test-user/virtual/other", &minutes_ago(1));
-  dry_run["pushMode"] = json!("DRY_RUN");
-  dry_run["githubPrUrl"] = json!("https://github.com/acme/monorepo/pull/7");
-  robots.push(dry_run);
+  for (id, mode) in [("canceled-safe-push", "REBASE_AUTOSQUASH"), ("canceled-dry-run", "DRY_RUN")] {
+    let mut canceled = robot_json(id, "CANCELED", "refs/heads/test-user/virtual/other", &minutes_ago(1));
+    canceled["pushMode"] = json!(mode);
+    canceled["githubPrUrl"] = json!("https://github.com/acme/monorepo/pull/7");
+    robots.push(canceled);
+  }
   space.set_robots(robots);
 
   let (exit_code, output) = safe_push(&environment, &["auth"]);
@@ -503,6 +510,17 @@ fn the_robot_of_a_comment_is_never_an_earlier_robot_of_the_pull_request() {
   assert_eq!(
     (output["started_via"].clone(), output["robot"]["id"].clone()),
     (json!("pull_request"), json!("from-comment"))
+  );
+
+  let (exit_code, output) = safe_push(&environment, &["auth", "--patronus-dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["started_via"].clone(), output["pull_request"]["reply"].clone(), output["robot"].clone()),
+    (json!("pull_request"), json!("accepted"), Value::Null)
+  );
+  assert_eq!(
+    github.requests_to("POST", "/repos/acme/monorepo/issues/7/comments")[1].json(),
+    json!({"body": "/patronus dry-run"})
   );
 }
 

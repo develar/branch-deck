@@ -789,7 +789,8 @@ repository». Аудит всех функций в тот же день наш�
 - **Старт:** comment-маршрут за guards; матч ответа бота с этим комментарием; cancel закончившегося заменяемого
   робота. Сделано (`fix/patronus-start`): `check_start_from_pull_request` перед комментарием в обоих хостах;
   `findCommentRobot` / `comment_robot` — mode, «не известный до POST», самый новый, принятый без робота — Started с
-  поиском в фоне (сверка по tip и `comment_id` остаётся s10); `CancelCheck::AlreadyFinished` для `replaced`.
+  поиском в фоне, до него слот «Starting…» и повтор того же PR и mode присоединяется (`lateCommentStarts`, в реестре
+  `pending_start` s9); сверка по tip и `comment_id` остаётся s10; `CancelCheck::AlreadyFinished` для `replaced`.
 - **Sync:** точные oids, notes без отказа, отпечаток всех remote refs префикса, кэш issue config по stamp.
 - **Факты и сервисы:** `/problems` после ответа; single-flight токена GitHub и refresh YouTrack; scope `read:org`;
   записи `.git/config`. `/problems` после ответа сделано (`fix/patronus-start`: `loadRobotFacts` в задаче списка и
