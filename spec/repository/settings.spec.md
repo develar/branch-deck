@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs
   - ../../src-tauri/src/lib.rs
+  - ../../src-tauri/src/stored_settings.rs
   - ../../src-tauri/src/zoom.rs
   - ../../src-tauri/src/commands/window_management.rs
   - ../../src-tauri/capabilities/settings.json
@@ -241,6 +242,10 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the main window`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should zoom every window from Appearance with the items of the View menu`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
+- The main window starts from the saved settings, and with the defaults from a settings file that does not parse (one
+  cut within a write): it never starts without its settings because of a syntax error in its init script
+  (`stored_settings`).
+  [@test] ../../src-tauri/src/stored_settings_test.rs (`a_cut_settings_file_gives_the_page_an_empty_object`)
 - The pages read only what every window has: the settings and the backend. The branch prefix field reads the prefix of
   git for the selected repository itself (`get_branch_prefix_from_git_config`, again on focus), and stays enabled while
   a sync runs: a sync reads the prefix when it starts, so a change names the branches of the next one.

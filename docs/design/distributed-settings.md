@@ -17,12 +17,17 @@ back to a stale value while several writes are in flight.
 ## Solution Overview
 
 Each setting group is a zustand vanilla store created by `createPersistentStore`. It is initialized synchronously from
-`window.__TAURI_STORE__`, a snapshot injected by the backend before the page loads. Every value read from disk or
-received from another window passes through the store's Zod schema.
+`window.__TAURI_STORE__`, a snapshot injected by the backend before the page loads (`stored_settings`: `{}` without the
+file and for one that does not parse as an object, so a file cut within a write never makes the init script a syntax
+error). Every value read from disk or received from another window passes through the store's Zod schema.
 
 The main window owns `settings.json` through the Tauri store plugin (`LazyStore`). It persists local changes (debounced),
 applies writes requested by sub-windows and broadcasts every change. Sub-windows never touch the file: they send their
-changes to the main window and receive the result back like every other window.
+changes to the main window and receive the result back like every other window. The plugin writes the file in place
+(truncate, then write), so `bd`, which reads the app's branch prefix from it, reads a file that does not parse again
+for up to 200 ms (`read_app_settings` in `crates/bd-core/src/context.rs`) instead of taking the git prefix silently.
+One writer with a temporary file and a rename is the stage `s5-settings` of
+[Rust как источник предметных правил](rust-domain-authority.md).
 
 ## Design
 

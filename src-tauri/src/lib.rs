@@ -6,6 +6,7 @@ pub mod menu;
 pub mod operation;
 pub mod progress;
 pub mod repository_state;
+pub mod stored_settings;
 pub mod title_bar;
 pub mod tracing_log;
 pub mod zoom;
@@ -20,6 +21,8 @@ mod log_rotation_test;
 mod menu_test;
 #[cfg(test)]
 mod repository_state_test;
+#[cfg(test)]
+mod stored_settings_test;
 #[cfg(test)]
 mod title_bar_test;
 #[cfg(test)]
@@ -72,6 +75,7 @@ use commands::youtrack::{
   YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, set_youtrack_issue_state, sign_out_of_youtrack,
   start_youtrack_cli_sign_in, start_youtrack_sign_in, wait_youtrack_cli_sign_in, wait_youtrack_sign_in,
 };
+use stored_settings::stored_settings;
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
 
@@ -329,13 +333,7 @@ pub fn run() {
 
       // Read settings.json for preloading
       let app_data_dir = app.path().app_data_dir().unwrap_or_default();
-      let store_path = app_data_dir.join("settings.json");
-
-      let store_data = if store_path.exists() {
-        std::fs::read_to_string(&store_path).unwrap_or_else(|_| "{}".to_string())
-      } else {
-        "{}".to_string()
-      };
+      let store_data = stored_settings(&app_data_dir.join("settings.json"));
 
       // the title bar of every window, before the menu: a custom one has no native menu bar on Windows and Linux
       init_title_bar(&store_data);

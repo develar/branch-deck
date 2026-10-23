@@ -44,7 +44,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   repository's local or worktree config (`git config branchdeck.branchPrefix <p>` in the repository) or `git -c`, else the app
   setting `globalUserBranchPrefix`, read from `settings.json` in the app data directory
   (`~/Library/Application Support/org.develar.branch-deck/` on macOS, `%APPDATA%\org.develar.branch-deck\` on
-  Windows), else the global or system `branchdeck.branchPrefix` (`resolve_branch_prefix`). An empty prefix is the error
+  Windows; a file that does not parse, as while the app rewrites it, is read again for up to 200 ms), else the global or
+  system `branchdeck.branchPrefix` (`resolve_branch_prefix`). An empty prefix is the error
   `no_branch_prefix`. Every output echoes the prefix.
 - `--full-ids` prints full commit ids. By default an id is cut to 8 characters, as in Branch Deck's messages
   (`git_ops::revs::short_id`). When two ids of one output share that prefix, all ids in it get longer.

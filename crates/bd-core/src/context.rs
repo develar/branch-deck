@@ -15,14 +15,14 @@ use patronus::token::TOKEN_ENV;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sync_core::branch_prefix::resolve_branch_prefix;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::{SpaceRepository, parse_space_repository};
 use sync_core::remote_url::origin_push_url;
 use tokio::runtime::Runtime;
-use tracing::debug;
+use tracing::{debug, warn};
 use youtrack::service::EnvironmentToken;
 use youtrack::token_store::token_file;
 
@@ -290,22 +290,35 @@ impl RepoContext {
   }
 }
 
-/// `appSettings` of the app settings file; `None` if the file or the key is missing, or the file does not parse
+/// How long a settings file that does not parse is read again: the app rewrites it in place (the store plugin truncates,
+/// then writes), so a read during the write sees an empty or a cut file for well under a millisecond
+const SETTINGS_REWRITE_WAIT: Duration = Duration::from_millis(200);
+
+/// `appSettings` of the app settings file; `None` if the file or the key is missing, or the file does not parse. A file
+/// that does not parse is read again for up to `SETTINGS_REWRITE_WAIT`, so a read while the app rewrites it gets the
+/// prefix of the app, not silently the git one; one that stays unreadable (the app stopped in its write) is logged and
+/// ignored until the app writes it again
 fn read_app_settings(settings_file: &Path) -> Option<serde_json::Value> {
-  let text = std::fs::read_to_string(settings_file).ok()?;
-  let settings: serde_json::Value = match serde_json::from_str(&text) {
-    Ok(settings) => settings,
-    Err(e) => {
-      debug!(error = %e, file = %settings_file.display(), "ignoring unreadable app settings");
-      return None;
+  let deadline = Instant::now() + SETTINGS_REWRITE_WAIT;
+  loop {
+    let text = std::fs::read_to_string(settings_file).ok()?;
+    match serde_json::from_str::<serde_json::Value>(&text) {
+      Ok(settings) => return settings.get("appSettings").cloned(),
+      Err(e) if Instant::now() >= deadline => {
+        warn!(error = %e, file = %settings_file.display(), "ignoring unreadable app settings");
+        return None;
+      }
+      Err(e) => {
+        debug!(error = %e, file = %settings_file.display(), "app settings do not parse, reading them again");
+        std::thread::sleep(Duration::from_millis(2));
+      }
     }
-  };
-  settings.get("appSettings").cloned()
+  }
 }
 
 /// `appSettings.globalUserBranchPrefix` of the app settings file; `None` if the file, the key or a non-blank value is
 /// missing
-fn read_app_branch_prefix(settings_file: &Path) -> Option<String> {
+pub(crate) fn read_app_branch_prefix(settings_file: &Path) -> Option<String> {
   let settings = read_app_settings(settings_file)?;
   let prefix = settings.get("globalUserBranchPrefix")?.as_str()?.trim();
   (!prefix.is_empty()).then(|| prefix.to_string())

@@ -825,6 +825,10 @@ repository». Аудит всех функций в тот же день наш�
 - **Sync:** точные oids, notes без отказа, отпечаток всех remote refs префикса, кэш issue config по stamp. Сделано
   (`fix/settings-config`): кэш issue config по stamp `.idea/vcs.xml`, того же, что хэширует отпечаток
   (`issue_config_follows_a_rewrite_of_vcs_xml`).
+- **Настройки до s5:** `bd` перечитывает непарсимый `settings.json` до 200 мс (запись плагина на месте), так что чтение
+  рядом с записью приложения берёт префикс приложения (`the_prefix_of_the_app_is_read_while_the_app_rewrites_its_settings_file`);
+  `lib.rs` внедряет `{}` вместо непарсимого файла (`stored_settings`). Сделано (`fix/settings-config`); один писатель
+  tmp + rename, летучие поля вне файла и явный источник fallback в JSON остаются s5.
 - **Факты и сервисы:** `/problems` после ответа; single-flight токена GitHub и refresh YouTrack; scope `read:org`;
   записи `.git/config`. Single-flight токена GitHub сделан (`fix/remote-perf`): источник-процесс один раз на всех
   спрашивающих, ответ (и отсутствие токена) хранится `SOURCE_TTL` 30 с, состояние цепочки — короткий `std` mutex
