@@ -5,10 +5,10 @@ style: plain-1
 targets:
   - ../../crates/domain-types/src/review_request.rs
   - ../../src/lib/approval-news.ts
-  - ../../crates/sync-core/src/review_requests.rs
+  - ../../crates/remote-facts/src/review_requests.rs
   - ../../crates/sync-core/src/review_fetch.rs
-  - ../../crates/sync-core/src/pull_requests.rs
-  - ../../crates/sync-core/src/pull_request_writes.rs
+  - ../../crates/remote-facts/src/pull_requests.rs
+  - ../../crates/remote-facts/src/pull_request_writes.rs
   - ../../crates/github/src/service.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/git-ops/src/commit_files.rs
@@ -109,12 +109,12 @@ there, in the preview and in the review alike, on the commit the review shows; t
   Requests](../branch/pull-requests.spec.md#reading-pull-requests) (configured, `origin`, or the Space mirror). When the
   pull requests already named it, the frontend passes `owner/name`, and it is not resolved again. A repository outside
   GitHub never asks GitHub.
-  [@test] ../../crates/sync-core/src/review_requests_test.rs (`asks_for_the_direct_requests_of_the_repository`, `a_known_github_repository_skips_resolving_it`)
+  [@test] ../../crates/remote-facts/src/review_requests_test.rs (`asks_for_the_direct_requests_of_the_repository`, `a_known_github_repository_skips_resolving_it`)
 - A request waits since the newest review request event whose reviewer is the user, else since the pull request was
   opened; who asked is that event's actor, not the author. It is re-requested when the user's latest submitted review
   is older than that; a pending review is no review. A request whose latest review is newer than the event is dropped
   (the search index lags behind a review).
-  [@test] ../../crates/sync-core/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
+  [@test] ../../crates/remote-facts/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
 - A comment in the conversation is no review, and GitHub keeps the request: a request the user answered with a comment
   after the newest request event of the user is dropped until the other side moves. A second timeline of the same
   query, `activity` (`last: 30` comments, reviews, commits and force pushes; its own connection, so bot comments don't
@@ -125,14 +125,14 @@ there, in the preview and in the review alike, on the commit the review shows; t
   (`backToYou`: who replied, or new commits). Without a request event of the user (a team request, an event beyond the
   last 20) a comment hides nothing. Only the times are compared, not the order of the timeline; a commit made before
   the answer and pushed after it is missed, as a plain push has no event.
-  [@test] ../../crates/sync-core/src/review_requests_test.rs (`a_request_the_user_answered_with_a_comment_is_not_their_turn`, `a_move_of_the_other_side_after_the_answer_makes_it_the_user_s_turn_again`, `an_answer_counts_only_after_a_request_by_name`)
+  [@test] ../../crates/remote-facts/src/review_requests_test.rs (`a_request_the_user_answered_with_a_comment_is_not_their_turn`, `a_move_of_the_other_side_after_the_answer_makes_it_the_user_s_turn_again`, `an_answer_counts_only_after_a_request_by_name`)
 - The count is GitHub's `issueCount` without the requests of the answer that don't wait (a lagging review, an answer
   by comment); GitHub's own search, "Open All on GitHub", still lists the answered ones. A request dropped while its
   review window is open there says "No longer waiting for your review".
-  [@test] ../../crates/sync-core/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`, `a_request_the_user_answered_with_a_comment_is_not_their_turn`)
+  [@test] ../../crates/remote-facts/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`, `a_request_the_user_answered_with_a_comment_is_not_their_turn`)
 - A partial answer (`data` with `errors`) is read; GitHub's rate limit is `rateLimited`; every other failure is
   classified as for the pull requests and never thrown.
-  [@test] ../../crates/sync-core/src/review_requests_test.rs (`a_partial_answer_is_read`, `a_rate_limit_is_rate_limited`, `classifies_the_other_failures`)
+  [@test] ../../crates/remote-facts/src/review_requests_test.rs (`a_partial_answer_is_read`, `a_rate_limit_is_rate_limited`, `classifies_the_other_failures`)
 - The requests are kept in memory per repository, sorted by how long they wait, then by number. An answer that changes
   nothing keeps the objects and the list, so a poll re-renders nothing.
   [@test] ../../src/lib/review-requests.test.ts (`sorts waiting the longest first`, `keeps the objects and the list of an answer that changed nothing`)
@@ -396,7 +396,7 @@ Safe Push it allows.
   draft, the focus goes back to the button. The draft is the pull request's (by its URL, in the browser storage every
   window shares, `review-draft.ts`): the window showing another request, or closed, gives it back when the pull request
   is reviewed again; a sent comment forgets it.
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`approves_the_commit_the_user_reviewed`, `a_request_for_changes_posts_its_comment`, `refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment`)
+  [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`approves_the_commit_the_user_reviewed`, `a_request_for_changes_posts_its_comment`, `refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`)
 - A review is a toast "Approved #101" / "Requested changes on #101" with the title and "Open Pull Request", and an
   Activity entry in the same words; the chips say "approved by you" (`success`) or "changes requested by you".
@@ -406,7 +406,7 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`)
 - A refused review is the error toast "Cannot approve pull request #101" ("Cannot request changes on pull request
   #101") with what GitHub said (e.g. "User can only have one pending review per pull request"); the action stays.
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`a_refused_review_says_what_github_said`)
+  [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`a_refused_review_says_what_github_said`)
   [@test] ../../src/stores/review-requests.test.ts (`requests changes with the comment, and says why GitHub refused`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say why GitHub refused a review`)
 
@@ -427,7 +427,7 @@ Safe Push it allows.
 - Approve first, unless the user approved that commit; then one `GET repos/<owner>/<name>/pulls/<n>` for its
   `head.sha` (`get_pull_request_head`): a head other than the approved commit is refused, "Cannot start the Safe Push" / "#101 has
   new commits since you reviewed 1a2b3c4d: review 5e6f7a8b first", and nothing is commented.
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`reads_the_head_of_a_pull_request`)
+  [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`reads_the_head_of_a_pull_request`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should not Safe Push a pull request that got commits since the user reviewed it`)
 - Then the comment `/patronus merge` (without `--keep-source-branch`: the branch of someone else goes once merged, as a
   merge on GitHub does) in the repository the requests were read from, and the bot's answer as for an own branch
@@ -504,8 +504,8 @@ Safe Push it allows.
 - `pnpm test:unit`: `src/lib/review-requests.test.ts` (ages, order, news, backoff), `src/stores/review-requests.test.ts`
   (polling, notifications, pruning), `src/lib/os-notification.test.ts`, `src/lib/dock.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/file-diffs.test.ts`.
-- `cargo nextest run`: `crates/sync-core/src/review_requests_test.rs` (a fake GitHub), `review_fetch_test.rs` (local
-  bare remotes), `crates/git-ops/src/commit_files_test.rs`, `crates/git-executor/src/git_command_executor_test.rs`,
+- `cargo nextest run`: `crates/remote-facts/src/review_requests_test.rs` (a fake GitHub),
+  `crates/sync-core/src/review_fetch_test.rs` (local bare remotes), `crates/git-ops/src/commit_files_test.rs`, `crates/git-executor/src/git_command_executor_test.rs`,
   `crates/test-server/src/review_requests_test.rs`.
   [@test] ../../crates/test-server/src/review_requests_test.rs (`review_routes_answer_the_fixture_without_a_network`)
 - `pnpm e2e`: `tests/e2e/review-requests/review-requests.spec.ts` with the `issue_links` template.

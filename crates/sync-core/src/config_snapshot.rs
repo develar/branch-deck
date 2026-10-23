@@ -141,10 +141,7 @@ impl ConfigSnapshot {
   /// `branchdeck.githubRepository` as `owner/name`; `None` when unset or not of that form
   pub fn github_repository(&self) -> Option<GitHubRepository> {
     let (owner, name) = split_owner_and_name(self.last_value("branchdeck.githubrepository")?.trim())?;
-    Some(GitHubRepository {
-      owner: owner.to_string(),
-      name: name.to_string(),
-    })
+    Some(GitHubRepository::new(owner, name))
   }
 
   /// Full ref -> description of every branch that has one

@@ -9,8 +9,8 @@ targets:
   - ../../crates/patronus/src/client.rs
   - ../../crates/patronus/src/fake_patronus.rs
   - ../../crates/object-cache/src/patronus_history.rs
-  - ../../crates/sync-core/src/robot_stats.rs
-  - ../../crates/sync-core/src/robot_stats_aggregate.rs
+  - ../../crates/remote-facts/src/robot_stats.rs
+  - ../../crates/remote-facts/src/robot_stats_aggregate.rs
   - ../../crates/bd-remote/src/robot_stats_command.rs
   - ../../src-tauri/src/commands/patronus.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
@@ -32,8 +32,8 @@ much time failed robots and the waits after them took, why the robots failed, wh
 at which hours robots run fastest. The user's numbers stand beside everyone else's in the repository, as the median
 person, so a slow week says whether it was the branch or the queue.
 
-One Rust core reads them for the app and `bd robot-stats` (`sync_core::robot_stats`), the rules that count are pure
-(`sync_core::robot_stats_aggregate`), and what Patronus answered is kept in the object cache, so a second read asks
+One Rust core reads them for the app and `bd robot-stats` (`remote_facts::robot_stats`), the rules that count are pure
+(`remote_facts::robot_stats_aggregate`), and what Patronus answered is kept in the object cache, so a second read asks
 it for little.
 
 ## Goals
@@ -56,35 +56,35 @@ it for little.
 
 - A robot counts when a person started it (no application), it is no cherry-pick, no dry run and no emergency robot,
   it started in the last 70 days and it finished. Dry runs and emergency robots of the user are counted apart.
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`dry_runs_emergency_robots_applications_cherry_picks_and_old_robots_do_not_count`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`dry_runs_emergency_robots_applications_cherry_picks_and_old_robots_do_not_count`)
 - Robots per merge are the finished robots over the merged ones; the time to merge runs from the start to the finish
   of a merged robot (median, 90th percentile by the nearest rank).
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`robots_per_merge_are_the_finished_robots_over_the_merged_ones`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`robots_per_merge_are_the_finished_robots_over_the_merged_ones`)
 - The ten weeks of a delivery are the local weeks from Monday; a robot counts in the week it finished.
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`weeks_count_by_the_local_monday_a_robot_finished_in`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`weeks_count_by_the_local_monday_a_robot_finished_in`)
   [@test] ../../crates/domain-types/src/calendar_test.rs (`a_week_starts_on_the_local_monday`)
 - Everyone else is the median person: the median of each person's robots per merge and time to merge, of the people
   with 3 merges; none while fewer than 5 people have.
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`everyone_else_is_the_median_person_of_those_with_three_merges`, `everyone_else_needs_five_people`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`everyone_else_is_the_median_person_of_those_with_three_merges`, `everyone_else_needs_five_people`)
 - A merge of the user is first try when it is no restart and no failed or canceled robot of its branch finished in the
   3 days before; an estimate, of the merges whose branch is known.
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`first_try_is_a_merge_without_a_restart_or_a_failure_of_its_branch_in_three_days`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`first_try_is_a_merge_without_a_restart_or_a_failure_of_its_branch_in_three_days`)
 - The time of the user's robots goes into merged, failed and canceled robots, and between a failed or canceled robot
   and the next robot of the same branch started within 3 days.
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`time_goes_into_merged_failed_and_canceled_robots_and_between_a_failure_and_the_next_robot`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`time_goes_into_merged_failed_and_canceled_robots_and_between_a_failure_and_the_next_robot`)
 - What a merged robot landed: the commits Patronus delivered, per merge of the last 14 days, and the merges of a whole
   stack (`{prefix}/stack/<root>`).
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`commits_and_whole_stack_merges_are_what_the_merged_robots_landed`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`commits_and_whole_stack_merges_are_what_the_merged_robots_landed`)
 - The failure causes are of the user's failed robots of the last 14 days: by kind, as the failure prompt decides it
   (`spec/branch/safe-push-failure-prompt.spec.md`), and the 10 checks that failed the most robots, by count.
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`failure_causes_count_the_kinds_and_checks_of_the_failed_robots_of_the_runs_window`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`failure_causes_count_the_kinds_and_checks_of_the_failed_robots_of_the_runs_window`)
   [@test] ../../crates/patronus/src/stats_test.rs (`a_failed_run_reads_the_checks_and_problems_a_merged_one_the_checks_and_changes`)
 - A flaky check passed on attempt 2 or later; its share of its runs is given from 5 runs.
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`a_flaky_check_passed_on_a_later_attempt_and_has_a_share_from_five_runs`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`a_flaky_check_passed_on_a_later_attempt_and_has_a_share_from_five_runs`)
 - The start hours are the 24 local hours of the workdays: the median time to merge of everyone else's merged robots
   that started then, shown with 5 people, and the user's, shown with 3 of them, and a level 0 (fastest) to 4 of the
   hours shown; the local zone follows its daylight saving changes.
-  [@test] ../../crates/sync-core/src/robot_stats_aggregate_test.rs (`the_start_hours_are_local_workday_hours_shown_with_five_people_and_three_of_mine`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`the_start_hours_are_local_workday_hours_shown_with_five_people_and_three_of_mine`)
   [@test] ../../crates/domain-types/src/calendar_test.rs (`weekday_and_hour_are_local`, `the_hour_follows_the_daylight_saving_change`)
 
 ### Privacy
@@ -99,14 +99,14 @@ it for little.
 - The robots are listed without an owner, into the target, by UTC week (`start`, `end`): 11 lists cover the 70 days.
   A week is listed once it settled (it ended 2 days ago and each of its robots finished); another week again once its
   list is 5 minutes old, or on Refresh.
-  [@test] ../../crates/sync-core/src/robot_stats_test.rs (`the_weeks_are_listed_once_then_only_those_that_have_not_settled_after_the_ttl`)
+  [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`the_weeks_are_listed_once_then_only_those_that_have_not_settled_after_the_ttl`)
 - The checks of a finished robot of the user are read once, with its problems when it failed and its changes when it
   merged; only of the merged and failed robots of the last 14 days, at most 4 robots at once and 120 per read, the
   newest first: the next read asks for the rest.
-  [@test] ../../crates/sync-core/src/robot_stats_test.rs (`a_read_asks_for_at_most_the_newest_runs_and_the_next_one_for_the_rest`)
+  [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`a_read_asks_for_at_most_the_newest_runs_and_the_next_one_for_the_rest`)
   [@test] ../../crates/patronus/src/stats_test.rs (`at_most_four_robots_are_read_at_once_and_a_rejected_token_stops_the_reads`)
 - A failure keeps what was kept: the numbers are of it and say they are stale; without a token nothing is asked.
-  [@test] ../../crates/sync-core/src/robot_stats_test.rs (`a_failure_keeps_what_was_kept_and_says_it_is_stale`, `nothing_is_asked_without_a_token_and_nothing_kept_has_no_numbers`)
+  [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`a_failure_keeps_what_was_kept_and_says_it_is_stale`, `nothing_is_asked_without_a_token_and_nothing_kept_has_no_numbers`)
 - The kept weeks, runs and salt live in the `patronus_history` store of the object cache, which the app and `bd`
   share (`$GIT_COMMON_DIR/branch-deck/cache`).
 

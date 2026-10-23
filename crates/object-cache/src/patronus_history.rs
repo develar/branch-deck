@@ -1,4 +1,4 @@
-//! `patronus_history`: what the Safe Push statistics keep of Patronus (`sync_core::robot_stats`), each value keyed by a
+//! `patronus_history`: what the Safe Push statistics keep of Patronus (`remote_facts::robot_stats`), each value keyed by a
 //! hash its reader builds: a week of everyone's robots of a repository with when it was listed, the run of one of the
 //! user's finished robots, and the salt of the owner keys. A finished robot does not change, so the reader decides
 //! which entry it asks again; the value is opaque here.

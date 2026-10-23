@@ -185,7 +185,7 @@ Mock implementation:
   an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real function finds both commits local and
   answers a range of source `local`; `fetchError` fails it instead. `get_range_files` and
   `prune_review_refs` run the real functions, `cancel_review_fetch` does nothing (`review_requests_test.rs`)
-- **Code-owner review**: `get_branch_review_readiness` runs the app's core (`sync_core::review_readiness`, without the
+- **Code-owner review**: `get_branch_review_readiness` runs the app's core (`remote_facts::review_readiness`, without the
   object cache, so every call asks the fake Patronus; Space and the target branch as the app needs them), see
   [Remote services](#remote-services). `POST /repositories/{id}/review-answers` (`setReviewAnswers`, the `reviewAnswers`
   setup option) sets what the pre-check answers by branch (`{answers: {<branch> | stack:<root>: PatronusReviewRequirement}}`;
@@ -341,7 +341,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   the `GitHubService` of the app on it, whose token chain asks only the token file of the host's own app data directory
   (`<test root>/<id>.app-data`, beside the repository, deleted with it)
   and a fake `gh` a sign-in fixture writes there (no `GH_TOKEN`, no `gh` of the developer, no git credentials, no
-  keychain): signed in as `user-name`, the author of the fixtures' pull requests, until a fixture says `signedOut`. The fake answers as GitHub does what `sync_core` asks: `GET /user`, the
+  keychain): signed in as `user-name`, the author of the fixtures' pull requests, until a fixture says `signedOut`. The fake answers as GitHub does what `remote_facts` asks: `GET /user`, the
   GraphQL search of the user's pull requests (`author:@me`, newest first) and of the assignable users, `POST pulls`
   (422 for an open pull request of the head, for a head or a base it doesn't have), `GET`/`PATCH pulls/<n>`, `POST
   pulls/<n>/requested_reviewers` (422 for the author and for a user who is no collaborator), `POST pulls/<n>/reviews`

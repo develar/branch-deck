@@ -7,7 +7,7 @@ targets:
   - ../../crates/github/src/client.rs
   - ../../crates/github/src/service.rs
   - ../../crates/github/src/token.rs
-  - ../../crates/sync-core/src/pull_requests.rs
+  - ../../crates/remote-facts/src/pull_requests.rs
   - ../../crates/sync-core/src/github_repository.rs
   - ../../src-tauri/src/commands/github.rs
   - ../../src-tauri/src/commands/pull_requests.rs
@@ -39,10 +39,10 @@ targets:
   - ../../src/stores/create-pull-request-dialog.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/components/branch/BranchPreviewActions.tsx
-  - ../../crates/sync-core/src/pull_request_create.rs
-  - ../../crates/sync-core/src/pull_request_text.rs
+  - ../../crates/remote-facts/src/pull_request_create.rs
+  - ../../crates/remote-facts/src/pull_request_text.rs
   - ../../crates/sync-core/src/issue_navigation.rs
-  - ../../crates/sync-core/src/pull_request_writes.rs
+  - ../../crates/remote-facts/src/pull_request_writes.rs
   - ../../crates/bd-remote/src/push_command.rs
   - ../../crates/bd-remote/src/request_review_command.rs
   - ../../src/hooks/useReviewerSearch.ts
@@ -108,7 +108,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   HTTPS (with or without `.git` and credentials) and `git://` URLs name a github.com repository. No repository host or
   name is built into the app, and nothing searches GitHub for a mirror.
   [@test] ../../crates/sync-core/src/github_repository_test.rs (`parses_github_remote_urls`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
   [@test] ../../crates/sync-core/src/github_repository_test.rs (`the_configured_github_repository_wins_over_origin`)
   [@test] ../../crates/sync-core/src/github_repository_test.rs (`reads_the_mirror_from_the_committed_space_settings`)
   [@test] ../../crates/sync-core/src/github_repository_test.rs (`a_space_mirror_must_be_on_github`)
@@ -123,19 +123,19 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 - One GraphQL request per refresh (`PULL_REQUESTS_QUERY`): the search `repo:<owner>/<name> is:pr author:@me
   sort:updated-desc`, first 50, with the fields `gh pr list --json` reads, and `repository(owner, name)`. Newest first,
   unlike `gh pr list`: the virtual branches under review are among the 50 most recently updated.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - An answer that lists the pull requests names the repository it asked, its owner and name (`acme/monorepo`), for
   links to GitHub that no pull request carries; the app knows the repository only while GitHub lists its pull requests
   (`getGitHubRepository()`).
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
   [@test] ../../src/stores/pull-requests.test.ts (`names the GitHub repository while GitHub lists its pull requests`)
 - A null `repository` is "no access" ("no repository acme/monorepo"), not an empty list: the token can't see it (a fine-grained token of other
   repositories, an organization that restricts OAuth apps, which answers a search without an error). A null one with a
   SAML failure, or an answer with `X-GitHub-SSO: partial-results`, is "SSO required".
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_repository_the_token_can_not_see_is_no_access_not_an_empty_list`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`a_repository_the_token_can_not_see_is_no_access_not_an_empty_list`)
 - A token without `read:org` can't read a team's slug: an `INSUFFICIENT_SCOPES` answer is asked again once without the
   team reviewers (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`).
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_token_without_read_org_is_asked_again_without_teams`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`a_token_without_read_org_is_asked_again_without_teams`)
 
 ### The token
 
@@ -180,36 +180,36 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../crates/github/src/client_test.rs (`a_secondary_rate_limit_waits_for_retry_after_or_a_minute`)
   [@test] ../../crates/github/src/client_test.rs (`a_403_of_saml_sso_carries_the_authorization_url`)
   [@test] ../../crates/github/src/client_test.rs (`a_403_or_404_is_no_access_with_the_message`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`without_a_token_github_is_not_asked`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`classifies_failures`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`rejects_output_that_is_not_a_pull_request_list`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`without_a_token_github_is_not_asked`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`classifies_failures`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`rejects_output_that_is_not_a_pull_request_list`)
 
 ### Matching pull requests to branches
 
 - A pull request belongs to the virtual branch whose pushed name, `{prefix}/virtual/{name}`, is its head branch, and
   only when the head repository owner is the owner of the push remote (case-insensitive). A pull request from a fork
   (`isCrossRepository`) is never matched.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`parses_and_matches_pull_requests_by_virtual_branch`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`parses_and_matches_pull_requests_by_virtual_branch`)
 - Of several pull requests of one branch, an open one wins over a merged one over a closed one, then the most recently
   updated.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`closed_pull_requests_prefer_the_newest_and_empty_decisions_are_none`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`closed_pull_requests_prefer_the_newest_and_empty_decisions_are_none`)
 - A closed pull request with the label `merged` is merged: Patronus rebases, so GitHub can't mark the pull request it
   merged as merged; it closes it and adds the label. The labels are read in the same search.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_pull_request_patronus_closed_with_the_merged_label_is_merged`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`a_pull_request_patronus_closed_with_the_merged_label_is_merged`)
 - The checks of the head commit are summarized from `statusCheckRollup`:
   - a check run that is not completed, or a status context `PENDING`/`EXPECTED`, is running;
   - a completed check run concluding `FAILURE`, `TIMED_OUT`, `CANCELLED`, `ACTION_REQUIRED` or `STARTUP_FAILURE`, or a
     status context `FAILURE`/`ERROR`, failed; every other completed check passed (`SKIPPED` and `NEUTRAL` too);
   - the summary is failing with any failure, else pending with any running check, else passing; none without checks.
   The names of the first three failed checks are kept.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`pending_checks_without_failures_are_pending`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`pending_checks_without_failures_are_pending`)
 - The reviewers are the latest submitted review of each reviewer (approved, changes requested, commented; pending and
   dismissed reviews say nothing), then the requested reviewers and teams without one (`requested`). A reviewer asked
   again after a review keeps its state and is `requested` too: a re-requested approval still counts for Patronus. The
   details say "carol approved · re-requested". The pull request names its `author` (`author { login }`). The reviewers
   and the author are the input of the readiness of the branch, so a new review asks Patronus once, and the chip keeps
   its own state while the slot waits for an approval ([Next Step](next-step.spec.md)).
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`parses_and_matches_pull_requests_by_virtual_branch`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`parses_and_matches_pull_requests_by_virtual_branch`)
   [@test] ../../src/lib/pull-request.test.ts (`names the latest review, and a request after it`)
 
 ### Refreshing
@@ -311,13 +311,13 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   waits until GitHub has the branch (`wait_for_github_branch`) before it opens GitHub's form; bd's
   `safe-push --create-pull-request` waits the same way after its push.
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click`, `should open GitHub's form of a branch not on the remote yet from its preview, after the push`, `should keep the dialog, with the reason, when the push would drop commits of the remote branch`)
-  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`right_after_a_push_the_creation_waits_for_the_mirror_to_copy_the_branch`, `the_wait_for_the_mirror_ends_with_the_reason`, `waits_until_github_has_the_branch`)
+  [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`right_after_a_push_the_creation_waits_for_the_mirror_to_copy_the_branch`, `the_wait_for_the_mirror_ends_with_the_reason`, `waits_until_github_has_the_branch`)
 - The text starts as `bd push` and `bd safe-push --create-pull-request` write it (`get_new_pull_request`,
   `pull_request_text`): the `bd describe` description of the branch, else the text of the commits the pull request
   will show, those of the local branch the creation pushes (`<remote>/<base>..<head>`). A field the user typed in is
   not replaced by the text that arrives later.
-  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`the_text_is_the_description_else_the_commits_the_pull_request_will_show`)
-  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`the_description_wins`)
+  [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`the_text_is_the_description_else_the_commits_the_pull_request_will_show`)
+  [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`the_description_wins`)
 - The title of one commit is its subject. With several, a branch of one issue (its name is the key, or every subject
   carries the same key) is titled by the key and the issue's summary, `IJAI-4390 Agent CLIs render without colors`,
   never by a key cut into words; without the summary, by the key and the summary of the branch the row shows (the
@@ -325,33 +325,33 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   the summary of the branch, else by its name as `gh pr create --fill` names it (`feature auth`). The summary comes
   from YouTrack only when the link of the key in `.idea/vcs.xml` is an issue page of the YouTrack signed in to, as the
   issue popover asks it, within 3 s for all the keys; so the title depends on the sign-in.
-  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`an_issue_branch_keeps_its_key_and_takes_the_issue_summary`, `without_an_issue_summary_the_title_is_the_key_and_the_branch_summary`, `a_branch_of_several_keys_names_each_key_and_is_titled_by_its_summary`)
-  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`an_issue_is_asked_from_youtrack_only_when_the_repository_links_it_there`)
+  [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`an_issue_branch_keeps_its_key_and_takes_the_issue_summary`, `without_an_issue_summary_the_title_is_the_key_and_the_branch_summary`, `a_branch_of_several_keys_names_each_key_and_is_titled_by_its_summary`)
+  [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`an_issue_is_asked_from_youtrack_only_when_the_repository_links_it_there`)
   [@test] ../../crates/sync-core/src/issue_navigation.rs (`a_key_links_as_the_first_pattern_that_matches_all_of_it_names_it`)
 - The body starts with each issue of the branch once, `[IJAI-4390](<its page>)` joined by ` · ` (the bare key without
   a link). One commit then gives its body; several a numbered item each, oldest first: the subject in bold, without
   the key the title carries when the subject starts with it, the body under it indented by the width of the marker
   (`10.` by 4). `fixup!`, `squash!` and `amend!` commits have no item.
-  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`an_issue_branch_keeps_its_key_and_takes_the_issue_summary`, `trailers_and_autosquash_commits_are_left_out`)
+  [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`an_issue_branch_keeps_its_key_and_takes_the_issue_summary`, `trailers_and_autosquash_commits_are_left_out`)
 - A commit body reads on GitHub as in the commit, where a newline is a line break: the lines of a paragraph are
   joined; a list item (`-`, `*`, `+`, `1.`, `1)`), a heading, a quote, a table row and a rule start a line of their
   own, the lines indented under a list item join it, a line after a hard break (two spaces, `\`) stays its own, fenced
   and indented code stay as they are. The trailers (a last paragraph of `Token-Name: value` lines, `(cherry picked
   from commit …)`) are left out, a one-word `Note:` is prose. Outside code spans, a word GitHub would read as a mention
   (`@Nullable`) or as an HTML tag (`<T>`, `List<String>`) goes into a code span.
-  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`each_commit_is_an_item_with_its_body_reflowed`, `trailers_and_autosquash_commits_are_left_out`, `mentions_and_angle_brackets_stay_literal`)
+  [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`each_commit_is_an_item_with_its_body_reflowed`, `trailers_and_autosquash_commits_are_left_out`, `mentions_and_angle_brackets_stay_literal`)
 - A stacked branch's pull request holds the commits of the branches it is built on: its title and items come from its
   own commits, and a last section says "Built on auth, then login: their commits are in this pull request too." with
   the subjects of each ("Built on auth: its commits …" for one). The app sends the chain of the row
   (`stack_ancestors`), and one `log` splits the commits by the tips of those branches; `bd` takes them from the sync.
-  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`a_stacked_branch_is_titled_by_its_own_commits_and_names_its_ancestors`)
-  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`the_commits_up_to_the_tip_of_each_ancestor_are_the_ancestor_s`)
-  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_text_of_a_new_pull_request`)
+  [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`a_stacked_branch_is_titled_by_its_own_commits_and_names_its_ancestors`)
+  [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`the_commits_up_to_the_tip_of_each_ancestor_are_the_ancestor_s`)
+  [@test] ../../crates/remote-facts/src/process_budget_test.rs (`the_text_of_a_new_pull_request`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`parents_go_first_and_a_child_alone_carries_its_parents_commits`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
 - GitHub takes a body of 65,536 characters: the items that don't fit are named in a last line, "_Too long for a pull
   request: the text of 2 commits is left out (…)._", as in the pull request of the whole stack.
-  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`a_body_too_long_for_github_is_cut_and_names_the_commits_left_out`)
+  [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`a_body_too_long_for_github_is_cut_and_names_the_commits_left_out`)
 - Reviewers: chips of GitHub logins with a search of the users of the repository a review can be asked from (GitHub's
   `assignableUsers`, from 2 characters, after a pause in the typing; an older answer never replaces a newer one); the
   user is never offered, GitHub refuses a review request of the author. Where Patronus is, "Suggested by code owners:"
@@ -377,7 +377,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   ([Running Operations](../../docs/design/operations.md)): a second submit joins the first; the dialog of the main
   window reads them, the review window its own request. So is "Request Review…": its button shows the spinner, a
   second click joins it.
-  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`creates_the_pull_request_assigns_the_user_and_asks_the_reviewers_except_the_author`, `without_the_assignee_and_reviewers_only_the_pull_request_is_created`, `a_refused_list_of_reviewers_is_asked_one_by_one_and_who_github_refuses_is_a_warning`, `an_assignee_github_leaves_out_or_refuses_is_a_warning_of_the_created_pull_request`, `a_rejected_token_writes_nothing`, `a_title_of_several_lines_is_refused_before_github_is_asked`)
+  [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`creates_the_pull_request_assigns_the_user_and_asks_the_reviewers_except_the_author`, `without_the_assignee_and_reviewers_only_the_pull_request_is_created`, `a_refused_list_of_reviewers_is_asked_one_by_one_and_who_github_refuses_is_a_warning`, `an_assignee_github_leaves_out_or_refuses_is_a_warning_of_the_created_pull_request`, `a_rejected_token_writes_nothing`, `a_title_of_several_lines_is_refused_before_github_is_asked`)
 - The result is one toast with "Open Pull Request", recorded in Activity: "Created pull request #123" / "feature-auth
   → master · review requested from alice · assigned to you", a `warning` toast whose description names what GitHub
   refused ("cannot request review from bob: …"). The pull request is in the row at once and stays there until
@@ -392,13 +392,13 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   hover: "Enter a title", "The title must be one line", "Reading the commits of the branch…".
   [@test] ../../src/lib/git/push.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say why it can't create, and offer only Open Pull Request once the branch has one`)
-  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)
+  [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)
   [@test] ../../src/lib/create-pull-request.test.ts (`says that one which existed got nothing of the dialog`)
 - A creation that fails is "Cannot create pull request" with GitHub's reason, and the dialog stays with its text. A
   branch GitHub doesn't have yet (a mirror copies a pushed branch a moment later) says so: "GitHub doesn't have
   user/virtual/feature-auth yet: a mirror copies a pushed branch a moment later; try again"; a base it doesn't have
   "GitHub doesn't have the base … : push it first".
-  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`a_branch_github_does_not_have_yet_says_so`)
+  [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`a_branch_github_does_not_have_yet_says_so`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say whom GitHub refused, and keep the dialog when GitHub creates nothing`)
 - Without a token GitHub accepts (the availability of the pull requests: signed out, rejected, SAML SSO, no access,
   rate limited) the dialog says why, with what fixes it ("Sign In…", "Authorize…", as the status line), and
@@ -498,7 +498,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   the reviewer out"). Another refusal (no right to write, no such pull request), also of one reviewer after the split,
   fails the request; the token chain tries the next token after a 401. The creation of a pull request asks its
   reviewers the same way.
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`asks_the_reviewers_of_an_open_pull_request_once_each`, `a_refused_list_is_asked_one_by_one_to_name_whom_github_refuses`, `a_request_github_refuses_as_a_whole_fails_and_no_login_asks_nothing`, `a_rejected_token_after_the_split_fails_the_request`)
+  [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`asks_the_reviewers_of_an_open_pull_request_once_each`, `a_refused_list_is_asked_one_by_one_to_name_whom_github_refuses`, `a_request_github_refuses_as_a_whole_fails_and_no_login_asks_nothing`, `a_rejected_token_after_the_split_fails_the_request`)
 - The result is a toast with "Open Pull Request": "Requested a review from Ilya Korennoy on #1078", a `warning` whose
   description names whom GitHub refused ("GitHub refused Bob: …"). A request GitHub asked nobody in, or one that
   failed, is "Cannot request a review on #1078" with the reason, and the popover stays. Whom GitHub asked is requested
@@ -553,7 +553,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 
 ## Testing / Local Run
 
-- `cargo nextest run --workspace` covers the parsing, matching and URL parsing (`crates/sync-core/src/pull_requests_test.rs`),
+- `cargo nextest run --workspace` covers the parsing, matching and URL parsing (`crates/remote-facts/src/pull_requests_test.rs`),
   the requests against an in-process fake GitHub (`github::fake_github`, which records them), the classification
   (`crates/github/src/client_test.rs`) and the token chain with a fake `gh` and a credential helper script
   (`token_test.rs`, `service_test.rs`). No test asks the developer's `gh` or git credentials.

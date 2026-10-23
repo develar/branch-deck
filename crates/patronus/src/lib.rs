@@ -1,5 +1,6 @@
 //! Patronus, the pre-merge gate of the IntelliJ monorepo (Safe Push, Safe Merge, Dry Run): its REST API and the Space token of the
-//! Safe Push CLI. HTTP only; the git side (which repository, which commits) is `sync_core::patronus`.
+//! Safe Push CLI. HTTP only; the git side (which repository, which commits) is `sync_core::patronus`, the readers and the writers over it
+//! are `remote_facts`.
 
 pub mod actions;
 pub mod ci_text;

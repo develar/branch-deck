@@ -32,6 +32,21 @@ use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::{RewordRequest, RewordResult, reword_request_core};
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
+use remote_facts::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
+use remote_facts::patronus_command::{
+  UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
+};
+use remote_facts::pull_request_create::{
+  CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
+  new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
+};
+use remote_facts::pull_request_writes::{
+  ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, close_pull_request as core_close_pull_request, read_pull_request_head,
+  retarget_pull_request as core_retarget_pull_request,
+};
+use remote_facts::pull_requests::{GetPullRequestsParams, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
+use remote_facts::review_readiness::{branch_review_readiness, prepare_review_readiness};
+use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use repository_view::actions::{NOT_ON_SPACE, RemoteActions};
 use serde::Deserialize;
 use std::convert::Infallible;
@@ -40,30 +55,15 @@ use std::sync::atomic::Ordering;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::branch_name_suggestion::clean_names;
 use sync_core::branch_prefix::GitBranchPrefix;
-use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::github_repository::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
 use sync_core::patronus::{SpaceRepository, find_target_branch, required_target_branch};
-use sync_core::patronus_command::{
-  UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
-};
-use sync_core::pull_request_create::{
-  CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
-  new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
-};
-use sync_core::pull_request_writes::{
-  ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, close_pull_request as core_close_pull_request, read_pull_request_head,
-  retarget_pull_request as core_retarget_pull_request,
-};
-use sync_core::pull_requests::{GetPullRequestsParams, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
 use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
   write_global_config, write_repository_config,
 };
-use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::robot_failure_report;
-use sync_core::robot_stats::{RobotStatsSource, robot_stats_core};
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use tokio::sync::mpsc;
@@ -802,11 +802,11 @@ pub async fn get_pull_request_head(State(state): State<Arc<AppState>>, Json(para
 /// Submits the user's review of a pull request, as the app does: the fake GitHub records it
 pub async fn submit_pull_request_review(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::pull_request_writes::SubmitPullRequestReviewParams>,
+  Json(params): Json<remote_facts::pull_request_writes::SubmitPullRequestReviewParams>,
 ) -> CommandResult<()> {
   let operation = "submit the review";
   let (host, repository) = required_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
-  let review = sync_core::pull_request_writes::submit_pull_request_review(
+  let review = remote_facts::pull_request_writes::submit_pull_request_review(
     &host.github_service(),
     &params.repository_path,
     &repository,
@@ -822,12 +822,12 @@ pub async fn submit_pull_request_review(
 /// Asks users to review a pull request, as the app does: the fake GitHub asks its collaborators only
 pub async fn request_pull_request_reviewers(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::pull_request_writes::RequestPullRequestReviewersParams>,
+  Json(params): Json<remote_facts::pull_request_writes::RequestPullRequestReviewersParams>,
 ) -> CommandResult<RequestedReviewers> {
   let operation = "request the reviews";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let requested =
-    sync_core::pull_request_writes::request_pull_request_reviewers(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
+    remote_facts::pull_request_writes::request_pull_request_reviewers(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
       .await;
   requested.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
@@ -1042,12 +1042,12 @@ pub async fn prefetch_branch_review() -> CommandResult<()> {
 /// The text of the pull request of the whole stack and the user of the token, as the app reads them
 pub async fn get_new_stack_pull_request(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::stack_pull_request::GetNewStackPullRequestParams>,
+  Json(params): Json<remote_facts::stack_pull_request::GetNewStackPullRequestParams>,
 ) -> CommandResult<NewPullRequest> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let (git_executor, path, request) = (state.git_executor.clone(), params.repository_path.clone(), params);
   let Json(pull_request) = run_command("read the text of the stack's pull request", move || {
-    sync_core::stack_pull_request::read_new_stack_pull_request(&git_executor, &request)
+    remote_facts::stack_pull_request::read_new_stack_pull_request(&git_executor, &request)
   })
   .await?;
   with_viewer(&state, &path, pull_request).await
@@ -1178,7 +1178,7 @@ pub async fn get_patronus_failing_robots(State(state): State<Arc<AppState>>, Jso
   failing.map(Json).map_err(|e| CommandFailure::error("read the failing Patronus robots", e))
 }
 
-/// The readiness of each branch as the app reads it (`sync_core::review_readiness`, without the object cache, so every
+/// The readiness of each branch as the app reads it (`remote_facts::review_readiness`, without the object cache, so every
 /// call asks): the fake Patronus answers the pre-check of a branch whose tip is the tip of a branch of
 /// `POST /repositories/{id}/review-answers`, else by the owners of its paths (`remote_fixtures::review_check_answer`).
 /// The page's calls are logged with their `recheck`, which only the page knows

@@ -1,0 +1,43 @@
+[package]
+name = "remote-facts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What GitHub and Patronus know of the virtual branches, read and written over HTTP: pull requests, review requests, branch rules, review readiness, the Patronus command and the Safe Push statistics"
+publish = false
+
+[dependencies]
+sync-core = { path = "../sync-core" }
+domain-types = { path = "../domain-types" }
+sync-utils = { path = "../sync-utils" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+object-cache = { path = "../object-cache" }
+patronus = { path = "../patronus" }
+github = { path = "../github" }
+youtrack = { path = "../youtrack" }
+anyhow.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10.9"
+specta = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["time"] }
+# the salt of the robot statistics (`robot_stats`)
+uuid = { version = "1.28", features = ["v4"] }
+
+[features]
+default = []
+specta = ["dep:specta", "sync-core/specta", "domain-types/specta", "git-ops/specta"]
+
+[dev-dependencies]
+github = { path = "../github", features = ["fake"] }
+patronus = { path = "../patronus", features = ["fake"] }
+test-utils = { path = "../test-utils" }
+tempfile.workspace = true
+tokio.workspace = true
+pretty_assertions = { workspace = true }
+test-log = { workspace = true }
+
+[lints]
+workspace = true

@@ -75,6 +75,11 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check or a diff",
   },
   Unreachable {
+    from: "remote-facts",
+    forbidden: &["trial-check", "update-core", "lease-pool", "file-diffs", "code-symbols"],
+    why: "the remote facts are what GitHub and Patronus answer, never a trial check, an update, a lease or a diff",
+  },
+  Unreachable {
     from: "repository-view",
     forbidden: &["trial-check"],
     why: "the model holds what the checks found, it runs no trial check",
@@ -89,21 +94,6 @@ struct Allowed {
 }
 
 const ALLOWED: &[Allowed] = &[
-  Allowed {
-    from: "sync-core",
-    to: "github",
-    removed_in: "s3-crates",
-  },
-  Allowed {
-    from: "sync-core",
-    to: "patronus",
-    removed_in: "s3-crates",
-  },
-  Allowed {
-    from: "sync-core",
-    to: "youtrack",
-    removed_in: "s3-crates",
-  },
   Allowed {
     from: "repository-view",
     to: "trial-check",

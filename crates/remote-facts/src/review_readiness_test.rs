@@ -1,5 +1,3 @@
-use crate::github_repository::GitHubRepository;
-use crate::patronus::SpaceRepository;
 use crate::review_readiness::{ReadinessInputs, ReadinessRepository, branch_review_readiness, is_fresh, prepare_review_readiness};
 use domain_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart,
@@ -15,6 +13,8 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use sync_core::github_repository::GitHubRepository;
+use sync_core::patronus::SpaceRepository;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 

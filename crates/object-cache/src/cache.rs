@@ -13,8 +13,8 @@
 //! - **The exceptions are `review_answer`, `patronus_robots`, `patronus_history` and `build_result`**, keyed by a hash of
 //!   what they decide on. An answer of Patronus (the changed paths, the target, the reviews of a pull request; the user's
 //!   robots of a repository; a week of everyone's robots and the runs of the user's finished ones), which the target's ownership rules or a robot that starts or finishes can outdate: its value carries
-//!   when it was fetched, and the reader decides how long it holds (`sync_core::review_readiness`, `bd`'s
-//!   `robot_list`, `sync_core::robot_stats`). A passed build of `bd check --build` (the command, the branch, the ids of what it
+//!   when it was fetched, and the reader decides how long it holds (`remote_facts::review_readiness`, `bd`'s
+//!   `robot_list`, `remote_facts::robot_stats`). A passed build of `bd check --build` (the command, the branch, the ids of what it
 //!   extracts), which what the build reads outside the tree (a JDK, a toolchain) can outdate: `--rebuild` runs it
 //!   anyway. `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks
 //!   between those commits find, so it holds as long as the commit graph does (a `git replace` of a commit in that

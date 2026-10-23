@@ -230,7 +230,7 @@ export const commands = {
 	 *  Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
 	 *  Patronus judges the approvals of the pull request the robot would start from. One `git log` for the commits of all
 	 *  branches, their paths from the object cache, then one pre-check per branch whose kept answer doesn't hold
-	 *  (`sync_core::review_readiness`), one after another; a failure of Patronus backs the others off. The answers are in
+	 *  (`remote_facts::review_readiness`), one after another; a failure of Patronus backs the others off. The answers are in
 	 *  the order of `params.branches`, each with its input.
 	 */
 	getBranchReviewReadiness: (params: GetBranchReviewReadinessParams) => typedError<BranchReviewReadiness[], CommandError>(__TAURI_INVOKE("get_branch_review_readiness", { params })),

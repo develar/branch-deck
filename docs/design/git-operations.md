@@ -49,19 +49,26 @@ flowchart TD
     OPS --> EX[git-executor: GitCommandExecutor, the one place a git process starts]
     OPS --> OC[(object-cache: LMDB keyed by object ids)]
     CORE --> OC
-    CORE --> NET[github, patronus: HTTP only]
+    APP --> RF
+    BD --> RF
+    E2E --> RF
+    RF[remote-facts: what GitHub and Patronus answer, and the writes to them] --> CORE
+    RF --> NET[github, patronus, youtrack: HTTP only]
 ```
 
 Each layer calls only the layers below it. The adapters (the app, `bd`, the E2E server) parse a request, call a core
 (`<operation>_core(params, options)`) and present its result; the app and `bd` run no git of their own and call git-ops
 directly only for reads that need no lock or guard, such as the patches of the diff view. A core is where an operation
 is made safe against the app and the parallel `bd` processes, once for every caller (the cores of the rewrites that
-need no sync, GitHub or Patronus are the crate history-rewrite, the others sync-core): it takes the repository lock,
+need no sync, GitHub or Patronus are the crate history-rewrite, the others sync-core, which talks to no remote service
+but through git; the readers and the writers of GitHub and Patronus are the crate remote-facts, over HTTP and above
+sync-core): it takes the repository lock,
 checks the HEAD the request was made for and orders the git steps. git-ops knows git and no policy: which arguments,
 which process, how to read its output, each module one operation or one primitive that operations share; a rewrite there
 runs the guards on the history it read and moves the branch with CAS. The `//!` headers of `crates/git-ops/src/lib.rs`,
 `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`, `crates/update-core/src/lib.rs`,
-`crates/trial-check/src/lib.rs` and `crates/lease-pool/src/lib.rs` map their modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
+`crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs` and `crates/remote-facts/src/lib.rs` map their
+modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
 of a new one, and [Adding a Git Operation](../guidelines/adding-git-operation.md) says where it goes and which helpers
 it reuses.
 
@@ -267,7 +274,8 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
   last clone is dropped (`git processes`, e.g. `merge-tree 2×40ms, log 5×31ms`). The sync and every `bd` command count
   theirs; `bd -v` prints the summary. Tests assert on `process_stats().by_command()`; the budget of every operation is
   pinned, process by process, in `crates/sync-core/src/process_budget_test.rs`,
-  `crates/update-core/src/process_budget_test.rs` and `crates/trial-check/src/process_budget_test.rs` (the cores) and
+  `crates/update-core/src/process_budget_test.rs`, `crates/trial-check/src/process_budget_test.rs` and
+  `crates/remote-facts/src/process_budget_test.rs` (the cores) and
   `crates/bd-cli/src/process_budget_test.rs` (what a `bd` command adds), so a change that saves a process lowers a
   number there.
 
@@ -1784,7 +1792,7 @@ under `Default` (`file_diffs::blocks`).
   change of the copies bumps it, and its first write clears the store.
 - `review_answer` (a hash of what the Patronus pre-check decides on → its answer and when it was fetched) is the first
   store not keyed by object ids or a hash of them: the ownership rules of the target can outdate an answer, so the reader decides how
-  long it holds (`sync_core::review_readiness`): an answer that evaluated the pull request a day, one without the
+  long it holds (`remote_facts::review_readiness`): an answer that evaluated the pull request a day, one without the
   evaluation 2 minutes while approvals are missing, 10 without. Errors are never written; `bd safe-push` always asks
   again and writes the answer for the app.
 - `patronus_robots` (a hash of the Patronus server and token, the Space repository and the branch prefix → the user's
@@ -2263,7 +2271,7 @@ sync, before anything is asked of Patronus.
    `target_branch_of`: no process), the stack and the tips from the sync's report, as for `bd push`.
 2. For the code-owner pre-check of a Safe Push, one `git log -z ^<baseline> <tip>` for the commits, their paths from
    the object cache (one `diff-tree --stdin` for the misses), and, for the groups Patronus names without paths, one
-   `cat-file --batch` of the `OWNERSHIP` files of the baseline (`sync_core::review_readiness`, shared with the app's
+   `cat-file --batch` of the `OWNERSHIP` files of the baseline (`remote_facts::review_readiness`, shared with the app's
    start of a Safe Push).
    The dangling references of the branch and its ancestors come from a trial check on the sync's report
    (`session_of_sync`, `CheckSession::of_sync`): no guards, HEAD, config, stores or baseline are read again, only the
@@ -2277,7 +2285,7 @@ sync, before anything is asked of Patronus.
    The target conflict check replays the tip of the branch (or of the stack branch) onto the baseline commit that the
    sync read after the fetch (`check_target`, one `replay` when it applies).
    A Safe Push that pushes new commits into the pull request the robot starts from, which someone approved, asks
-   GitHub for the rules of the target: one `GET rules/branches/<target>` (`sync_core::branch_rules::read_branch_rules`,
+   GitHub for the rules of the target: one `GET rules/branches/<target>` (`remote_facts::branch_rules::read_branch_rules`,
    the function of the app's `get_branch_rules`), HTTP, no process. Rules that dismiss stale reviews on push refuse
    the start where the approvals count (`push_dismisses_approvals`), and rules GitHub doesn't answer refuse it as
    `rules_unknown` (`--allow-unknown-rules`), never "keeps the approvals" (`rules_check`).
@@ -2290,7 +2298,7 @@ sync, before anything is asked of Patronus.
    its remote status; the branches of the stack are not pushed. The pre-check reads the stack branch's commits as a
    branch's (`log`, `diff-tree`), and the dangling references take the members as the branches built.
 4. `--create-pull-request` opens the pull request with the text of the draft `bd push` prints
-   (`sync_core::pull_request_text`): the `bd describe` text, else the text of the branch's commits and of the branches
+   (`remote_facts::pull_request_text`): the `bd describe` text, else the text of the branch's commits and of the branches
    it is built on, from the sync's report, no git. The app's "Create pull request" dialog writes it before its push,
    from the local branch the push sends: one `config`, and without a description one
    `git log --reverse --format=%D%x1f%s%x1f%b%x1e --decorate-refs=refs/heads/<ancestor>… refs/remotes/origin/<base>..refs/heads/<branch>`,
@@ -2306,9 +2314,9 @@ sync, before anything is asked of Patronus.
    (`stack_pull_request_text`); its Create pushes the stack branch alone (below, "App stack push"), then creates the
    pull request of its head.
 
-Code: `crates/bd-remote/src/safe_push_command.rs`, `crates/sync-core/src/review_readiness.rs`,
-`crates/sync-core/src/branch_rules.rs`, `crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`,
-`crates/sync-core/src/stack_pull_request.rs`.
+Code: `crates/bd-remote/src/safe_push_command.rs`, `crates/remote-facts/src/review_readiness.rs`,
+`crates/remote-facts/src/branch_rules.rs`, `crates/remote-facts/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`,
+`crates/remote-facts/src/stack_pull_request.rs`.
 
 #### Target conflict check
 
@@ -2970,7 +2978,8 @@ recovery hint (`git reset -q`).
 
 Every git process of an operation is pinned, by subcommand, in `crates/sync-core/src/process_budget_test.rs` (a core;
 `an_update` in `crates/update-core/src/process_budget_test.rs`, the checks in `crates/trial-check/src/process_budget_test.rs`,
-the counts and the fixtures of all three from `test_utils::process_budget`)
+the text of a new pull request in `crates/remote-facts/src/process_budget_test.rs`, the counts and the fixtures of all
+four from `test_utils::process_budget`)
 and `crates/bd-cli/src/process_budget_test.rs` (a whole `bd` command, its context and its config included), one test
 per operation on a small fixture (two branches of three commits, unless the test says otherwise). A change that saves a
 process lowers a number there, so the diff of the assert names the process that went away; a change that adds one must
@@ -3120,12 +3129,13 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   `crates/git-ops/src/merge_tree_output.rs`, `crates/update-core/src/resolve_session.rs`,
   `crates/update-core/src/resolve_copies.rs`, `crates/history-rewrite/src/regroup.rs`, `crates/history-rewrite/src/repository_lock.rs`,
   `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`; the module maps in
-  `crates/git-ops/src/lib.rs`, `crates/sync-core/src/lib.rs`, `crates/update-core/src/lib.rs` and
-  `crates/trial-check/src/lib.rs`
+  `crates/git-ops/src/lib.rs`, `crates/sync-core/src/lib.rs`, `crates/update-core/src/lib.rs`,
+  `crates/trial-check/src/lib.rs` and `crates/remote-facts/src/lib.rs`
 - Tests: `crates/git-executor/src/worktree_safety_test.rs` and `git_usage_scan_test.rs` (the scans of the git argument
   lists),
   `crates/sync-core/src/process_budget_test.rs`, `crates/update-core/src/process_budget_test.rs`,
-  `crates/trial-check/src/process_budget_test.rs` and `crates/bd-cli/src/process_budget_test.rs` (the process budgets)
+  `crates/trial-check/src/process_budget_test.rs`, `crates/remote-facts/src/process_budget_test.rs` and
+  `crates/bd-cli/src/process_budget_test.rs` (the process budgets)
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Commit Files](../../spec/commit/commit-files.spec.md),
   [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),

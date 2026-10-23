@@ -8,13 +8,13 @@
 
 use crate::pull_requests::GitHubWriteError;
 
-use crate::github_repository::GitHubRepository;
 use domain_types::pull_request::{RefusedReviewer, RequestedReviewers};
 use git_ops::revs::is_object_id;
 use github::client::{GitHubClient, GitHubError};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
+use sync_core::github_repository::GitHubRepository;
 use tracing::instrument;
 
 #[derive(Debug, Deserialize)]

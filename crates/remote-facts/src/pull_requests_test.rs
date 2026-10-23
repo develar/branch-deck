@@ -1,5 +1,3 @@
-use crate::github_repository::GitHubRepository;
-use crate::github_repository_test::{github_repo, repository, resolve};
 use crate::pull_requests::{PULL_REQUESTS_QUERY, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, list_pull_requests, parse_pull_requests};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, TokenSource};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -7,7 +5,13 @@ use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
 use github::service::GitHubService;
 use github::token::{TokenChain, TokenSources};
 use pretty_assertions::assert_eq;
+use sync_core::github_repository::{GitHubRepository, resolve_github_repository};
 use test_log::test;
+use test_utils::git_test_utils::TestRepo;
+
+fn repository(owner: &str, name: &str) -> GitHubRepository {
+  GitHubRepository::new(owner, name)
+}
 
 /// The `data` of `PULL_REQUESTS_QUERY`, trimmed to what the parser reads; a null node is skipped
 const FIXTURE: &str = r#"{
@@ -290,10 +294,12 @@ async fn list(answer: FakeAnswer, repository: &GitHubRepository) -> (PullRequest
 
 #[test(tokio::test)]
 async fn lists_pull_requests_of_the_push_remote_repository() {
-  let repo = github_repo();
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  repo.add_remote("origin", "git@github.com:JetBrains/ultimate.git").unwrap();
   // pushes go elsewhere than fetches: the push URL decides
   repo.set_config("remote.origin.pushurl", "https://github.com/JetBrains/ultimate-push.git").unwrap();
-  let repository = resolve(&repo).unwrap();
+  let repository = resolve_github_repository(repo.git_executor(), repo.path().to_str().unwrap()).unwrap().unwrap();
   assert_eq!(repository, self::repository("JetBrains", "ultimate-push"));
 
   let fixture: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();

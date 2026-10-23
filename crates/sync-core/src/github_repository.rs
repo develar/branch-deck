@@ -20,6 +20,13 @@ pub struct GitHubRepository {
 }
 
 impl GitHubRepository {
+  pub fn new(owner: &str, name: &str) -> Self {
+    Self {
+      owner: owner.to_string(),
+      name: name.to_string(),
+    }
+  }
+
   /// `owner/name`
   pub fn full_name(&self) -> String {
     format!("{}/{}", self.owner, self.name)
@@ -53,10 +60,7 @@ pub fn resolve_github_repository(git_executor: &GitCommandExecutor, repository_p
 /// The repository of an `owner/name` the frontend passes back from an earlier answer
 pub fn parse_known_github_repository(known: Option<&str>) -> Option<GitHubRepository> {
   let (owner, name) = split_owner_and_name(known?)?;
-  Some(GitHubRepository {
-    owner: owner.to_string(),
-    name: name.to_string(),
-  })
+  Some(GitHubRepository::new(owner, name))
 }
 
 /// `resolve_github_repository` that also says where the repository came from
@@ -136,8 +140,5 @@ pub fn parse_github_repository(url: &str) -> Option<GitHubRepository> {
     return None;
   }
   let (owner, name) = split_owner_and_name(remote.path)?;
-  Some(GitHubRepository {
-    owner: owner.to_string(),
-    name: name.to_string(),
-  })
+  Some(GitHubRepository::new(owner, name))
 }

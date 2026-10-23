@@ -21,10 +21,10 @@ targets:
   - ../../crates/bd-remote/src/robot_command.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/sync-core/src/patronus_start.rs
-  - ../../crates/sync-core/src/pull_requests.rs
-  - ../../crates/sync-core/src/pull_request_create.rs
-  - ../../crates/sync-core/src/review_readiness.rs
-  - ../../crates/sync-core/src/stack_pull_request.rs
+  - ../../crates/remote-facts/src/pull_requests.rs
+  - ../../crates/remote-facts/src/pull_request_create.rs
+  - ../../crates/remote-facts/src/review_readiness.rs
+  - ../../crates/remote-facts/src/stack_pull_request.rs
   - ../../crates/domain-types/src/patronus.rs
   - ../../crates/domain-types/src/pull_request.rs
   - ../../src-tauri/src/commands/patronus.rs
@@ -189,16 +189,16 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../src/lib/patronus.test.ts (`never takes the robot of the whole stack, which runs on its stack branch, for a branch's`)
 - The pull request of a stack branch must be the stack's, by its root (`PullRequestsResult::stack_pull_requests`),
   never a branch's; one that GitHub says exists must be found by its head.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_pull_request_of_a_stack_branch_is_the_stacks_by_its_root`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`the_pull_request_of_a_stack_branch_is_the_stacks_by_its_root`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_comments_on_it`)
 - Its text must be the stack branch's own description, else the root's title with the count of the branches built on
   it and a section per branch, its description or the subjects of its commits, from what the sync read, cut to the
   65,536 characters of a body and the 256 of a title GitHub takes, naming the branches left out.
-  [@test] ../../crates/sync-core/src/stack_pull_request_test.rs (`the_pull_request_of_the_whole_stack_names_each_member_by_its_description_else_its_commits`, `a_text_too_long_for_github_is_cut_and_names_the_members_left_out`)
+  [@test] ../../crates/remote-facts/src/stack_pull_request_test.rs (`the_pull_request_of_the_whole_stack_names_each_member_by_its_description_else_its_commits`, `a_text_too_long_for_github_is_cut_and_names_the_members_left_out`)
 - The readiness of the whole stack must ask Patronus about its stack branch (`ReviewReadinessBranch::source`, a stack
   branch of the prefix, else refused), the answer under the key the caller gives; the start of the app takes `stack`
   (`StartPatronusRobotParams::stack`) to start the robot from the stack branch.
-  [@test] ../../crates/sync-core/src/review_readiness_test.rs (`the_whole_stack_is_asked_as_its_stack_branch_under_the_key_of_the_caller`)
+  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`the_whole_stack_is_asked_as_its_stack_branch_under_the_key_of_the_caller`)
 
 ### The whole stack in the app
 
@@ -315,7 +315,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   whole stack to review, as the dialog of a branch asks the branch's: those Patronus suggests for the stack branch (the
   readiness of `stack:<root>`), preselected, while the sync built it.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does, the move made from the click`)
-  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_text_of_a_new_pull_request_of_the_whole_stack`)
+  [@test] ../../crates/remote-facts/src/process_budget_test.rs (`the_text_of_a_new_pull_request_of_the_whole_stack`)
   [@test] ../../crates/sync-core/src/push_test.rs (`the_whole_stack_pushes_its_stack_branch`)
 - A pull request of the whole stack that no longer matches it (a Safe Push of a branch landed the root in a piece, as
   the app saw the merge; or the stack no longer forks and its stack branch stays for its remote branch) must never be
@@ -394,7 +394,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/sync-core/src/stack_sync_test.rs`, `stack_branch_test.rs`, `process_budget_test.rs`,
-  `patronus_start_test.rs`, `stack_pull_request_test.rs`; `crates/bd-remote/src/status_test.rs`, `safe_push_test.rs`,
+  `patronus_start_test.rs`; `crates/remote-facts/src/stack_pull_request_test.rs`, `process_budget_test.rs`;
+  `crates/bd-remote/src/status_test.rs`, `safe_push_test.rs`,
   `push_test.rs`, `robot_test.rs`.
 - `pnpm test:unit`: `src/stores/branch-sync.test.ts`, `src/lib/patronus.test.ts`, `src/lib/whole-stack.test.ts`,
   `src/lib/landed-stack.test.ts`, `src/stores/patronus.test.ts`, `src/hooks/useStackNextStep.test.ts`.

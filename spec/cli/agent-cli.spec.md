@@ -57,9 +57,9 @@ targets:
   - ../../crates/bd-remote/src/safe_push_command.rs
   - ../../crates/bd-core/src/review_summary.rs
   - ../../crates/bd-remote/src/push_hold.rs
-  - ../../crates/sync-core/src/stack_pull_request.rs
-  - ../../crates/sync-core/src/patronus_review.rs
-  - ../../crates/sync-core/src/review_readiness.rs
+  - ../../crates/remote-facts/src/stack_pull_request.rs
+  - ../../crates/remote-facts/src/patronus_review.rs
+  - ../../crates/remote-facts/src/review_readiness.rs
   - ../../crates/sync-core/src/patronus_start.rs
   - ../../crates/trial-check/src/check.rs
   - ../../crates/git-ops/src/merge_memo.rs
@@ -208,7 +208,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
   [@test] ../../crates/patronus/src/actions_test.rs (`the_failed_checks_of_a_robot_are_named_whole_when_only_one_is_past_the_limit`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_failed_checks_of_a_pull_request_are_named_whole_when_only_one_is_past_the_limit`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`the_failed_checks_of_a_pull_request_are_named_whole_when_only_one_is_past_the_limit`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_list_of_the_full_failure_one_longer_than_its_limit_is_given_whole`)
 - Commit ids must be 8 characters, longer for the whole output when two of its ids share that prefix; `--full-ids`
@@ -1109,7 +1109,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits), cut to what GitHub takes; the review asks Patronus about the stack branch with that pull request, and a
   start comments on it.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_comments_on_it`)
-  [@test] ../../crates/sync-core/src/stack_pull_request_test.rs (`the_pull_request_of_the_whole_stack_names_each_member_by_its_description_else_its_commits`, `a_text_too_long_for_github_is_cut_and_names_the_members_left_out`)
+  [@test] ../../crates/remote-facts/src/stack_pull_request_test.rs (`the_pull_request_of_the_whole_stack_names_each_member_by_its_description_else_its_commits`, `a_text_too_long_for_github_is_cut_and_names_the_members_left_out`)
 - Branches reviewed on GitHub with an open pull request into the target must start from a `/patronus` comment on it,
   waiting up to a minute for the answer, and must refuse `--profile` there; no Space merge request is looked up.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_branch_with_an_open_pull_request_starts_from_a_comment`)

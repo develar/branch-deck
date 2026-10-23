@@ -3,13 +3,13 @@
 //! paths of the groups Patronus names without them (one `cat-file --batch` of the `OWNERSHIP` files). Both are
 //! blocking; the check itself is `review_readiness` in between.
 
-use crate::patronus::{ReviewCommit, attribute_paths_by_ownership, fill_changed_paths, needs_ownership_paths, read_review_commits, review_paths};
 use domain_types::patronus::PatronusReviewRequirement;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::ownership::read_ownership;
 use object_cache::cache::ObjectCache;
 use patronus::client::PreMergeCommitDto;
 use std::collections::{BTreeSet, HashMap};
+use sync_core::patronus::{ReviewCommit, attribute_paths_by_ownership, fill_changed_paths, needs_ownership_paths, read_review_commits, review_paths};
 use sync_utils::timestamp::{format_utc_timestamp, parse_rfc3339_timestamp};
 use tracing::instrument;
 

@@ -1,5 +1,5 @@
 //! `bd robot-stats`: the Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`), the
-//! numbers of the app's Landing view from the same core (`sync_core::robot_stats`): the user's robots into the target
+//! numbers of the app's Landing view from the same core (`remote_facts::robot_stats`): the user's robots into the target
 //! of the last 70 days against everyone else's, where the time went, why they failed and the hours they ran fastest.
 //! Read only: no lock, no sync; what Patronus answered is kept in the object cache (none with --no-cache).
 
@@ -12,10 +12,10 @@ use domain_types::error::ErrorCode;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::robot_stats::RobotStats;
 use history_rewrite::baseline::detect_baseline_branch;
+use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::patronus::required_target_branch;
-use sync_core::robot_stats::{RobotStatsSource, robot_stats_core};
 use sync_utils::timestamp::unix_now;
 
 #[derive(Debug, Default, clap::Args)]

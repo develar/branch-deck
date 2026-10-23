@@ -4,7 +4,6 @@
 //! of a pull request (`pull_request_writes.rs`). GitHub is not git: it never
 //! touches the repository, and every failure of a read is an availability, not an error.
 
-use crate::github_repository::GitHubRepository;
 use anyhow::Result;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
@@ -12,6 +11,7 @@ use github::client::{GitHubError, GraphQlResponse};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use sync_core::github_repository::GitHubRepository;
 use sync_utils::list_cut::kept;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::{instrument, warn};

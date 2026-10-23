@@ -17,6 +17,7 @@ history-rewrite = { path = "../history-rewrite" }
 object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
 sync-core = { path = "../sync-core" }
+remote-facts = { path = "../remote-facts" }
 trial-check = { path = "../trial-check" }
 domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }

@@ -6,15 +6,15 @@
 //! trailers left out, a mention or a `<T>` kept literal. A stacked branch is titled by its own commits and names the
 //! branches it is built on, whose commits the pull request holds too. No git: the callers read the commits.
 
-use crate::issue_navigation::issue_link;
 use crate::stack_pull_request::{MAX_BODY_CHARS, cut_chars, cut_title, push_fitting_sections};
-use crate::sync::branch_summary;
 use domain_types::issue_navigation::IssueNavigationConfig;
 use domain_types::youtrack::YouTrackIssueAnswer;
 use git_ops::branch_description::Description;
 use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::time::Duration;
+use sync_core::issue_navigation::issue_link;
+use sync_core::sync::branch_summary;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::debug;
 use youtrack::service::YouTrackService;

@@ -3,9 +3,9 @@
 //! of new commits. One `GET rules/branches/<branch>`, readable with read access to the repository (classic branch
 //! protection needs admin rights and is not read).
 
-use crate::github_repository::GitHubRepository;
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::{Deserialize, Serialize};
+use sync_core::github_repository::GitHubRepository;
 use tracing::instrument;
 
 /// GitHub lists at most this many rules per page; a branch has a handful

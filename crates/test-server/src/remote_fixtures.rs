@@ -16,12 +16,12 @@ use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
 use github::fake_repository::{FakePull, RepositoryState, search_data};
 use patronus::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, REVIEW_APPROVAL_CHECK_SKIP_OPTION};
+use remote_facts::pull_requests::parse_pull_request_maps;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::github_repository::{GITHUB_REPOSITORY_CONFIG, GitHubRepository, parse_known_github_repository};
-use sync_core::pull_requests::parse_pull_request_maps;
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::{format_utc_timestamp, unix_now};
 

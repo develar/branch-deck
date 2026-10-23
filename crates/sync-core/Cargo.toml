@@ -12,9 +12,6 @@ branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
-patronus = { path = "../patronus" }
-github = { path = "../github" }
-youtrack = { path = "../youtrack" }
 anyhow.workspace = true
 indexmap.workspace = true
 moka.workspace = true
@@ -26,9 +23,7 @@ sha2 = "0.10.9"
 specta = { workspace = true, optional = true }
 quick-xml = "0.42"
 regex = "1.13"
-tokio = { workspace = true, features = ["time"] }
-# the salt of the robot statistics (`robot_stats`)
-uuid = { version = "1.28", features = ["v4"] }
+tokio.workspace = true
 
 [features]
 default = []
@@ -36,8 +31,6 @@ specta = ["dep:specta", "history-rewrite/specta", "domain-types/specta", "branch
 
 [dev-dependencies]
 history-rewrite = { path = "../history-rewrite", features = ["test-commit"] }
-github = { path = "../github", features = ["fake"] }
-patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils" }
 tempfile.workspace = true
 tokio.workspace = true

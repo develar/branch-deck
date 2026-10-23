@@ -24,6 +24,7 @@ use github::fake_github::{FakeAnswer, FakeGitHub};
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::stack::place_branches;
 use history_rewrite::store_lines::StoreLines;
+use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
 use repository_view::patronus_view::{landed_commits, with_landing_needs};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
@@ -33,7 +34,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::patronus::target_branch_of;
-use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use trial_check::landing_gate::landing_needs_of;
 
 /// The groups of the cases and their test functions here; the Vitest has the same groups

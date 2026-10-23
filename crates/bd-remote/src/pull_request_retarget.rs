@@ -10,12 +10,12 @@ use bd_core::context::RepoContext;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
 use github::service::GitHubService;
+use remote_facts::pull_request_writes::retarget_pull_request;
+use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use sync_core::github_repository::GitHubRepository;
-use sync_core::pull_request_writes::retarget_pull_request;
-use sync_core::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};
 use tokio::runtime::Runtime;
 
 /// An open pull request whose base was a virtual branch, retargeted to the baseline

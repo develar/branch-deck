@@ -380,18 +380,19 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 ### Adding a git operation
 Read [Adding a Git Operation](docs/guidelines/adding-git-operation.md) (the layers in detail, the helper table) before
 you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/update-core/`,
-`crates/trial-check/`, `crates/lease-pool/`, `crates/bd-*/` or `src-tauri/src/commands/`.
+`crates/trial-check/`, `crates/lease-pool/`, `crates/remote-facts/`, `crates/bd-*/` or `src-tauri/src/commands/`.
 The checklist:
 - One name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`); the `//!` headers of
   `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
-  `crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs` and `crates/lease-pool/src/lib.rs` map the modules
-  by area.
+  `crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs` and
+  `crates/remote-facts/src/lib.rs` map the modules by area.
 - **git-ops** has the git: one process per phase, `-z` output, full ids, `--end-of-options` before a revision from
   outside, `--literal-pathspecs` for paths after `--`; no lock and no policy.
 - **The core** `<op>_core` in `crates/history-rewrite/` (a rewrite that needs no sync, GitHub or Patronus),
   `crates/update-core/` (Update Project, `bd pick`, the resolve sessions), `crates/trial-check/` (the trial checks,
   `bd move-hunk`, whatever reads the diffs or the symbols of the commits), `crates/lease-pool/` (`bd lease`,
-  `bd workspace`) or `crates/sync-core/` (the rest) is the one
+  `bd workspace`), `crates/remote-facts/` (what GitHub and Patronus answer over HTTP, and the writes to them) or
+  `crates/sync-core/` (the rest, with no remote service but git's) is the one
   entry of every caller: a rewrite of the checked-out branch
   takes `&RewriteOptions` and the lock before it reads anything, then checks the expected HEAD.
 - **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
@@ -505,9 +506,9 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Agent workspace (`bd workspace`): a lease and the `(branch)` subject by `branchdeck.agentLease` and `branchdeck.agentSubjectBranch`, Settings → Agents | `cli/workspace`, `repository/settings`, `repository/onboarding` | `crates/lease-pool/src/agent_workspace.rs`, `crates/bd-lease/src/workspace_command.rs`, `src/components/settings/AgentsPage.tsx` |
 | Lease pool (`bd lease`), its clean rules (`.branchdeck.toml`) | `cli/lease` | `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/lease_clean.rs`, `crates/bd-lease/src/lease_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
 | Landed commits | `repository/landed-commits` | `crates/sync-core/src/landed.rs` (report in `branch-deck/landed.json`) |
-| Landing overview, PR status, Create Pull Request, Request Review | `repository/landing-overview`, `repository/outgoing`, `branch/pull-requests` | `crates/github/`, `sync_core::pull_requests`, `sync_core::pull_request_create`, `sync_core::pull_request_text` |
-| Patronus: robots, Safe Push and Dry Run, the next step, the failure prompt (`bd safe-push`, `bd robot`) | `branch/patronus`, `branch/next-step`, `branch/safe-push-failure-prompt`, `branch/whole-stack`, `cli/agent-cli` | `crates/patronus/`, `crates/trial-check/src/landing_gate.rs` (the landing gate of a start), `crates/repository-view/` (the app's guards of push and of start, restart and cancel: `push_guard.rs`, `start_guard.rs`), `src/lib/branch-next-step.ts`, `src/stores/review-readiness.ts` |
-| Safe Push statistics, the Landing view of the main window (Branches · Landing, ⌘1/⌘2): the user's robots of 70 days against everyone else's, time lost, failure causes, start hours (`bd robot-stats`) | `repository/safe-push-statistics`, `repository/main-views` | `crates/sync-core/src/robot_stats.rs`, `crates/sync-core/src/robot_stats_aggregate.rs`, `crates/patronus/src/stats.rs`, `crates/bd-remote/src/robot_stats_command.rs`, `src/components/landing/LandingView.tsx` |
+| Landing overview, PR status, Create Pull Request, Request Review | `repository/landing-overview`, `repository/outgoing`, `branch/pull-requests` | `crates/github/`, `remote_facts::pull_requests`, `remote_facts::pull_request_create`, `remote_facts::pull_request_text` |
+| Patronus: robots, Safe Push and Dry Run, the next step, the failure prompt (`bd safe-push`, `bd robot`) | `branch/patronus`, `branch/next-step`, `branch/safe-push-failure-prompt`, `branch/whole-stack`, `cli/agent-cli` | `crates/patronus/`, `crates/trial-check/src/landing_gate.rs` (the landing gate of a start), `crates/repository-view/` (the app's guards of push and of start, restart and cancel: `push_guard.rs`, `start_guard.rs`), `remote_facts::review_readiness` (the code-owner pre-check), `remote_facts::patronus_command`, `src/lib/branch-next-step.ts`, `src/stores/review-readiness.ts` |
+| Safe Push statistics, the Landing view of the main window (Branches · Landing, ⌘1/⌘2): the user's robots of 70 days against everyone else's, time lost, failure causes, start hours (`bd robot-stats`) | `repository/safe-push-statistics`, `repository/main-views` | `crates/remote-facts/src/robot_stats.rs`, `crates/remote-facts/src/robot_stats_aggregate.rs`, `crates/patronus/src/stats.rs`, `crates/bd-remote/src/robot_stats_command.rs`, `src/components/landing/LandingView.tsx` |
 | GitHub sign-in (OAuth device flow) | `repository/github-sign-in` | `crates/github/src/token.rs` |
 | YouTrack sign-in (Hub OAuth in the browser, refresh token), the issue popover, Mark Fixed | `repository/youtrack` | `crates/youtrack/`, `src/stores/youtrack.ts` |
 | Issue groups | `branch/issue-groups` | `crates/history-rewrite/src/issue_groups.rs` |
@@ -522,7 +523,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Go to Declaration and Find Usages in a review (⌘-click, ⌘B, ⌥F7, Back), outside it through accio | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `src/hooks/useSymbolNavigation.ts`, `src/components/diff/DeclarationFileView.tsx` |
 | Command palette (⌘K: the views, Activity, the commands of the app, Go to a branch) | `repository/command-palette` | `src/components/command-palette/CommandPalette.tsx`, `src/lib/command-palette.ts` |
 | Title bar and main menu | `repository/title-bar` | `src-tauri/src/title_bar.rs`, `src/components/shared/WindowTitleBar.tsx` |
-| Your Turn (review requests, the pull request review) | `repository/review-requests`, `repository/robots-indicator` | `src/components/review/` |
+| Your Turn (review requests, the pull request review) | `repository/review-requests`, `repository/robots-indicator` | `src/components/review/`, `remote_facts::review_requests` |
 | Settings window | `repository/settings` | `src/components/settings/`, `crates/sync-core/src/repository_config.rs` |
 | Branch review | `branch/branch-review` | `src/components/review/BranchReview.tsx`, `crates/git-ops/src/ownership.rs` |
 | Symbol dependencies | `commit/symbol-dependencies` ([Symbol Dependencies](docs/design/symbol-dependencies.md)) | `crates/code-symbols/`, `crates/trial-check/src/symbol_scan.rs` |
@@ -600,6 +601,7 @@ crates/
 ├── trial-check/     # The trial checks (`bd check`, the conflict fix, the landing gate), `bd move-hunk`, the diff scan and the symbol summaries of the commits
 ├── update-core/     # Update Project, `bd pick` and the resolve sessions of a conflicting `bd update`, and their undo
 ├── lease-pool/      # The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`)
+├── remote-facts/    # What GitHub and Patronus know of the branches, over HTTP: pull requests, review requests, branch rules, review readiness, the Patronus command, the Safe Push statistics
 ├── repository-view/ # What Rust derives of the branch table for the page and bd: the table of a sync, the Patronus section (one rule)
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)

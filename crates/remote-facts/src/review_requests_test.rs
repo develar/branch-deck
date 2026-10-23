@@ -1,9 +1,9 @@
-use crate::github_repository::{GitHubRepository, parse_known_github_repository};
 use crate::review_requests::{REVIEW_REQUESTS_QUERY, list_review_requests};
 use domain_types::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision, TokenSource};
 use domain_types::review_request::{BackToYou, ReviewRequest, ReviewRequestsResult};
 use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
 use pretty_assertions::assert_eq;
+use sync_core::github_repository::{GitHubRepository, parse_known_github_repository};
 use test_log::test;
 
 /// The answer to the review requests query, trimmed to what the parser reads

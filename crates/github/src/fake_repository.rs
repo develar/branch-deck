@@ -1,6 +1,6 @@
 //! One GitHub repository with state, behind `FakeGitHub` (`FakeGitHub::with_repository`): its pull requests, the
 //! user of its token, the users a review can be asked from, the branches GitHub has and the rules of a branch. It
-//! answers the REST and GraphQL requests of `sync_core` as GitHub does (`GET /user`, `POST pulls`, `GET`/`PATCH
+//! answers the REST and GraphQL requests of `remote_facts` as GitHub does (`GET /user`, `POST pulls`, `GET`/`PATCH
 //! pulls/<n>`, `POST pulls/<n>/requested_reviewers` and `reviews`, `POST issues/<n>/comments` and `assignees`, `GET
 //! issues/comments/<id>`, `GET issues/<n>/comments`, `GET branches/<b>`, `GET rules/branches/<b>`, the GraphQL search of
 //! the user's pull requests and of the assignable users), and a write changes what the next read answers. The Patronus

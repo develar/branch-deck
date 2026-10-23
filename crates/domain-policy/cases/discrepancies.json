@@ -288,7 +288,7 @@
     "twins": ["readiness-unavailable", "row-11-unavailable", "readiness-space-required"],
     "today": {
       "app": ["src/lib/safe-push-decision.ts#function isReviewUnjudged", "src/hooks/useSafePush.ts#function reviewFactOf"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#pub(crate) fn review_readiness", "crates/sync-core/src/review_readiness.rs#fn to_branch_readiness"]
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#pub(crate) fn review_readiness", "crates/remote-facts/src/review_readiness.rs#fn to_branch_readiness"]
     }
   },
   {

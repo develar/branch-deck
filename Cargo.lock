@@ -574,6 +574,7 @@ dependencies = [
  "object-cache",
  "patronus",
  "pretty_assertions",
+ "remote-facts",
  "repository-view",
  "schemars 1.2.3",
  "serde",
@@ -735,6 +736,7 @@ dependencies = [
  "objc2-foundation",
  "object-cache",
  "patronus",
+ "remote-facts",
  "repository-view",
  "serde",
  "serde_json",
@@ -4846,6 +4848,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "remote-facts"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "domain-types",
+ "git-executor",
+ "git-ops",
+ "github",
+ "object-cache",
+ "patronus",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "sha2",
+ "specta",
+ "sync-core",
+ "sync-utils",
+ "tempfile",
+ "test-log",
+ "test-utils",
+ "tokio",
+ "tracing",
+ "uuid",
+ "youtrack",
+]
+
+[[package]]
 name = "repository-view"
 version = "0.1.0"
 dependencies = [
@@ -5713,12 +5742,10 @@ dependencies = [
  "domain-types",
  "git-executor",
  "git-ops",
- "github",
  "history-rewrite",
  "indexmap 2.14.2",
  "moka",
  "object-cache",
- "patronus",
  "pretty_assertions",
  "quick-xml 0.42.0",
  "regex",
@@ -5733,8 +5760,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
- "uuid",
- "youtrack",
 ]
 
 [[package]]
@@ -6450,6 +6475,7 @@ dependencies = [
  "object-cache",
  "patronus",
  "pretty_assertions",
+ "remote-facts",
  "repository-view",
  "reqwest",
  "serde",

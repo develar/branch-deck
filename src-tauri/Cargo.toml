@@ -35,6 +35,7 @@ repository-view = { path = "../crates/repository-view" }
 tauri.workspace = true
 serde.workspace = true
 sync-core = { path = "../crates/sync-core", features = ["specta"] }
+remote-facts = { path = "../crates/remote-facts", features = ["specta"] }
 trial-check = { path = "../crates/trial-check", features = ["specta"] }
 update-core = { path = "../crates/update-core", features = ["specta"] }
 history-rewrite = { path = "../crates/history-rewrite", features = ["specta"] }

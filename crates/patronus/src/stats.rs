@@ -1,4 +1,4 @@
-//! The reads of the Safe Push statistics (`sync_core::robot_stats`, `spec/repository/safe-push-statistics.spec.md`):
+//! The reads of the Safe Push statistics (`remote_facts::robot_stats`, `spec/repository/safe-push-statistics.spec.md`):
 //! everyone's robots into a target in a window, and what the checks, problems and changes of one of the user's finished
 //! robots tell. Foreground requests: the user opened the statistics. Of others only what the rules count is kept: no
 //! name, no email, no branch, the owner as a salted hash.

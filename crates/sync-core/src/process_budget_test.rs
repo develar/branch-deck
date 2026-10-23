@@ -5,13 +5,11 @@
 
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::baseline::check_baseline_update;
-use crate::pull_request_create::read_new_pull_request;
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
 use crate::robot_landing::{robot_landings, robot_spans};
 use crate::stack_branch::forget_builds;
-use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubjects, read_new_stack_pull_request};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_target};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
@@ -725,48 +723,6 @@ fn an_update_check() {
       ("symbolic-ref", 2),
     ],
   );
-}
-
-/// The text of the "Create pull request" dialog of a branch without a description: its commits against the baseline,
-/// a stacked branch's split from those of the branches it is built on by the decorations of the same `log`
-#[test]
-fn the_text_of_a_new_pull_request() {
-  let (repo, _) = alpha_and_beta_on_origin();
-  repo.git(&["branch", "test/virtual/alpha"]);
-  repo.git(&["branch", "test/virtual/root", "HEAD~1"]);
-  let git = counting();
-  let read = read_new_pull_request(&git, &path(&repo), "origin", "test/virtual/alpha", "master", &["test/virtual/root".to_string()]).unwrap();
-  assert_eq!((read.description, read.commits.len(), read.ancestors[0].subjects.len()), (None, 1, 5));
-  assert_processes(&git, &[("config", 1), ("log", 1)]);
-}
-
-/// The text of the pull request of the whole stack the app's form shows: the descriptions of the stack branch and of
-/// its members from one `config`, the subjects as the rows show them
-#[test]
-fn the_text_of_a_new_pull_request_of_the_whole_stack() {
-  let (repo, _) = alpha_and_beta_on_origin();
-  repo.git(&["config", "branch.test/virtual/beta.description", "IJPL-2 Beta\n\nThe beta part."]);
-  let member = |name: &str, parent: Option<&str>, subjects: &[&str]| StackMemberSubjects {
-    name: name.to_string(),
-    parent: parent.map(str::to_string),
-    subjects: subjects.iter().map(|subject| (*subject).to_string()).collect(),
-  };
-  let params = GetNewStackPullRequestParams {
-    repository_path: path(&repo),
-    branch_prefix: PREFIX.to_string(),
-    root: "alpha".to_string(),
-    members: vec![
-      member("alpha", None, &["Alpha"]),
-      member("beta", Some("alpha"), &["Beta"]),
-      member("gamma", Some("alpha"), &["Gamma"]),
-    ],
-    target: "master".to_string(),
-  };
-  let git = counting();
-  let text = read_new_stack_pull_request(&git, &params).unwrap();
-  assert_eq!(text.title, "Alpha, with the 2 branches built on it");
-  assert!(text.body.contains("## beta: IJPL-2 Beta"), "{}", text.body);
-  assert_processes(&git, &[("config", 1)]);
 }
 
 /// The app's push of a stack (Push Stack, Push with Children): `alpha` and `beta` built on it, to a bare `origin` that

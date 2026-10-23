@@ -4,11 +4,11 @@
 
 use crate::pull_requests::{availability_of, parse_review_decision, visible_data};
 
-use crate::github_repository::GitHubRepository;
 use domain_types::pull_request::{ChecksState, PullRequestAvailability};
 use domain_types::review_request::{BackToYou, ReviewRequest, ReviewRequestsResult};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
+use sync_core::github_repository::GitHubRepository;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::instrument;
 

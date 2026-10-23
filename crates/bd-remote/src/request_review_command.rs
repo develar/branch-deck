@@ -16,13 +16,13 @@ use domain_types::error::ErrorCode;
 use domain_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
 use git_ops::revs::resolve_commit;
+use remote_facts::pull_request_writes::request_pull_request_reviewers;
+use remote_facts::pull_requests::{GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests};
+use remote_facts::review_readiness::ReadinessRepository;
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::github_repository::{GitHubRepository, resolve_github_repository_with};
 use sync_core::patronus::target_branch_of;
-use sync_core::pull_request_writes::request_pull_request_reviewers;
-use sync_core::pull_requests::{GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests};
-use sync_core::review_readiness::ReadinessRepository;
 use tokio::runtime::Runtime;
 
 #[derive(Debug, Default, clap::Args)]

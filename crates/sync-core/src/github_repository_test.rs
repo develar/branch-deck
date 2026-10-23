@@ -3,11 +3,8 @@ use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
-pub(crate) fn repository(owner: &str, name: &str) -> GitHubRepository {
-  GitHubRepository {
-    owner: owner.to_string(),
-    name: name.to_string(),
-  }
+fn repository(owner: &str, name: &str) -> GitHubRepository {
+  GitHubRepository::new(owner, name)
 }
 
 #[test]
@@ -45,15 +42,8 @@ fn rejects_remote_urls_outside_github() {
   }
 }
 
-pub(crate) fn github_repo() -> TestRepo {
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  repo.add_remote("origin", "git@github.com:JetBrains/ultimate.git").unwrap();
-  repo
-}
-
 #[expect(clippy::unwrap_in_result, reason = "a test helper: a git error fails the test, `None` is the answer it checks")]
-pub(crate) fn resolve(repo: &TestRepo) -> Option<GitHubRepository> {
+fn resolve(repo: &TestRepo) -> Option<GitHubRepository> {
   resolve_github_repository(repo.git_executor(), repo.path().to_str().unwrap()).unwrap()
 }
 

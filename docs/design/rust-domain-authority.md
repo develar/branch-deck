@@ -97,7 +97,7 @@ D — одинаковый ввод даёт разный результат в 
 | R6 | Next step, landing node, решение Safe Push | `branch-next-step.ts` (657), `landing-node.ts` (234), `safe-push-decision.ts` (211), `useStackNextStep.ts`, `whole-stack.ts`; `plan()` в `bd` | `domain-policy::{next_step, landing_node, land}` |
 | R7 | Restart, Push and Restart | `getRobotRestartAction` (`patronus.ts:425`), `runPushAndRestart` (`patronus-actions.ts:77-120`); `bd push --restart-running` | intent `RestartRobot` |
 | R8 | Предпросмотр группировки коммита | `groupFor`/`parseSubject`/`findIssueKey`/`sanitizeBranchName` (`src/lib/commit.ts:114-216`, 14 потребителей); `CommitGrouper`, `sync-utils` | Rust `preview_group(message)`, debounce в inline-форме |
-| R9 | Markdown тела коммита | `parseCommitBody` (`src/lib/commit-message.ts`); `commit_body_markdown` (`sync-core/src/pull_request_text.rs`) | Rust; диалог PR получает текст из `get_new_pull_request` |
+| R9 | Markdown тела коммита | `parseCommitBody` (`src/lib/commit-message.ts`); `commit_body_markdown` (`remote-facts/src/pull_request_text.rs`) | Rust; диалог PR получает текст из `get_new_pull_request` |
 | R10 | Валидация имени ветки | `useBranchNameValidation.ts`; `is_valid_branch_prefix` (`domain-types/src/branch_names.rs`), `stack_path` (`domain-types/src/stack.rs:213`) | Rust (`domain-types::branch_names`, чистая); при заметной задержке ввода — TS-проверка против Rust-оракула (фикстура, которую пишет Rust-тест) |
 | R11 | Эффективный префикс ветки | см. факты | Rust; с `s6-session-table` сессия ключуется разрешённым префиксом |
 | S1 | Таблица веток | страница (`branch-sync.ts`) и Rust (`RepositoryViews::keep`) | сессия в Rust |
@@ -266,7 +266,9 @@ flowchart TD
   reqwest, tokio, tauri, clap.
 - `sync-core` не достигает `github`, `patronus`, `youtrack`, `file-diffs`, `code-symbols` (`file-diffs` сам зависит от
   `code-symbols` без feature, `file-diffs/Cargo.toml:9`, поэтому каждый модуль, который читает `file_diffs`, ушёл в
-  `trial-check` в `s3-3`; `github`, `patronus`, `youtrack` сегодня ещё достигает, до выделения `remote-facts`).
+  `trial-check` в `s3-3`; читатели и писатели `github`, `patronus`, `youtrack` ушли в `remote-facts` в `s3-5`).
+- `remote-facts` не достигает `trial-check`, `update-core`, `lease-pool`, `file-diffs`, `code-symbols`: он добывает
+  ответы GitHub и Patronus, а не проверяет и не обновляет.
 - `patronus` не достигает `git-ops`.
 - `repository-model` не достигает `remote-facts`: модель хранит значения, а не добывает их.
 - Никто не зависит от `app-api` и `src-tauri`. `bd-*` — слой CLI: `bd-core` — его основа; каждый `bd-<семейство>`
@@ -306,7 +308,7 @@ flowchart TD
 | --- | --- | --- |
 | Группировка коммитов в ветки | `history-rewrite/src/commit_grouper.rs` (без изменений) | TS-клон в `src/lib/commit.ts` (R8) |
 | Соответствие робота ветке и whole stack | `domain-policy/src/robot_match.rs` | `findBranchRobot`, `patronus_start.rs`, общая фикстура (R5) |
-| Статистика Safe Push: что считается, robots per merge, медиана людей, часы старта | `domain-policy/src/robot_stats.rs` (из `sync-core/src/robot_stats_aggregate.rs`, чистый, импортирует только `domain-types`) | — |
+| Статистика Safe Push: что считается, robots per merge, медиана людей, часы старта | `domain-policy/src/robot_stats.rs` (из `remote-facts/src/robot_stats_aggregate.rs`, чистый, импортирует только `domain-types`) | — |
 | Что робот переносит или перенёс, по содержимому | `sync-core/src/robot_landing.rs` (факт с git) | содержательная половина `patronus_view.rs` |
 | Hold ветки и stack branch, отказ в старте, предок и span landing | `domain-policy/src/holds.rs`, `land.rs` | hold-правила `patronus_view.rs`, `stackBranchHoldReasonIn`, проверки parked stack branch в `push_command.rs`/`safe_push_command.rs`, `actionPushBlocker`, `canStartRobot` (R2, R4) |
 | Needs push, push action, эквивалентность remote по содержимому | `domain-policy/src/push.rs` | `push-summary.ts`, `has_work_for_remote` (R1, D4) |
@@ -398,7 +400,7 @@ confirmations }` для Safe Push и Dry Run — результат того ж�
 `Demand { focused, visible_branches, visible_stacks, previewed, review_windows, robot_details, issues }` — единственное,
 что страница сообщает о себе. Он управляет readiness, деталями роботов (вместо интервала на поповер в
 `usePatronusRobotDetails.ts`), issue YouTrack и каденцией опроса. Вид Landing добавит член `robot_stats`: пока он
-виден, `remote-facts` читает статистику (`sync_core::robot_stats`, сейчас это `get_robot_stats` при показе и фокусе окна). `set_demand` — debounce ≤ 4 в секунду, без ожидания.
+виден, `remote-facts` читает статистику (`remote_facts::robot_stats`, сейчас это `get_robot_stats` при показе и фокусе окна). `set_demand` — debounce ≤ 4 в секунду, без ожидания.
 
 ## Планирование и исполнение операций
 
@@ -1090,6 +1092,15 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `src-tauri → bd-lease` удалён; `lease-pool` не достигает `github`, `patronus`, `youtrack`, `trial-check`,
     `update-core`, `file-diffs`, `code-symbols` (пока `sync-core → github/patronus/youtrack` в allowlist, достижимость
     через них не считается).
+  - `remote-facts` выделен в `s3-5`: `pull_requests`, `pull_request_create`, `pull_request_text`,
+    `pull_request_writes`, `stack_pull_request`, `review_requests`, `branch_rules`, `review_readiness`,
+    `patronus_review`, `patronus_command`, `robot_stats`, `robot_stats_aggregate` с их тестами; тесты
+    `read_review_inputs` — из `patronus_test` в `patronus_review_test`, бюджеты текста нового pull request — в
+    `remote-facts/src/process_budget_test.rs`; `pull_requests_test` получил свои помощники вместо помощников
+    `github_repository_test`. В `sync-core` остались `patronus` (Space-репозиторий и коммиты ревью), `patronus_start`,
+    `robot_commits`, `robot_landing`, `target_conflict`, `review_fetch`, push, `remote_status`, `issue_navigation`,
+    `github_repository` (без HTTP); `github`, `patronus`, `youtrack` и `uuid` ушли из его манифеста, записи allowlist
+    `sync-core → github/patronus/youtrack` удалены, и правило `sync-core` действует без исключений.
 - **Удаляется:** `crates/repository-view`, `crates/integration-detection-tests`, `crates/bd-clustering` (как имя);
   записи allowlist `sync-core → github/patronus/youtrack/file-diffs/code-symbols`, `bd-remote → bd-rewrite`,
   `src-tauri → bd-lease`.

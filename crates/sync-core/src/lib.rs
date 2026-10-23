@@ -1,8 +1,9 @@
 //! The operations of Branch Deck over git-ops: the sync of the virtual branches, one core per operation
-//! (`*_core(params, options)`: the repository lock, the expected HEAD and the order of the git steps), the pushes and
-//! what GitHub and Patronus know of the branches. The app and `bd` call
-//! these cores, git-ops directly only for reads that need no lock, and run no git of their own (AGENTS.md, "Adding a
-//! git operation").
+//! (`*_core(params, options)`: the repository lock, the expected HEAD and the order of the git steps) and the pushes.
+//! It talks to no remote service but through git: what GitHub and Patronus know of the branches (pull requests, review
+//! requests, branch rules, review readiness, the Patronus command, the Safe Push statistics) is the crate
+//! `remote-facts`, over HTTP, built on this one. The app and `bd` call these cores, git-ops directly only for reads that
+//! need no lock, and run no git of their own (AGENTS.md, "Adding a git operation").
 //!
 //! The grouping, the stores of the issue groups, the stack parents and the parked branches, the repository lock and the
 //! rewrites that need no sync (regroup, reword, squash, fold) are the crate `history-rewrite`.
@@ -57,26 +58,12 @@
 //! - `remote_url`: the host and the repository path of a remote URL
 //! - `review_fetch`: the commits of a pull request to review, into `refs/branch-deck/review/<n>/`
 //!
-//! GitHub:
-//! - `pull_requests`: the pull request status of the virtual branches, from one GraphQL search
-//! - `pull_request_create`: a new pull request of a virtual branch
-//! - `pull_request_text`: the title and the body of a new pull request of a virtual branch, from its commits
-//! - `stack_pull_request`: the title and the body of the pull request of the whole stack, from what the sync read
-//! - `pull_request_writes`: the base of a stacked pull request, reviews, reviewers and the closing of landed ones
-//! - `review_requests`: the pull requests of others that wait for the user's review
-//! - `branch_rules`: the rules GitHub applies to pull requests into a branch
-//!
-//! Patronus:
-//! - `patronus`: the Space repository the virtual branches are pushed to
-//! - `patronus_command`: the `/patronus` comment of a pull request
-//! - `patronus_review`: the commits of the code-owner pre-check of a Safe Push
+//! Patronus, by the content of the repository (no HTTP):
+//! - `patronus`: the Space repository the virtual branches are pushed to, the commits and the paths of a review
 //! - `patronus_start`: the robot of a branch or of the whole stack, and whether a Safe Push or a Dry Run can start
 //! - (the crate `repository-view` derives what the robots land, landed and hold of the branch table from these)
-//! - `review_readiness`: the review readiness of branches, shared by the app and `bd safe-push`
 //! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
 //! - `robot_landing`: what a merged robot landed of the branches, by content: the commits it tested, and those after
-//! - `robot_stats`: the Safe Push statistics: the robots of the last 70 days, kept in the object cache, read once
-//! - `robot_stats_aggregate`: what the statistics count of them, pure (moves to `domain-policy` in s8)
 //! - `target_conflict`: the check that Patronus can rebase what a robot lands onto the newest target
 //!
 //! The rest:
@@ -94,7 +81,6 @@ pub mod branch_name_suggestion;
 pub mod branch_prefix;
 pub mod branch_processor;
 pub mod branch_review;
-pub mod branch_rules;
 pub mod cache_memo;
 pub mod commit_key;
 pub mod commit_owners;
@@ -109,13 +95,7 @@ pub mod issue_navigation;
 pub mod landed;
 pub mod parked;
 pub mod patronus;
-pub mod patronus_command;
-pub mod patronus_review;
 pub mod patronus_start;
-pub mod pull_request_create;
-pub mod pull_request_text;
-pub mod pull_request_writes;
-pub mod pull_requests;
 pub mod push;
 pub mod push_lease;
 pub mod reapply_branch;
@@ -126,15 +106,10 @@ pub mod repo_facts;
 pub mod repository_config;
 pub mod repository_validation;
 pub mod review_fetch;
-pub mod review_readiness;
-pub mod review_requests;
 pub mod robot_commits;
 pub mod robot_landing;
-pub mod robot_stats;
-pub mod robot_stats_aggregate;
 pub mod stack_branch;
 pub mod stack_operations;
-pub mod stack_pull_request;
 pub mod sync;
 pub mod sync_inputs;
 pub mod target_conflict;
@@ -149,8 +124,6 @@ mod branch_prefix_test;
 #[cfg(test)]
 mod branch_review_test;
 #[cfg(test)]
-mod branch_rules_test;
-#[cfg(test)]
 mod conflict_report_test;
 #[cfg(test)]
 mod git_setup_test;
@@ -163,19 +136,11 @@ mod move_commits_test;
 #[cfg(test)]
 mod parked_test;
 #[cfg(test)]
-mod patronus_command_test;
-#[cfg(test)]
 mod patronus_start_test;
 #[cfg(test)]
 mod patronus_test;
 #[cfg(test)]
 mod process_budget_test;
-#[cfg(test)]
-mod pull_request_create_test;
-#[cfg(test)]
-mod pull_request_writes_test;
-#[cfg(test)]
-mod pull_requests_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]
@@ -188,8 +153,6 @@ mod remote_command_test;
 mod repository_config_test;
 #[cfg(test)]
 mod repository_lock_test;
-#[cfg(test)]
-mod review_readiness_test;
 #[cfg(test)]
 mod reword_test;
 #[cfg(test)]

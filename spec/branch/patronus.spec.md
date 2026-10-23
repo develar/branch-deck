@@ -9,7 +9,7 @@ targets:
   - ../../crates/patronus/src/client.rs
   - ../../crates/patronus/src/review.rs
   - ../../crates/patronus/src/review_readiness.rs
-  - ../../crates/sync-core/src/review_readiness.rs
+  - ../../crates/remote-facts/src/review_readiness.rs
   - ../../crates/sync-core/src/robot_landing.rs
   - ../../crates/object-cache/src/review_answer.rs
   - ../../crates/object-cache/src/patronus_robots.rs
@@ -17,7 +17,7 @@ targets:
   - ../../crates/patronus/src/service.rs
   - ../../crates/patronus/src/token.rs
   - ../../crates/sync-core/src/patronus.rs
-  - ../../crates/sync-core/src/patronus_command.rs
+  - ../../crates/remote-facts/src/patronus_command.rs
   - ../../src/lib/pull-request.ts
   - ../../src/lib/git/new-pull-request.ts
   - ../../crates/sync-core/src/remote_status.rs
@@ -25,7 +25,7 @@ targets:
   - ../../crates/trial-check/src/landing_gate.rs
   - ../../crates/domain-types/src/landing.rs
   - ../../src/lib/landing-gate.ts
-  - ../../crates/sync-core/src/patronus_review.rs
+  - ../../crates/remote-facts/src/patronus_review.rs
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus-failing.ts
   - ../../src/lib/patronus.ts
@@ -59,12 +59,12 @@ targets:
   - ../../crates/repository-view/src/start_guard.rs
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/hooks/useDismissesStaleReviews.ts
-  - ../../crates/sync-core/src/branch_rules.rs
+  - ../../crates/remote-facts/src/branch_rules.rs
   - ../../crates/sync-core/src/patronus_start.rs
   - ../../src/lib/patronus-stack.ts
   - ../../src/lib/landed-stack.ts
   - ../../src/lib/whole-stack.ts
-  - ../../crates/sync-core/src/pull_request_writes.rs
+  - ../../crates/remote-facts/src/pull_request_writes.rs
   - ../../src/hooks/usePatronusReviewRequirement.ts
   - ../../src/hooks/useStackIndependence.ts
   - ../../src/hooks/useStackActions.ts
@@ -583,7 +583,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 - A push before the start of a branch with an open pull request into the target that someone approved, in a
   repository whose GitHub rules dismiss stale reviews on push (a `pull_request` rule with `dismiss_stale_reviews_on_push`
   of `GET repos/<owner>/<name>/rules/branches/<target>`, readable with read access; `get_branch_rules`,
-  `sync_core::branch_rules`), is told before the start, as a warning of the popover: "The push dismisses the approvals
+  `remote_facts::branch_rules`), is told before the start, as a warning of the popover: "The push dismisses the approvals
   of #7: the rules of the repository dismiss stale reviews when new commits are pushed." The rules are asked once per
   repository and target in a session (`useDismissesStaleReviews`: `keep`, `dismiss`, or `unknown` with the reason),
   only while the start would push into an approved pull request. Until the rules answer, the start waits ("Checking
@@ -604,7 +604,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should confirm a push into an approved pull request whose rules can't be read, never reading them as keeping the approvals`, `should ask again for the rules a start couldn't read, and confirm with the key`)
   [@test] ../../src/lib/safe-push-decision.test.ts (`confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse the click with the push alone in its toast`, `should say in the popover why it can't start, and push alone from it`)
-  [@test] ../../crates/sync-core/src/branch_rules_test.rs (`a_pull_request_rule_that_dismisses_stale_reviews_on_push_is_found_among_the_rules_of_the_branch`, `a_branch_without_such_a_rule_keeps_the_approvals`, `a_failed_answer_is_an_error_not_a_guess`)
+  [@test] ../../crates/remote-facts/src/branch_rules_test.rs (`a_pull_request_rule_that_dismisses_stale_reviews_on_push_is_found_among_the_rules_of_the_branch`, `a_branch_without_such_a_rule_keeps_the_approvals`, `a_failed_answer_is_an_error_not_a_guess`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
 - git merges a branch that uses a name only another branch adds, and the robot's build fails (the robots of
   2026-10-17 and 2026-10-21). So a start first asks the landing gate, the rule of `bd safe-push` in Rust
@@ -762,8 +762,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   dry-run` for a dry run. The text of the comment is built by the backend only, by its subject
   (`PatronusCommandSubject`): a pull request of someone else the user reviewed is `/patronus merge`, which deletes its
   branch once merged ([Review Requests](../repository/review-requests.spec.md#safe-push-of-a-reviewed-pull-request)).
-  [@test] ../../crates/sync-core/src/patronus_command_test.rs (`a_merge_keeps_the_source_branch_and_a_dry_run_is_plain`, `a_merge_of_a_reviewed_pull_request_deletes_its_branch`)
-  [@test] ../../crates/sync-core/src/patronus_command_test.rs (`posts_the_command_as_a_regular_comment_of_the_pull_request`)
+  [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_merge_keeps_the_source_branch_and_a_dry_run_is_plain`, `a_merge_of_a_reviewed_pull_request_deletes_its_branch`)
+  [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`posts_the_command_as_a_regular_comment_of_the_pull_request`)
   [@test] ../../src/lib/patronus.test.ts (`starts from the open pull request of a branch reviewed on GitHub, a draft only for a dry run`)
 - Patronus merges a pull request into its base: a pull request into another base than the target is never commented
   on (`isPullRequestIntoTarget`), and such a branch starts through the API. Every pull request of a virtual branch goes
@@ -793,9 +793,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   the pull request (`githubPrUrl`), which shows at once and is polled. The loading toast says "Asking Patronus on pull
   request #7…". A refusal is the error toast "Cannot start the Safe Push" with the bot's reason; no answer within a
   minute is "Patronus did not start a robot within a minute: see pull request #7".
-  [@test] ../../crates/sync-core/src/patronus_command_test.rs (`a_comment_without_reactions_is_pending_and_a_thumbs_up_is_accepted`)
-  [@test] ../../crates/sync-core/src/patronus_command_test.rs (`a_thumbs_down_reads_the_reason_from_the_bot_comment`)
-  [@test] ../../crates/sync-core/src/patronus_command_test.rs (`the_reason_is_a_later_bot_comment_and_a_user_warning_is_not_one`)
+  [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_comment_without_reactions_is_pending_and_a_thumbs_up_is_accepted`)
+  [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_thumbs_down_reads_the_reason_from_the_bot_comment`)
+  [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`the_reason_is_a_later_bot_comment_and_a_user_warning_is_not_one`)
   [@test] ../../src/stores/patronus.test.ts (`posts the command, waits for the thumbs up and returns the robot of the pull request`)
   [@test] ../../src/stores/patronus.test.ts (`throws the reason the bot gave with its thumbs down`)
   [@test] ../../src/stores/patronus.test.ts (`gives up after a minute without an answer`)
@@ -848,7 +848,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`, `closes the pull requests of the branches the whole stack landed`, `closes the pull requests of what a merged robot landed as the view says it, the toast waiting for the view of the merge`)
   [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of the branches a merged robot landed whole, not of its own branch`, `leaves a pull request with a commit the branch lacks, one of a branch with work left, and one of a branch the table lacks`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should close by content the pull requests of the branches a Safe Push landed after a change below its commit, not of one with work left`)
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
+  [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
 - Until the update archives them, the branches a merged robot landed that way (the same view, a robot first seen merged
@@ -961,15 +961,15 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 - Patronus is the only judge of whose approvals count; the app and `bd` ask it and render its answer
   ([Git Operations](../../docs/design/git-operations.md#patronus-review-pre-check)).
 - A Safe Push checks the review before the start (never a dry run, never for the chip) with
-  `get_branch_review_readiness`, which `bd safe-push` shares (`sync_core::review_readiness`): the commits of the
+  `get_branch_review_readiness`, which `bd safe-push` shares (`remote_facts::review_readiness`): the commits of the
   branches at the tips the page sends (an answer is keyed by its branch and tip), from one `git log --topo-order` of
   all of them (a stacked branch shares its parents' commits; 500 commits or more of a branch skip its check, as the IDE
   does), their changed paths from the `commit_files` store of the object cache (one `diff-tree --stdin` for the commits
   it misses; a rename is a delete and an add, a deleted path counts, a merge has none), then one
   `POST /pre-merge-approval-required-check` per branch, one after another.
-  [@test] ../../crates/sync-core/src/patronus_test.rs (`reads_the_commits_of_the_branch_with_their_changed_paths`)
-  [@test] ../../crates/sync-core/src/patronus_test.rs (`reads_several_branches_in_one_log`)
-  [@test] ../../crates/sync-core/src/patronus_test.rs (`does_not_read_a_branch_with_too_many_commits`)
+  [@test] ../../crates/remote-facts/src/patronus_review_test.rs (`reads_the_commits_of_the_branch_with_their_changed_paths`)
+  [@test] ../../crates/remote-facts/src/patronus_review_test.rs (`reads_several_branches_in_one_log`)
+  [@test] ../../crates/remote-facts/src/patronus_review_test.rs (`does_not_read_a_branch_with_too_many_commits`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
 - The check takes the pull request the robot would start from (`githubPullRequest`, `ReviewStart::PullRequest`: the
   open pull request into the target), and Patronus evaluates its reviews as that robot would: every group the changes
@@ -987,7 +987,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   - `unknown` for a branch too long to check (`skipped`), `unavailable` when Patronus doesn't answer.
   [@test] ../../crates/patronus/src/review_readiness_test.rs (`a_bot_approval_is_not_counted_and_the_requested_owner_is_awaited`, `a_re_requested_approver_counts_as_patronus_says`, `a_self_approval_counts_where_the_group_allows_it`, `several_groups_partly_approved_list_the_missing_ones`, `a_group_that_needs_two_approvals_with_one_needs_one_more`, `a_group_whose_members_cannot_approve_has_no_eligible_reviewer`, `a_rest_start_counts_no_pull_request`, `a_skipped_branch_is_unknown`, `not_required_by_patronus_is_not_required_whatever_the_groups_say`, `a_member_re_requested_after_changes_is_awaited`, `required_without_a_missing_group_is_unknown`)
   [@test] ../../crates/patronus/src/review_test.rs (`a_check_with_a_pull_request_sends_it_and_reads_the_evaluation`)
-  [@test] ../../crates/sync-core/src/review_readiness_test.rs (`a_rest_start_is_checked_without_the_pull_request`)
+  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`a_rest_start_is_checked_without_the_pull_request`)
 - Until Patronus evaluates pull requests (an older server, or its flag `review.precheck.github.pull.request.enabled`
   off: the field is ignored), the answer has no `approved`: without any approval in the pull request the approvals are
   `missing` for certain; with one, nobody but Patronus can tell whether it counts: `unknown`
@@ -1002,7 +1002,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   without Recheck is not sent while Patronus backs off after a failure (one backoff with the robot lists), so a 503
   ("The review check of Patronus is unavailable right now") holds back the rest of a batch. A tip gone since the page
   sent it fails the one `git log` of the batch: each tip is read alone then, only its branch is unavailable.
-  [@test] ../../crates/sync-core/src/review_readiness_test.rs (`the_answer_about_a_pull_request_is_kept_until_a_review_changes`, `a_failed_check_is_unavailable_and_not_kept`, `an_answer_with_the_evaluation_holds_a_day_one_without_it_minutes`, `a_tip_gone_since_the_page_sent_it_makes_only_its_branch_unavailable`)
+  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`the_answer_about_a_pull_request_is_kept_until_a_review_changes`, `a_failed_check_is_unavailable_and_not_kept`, `an_answer_with_the_evaluation_holds_a_day_one_without_it_minutes`, `a_tip_gone_since_the_page_sent_it_makes_only_its_branch_unavailable`)
   [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_check_backs_off_the_background_checks`)
 - A repository only on Space asks in the cheap order: first without a merge request (Patronus asks Space nothing);
   only when approvals are missing, the open merge request of the branch (`GET /space/merge-requests`), then the check

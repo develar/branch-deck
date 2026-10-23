@@ -6,10 +6,10 @@
 
 use crate::pull_requests::GitHubWriteError;
 
-use crate::github_repository::GitHubRepository;
 use domain_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
+use sync_core::github_repository::GitHubRepository;
 use tracing::instrument;
 
 /// The repository of the pull request a `/patronus` comment goes to is the one the review requests name, else the

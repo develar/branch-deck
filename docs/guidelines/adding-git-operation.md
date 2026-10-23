@@ -7,15 +7,16 @@
 ## Summary
 
 Read this before you add or change a git operation in `crates/git-ops`, `crates/history-rewrite`, `crates/sync-core`,
-`crates/update-core`, `crates/trial-check`, `crates/lease-pool`, `crates/bd-*` or `src-tauri/src/commands`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
+`crates/update-core`, `crates/trial-check`, `crates/lease-pool`, `crates/remote-facts`, `crates/bd-*` or
+`src-tauri/src/commands`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
 in its "Git Operations", the flows and the reasons in [Git Operations](../design/git-operations.md).
 
 ## Layers
 
 An operation keeps one name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`). The `//!`
 headers of `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
-`crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs` and `crates/lease-pool/src/lib.rs` map the
-modules by area; the layers are the
+`crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs` and
+`crates/remote-facts/src/lib.rs` map the modules by area; the layers are the
 [Architecture](../design/git-operations.md#architecture) of Git Operations.
 - **git-ops** (`crates/git-ops/src/<op>.rs`): the git, functions of `(git, repo_path, …)`, one process per phase (many
   ids or paths on stdin, `cat-file --batch`, `fast-import`, one `RefTransaction`), through `git.cmd(&args, repo)` with
@@ -29,7 +30,9 @@ modules by area; the layers are the
   or Patronus; `crates/update-core/src/<op>.rs` for a move of the checked-out branch onto commits from elsewhere: Update
   Project, `bd pick`, the resolve sessions; `crates/trial-check/src/<op>.rs` for a trial check, `bd move-hunk` and
   whatever reads the diffs or the symbols of the commits; `crates/lease-pool/src/<op>.rs` for the lease pool and the agent
-  workspace; else `crates/sync-core/src/<op>.rs`): `<op>_core(git, params, …)`, the one entry of every caller. A rewrite
+  workspace; `crates/remote-facts/src/<op>.rs` for a read or a write of GitHub or Patronus over HTTP, with the git it
+needs through sync-core and git-ops; else `crates/sync-core/src/<op>.rs`, which reaches no remote service but through
+git): `<op>_core(git, params, …)`, the one entry of every caller. A rewrite
   of the checked-out branch takes `&RewriteOptions`: `options.lock(..)` before it reads anything, then the expected
   HEAD (`ensure_head`, `expected_full_head`), then git-ops. A step of a sync, or of a `bd` command after its sync, takes
   the facts `RepoFacts`, `ConfigSnapshot`, `Snapshot` or the `SyncReport` hold instead of reading them again; a remote
@@ -44,8 +47,8 @@ modules by area; the layers are the
   (`UPDATE_BINDINGS=1` on `the_bindings_are_what_the_export_writes`, `bindings_test.rs`); the E2E server routes the
   command to the same core (`crates/test-server/src/lib.rs`, `tauri_command_bridge.rs`).
 - **Same commit**: the spec, the flow's section in [Git Operations](../design/git-operations.md), and a test of the
-  operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, of `history-rewrite` too, `crates/update-core/src/`
-  and `crates/trial-check/src/` for theirs;
+  operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, of `history-rewrite` too, `crates/update-core/src/`,
+  `crates/trial-check/src/` and `crates/remote-facts/src/` for theirs;
   `crates/bd-cli/src/` for a `bd` command)
   that pins its processes by subcommand; the scan tests stay green (`worktree_safety_test.rs`,
   `git_usage_scan_test.rs`, "Scan tests" of AGENTS.md), an exemption added only with its reason and its number of hits.

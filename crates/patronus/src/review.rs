@@ -1,6 +1,6 @@
 //! The code-owner review a Safe Push needs (PAT-A-109), asked before the start. Branches reviewed in GitHub pull
 //! requests are checked with the pull request the robot would start from (`review_check`): Patronus evaluates its
-//! reviews as that robot would, and the caller caches the answer (`sync_core::review_readiness`). A repository only on
+//! reviews as that robot would, and the caller caches the answer (`remote_facts::review_readiness`). A repository only on
 //! Space asks in the cheap order (`review_requirement`): the check without a merge request first (no Space call); only
 //! when approvals are missing, the merge request of the branch, then the check with it, cached here by the commits it
 //! checked. The pre-check is the heaviest call of the Patronus API.

@@ -69,7 +69,7 @@ targets:
   - ../../src/lib/create-pull-request-context.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../crates/bd-remote/src/pull_request_retarget.rs
-  - ../../crates/sync-core/src/pull_request_writes.rs
+  - ../../crates/remote-facts/src/pull_request_writes.rs
 ---
 
 # Stacked Branches
@@ -282,8 +282,8 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/lib/git/push.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`, `leaves a pull request into a release branch: that base may be meant`, `pushes and copies the command that retargets a pull request when the retarget fails`, `names each pull request into a virtual branch the pushes retargeted to the baseline`)
   [@test] ../../src/hooks/usePushButton.test.ts (`says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
-  [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`retargets_a_pull_request_of_the_repository_of_the_branches`, `a_failure_says_what_github_said`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
+  [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`retargets_a_pull_request_of_the_repository_of_the_branches`, `a_failure_says_what_github_said`)
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - The push button of a branch whose ancestors have work for the remote must push the stack (`buttonStackPushOrder`):
   the remote branches of its ancestors, and their pull requests, stay what the branch is built on. The compact button counts the commits the
   pushes send ("↑ 3"), in the strongest colour of them; its name is `Push Stack (3 branches)`, and so is the

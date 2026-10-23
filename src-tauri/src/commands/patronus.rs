@@ -17,14 +17,14 @@ use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
+use remote_facts::review_readiness::{branch_review_readiness, prepare_review_readiness};
+use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use repository_view::actions::{NOT_ON_SPACE, RemoteActions};
 use repository_view::views::RepositoryViews;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, required_target_branch};
-use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
-use sync_core::robot_stats::{RobotStatsSource, robot_stats_core};
 use sync_core::target_conflict::{TargetCheck, TargetConflictParams, target_conflict_core};
 use sync_utils::timestamp::unix_now;
 use tauri::State;
@@ -423,7 +423,7 @@ pub async fn get_patronus_failing_robots(patronus: State<'_, PatronusState>, par
 /// Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
 /// Patronus judges the approvals of the pull request the robot would start from. One `git log` for the commits of all
 /// branches, their paths from the object cache, then one pre-check per branch whose kept answer doesn't hold
-/// (`sync_core::review_readiness`), one after another; a failure of Patronus backs the others off. The answers are in
+/// (`remote_facts::review_readiness`), one after another; a failure of Patronus backs the others off. The answers are in
 /// the order of `params.branches`, each with its input.
 // `instrument` must come before `specta::specta`, which rejects the expressions of `fields`
 #[tauri::command]
@@ -478,7 +478,7 @@ pub async fn post_patronus_command(
     let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
       .await?
       .ok_or_else(unknown_github_repository)?;
-    sync_core::patronus_command::post_patronus_command(
+    remote_facts::patronus_command::post_patronus_command(
       &github.service,
       &params.repository_path,
       &repository,
@@ -506,7 +506,7 @@ pub async fn read_patronus_command_reply(
     let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
       .await?
       .ok_or_else(unknown_github_repository)?;
-    sync_core::patronus_command::read_patronus_command_reply(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment_id)
+    remote_facts::patronus_command::read_patronus_command_reply(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment_id)
       .await
       .map_err(|e| CommandError::new(e.to_string()))
   })
@@ -514,7 +514,7 @@ pub async fn read_patronus_command_reply(
 }
 
 fn unknown_github_repository() -> CommandError {
-  CommandError::new(sync_core::patronus_command::UNKNOWN_GITHUB_REPOSITORY_MESSAGE)
+  CommandError::new(remote_facts::patronus_command::UNKNOWN_GITHUB_REPOSITORY_MESSAGE)
 }
 
 /// The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
