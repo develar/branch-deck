@@ -45,6 +45,11 @@ pub(crate) struct RepoFacts {
 }
 
 impl RepoFacts {
+  /// Whether HEAD is the local baseline branch itself (`commit_list::is_on_local_baseline`), from the facts: no process
+  pub(crate) fn is_on_local_baseline(&self) -> bool {
+    !self.baseline.contains('/') && self.branch == self.baseline
+  }
+
   /// What the update check of the sync needs; `None` for a local baseline, which has nothing to update from
   pub(crate) fn known_baseline(&self) -> Option<KnownBaseline> {
     Some(KnownBaseline {

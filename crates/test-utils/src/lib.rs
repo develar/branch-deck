@@ -9,6 +9,7 @@ pub mod git_test_utils;
 pub mod process_budget;
 pub mod repo_template;
 pub mod sync_fixtures;
+pub mod wrapped_git;
 
 #[cfg(test)]
 mod fake_executable_test;

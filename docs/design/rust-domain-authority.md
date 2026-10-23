@@ -824,7 +824,9 @@ repository». Аудит всех функций в тот же день наш�
   проверок перед ним; сверка по tip и `comment_id` остаётся s10; `CancelCheck::AlreadyFinished` для `replaced`.
 - **Sync:** точные oids, notes без отказа, отпечаток всех remote refs префикса, кэш issue config по stamp. Сделано
   (`fix/settings-config`): кэш issue config по stamp `.idea/vcs.xml`, того же, что хэширует отпечаток
-  (`issue_config_follows_a_rewrite_of_vcs_xml`).
+  (`issue_config_follows_a_rewrite_of_vcs_xml`). Сделано
+  (`fix/sync-lease`): обход коммитов — `<baseline_commit>..<head>` из `RepoFacts`, не по именам
+  (`a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups`).
 - **Настройки до s5:** `bd` перечитывает непарсимый `settings.json` до 200 мс (запись плагина на месте), так что чтение
   рядом с записью приложения берёт префикс приложения (`the_prefix_of_the_app_is_read_while_the_app_rewrites_its_settings_file`);
   `lib.rs` внедряет `{}` вместо непарсимого файла (`stored_settings`); sync ждёт загрузку префикса без 5-секундного

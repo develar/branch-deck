@@ -925,3 +925,33 @@ async fn a_remembered_conflict_is_the_one_the_analysis_made() -> anyhow::Result<
   assert!(!processes.contains_key("merge-tree"), "{:?}", processes.keys().collect::<Vec<_>>());
   Ok(())
 }
+
+/// A fetch and a commit while a sync runs, between its facts and its walk of the commits: the sync groups the commits
+/// between the ids it froze at its start (`RepoFacts`), never the names as they are by then, so the branches it builds,
+/// the detection and the update check all see one state
+#[cfg(unix)]
+#[test(tokio::test)]
+async fn a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups() -> anyhow::Result<()> {
+  let test_repo = repo_with_initial_commit();
+  let initial = test_repo.head();
+  test_repo.git(&["remote", "add", "origin", "."]);
+  test_repo.git(&["update-ref", "refs/remotes/origin/master", &initial]);
+  let auth = test_repo.create_commit("(auth) Add auth", "auth.txt", "auth");
+  test_repo.create_commit("(login) Add login", "login.txt", "login");
+  let head = test_repo.head();
+  // the commit of the IDE during the sync, and the fetch that brings `auth` into the baseline
+  let later = test_repo.git(&["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "(ui) Add ui"]);
+  let path = test_repo.path().to_str().unwrap();
+  let wrapped = test_utils::wrapped_git::WrappedGit::new(&format!(
+    "*\" log --reverse --no-merges --pretty=format:\"*) if [ ! -f '{{dir}}/moved' ]; then touch '{{dir}}/moved'; git -C '{path}' update-ref HEAD {later}; git -C '{path}' update-ref refs/remotes/origin/master {auth}; fi;;"
+  ));
+
+  let report = sync_branches(wrapped.executor(), path, "test", TestReporter::new(), SyncOptions::default()).await?;
+  assert!(wrapped.marked("moved"), "the other writers moved the refs before the walk");
+  assert_eq!(test_repo.head(), later);
+  let mut grouped: Vec<String> = report.branches.iter().map(|branch| branch.name.clone()).collect();
+  grouped.sort();
+  assert_eq!(grouped, ["auth", "login"]);
+  assert_eq!((report.head, report.baseline_commit), (head, initial));
+  Ok(())
+}

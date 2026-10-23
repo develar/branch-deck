@@ -29,7 +29,7 @@ use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, GroupedBranchInf
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
-use git_ops::commit_list::get_commit_list_with_handler;
+use git_ops::commit_list::get_frozen_commit_list_with_handler;
 use git_ops::commit_writer::delete_stale_temp_refs;
 use git_ops::notes::write_commit_notes_with;
 use git_ops::revs::current_branch;
@@ -399,7 +399,9 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   // Use streaming commit processing; with stacked branches the order of the history too, for the stack branches
   let mut grouper = CommitGrouper::new_with(&grouping);
   let mut commit_ids = Vec::new();
-  get_commit_list_with_handler(git_executor, repository_path, &baseline_branch, |commit| {
+  // the ids the facts froze, not the names: a fetch or a commit meanwhile changes nothing of what this sync groups
+  let on_local_baseline = facts.is_on_local_baseline();
+  get_frozen_commit_list_with_handler(git_executor, repository_path, &facts.baseline_commit, &facts.head, on_local_baseline, |commit| {
     if grouping.stacks {
       commit_ids.push(commit.id.clone());
     }

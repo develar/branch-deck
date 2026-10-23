@@ -40,17 +40,46 @@ where
 }
 
 /// `get_commit_list_with_handler` up to `head` (`HEAD` or an id)
-fn commit_list_at_with_handler<F>(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, head: &str, mut commit_handler: F) -> Result<()>
+fn commit_list_at_with_handler<F>(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, head: &str, commit_handler: F) -> Result<()>
+where
+  F: FnMut(Commit) -> Result<()>,
+{
+  let on_local_baseline = is_on_local_baseline(git_executor, repo_path, baseline_branch)?;
+  walk_commits_ahead(git_executor, repo_path, baseline_branch, on_local_baseline, head, commit_handler)
+}
+
+/// The commits of a sync: from `baseline_commit` to `head`, the ids its facts froze at its start, never the names, so a
+/// fetch or a commit during the sync changes nothing of what it groups. `on_local_baseline`: HEAD is the local baseline
+/// branch itself (`is_on_local_baseline`, which the caller knows from the checked out branch it read), and every commit
+/// of `head` but the roots counts
+#[instrument(skip(git_executor, commit_handler))]
+pub fn get_frozen_commit_list_with_handler<F>(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  baseline_commit: &str,
+  head: &str,
+  on_local_baseline: bool,
+  commit_handler: F,
+) -> Result<()>
+where
+  F: FnMut(Commit) -> Result<()>,
+{
+  walk_commits_ahead(git_executor, repo_path, baseline_commit, on_local_baseline, head, commit_handler)
+}
+
+/// The commits of `baseline..head` (`baseline` a name or an id), or on the local baseline of every commit of `head` but
+/// the roots, streamed into `commit_handler`
+fn walk_commits_ahead<F>(git_executor: &GitCommandExecutor, repo_path: &str, baseline: &str, on_local_baseline: bool, head: &str, mut commit_handler: F) -> Result<()>
 where
   F: FnMut(Commit) -> Result<()>,
 {
   // On the local baseline branch itself, every commit but the roots: a history that joined an unrelated one has more
   // than one
-  let range: Vec<String> = if is_on_local_baseline(git_executor, repo_path, baseline_branch)? {
+  let range: Vec<String> = if on_local_baseline {
     let roots = git_executor.execute_command_lines(&["rev-list", "--max-parents=0", head], repo_path)?;
     std::iter::once(head.to_string()).chain(roots.iter().map(|root| format!("^{root}"))).collect()
   } else {
-    vec![format!("{baseline_branch}..{head}")]
+    vec![format!("{baseline}..{head}")]
   };
 
   let pretty_format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");
@@ -97,7 +126,7 @@ where
   // Process any remaining data in buffer
   handle_record(&buffer)?;
 
-  debug!(commits_count = commit_count, branch = %baseline_branch, range = %range.join(" "), "streamed commits ahead of baseline");
+  debug!(commits_count = commit_count, baseline = %baseline, range = %range.join(" "), "streamed commits ahead of baseline");
   Ok(())
 }
 

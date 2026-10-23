@@ -1433,7 +1433,10 @@ that does; an upstream that is no candidate costs one `rev-parse --verify` more)
 guards and its `rev-parse`), the archive step (`archive_and_clean_up_listed`: only the detection notes are read), the
 placement of stacked branches (`empty_parent_states_listed`: only the notes) and the integration detection take these:
 one baseline commit for the whole sync, also when a fetch moves the baseline meanwhile, so the remote statuses, the
-detection and the update check compare with the same commit.
+detection and the update check compare with the same commit. The walk of the commits it groups is one `log` of
+`<baseline commit>..<HEAD>`, the two ids, never the names (`get_frozen_commit_list_with_handler`; on the local
+baseline itself `<HEAD>` without its roots): a fetch or a commit in the IDE while the sync runs changes nothing of what
+it groups, and the next focus syncs them (`a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups`).
 
 **The unapplied branches** (`{prefix}/unapplied/<name>`, "Drop and unapply") are in the same listing. A sync never
 writes them; after the stack branches it sends them once, also an empty list, in `UnappliedBranchesFound`: the name,
