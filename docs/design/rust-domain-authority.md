@@ -236,7 +236,7 @@ flowchart TD
   H["history-rewrite"] --> G
   S["sync-core<br/>sync, сборка, remote status, push, review fetch, rewrites с sync"] --> H
   C["trial-check<br/>check, conflict fix, dangling, symbols, landing gate"] --> S
-  U["update-core<br/>update project, pick, resolve session"] --> S
+  U["update-core<br/>update project, pick, resolve session"] --> S & C
   L["lease-pool<br/>lease, lease clean, agent workspace"] --> S
   CL["commit-clustering<br/>кластеры bd suggest, области, сгенерированные файлы; без CLI"] --> G
   GH["github · patronus · youtrack<br/>HTTP-клиенты и их fakes"] --> T
@@ -295,7 +295,7 @@ flowchart TD
 | `app-api` | новый, в `s12-app-api`; тела `src-tauri/src/commands/*` (2,9 тыс. строк) | `AppContext` (executor, cache, sessions, services, settings, clock); реестр `api_commands!` из `async fn(ctx, params) -> Result<T, ApiError>`; транспортные traits `EventSink<T>` (Tauri `Channel`, SSE); планировщики сессий | тела команд; ручные маршруты `test-server/src/lib.rs` |
 | `bd-*` | сжимаются | clap → `Intent`; `Outcome` → JSON-схема и exit codes; сводки check уезжают в `bd-core` | ребро `bd-remote → bd-rewrite` (`check_command`, `safe_push_command.rs:39`); `bd-clustering` → `commit-clustering` (библиотека; `bd-remote/src/branch_stats.rs` читает `areas`, `generated`); `safe_push_command.rs` с 1943 строк до нескольких сотен отображения |
 | `test-server` | тонкий | размещает `app-api` с `FakeGitHub`/`FakePatronus`/фальшивым YouTrack за **реальными** сервисами, `TestClock`; fixture-эндпоинты пишут состояние fakes, эндпоинты счётчиков читают их журналы запросов | ручные маршруты `test-server/src/lib.rs` (109: 108 команд и `get_blob_syntax`) |
-| `integration-detection-tests` | сворачивается | 4,3 тыс. строк тестов становятся `crates/branch-integration/src/*_test.rs` | crate |
+| `integration-detection-tests` | сворачивается | 4,3 тыс. строк тестов: те, что гоняют `sync_branches` (7 файлов из 10 и `test_helpers`), становятся `crates/sync-core/src/detection_*_test.rs`; три без sync (`archive_cleanup`, `detection_notes`, `process_budget`) — `crates/branch-integration/src/*_test.rs` (dev-dependency `branch-integration → sync-core` собрала бы `branch-integration` дважды: `DetectionStrategy` теста и `SyncOptions` — два типа) | crate |
 
 ### Индекс правил
 
@@ -1028,6 +1028,46 @@ rewrites между процессами через файл `s10`; `s12` ждё
   каждого уходящего модуля; модуль, который нужен sync и читает `file_diffs`, — дефект плана, о нём сообщают до переноса.
   Обновляются: `package.json` `test-server:dev`, `.branchdeck.toml`, `adding-git-operation.md`, Feature Index, scan-тесты
   (читают весь workspace).
+- **Уточнения по коду (планирование s3, master `6bad27e8`):**
+  - Линии разреза внутри `sync-core` режутся до первого выделения, одним коммитом: `GitHubRepository`,
+    `GitHubRepositorySource`, `GITHUB_REPOSITORY_CONFIG`, `resolve_github_repository*`, `detect_github_repository_source`,
+    `parse_github_repository`, `parse_space_mirror` (`pull_requests.rs:82,208-335`, без HTTP; их читают
+    `config_snapshot`, `repository_config`, `review_fetch`) → `sync-core/src/github_repository.rs`; `SYMBOLS_CONFIG_KEY`
+    и `SymbolMode` (`symbol_scan.rs:25,31`) → `config_snapshot`; `update_project.rs` делится: `BaselineUpstream`,
+    `TrackedUpstream`, `resolve_baseline_upstream`, `baseline_upstream_of`, `modified_time`, `fetch_baseline`,
+    `BaselineCheck`, `check_baseline_update*`, `KnownBaseline`, `check_known_baseline_update` (их читают `sync`,
+    `repo_facts`, `grouping`, `patronus`, `baseline_fetch`) → `sync-core/src/baseline.rs`, а `update_project_core`,
+    `update_and_resolve`, `record_landed_update`, `undo_update_core` уезжают в `update-core`; `UndoBlocked`
+    (`update_project.rs:562`, его делят `unapply_branch` и undo update/pick) → `git_ops::update_branch`;
+    `CommitOwners` (`missing_commits.rs`, читают `sync` и `branch_processor`) → `sync-core/src/commit_owners.rs`;
+    `get_stack_independence` и `StackIndependenceParams` (`stack_operations.rs:39,79`, trial build) → `trial-check`
+    вместе с `check`, `rename_branch`, `restack_branch`, `undo_regroup` остаются; `prepare_robot_start` и
+    `RobotStartBranches` (`patronus.rs:62-100`, единственный вызов — `start_guard.rs`) → `repository-model::start_guard`,
+    остальной `patronus.rs` (`SpaceRepository`, review commits) остаётся в `sync-core`; `pick::baseline_tracking_ref` →
+    `git_ops::revs`, `resolve_copies::display_path` → `sync_utils`; `branch_processor` и `cache_memo` становятся `pub mod`
+    (`check` гоняет сборку ветки: `build_branch`, `BranchSyncContext`, `CacheMemo`, `seeded_tree_cache`).
+  - Рёбра сверх графа, которые даёт код: `update-core → trial-check` — постоянное (граф выше исправлен): `pick`
+    проверяет зависимости того, что переносит, рёбрами по строкам (`compute_dependencies` над `diff_scan`,
+    `pick.rs:243`), это trial check; `repository-model → trial-check` — до s7 (`landing_needs` считает
+    `RepositoryViews`, `prepare_robot_start` зовёт gate), запись `ALLOWED` с `removed_in: s7-session-facts`;
+    `repository-model → patronus` (HTTP-клиент в `RemoteActions`, `actions.rs`) — до s9, запись `ALLOWED`. Новые правила
+    `UNREACHABLE`: `trial-check`, `update-core`, `lease-pool` не достигают `github`, `patronus`, `youtrack`;
+    `lease-pool` и `remote-facts` не достигают `trial-check`, `update-core`, `file-diffs`, `code-symbols`;
+    `repository-model` не достигает `remote-facts`, `update-core`, `lease-pool`.
+  - `branch_rules` — читатель GitHub, уезжает в `remote-facts` (таблица crates), не в `repository-model`: модель
+    хранит значения. `robot_stats_aggregate` едет в `remote-facts` рядом с `robot_stats` до s8.
+  - Порядок выделений: `update-core` раньше `trial-check` (`pick` в `update-core` читает `dependencies` и `diff_scan`
+    ещё из `sync-core`, после выделения `trial-check` — из него); `lease-pool` и `remote-facts` — после линий разреза, в
+    любом порядке; переименования и слой `bd` — после.
+  - `agent_defaults` теряет `Environment` (`bd-core`): принимает `Option<&GitCommandExecutor>`, `bd workspace` передаёт
+    `counted_git(environment).ok()`, приложение — свой executor.
+  - Тест `sync-core`, который читает уезжающий модуль, едет с ним (`word_resolve_sync_test` читает `check_plan`);
+    ссылки спецификаций на тесты — относительные пути, каждый перенос правит их (`pnpm lint:specs`).
+  - `scripts/perf/bd-rebuild.mjs` получает правки `remote` (`pull_requests.rs`, `list_pull_requests`), `check`
+    (`check.rs`, `check_plan`), `update` (`update_project.rs`, `update_project_core`), `lease_pool` (`lease.rs`,
+    `pool_dir`): файл ищется по имени в `crates/*/src/`, поэтому одна правка измеряется до и после переноса; `before`
+    снимается до первого выделения, `after` — в последнем шаге, `compare` попадает в строку «Сделано».
+  - `.branchdeck.toml` не называет crate'ов и не меняется.
 - **Удаляется:** `crates/repository-view`, `crates/integration-detection-tests`, `crates/bd-clustering` (как имя);
   записи allowlist `sync-core → github/patronus/youtrack/file-diffs/code-symbols`, `bd-remote → bd-rewrite`,
   `src-tauri → bd-lease`.
