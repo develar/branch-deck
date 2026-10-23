@@ -47,7 +47,7 @@ import { closeMenus, openSubmenu } from "../helpers/selection-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { rewriteNextRemoteStatus, syncFromMenu } from "../helpers/sync-helpers"
+import { rewriteNextRemoteStatus, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { PatronusLog, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
@@ -578,21 +578,29 @@ test.describe("Patronus actions", () => {
     await syncAndWaitForBranches()
     await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
     const check = await holdCommandCalls(page, "check_target_conflict")
+    // each step of the start waits for the answer of its own command: under load each takes seconds
+    const answered = (command: string) => page.waitForResponse(response => response.url().endsWith(`/invoke/${command}`))
+    const landingChecked = answered("check_landing_gate")
 
     await safePushFromMenu(page, "JIRA-456")
     await expect(slotSafePush(page, "JIRA-456")).toHaveText("Checking…")
     // the user opens another repository while the start checks the target: "Checking…" is also the read of the facts
     // before the start, whose decision a switch would leave to the other repository's stores
+    await landingChecked
     await expect.poll(() => check.calls.length).toBe(1)
     await switchRepository(page, OTHER_REPOSITORY)
+    const targetChecked = answered("check_target_conflict")
+    const started = answered("start_patronus_robot")
     check.release()
+    await targetChecked
+    await started
 
     // the start goes on in the repository it was asked in: Patronus got it, and the toast says it
     await expect(toastWith(page, "Safe Push started")).toBeVisible()
     await expect.poll(async () => (await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
     await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
-    // back in it, the branch is landing
-    await switchRepository(page, repo.path)
+    // back in it, the branch is landing: its row shows with the sync of the switch
+    await runAndWaitForSync(page, () => switchRepository(page, repo.path))
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
   })
 
