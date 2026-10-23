@@ -3,6 +3,7 @@ import type { ReactNode, RefObject } from "react"
 import { ArrowDownIcon, ArrowUpIcon, RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { HourChart } from "@/components/landing/charts/HourChart"
 import { KindChart } from "@/components/landing/charts/KindChart"
@@ -13,39 +14,48 @@ import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import { useRobotStats } from "@/hooks/useRobotStats"
-import type { RobotStats } from "@/lib/bindings"
+import type { RobotStats, StatsPeriod } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { formatTotalDuration } from "@/lib/duration"
 import { formatSafePushLoginCommand } from "@/lib/patronus"
 import { isWindows } from "@/lib/platform"
 import { formatShortDuration } from "@/lib/robot-eta"
-import { compareToEveryone, formatRatio, formatShare, formatShareCount } from "@/lib/robot-stats"
+import { STATS_PERIODS, compareToEveryone, formatRatio, formatShare, formatShareCount, formatStatsPeriod } from "@/lib/robot-stats"
 import { useSelectedProjectPath } from "@/stores/repository"
 import type { RobotStatsProgress } from "@/stores/robot-stats"
 
 /**
  * The Landing view of the main window (`spec/repository/main-views.spec.md`): how the Safe Pushes of the repository
- * went, from `get_robot_stats`. Read only while it shows; a new answer replaces the numbers whole, nothing moves while
- * it loads, and a read nobody asked for fails as a state of the view, not a toast.
+ * went in the chosen period, from `get_robot_stats`. Read only while it shows; a new answer replaces the numbers whole,
+ * nothing moves while it loads (the numbers of another period stay dimmed until those of the chosen one come), and a
+ * read nobody asked for fails as a state of the view, not a toast.
  */
 export function LandingView({ visible, headingRef }: { visible: boolean; headingRef: RefObject<HTMLHeadingElement | null> }) {
-  const { result, partial, progress, loading, error, refresh } = useRobotStats(visible)
+  const { result, partial, progress, loading, error, period, setPeriod, refresh } = useRobotStats(visible)
   // the first show loads this chunk after the switch: the focus the hidden branches dropped comes to the heading here
   useEffect(() => {
     if (document.activeElement === null || document.activeElement === document.body) {
       headingRef.current?.focus({ preventScroll: true })
     }
   }, [headingRef])
-  const stats = result?.stats ?? partial
+  const kept = result?.stats ?? null
+  const ofPeriod = (stats: RobotStats | null) => stats !== null && stats.window.period === period
+  // the last answer of the chosen period, else the lists of its read, else what there is, dimmed
+  const stats = ofPeriod(kept) ? kept : ofPeriod(partial) ? partial : (kept ?? partial)
+  const current = ofPeriod(stats)
+  const dimmed = !current || (loading && stats === kept)
+  const availability = result?.availability.status
+  const choosable = stats !== null || (availability !== "notPatronus" && availability !== "notLoggedIn")
   return (
     <div className="@container flex flex-col gap-2" data-testid="landing-view" aria-busy={loading}>
       <div className="flex min-h-9 items-center gap-3 px-1">
         <h1 ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-foreground outline-none">
           Safe Push Statistics
         </h1>
+        {choosable && <PeriodSelect period={period} onChange={setPeriod} />}
         {stats !== null && (
           <span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="landing-window">
-            {`Into ${stats.window.target} · the last 70 days · ${stats.window.time_zone}`}
+            {`Into ${stats.window.target} · ${stats.window.time_zone}`}
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -56,7 +66,7 @@ export function LandingView({ visible, headingRef }: { visible: boolean; heading
           </Button>
         </div>
       </div>
-      {result?.stale === true && result.availability.status === "error" && (
+      {result?.stale === true && current && result.availability.status === "error" && (
         <Callout tone="warning" title="Patronus did not answer: the numbers are of what was read before" data-testid="landing-stale">
           {result.availability.message}
           {result.fetched_at !== null && (
@@ -67,14 +77,33 @@ export function LandingView({ visible, headingRef }: { visible: boolean; heading
           )}
         </Callout>
       )}
-      <LandingState stats={stats} result={result} loading={loading} error={error} />
+      <LandingState stats={stats} result={result} loading={loading} error={error} period={period} />
       {stats !== null && stats.coverage.robots > 0 && (
         // the previous numbers stay while the next read runs, dimmed, nothing moves (no skeleton)
-        <div className={loading && result !== null ? "opacity-60 transition-opacity" : "transition-opacity"}>
-          <StatsCards stats={stats} runsLoading={result === null} />
+        <div className={dimmed ? "opacity-60 transition-opacity" : "transition-opacity"} data-testid="landing-numbers" data-period={stats.window.period}>
+          <StatsCards stats={stats} runsLoading={stats === partial} />
         </div>
       )}
     </div>
+  )
+}
+
+/** The period of the numbers: every chart and figure below counts it */
+function PeriodSelect({ period, onChange }: { period: StatsPeriod; onChange: (period: StatsPeriod) => void }) {
+  const items = STATS_PERIODS.map(value => ({ value, label: `Last ${formatStatsPeriod(value)}` }))
+  return (
+    <Select items={items} value={period} onValueChange={next => next !== null && onChange(next)}>
+      <SelectTrigger size="sm" aria-label="Period" data-testid="landing-period">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent alignItemWithTrigger={false} align="start">
+        {items.map(item => (
+          <SelectItem key={item.value} value={item.value}>
+            {item.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -86,10 +115,10 @@ function formatProgress(progress: RobotStatsProgress): string {
 }
 
 /** Why there are no numbers, or nothing */
-function LandingState({ stats, result, loading, error }: Pick<ReturnType<typeof useRobotStats>, "result" | "loading" | "error"> & { stats: RobotStats | null }) {
+function LandingState({ stats, result, loading, error, period }: Pick<ReturnType<typeof useRobotStats>, "result" | "loading" | "error" | "period"> & { stats: RobotStats | null }) {
   const repositoryPath = useSelectedProjectPath()
   if (stats !== null) {
-    return stats.coverage.robots === 0 ? <StateCard>No Safe Push into master in the last 70 days</StateCard> : null
+    return stats.coverage.robots === 0 ? <StateCard>{`No Safe Push into master in the last ${formatStatsPeriod(stats.window.period)}`}</StateCard> : null
   }
   if (error !== null) {
     return (
@@ -99,7 +128,7 @@ function LandingState({ stats, result, loading, error }: Pick<ReturnType<typeof 
     )
   }
   if (result === null) {
-    return loading ? <LoadingLine className="px-1">Reading the robots of the last 70 days…</LoadingLine> : null
+    return loading ? <LoadingLine className="px-1">{`Reading the robots of the last ${formatStatsPeriod(period)}…`}</LoadingLine> : null
   }
   switch (result.availability.status) {
     case "notPatronus":
@@ -125,7 +154,7 @@ function LandingState({ stats, result, loading, error }: Pick<ReturnType<typeof 
         </Callout>
       )
     case "available":
-      return <StateCard>No Safe Push into master in the last 70 days</StateCard>
+      return <StateCard>{`No Safe Push into master in the last ${formatStatsPeriod(period)}`}</StateCard>
   }
 }
 

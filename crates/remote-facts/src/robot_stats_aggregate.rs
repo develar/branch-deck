@@ -3,7 +3,7 @@
 //! `domain_types`: in stage s8 of the rework it moves to `domain-policy` as it is.
 //!
 //! - A robot counts when a person started it, it is no cherry-pick, no dry run and no emergency robot, it started in
-//!   the window and it finished. Dry runs and emergency robots are counted apart.
+//!   the window of the period (`stats_window_start`) and it finished. Dry runs and emergency robots are counted apart.
 //! - Robots per merge are the finished robots over the merged ones: no chain of restarts is guessed, so the user and
 //!   everyone else compare alike.
 //! - Everyone else is the median person: the median of each person's value, of the people with `MIN_MERGES` merges.
@@ -14,16 +14,13 @@ use domain_types::patronus::PatronusRobotStatus;
 use domain_types::robot_failure::RobotFailureKind;
 use domain_types::robot_stats::{
   CheckCount, Coverage, Delivery, EveryoneDelivery, FailureCauses, FlakyCheck, HistoryRobot, HistoryRobotKind, HourTime, KindCount, LandingValue, RobotStats, RobotStatsInput,
-  Share, Spread, StartHour, StatsWindow, TimeSpent, WeekCount,
+  Share, Spread, StartHour, StatsPeriod, StatsWindow, TimeSpent, WeekCount,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// The window of the lists
-pub const WINDOW_DAYS: u32 = 70;
-/// The window of the runs: the checks, problems and changes of the user's robots are read only for these days
+/// The window of the runs: the checks, problems and changes of the user's robots are read only for these days, the
+/// shortest period
 pub const RUNS_DAYS: u32 = 14;
-/// The weekly points of a delivery
-pub const WEEKS: u32 = 10;
 /// A person counts for everyone else with this many merges
 pub const MIN_MERGES: usize = 3;
 /// Everyone else is shown with this many people
@@ -38,6 +35,11 @@ pub const MIN_FLAKY_RUNS: u32 = 5;
 pub const FOLLOW_UP_SECONDS: u32 = 3 * 86_400;
 const TOP: usize = 10;
 const DAY: u32 = 86_400;
+
+/// Unix seconds: the robots that started since then count in `period`
+pub const fn stats_window_start(period: StatsPeriod, now: u32) -> u32 {
+  now.saturating_sub(period.days() * DAY)
+}
 
 /// A robot that counts: a person started it, it lands work (no cherry-pick, no dry run, no emergency) and it finished
 fn counts(robot: &HistoryRobot) -> bool {
@@ -55,7 +57,7 @@ pub fn aggregate_robot_stats(input: &RobotStatsInput, calendar: &Calendar, now: 
   let is_mine = |robot: &HistoryRobot| input.me == Some(robot.owner);
   let mine: Vec<&HistoryRobot> = counted.iter().copied().filter(|robot| is_mine(robot)).collect();
   let mine_all: Vec<&HistoryRobot> = in_window.iter().copied().filter(|robot| is_mine(robot) && robot.status.is_finished()).collect();
-  let weeks = week_starts(calendar, now);
+  let weeks = week_starts(calendar, now, input.window_start);
 
   let mut delivery = delivery(&mine, &weeks, calendar);
   delivery.dry_runs = count_u32(mine_all.iter().filter(|robot| robot.dry_run));
@@ -64,6 +66,7 @@ pub fn aggregate_robot_stats(input: &RobotStatsInput, calendar: &Calendar, now: 
   let others: Vec<&HistoryRobot> = counted.iter().copied().filter(|robot| !is_mine(robot)).collect();
   RobotStats {
     window: StatsWindow {
+      period: input.period,
       start: input.window_start,
       end: now,
       runs_start: input.runs_start,
@@ -90,13 +93,17 @@ pub fn aggregate_robot_stats(input: &RobotStatsInput, calendar: &Calendar, now: 
   }
 }
 
-/// The local Mondays of the last `WEEKS` weeks, the oldest first
-fn week_starts(calendar: &Calendar, now: u32) -> Vec<u32> {
+/// The local Mondays inside the window, the oldest first: the current week's always, no week the window cuts
+fn week_starts(calendar: &Calendar, now: u32, window_start: u32) -> Vec<u32> {
   let mut starts = vec![calendar.week_start(now)];
-  for _ in 1..WEEKS {
+  loop {
     let previous = starts.last().copied().unwrap_or(now);
     // the day before a Monday is in the week before, whatever the daylight saving change did
-    starts.push(calendar.week_start(previous.saturating_sub(DAY)));
+    let start = calendar.week_start(previous.saturating_sub(DAY));
+    if start < window_start || start >= previous {
+      break;
+    }
+    starts.push(start);
   }
   starts.reverse();
   starts

@@ -8,6 +8,7 @@ import { openLandingOverview } from "../helpers/review-status-helpers"
 import { emitTauriEvent, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { HistoryRobotFixture, TestRepositoryBuilder } from "../helpers/test-repository"
 import { openMainMenuView, TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
+import { waitForStorePersistence } from "../helpers/wait-helpers"
 
 const HOUR = 3600
 const DAY = 86_400
@@ -34,15 +35,32 @@ const HISTORY: HistoryRobotFixture[] = [
   ),
 ]
 
-async function setupHistory(page: Page, setupRepo: Parameters<typeof setupRobots>[1], syncAndWaitForBranches: () => Promise<unknown>): Promise<TestRepositoryBuilder> {
+async function setupHistory(
+  page: Page,
+  setupRepo: Parameters<typeof setupRobots>[1],
+  syncAndWaitForBranches: () => Promise<unknown>,
+  history: HistoryRobotFixture[] = HISTORY,
+): Promise<TestRepositoryBuilder> {
   const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, DAY_ROBOTS.merged, DAY_ROBOTS.failed)
-  await repo.setPatronusHistory(HISTORY)
+  await repo.setPatronusHistory(history)
   await repo.setPatronusDetails(failedFastTests(DAY_ROBOTS.failed.id))
   return repo
 }
 
 function landingView(page: Page) {
   return page.getByTestId("landing-view")
+}
+
+/** Chooses a period through the Select of the header, as the user does */
+async function choosePeriod(page: Page, name: string): Promise<void> {
+  await landingView(page).getByRole("combobox", { name: "Period" }).click()
+  await page.getByRole("option", { name }).click()
+}
+
+/** The UTC epoch weeks (from Thursday) the lists of the statistics start with, as Patronus gets them */
+function weekStart(unixSeconds: number): string {
+  const week = 7 * DAY
+  return new Date(Math.floor(unixSeconds / week) * week * 1000).toISOString().replace(".000Z", "Z")
 }
 
 /** The lists of the statistics the fake Patronus got: everyone's, with an end (the user's own list has none) */
@@ -66,7 +84,9 @@ test.describe("Landing view", () => {
     await page.getByTestId("main-view-landing").click()
     await expectStatisticsShown(page)
     const view = landingView(page)
-    await expect(view.getByTestId("landing-window")).toHaveText("Into master · the last 70 days · UTC")
+    // 30 days by default
+    await expect(view.getByRole("combobox", { name: "Period" })).toContainText("Last 30 days")
+    await expect(view.getByTestId("landing-window")).toHaveText("Into master · UTC")
     // 2 merged of 4 finished robots; the dry run apart; everyone else as the median of the five people
     await expect(view.getByTestId("landing-merged")).toContainText("Merged22 failed · + 1 dry runs")
     await expect(view.getByTestId("landing-robots-per-merge")).toContainText("Robots per merge2.0100% more than everyone elseeveryone else 1.0")
@@ -74,9 +94,10 @@ test.describe("Landing view", () => {
     await expect(view.getByTestId("landing-merge-time")).toContainText("Time to merge1h 20m33% more than everyone elsep90 2h · everyone else 1h")
     await expect(view.getByTestId("landing-merge-time-comparison")).toHaveClass(/text-destructive/)
     await expect(view.getByTestId("landing-delivery")).toContainText("against everyone else, the median of 5 people")
-    // the robots of each week, the table twin of the chart: the week of the day has the merge and the failure
+    // the robots of each week, the table twin of the chart: the 5 Mondays of the 30 days from Sunday 2023-12-03; the
+    // week of the day has the merge and the failure
     const weeks = view.getByRole("table", { name: "Robots per week" }).getByRole("row")
-    await expect(weeks).toHaveCount(11)
+    await expect(weeks).toHaveCount(6)
     await expect(weeks.last()).toHaveText("Jan 1110")
     // where the time went: 2 h 40 min in merges, 1 h 30 min in failures, 23 hours from last week's failure of old-work
     // to its merge
@@ -107,8 +128,8 @@ test.describe("Landing view", () => {
     await expect(hourChart).toContainText("09:00Everyone else, median1h · 15 robots")
     const weekChart = view.getByTestId("week-chart")
     await weekChart.getByRole("application").focus()
-    // the tenth week, the current one
-    for (let week = 0; week < 10; week++) {
+    // the fifth week, the current one
+    for (let week = 0; week < 5; week++) {
       await page.keyboard.press("ArrowRight")
     }
     await expect(weekChart).toContainText("Week of Jan 1Merged1Failed1Canceled0")
@@ -116,7 +137,7 @@ test.describe("Landing view", () => {
 
     // everyone's robots into the target, week by week: no owner, an end
     const lists = await statisticsLists(repo)
-    expect(lists).toHaveLength(11)
+    expect(lists).toHaveLength(5)
     expect(lists.every(query => !("owner" in query) && query.targetBranch === "master")).toBe(true)
   })
 
@@ -188,13 +209,13 @@ test.describe("Landing view", () => {
     await page.getByTestId("main-view-landing").click()
     await expectStatisticsShown(page)
     await expect(landingView(page)).toHaveAttribute("aria-busy", "false")
-    // one read of the 11 weeks: the one of the show (the E2E server keeps nothing between reads)
-    expect(await statisticsLists(repo)).toHaveLength(11)
+    // one read of the 5 weeks of 30 days: the one of the show (the E2E server keeps nothing between reads)
+    expect(await statisticsLists(repo)).toHaveLength(5)
 
     await emitTauriEvent(page, "tauri://focus")
-    await expect.poll(async () => (await statisticsLists(repo)).length).toBe(22)
+    await expect.poll(async () => (await statisticsLists(repo)).length).toBe(10)
     await landingView(page).getByTestId("landing-refresh").click()
-    await expect.poll(async () => (await statisticsLists(repo)).length).toBe(33)
+    await expect.poll(async () => (await statisticsLists(repo)).length).toBe(15)
     await expect(landingView(page).getByTestId("landing-merged")).toContainText("2")
   })
 
@@ -209,11 +230,43 @@ test.describe("Landing view", () => {
     await expect(landingView(page).getByTestId("landing-state")).toHaveText("This repository is not on Space: Patronus has no robots of it")
   })
 
-  test("should say there was no Safe Push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should say there was no Safe Push in the period", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", { patronus: availableRobots() })
     await syncAndWaitForBranches()
     await page.getByTestId("main-view-landing").click()
-    await expect(landingView(page).getByTestId("landing-state")).toHaveText("No Safe Push into master in the last 70 days")
+    await expect(landingView(page).getByTestId("landing-state")).toHaveText("No Safe Push into master in the last 30 days")
+    await choosePeriod(page, "Last 6 months")
+    await expect(landingView(page).getByTestId("landing-state")).toHaveText("No Safe Push into master in the last 6 months")
+  })
+
+  test("should count the chosen period: its robots, its weeks, and keep the choice", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // a merge of three weeks ago: in 30 days, not in 14
+    const repo = await setupHistory(page, setupRepo, syncAndWaitForBranches, [
+      ...HISTORY,
+      { id: "mine-older", owner: "1", status: "success", startTime: ROBOTS_NOW - 20 * DAY, finishTime: ROBOTS_NOW - 20 * DAY + HOUR, branch: "older-work" },
+    ])
+    await page.getByTestId("main-view-landing").click()
+    const view = landingView(page)
+    await expect(view.getByTestId("landing-merged")).toContainText("Merged3")
+    await expect(view.getByTestId("landing-numbers")).toHaveAttribute("data-period", "30d")
+    const before = (await statisticsLists(repo)).length
+
+    await choosePeriod(page, "Last 14 days")
+    await expect(view.getByRole("combobox", { name: "Period" })).toContainText("Last 14 days")
+    await expect(view.getByTestId("landing-numbers")).toHaveAttribute("data-period", "14d")
+    await expect(view.getByTestId("landing-merged")).toContainText("Merged2")
+    // the 2 Mondays of 14 days from Tuesday, and Patronus asked for the 3 UTC weeks that cover them, two at once
+    await expect(view.getByRole("table", { name: "Robots per week" }).getByRole("row")).toHaveCount(3)
+    const lists = (await statisticsLists(repo)).slice(before)
+    expect(lists.map(query => query.start).sort()).toEqual([weekStart(ROBOTS_NOW - 14 * DAY), weekStart(ROBOTS_NOW - 7 * DAY), weekStart(ROBOTS_NOW)])
+
+    // the choice outlives the window
+    await waitForStorePersistence(page, "appSettings", settings => (settings as { statsPeriod?: string } | undefined)?.statsPeriod === "14d")
+    await page.reload()
+    await syncAndWaitForBranches()
+    await page.getByTestId("main-view-landing").click()
+    await expect(view.getByRole("combobox", { name: "Period" })).toContainText("Last 14 days")
+    await expect(view.getByTestId("landing-merged")).toContainText("Merged2")
   })
 })
 

@@ -1,5 +1,7 @@
 import { z } from "zod"
 import { useStore } from "zustand"
+import type { StatsPeriod } from "@/lib/bindings"
+import { STATS_PERIODS } from "@/lib/robot-stats"
 import { SETTINGS_PAGES } from "@/lib/settings-pages"
 import type { SettingsPageId } from "@/lib/settings-pages"
 import { createPersistentStore } from "./persistent-store"
@@ -32,6 +34,8 @@ const AppSettingsSchema = z.object({
   // Settings → Patronus: the new API of Patronus, the progress of a running robot in one request and the
   // merge profile in the robot list (`new_api` of the Patronus commands; `bd` reads it from the settings file too)
   patronusNewApi: z.boolean().default(false),
+  // the period of the Safe Push statistics (`StatsPeriod`), as the user chose it last in the Landing view
+  statsPeriod: z.enum(STATS_PERIODS).catch("30d"),
 })
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>
@@ -48,6 +52,10 @@ export function setReviewSidebar(reviewSidebar: boolean): void {
 
 export function setAutoSyncOnFocus(autoSyncOnFocus: boolean): void {
   appSettingsStore.setState({ autoSyncOnFocus })
+}
+
+export function setStatsPeriod(statsPeriod: StatsPeriod): void {
+  appSettingsStore.setState({ statsPeriod })
 }
 
 export function setZoom(zoom: number): void {

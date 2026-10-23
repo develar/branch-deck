@@ -158,7 +158,7 @@ enum Command {
   /// The newest one or --robot <id>; when it failed or fails, why (--full: the failed builds, tests and log tails) and
   /// which commits of the checked-out branch it tested
   Robot(RobotArgs),
-  /// The Safe Push statistics of the repository: the user's robots of the last 70 days against everyone else's. Read only
+  /// The Safe Push statistics of the repository: the user's robots of a period against everyone else's. Read only
   ///
   /// Robots per merge, the time to merge, the time lost in failures, the failure causes and flaky checks of the last 14
   /// days, the hours robots ran fastest; kept in the object cache, so a second run asks Patronus for little

@@ -34,7 +34,7 @@ fn the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothin
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(writable_state(&space.repo), before, "bd robot-stats is read only");
   assert_eq!((output["stale"].clone(), output.get("warning")), (json!(false), None));
-  assert_eq!(output["window"]["target"], json!("master"));
+  assert_eq!((output["window"]["target"].clone(), output["window"]["period"].clone()), (json!("master"), json!("30d")));
   assert_eq!(
     (output["mine"]["merged"].clone(), output["mine"]["failed"].clone(), output["mine"]["canceled"].clone()),
     (json!(1), json!(1), json!(1))
@@ -49,9 +49,9 @@ fn the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothin
   let (_, schema) = run_json(&space.environment(), &["schema"]);
   assert_covered(&schema["outputs"]["robot_stats"], &schema["outputs"]["robot_stats"], &output, "robot_stats");
 
-  // everyone's robots into the target, week by week
+  // everyone's robots into the target, week by week: the UTC weeks of 30 days are 5 or 6, by the weekday
   let queries = space.fake.list_queries.lock().unwrap().clone();
-  assert_eq!(queries.len(), 11);
+  assert!((5..=6).contains(&queries.len()), "{}", queries.len());
   assert!(queries.iter().all(|query| !query.contains_key("owner") && query.contains_key("end")));
 
   // a second run asks Patronus nothing: the weeks and the runs are kept
@@ -98,4 +98,23 @@ fn a_failure_after_a_read_prints_the_kept_numbers_with_a_warning() {
   assert_eq!(output["stale"], json!(true));
   assert!(output["warning"].as_str().is_some_and(|warning| !warning.is_empty()), "{output}");
   assert_eq!(output["mine"]["merged"], json!(1));
+}
+
+#[test_log::test]
+fn the_period_is_the_days_that_count() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.set_robots(vec![finished("recent", "SUCCESS", 600, "1"), finished("older", "SUCCESS", 20 * 24 * 60, "1")]);
+
+  let (exit_code, output) = robot_stats(&space.environment(), &["--period", "14d"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["window"]["period"].clone(), output["mine"]["merged"].clone()), (json!("14d"), json!(1)));
+  // 14 days are 3 UTC weeks, whatever the weekday
+  assert_eq!(space.fake.list_queries.lock().unwrap().len(), 3);
+
+  let (_, output) = robot_stats(&space.environment(), &["--period", "10w"]);
+  assert_eq!((output["window"]["period"].clone(), output["mine"]["merged"].clone()), (json!("10w"), json!(2)));
+  assert_eq!(space.fake.list_queries.lock().unwrap().len(), 11, "the 3 weeks kept are not listed again");
+
+  let (exit_code, output) = robot_stats(&space.environment(), &["--period", "3d"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
 }

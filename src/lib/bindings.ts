@@ -161,7 +161,7 @@ export const commands = {
 	getPatronusRobots: (params: GetPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("get_patronus_robots", { params })),
 	/**
 	 *  The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
-	 *  the target of the last 70 days, kept in the object cache, the progress and the numbers of the lists through `events`
+	 *  the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
 	 *  before the runs are read
 	 */
 	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, CommandError>(__TAURI_INVOKE("get_robot_stats", { params, events })),
@@ -1704,6 +1704,7 @@ export type GetRobotStatsParams = {
 	repository_path: string,
 	baseline_branch: string,
 	branch_prefix: string,
+	period: StatsPeriod,
 	/**  Asked by the user (Refresh): the lists of the last minutes are asked again */
 	refresh: boolean,
 };
@@ -3775,7 +3776,14 @@ export type StartRefusal =
  */
 { kind: "ancestor"; landing: RobotOf };
 
+/**
+ *  The period the statistics count, by the days before now; one choice of the app and `bd robot-stats --period`. 30
+ *  days by default: what happens now, with a trend of four weeks
+ */
+export type StatsPeriod = "14d" | "30d" | "10w" | "6m";
+
 export type StatsWindow = {
+	period: StatsPeriod,
 	/**  Unix seconds */
 	start: number,
 	end: number,

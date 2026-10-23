@@ -1,7 +1,7 @@
 use crate::robot_stats::{LIST_TTL_SECONDS, MAX_RUNS_PER_READ, RobotStatsSource, robot_stats_core};
 use domain_types::calendar::Calendar;
 use domain_types::patronus::PatronusAvailability;
-use domain_types::robot_stats::{RobotStatsEvent, RobotStatsResult};
+use domain_types::robot_stats::{RobotStatsEvent, RobotStatsResult, StatsPeriod};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use patronus::fake_patronus::{FakePatronus, robot_json, start_fake};
 use patronus::service::PatronusService;
@@ -9,6 +9,7 @@ use patronus::token::{Token, TokenLookup, TokenStamp};
 use pretty_assertions::assert_eq;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use sync_utils::timestamp::format_utc_timestamp;
 
 /// Friday 2026-10-23 10:00 UTC
@@ -50,17 +51,31 @@ fn robot(id: &str, status: &str, ago: u32, owner: &str) -> serde_json::Value {
   robot
 }
 
+/// A read of 10 weeks
 async fn read(setup: &Setup, now: u32, refresh: bool) -> (RobotStatsResult, Vec<RobotStatsEvent>) {
+  read_with(setup, now, StatsPeriod::Weeks10, refresh, None).await
+}
+
+async fn read_period(setup: &Setup, now: u32, period: StatsPeriod, reads: Option<&tokio::sync::Mutex<()>>) -> (RobotStatsResult, Vec<RobotStatsEvent>) {
+  read_with(setup, now, period, false, reads).await
+}
+
+async fn read_with(setup: &Setup, now: u32, period: StatsPeriod, refresh: bool, reads: Option<&tokio::sync::Mutex<()>>) -> (RobotStatsResult, Vec<RobotStatsEvent>) {
   let source = RobotStatsSource {
     service: &setup.service,
     cache: &setup.cache,
     repository: "ultimate",
     target: "master",
     branch_prefix: "me",
+    reads,
   };
   let events = Mutex::new(Vec::new());
-  let result = robot_stats_core(&source, &Calendar::utc(), now, refresh, &|event| events.lock().unwrap().push(event)).await;
+  let result = robot_stats_core(&source, &Calendar::utc(), now, period, refresh, &|event| events.lock().unwrap().push(event)).await;
   (result, events.into_inner().unwrap())
+}
+
+fn lists(setup: &Setup) -> u32 {
+  setup.fake.list_calls.load(Ordering::SeqCst)
 }
 
 #[tokio::test]
@@ -154,4 +169,65 @@ async fn a_read_asks_for_at_most_the_newest_runs_and_the_next_one_for_the_rest()
   let (result, _) = read(&setup, NOW + 60, false).await;
   assert_eq!(result.stats.unwrap().coverage.runs_missing, 0);
   assert_eq!(setup.fake.checks_calls.lock().unwrap().len(), count);
+}
+
+#[tokio::test]
+async fn a_longer_period_lists_only_the_weeks_not_kept_and_a_shorter_one_asks_nothing() {
+  let setup = setup(true).await;
+  *setup.fake.robots.lock().unwrap() = Some(vec![robot("merged", "SUCCESS", DAY, "1"), robot("older", "SUCCESS", 20 * DAY, "1")]);
+
+  // 30 days from Friday reach back to the UTC epoch week of Thursday 2026-09-17: 6 weeks
+  let (result, _) = read_period(&setup, NOW, StatsPeriod::Days30, None).await;
+  let stats = result.stats.unwrap();
+  assert_eq!((stats.window.period, stats.mine.merged), (StatsPeriod::Days30, 2));
+  assert_eq!(lists(&setup), 6);
+
+  // the 3 weeks of 14 days are kept: nothing is asked, and the older merge is out of the window
+  let (result, _) = read_period(&setup, NOW + 60, StatsPeriod::Days14, None).await;
+  let stats = result.stats.unwrap();
+  assert_eq!((stats.window.period, stats.mine.merged), (StatsPeriod::Days14, 1));
+  assert_eq!(lists(&setup), 6);
+
+  // 6 months are 27 weeks: only the 21 not kept are listed
+  read_period(&setup, NOW + 120, StatsPeriod::Months6, None).await;
+  assert_eq!(lists(&setup), 27);
+}
+
+#[tokio::test]
+async fn a_read_with_nothing_to_ask_does_not_wait_for_a_running_read() {
+  let setup = setup(true).await;
+  *setup.fake.robots.lock().unwrap() = Some(vec![robot("merged", "SUCCESS", DAY, "1")]);
+  let reads = tokio::sync::Mutex::new(());
+  read_period(&setup, NOW, StatsPeriod::Days30, Some(&reads)).await;
+
+  // another read holds the lock: one from the cache answers, one that must ask waits for it
+  let running = reads.lock().await;
+  let (kept, _) = tokio::time::timeout(Duration::from_secs(5), read_period(&setup, NOW + 60, StatsPeriod::Days14, Some(&reads)))
+    .await
+    .expect("a read from the cache does not wait");
+  assert_eq!(kept.stats.unwrap().mine.merged, 1);
+  let asking = read_with(&setup, NOW + 60, StatsPeriod::Days14, true, Some(&reads));
+  tokio::pin!(asking);
+  assert!(
+    tokio::time::timeout(Duration::from_millis(200), &mut asking).await.is_err(),
+    "a Refresh waits for the running read"
+  );
+  drop(running);
+  asking.await;
+  assert_eq!(lists(&setup), 6 + 2, "the Refresh lists the two weeks that have not settled");
+}
+
+#[tokio::test]
+async fn two_reads_at_once_ask_once() {
+  let setup = setup(true).await;
+  *setup.fake.robots.lock().unwrap() = Some(vec![robot("merged", "SUCCESS", DAY, "1"), robot("theirs", "SUCCESS", DAY, "2")]);
+  let reads = tokio::sync::Mutex::new(());
+
+  let ((first, _), (second, _)) = tokio::join!(
+    read_period(&setup, NOW, StatsPeriod::Days30, Some(&reads)),
+    read_period(&setup, NOW, StatsPeriod::Days30, Some(&reads))
+  );
+  assert_eq!(lists(&setup), 6, "the second read waited and found the weeks kept");
+  assert_eq!(setup.fake.checks_calls.lock().unwrap().len(), 1);
+  assert_eq!(first.stats, second.stats);
 }

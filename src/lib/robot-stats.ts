@@ -1,4 +1,21 @@
-import type { RobotFailureKind, Share } from "@/lib/bindings"
+import type { RobotFailureKind, Share, StatsPeriod } from "@/lib/bindings"
+
+/** The periods of the statistics, the shortest first, as `StatsPeriod` names them */
+export const STATS_PERIODS = ["14d", "30d", "10w", "6m"] as const satisfies readonly StatsPeriod[]
+
+/** "30 days", "10 weeks": the days a period counts */
+export function formatStatsPeriod(period: StatsPeriod): string {
+  switch (period) {
+    case "14d":
+      return "14 days"
+    case "30d":
+      return "30 days"
+    case "10w":
+      return "10 weeks"
+    case "6m":
+      return "6 months"
+  }
+}
 
 /** What failed, as the statistics name a kind (`RobotFailureKind`) */
 export function formatFailureKind(kind: RobotFailureKind): string {

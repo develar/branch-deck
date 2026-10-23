@@ -242,10 +242,10 @@ Workflow: the commits into pull requests
    the ids of the checked-out branch: `tested`, `rebased`, `changed`, `added`, `removed`, `landed`).
    `kind: infrastructure`: nothing to fix, the user restarts it; else fix and check locally, the user pushes and
    restarts it.
-8. Statistics. `bd robot-stats` prints how the user's Safe Pushes went over 70 days against everyone else's
-   (`mine`, `everyone`: robots per merge, the time to merge), the time lost (`time`), why robots of the last 14 days
-   failed and which checks passed only on a retry (`failures`), and the fastest hours (`start_hours`); --refresh asks
-   Patronus again for the weeks it may still change.
+8. Statistics. `bd robot-stats` prints how the user's Safe Pushes went over the last 30 days (`--period 14d`, `10w`,
+   `6m`) against everyone else's (`mine`, `everyone`: robots per merge, the time to merge), the time lost (`time`),
+   why robots of the last 14 days failed and which checks passed only on a retry (`failures`), and the fastest hours
+   (`start_hours`); --refresh asks Patronus again for the weeks it may still change.
 
 Other tasks
 - Before the first edit of a session: `bd workspace` says whether to work in a lease of your own

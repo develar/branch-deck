@@ -41,7 +41,7 @@ pub struct PatronusState {
   /// The `teamcity` CLI with an authenticated server, once found; looked for again on each full failure until then (the
   /// user may log in meanwhile)
   teamcity: tokio::sync::Mutex<Option<TeamCityCli>>,
-  /// By repository path: a read of the statistics waits for the one running, then reads what it kept
+  /// By repository path: a read of the statistics that asks Patronus waits for the one asking, then reads what it kept
   stats_reads: Cache<String, Arc<tokio::sync::Mutex<()>>>,
 }
 
@@ -104,7 +104,7 @@ async fn target_branch(git_executor: &GitCommandExecutor, repository_path: &str,
 }
 
 /// The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
-/// the target of the last 70 days, kept in the object cache, the progress and the numbers of the lists through `events`
+/// the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
 /// before the runs are read
 #[tauri::command]
 #[instrument(skip(git_executor, repository_state, patronus, events))]
@@ -126,8 +126,7 @@ pub async fn get_robot_stats(
       });
     };
     let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
-    let read = patronus.stats_reads.get_with(params.repository_path.clone(), || Arc::new(tokio::sync::Mutex::new(())));
-    let _reading = read.lock().await;
+    let reads = patronus.stats_reads.get_with(params.repository_path.clone(), || Arc::new(tokio::sync::Mutex::new(())));
     let cache = repository_state.object_cache(&git_executor, &params.repository_path);
     let source = RobotStatsSource {
       service: &patronus.service,
@@ -135,6 +134,7 @@ pub async fn get_robot_stats(
       repository: &repository.name,
       target: &target,
       branch_prefix: &params.branch_prefix,
+      reads: Some(&reads),
     };
     let calendar = Calendar::from_zone(jiff::tz::TimeZone::system());
     let send = |event: RobotStatsEvent| {
@@ -142,7 +142,7 @@ pub async fn get_robot_stats(
         tracing::debug!(error = %e, "the statistics window is gone");
       }
     };
-    Ok(robot_stats_core(&source, &calendar, unix_now(), params.refresh, &send).await)
+    Ok(robot_stats_core(&source, &calendar, unix_now(), params.period, params.refresh, &send).await)
   })
   .await
 }

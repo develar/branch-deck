@@ -1122,8 +1122,11 @@ pub async fn get_robot_stats(State(state): State<Arc<AppState>>, Json(params): J
     repository: &space.name,
     target: &target,
     branch_prefix: &params.branch_prefix,
+    reads: None,
   };
-  Ok(Json(robot_stats_core(&source, &Calendar::utc(), PAGE_CLOCK_START, params.refresh, &|_| {}).await))
+  Ok(Json(
+    robot_stats_core(&source, &Calendar::utc(), PAGE_CLOCK_START, params.period, params.refresh, &|_| {}).await,
+  ))
 }
 
 /// The robots whose status changed since the page saw it, as the app polls them

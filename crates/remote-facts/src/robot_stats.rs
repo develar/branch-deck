@@ -1,19 +1,21 @@
 //! The reads of the Safe Push statistics (`spec/repository/safe-push-statistics.spec.md`), the one core of the app
-//! (`get_robot_stats`), `bd robot-stats` and the E2E server: everyone's robots into the target of the last 70 days,
-//! listed by UTC weeks, and the runs of the user's finished robots of the last 14 days, all kept in the object cache
-//! (`patronus_history`), then `robot_stats_aggregate`. No git and no other module of this crate: in stage s3 of the
-//! rework it moves to `remote-facts` as it is.
+//! (`get_robot_stats`), `bd robot-stats` and the E2E server: everyone's robots into the target of a period
+//! (`StatsPeriod`), listed by UTC weeks, and the runs of the user's finished robots of the last 14 days, all kept in
+//! the object cache (`patronus_history`), then `robot_stats_aggregate`. No git and no other module of this crate.
 //!
-//! - A week is listed once it settled (it ended 2 days ago and each of its robots finished): never again. The other
-//!   weeks are listed again when their list is older than `LIST_TTL_SECONDS`, or on Refresh.
+//! - A week is keyed by its UTC start, so every period reads the same kept weeks. A week is listed once it settled (it
+//!   ended 2 days ago and each of its robots finished): never again. The other weeks are listed again when their list
+//!   is older than `LIST_TTL_SECONDS`, or on Refresh.
+//! - A read with nothing to ask answers from the cache at once; one that asks Patronus holds `RobotStatsSource::reads`
+//!   and reads the cache again under it, so two reads of one repository ask once.
 //! - A run is read once: a finished robot does not change. At most `MAX_RUNS_PER_READ` per read, the newest first; the
 //!   next read asks for the rest.
 //! - A failure keeps what was kept: the numbers are of it (`stale`), and a week never listed is missing.
 
-use crate::robot_stats_aggregate::{RUNS_DAYS, WINDOW_DAYS, aggregate_robot_stats, needs_run};
+use crate::robot_stats_aggregate::{RUNS_DAYS, aggregate_robot_stats, needs_run, stats_window_start};
 use domain_types::calendar::Calendar;
 use domain_types::patronus::PatronusAvailability;
-use domain_types::robot_stats::{HistoryRobot, RobotRun, RobotStatsEvent, RobotStatsInput, RobotStatsResult};
+use domain_types::robot_stats::{HistoryRobot, RobotRun, RobotStatsEvent, RobotStatsInput, RobotStatsResult, StatsPeriod};
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
 use patronus::stats::HistoryList;
@@ -42,6 +44,8 @@ pub struct RobotStatsSource<'a> {
   /// The branch the robots push into, e.g. `master`
   pub target: &'a str,
   pub branch_prefix: &'a str,
+  /// Held while Patronus is asked, so two reads of one repository ask once; None in a process of one read (`bd`)
+  pub reads: Option<&'a tokio::sync::Mutex<()>>,
 }
 
 /// A week of everyone's robots as it was listed
@@ -53,26 +57,35 @@ struct KeptWeek {
   robots: Vec<HistoryRobot>,
 }
 
-/// The statistics of the robots into the target of `source` at `now`, by `calendar`; `refresh` lists the weeks that
-/// have not settled again whatever their age. `on_event` gets the progress, and the numbers of the lists before the
-/// runs are read.
-#[instrument(skip_all, fields(repository = source.repository, target = source.target, refresh))]
-pub async fn robot_stats_core(source: &RobotStatsSource<'_>, calendar: &Calendar, now: u32, refresh: bool, on_event: &(dyn Fn(RobotStatsEvent) + Sync)) -> RobotStatsResult {
-  let salt = salt(source);
-  let window_start = now.saturating_sub(WINDOW_DAYS * DAY);
+/// The statistics of the robots into the target of `source` in `period` at `now`, by `calendar`; `refresh` lists the
+/// weeks that have not settled again whatever their age. `on_event` gets the progress, and the numbers of the lists
+/// before the runs are read.
+#[instrument(skip_all, fields(repository = source.repository, target = source.target, period = period.id(), refresh))]
+pub async fn robot_stats_core(
+  source: &RobotStatsSource<'_>,
+  calendar: &Calendar,
+  now: u32,
+  period: StatsPeriod,
+  refresh: bool,
+  on_event: &(dyn Fn(RobotStatsEvent) + Sync),
+) -> RobotStatsResult {
+  let window_start = stats_window_start(period, now);
+  let runs_start = now.saturating_sub(RUNS_DAYS * DAY);
   let weeks: Vec<u32> = (window_start / WEEK * WEEK..=now).step_by(WEEK as usize).collect();
   let keys: Vec<[u8; 32]> = weeks
     .iter()
     .map(|week| key(source, &["week", source.repository, source.target, &week.to_string()]))
     .collect();
-  let mut kept: Vec<Option<KeptWeek>> = source.cache.get_patronus_history(&keys);
-  let to_list: Vec<usize> = (0..weeks.len())
-    .filter(|&index| {
-      kept[index]
-        .as_ref()
-        .is_none_or(|week| !week.settled && (refresh || now.saturating_sub(week.fetched_at) >= LIST_TTL_SECONDS))
-    })
-    .collect();
+  let (mut kept, mut to_list) = kept_weeks(source, &weeks, &keys, now, refresh);
+  let _reading = match source.reads {
+    Some(reads) if !to_list.is_empty() || runs_missing(source, &kept, runs_start) => {
+      let reading = reads.lock().await;
+      // the read that held it may have kept what this one would ask
+      (kept, to_list) = kept_weeks(source, &weeks, &keys, now, refresh);
+      Some(reading)
+    }
+    _ => None,
+  };
   let lists_total = u32::try_from(to_list.len()).unwrap_or(u32::MAX);
   let progress = |lists_read: usize, runs_read: usize, runs_total: usize| {
     on_event(RobotStatsEvent::Progress {
@@ -85,6 +98,7 @@ pub async fn robot_stats_core(source: &RobotStatsSource<'_>, calendar: &Calendar
   progress(0, 0, 0);
 
   let mut failure: Option<PatronusAvailability> = None;
+  let salt = if to_list.is_empty() { Vec::new() } else { salt(source) };
   let mut listed = Vec::new();
   let mut lists_read = 0;
   // two weeks at once
@@ -131,8 +145,9 @@ pub async fn robot_stats_core(source: &RobotStatsSource<'_>, calendar: &Calendar
   let me = kept.iter().rev().flatten().find_map(|week| week.me);
   let mut input = RobotStatsInput {
     target: source.target.to_string(),
+    period,
     window_start,
-    runs_start: now.saturating_sub(RUNS_DAYS * DAY),
+    runs_start,
     me,
     branch_prefix: source.branch_prefix.to_string(),
     robots: kept.into_iter().flatten().flat_map(|week| week.robots).collect(),
@@ -183,6 +198,33 @@ pub async fn robot_stats_core(source: &RobotStatsSource<'_>, calendar: &Calendar
     fetched_at,
     stats: Some(aggregate_robot_stats(&input, calendar, now)),
   }
+}
+
+/// The kept lists of `weeks`, and the indexes of those to list: never listed, or not settled and older than the TTL
+/// (any age on `refresh`)
+fn kept_weeks(source: &RobotStatsSource<'_>, weeks: &[u32], keys: &[[u8; 32]], now: u32, refresh: bool) -> (Vec<Option<KeptWeek>>, Vec<usize>) {
+  let kept: Vec<Option<KeptWeek>> = source.cache.get_patronus_history(keys);
+  let to_list = (0..weeks.len())
+    .filter(|&index| {
+      kept[index]
+        .as_ref()
+        .is_none_or(|week| !week.settled && (refresh || now.saturating_sub(week.fetched_at) >= LIST_TTL_SECONDS))
+    })
+    .collect();
+  (kept, to_list)
+}
+
+/// A run of the user's robots of `kept` is not kept yet
+fn runs_missing(source: &RobotStatsSource<'_>, kept: &[Option<KeptWeek>], runs_start: u32) -> bool {
+  let me = kept.iter().rev().flatten().find_map(|week| week.me);
+  let keys: Vec<[u8; 32]> = kept
+    .iter()
+    .flatten()
+    .flat_map(|week| &week.robots)
+    .filter(|robot| needs_run(robot, me, runs_start))
+    .map(|robot| key(source, &["run", &robot.id]))
+    .collect();
+  source.cache.get_patronus_history::<RobotRun>(&keys).iter().any(Option::is_none)
 }
 
 /// The random salt of the owner keys of this cache and server, made once

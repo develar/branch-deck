@@ -18,7 +18,7 @@
 //! - `patronus_command`: the `/patronus` comment of a pull request
 //! - `patronus_review`: the commits of the code-owner pre-check of a Safe Push
 //! - `review_readiness`: the review readiness of branches, shared by the app and `bd safe-push`
-//! - `robot_stats`: the Safe Push statistics: the robots of the last 70 days, kept in the object cache, read once
+//! - `robot_stats`: the Safe Push statistics: the robots of a period, kept in the object cache, read once
 //! - `robot_stats_aggregate`: what the statistics count of them, pure (moves to `domain-policy` in s8)
 
 pub mod branch_rules;

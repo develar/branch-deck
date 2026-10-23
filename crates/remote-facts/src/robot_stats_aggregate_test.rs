@@ -1,8 +1,8 @@
-use crate::robot_stats_aggregate::{aggregate_robot_stats, needs_run};
+use crate::robot_stats_aggregate::{aggregate_robot_stats, needs_run, stats_window_start};
 use domain_types::calendar::Calendar;
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::robot_failure::RobotFailureKind;
-use domain_types::robot_stats::{CheckRun, HistoryRobot, HistoryRobotKind, KindCount, RobotRun, RobotStats, RobotStatsInput, Share, Spread, TimeSpent};
+use domain_types::robot_stats::{CheckRun, HistoryRobot, HistoryRobotKind, KindCount, RobotRun, RobotStats, RobotStatsInput, Share, Spread, StatsPeriod, TimeSpent};
 use pretty_assertions::assert_eq;
 
 /// Friday 2026-10-23 10:00 UTC
@@ -10,6 +10,8 @@ const NOW: u32 = 1_792_749_600;
 const HOUR: u32 = 3_600;
 const DAY: u32 = 86_400;
 const ME: u64 = 1;
+/// Monday 2026-10-19 00:00 UTC, the week of `NOW`
+const MONDAY: u32 = NOW - 4 * DAY - 10 * HOUR;
 
 /// A finished robot of `owner` into the target, started `ago` before `NOW`, that ran `hours`
 fn robot(id: &str, owner: u64, status: PatronusRobotStatus, ago: u32, hours: u32) -> HistoryRobot {
@@ -37,7 +39,8 @@ fn on_branch(mut robot: HistoryRobot, branch: &str) -> HistoryRobot {
 fn input(robots: Vec<HistoryRobot>) -> RobotStatsInput {
   RobotStatsInput {
     target: "master".to_string(),
-    window_start: NOW - 70 * DAY,
+    period: StatsPeriod::Weeks10,
+    window_start: stats_window_start(StatsPeriod::Weeks10, NOW),
     runs_start: NOW - 14 * DAY,
     me: Some(ME),
     branch_prefix: "jane".to_string(),
@@ -93,12 +96,44 @@ fn weeks_count_by_the_local_monday_a_robot_finished_in_with_their_median_time_to
   assert_eq!(stats.mine.weeks.len(), 10);
   let last = stats.mine.weeks[9];
   let before = stats.mine.weeks[8];
-  // Monday 2026-10-19 00:00 UTC
-  assert_eq!(last.start, NOW - 4 * DAY - 10 * HOUR);
+  assert_eq!(last.start, MONDAY);
   assert_eq!((last.merged, last.failed, last.robots, last.merge_time), (1, 0, 1, Some(HOUR)));
   assert_eq!((before.merged, before.failed, before.canceled, before.robots, before.merge_time), (1, 1, 0, 2, Some(HOUR)));
   assert_eq!(stats.mine.weeks[0].merge_time, None);
   assert_eq!(before.start, last.start - 7 * DAY);
+}
+
+#[test]
+fn the_period_sets_the_window_and_its_weeks_from_the_mondays_inside_it() {
+  let robots = vec![robot("recent", ME, Success, DAY, 1), robot("older", ME, Success, 20 * DAY, 1)];
+  let in_period = |period| {
+    stats(&RobotStatsInput {
+      period,
+      window_start: stats_window_start(period, NOW),
+      ..input(robots.clone())
+    })
+  };
+  let mondays = |count: u32| (0..count).rev().map(|week| MONDAY - week * 7 * DAY).collect::<Vec<_>>();
+  let starts = |stats: &RobotStats| stats.mine.weeks.iter().map(|week| week.start).collect::<Vec<_>>();
+
+  // 30 days from Friday begin on Wednesday 2026-09-23: the Mondays from 09-28, none the window cuts
+  let month = in_period(StatsPeriod::Days30);
+  assert_eq!((month.window.period, month.window.start, month.mine.merged), (StatsPeriod::Days30, NOW - 30 * DAY, 2));
+  assert_eq!(starts(&month), mondays(4));
+  let fortnight = in_period(StatsPeriod::Days14);
+  assert_eq!((fortnight.window.period, fortnight.mine.merged), (StatsPeriod::Days14, 1));
+  assert_eq!(starts(&fortnight), mondays(2));
+  assert_eq!(starts(&in_period(StatsPeriod::Weeks10)), mondays(10));
+  assert_eq!(starts(&in_period(StatsPeriod::Months6)), mondays(26));
+}
+
+#[test]
+fn a_period_is_written_by_its_id() {
+  for period in StatsPeriod::ALL {
+    assert_eq!(serde_json::to_string(&period).unwrap(), format!("\"{}\"", period.id()));
+    assert_eq!(StatsPeriod::from_id(period.id()), Some(period));
+  }
+  assert_eq!(StatsPeriod::default(), StatsPeriod::Days30);
 }
 
 #[test]

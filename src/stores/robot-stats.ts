@@ -2,7 +2,7 @@ import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
-import type { RobotStats, RobotStatsEvent, RobotStatsResult } from "@/lib/bindings"
+import type { RobotStats, RobotStatsEvent, RobotStatsResult, StatsPeriod } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 
 export interface RobotStatsProgress {
@@ -16,7 +16,7 @@ export interface RobotStatsProgress {
 export interface RobotStatsEntry {
   /** The last answer; kept while the next read runs, so nothing moves until it is there */
   readonly result: RobotStatsResult | null
-  /** The numbers of the lists of the first read, before the checks are read */
+  /** The numbers of the lists of the read running, before the checks are read */
   readonly partial: RobotStats | null
   readonly progress: RobotStatsProgress | null
   readonly loading: boolean
@@ -40,6 +40,7 @@ export interface RobotStatsSubject {
   readonly repositoryPath: string
   readonly baselineBranch: string
   readonly branchPrefix: string
+  readonly period: StatsPeriod
 }
 
 /**
@@ -52,14 +53,14 @@ export function readRobotStats(subject: RobotStatsSubject, refresh: boolean): vo
   const id = (latestReads.get(repositoryPath) ?? 0) + 1
   latestReads.set(repositoryPath, id)
   const isCurrent = () => latestReads.get(repositoryPath) === id
-  update(repositoryPath, entry => ({ ...entry, loading: true, error: null }))
+  update(repositoryPath, entry => ({ ...entry, partial: null, loading: true, error: null }))
   const events = new Channel<RobotStatsEvent>()
   events.onmessage = event => {
     if (isCurrent()) {
       update(repositoryPath, entry => (event.type === "progress" ? { ...entry, progress: event.data } : { ...entry, partial: event.data }))
     }
   }
-  const params = { repository_path: repositoryPath, baseline_branch: subject.baselineBranch, branch_prefix: subject.branchPrefix, refresh }
+  const params = { repository_path: repositoryPath, baseline_branch: subject.baselineBranch, branch_prefix: subject.branchPrefix, period: subject.period, refresh }
   void commands.getRobotStats(params, events).then(answer => {
     if (!isCurrent()) {
       return

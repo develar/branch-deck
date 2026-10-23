@@ -1,6 +1,6 @@
 ---
 name: Safe Push Statistics
-description: Requirements for the statistics of the Safe Pushes of a repository: the user's robots into the target of the last 70 days against everyone else's as the median person, the time lost in failures, the failure causes and flaky checks of the last 14 days, and the hours robots ran fastest; one Rust core for the app and `bd robot-stats`, Patronus read week by week and kept in the object cache.
+description: Requirements for the statistics of the Safe Pushes of a repository: the user's robots into the target of a period (30 days by default, 14 days to 6 months) against everyone else's as the median person, the time lost in failures, the failure causes and flaky checks of the last 14 days, and the hours robots ran fastest; one Rust core for the app and `bd robot-stats`, Patronus read week by week and kept in the object cache.
 style: plain-1
 targets:
   - ../../crates/domain-types/src/robot_stats.rs
@@ -17,6 +17,9 @@ targets:
   - ../../crates/test-server/src/remote_fixtures.rs
   - ../../src/components/landing/LandingView.tsx
   - ../../src/stores/robot-stats.ts
+  - ../../src/hooks/useRobotStats.ts
+  - ../../src/stores/settings/appSettings.ts
+  - ../../src/lib/robot-stats.ts
 ---
 
 # Safe Push Statistics
@@ -39,6 +42,8 @@ it for little.
 ## Goals
 
 - Count what lands into master and in how many robots, alike for the user and for everyone else.
+- Answer how landing goes now by default: 30 days are recent enough to show the queue and the habits of today, and
+  long enough for a trend of four weeks and the medians of everyone else; a longer period is a look back.
 - Show nothing of another person: no name, no branch, no number of one person.
 - Read Patronus little: a week is listed once it settled, a finished robot's checks once.
 
@@ -54,14 +59,20 @@ it for little.
 
 ### What counts
 
+- The period is 14 days, 30 days (the default), 10 weeks or 6 months before now (`StatsPeriod`), one choice of the
+  app and of `bd robot-stats --period`; every number counts it but the runs: the failure causes, the flaky checks and
+  the commits per merge are of the last 14 days in every period.
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`the_period_sets_the_window_and_its_weeks_from_the_mondays_inside_it`, `a_period_is_written_by_its_id`)
 - A robot counts when a person started it (no application), it is no cherry-pick, no dry run and no emergency robot,
-  it started in the last 70 days and it finished. Dry runs and emergency robots of the user are counted apart.
+  it started in the period and it finished. Dry runs and emergency robots of the user are counted apart.
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`dry_runs_emergency_robots_applications_cherry_picks_and_old_robots_do_not_count`)
 - Robots per merge are the finished robots over the merged ones; the time to merge runs from the start to the finish
   of a merged robot (median, 90th percentile by the nearest rank).
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`robots_per_merge_are_the_finished_robots_over_the_merged_ones`)
-- The ten weeks of a delivery are the local weeks from Monday; a robot counts in the week it finished, each week with
-  its merged, failed and canceled robots and the median time to merge of its merges.
+- The weeks of a delivery are the local weeks from Monday whose Monday is in the period, the current one always: 2 of
+  14 days, 4 or 5 of 30, 10 of 10 weeks, 26 of 6 months, so no week is cut by the start of the period. A robot counts
+  in the week it finished, each week with its merged, failed and canceled robots and the median time to merge of its
+  merges; a robot that finished before the first Monday counts in the totals only.
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`weeks_count_by_the_local_monday_a_robot_finished_in_with_their_median_time_to_merge`)
   [@test] ../../crates/domain-types/src/calendar_test.rs (`a_week_starts_on_the_local_monday`)
 - Everyone else is the median person: the median of each person's robots per merge and time to merge, of the people
@@ -97,10 +108,17 @@ it for little.
 
 ### Load on Patronus
 
-- The robots are listed without an owner, into the target, by UTC week (`start`, `end`): 11 lists cover the 70 days.
-  A week is listed once it settled (it ended 2 days ago and each of its robots finished); another week again once its
-  list is 5 minutes old, or on Refresh.
-  [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`the_weeks_are_listed_once_then_only_those_that_have_not_settled_after_the_ttl`)
+- The robots are listed without an owner, into the target, by UTC epoch week (`start`, `end`, from Thursday): 3 lists
+  cover 14 days, 5 or 6 the 30 days, 11 the 10 weeks, 27 the 6 months; Patronus refuses a list wider than 70 days,
+  not an older one. A week is kept by its start, so every period reads the same kept weeks, and a longer period lists
+  only the weeks not kept. A week is listed once it settled (it ended 2 days ago and each of its robots finished);
+  another week again once its list is 5 minutes old, or on Refresh.
+  [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`the_weeks_are_listed_once_then_only_those_that_have_not_settled_after_the_ttl`, `a_longer_period_lists_only_the_weeks_not_kept_and_a_shorter_one_asks_nothing`)
+- A read with nothing to ask (every week kept within its TTL, every run kept) answers from the cache at once, whatever
+  another read is asking. A read that asks holds the read of its repository and reads the cache again under it, so two
+  reads at once ask once, and only it makes the salt of the owner keys. A read that waited writes its own start as when
+  it listed; a run Patronus keeps failing keeps the next reads on the path that asks.
+  [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`a_read_with_nothing_to_ask_does_not_wait_for_a_running_read`, `two_reads_at_once_ask_once`)
 - The checks of a finished robot of the user are read once, with its problems when it failed and its changes when it
   merged; only of the merged and failed robots of the last 14 days, at most 4 robots at once and 120 per read, the
   newest first: the next read asks for the rest.
@@ -114,10 +132,10 @@ it for little.
 ### `bd robot-stats`
 
 - `bd robot-stats` must print the statistics as one object (`mine`, `everyone`, `first_try`, `value`, `time`,
-  `failures`, `start_hours`, `window`, `coverage`, `stale`, `fetched_at`), write no ref, config, index or working tree,
-  and match `bd schema` (`robot_stats`); a second run asks Patronus nothing, `--refresh` lists the weeks that may still
-  change.
-  [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothing`)
+  `failures`, `start_hours`, `window` with its `period`, `coverage`, `stale`, `fetched_at`), write no ref, config,
+  index or working tree, and match `bd schema` (`robot_stats`); a second run asks Patronus nothing, `--refresh` lists
+  the weeks that may still change, `--period 14d|30d|10w|6m` chooses the period (30 days by default).
+  [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothing`, `the_period_is_the_days_that_count`)
 - With kept numbers and a failing Patronus it must exit 0 with `stale: true` and a `warning`; without anything kept it
   must be `patronus_error`, and without the token `not_logged_in`.
   [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`a_failure_after_a_read_prints_the_kept_numbers_with_a_warning`, `the_statistics_say_why_there_are_none`)
@@ -126,18 +144,23 @@ it for little.
 
 ### The app
 
-- `get_robot_stats` must answer the same `RobotStats` from the same core, the progress and the numbers of the lists
-  (`RobotStatsEvent::Partial`) through its channel before the checks are read; two reads of one repository at once
-  read once. The E2E server answers it from the real core at the page's clock, in UTC.
+- `get_robot_stats` must answer the same `RobotStats` of the period it is asked for from the same core, the progress
+  and the numbers of the lists (`RobotStatsEvent::Partial`) through its channel before the checks are read; two reads
+  of one repository at once read once, and one from the cache waits for none. The E2E server answers it from the real
+  core at the page's clock, in UTC, without a cache.
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_history_robot_reads_back_through_the_parser_of_the_statistics`)
-- The Landing view of the main window shows them ([Main Views](main-views.spec.md)).
+- The Landing view of the main window shows them, in the period of its header ([Main Views](main-views.spec.md)).
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should count the chosen period: its robots, its weeks, and keep the choice`)
 
 ## Testing / Local Run
 
 - `cargo nextest run -E 'test(/robot_stats|calendar|stats_test/)'`.
-- `bd robot-stats -C <a clone on Space>`: the first run reads 11 weeks (a few megabytes each in a large repository) and
-  up to 120 robots; later runs read the current week.
+- `bd robot-stats -C <a clone on Space>`: the first run reads the 5 or 6 weeks of 30 days (a few megabytes each in a
+  large repository) and up to 120 robots; later runs read the current week, `--period 6m` once the weeks not kept.
+- Measured on the IntelliJ monorepo (2026-10-23): a week lists 3,000 to 3,700 robots in 0.4 to 6 s; 30 days are about
+  10,200 robots, 6 months about 49,900, and Patronus answers the weeks older than 70 days; the 120 runs of a read take
+  about 8 s.
 
 ## Open Questions / Risks
 

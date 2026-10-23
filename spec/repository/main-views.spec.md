@@ -19,6 +19,7 @@ targets:
   - ../../src/index.css
   - ../../src/hooks/useRobotStats.ts
   - ../../src/stores/robot-stats.ts
+  - ../../src/stores/settings/appSettings.ts
   - ../../src/stores/commit-move.ts
   - ../../src/lib/robot-stats.ts
   - ../../src/lib/duration.ts
@@ -73,6 +74,11 @@ nothing from the work: the view changes only when the user changes it, and the b
 
 ### Landing
 
+- The Period of the header (Last 14 days, Last 30 days, Last 10 weeks, Last 6 months; 30 days by default) is the period
+  every island counts, kept in the app settings for every window and the next start; the header says the target and
+  the zone of the hours (`Into master · Europe/Berlin`). The failure causes are of the last 14 days in every period.
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should count the chosen period: its robots, its weeks, and keep the choice`)
+  [@test] ../../src/lib/robot-stats.test.ts (`names every period by its days, the shortest first`)
 - Landing shows the statistics of the selected repository in four islands: into master (merged, robots per merge, the
   time to merge and the first try against everyone else, the merges per week, what a merge landed), where the time
   went, why robots failed in the last 14 days, and when robots run fastest by the start hour. A figure says how it
@@ -81,14 +87,16 @@ nothing from the work: the view changes only when the user changes it, and the b
   tooltips.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
 - The statistics are read while Landing shows: when it shows and when the window gets the focus; a hidden Landing
-  reads nothing. Refresh asks again whatever the age of the lists, and tells its failure (`notifyError`).
+  reads nothing; a change of the period reads its numbers. Refresh asks again whatever the age of the lists, and
+  tells its failure (`notifyError`).
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should read nothing while the view is hidden, and ask again on Refresh`)
 - A read nobody asked for tells its failure as the state of the view: not on Space, the Safe Push CLI not logged in
-  (Copy Command), Patronus failing, no Safe Push in the 70 days; kept numbers of a failing Patronus say they are of an
-  earlier read.
-  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should say why there are no statistics`, `should say there was no Safe Push`)
+  (Copy Command; no Period then), Patronus failing, no Safe Push in the period; kept numbers of a failing Patronus say
+  they are of an earlier read.
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should say why there are no statistics`, `should say there was no Safe Push in the period`)
 - A new answer replaces the numbers whole; while the first read runs, the numbers of the lists show and the island of
-  the failure causes is busy until the checks are read.
+  the failure causes is busy until the checks are read. After a change of the period the numbers of the one before
+  stay dimmed until those of the chosen one come; the numbers say their period (`data-period`).
 
 ## User Experience
 
@@ -100,7 +108,8 @@ nothing from the work: the view changes only when the user changes it, and the b
   the light and the dark card), each entity one colour in every chart (Failed is orange in the weeks, the time and the
   kinds); bars of at most 24px with a 2px card gap and a rounded data end, hairline solid grid, the legend for two
   series or more, the values in the text tokens; the fastest hours in full colour, the others muted (emphasis, not a
-  second hue). A read in progress dims the numbers it replaces, never a skeleton.
+  second hue). A read in progress dims the numbers it replaces, never a skeleton. The Period is a small Select after the
+  heading, in the one row above the islands that it scopes.
 
 ## Testing / Local Run
 

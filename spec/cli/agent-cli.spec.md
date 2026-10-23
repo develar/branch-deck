@@ -1179,9 +1179,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd robot-stats`
 
 - `bd robot-stats` must print the Safe Push statistics of the repository from the core of the app: the user's robots
-  of the last 70 days against everyone else's, the time lost, the failure causes and flaky checks of the last 14 days
-  and the start hours ([Safe Push Statistics](../repository/safe-push-statistics.spec.md)); read only, Patronus listed
-  week by week and kept in the object cache.
+  of the period (`--period 14d|30d|10w|6m`, 30 days by default) against everyone else's, the time lost, the failure
+  causes and flaky checks of the last 14 days and the start hours
+  ([Safe Push Statistics](../repository/safe-push-statistics.spec.md)); read only, Patronus listed week by week and
+  kept in the object cache.
+  [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`the_period_is_the_days_that_count`)
   [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothing`)
   [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`a_failure_after_a_read_prints_the_kept_numbers_with_a_warning`, `the_statistics_say_why_there_are_none`)
 

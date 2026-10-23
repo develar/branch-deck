@@ -1,5 +1,5 @@
-//! The Safe Push statistics (`spec/repository/safe-push-statistics.spec.md`): the robots into the target of the last 70
-//! days as the statistics keep them (`HistoryRobot`, `RobotRun`, kept in the object cache), what the rules count of
+//! The Safe Push statistics (`spec/repository/safe-push-statistics.spec.md`): the robots into the target of a period
+//! (`StatsPeriod`) as the statistics keep them (`HistoryRobot`, `RobotRun`, kept in the object cache), what the rules count of
 //! them (`RobotStats`), and the command of the app. The page and `bd robot-stats` read the same `RobotStats`, so its
 //! fields are `snake_case` in both.
 
@@ -68,10 +68,56 @@ pub struct RobotRun {
   pub commits: Option<u32>,
 }
 
+/// The period the statistics count, by the days before now; one choice of the app and `bd robot-stats --period`. 30
+/// days by default: what happens now, with a trend of four weeks
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum StatsPeriod {
+  #[serde(rename = "14d")]
+  Days14,
+  #[default]
+  #[serde(rename = "30d")]
+  Days30,
+  #[serde(rename = "10w")]
+  Weeks10,
+  #[serde(rename = "6m")]
+  Months6,
+}
+
+impl StatsPeriod {
+  /// The shortest first
+  pub const ALL: [Self; 4] = [Self::Days14, Self::Days30, Self::Weeks10, Self::Months6];
+
+  pub const fn days(self) -> u32 {
+    match self {
+      Self::Days14 => 14,
+      Self::Days30 => 30,
+      Self::Weeks10 => 70,
+      Self::Months6 => 182,
+    }
+  }
+
+  /// The id as serde writes it
+  pub const fn id(self) -> &'static str {
+    match self {
+      Self::Days14 => "14d",
+      Self::Days30 => "30d",
+      Self::Weeks10 => "10w",
+      Self::Months6 => "6m",
+    }
+  }
+
+  pub fn from_id(id: &str) -> Option<Self> {
+    Self::ALL.into_iter().find(|period| period.id() == id)
+  }
+}
+
 /// What the rules count: the robots of the window and the runs of the user's robots read so far
 #[derive(Clone, Debug, Default)]
 pub struct RobotStatsInput {
   pub target: String,
+  pub period: StatsPeriod,
   /// Unix seconds: the robots that started since then count
   pub window_start: u32,
   /// Unix seconds: the runs of the robots that started since then count (checks, failure causes, commits)
@@ -111,6 +157,7 @@ pub struct RobotStats {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct StatsWindow {
+  pub period: StatsPeriod,
   /// Unix seconds
   pub start: u32,
   pub end: u32,
@@ -301,6 +348,7 @@ pub struct GetRobotStatsParams {
   pub repository_path: String,
   pub baseline_branch: String,
   pub branch_prefix: String,
+  pub period: StatsPeriod,
   /// Asked by the user (Refresh): the lists of the last minutes are asked again
   pub refresh: bool,
 }
