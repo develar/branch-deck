@@ -2,11 +2,11 @@
 //! and the one action its row offers, with the command for a terminal while the app can't run that action itself.
 
 use crate::environment::ToolEnvironment;
+use crate::package_manager::{install_manager, installed_by};
 use crate::parse::{compare_versions, parse_skill_list, parse_skill_version, parse_teamcity_auth, parse_version, parse_youtrack_auth};
 use domain_types::cli_tools::{CliTool, CliToolAction, CliToolServer, CliToolSignInState, CliToolSkill, CliToolStatus, PackageManager};
 use std::cmp::Ordering;
-use std::path::{Path, PathBuf};
-use sync_utils::known_tools::BREW;
+use std::path::Path;
 use sync_utils::span::in_current_span;
 use tracing::instrument;
 
@@ -26,14 +26,6 @@ pub const fn quiet_flags(tool: CliTool) -> &'static [&'static str] {
   match tool {
     CliTool::Teamcity => &["--no-input", "--no-color"],
     CliTool::Youtrack => &["--quiet"],
-  }
-}
-
-/// The Homebrew formula of a tool (the `jetbrains/utils` tap)
-pub const fn homebrew_formula(tool: CliTool) -> &'static str {
-  match tool {
-    CliTool::Teamcity => "jetbrains/utils/teamcity",
-    CliTool::Youtrack => "jetbrains/utils/youtrack",
   }
 }
 
@@ -74,8 +66,8 @@ pub fn read_statuses(environment: &ToolEnvironment, facts: &dyn Fn(CliTool) -> K
 /// The status of `tool`: its version, sign-ins and skill, read at once
 #[instrument(skip(environment, facts))]
 pub fn read_status(environment: &ToolEnvironment, tool: CliTool, facts: &KnownFacts) -> CliToolStatus {
-  let manager = environment.find(&BREW).map(|_| PackageManager::Homebrew).filter(|_| !cfg!(windows));
   let Some(binary) = environment.find_tool(tool) else {
+    let manager = install_manager(environment, tool).map(|found| found.manager);
     return CliToolStatus {
       tool,
       binary: None,
@@ -108,8 +100,8 @@ pub fn read_status(environment: &ToolEnvironment, tool: CliTool, facts: &KnownFa
   let problem = [version.as_ref().err(), servers.as_ref().err()].into_iter().flatten().next().cloned();
   let version = version.ok().flatten();
   let servers = servers.unwrap_or_default();
-  // a tool installed by Homebrew updates through it; another one through its own `update` (`teamcity`) or a terminal
-  let manager = manager.filter(|_| installed_with_homebrew(&binary));
+  // a tool installed by a manager updates through it; another one through its own `update` (`teamcity`) or a terminal
+  let manager = installed_by(environment, &binary).map(|found| found.manager);
   let action = decide_action(version.as_deref(), &servers, facts.latest.as_deref());
   // the app's own YouTrack sign-in signs youtrack in: no command then
   let sign_in_with = facts
@@ -201,12 +193,4 @@ fn terminal_command(tool: CliTool, action: CliToolAction, manager: Option<Packag
     (CliToolAction::Install, _) if manager.is_none() => Some(manual_install_command(tool).to_string()),
     _ => None,
   }
-}
-
-/// The binary is a link into the Homebrew cellar (`/opt/homebrew/bin/teamcity` → `../Cellar/teamcity/1.6.0/bin`)
-pub fn installed_with_homebrew(binary: &Path) -> bool {
-  std::fs::canonicalize(binary)
-    .unwrap_or_else(|_| PathBuf::from(binary))
-    .components()
-    .any(|component| component.as_os_str() == "Cellar")
 }

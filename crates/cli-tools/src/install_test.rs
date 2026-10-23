@@ -2,7 +2,9 @@ use crate::environment::ToolEnvironment;
 use crate::install::{ActionInput, ActionOutput, ToolTaskDone, run_action};
 use crate::status::{KnownFacts, read_status};
 use crate::test_support::fakes;
-use domain_types::cli_tools::{CliTool, CliToolAction, PackageManager};
+#[cfg(unix)]
+use domain_types::cli_tools::PackageManager;
+use domain_types::cli_tools::{CliTool, CliToolAction};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 
@@ -63,10 +65,10 @@ fn a_failed_brew_names_its_reason() {
 }
 
 #[test]
-fn without_homebrew_the_install_is_the_users() {
+fn without_a_package_manager_the_install_is_the_users() {
   let (_root, _fakes, environment) = fakes();
   let (result, _) = run(&environment, CliTool::Teamcity, CliToolAction::Install, None);
-  assert_eq!(result.unwrap_err(), "Homebrew is not installed: install teamcity in a terminal");
+  assert_eq!(result.unwrap_err(), "no package manager Branch Deck runs is installed: install teamcity in a terminal");
 }
 
 #[test]
@@ -122,4 +124,23 @@ fn an_install_with_the_skill_brings_it_and_one_without_brings_none() {
   assert_eq!(result.unwrap().title, "Updated teamcity to 1.7.0 and its agent skill to 1.5.0");
   run(&environment, CliTool::Youtrack, CliToolAction::Install, None).0.unwrap();
   assert!(!fakes.log().iter().any(|line| line.starts_with("youtrack skill")), "{:?}", fakes.log());
+}
+
+/// The install of the machine's own package manager, for the platform checks (docs/guidelines/platform-checks.md):
+/// `cargo nextest run -p cli-tools --run-ignored only`, on a machine without `teamcity`
+#[test]
+#[ignore = "installs teamcity with the real package manager of the machine"]
+fn the_package_manager_of_the_machine_installs_teamcity() {
+  let environment = ToolEnvironment::from_process();
+  let before = read_status(&environment, CliTool::Teamcity, &KnownFacts::default());
+  assert_eq!(before.binary, None, "teamcity is installed already: {:?}", before.binary);
+  assert_eq!(before.command, None, "no package manager here: {:?}", before.command);
+  // with the skill, as the checkbox of the page by default
+  let (done, lines) = run(&environment, CliTool::Teamcity, CliToolAction::Install, None);
+  println!("{done:?}\n{}", lines.join("\n"));
+  let done = done.unwrap();
+  let after = read_status(&environment, CliTool::Teamcity, &KnownFacts::default());
+  println!("{after:?}");
+  assert!(done.title.starts_with("Installed teamcity "), "{}", done.title);
+  assert_eq!((after.binary.is_some(), after.manager), (true, before.manager));
 }

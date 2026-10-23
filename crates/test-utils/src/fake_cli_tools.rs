@@ -105,10 +105,9 @@ esac"#
   }
 
   fn link(&self, name: &str) {
-    if cfg!(windows) {
-      fake_executable(&self.bin(), name, &self.tool_body(name));
-      return;
-    }
+    // no links on Windows: a copy of the fake
+    #[cfg(not(unix))]
+    fake_executable(&self.bin(), name, &self.tool_body(name));
     #[cfg(unix)]
     {
       let link = self.bin().join(name);

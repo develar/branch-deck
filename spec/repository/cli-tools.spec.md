@@ -1,12 +1,13 @@
 ---
 name: Command-Line Tools
-description: Requirements for the teamcity and youtrack CLIs in Settings → Tools - the binary, its version and the servers it is signed in to, the agent skill each bundles (installed with the CLI by default, installed, updated and removed from its line), and the one action Rust picks for each row (install and update through Homebrew, the sign-in), with the command for a terminal where the app doesn't run it.
+description: Requirements for the teamcity and youtrack CLIs in Settings → Tools - the binary, its version and the servers it is signed in to, the agent skill each bundles (installed with the CLI by default, installed, updated and removed from its line), and the one action Rust picks for each row (install and update through Homebrew, winget or scoop, the sign-in), with the command for a terminal where the app doesn't run it.
 style: plain-1
 targets:
   - ../../crates/cli-tools/src/environment.rs
   - ../../crates/cli-tools/src/parse.rs
   - ../../crates/cli-tools/src/status.rs
   - ../../crates/cli-tools/src/install.rs
+  - ../../crates/cli-tools/src/package_manager.rs
   - ../../crates/cli-tools/src/terminal_login.rs
   - ../../crates/sync-utils/src/child_process.rs
   - ../../crates/sync-utils/src/known_tools.rs
@@ -33,7 +34,7 @@ logs and tests of the builds of a robot, for the prompt of a failed robot ([Safe
 Prompt](../branch/safe-push-failure-prompt.spec.md)) and for an agent; `youtrack` (JetBrains/youtrack-cli) reads and
 changes the issues of the commits. Settings → Tools shows each: where it is, its version, the servers it is signed in
 to, the agent skill it bundles, and the one thing it needs next, which the app does itself where it can (install and
-update through Homebrew, the sign-in of `teamcity`) and otherwise names as a command for a terminal.
+update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwise names as a command for a terminal.
 
 ## Goals
 
@@ -87,8 +88,19 @@ update through Homebrew, the sign-in of `teamcity`) and otherwise names as a com
 
 - Install is `brew install jetbrains/utils/<tool>`, Update of a tool Homebrew installed (its binary links into a
   `Cellar`) `brew upgrade`, with `NONINTERACTIVE`, no hints, cleanup or dependents check, its taps updated first (the
-  tap of a tool lags behind its releases otherwise). A `teamcity` outside Homebrew updates itself
+  tap of a tool lags behind its releases otherwise). A `teamcity` no manager installed updates itself
   (`teamcity update --yes`).
+- On Windows the manager is winget for a tool it has a package of (`JetBrains.TeamCityCLI`; `youtrack` has none in
+  winget yet): `winget install --id … --exact --scope user --silent --disable-interactivity
+  --accept-source-agreements --accept-package-agreements`, `winget upgrade` likewise; else scoop, which adds the
+  `jetbrains` bucket (`https://github.com/JetBrains/scoop-utils`, a failure there counts nothing: it may be added
+  already), then `scoop install jetbrains/<tool>`, `scoop update <tool>`. choco needs an administrator and is not run.
+  Without either the row shows the README's command (`winget install JetBrains.TeamCityCLI`, `irm
+  https://jb.gg/youtrack-cli/install.ps1 | iex`). Which manager installed a CLI is told by its path (`Cellar`,
+  `WinGet`, `scoop`); winget's links and scoop's shims are looked in too, as the `PATH` of a running app lacks what was
+  installed after it started.
+  [@test] ../../crates/cli-tools/src/package_manager_test.rs (`winget_installs_for_the_user_without_prompts_and_scoop_adds_its_bucket_first`, `the_path_of_a_binary_tells_its_manager_when_the_machine_has_it`)
+  [@test] ../../crates/cli-tools/src/install_test.rs (`the_package_manager_of_the_machine_installs_teamcity`)
   [@test] ../../crates/cli-tools/src/install_test.rs (`installs_and_updates_through_homebrew_streaming_its_lines`, `a_teamcity_outside_homebrew_updates_itself`)
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should install a missing CLI through Homebrew with its agent skill, then show its version and its sign-in`)
 - An update also updates an older skill of the agents ("Updated teamcity to 1.7.0 and its agent skill to 1.5.0"); a
@@ -121,7 +133,7 @@ update through Homebrew, the sign-in of `teamcity`) and otherwise names as a com
 - The version is read again after an action: an update that installed nothing newer fails with "Homebrew has no
   teamcity 1.7.0 yet: teamcity stays at 1.6.0". A failed `brew` names what the user can act on (another brew holds
   its lock, the prefix is not writable), else its `Error:` line.
-  [@test] ../../crates/cli-tools/src/install_test.rs (`an_update_that_installs_nothing_new_says_the_tap_has_none_yet`, `a_failed_brew_names_its_reason`, `without_homebrew_the_install_is_the_users`)
+  [@test] ../../crates/cli-tools/src/install_test.rs (`an_update_that_installs_nothing_new_says_the_tap_has_none_yet`, `a_failed_brew_names_its_reason`, `without_a_package_manager_the_install_is_the_users`)
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should name why brew failed`)
 - What an action did is a toast of the Settings window: "Installed teamcity 1.6.0", "Updated youtrack to 0.7.0",
   "Installed the teamcity agent skill 1.4.0", "Updated the teamcity agent skill to 1.5.0", "Removed the teamcity agent
@@ -178,4 +190,6 @@ update through Homebrew, the sign-in of `teamcity`) and otherwise names as a com
 
 - The newest release comes from GitHub once a day ([Setup Dot](setup-attention.spec.md#items)); a tap that lags
   behind it makes an update say so instead of looping.
-- Windows: no package manager runs yet and no sign-in starts; the row shows the command.
+- Windows: no sign-in of `teamcity` starts (no `script`), the row shows its command; `youtrack` installs through scoop
+  only, until winget has it. `the_package_manager_of_the_machine_installs_teamcity` is ignored: it installs for real, in
+  the check on Windows ([Platform Checks](../../docs/guidelines/platform-checks.md)).

@@ -3,6 +3,7 @@ use crate::terminal_login::strip_terminal;
 use crate::test_support::fakes;
 use domain_types::cli_tools::{CliTool, CliToolAction};
 use pretty_assertions::assert_eq;
+#[cfg(unix)]
 use std::cell::RefCell;
 
 #[test]

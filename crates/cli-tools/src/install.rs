@@ -3,15 +3,15 @@
 //! cancel; the version is read again after it, so an update that installed nothing new says so.
 
 use crate::environment::ToolEnvironment;
+use crate::package_manager::{FoundManager, install_manager, installed_by, manager_commands, manager_name};
 use crate::parse::{compare_versions, parse_version};
-use crate::status::{homebrew_formula, installed_skill, installed_with_homebrew, quiet_flags, read_servers, read_skill, skill_name};
+use crate::status::{installed_skill, quiet_flags, read_servers, read_skill, skill_name};
 use crate::terminal_login::sign_in_teamcity;
 use domain_types::cli_tools::{CliTool, CliToolAction};
 use std::cmp::Ordering;
 use std::path::Path;
 use std::time::Duration;
 use sync_utils::child_process::{ChildProcessError, run_child_lines};
-use sync_utils::known_tools::BREW;
 use tracing::{info, instrument};
 
 /// `brew` updates its taps before an install: minutes on a slow network
@@ -61,9 +61,9 @@ pub fn run_action(
   let (on_line, latest) = (output.on_line, input.latest);
   match action {
     CliToolAction::Install => {
-      let brew = environment.find(&BREW).ok_or_else(|| format!("Homebrew is not installed: install {name} in a terminal"))?;
-      run_brew(environment, &brew, "install", tool, on_line, is_canceled)?;
-      let version = installed_version(environment, tool).ok_or_else(|| format!("Homebrew installed {name}, but it does not run"))?;
+      let found = install_manager(environment, tool).ok_or_else(|| format!("no package manager Branch Deck runs is installed: install {name} in a terminal"))?;
+      run_manager(environment, &found, tool, false, on_line, is_canceled)?;
+      let version = installed_version(environment, tool).ok_or_else(|| format!("{} installed {name}, but it does not run", manager_name(found.manager)))?;
       if input.with_skill {
         // the CLI is there either way: a failed skill is said beside it, and the line of the skill offers it again
         return Ok(match run_skill(environment, tool, CliToolAction::InstallSkill, on_line, is_canceled) {
@@ -79,15 +79,12 @@ pub fn run_action(
     CliToolAction::Update => {
       let before = installed_version(environment, tool);
       let binary = environment.find_tool(tool).ok_or_else(|| format!("{name} is not installed"))?;
-      let homebrew = installed_with_homebrew(&binary) && environment.find(&BREW).is_some();
-      match (homebrew, tool) {
-        (true, _) => {
-          let brew = environment.find(&BREW).ok_or_else(|| "Homebrew is gone".to_string())?;
-          run_brew(environment, &brew, "upgrade", tool, on_line, is_canceled)?;
-        }
-        // an install script's or a package's teamcity updates itself, without a terminal with --yes
-        (false, CliTool::Teamcity) => run_streamed(environment, &binary, &["update", "--yes", "--no-input", "--no-color"], on_line, is_canceled)?,
-        (false, CliTool::Youtrack) => return Err("youtrack updates itself only in a terminal: run youtrack update".to_string()),
+      let found = installed_by(environment, &binary);
+      match (&found, tool) {
+        (Some(found), _) => run_manager(environment, found, tool, true, on_line, is_canceled)?,
+        // an install script's teamcity updates itself, without a terminal with --yes
+        (None, CliTool::Teamcity) => run_streamed(environment, &binary, &["update", "--yes", "--no-input", "--no-color"], on_line, is_canceled)?,
+        (None, CliTool::Youtrack) => return Err("youtrack updates itself only in a terminal: run youtrack update".to_string()),
       }
       let after = installed_version(environment, tool);
       let newer = match (&before, &after) {
@@ -96,7 +93,7 @@ pub fn run_action(
       };
       if !newer {
         let wanted = latest.map_or_else(String::new, |latest| format!(" {latest}"));
-        let source = if homebrew { "Homebrew" } else { name };
+        let source = found.as_ref().map_or(name, |found| manager_name(found.manager));
         return Err(format!("{source} has no {name}{wanted} yet: {name} stays at {}", before.unwrap_or_default()));
       }
       let after = after.unwrap_or_default();
@@ -161,18 +158,17 @@ fn run_skill(environment: &ToolEnvironment, tool: CliTool, action: CliToolAction
   Ok(ToolTaskDone::new(title))
 }
 
-/// `brew install|upgrade <formula>` without its prompts, hints and cleanup; its taps are updated first, as the tap of a
-/// tool lags behind its releases otherwise
-fn run_brew(environment: &ToolEnvironment, brew: &Path, verb: &str, tool: CliTool, on_line: &dyn Fn(&str), is_canceled: &dyn Fn() -> bool) -> Result<(), String> {
-  let mut command = environment.command(brew);
-  command
-    .args([verb, homebrew_formula(tool)])
-    .env("NONINTERACTIVE", "1")
-    .env("HOMEBREW_NO_ENV_HINTS", "1")
-    .env("HOMEBREW_NO_INSTALL_CLEANUP", "1")
-    .env("HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK", "1")
-    .env("HOMEBREW_NO_COLOR", "1");
-  finish("brew", run_child_lines(&mut command, TASK_TIMEOUT, on_line, is_canceled))
+/// The install or the upgrade of `tool` by its manager (`package_manager::manager_commands`): a step that may fail (the
+/// bucket of scoop is there already) does not stop the next
+fn run_manager(environment: &ToolEnvironment, found: &FoundManager, tool: CliTool, upgrade: bool, on_line: &dyn Fn(&str), is_canceled: &dyn Fn() -> bool) -> Result<(), String> {
+  let name = manager_name(found.manager);
+  for (mut command, must_succeed) in manager_commands(environment, found, tool, upgrade) {
+    let result = finish(name, run_child_lines(&mut command, TASK_TIMEOUT, on_line, is_canceled));
+    if must_succeed || result.as_ref().is_err_and(|error| error == "canceled") {
+      result?;
+    }
+  }
+  Ok(())
 }
 
 fn run_streamed(environment: &ToolEnvironment, binary: &Path, args: &[&str], on_line: &dyn Fn(&str), is_canceled: &dyn Fn() -> bool) -> Result<(), String> {

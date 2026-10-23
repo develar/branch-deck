@@ -5,6 +5,7 @@
 //!
 //! - `environment`: where the tools are looked for and how they run (the process's, or a directory of fakes)
 //! - `install`: the install and update through Homebrew, the `teamcity` skill
+//! - `package_manager`: Homebrew, winget and scoop: which installs a tool here, which installed it, their commands
 //! - `parse`: their answers (`--version`, `auth status --json`, the skill)
 //! - `setup`: the rule of the Setup dot: what of the app and the tools waits for the user
 //! - `terminal_login`: the browser sign-in of `teamcity`, in a pseudo-terminal of `script`
@@ -13,6 +14,7 @@
 
 pub mod environment;
 pub mod install;
+pub mod package_manager;
 pub mod parse;
 pub mod setup;
 pub mod status;
@@ -21,6 +23,8 @@ pub mod youtrack_login;
 
 #[cfg(test)]
 mod install_test;
+#[cfg(test)]
+mod package_manager_test;
 #[cfg(test)]
 mod parse_test;
 #[cfg(test)]

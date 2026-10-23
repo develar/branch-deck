@@ -90,6 +90,7 @@ pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duratio
 }
 
 /// How long a process group has after SIGTERM before SIGKILL
+#[cfg(unix)]
 const TERMINATE_GRACE: Duration = Duration::from_secs(3);
 /// How long the pipes of a child that exited are still read
 const DRAIN_AFTER_EXIT: Duration = Duration::from_millis(500);
@@ -286,7 +287,8 @@ pub fn find_tool_in(lookup: &ToolLookup, home: Option<&Path>, path: Option<&OsSt
       .iter()
       .filter_map(|dir| match dir {
         ToolDir::Absolute(dir) => Some(Path::new(dir).join(&file_name)),
-        ToolDir::Home(dir) => Some(home?.join(dir).join(&file_name)),
+        // by its segments: `AppData/Local/…` with the separators of the platform
+        ToolDir::Home(dir) => Some(dir.split('/').fold(home?.to_path_buf(), |path, segment| path.join(segment)).join(&file_name)),
       })
       .find(|candidate| candidate.is_file())
   };
