@@ -22,7 +22,10 @@
 //!   branch: its value is what their build gave (the tip, or the conflict), a function of those commits.
 //! - **Several processes** (the app and parallel `bd` calls) share the environment: LMDB serializes writers through its
 //!   lock file and readers never block. Within a process there is one `Env` per directory (`ENVS`), because LMDB must
-//!   not open the same environment twice in one process.
+//!   not open the same environment twice in one process. Across processes the opens and closes of a directory run one
+//!   at a time under its `open.lock`, and on macOS each lock file gets a semaphore set of its own (`semaphore_key`).
+//! - **Each environment opens on its own**: one that cannot (a file in the way, a corrupt map, a semaphore set another
+//!   process removed) misses its stores, logged as a warning, and the others work.
 //! - **The last handle closes the environment** (`EnvHandle`): on macOS and the BSDs LMDB locks with a System V
 //!   semaphore set per lock file, which only `mdb_env_close` removes, and not an exit. An environment kept open to the
 //!   end of every process left one set per directory, a new one per temporary directory of a test, until the system
@@ -34,8 +37,10 @@
 //! - **A batch per transaction**: each commit syncs the file (`F_FULLFSYNC` on macOS) and takes the writer lock that
 //!   other processes wait for, so a caller writes what a phase learned at once, never one entry per transaction in a
 //!   loop (`sync_core::cache_memo::CacheMemo`).
-//! - **Every failure is a miss**: it is logged at debug level and never fails the caller.
+//! - **Every failure is a miss**: it is logged at debug level (an environment that cannot open at warning level) and
+//!   never fails the caller.
 
+use crate::semaphore_key;
 use heed::types::{Bytes, DecodeIgnore};
 use heed::{CommitOrAbort, CommitToken, Database, DatabaseOpener, Env, EnvOpenOptions, OnCommit, RoTxn, RwTxn, WithTls};
 use serde::Serialize;
@@ -46,7 +51,7 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// The key of the entry that names the version of a store whose keys hold a version (`keep_only_version`); no key of
 /// an entry is this short
@@ -273,7 +278,8 @@ fn open_envs() -> MutexGuard<'static, HashMap<PathBuf, Weak<Env>>> {
 }
 
 /// An open environment of `ENVS`. The last handle closes it (`mdb_env_close`, which removes its semaphores when no other
-/// process has it open) while `ENVS` is locked, so an open of the same directory waits until it is closed
+/// process has it open) while `ENVS` is locked, so an open of the same directory waits until it is closed, and under
+/// `open.lock`, so the open of another process does not read the semaphores the close removes
 pub(crate) struct EnvHandle(Option<Arc<Env>>);
 
 impl Deref for EnvHandle {
@@ -287,9 +293,20 @@ impl Deref for EnvHandle {
 impl Drop for EnvHandle {
   fn drop(&mut self) {
     let envs = open_envs();
-    drop(self.0.take());
+    let env = self.0.take();
+    let closing = env.as_ref().filter(|env| Arc::strong_count(env) == 1).and_then(|env| lock_opens(env.path()).ok());
+    drop(env);
+    drop(closing);
     drop(envs);
   }
+}
+
+/// Holds `open.lock` of the environment directory `dir` until dropped: the opens and closes of the environment by the
+/// processes of this build, one at a time
+fn lock_opens(dir: &Path) -> std::io::Result<std::fs::File> {
+  let file = std::fs::OpenOptions::new().write(true).create(true).truncate(false).open(dir.join("open.lock"))?;
+  file.lock()?;
+  Ok(file)
 }
 
 /// A database committed by the transaction that opened it, usable in any later one (heed's `OnCommit`)
@@ -307,9 +324,10 @@ impl OnCommit for OpenedDatabases<'_> {
 }
 
 struct Inner {
-  /// By `Environment`, in the order of `ENVIRONMENTS`
-  envs: [EnvHandle; ENVIRONMENTS.len()],
-  databases: [RawDatabase; STORE_COUNT],
+  /// By `Environment`, in the order of `ENVIRONMENTS`; None for one that could not be opened, whose stores miss
+  envs: [Option<EnvHandle>; ENVIRONMENTS.len()],
+  /// None for the stores of such an environment
+  databases: [Option<RawDatabase>; STORE_COUNT],
 }
 
 /// A handle to the cache of one repository; cheap to clone. A disabled cache misses every read and drops every write
@@ -356,9 +374,8 @@ impl ObjectCache {
       return;
     }
     let meta = version.to_be_bytes();
+    let Some((env, database)) = inner.store(store) else { return };
     let result = (|| -> heed::Result<()> {
-      let database = inner.database(store);
-      let env = inner.env(store);
       let txn = env.read_txn()?;
       let current = database.get(&txn, VERSION_KEY)?.map(<[u8]>::to_vec);
       drop(txn);
@@ -379,12 +396,11 @@ impl ObjectCache {
 
   /// The values of `keys`, in their order; a missing or unreadable value is `None`
   pub(crate) fn get_many<V: DeserializeOwned>(&self, store: Store, keys: &[Vec<u8>]) -> Vec<Option<V>> {
-    let Some(inner) = &self.inner else {
+    let Some((env, database)) = self.inner.as_ref().and_then(|inner| inner.store(store)) else {
       return keys.iter().map(|_| None).collect();
     };
     let result = (|| -> heed::Result<Vec<Option<V>>> {
-      let txn = inner.env(store).read_txn()?;
-      let database = inner.database(store);
+      let txn = env.read_txn()?;
       keys
         .iter()
         .map(|key| {
@@ -406,12 +422,12 @@ impl ObjectCache {
 
   /// Whether `store` has a value for each of `keys`, in their order, without decoding one; a failed read is false
   pub(crate) fn contains_many(&self, store: Store, keys: &[Vec<u8>]) -> Vec<bool> {
-    let Some(inner) = &self.inner else {
+    let Some((env, database)) = self.inner.as_ref().and_then(|inner| inner.store(store)) else {
       return vec![false; keys.len()];
     };
     let result = (|| -> heed::Result<Vec<bool>> {
-      let txn = inner.env(store).read_txn()?;
-      let database = inner.database(store).remap_data_type::<DecodeIgnore>();
+      let txn = env.read_txn()?;
+      let database = database.remap_data_type::<DecodeIgnore>();
       keys.iter().map(|key| Ok(database.get(&txn, key)?.is_some())).collect()
     })();
     result.unwrap_or_else(|e| {
@@ -454,12 +470,12 @@ impl ObjectCache {
   /// `put_many` of values encoded already (`postcard`)
   pub(crate) fn put_encoded(&self, store: Store, encoded: &[(&[u8], Vec<u8>)]) {
     let Some(inner) = &self.inner else { return };
+    let Some((env, database)) = inner.store(store) else { return };
     if encoded.is_empty() {
       return;
     }
     let write = || -> heed::Result<()> {
-      let mut txn = inner.env(store).write_txn()?;
-      let database = inner.database(store);
+      let mut txn = env.write_txn()?;
       for (key, value) in encoded {
         database.put(&mut txn, key, value)?;
       }
@@ -479,43 +495,48 @@ impl ObjectCache {
 }
 
 impl Inner {
-  const fn database(&self, store: Store) -> &RawDatabase {
-    &self.databases[store.index()]
-  }
-
-  fn env(&self, store: Store) -> &Env {
-    &self.envs[store.environment() as usize]
+  /// The environment and the database of `store`; None when its environment could not be opened
+  fn store(&self, store: Store) -> Option<(&Env, &RawDatabase)> {
+    Some((self.envs[store.environment() as usize].as_deref()?, self.databases[store.index()].as_ref()?))
   }
 
   /// Clear the databases of `environment`
   fn clear_all(&self, environment: Environment) -> heed::Result<()> {
-    let mut txn = self.envs[environment as usize].write_txn()?;
+    let Some(env) = self.envs[environment as usize].as_deref() else { return Ok(()) };
+    let mut txn = env.write_txn()?;
     for store in STORES.iter().filter(|store| store.environment() == environment) {
-      self.database(*store).clear(&mut txn)?;
+      if let Some(database) = &self.databases[store.index()] {
+        database.clear(&mut txn)?;
+      }
     }
     txn.commit()
   }
 }
 
+/// Each environment on its own: one that cannot be opened misses its stores; none, and the cache is disabled
 fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::error::Error>> {
-  let mut envs = Vec::with_capacity(ENVIRONMENTS.len());
+  let mut envs: [Option<EnvHandle>; ENVIRONMENTS.len()] = std::array::from_fn(|_| None);
   let mut databases: [Option<RawDatabase>; STORE_COUNT] = [None; STORE_COUNT];
   for environment in ENVIRONMENTS {
-    let env = open_env(&environment.dir(dir), environment.map_size(config))?;
+    let env_dir = environment.dir(dir);
     let stores: Vec<Store> = STORES.iter().copied().filter(|store| store.environment() == environment).collect();
-    for (store, database) in stores.iter().zip(open_databases(&env, environment, &stores, &config.versions)?) {
-      databases[store.index()] = Some(database);
+    let opened = open_env(&env_dir, environment.map_size(config)).and_then(|env| {
+      let opened = open_databases(&env, environment, &stores, &config.versions)?;
+      Ok((env, opened))
+    });
+    match opened {
+      Ok((env, opened)) => {
+        for (store, database) in stores.iter().zip(opened) {
+          databases[store.index()] = Some(database);
+        }
+        envs[environment as usize] = Some(env);
+      }
+      Err(e) => warn!(error = %e, dir = %env_dir.display(), "an environment of the object cache cannot be opened: its stores miss"),
     }
-    envs.push(env);
   }
-  let envs: [EnvHandle; ENVIRONMENTS.len()] = envs
-    .try_into()
-    .map_err(|envs: Vec<EnvHandle>| format!("expected {} environments, got {}", ENVIRONMENTS.len(), envs.len()))?;
-  let databases = databases
-    .into_iter()
-    .collect::<Option<Vec<RawDatabase>>>()
-    .and_then(|databases| <[RawDatabase; STORE_COUNT]>::try_from(databases).ok())
-    .ok_or("a store has no environment")?;
+  if envs.iter().all(Option::is_none) {
+    return Err("no environment of the object cache can be opened".into());
+  }
   Ok(Inner { envs, databases })
 }
 
@@ -537,9 +558,21 @@ pub(crate) fn open_env(dir: &Path, map_size: usize) -> Result<EnvHandle, Box<dyn
   // a multiple of the 4 KiB and 16 KiB pages of the supported platforms
   let page_size = 16 * 1024;
   let map_size = map_size.div_ceil(page_size).max(1) * page_size;
-  // SAFETY: `ENVS` holds the only `Env` of this directory in the process, and the files are only written by LMDB
-  #[expect(unsafe_code, reason = "heed opens an LMDB environment through an unsafe call")]
-  let env = Arc::new(unsafe { EnvOpenOptions::new().map_size(map_size).max_dbs(32).open(&dir)? });
+  let _opening = lock_opens(&dir)?;
+  let open = || {
+    semaphore_key::claim(&dir);
+    // SAFETY: `ENVS` holds the only `Env` of this directory in the process, and the files are only written by LMDB
+    #[expect(unsafe_code, reason = "heed opens an LMDB environment through an unsafe call")]
+    unsafe {
+      EnvOpenOptions::new().map_size(map_size).max_dbs(32).open(&dir)
+    }
+  };
+  let env = Arc::new(match open() {
+    // LMDB's own race with a process of an older build: the open waited for the close of the last other user, which
+    // removed the semaphores the open then reads; the next open is the first
+    Err(heed::Error::Io(e)) if e.kind() == std::io::ErrorKind::InvalidInput => open()?,
+    result => result?,
+  });
   // the entries of the environments closed meanwhile go
   envs.retain(|_, env| env.strong_count() > 0);
   envs.insert(dir, Arc::downgrade(&env));

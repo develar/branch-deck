@@ -21,6 +21,7 @@ pub mod patronus_history;
 pub mod patronus_robots;
 pub mod remote_status;
 pub mod review_answer;
+mod semaphore_key;
 pub mod stack_branch;
 pub mod word_resolution;
 

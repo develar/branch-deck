@@ -267,13 +267,15 @@ fn unusable_cache_is_a_miss() {
   blocked.put_commit_trees(&[("c1".to_string(), "t1".to_string())]);
   assert!(blocked.get_commit_trees(&["c1".to_string()]).is_empty());
 
-  // a corrupt data file
+  // a corrupt data file of every environment
   let corrupt = dir.path().join("corrupt");
-  std::fs::create_dir_all(&corrupt).unwrap();
-  std::fs::write(corrupt.join("data.mdb"), vec![0xAB; 64 * 1024]).unwrap();
+  for env_dir in ["", "patches", "merges", "conflicts"] {
+    std::fs::create_dir_all(corrupt.join(env_dir)).unwrap();
+    std::fs::write(corrupt.join(env_dir).join("data.mdb"), vec![0xAB; 64 * 1024]).unwrap();
+  }
   let cache = open(&corrupt);
   cache.put_commit_trees(&[("c1".to_string(), "t1".to_string())]);
-  let _ = cache.get_commit_trees(&["c1".to_string()]);
+  assert!(cache.get_commit_trees(&["c1".to_string()]).is_empty());
   assert!(!cache.is_enabled());
 
   assert!(!ObjectCache::disabled().is_enabled());
@@ -708,4 +710,92 @@ fn stack_builds_are_read_by_their_version() {
   cache.put_stack_builds(2, &[([2; 32], &tip)]);
   assert_eq!(cache.get_stack_builds::<String>(1, &[[1; 32]]), [None]);
   assert_eq!(cache.get_stack_builds::<String>(2, &[[2; 32]]), [Some(tip)]);
+}
+
+/// An environment that cannot be opened misses only its stores: one failure disabled the whole cache, and a semaphore
+/// set another process removed under `merges/` left a repository without any
+#[test_log::test]
+fn an_environment_that_cannot_be_opened_misses_only_its_stores() {
+  let dir = tempfile::tempdir().unwrap();
+  // a corrupt map of the main environment, and a file in the way of `merges/`
+  std::fs::write(dir.path().join("data.mdb"), vec![0xAB; 64 * 1024]).unwrap();
+  std::fs::write(dir.path().join("merges"), "x").unwrap();
+  let cache = open(dir.path());
+  assert!(cache.is_enabled());
+  let key = [7; 32];
+  cache.put_patronus_history(&[(key, "week".to_string())]);
+  assert_eq!(cache.get_patronus_history::<String>(&[key]), [None]);
+  let (merge_key, merge) = merge();
+  cache.put_merge_results(&[(merge_key.clone(), merge)]);
+  assert_eq!(cache.get_merge_results(std::slice::from_ref(&merge_key)), [None]);
+  // the patch environment works
+  let diff = vec![1u32, 2, 3];
+  let pair = DiffKey {
+    policy: 0,
+    old_id: "a",
+    new_id: "b",
+  };
+  cache.put_file_diffs(1, &[(pair, &diff)]);
+  assert_eq!(cache.get_file_diffs::<Vec<u32>>(1, &[pair]), [Some(diff)]);
+}
+
+/// macOS keys the semaphore set of a lock file by the low 16 bits of its inode: a lock file whose key another set holds
+/// (of another lock file of the same low bits) is made again before LMDB first opens it, so the close of this cache
+/// leaves the other set, and the open of the other environment its set, alone
+/// The inode of `path`; None where files have none (Windows), whose lock files are never made again
+fn inode(path: &Path) -> Option<u64> {
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|metadata| metadata.ino())
+  }
+  #[cfg(not(unix))]
+  {
+    std::fs::metadata(path).ok().map(|_| 0)
+  }
+}
+
+#[test_log::test]
+fn a_lock_file_whose_semaphore_key_another_set_holds_is_made_again() {
+  let dir = tempfile::tempdir().unwrap();
+  // the lock files exist, their sets removed by the close
+  drop(open(dir.path()));
+  let lock = dir.path().canonicalize().unwrap().join("merges").join("lock.mdb");
+  let before = inode(&lock).expect("the lock file");
+  let (key, merge) = merge();
+  #[cfg(target_os = "macos")]
+  {
+    use std::os::unix::ffi::OsStrExt;
+    let c_path = std::ffi::CString::new(lock.as_os_str().as_bytes()).unwrap();
+    let semaphore_key = crate::semaphore_key::key(&c_path).unwrap();
+    #[expect(unsafe_code, reason = "the set of another environment, made and removed by the test")]
+    // SAFETY: no pointer is passed
+    let other = unsafe { libc::semget(semaphore_key, 2, libc::IPC_CREAT | 0o600) };
+    assert!(other >= 0, "{}", std::io::Error::last_os_error());
+
+    let cache = open(dir.path());
+    cache.put_merge_results(&[(key.clone(), merge.clone())]);
+    assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(merge)]);
+    assert_ne!(inode(&lock), Some(before), "the lock file was made again");
+    drop(cache);
+    #[expect(unsafe_code, reason = "IPC_STAT tells the set still exists; IPC_RMID removes it")]
+    // SAFETY: a zeroed `semid_ds` is a valid buffer, and no other pointer is passed
+    unsafe {
+      let mut buffer: libc::semid_ds = std::mem::zeroed();
+      assert_eq!(
+        libc::semctl(other, 0, libc::IPC_STAT, &raw mut buffer),
+        0,
+        "the close removed the set of the other environment"
+      );
+      libc::semctl(other, 0, libc::IPC_RMID);
+    }
+  }
+  // without System V semaphores (robust mutexes on Linux, named mutexes on Windows) the lock file stays
+  #[cfg(not(target_os = "macos"))]
+  {
+    let cache = open(dir.path());
+    cache.put_merge_results(&[(key.clone(), merge.clone())]);
+    assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(merge)]);
+    assert_eq!(inode(&lock), Some(before));
+  }
 }

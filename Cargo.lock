@@ -3991,6 +3991,7 @@ name = "object-cache"
 version = "0.1.0"
 dependencies = [
  "heed",
+ "libc",
  "postcard",
  "serde",
  "specta",

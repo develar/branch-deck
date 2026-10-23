@@ -1728,6 +1728,15 @@ under `Default` (`file_diffs::blocks`).
   requires, and it closes with the last handle (`EnvHandle`; the app keeps one per repository while it runs): on macOS
   LMDB locks an environment with a System V semaphore set that only its close removes, so the environments of deleted
   test directories would use up the system's sets (`kern.sysv.semmns`) until every open fails with `ENOSPC`.
+- **A semaphore set of its own** (`object_cache::semaphore_key`, macOS). LMDB keys the set by `ftok(lock.mdb, 'M')`,
+  and macOS's `ftok` keeps only the low 16 bits of the inode and the low 8 of the device, so two lock files of one
+  volume could share a set: the first user of one reset it, and the last user of either removed it under the other,
+  whose every later open failed with `EINVAL`. The tests of a checkout, thousands of environments in temporary
+  directories, so took `merges/` of the monorepo's cache from every `bd` while the app had it open, and `bd
+  robot-stats` listed every week again on each run. Before LMDB first opens an environment (no process holds its lock
+  file), a lock file whose key names a set already is made again, with another inode; the opens and closes of a
+  directory run one at a time under its `open.lock`, and an `EINVAL` of a race with an older build opens once more.
+  Each environment opens on its own: one that cannot misses its stores, logged as a warning, and the others work.
 - **One write transaction per phase.** Each commit of a write transaction syncs the file (`F_FULLFSYNC` on macOS,
   ~4 ms) and holds the writer lock that parallel `bd` calls wait for, so callers write a batch, never one entry per
   transaction in a loop. The sync stays: without it (`MDB_NOSYNC`) a power loss can leave a wrong but readable tree
