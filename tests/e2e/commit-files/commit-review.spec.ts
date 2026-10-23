@@ -204,29 +204,6 @@ simpleTest.describe("Commit review", () => {
     await expect(page.getByTestId("review-sidebar")).toBeVisible()
   })
 
-  testWithIssueLinks("should keep the Activity panel the main window opened when a review window hides its sidebar right after", async ({ page }) => {
-    await page.setViewportSize({ width: 2000, height: 1000 })
-    // a push, so that the main window has activity to show
-    const pushed = findBranchRow(page, "ABC-123")
-    await getPushButton(pushed).click()
-    await expectNothingToPush(pushed)
-    const window = await openLinkedSubWindow(page, await reviewPoolSizeCommit(page))
-    const toggle = window.getByTestId("review-sidebar-toggle")
-    await expect(toggle).toHaveAttribute("aria-pressed", "true")
-
-    // the main window opens its panel, and the review window hides its sidebar before it heard of the panel
-    await activityButton(page).click()
-    await expect(activityPanel(page)).toBeVisible()
-    await toggle.click()
-    await expect(toggle).toHaveAttribute("aria-pressed", "false")
-    // the main window takes only the sidebar from the review window: its panel stays open, and both are saved
-    await waitForStorePersistence(page, "appSettings", settings => {
-      const saved = settings as { activityPanel?: boolean; reviewSidebar?: boolean } | undefined
-      return saved?.reviewSidebar === false && saved.activityPanel === true
-    })
-    await expect(activityPanel(page)).toBeVisible()
-  })
-
   simpleTest("should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
     const window = await openTreeReview(page)
@@ -372,6 +349,29 @@ simpleTest("should strike a deleted file through, never its status letter, in th
   await page.keyboard.press("d")
   const window = await showReviewWindow(page, await openedReview(page, 1))
   await expectStruckName(window.locator("[data-testid=review-file-header][data-path='src/LegacyMapper.kt']"))
+})
+
+testWithIssueLinks("should keep the Activity panel the main window opened when a review window hides its sidebar right after", async ({ page }) => {
+  await page.setViewportSize({ width: 2000, height: 1000 })
+  // a push, so that the main window has activity to show
+  const pushed = findBranchRow(page, "ABC-123")
+  await getPushButton(pushed).click()
+  await expectNothingToPush(pushed)
+  const window = await openLinkedSubWindow(page, await reviewPoolSizeCommit(page))
+  const toggle = window.getByTestId("review-sidebar-toggle")
+  await expect(toggle).toHaveAttribute("aria-pressed", "true")
+
+  // the main window opens its panel, and the review window hides its sidebar before it heard of the panel
+  await activityButton(page).click()
+  await expect(activityPanel(page)).toBeVisible()
+  await toggle.click()
+  await expect(toggle).toHaveAttribute("aria-pressed", "false")
+  // the main window takes only the sidebar from the review window: its panel stays open, and both are saved
+  await waitForStorePersistence(page, "appSettings", settings => {
+    const saved = settings as { activityPanel?: boolean; reviewSidebar?: boolean } | undefined
+    return saved?.reviewSidebar === false && saved.activityPanel === true
+  })
+  await expect(activityPanel(page)).toBeVisible()
 })
 
 testWithIssueLinks("should switch the commit of a review with Alt and the arrows", async ({ page }) => {
