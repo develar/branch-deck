@@ -1392,12 +1392,15 @@ server can miss the events of a large checkout. Unlanded commits, local changes 
 for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
 no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it. The return acts on the
 slot only after it reserved it: once every check passed, under the pool lock and with CAS on the lease id, the lease
-becomes `returning`, of the return's process. A return retried beside a running one is `slot_busy` ("is being
-returned"), a get passes the slot over, and a return that another overtook (the slot freed, then leased again) finds
-another lease (`lease_mismatch`) and changes nothing of it; a failed return gives the lease back as `ready`, and one
-whose process died leaves an abandoned lease that the next get frees
-(`a_return_that_a_retry_overtook_leaves_the_next_lease_of_the_slot_alone`,
-`a_running_return_reserves_the_slot_against_a_get_and_a_second_return`).
+becomes `returning`, of the return's process. A get passes the slot over. A repeat joins (an agent whose tool call
+timed out returns again): a return that finds its lease `returning` waits for that return, reading the pool without
+its lock, and answers `joined` once the slot is freed (or returns the lease itself once that return failed or its
+process died); a return that another overtook (the slot freed, then perhaps leased again) answers `joined` too and
+changes nothing of the next lease, also when a check of it refused the next holder's slot. A failed return gives the
+lease back as `ready`, and one whose process died leaves an abandoned lease that the next get frees
+(`a_return_that_a_retry_overtook_answers_joined_and_leaves_the_next_lease_of_the_slot_alone`,
+`a_return_retried_while_the_first_acts_on_the_slot_waits_for_it_and_answers_joined`,
+`a_running_return_reserves_the_slot_against_a_get`).
 
 The clean rules (`crates/lease-pool/src/lease_clean.rs`). Cargo never deletes a unit whose hash went out of use, so the
 free slots of Branch Deck held 679 GB of stale units, which a prune script nobody ran left alone. The return now cleans

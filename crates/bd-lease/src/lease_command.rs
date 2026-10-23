@@ -330,8 +330,14 @@ pub struct LeaseReturnOutput {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub given_up: Vec<GivenUpOutput>,
   /// Which check found the work landed: `reachability` (a branch, tag or remote branch holds every commit) or
-  /// `content` (a pick onto `landed_branch` would pick nothing, after a rewrite of that branch)
-  pub landed_check: LandedCheckOutput,
+  /// `content` (a pick onto `landed_branch` would pick nothing, after a rewrite of that branch); omitted for a return
+  /// that joined another before it checked anything
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub landed_check: Option<LandedCheckOutput>,
+  /// Another return of the same lease (a retry after a timeout) returned it: this one waited for it, or was overtaken
+  /// by it, and changed nothing
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub joined: bool,
   /// The Bazel servers of the worktree that exited on the return's SIGTERM; their output bases stay on disk
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stopped_servers: Vec<StoppedServerOutput>,
@@ -350,7 +356,8 @@ pub struct LeaseReturnOutput {
   /// The branch HEAD was on; HEAD is detached now, the branch stays
   #[serde(skip_serializing_if = "Option::is_none")]
   pub detached_branch: Option<String>,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where bd can't see them (Windows) and for a `joined` return that
+  /// checked nothing
   pub processes_checked: bool,
 }
 
@@ -435,10 +442,11 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
         subject: commit.subject.clone(),
       })
       .collect(),
-    landed_check: match returned.landed_check {
+    landed_check: returned.landed_check.as_ref().map(|check| match check {
       LandedCheck::Reachability { .. } => LandedCheckOutput::Reachability,
       LandedCheck::Content { .. } => LandedCheckOutput::Content,
-    },
+    }),
+    joined: returned.joined,
     stopped_servers: returned
       .stopped_servers
       .iter()
@@ -449,8 +457,8 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
       })
       .collect(),
     landed_branch: match &returned.landed_check {
-      LandedCheck::Content { branch } => Some(branch.clone()),
-      LandedCheck::Reachability { .. } => None,
+      Some(LandedCheck::Content { branch }) => Some(branch.clone()),
+      Some(LandedCheck::Reachability { .. }) | None => None,
     },
     removed: returned.removed.clone(),
     cleaned: cleaned_output(&returned.cleaned),

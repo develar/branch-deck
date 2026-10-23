@@ -883,8 +883,10 @@ repository». Аудит всех функций в тот же день наш�
   (`whenFileDiffsEnded`, `tells the end of a subject's read only once its stream ended: the neighbours of a review are
   read after it`); join пары в Rust не нужен: соседи находят общие пары в кэше.
 - **Lease pool:** `Returning`/`cleaning`, `worktree add --lock`. Сделано (`fix/sync-lease`): return резервирует слот
-  (`returning` под pool lock с CAS по lease id) до первого действия, clean — маркер `cleaning`
-  (`a_return_that_a_retry_overtook_leaves_the_next_lease_of_the_slot_alone`,
+  (`returning` под pool lock с CAS по lease id) до первого действия, повтор return ждёт идущий и отвечает `joined`,
+  обогнанный return тоже `joined`, clean — маркер `cleaning`
+  (`a_return_that_a_retry_overtook_answers_joined_and_leaves_the_next_lease_of_the_slot_alone`,
+  `a_return_retried_while_the_first_acts_on_the_slot_waits_for_it_and_answers_joined`,
   `a_slot_that_clean_cleans_is_reserved_against_a_get`); новый слот клоном — `worktree add --lock`, `unlock` после swap
   (`a_prune_while_a_cloned_slot_is_away_keeps_its_registration_until_the_unlock`).
 

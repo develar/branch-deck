@@ -978,8 +978,10 @@ pub struct LeaseReturned {
   pub discarded: Vec<String>,
   /// The unlanded commits `--confirm-preserved` gave up; they stay in the reflog of the slot's HEAD
   pub given_up: Vec<UnlandedCommit>,
-  /// Which check decided what is unlanded
-  pub landed_check: LandedCheck,
+  /// Which check decided what is unlanded; none for a return that joined another before it checked anything
+  pub landed_check: Option<LandedCheck>,
+  /// Another return of the same lease (a retry) returned it: this one changed nothing, and its lists are empty
+  pub joined: bool,
   /// The Bazel servers of the slot that exited on the SIGTERM of the return
   pub stopped_servers: Vec<StoppedServer>,
   /// The seeded paths removed
@@ -999,15 +1001,114 @@ pub struct LeaseReturned {
 /// gives up the commits and discards the changes (`reset --hard`, `clean -fd`: the ignored files stay). Then the seeded
 /// paths go, a branch is detached (it stays) and the slot is free; it is not moved, the next get moves it
 #[instrument(skip_all, fields(workspace = %params.workspace.top_level))]
+///
+/// A repeat joins: while another return of the same lease runs (a retry after a timeout), this one waits for it and
+/// answers `joined` once it freed the slot, or returns the lease itself once it failed; a return that another return
+/// of its lease overtook answers `joined` too and changes nothing
 pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>) -> Result<LeaseReturned> {
   let path = canonical_path(Path::new(&params.workspace.top_level));
   let pool = Pool::new(Path::new(&canonical_path(Path::new(&params.workspace.git_common_dir))));
+  // the slot with the lease of the return this one waited for
+  let mut waited_for: Option<Slot> = None;
+  loop {
+    let mut checked = None;
+    let step = match return_once(git_executor, params, &pool, &path, waited_for.as_ref(), &mut checked) {
+      Ok(step) => step,
+      // a check refused the slot after another return of the lease gave it back (a get may have leased it again):
+      // the refusal is of the next lease, the lease of this return was returned
+      Err(error) => match checked.filter(|slot| !holds_lease(&pool, slot).unwrap_or(true)) {
+        Some(slot) => return Ok(joined_return(slot, None, false)),
+        None => return Err(error),
+      },
+    };
+    match step {
+      ReturnStep::Done(returned) => return Ok(*returned),
+      ReturnStep::WaitFor(slot) => {
+        if let Some(lease) = &slot.lease {
+          wait_while_returning(&pool, &path, &lease.id)?;
+        }
+        waited_for = Some(*slot);
+      }
+    }
+  }
+}
+
+/// What one pass of a return ends with
+enum ReturnStep {
+  Done(Box<LeaseReturned>),
+  /// Another return of the lease runs: wait for it, then look again
+  WaitFor(Box<Slot>),
+}
+
+/// The answer of a return whose lease another return of it gave back: nothing changed
+const fn joined_return(slot: Slot, landed_check: Option<LandedCheck>, process_scan: bool) -> LeaseReturned {
+  LeaseReturned {
+    slot,
+    discarded: Vec::new(),
+    given_up: Vec::new(),
+    landed_check,
+    joined: true,
+    stopped_servers: Vec::new(),
+    removed: Vec::new(),
+    detached_branch: None,
+    cleaned: Vec::new(),
+    clean_error: None,
+    process_scan,
+  }
+}
+
+/// Whether the slot still has the lease of `slot`
+fn holds_lease(pool: &Pool, slot: &Slot) -> Result<bool> {
   let store = pool.read()?;
-  let (slot, lease) = store
+  Ok(
+    store
+      .slots
+      .iter()
+      .any(|current| current.path == slot.path && current.lease.as_ref().map(|lease| &lease.id) == slot.lease.as_ref().map(|lease| &lease.id)),
+  )
+}
+
+/// Until the return of `lease_id` in `path` ends: it freed the slot, it failed (`ready` again) or its process died.
+/// No lock is held: the pool is only read
+fn wait_while_returning(pool: &Pool, path: &str, lease_id: &str) -> Result<()> {
+  loop {
+    let store = pool.read()?;
+    let returning = store
+      .slots
+      .iter()
+      .filter(|slot| slot.path == path)
+      .filter_map(|slot| slot.lease.as_ref())
+      .any(|lease| lease.id == lease_id && lease.state == LeaseState::Returning && !lease.is_abandoned());
+    if !returning {
+      return Ok(());
+    }
+    std::thread::sleep(Duration::from_millis(20));
+  }
+}
+
+/// One pass of a return; `checked` is the slot with the lease it checks, once no other return of it runs
+fn return_once(
+  git_executor: &GitCommandExecutor,
+  params: &LeaseReturnParams<'_>,
+  pool: &Pool,
+  path: &str,
+  waited_for: Option<&Slot>,
+  checked: &mut Option<Slot>,
+) -> Result<ReturnStep> {
+  let path = path.to_string();
+  let store = pool.read()?;
+  let current = store
     .slots
     .iter()
-    .find_map(|slot| slot.lease.clone().filter(|_| slot.path == path).map(|lease| (slot.clone(), lease)))
-    .ok_or_else(|| LeaseRefusal::NoLease(path.clone()))?;
+    .find_map(|slot| slot.lease.clone().filter(|_| slot.path == path).map(|lease| (slot.clone(), lease)));
+  // the return it waited for freed the slot (a get may have leased it again): that return was this one's
+  if let Some(waited) = waited_for
+    && let Some(waited_lease) = &waited.lease
+    && current.as_ref().is_none_or(|(_, lease)| lease.id != waited_lease.id)
+  {
+    return Ok(ReturnStep::Done(Box::new(joined_return(waited.clone(), None, false))));
+  }
+  let (slot, lease) = current.ok_or_else(|| LeaseRefusal::NoLease(path.clone()))?;
   if let Some(expected) = params.lease_id
     && expected != lease.id
   {
@@ -1017,9 +1118,12 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
       actual: lease.id,
     });
   }
-  if let Some(refusal) = refusal_to_return(&path, &lease) {
-    bail!(refusal);
+  match refusal_to_return(&path, &lease) {
+    Some(LeaseRefusal::Returning { .. }) => return Ok(ReturnStep::WaitFor(Box::new(slot))),
+    Some(refusal) => bail!(refusal),
+    None => {}
   }
+  *checked = Some(slot.clone());
   let scan = wait_for_git_maintenance(Path::new(&path), params.maintenance_timeout);
   let inside = scan.inside(Path::new(&path));
   // the Bazel servers of the slot, which serve only it; every other process keeps the slot busy
@@ -1055,7 +1159,11 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
   // from here on the return acts on the slot: reserved under the pool lock, while the lease is still the one it
   // checked, so a retried return beside it, or one that another return overtook and whose slot a get leased meanwhile,
   // changes nothing
-  reserve_return(&pool, params.lock_timeout, &path, &lease.id)?;
+  match reserve_return(pool, params.lock_timeout, &path, &lease.id)? {
+    Reservation::Reserved => {}
+    Reservation::Returning => return Ok(ReturnStep::WaitFor(Box::new(slot))),
+    Reservation::Returned => return Ok(ReturnStep::Done(Box::new(joined_return(slot, Some(landed_check), scan.is_available())))),
+  }
   let returned = finish_return(git_executor, &path, &lease, &changes, params.clean);
   let FinishedReturn {
     removed,
@@ -1086,18 +1194,19 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
     slot.returned = Some(last_return + 1);
     Ok(())
   })?;
-  Ok(LeaseReturned {
+  Ok(ReturnStep::Done(Box::new(LeaseReturned {
     slot,
     discarded: changes,
     given_up: unlanded,
-    landed_check,
+    landed_check: Some(landed_check),
+    joined: false,
     stopped_servers,
     removed,
     detached_branch,
     cleaned,
     clean_error,
     process_scan: scan.is_available(),
-  })
+  })))
 }
 
 /// Why `lease` of the slot `path` can't be returned now: its get or another return of it runs
@@ -1112,29 +1221,34 @@ fn refusal_to_return(path: &str, lease: &Lease) -> Option<LeaseRefusal> {
   })
 }
 
-/// Under the pool lock, with CAS on the lease id: mark the lease of `path` `returning`, of this process. Refused when
-/// the slot has another lease or none (another return freed it, a get leased it), or another return of it runs
-fn reserve_return(pool: &Pool, timeout: Duration, path: &str, lease_id: &str) -> Result<()> {
+/// What the reservation of a return found
+enum Reservation {
+  /// The lease of `path` is `returning`, of this process
+  Reserved,
+  /// Another return of the lease runs
+  Returning,
+  /// The slot has another lease or none: another return of the lease freed it (a get may have leased it again)
+  Returned,
+}
+
+/// Under the pool lock, with CAS on the lease id: mark the lease of `path` `returning`, of this process, unless another
+/// return of it runs or freed it
+fn reserve_return(pool: &Pool, timeout: Duration, path: &str, lease_id: &str) -> Result<Reservation> {
   let pid = std::process::id();
   pool.update(timeout, |store| {
     let current = store.slots.iter_mut().find(|slot| slot.path == path).and_then(|slot| slot.lease.as_mut());
-    let Some(current) = current else {
-      bail!(LeaseRefusal::NoLease(path.to_string()));
+    let Some(current) = current.filter(|current| current.id == lease_id) else {
+      return Ok(Reservation::Returned);
     };
-    if current.id != lease_id {
-      bail!(LeaseRefusal::LeaseMismatch {
-        path: path.to_string(),
-        expected: lease_id.to_string(),
-        actual: current.id.clone(),
-      });
-    }
-    if let Some(refusal) = refusal_to_return(path, current) {
-      bail!(refusal);
+    match refusal_to_return(path, current) {
+      Some(LeaseRefusal::Returning { .. }) => return Ok(Reservation::Returning),
+      Some(refusal) => bail!(refusal),
+      None => {}
     }
     current.state = LeaseState::Returning;
     current.pid = pid;
     current.process_started = process_started(pid);
-    Ok(())
+    Ok(Reservation::Reserved)
   })
 }
 

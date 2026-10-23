@@ -161,11 +161,14 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_return_waits_for_git_maintenance_and_a_get_ignores_it`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`git_maintenance_is_the_maintenance_and_the_gits_it_starts`)
 - Once its checks passed, the return must reserve the slot before it changes anything: under the pool lock, with CAS on
-  the lease id, the lease becomes `returning`. A second return of the lease meanwhile must be refused as `slot_busy`
-  ("is being returned by the process"), a get must pass the slot over, and a return that finds another lease or none
-  (another return freed the slot, a get leased it again) must change nothing (`lease_mismatch`, `no_lease`). A failed
-  return gives the lease back as `ready`; a `returning` lease whose process is gone is abandoned.
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_that_a_retry_overtook_leaves_the_next_lease_of_the_slot_alone`, `a_running_return_reserves_the_slot_against_a_get_and_a_second_return`)
+  the lease id, the lease becomes `returning`, and a get must pass the slot over. A repeat must join, never fail: a
+  second return of the lease meanwhile waits for the first and answers `joined: true` once it freed the slot (it
+  returns the lease itself once the first failed or its process died); a return whose lease another return gave back
+  meanwhile (a get may have leased the slot again) answers `joined: true` and must change nothing of the next lease,
+  also when one of its checks refused the next holder's slot. A `joined` answer has empty lists, and no
+  `landed_check` when the return checked nothing. A failed return gives the lease back as `ready`; a `returning` lease
+  whose process is gone is abandoned.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_that_a_retry_overtook_answers_joined_and_leaves_the_next_lease_of_the_slot_alone`, `a_return_retried_while_the_first_acts_on_the_slot_waits_for_it_and_answers_joined`, `a_running_return_reserves_the_slot_against_a_get`)
 - `--confirm-preserved` must give up the unlanded commits (`given_up`) and discard the local changes (`discarded`)
   with `reset --hard HEAD` and `clean -fd`: the ignored files stay.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)

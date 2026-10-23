@@ -412,7 +412,8 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    refuses another lease). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
    content (a dry run of the pick decides, also after the owner rewrote the branch); land them with step 2 first; `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4): a process
-   works in it (a shell, a build); stop it or wait. The return itself waits up to 60 s for git's background maintenance
+   works in it (a shell, a build); stop it or wait. A repeat after a timed-out call is safe: it waits for the running
+   return and answers `joined: true`. The return itself waits up to 60 s for git's background maintenance
    (`git maintenance`, an automatic `git gc`, the repack they start). The Bazel servers of the worktree (`--workspace_directory` in it)
    serve only it: the return stops them with SIGTERM (`stopped_servers`; their output bases stay), --keep-servers
    refuses instead. --confirm-preserved discards the changes and gives up the

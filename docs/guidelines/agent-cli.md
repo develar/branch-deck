@@ -816,7 +816,9 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   maintenance`, `git gc --auto` and the gits they start), then goes on. A Bazel server of the worktree (`--workspace_directory` in it) is asked to exit with
   SIGTERM, up to 30 s, and named in `stopped_servers`; `--keep-servers` refuses as `slot_busy` instead. `landed_check` says which check found the work landed: `reachability` or `content`
   (`landed_branch`). `--confirm-preserved` gives the commits up
-  (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`.
+  (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`. A repeat joins: a return
+  retried while the first still runs waits for it, and a return that another return of the lease overtook changes
+  nothing; both answer `joined: true`, with empty lists and no `landed_check` when they checked nothing.
 - `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
   `templating` (a get clones it into a new slot), `returning` (its return runs), `cleaning` (`bd lease clean` cleans
   it) or `abandoned` (the get, the return or the clean of it died), `dirty`, `missing`, `lease`; no `git status`. `--processes` adds the
