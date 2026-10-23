@@ -62,6 +62,30 @@ export function loadFileDiffs(subject: FileDiffSubject, policy: WhitespacePolicy
 }
 
 /**
+ * Runs `run` once the read of the subject's diffs ended (complete, or failed), at once if it has: the review reads the
+ * neighbouring commits then, so their streams never compete with the shown one for the workers of the backend and
+ * share the pairs it already diffed. Returns the cancel.
+ */
+export function whenFileDiffsEnded(subject: FileDiffSubject, policy: WhitespacePolicy, run: () => void): () => void {
+  const key = fileDiffsKey(subject, policy)
+  const ended = () => {
+    const entry = fileDiffsStore.getState().byKey.get(key)
+    return entry?.kind === "error" || (entry?.kind === "loaded" && entry.complete)
+  }
+  if (ended()) {
+    run()
+    return () => {}
+  }
+  const unsubscribe = fileDiffsStore.subscribe(() => {
+    if (ended()) {
+      unsubscribe()
+      run()
+    }
+  })
+  return unsubscribe
+}
+
+/**
  * The diff of a file of an entry: undefined when the engine has none for it, "pending" while its subject is read and
  * its content has not arrived
  */

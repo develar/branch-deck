@@ -4,7 +4,7 @@ import type { DiffFileHeader, FileDiffEvent, FileMergeEvent, FileMergeHeader, Ge
 import type { DiffContent } from "@/lib/diff/file-diff-model"
 import type { MergeSource } from "@/lib/diff/file-merge-model"
 import { getFoldLevels, setFoldLevels } from "@/lib/diff/rows"
-import { dropFileDiffsOf, fileDiffOf, fileDiffsKey, fileDiffsStore, loadFileDiffs, MAX_CACHED_SUBJECTS } from "@/stores/file-diffs"
+import { dropFileDiffsOf, fileDiffOf, fileDiffsKey, fileDiffsStore, loadFileDiffs, MAX_CACHED_SUBJECTS, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { fileMergeOf, fileMergesKey, fileMergesStore, loadFileMerges } from "@/stores/file-merges"
 import { block, mergeBlock, textDiff, textMerge } from "@/test-support/diff-blocks"
 
@@ -44,6 +44,17 @@ beforeEach(() => {
 const entryOf = (subject: Parameters<typeof fileDiffsKey>[0], policy: Parameters<typeof fileDiffsKey>[1] = "default") =>
   fileDiffsStore.getState().byKey.get(fileDiffsKey(subject, policy))
 
+/** Holds the next `get_file_diffs`: the test sends its events through `events()` and ends it with `end()` */
+function holdNextStream(): { events: () => Events; end: () => void } {
+  let channel: Events | undefined
+  let resolveCall = () => {}
+  getFileDiffs.mockImplementationOnce((_params: GetFileDiffsParams, events: Events) => {
+    channel = events
+    return new Promise(resolve => (resolveCall = () => resolve({ status: "ok", data: null })))
+  })
+  return { events: () => channel!, end: () => resolveCall() }
+}
+
 async function settle() {
   await vi.waitFor(() => {
     expect([...fileDiffsStore.getState().byKey.values()].every(entry => entry.kind !== "loading" && (entry.kind !== "loaded" || entry.complete))).toBe(true)
@@ -66,30 +77,53 @@ describe("loadFileDiffs", () => {
   })
 
   it("shows each file as its content arrives, and the late scopes of a text keep the lines it expanded", async () => {
-    let events: Events | undefined
-    let end = () => {}
-    getFileDiffs.mockImplementationOnce((_params: GetFileDiffsParams, channel: Events) => {
-      events = channel
-      return new Promise(resolve => (end = () => resolve({ status: "ok", data: null })))
-    })
+    const { events, end } = holdNextStream()
     const subject = { kind: "commit", id: "c2" } as const
     loadFileDiffs(subject, "default")
     expect(entryOf(subject)?.kind).toBe("loading")
-    events!.onmessage({ kind: "files", files: [header("a.kt"), header("b.kt")] })
+    events().onmessage({ kind: "files", files: [header("a.kt"), header("b.kt")] })
     expect([entryOf(subject), fileDiffOf(entryOf(subject), "a.kt")]).toEqual([{ kind: "loaded", files: [], complete: false }, "pending"])
 
     const text: DiffContent = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6)]) }
-    events!.onmessage({ kind: "content", index: 1, content: text })
+    events().onmessage({ kind: "content", index: 1, content: text })
     await vi.waitFor(() => expect(fileDiffOf(entryOf(subject), "b.kt")).toMatchObject({ path: "b.kt", content: text }))
     setFoldLevels(text, [3])
     const scopes = [{ startLine: 0, endLine: 10, label: "class B" }]
-    events!.onmessage({ kind: "scopes", index: 1, oldScopes: [], newScopes: scopes })
+    events().onmessage({ kind: "scopes", index: 1, oldScopes: [], newScopes: scopes })
     end()
     await settle()
     const labelled = fileDiffOf(entryOf(subject), "b.kt")
     expect(labelled !== "pending" && labelled?.content.kind === "text" ? [labelled.content.newScopes, getFoldLevels(labelled.content)] : null).toEqual([scopes, [3]])
     // the stream ended without the content of a.kt: the engine has none for it
     expect(fileDiffOf(entryOf(subject), "a.kt")).toBeUndefined()
+  })
+
+  it("tells the end of a subject's read only once its stream ended: the neighbours of a review are read after it", async () => {
+    const { events, end } = holdNextStream()
+    const shown = { kind: "commit", id: "c3" } as const
+    const neighbour = { kind: "commit", id: "c4" } as const
+    loadFileDiffs(shown, "default")
+    const prefetch = () => loadFileDiffs(neighbour, "default")
+    whenFileDiffsEnded(shown, "default", prefetch)
+    // the files and a content arrived: the shown stream still runs, the neighbour waits
+    events().onmessage({ kind: "files", files: [header("a.kt"), header("b.kt")] })
+    events().onmessage({ kind: "content", index: 0, content: BINARY })
+    await vi.waitFor(() => expect(fileDiffOf(entryOf(shown), "a.kt")).toMatchObject({ path: "a.kt" }))
+    expect(getFileDiffs.mock.calls.map(([params]) => (params as GetFileDiffsParams).source)).toEqual([shown])
+    end()
+    await settle()
+    expect(getFileDiffs.mock.calls.map(([params]) => (params as GetFileDiffsParams).source)).toEqual([shown, neighbour])
+    // an ended read runs it at once; a cancel before the end runs nothing
+    const ran: string[] = []
+    whenFileDiffsEnded(shown, "default", () => ran.push("at once"))
+    let endPending = () => {}
+    getFileDiffs.mockImplementationOnce((params: GetFileDiffsParams, channel: Events) => new Promise(resolve => (endPending = () => resolve(answer(params, channel)))))
+    const pending = { kind: "commit", id: "c5" } as const
+    loadFileDiffs(pending, "default")
+    whenFileDiffsEnded(pending, "default", () => ran.push("canceled"))()
+    endPending()
+    await settle()
+    expect(ran).toEqual(["at once"])
   })
 
   it("reads the uncommitted changes again on a refresh, and keeps the loaded ones until the new read ends", async () => {

@@ -173,9 +173,11 @@ where a dialog would cover it.
   "Loading changes…" only after 300 ms. The diffs mount with the diffs of the engine, before their texts: each file
   reads its texts by blob id as it comes into view, and its rows show plain text until the tokens of their page
   arrive. The window shows once the rows of the first screen are painted with their texts, and their tokens are there
-  or 80 ms late ([Title Bar](../repository/title-bar.spec.md)). Once the diffs are read, the diffs of the commits
-  before and after it in the list are read too, so ⌥↑/⌥↓ show them at once.
+  or 80 ms late ([Title Bar](../repository/title-bar.spec.md)). Once the diffs are all read (the stream of the shown
+  subject ended, not at its first headers), the diffs of the commits before and after it in the list are read too, so
+  ⌥↑/⌥↓ show them at once; their streams never compete with the shown one for the workers of the backend.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the files while the patch is read, settle with the diffs, and step to a commit read beside it`)
+  [@test] ../../src/stores/file-diffs.test.ts (`tells the end of a subject's read only once its stream ended: the neighbours of a review are read after it`)
 - The diffs must have the focus when the review shows its subject, so the arrows, PageUp, PageDown and Space scroll them;
   Shift+Tab goes to the tree. While another commit loads, or one without files or that cannot be read is shown, the
   review itself keeps the focus, so ⌥↑/⌥↓ and Escape still work. What the user works in beside the diffs (the commits,

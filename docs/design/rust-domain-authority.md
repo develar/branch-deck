@@ -841,7 +841,9 @@ repository». Аудит всех функций в тот же день наш�
   блобы — один `get_blob_texts` в полёте (C8, `reads the batches of a large Find one after another, at most one call in
   flight`); текст подсветки — один раз (`sends the text of a blob once: later pages go without it, and a Missing
   answer brings it back once`); поколение навигации (`NavigationGate`, `should open one file for a name clicked twice
-  before the answer, so one Back returns to the review`).
+  before the answer, so one Back returns to the review`); prefetch соседей — после конца потока показанного
+  (`whenFileDiffsEnded`, `tells the end of a subject's read only once its stream ended: the neighbours of a review are
+  read after it`); join пары в Rust не нужен: соседи находят общие пары в кэше.
 - **Lease pool:** `Returning`/`cleaning`, `worktree add --lock`.
 
 ### Пути конкурентности

@@ -22,7 +22,7 @@ import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPosition } from "@/lib/review-position"
 import { markSubWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
-import { loadFileDiffs, useFileDiffs } from "@/stores/file-diffs"
+import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { setReviewSidebar, useAppSettings } from "@/stores/settings/appSettings"
 import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 
@@ -121,18 +121,25 @@ export function CommitReview({
       markSubWindowOpenPhase("files")
     }
   }, [commitFiles])
+  useEffect(() => {
+    if (diffsLoaded) {
+      markSubWindowOpenPhase("diffs")
+    }
+  }, [diffsLoaded])
+  // the commits before and after: read once the shown one's diffs are all read, never beside its stream
   const neighbourIds = neighbours?.map(diffSubjectId).join("\n") ?? ""
   useEffect(() => {
-    if (!diffsLoaded) {
+    if (neighbourIds === "") {
       return
     }
-    markSubWindowOpenPhase("diffs")
-    for (const id of neighbourIds === "" ? [] : neighbourIds.split("\n")) {
-      const neighbour = parseDiffSubjectId(id)
-      void loadFilesOfSubject(neighbour)
-      loadFileDiffs(neighbour, policy)
-    }
-  }, [diffsLoaded, neighbourIds, policy])
+    return whenFileDiffsEnded(parseDiffSubjectId(subjectId), policy, () => {
+      for (const id of neighbourIds.split("\n")) {
+        const neighbour = parseDiffSubjectId(id)
+        void loadFilesOfSubject(neighbour)
+        loadFileDiffs(neighbour, policy)
+      }
+    })
+  }, [subjectId, neighbourIds, policy])
 
   let message: ReactNode = null
   let loaded: LoadedReview | null = null
