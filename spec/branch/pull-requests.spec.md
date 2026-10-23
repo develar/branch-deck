@@ -134,7 +134,8 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   SAML failure, or an answer with `X-GitHub-SSO: partial-results`, is "SSO required".
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`a_repository_the_token_can_not_see_is_no_access_not_an_empty_list`)
 - A token without `read:org` can't read a team's slug: an `INSUFFICIENT_SCOPES` answer is asked again once without the
-  team reviewers (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`).
+  team reviewers (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`). The missing scope is remembered for the token until it changes:
+  the next refreshes ask once, without the teams.
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`a_token_without_read_org_is_asked_again_without_teams`)
 
 ### The token

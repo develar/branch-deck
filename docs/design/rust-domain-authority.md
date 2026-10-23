@@ -824,7 +824,9 @@ repository». Аудит всех функций в тот же день наш�
   спрашивающих, ответ (и отсутствие токена) хранится `SOURCE_TTL` 30 с, состояние цепочки — короткий `std` mutex
   (`five_first_requests_at_once_run_gh_once`, `an_accepted_repository_answers_while_the_credential_of_another_is_read`).
   `retry_at` на токен в `GitHubService` сделан (`fix/remote-perf`): листинг (PR, Your Turn) с токеном под rate limit
-  не спрашивает GitHub до сброса, запись пользователя идёт (`after_a_rate_limit_no_listing_is_asked_before_its_retry_at`). `/problems` после ответа сделано (`fix/patronus-start`: `loadRobotFacts` в задаче списка и
+  не спрашивает GitHub до сброса, запись пользователя идёт (`after_a_rate_limit_no_listing_is_asked_before_its_retry_at`).
+  Scope `read:org` сделан (`fix/remote-perf`): отказ `INSUFFICIENT_SCOPES` запоминается на токен, следующее обновление —
+  один поиск без команд (C13, `a_token_without_read_org_is_asked_again_without_teams`). `/problems` после ответа сделано (`fix/patronus-start`: `loadRobotFacts` в задаче списка и
   опроса, `failingInFlight` по ключу); одна команда на пачку `loadReviewProblems` — s7.
 - **Окно review:** кэш списка range, prefetch после `complete`, блобы по одному запросу в полёте, текст подсветки
   один раз, поколение навигации, trailing refresh uncommitted с путём в ключе.

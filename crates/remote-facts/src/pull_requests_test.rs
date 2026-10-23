@@ -405,6 +405,19 @@ async fn a_token_without_read_org_is_asked_again_without_teams() {
   let queries: Vec<serde_json::Value> = fake.requests_to("POST", "/graphql").iter().map(|request| request.json()["query"].clone()).collect();
   assert_eq!(queries, [serde_json::json!(PULL_REQUESTS_QUERY), serde_json::json!(PULL_REQUESTS_QUERY_WITHOUT_TEAMS)]);
   assert!(PULL_REQUESTS_QUERY.contains("... on Team { slug }") && !PULL_REQUESTS_QUERY_WITHOUT_TEAMS.contains("Team"));
+
+  // the missing scope is remembered for the token: the next refresh asks once, without teams (3 searches, not 4)
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  assert!(matches!(result.availability, PullRequestAvailability::Available { .. }), "{result:?}");
+  let queries: Vec<serde_json::Value> = fake.requests_to("POST", "/graphql").iter().map(|request| request.json()["query"].clone()).collect();
+  assert_eq!(
+    queries,
+    [
+      serde_json::json!(PULL_REQUESTS_QUERY),
+      serde_json::json!(PULL_REQUESTS_QUERY_WITHOUT_TEAMS),
+      serde_json::json!(PULL_REQUESTS_QUERY_WITHOUT_TEAMS)
+    ]
+  );
 }
 
 #[test(tokio::test)]

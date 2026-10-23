@@ -40,10 +40,15 @@ impl std::fmt::Debug for Token {
 
 impl Token {
   pub(crate) fn key(&self) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    self.value.hash(&mut hasher);
-    hasher.finish()
+    token_key(&self.value)
   }
+}
+
+/// What a token is remembered by, never its value
+pub(crate) fn token_key(value: &str) -> u64 {
+  let mut hasher = DefaultHasher::new();
+  value.hash(&mut hasher);
+  hasher.finish()
 }
 
 /// Which sources the chain asks: all of them for the app and `bd`, only a given token in the tests

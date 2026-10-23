@@ -3,9 +3,9 @@
 //! rate limit is not asked again with that token before GitHub's `retry_at`.
 
 use crate::client::{GitHubClient, GitHubError};
-use crate::token::{Token, TokenChain};
+use crate::token::{Token, TokenChain, token_key};
 use domain_types::pull_request::TokenSource;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use sync_utils::timestamp::unix_now;
 
@@ -41,6 +41,9 @@ pub struct GitHubService {
   /// the token is not asked before then: a refresh after every sync, push and focus would extend the penalty. A
   /// single request (a write the user asked for) still goes, its limits are GitHub's to tell.
   rate_limited: Mutex<HashMap<u64, u32>>,
+  /// The tokens GitHub refused a team's slug (`INSUFFICIENT_SCOPES`, no `read:org`): a token of `GH_TOKEN` or of
+  /// git. Remembered until the token changes, so a listing asks the query without teams at once
+  without_read_org: Mutex<HashSet<u64>>,
 }
 
 impl GitHubService {
@@ -50,6 +53,7 @@ impl GitHubService {
       tokens,
       denied: Mutex::new(HashMap::new()),
       rate_limited: Mutex::new(HashMap::new()),
+      without_read_org: Mutex::new(HashSet::new()),
     }
   }
 
@@ -108,6 +112,16 @@ impl GitHubService {
       tried.push(token);
     }
     Err(failure.or_else(|| self.denied.lock().unwrap().get(repository).cloned()).unwrap_or(GitHubFailure::SignedOut))
+  }
+
+  /// Whether GitHub refused `token` a query that needs `read:org`
+  pub fn lacks_read_org(&self, token: &str) -> bool {
+    self.without_read_org.lock().unwrap().contains(&token_key(token))
+  }
+
+  /// GitHub refused `token` a query that needs `read:org` (`INSUFFICIENT_SCOPES`)
+  pub fn note_lacks_read_org(&self, token: &str) {
+    self.without_read_org.lock().unwrap().insert(token_key(token));
   }
 
   /// Until when the rate limit holds listings with `token` back, if it still does at `now`

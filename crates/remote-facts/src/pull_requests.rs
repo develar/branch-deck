@@ -93,8 +93,14 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
   let (variables, full_name_ref) = (&variables, full_name.as_str());
   let answer = github
     .ask(repository_path, &full_name, RequestKind::Listing, |client, token| async move {
+      // a token GitHub refused the teams once asks without them from then on: one search per refresh, not two
+      if github.lacks_read_org(&token) {
+        let response = client.graphql::<PullRequestsData>(&token, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, variables).await?;
+        return visible_data(response, full_name_ref, |data| data.repository.is_some());
+      }
       let mut response = client.graphql::<PullRequestsData>(&token, PULL_REQUESTS_QUERY, variables).await?;
       if response.errors.iter().any(|error| error.kind.as_deref() == Some("INSUFFICIENT_SCOPES")) {
+        github.note_lacks_read_org(&token);
         response = client.graphql::<PullRequestsData>(&token, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, variables).await?;
       }
       visible_data(response, full_name_ref, |data| data.repository.is_some())
