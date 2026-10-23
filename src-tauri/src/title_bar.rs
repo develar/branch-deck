@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::operation::operation_now;
+use domain_types::error::ApiError;
 use serde::Serialize;
 use std::sync::OnceLock;
 use tauri::{Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
@@ -250,10 +250,10 @@ pub fn stored_system_title_bar(store_json: &str) -> bool {
 #[instrument(skip(app_handle))]
 #[specta::specta]
 #[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle of a command by value")]
-pub fn restart_app(app_handle: tauri::AppHandle, system_title_bar: bool) -> Result<(), CommandError> {
+pub fn restart_app(app_handle: tauri::AppHandle, system_title_bar: bool) -> Result<(), ApiError> {
   operation_now(|| {
     use tauri_plugin_store::StoreExt;
-    let store = app_handle.store("settings.json").map_err(|e| CommandError::new(e.to_string()))?;
+    let store = app_handle.store("settings.json").map_err(|e| ApiError::internal(e.to_string()))?;
     let mut app_settings = store.get("appSettings").filter(serde_json::Value::is_object).unwrap_or_else(|| serde_json::json!({}));
     if let Some(settings) = app_settings.as_object_mut() {
       // the page saves a setting only when it is not the default
@@ -264,7 +264,7 @@ pub fn restart_app(app_handle: tauri::AppHandle, system_title_bar: bool) -> Resu
       }
     }
     store.set("appSettings", app_settings);
-    store.save().map_err(|e| CommandError::new(e.to_string()))?;
+    store.save().map_err(|e| ApiError::internal(e.to_string()))?;
     app_handle.restart();
   })
 }

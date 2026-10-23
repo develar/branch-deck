@@ -1,7 +1,7 @@
-use crate::command_error::CommandError;
 use crate::operation::operation;
 #[cfg(feature = "auto-update")]
 use crate::operation::run_blocking;
+use domain_types::error::ApiError;
 #[cfg(feature = "auto-update")]
 use tracing::info;
 use tracing::{error, instrument};
@@ -115,26 +115,26 @@ mod auto_update_impl {
 }
 
 #[cfg(feature = "auto-update")]
-fn lock_state(update_state: &SharedUpdateState) -> Result<std::sync::MutexGuard<'_, UpdateState>, CommandError> {
-  update_state.lock().map_err(|e| CommandError::new(format!("Failed to lock state: {e}")))
+fn lock_state(update_state: &SharedUpdateState) -> Result<std::sync::MutexGuard<'_, UpdateState>, ApiError> {
+  update_state.lock().map_err(|e| ApiError::internal(format!("Failed to lock state: {e}")))
 }
 
 /// Records `error` as the update status and returns it, or the lock failure if the state cannot be locked
 #[cfg(feature = "auto-update")]
-fn record_error(update_state: &SharedUpdateState, error: CommandError) -> CommandError {
+fn record_error(update_state: &SharedUpdateState, error: ApiError) -> ApiError {
   match update_state.lock() {
     Ok(mut state) => {
       state.info.status = UpdateStatus::Error(error.message.clone());
       error
     }
-    Err(_) => CommandError::new("Failed to lock state"),
+    Err(_) => ApiError::internal("Failed to lock state"),
   }
 }
 
 #[cfg(not(feature = "auto-update"))]
-fn auto_update_disabled<T>() -> Result<T, CommandError> {
+fn auto_update_disabled<T>() -> Result<T, ApiError> {
   error!("Auto-update feature is not enabled");
-  Err(CommandError::new("Auto-update feature is not enabled in this build"))
+  Err(ApiError::internal("Auto-update feature is not enabled in this build"))
 }
 
 // Always export these commands regardless of feature flags
@@ -142,7 +142,7 @@ fn auto_update_disabled<T>() -> Result<T, CommandError> {
 #[specta::specta]
 #[instrument(skip_all)]
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
-pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, CommandError> {
+pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, ApiError> {
   operation(async move {
     #[cfg(feature = "auto-update")]
     {
@@ -162,7 +162,7 @@ pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri
         }
         Err(e) => {
           error!("Update check failed: {e:?}");
-          Err(record_error(&update_state, CommandError::new(format!("Update check failed: {e:#}"))))
+          Err(record_error(&update_state, ApiError::internal(format!("Update check failed: {e:#}"))))
         }
       }
     }
@@ -177,7 +177,7 @@ pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri
 #[specta::specta]
 #[instrument(skip_all)]
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
-pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<(), CommandError> {
+pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<(), ApiError> {
   operation(async move {
     #[cfg(feature = "auto-update")]
     {
@@ -188,7 +188,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
         if state.pending_update.is_none() || state.downloaded_bytes.is_none() {
           let error = "No update available to install".to_string();
           state.info.status = UpdateStatus::Error(error.clone());
-          return Err(CommandError::new(error));
+          return Err(ApiError::internal(error));
         }
 
         state.info.status = UpdateStatus::Installing;
@@ -197,7 +197,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
 
       // Install the update: unpacking and replacing the app bundle blocks, keep it off the async runtime
       info!("Installing update");
-      if let Err(e) = run_blocking(move || update.install(&bytes).map_err(|e| CommandError::new(format!("Failed to install update: {e}")))).await {
+      if let Err(e) = run_blocking(move || update.install(&bytes).map_err(|e| ApiError::internal(format!("Failed to install update: {e}")))).await {
         error!("{e}");
         return Err(record_error(&update_state, e));
       }
@@ -219,7 +219,7 @@ pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::S
 #[instrument(skip_all)]
 #[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
 // jscpd:ignore-end
-pub async fn get_update_status(update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, CommandError> {
+pub async fn get_update_status(update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, ApiError> {
   operation(async move {
     #[cfg(feature = "auto-update")]
     {

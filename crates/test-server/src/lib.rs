@@ -31,6 +31,8 @@ pub mod updater;
 pub mod youtrack_fixtures;
 
 #[cfg(test)]
+mod api_error_contract_test;
+#[cfg(test)]
 mod command_registry_test;
 
 #[cfg(test)]

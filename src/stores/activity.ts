@@ -81,7 +81,7 @@ const ActivityEntrySchema = z.object({
    * once the user undid it, from the toast or from Activity
    */
   undo: z.object({ until: z.number(), undone: z.boolean().optional() }).optional(),
-  /** The operation of a failed command (`CommandError.operation_id`): the id its lines in the app's log carry */
+  /** The operation of a failed command (`ApiError.operation_id`): the id its lines in the app's log carry */
   operationId: z.string().optional(),
 })
 

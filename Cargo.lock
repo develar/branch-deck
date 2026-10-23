@@ -141,6 +141,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "domain-types",
+ "file-diffs",
  "git-ops",
  "history-rewrite",
  "pretty_assertions",
@@ -723,6 +724,7 @@ name = "branch-deck"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "app-api",
  "bd-cli",
  "bd-core",
  "branch-integration",
@@ -743,6 +745,7 @@ dependencies = [
  "objc2-foundation",
  "object-cache",
  "patronus",
+ "pretty_assertions",
  "remote-facts",
  "repository-model",
  "serde",
@@ -6499,6 +6502,7 @@ name = "test-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "app-api",
  "axum",
  "branch-integration",
  "cli-tools",

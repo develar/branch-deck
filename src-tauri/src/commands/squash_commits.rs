@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
@@ -16,7 +16,7 @@ pub async fn squash_commits(
   lock_waits: Waits<'_>,
   params: SquashCommitsParams,
   wait: WaitChannel,
-) -> Result<SquashCommitsResult, CommandError> {
+) -> Result<SquashCommitsResult, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| squash_commits_core(&git, &params, &RewriteOptions::waiting(lock_wait))).await
 }
@@ -25,12 +25,7 @@ pub async fn squash_commits(
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(git_executor, lock_waits, wait))]
-pub async fn restore_branch_head(
-  git_executor: State<'_, GitCommandExecutor>,
-  lock_waits: Waits<'_>,
-  params: RestoreBranchHeadParams,
-  wait: WaitChannel,
-) -> Result<(), CommandError> {
+pub async fn restore_branch_head(git_executor: State<'_, GitCommandExecutor>, lock_waits: Waits<'_>, params: RestoreBranchHeadParams, wait: WaitChannel) -> Result<(), ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| restore_branch_head_core(&git, &params, lock_wait)).await
 }

@@ -116,7 +116,7 @@ Sync pipeline (`sync_core::sync::sync_branches`):
 
 ### Operation spans
 
-Every Tauri command that can fail (`Result<_, CommandError>`) and every `bd` run is an operation with an id of its own
+Every Tauri command that can fail (`Result<_, ApiError>`) and every `bd` run is an operation with an id of its own
 (`sync_utils::operation_id::OperationId`, a ULID: 48 bits of milliseconds, 80 random bits, so the ids of the app and
 of every `bd` process never collide and sort by time). `src-tauri/src/command_scan_test.rs` checks the commands:
 - Every command has an `#[instrument]` span, its `State`, `AppHandle` and window arguments skipped. An argument that
@@ -133,7 +133,7 @@ of every `bd` process never collide and sort by time). `src-tauri/src/command_sc
   Opening the object cache is such a step: its first open runs `rev-parse --git-common-dir` and opens LMDB, so an async
   command opens it inside `run_blocking` or in a `move ||` closure a core runs off the workers
   (`an_async_command_opens_the_object_cache_off_the_async_workers`; `get_robot_stats` opened it on the worker).
-- An error leaves with the id: `CommandError.operation_id` (an error that names one keeps it), which the page records
+- An error leaves with the id: `ApiError.operation_id` (an error that names one keeps it), which the page records
   with its Activity entry (`operationId`) and in its log line of the error. An error raised outside a command has none.
 - A thread starts without a span: `spawn_blocking`, a `JoinSet`, a scoped thread and `tokio::spawn` would log their
   lines outside the operation. A closure handed to another thread goes through `sync_utils::span::in_current_span(…)`,

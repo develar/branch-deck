@@ -1,10 +1,11 @@
 //! The app's commands wait for another holder of the repository lock as long as it lives (`LockWait::WhileHeld`): the
 //! holder of a rewrite is told on its channel (`LockWaitEvent`), of a push and of an update on their progress, and the
 //! page ends a wait with `cancel_lock_wait` of that channel's id (Stop Waiting). A wait so ended changed nothing: the
-//! command answers `CommandErrorKind::LockWaitCanceled` (docs/design/git-operations.md, "Repository lock").
+//! command answers the code `canceled` (docs/design/git-operations.md, "Repository lock").
 
-use crate::command_error::{CommandError, CommandErrorKind};
 use crate::operation::run_blocking;
+use app_api::api_error::IntoApiError;
+use domain_types::error::{ApiError, ErrorCode};
 use history_rewrite::lock_wait::{LockWaitEvent, LockWaits, WaitTicket};
 use history_rewrite::repository_lock::{LockHolder, LockWait, LockWaiter};
 use std::sync::Arc;
@@ -29,24 +30,29 @@ pub fn canceled_by(ticket: &Arc<WaitTicket>) -> impl Fn() -> bool + Send + 'stat
   move || ticket.canceled()
 }
 
-/// `result` of a command whose wait `ticket` is: an error after the user stopped the wait is `LockWaitCanceled`
-pub fn canceled_kind<T>(result: Result<T, CommandError>, ticket: &WaitTicket) -> Result<T, CommandError> {
-  result.map_err(|mut error| {
-    if ticket.ended_by_cancel() {
-      error.kind = Some(CommandErrorKind::LockWaitCanceled);
+/// `result` of a command whose wait `ticket` is: an error after the user stopped the wait is `canceled`, whatever the
+/// step it ended answered
+pub fn canceled_code<T>(result: Result<T, ApiError>, ticket: &WaitTicket) -> Result<T, ApiError> {
+  result.map_err(|error| {
+    if ticket.ended_by_cancel() && error.code != ErrorCode::Canceled {
+      ApiError {
+        operation_id: error.operation_id,
+        ..ApiError::new(ErrorCode::Canceled, error.message)
+      }
+    } else {
+      error
     }
-    error
   })
 }
 
 /// Runs `step`, a rewrite of the app, on the blocking pool as `run_blocking` does, its lock waited for as long as the
 /// holder lives: `wait` hears whom it waits for, and `cancel_lock_wait` of its id ends the wait. Alone it is the
 /// operation of its command, as `run_blocking` is (`command_scan_test.rs`)
-pub async fn run_waiting<T, E, F>(lock_waits: &LockWaits, wait: WaitChannel, step: F) -> Result<T, CommandError>
+pub async fn run_waiting<T, E, F>(lock_waits: &LockWaits, wait: WaitChannel, step: F) -> Result<T, ApiError>
 where
   F: FnOnce(LockWait<'_>) -> Result<T, E> + Send + 'static,
   T: Send + 'static,
-  E: Into<CommandError> + Send + 'static,
+  E: IntoApiError + Send + 'static,
 {
   let id = wait.id();
   let ticket = register(lock_waits, id, move |holder| {
@@ -56,11 +62,11 @@ where
   });
   let step_ticket = Arc::clone(&ticket);
   let result = run_blocking(move || step(LockWait::WhileHeld(&*step_ticket))).await;
-  canceled_kind(result, &ticket)
+  canceled_code(result, &ticket)
 }
 
 /// Stops the wait of the command whose channel has the id `channel` for another holder of the repository lock: the
-/// command answers `LockWaitCanceled`, nothing changed. A wait that ended already (the lock taken) goes on
+/// command answers `canceled`, nothing changed. A wait that ended already (the lock taken) goes on
 #[tauri::command]
 #[instrument(skip(lock_waits))]
 #[specta::specta]

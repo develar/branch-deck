@@ -1,9 +1,9 @@
 //! What Rust derives of the branch table of the last sync for the page (docs/design/git-operations.md, "Repository
 //! view"): the page asks it when its robots, its remote facts or its table change, and reads it by branch
 
-use crate::command_error::CommandError;
 use crate::operation::run_blocking;
 use crate::repository_state::RepositoryStateCache;
+use domain_types::error::ApiError;
 use domain_types::repository_view::{GetRepositoryViewParams, RepositoryView, WaitLandingNeedsParams};
 use git_executor::git_command_executor::GitCommandExecutor;
 use repository_model::views::RepositoryViews;
@@ -22,7 +22,7 @@ pub async fn get_repository_view(
   repository_state: State<'_, RepositoryStateCache>,
   views: State<'_, RepositoryViews>,
   params: GetRepositoryViewParams,
-) -> Result<RepositoryView, CommandError> {
+) -> Result<RepositoryView, ApiError> {
   let (git, repository_state) = (git_executor.inner().clone(), repository_state.inner().clone());
   let views = views.inner().clone();
   run_blocking(move || {
@@ -37,7 +37,7 @@ pub async fn get_repository_view(
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, after = params.after))]
 #[specta::specta]
-pub async fn wait_landing_needs(views: State<'_, RepositoryViews>, params: WaitLandingNeedsParams) -> Result<u32, CommandError> {
+pub async fn wait_landing_needs(views: State<'_, RepositoryViews>, params: WaitLandingNeedsParams) -> Result<u32, ApiError> {
   let views = views.inner().clone();
   run_blocking(move || Ok::<_, anyhow::Error>(views.wait_landing_needs(&params))).await
 }

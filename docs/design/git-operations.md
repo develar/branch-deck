@@ -1465,7 +1465,7 @@ A sync starts with the guards of a rewrite without the merge check (`check_sync_
 for the operation markers and one `symbolic-ref HEAD`): while git is in the middle of a rebase, merge, cherry-pick or
 revert, or HEAD is detached, the history of HEAD is not the branch the user works on, and a sync would archive the
 virtual branches of the groups the half-done history lacks. It is refused before any event as `SyncDeferred`: the app
-names it by `CommandErrorKind` (`operationInProgress`, `detachedHead`) and shows an `info` toast for a sync the user
+names it by the code of its `ApiError` (`operation_in_progress`, `detached_head`, `SyncDeferred::code`) and shows an `info` toast for a sync the user
 asked for, nothing for one it started itself; `bd sync` answers `operation_in_progress` or `detached_head` (exit 4).
 
 **What a sync reads once** (`RepoFacts`, `crates/sync-core/src/repo_facts.rs`), after the guards, for every step that
@@ -2048,7 +2048,7 @@ git plumbing does not depend on.
   asks the index of accio (`symbol --format json --limit 20 --project <root> --ref <the commit of the side> -- <name>`,
   a null stdin, waited for as long as it runs: no deadline, since a loaded machine stretches a query of 0.03–3 s past
   any fixed one; a newer search of the window, Escape or Cancel of the view (`cancel_symbol_search`) or the close of
-  the window kills it, and the lookup then answers `searchCanceled`; an index that fails takes nothing from the answer
+  the window kills it, and the lookup then answers `canceled` (`SearchCanceled`); an index that fails takes nothing from the answer
   of the review, which says why), only when the index directory of the repository exists, because a query without
   an index builds one. For the hits outside the review, one `cat-file --batch-check` names the blobs of
   `<commit>:<path>` and one `cat-file --batch` reads them (`object_ids_and_types`, `blob_texts`); the texts stay in

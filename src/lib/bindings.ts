@@ -14,7 +14,7 @@ export const commands = {
 	 *  far the push is, and whom it waits for while another holder has the repository lock (as long as it lives);
 	 *  `cancel_lock_wait` of the channel's id ends that wait, with nothing pushed.
 	 */
-	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<PushOutcome, CommandError>(__TAURI_INVOKE("push_branch", { params, progress })),
+	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<PushOutcome, ApiError>(__TAURI_INVOKE("push_branch", { params, progress })),
 	/**
 	 *  Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
 	 *  branch only as the user saw it, and returns their new remote statuses; a remote branch that moved is named, with the
@@ -23,161 +23,161 @@ export const commands = {
 	 *  not built; an unapplied branch takes only the lock. `progress` receives how far the push is, and whom it waits for
 	 *  while another holder has the lock, until `cancel_lock_wait` of its id.
 	 */
-	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<PushBranchesOutcome, CommandError>(__TAURI_INVOKE("push_branches", { params, progress })),
+	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<PushBranchesOutcome, ApiError>(__TAURI_INVOKE("push_branches", { params, progress })),
 	/**
 	 *  Stops the wait of the command whose channel has the id `channel` for another holder of the repository lock: the
-	 *  command answers `LockWaitCanceled`, nothing changed. A wait that ended already (the lock taken) goes on
+	 *  command answers `canceled`, nothing changed. A wait that ended already (the lock taken) goes on
 	 */
 	cancelLockWait: (channel: number) => __TAURI_INVOKE<boolean>("cancel_lock_wait", { channel }),
 	/**
 	 *  The GitHub pull requests of the virtual branches, one GraphQL search; when GitHub can't answer, the availability says
 	 *  why
 	 */
-	getPullRequests: (params: GetPullRequestsParams) => typedError<PullRequestsResult, CommandError>(__TAURI_INVOKE("get_pull_requests", { params })),
+	getPullRequests: (params: GetPullRequestsParams) => typedError<PullRequestsResult, ApiError>(__TAURI_INVOKE("get_pull_requests", { params })),
 	/**
 	 *  Changes the base of a pull request of the virtual branches: the push of a stacked branch keeps its pull request on
 	 *  the branch it is built on
 	 */
-	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("retarget_pull_request", { params })),
+	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, ApiError>(__TAURI_INVOKE("retarget_pull_request", { params })),
 	/**
 	 *  The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
 	 *  summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 	 */
-	getNewPullRequest: (params: GetNewPullRequestParams) => typedError<NewPullRequest, CommandError>(__TAURI_INVOKE("get_new_pull_request", { params })),
+	getNewPullRequest: (params: GetNewPullRequestParams) => typedError<NewPullRequest, ApiError>(__TAURI_INVOKE("get_new_pull_request", { params })),
 	/**
 	 *  The text the "Create pull request" dialog of the whole stack starts with (`read_new_stack_pull_request`): the
 	 *  descriptions of the stack branch and its members, else the subjects of their commits; and the user of the token,
 	 *  who is the assignee
 	 */
-	getNewStackPullRequest: (params: GetNewStackPullRequestParams) => typedError<NewPullRequest, CommandError>(__TAURI_INVOKE("get_new_stack_pull_request", { params })),
+	getNewStackPullRequest: (params: GetNewStackPullRequestParams) => typedError<NewPullRequest, ApiError>(__TAURI_INVOKE("get_new_stack_pull_request", { params })),
 	/**
 	 *  Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that
 	 *  already exists is found instead
 	 */
-	createPullRequest: (params: CreatePullRequestParams) => typedError<CreatedPullRequest, CommandError>(__TAURI_INVOKE("create_pull_request", { params })),
+	createPullRequest: (params: CreatePullRequestParams) => typedError<CreatedPullRequest, ApiError>(__TAURI_INVOKE("create_pull_request", { params })),
 	/**
 	 *  Waits until GitHub has the branch just pushed (a mirror copies it a moment later): false when it still doesn't after
 	 *  `MIRROR_WAIT`
 	 */
-	waitForGithubBranch: (params: WaitForGitHubBranchParams) => typedError<boolean, CommandError>(__TAURI_INVOKE("wait_for_github_branch", { params })),
+	waitForGithubBranch: (params: WaitForGitHubBranchParams) => typedError<boolean, ApiError>(__TAURI_INVOKE("wait_for_github_branch", { params })),
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
-	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], CommandError>(__TAURI_INVOKE("search_github_users", { params })),
+	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], ApiError>(__TAURI_INVOKE("search_github_users", { params })),
 	/**
 	 *  What the rules of a branch do to the pull requests into it: the Safe Push popover warns before a push that dismisses
 	 *  the approvals of the pull request
 	 */
-	getBranchRules: (params: GetBranchRulesParams) => typedError<BranchRules, CommandError>(__TAURI_INVOKE("get_branch_rules", { params })),
+	getBranchRules: (params: GetBranchRulesParams) => typedError<BranchRules, ApiError>(__TAURI_INVOKE("get_branch_rules", { params })),
 	/**  Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed */
-	submitPullRequestReview: (params: SubmitPullRequestReviewParams) => typedError<null, CommandError>(__TAURI_INVOKE("submit_pull_request_review", { params })),
+	submitPullRequestReview: (params: SubmitPullRequestReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("submit_pull_request_review", { params })),
 	/**  The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one */
-	getPullRequestHead: (params: GetPullRequestHeadParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_pull_request_head", { params })),
+	getPullRequestHead: (params: GetPullRequestHeadParams) => typedError<string, ApiError>(__TAURI_INVOKE("get_pull_request_head", { params })),
 	/**
 	 *  Closes a pull request of the virtual branches with a comment: an ancestor a Safe Push of a stacked branch landed
 	 *  with it
 	 */
-	closePullRequest: (params: ClosePullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("close_pull_request", { params })),
+	closePullRequest: (params: ClosePullRequestParams) => typedError<null, ApiError>(__TAURI_INVOKE("close_pull_request", { params })),
 	/**
 	 *  Asks users to review an open pull request of the virtual branches (Request Review…): whom GitHub asked, and whom it
 	 *  refused with its reason
 	 */
-	requestPullRequestReviewers: (params: RequestPullRequestReviewersParams) => typedError<RequestedReviewers, CommandError>(__TAURI_INVOKE("request_pull_request_reviewers", { params })),
+	requestPullRequestReviewers: (params: RequestPullRequestReviewersParams) => typedError<RequestedReviewers, ApiError>(__TAURI_INVOKE("request_pull_request_reviewers", { params })),
 	/**  The app's own sign-in and where the token comes from, for Settings */
-	getGithubAuthStatus: () => typedError<GitHubAuthStatus, CommandError>(__TAURI_INVOKE("get_github_auth_status")),
+	getGithubAuthStatus: () => typedError<GitHubAuthStatus, ApiError>(__TAURI_INVOKE("get_github_auth_status")),
 	/**  Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it. */
-	startGithubSignIn: () => typedError<GitHubDeviceCode, CommandError>(__TAURI_INVOKE("start_github_sign_in")),
+	startGithubSignIn: () => typedError<GitHubDeviceCode, ApiError>(__TAURI_INVOKE("start_github_sign_in")),
 	/**
 	 *  Waits until the user entered the code of `start_github_sign_in` on GitHub, keeps the token and tells every window;
 	 *  the login. A newer sign-in or `cancel_github_sign_in` ends it with "canceled".
 	 */
-	waitGithubSignIn: () => typedError<string, CommandError>(__TAURI_INVOKE("wait_github_sign_in")),
+	waitGithubSignIn: () => typedError<string, ApiError>(__TAURI_INVOKE("wait_github_sign_in")),
 	/**  Ends the wait of the sign-in in progress, if any */
-	cancelGithubSignIn: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_github_sign_in")),
+	cancelGithubSignIn: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_github_sign_in")),
 	/**
 	 *  Removes the token of the app's own sign-in and tells every window; GitHub keeps the authorization until it is
 	 *  revoked there
 	 */
-	signOutOfGithub: () => typedError<null, CommandError>(__TAURI_INVOKE("sign_out_of_github")),
+	signOutOfGithub: () => typedError<null, ApiError>(__TAURI_INVOKE("sign_out_of_github")),
 	/**  The YouTrack sign-in and where the token comes from, for Settings and the popovers */
-	getYoutrackAuthStatus: () => typedError<YouTrackAuthStatus, CommandError>(__TAURI_INVOKE("get_youtrack_auth_status")),
+	getYoutrackAuthStatus: () => typedError<YouTrackAuthStatus, ApiError>(__TAURI_INVOKE("get_youtrack_auth_status")),
 	/**
 	 *  Starts the browser sign-in to the YouTrack at `url`: the Hub page to open. `wait_youtrack_sign_in` waits for the
 	 *  browser to come back.
 	 */
-	startYoutrackSignIn: (url: string) => typedError<YouTrackSignIn, CommandError>(__TAURI_INVOKE("start_youtrack_sign_in", { url })),
+	startYoutrackSignIn: (url: string) => typedError<YouTrackSignIn, ApiError>(__TAURI_INVOKE("start_youtrack_sign_in", { url })),
 	/**
 	 *  Waits until the browser came back from the Hub page of `start_youtrack_sign_in`, then keeps the tokens and tells
 	 *  every window; the user. A newer sign-in or `cancel_youtrack_sign_in` ends it with "canceled".
 	 */
-	waitYoutrackSignIn: () => typedError<YouTrackUser, CommandError>(__TAURI_INVOKE("wait_youtrack_sign_in")),
+	waitYoutrackSignIn: () => typedError<YouTrackUser, ApiError>(__TAURI_INVOKE("wait_youtrack_sign_in")),
 	/**  Ends the wait of the sign-in in progress, if any */
-	cancelYoutrackSignIn: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_youtrack_sign_in")),
+	cancelYoutrackSignIn: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_youtrack_sign_in")),
 	/**  Keeps a token the user created in YouTrack (Profile → Account Security), once YouTrack accepted it */
-	saveYoutrackToken: (url: string, token: string) => typedError<YouTrackUser, CommandError>(__TAURI_INVOKE("save_youtrack_token", { url, token })),
+	saveYoutrackToken: (url: string, token: string) => typedError<YouTrackUser, ApiError>(__TAURI_INVOKE("save_youtrack_token", { url, token })),
 	/**
 	 *  Removes the token of the app's own sign-in. The Hub keeps the authorization until it is revoked there (Account
 	 *  Security of the YouTrack profile).
 	 */
-	signOutOfYoutrack: () => typedError<null, CommandError>(__TAURI_INVOKE("sign_out_of_youtrack")),
+	signOutOfYoutrack: () => typedError<null, ApiError>(__TAURI_INVOKE("sign_out_of_youtrack")),
 	/**  The issue of `key` for the popover, from the YouTrack the token is for */
-	getYoutrackIssue: (key: string) => typedError<YouTrackIssueAnswer, CommandError>(__TAURI_INVOKE("get_youtrack_issue", { key })),
+	getYoutrackIssue: (key: string) => typedError<YouTrackIssueAnswer, ApiError>(__TAURI_INVOKE("get_youtrack_issue", { key })),
 	/**
 	 *  Sets the state field of the issue (Mark Fixed, and its undo with `expected`, the value the change set); the
 	 *  previous value
 	 */
-	setYoutrackIssueState: (key: string, state: string, expected: string | null) => typedError<YouTrackStateChange, CommandError>(__TAURI_INVOKE("set_youtrack_issue_state", { key, state, expected })),
+	setYoutrackIssueState: (key: string, state: string, expected: string | null) => typedError<YouTrackStateChange, ApiError>(__TAURI_INVOKE("set_youtrack_issue_state", { key, state, expected })),
 	/**
 	 *  The pull requests of others that wait for the user's review (requested by name), one GraphQL search; when GitHub
 	 *  can't answer, the availability says why. A known `github_repository` skips resolving it.
 	 */
-	getReviewRequests: (params: GetReviewRequestsParams) => typedError<ReviewRequestsResult, CommandError>(__TAURI_INVOKE("get_review_requests", { params })),
+	getReviewRequests: (params: GetReviewRequestsParams) => typedError<ReviewRequestsResult, ApiError>(__TAURI_INVOKE("get_review_requests", { params })),
 	/**
 	 *  Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both
 	 *  commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call of the
 	 *  same window, `cancel_review_fetch` of it, or its close kills the fetch.
 	 */
-	fetchReviewHead: (params: FetchReviewHeadParams, progress: Channel<TransferProgress>) => typedError<ReviewRange, CommandError>(__TAURI_INVOKE("fetch_review_head", { params, progress })),
+	fetchReviewHead: (params: FetchReviewHeadParams, progress: Channel<TransferProgress>) => typedError<ReviewRange, ApiError>(__TAURI_INVOKE("fetch_review_head", { params, progress })),
 	/**  Kills the review fetch of the calling window in flight, if any */
-	cancelReviewFetch: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_review_fetch")),
+	cancelReviewFetch: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_review_fetch")),
 	/**  Deletes the review refs of the pull requests not in `keep` (one CAS transaction) */
-	pruneReviewRefs: (params: PruneReviewRefsParams) => typedError<null, CommandError>(__TAURI_INVOKE("prune_review_refs", { params })),
+	pruneReviewRefs: (params: PruneReviewRefsParams) => typedError<null, ApiError>(__TAURI_INVOKE("prune_review_refs", { params })),
 	/**
 	 *  The changed files of `base..head` with their line counts, from one `diff-tree` of the two commits
 	 *  (`RangeFilesCache::read`), kept in memory
 	 */
-	getRangeFiles: (params: GetRangeParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_range_files", { params })),
+	getRangeFiles: (params: GetRangeParams) => typedError<CommitFiles, ApiError>(__TAURI_INVOKE("get_range_files", { params })),
 	/**
 	 *  The parts of a branch for its review window: each branch of its stack from the root, with its base, head and
 	 *  commits, from one `for-each-ref` and one `git log`; the `log` only for tips and a baseline the memo hasn't seen
 	 */
-	getBranchReview: (params: GetBranchReviewParams) => typedError<BranchReview, CommandError>(__TAURI_INVOKE("get_branch_review", { params })),
+	getBranchReview: (params: GetBranchReviewParams) => typedError<BranchReview, ApiError>(__TAURI_INVOKE("get_branch_review", { params })),
 	/**
 	 *  The code owners of paths by the `OWNERSHIP` files of the baseline, from one `cat-file --batch`; a path without an
 	 *  owner is left out
 	 */
-	getFileOwners: (params: GetFileOwnersParams) => typedError<FileOwner[], CommandError>(__TAURI_INVOKE("get_file_owners", { params })),
+	getFileOwners: (params: GetFileOwnersParams) => typedError<FileOwner[], ApiError>(__TAURI_INVOKE("get_file_owners", { params })),
 	/**
 	 *  Reads in the background what the review window of a branch asks for first: its parts (`get_branch_review`) and the
 	 *  files of `part` (one `diff-tree`, `RangeFilesCache::read`), so the window finds them in the caches. Answers at once;
 	 *  a failure is the window's to tell
 	 */
-	prefetchBranchReview: (params: PrefetchBranchReviewParams) => typedError<null, CommandError>(__TAURI_INVOKE("prefetch_branch_review", { params })),
+	prefetchBranchReview: (params: PrefetchBranchReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("prefetch_branch_review", { params })),
 	/**
 	 *  The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
 	 *  `since`. When Patronus can't be asked, the availability says why.
 	 */
-	getPatronusRobots: (params: GetPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("get_patronus_robots", { params })),
+	getPatronusRobots: (params: GetPatronusRobotsParams) => typedError<PatronusRobotsResult, ApiError>(__TAURI_INVOKE("get_patronus_robots", { params })),
 	/**
 	 *  The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
 	 *  the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
 	 *  before the runs are read
 	 */
-	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, CommandError>(__TAURI_INVOKE("get_robot_stats", { params, events })),
+	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, ApiError>(__TAURI_INVOKE("get_robot_stats", { params, events })),
 	/**  The robots of `params.robots` whose status changed since the app saw it; the others are not in the result */
-	pollPatronusRobots: (params: PollPatronusRobotsParams) => typedError<PatronusRobotsResult, CommandError>(__TAURI_INVOKE("poll_patronus_robots", { params })),
+	pollPatronusRobots: (params: PollPatronusRobotsParams) => typedError<PatronusRobotsResult, ApiError>(__TAURI_INVOKE("poll_patronus_robots", { params })),
 	/**  The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover */
-	getPatronusRobotDetails: (params: PatronusRobotParams) => typedError<PatronusRobotDetails, CommandError>(__TAURI_INVOKE("get_patronus_robot_details", { params })),
+	getPatronusRobotDetails: (params: PatronusRobotParams) => typedError<PatronusRobotDetails, ApiError>(__TAURI_INVOKE("get_patronus_robot_details", { params })),
 	/**  The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default */
-	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, CommandError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
+	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, ApiError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
 	/**
 	 *  Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
 	 *  stack; the frontend pushes it first. The whole sequence is `RemoteActions::start_robot` (`start_guard`), which the test
@@ -185,54 +185,54 @@ export const commands = {
 	 *  landed whole, not built, a robot on its last commit or one that lands a part of it), the landing gate with the
 	 *  commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot.
 	 */
-	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("start_patronus_robot", { params })),
+	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, ApiError>(__TAURI_INVOKE("start_patronus_robot", { params })),
 	/**
 	 *  What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`trial_check::landing_gate`): the
 	 *  refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository, with
 	 *  the commits merged Safe Pushes landed as the repository view names them on the robots Rust reads
 	 *  (`RemoteActions::check_landing`; none off Space, or when the Space repository can't be read)
 	 */
-	checkLandingGate: (params: LandingGateParams) => typedError<LandingCheck, CommandError>(__TAURI_INVOKE("check_landing_gate", { params })),
+	checkLandingGate: (params: LandingGateParams) => typedError<LandingCheck, ApiError>(__TAURI_INVOKE("check_landing_gate", { params })),
 	/**
 	 *  Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
 	 *  of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
 	 */
-	checkTargetConflict: (params: TargetConflictParams) => typedError<TargetCheck, CommandError>(__TAURI_INVOKE("check_target_conflict", { params })),
+	checkTargetConflict: (params: TargetConflictParams) => typedError<TargetCheck, ApiError>(__TAURI_INVOKE("check_target_conflict", { params })),
 	/**
 	 *  Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
 	 *  a start (`RemoteActions::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
 	 */
-	restartPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("restart_patronus_robot", { params })),
+	restartPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, ApiError>(__TAURI_INVOKE("restart_patronus_robot", { params })),
 	/**  Asks Patronus to cancel a running robot of the user's list (`RemoteActions::cancel_robot`); it answers it canceling */
-	cancelPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("cancel_patronus_robot", { params })),
+	cancelPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, ApiError>(__TAURI_INVOKE("cancel_patronus_robot", { params })),
 	/**  The current status of one robot, read right before a push into its branch */
-	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, CommandError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),
+	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, ApiError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),
 	/**  The error problems of a finished robot, once per session: the chip names a missing review */
-	getPatronusRobotProblems: (params: PatronusRobotParams) => typedError<PatronusProblem[], CommandError>(__TAURI_INVOKE("get_patronus_robot_problems", { params })),
+	getPatronusRobotProblems: (params: PatronusRobotParams) => typedError<PatronusProblem[], ApiError>(__TAURI_INVOKE("get_patronus_robot_problems", { params })),
 	/**
 	 *  Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
 	 *  with the failed builds, their tests and the log tails of the `teamcity` CLI
 	 */
-	getRobotFailure: (params: GetRobotFailureParams) => typedError<RobotFailureReport, CommandError>(__TAURI_INVOKE("get_robot_failure", { params })),
+	getRobotFailure: (params: GetRobotFailureParams) => typedError<RobotFailureReport, ApiError>(__TAURI_INVOKE("get_robot_failure", { params })),
 	/**
 	 *  Which commits of the branches a running robot covers, by the hashes of the checked-out branch: the commit rows mark
 	 *  the commits added or changed since it started (`robot_subject_commit_map`). No commits for a stack without members.
 	 */
-	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, CommandError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
+	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
 	 *  The view of the table the last sync of the repository finished: what the robots land, landed and hold
 	 *  (`patronus_view`), with the page's robots, their matches and what the page knows of the remote branches. Git only
 	 *  for robots the hashes and the memo don't answer; the landing needs of new inputs are computed in the background,
 	 *  through the object cache of the repository
 	 */
-	getRepositoryView: (params: GetRepositoryViewParams) => typedError<RepositoryView, CommandError>(__TAURI_INVOKE("get_repository_view", { params })),
+	getRepositoryView: (params: GetRepositoryViewParams) => typedError<RepositoryView, ApiError>(__TAURI_INVOKE("get_repository_view", { params })),
 	/**
 	 *  Resolves once no computation of the landing needs of the repository runs, or one finished after the view the page
 	 *  has (`after`): the count of finished computations, which tells the page to ask the view again
 	 */
-	waitLandingNeeds: (params: WaitLandingNeedsParams) => typedError<number, CommandError>(__TAURI_INVOKE("wait_landing_needs", { params })),
+	waitLandingNeeds: (params: WaitLandingNeedsParams) => typedError<number, ApiError>(__TAURI_INVOKE("wait_landing_needs", { params })),
 	/**  Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known */
-	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], CommandError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
+	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], ApiError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
 	/**
 	 *  Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
 	 *  Patronus judges the approvals of the pull request the robot would start from. One `git log` for the commits of all
@@ -240,251 +240,251 @@ export const commands = {
 	 *  (`remote_facts::review_readiness`), one after another; a failure of Patronus backs the others off. The answers are in
 	 *  the order of `params.branches`, each with its input.
 	 */
-	getBranchReviewReadiness: (params: GetBranchReviewReadinessParams) => typedError<BranchReviewReadiness[], CommandError>(__TAURI_INVOKE("get_branch_review_readiness", { params })),
+	getBranchReviewReadiness: (params: GetBranchReviewReadinessParams) => typedError<BranchReviewReadiness[], ApiError>(__TAURI_INVOKE("get_branch_review_readiness", { params })),
 	/**
 	 *  Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the
 	 *  branch: Patronus links the robot to the pull request only from its comment. The comment of the user's own branch
 	 *  comes after the checks of `start_patronus_robot` (`RemoteActions::check_start_from_pull_request`), which the test
 	 *  server runs too. The posted comment; the bot answers with a reaction (`read_patronus_command_reply`).
 	 */
-	postPatronusCommand: (params: PostPatronusCommandParams) => typedError<PatronusCommandComment, CommandError>(__TAURI_INVOKE("post_patronus_command", { params })),
+	postPatronusCommand: (params: PostPatronusCommandParams) => typedError<PatronusCommandComment, ApiError>(__TAURI_INVOKE("post_patronus_command", { params })),
 	/**
 	 *  The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
 	 *  of origin
 	 */
-	getPatronusTargetBranch: (params: GetPatronusTargetBranchParams) => typedError<string | null, CommandError>(__TAURI_INVOKE("get_patronus_target_branch", { params })),
+	getPatronusTargetBranch: (params: GetPatronusTargetBranchParams) => typedError<string | null, ApiError>(__TAURI_INVOKE("get_patronus_target_branch", { params })),
 	/**  How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason */
-	readPatronusCommandReply: (params: ReadPatronusCommandReplyParams) => typedError<PatronusCommandReply, CommandError>(__TAURI_INVOKE("read_patronus_command_reply", { params })),
+	readPatronusCommandReply: (params: ReadPatronusCommandReplyParams) => typedError<PatronusCommandReply, ApiError>(__TAURI_INVOKE("read_patronus_command_reply", { params })),
 	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
-	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("sync_branches", { params, progress })),
+	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("sync_branches", { params, progress })),
 	/**
 	 *  The fingerprint of what a sync reads (`sync_inputs_fingerprint`): the window syncs on focus only when it changed
 	 *  since the last sync
 	 */
-	getSyncInputsFingerprint: (params: SyncInputsParams) => typedError<string, CommandError>(__TAURI_INVOKE("get_sync_inputs_fingerprint", { params })),
+	getSyncInputsFingerprint: (params: SyncInputsParams) => typedError<string, ApiError>(__TAURI_INVOKE("get_sync_inputs_fingerprint", { params })),
 	/**  `branchdeck.branchPrefix` with whether the repository's own config sets it */
-	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<GitBranchPrefix, CommandError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
+	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<GitBranchPrefix, ApiError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
 	/**  Git, the git identity and a branch prefix suggestion, checked when the window opens and on every repository change */
-	checkGitSetup: (params: GetBranchPrefixParams) => typedError<GitSetup, CommandError>(__TAURI_INVOKE("check_git_setup", { params })),
+	checkGitSetup: (params: GetBranchPrefixParams) => typedError<GitSetup, ApiError>(__TAURI_INVOKE("check_git_setup", { params })),
 	/**  The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository */
-	getRepositoryConfig: (params: GetRepositoryConfigParams) => typedError<RepositoryConfig, CommandError>(__TAURI_INVOKE("get_repository_config", { params })),
+	getRepositoryConfig: (params: GetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("get_repository_config", { params })),
 	/**
 	 *  Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
 	 *  read again
 	 */
-	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig, CommandError>(__TAURI_INVOKE("set_repository_config", { params })),
+	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("set_repository_config", { params })),
 	/**  Opens a native file dialog to browse for a git repository */
-	browseRepository: () => typedError<BrowseResult, CommandError>(__TAURI_INVOKE("browse_repository")),
+	browseRepository: () => typedError<BrowseResult, ApiError>(__TAURI_INVOKE("browse_repository")),
 	/**
 	 *  Validates that a repository path exists and is a git repository
 	 *  Returns empty string if valid, error message if invalid
 	 */
-	validateRepositoryPath: (params: ValidateRepositoryPathParams) => typedError<string, CommandError>(__TAURI_INVOKE("validate_repository_path", { params })),
-	checkForUpdates: () => typedError<UpdateInfo, CommandError>(__TAURI_INVOKE("check_for_updates")),
-	getUpdateStatus: () => typedError<UpdateInfo, CommandError>(__TAURI_INVOKE("get_update_status")),
-	installUpdate: () => typedError<null, CommandError>(__TAURI_INVOKE("install_update")),
+	validateRepositoryPath: (params: ValidateRepositoryPathParams) => typedError<string, ApiError>(__TAURI_INVOKE("validate_repository_path", { params })),
+	checkForUpdates: () => typedError<UpdateInfo, ApiError>(__TAURI_INVOKE("check_for_updates")),
+	getUpdateStatus: () => typedError<UpdateInfo, ApiError>(__TAURI_INVOKE("get_update_status")),
+	installUpdate: () => typedError<null, ApiError>(__TAURI_INVOKE("install_update")),
 	/**
 	 *  Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
 	 *  on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
 	 *  settled its content (`sub_window_ready`).
 	 */
-	openSubWindow: (params: OpenSubWindowParams) => typedError<null, CommandError>(__TAURI_INVOKE("open_sub_window", { params })),
+	openSubWindow: (params: OpenSubWindowParams) => typedError<null, ApiError>(__TAURI_INVOKE("open_sub_window", { params })),
 	/**
 	 *  The page of the calling sub-window loaded: it gets the data of an open that came while it loaded, and the window
 	 *  shows once the page settled its content, at most `CONTENT_BUDGET` from now
 	 */
-	subWindowLoaded: () => typedError<SubWindowUpdate | null, CommandError>(__TAURI_INVOKE("sub_window_loaded")),
+	subWindowLoaded: () => typedError<SubWindowUpdate | null, ApiError>(__TAURI_INVOKE("sub_window_loaded")),
 	/**
 	 *  The page of the calling sub-window settled the content of the open `open_id`: the window shows if that is the latest
 	 *  open and the window is still hidden
 	 */
-	subWindowReady: (openId: number) => typedError<null, CommandError>(__TAURI_INVOKE("sub_window_ready", { openId })),
+	subWindowReady: (openId: number) => typedError<null, ApiError>(__TAURI_INVOKE("sub_window_ready", { openId })),
 	/**
 	 *  The window manager's menu of the window (Move, Resize, Always on Top, Close…), as a right click on a native title bar
 	 *  opens it: the page calls it for a right click on the empty parts of its title bar (`WindowTitleBar`). A sync command,
 	 *  so it runs on the main thread, where GDK and Win32 menus live.
 	 */
-	showWindowMenu: () => typedError<null, CommandError>(__TAURI_INVOKE("show_window_menu")),
+	showWindowMenu: () => typedError<null, ApiError>(__TAURI_INVOKE("show_window_menu")),
 	/**
 	 *  Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
 	 *  (`init_title_bar`). The value is written to `settings.json` here, before the restart: the page saves its settings
 	 *  debounced, and the new process reads the file (`stored_system_title_bar`).
 	 */
-	restartApp: (systemTitleBar: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("restart_app", { systemTitleBar })),
+	restartApp: (systemTitleBar: boolean) => typedError<null, ApiError>(__TAURI_INVOKE("restart_app", { systemTitleBar })),
 	/**
 	 *  Moves commits to another branch by setting (or removing) the `(branch)` prefix of their subjects in one history
 	 *  rewrite; the working tree is not touched.
 	 */
-	moveCommitsToBranch: (params: MoveCommitsParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("move_commits_to_branch", { params, wait })),
+	moveCommitsToBranch: (params: MoveCommitsParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("move_commits_to_branch", { params, wait })),
 	/**
 	 *  The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
 	 *  cache only, no repository lock). One search at a time: a new one cancels the one before.
 	 */
-	findConflictFix: (params: FindConflictFixParams) => typedError<ConflictFix, CommandError>(__TAURI_INVOKE("find_conflict_fix", { params })),
+	findConflictFix: (params: FindConflictFixParams) => typedError<ConflictFix, ApiError>(__TAURI_INVOKE("find_conflict_fix", { params })),
 	/**  Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts. */
 	cancelConflictFix: () => __TAURI_INVOKE<void>("cancel_conflict_fix"),
 	/**  Applies a component of a fix as one regroup under the repository lock, or says it is stale. */
-	applyConflictFix: (params: ApplyConflictFixParams, wait: Channel<LockWaitEvent>) => typedError<AppliedConflictFix, CommandError>(__TAURI_INVOKE("apply_conflict_fix", { params, wait })),
+	applyConflictFix: (params: ApplyConflictFixParams, wait: Channel<LockWaitEvent>) => typedError<AppliedConflictFix, ApiError>(__TAURI_INVOKE("apply_conflict_fix", { params, wait })),
 	/**
 	 *  Renames a branch, and its name in the prefixes of the branches stacked on it and in the issue groups, in one history
 	 *  rewrite.
 	 */
-	renameBranch: (params: RenameBranchParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("rename_branch", { params, wait })),
+	renameBranch: (params: RenameBranchParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("rename_branch", { params, wait })),
 	/**  Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite. */
-	restackBranch: (params: RestackBranchParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("restack_branch", { params, wait })),
+	restackBranch: (params: RestackBranchParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("restack_branch", { params, wait })),
 	/**
 	 *  Parks branches with their notes, or changes the notes of parked ones: kept local, never pushed, until unparked. No
 	 *  rewrite: one commit of the store `refs/branch-deck/parked`, under the repository lock.
 	 */
-	parkBranches: (params: ParkBranchesParams, wait: Channel<LockWaitEvent>) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("park_branches", { params, wait })),
+	parkBranches: (params: ParkBranchesParams, wait: Channel<LockWaitEvent>) => typedError<ParkResult, ApiError>(__TAURI_INVOKE("park_branches", { params, wait })),
 	/**  Unparks branches: they can be pushed and landed again. */
-	unparkBranches: (params: UnparkBranchesParams, wait: Channel<LockWaitEvent>) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("unpark_branches", { params, wait })),
+	unparkBranches: (params: UnparkBranchesParams, wait: Channel<LockWaitEvent>) => typedError<ParkResult, ApiError>(__TAURI_INVOKE("unpark_branches", { params, wait })),
 	/**
 	 *  Whether a stacked branch builds on the baseline without its parent: a trial build of it as a root, objects only,
 	 *  through the object cache of the repository.
 	 */
-	getStackIndependence: (params: StackIndependenceParams) => typedError<StackIndependence, CommandError>(__TAURI_INVOKE("get_stack_independence", { params })),
+	getStackIndependence: (params: StackIndependenceParams) => typedError<StackIndependence, ApiError>(__TAURI_INVOKE("get_stack_independence", { params })),
 	/**
 	 *  Moves back what a move, a rename or a restack wrote (its `undo_token`): HEAD and the issue groups in one ref
 	 *  transaction with compare-and-swap.
 	 */
-	undoRegroup: (params: UndoRegroupParams, wait: Channel<LockWaitEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("undo_regroup", { params, wait })),
+	undoRegroup: (params: UndoRegroupParams, wait: Channel<LockWaitEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("undo_regroup", { params, wait })),
 	/**
 	 *  Adds an issue reference to commits in a branch that don't already have one.
 	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
 	 */
-	addIssueReferenceToCommits: (params: AddIssueReferenceParams, wait: Channel<LockWaitEvent>) => typedError<AddIssueReferenceResult, CommandError>(__TAURI_INVOKE("add_issue_reference_to_commits", { params, wait })),
+	addIssueReferenceToCommits: (params: AddIssueReferenceParams, wait: Channel<LockWaitEvent>) => typedError<AddIssueReferenceResult, ApiError>(__TAURI_INVOKE("add_issue_reference_to_commits", { params, wait })),
 	/**
 	 *  Replaces the messages of commits ahead of the baseline in one regroup (`bd reword`); the commits after the oldest one
 	 *  are recreated with the same trees, and the undo token restores HEAD.
 	 */
-	reword: (params: RewordRequest, wait: Channel<LockWaitEvent>) => typedError<RewordResult, CommandError>(__TAURI_INVOKE("reword", { params, wait })),
+	reword: (params: RewordRequest, wait: Channel<LockWaitEvent>) => typedError<RewordResult, ApiError>(__TAURI_INVOKE("reword", { params, wait })),
 	/**
 	 *  Squashes commits of the current branch into the oldest of them in one history rewrite that keeps HEAD's tree; the
 	 *  index and the working tree are not touched.
 	 */
-	squashCommits: (params: SquashCommitsParams, wait: Channel<LockWaitEvent>) => typedError<SquashCommitsResult, CommandError>(__TAURI_INVOKE("squash_commits", { params, wait })),
+	squashCommits: (params: SquashCommitsParams, wait: Channel<LockWaitEvent>) => typedError<SquashCommitsResult, ApiError>(__TAURI_INVOKE("squash_commits", { params, wait })),
 	/**  Undoes a squash: moves the current branch back to its previous commit, if it was not moved since */
-	restoreBranchHead: (params: RestoreBranchHeadParams, wait: Channel<LockWaitEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("restore_branch_head", { params, wait })),
+	restoreBranchHead: (params: RestoreBranchHeadParams, wait: Channel<LockWaitEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("restore_branch_head", { params, wait })),
 	/**  The `fixup!`, `squash!` and `amend!` commits ahead of the baseline, grouped by the commit each one is squashed into */
-	getAutosquashPlan: (params: GetAutosquashPlanParams) => typedError<AutosquashPlan, CommandError>(__TAURI_INVOKE("get_autosquash_plan", { params })),
+	getAutosquashPlan: (params: GetAutosquashPlanParams) => typedError<AutosquashPlan, ApiError>(__TAURI_INVOKE("get_autosquash_plan", { params })),
 	/**
 	 *  Squashes fixup commits into their targets in one history rewrite that keeps HEAD's tree; the index and the working
 	 *  tree are not touched.
 	 */
-	squashFixupCommits: (params: SquashFixupsParams, wait: Channel<LockWaitEvent>) => typedError<SquashFixupsResult, CommandError>(__TAURI_INVOKE("squash_fixup_commits", { params, wait })),
+	squashFixupCommits: (params: SquashFixupsParams, wait: Channel<LockWaitEvent>) => typedError<SquashFixupsResult, ApiError>(__TAURI_INVOKE("squash_fixup_commits", { params, wait })),
 	/**
 	 *  Fetches the baseline and brings the current branch onto it, keeping unrelated local changes; a conflict or a block
 	 *  is a result with nothing changed. `progress` receives the step the update is at, how far the fetch is, and whom
 	 *  the update waits for while another holder has the repository lock (as long as it lives); `cancel_lock_wait` of the
 	 *  channel's id ends that wait, with nothing changed.
 	 */
-	updateProject: (params: UpdateProjectParams, progress: Channel<UpdateProgress>) => typedError<UpdateProjectResult, CommandError>(__TAURI_INVOKE("update_project", { params, progress })),
+	updateProject: (params: UpdateProjectParams, progress: Channel<UpdateProgress>) => typedError<UpdateProjectResult, ApiError>(__TAURI_INVOKE("update_project", { params, progress })),
 	/**
 	 *  Fetches only the baseline's remote branch, without updating the checked out branch; `progress` receives how far the
 	 *  fetch is
 	 */
-	fetchBaseline: (params: FetchBaselineParams, progress: Channel<TransferProgress>) => typedError<FetchBaselineResult, CommandError>(__TAURI_INVOKE("fetch_baseline", { params, progress })),
+	fetchBaseline: (params: FetchBaselineParams, progress: Channel<TransferProgress>) => typedError<FetchBaselineResult, ApiError>(__TAURI_INVOKE("fetch_baseline", { params, progress })),
 	/**  Clears the report of the commits that landed with an update; the next update starts a new one */
-	dismissLanded: (repositoryPath: string) => typedError<null, CommandError>(__TAURI_INVOKE("dismiss_landed", { repositoryPath })),
+	dismissLanded: (repositoryPath: string) => typedError<null, ApiError>(__TAURI_INVOKE("dismiss_landed", { repositoryPath })),
 	/**
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
 	 */
-	amendUncommittedToBranch: (params: AmendUncommittedToBranchParams, wait: Channel<LockWaitEvent>) => typedError<AmendCommandResult, CommandError>(__TAURI_INVOKE("amend_uncommitted_to_branch", { params, wait })),
+	amendUncommittedToBranch: (params: AmendUncommittedToBranchParams, wait: Channel<LockWaitEvent>) => typedError<AmendCommandResult, ApiError>(__TAURI_INVOKE("amend_uncommitted_to_branch", { params, wait })),
 	/**
 	 *  Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
 	 *  logged-out `claude` and its failures are outcomes
 	 */
-	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, CommandError>(__TAURI_INVOKE("suggest_branch_names", { params })),
-	getArchivedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchPrefix, branchName })),
-	getUnappliedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchPrefix, branchName })),
-	deleteUnappliedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_unapplied_branch", { params })),
-	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_archived_branch", { params })),
-	unapplyBranch: (params: UnapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params, wait })),
-	undoUnapplyBranch: (params: UndoUnapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneUnapply, CommandError>(__TAURI_INVOKE("undo_unapply_branch", { params, wait })),
-	reapplyBranch: (params: ReapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<ReapplyBranchResult, CommandError>(__TAURI_INVOKE("reapply_branch", { params, wait })),
-	undoReapplyBranch: (params: UndoReapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneReapply, CommandError>(__TAURI_INVOKE("undo_reapply_branch", { params, wait })),
+	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, ApiError>(__TAURI_INVOKE("suggest_branch_names", { params })),
+	getArchivedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchPrefix, branchName })),
+	getUnappliedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchPrefix, branchName })),
+	deleteUnappliedBranch: (params: DeleteArchivedBranchParams) => typedError<null, ApiError>(__TAURI_INVOKE("delete_unapplied_branch", { params })),
+	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, ApiError>(__TAURI_INVOKE("delete_archived_branch", { params })),
+	unapplyBranch: (params: UnapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<UnapplyBranchResult, ApiError>(__TAURI_INVOKE("unapply_branch", { params, wait })),
+	undoUnapplyBranch: (params: UndoUnapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneUnapply, ApiError>(__TAURI_INVOKE("undo_unapply_branch", { params, wait })),
+	reapplyBranch: (params: ReapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<ReapplyBranchResult, ApiError>(__TAURI_INVOKE("reapply_branch", { params, wait })),
+	undoReapplyBranch: (params: UndoReapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneReapply, ApiError>(__TAURI_INVOKE("undo_reapply_branch", { params, wait })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
-	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, CommandError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
+	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, ApiError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
 	/**  The changed files of a commit with their line counts, from the object cache or one `diff-tree` */
-	getCommitFiles: (params: GetCommitFilesParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_commit_files", { params })),
+	getCommitFiles: (params: GetCommitFilesParams) => typedError<CommitFiles, ApiError>(__TAURI_INVOKE("get_commit_files", { params })),
 	/**
 	 *  The changed files of many commits (in the order of the ids), with one `diff-tree` for the ids the cache misses; the
 	 *  meta line of every list. The first view of a commit then needs no `diff-tree` (`get_file_diffs` reads the list here)
 	 */
-	getCommitsFiles: (params: GetCommitsFilesParams) => typedError<CommitFiles[], CommandError>(__TAURI_INVOKE("get_commits_files", { params })),
+	getCommitsFiles: (params: GetCommitsFilesParams) => typedError<CommitFiles[], ApiError>(__TAURI_INVOKE("get_commits_files", { params })),
 	/**
 	 *  The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
 	 *  the files, then the content of each file as it is known, the files in view (`priority_paths`) first. Through the
 	 *  memory cache of the app and the `file_diff` store, else one list and one `cat-file --batch`
 	 */
-	getFileDiffs: (params: GetFileDiffsParams, events: Channel<FileDiffEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("get_file_diffs", { params, events })),
+	getFileDiffs: (params: GetFileDiffsParams, events: Channel<FileDiffEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_file_diffs", { params, events })),
 	/**
 	 *  The merge of each conflicting file of a cherry-pick, for the conflict view, through `events`: the files with the
 	 *  stage blob ids that `merge-tree` gives, then the content of each file as it is known, the files in view first
 	 */
-	getFileMerges: (params: GetFileMergesParams, events: Channel<FileMergeEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("get_file_merges", { params, events })),
+	getFileMerges: (params: GetFileMergesParams, events: Channel<FileMergeEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_file_merges", { params, events })),
 	/**
 	 *  The texts of blobs by id, for the diff views: mostly from the blobs that `get_file_diffs` read, else one
 	 *  `cat-file --batch`; a file of the working tree by its path, when its bytes still have the id
 	 */
-	getBlobTexts: (params: GetBlobTextsParams) => typedError<BlobText[], CommandError>(__TAURI_INVOKE("get_blob_texts", { params })),
+	getBlobTexts: (params: GetBlobTextsParams) => typedError<BlobText[], ApiError>(__TAURI_INVOKE("get_blob_texts", { params })),
 	/**
 	 *  The declarations a name in a diff of a review may mean, the most likely first (`file_diffs::declarations`): by the
 	 *  scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store,
 	 *  else in the index of the repository (`accio`), waited for as long as it runs
 	 */
-	findDeclaration: (params: FindDeclarationParams) => typedError<FoundDeclarations, CommandError>(__TAURI_INVOKE("find_declaration", { params })),
+	findDeclaration: (params: FindDeclarationParams) => typedError<FoundDeclarations, ApiError>(__TAURI_INVOKE("find_declaration", { params })),
 	/**
 	 *  The usages of a name in a diff of a review (`file_diffs::usages`): in its file, in the files of the review from the
 	 *  blobs the diffs read, then outside the review in the index of the repository (`accio`), waited for as long as it runs
 	 */
-	findUsages: (params: FindDeclarationParams) => typedError<FoundUsages, CommandError>(__TAURI_INVOKE("find_usages", { params })),
+	findUsages: (params: FindDeclarationParams) => typedError<FoundUsages, ApiError>(__TAURI_INVOKE("find_usages", { params })),
 	/**  Kills the symbol search of the calling window in flight, if any (Escape or Cancel while it searches) */
-	cancelSymbolSearch: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_symbol_search")),
+	cancelSymbolSearch: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_symbol_search")),
 	/**
 	 *  Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
 	 *  for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
 	 *  Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
 	 */
-	setAutoSyncMenuChecked: (checked: boolean) => typedError<null, CommandError>(__TAURI_INVOKE("set_auto_sync_menu_checked", { checked })),
-	installAgentCli: () => typedError<AgentCliInstall, CommandError>(__TAURI_INVOKE("install_agent_cli")),
+	setAutoSyncMenuChecked: (checked: boolean) => typedError<null, ApiError>(__TAURI_INVOKE("set_auto_sync_menu_checked", { checked })),
+	installAgentCli: () => typedError<AgentCliInstall, ApiError>(__TAURI_INVOKE("install_agent_cli")),
 	/**
 	 *  The bd command of the prompts the app copies. Writes nothing and needs no install, so the bd of a prompt is always
 	 *  the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
 	 */
-	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, CommandError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
+	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, ApiError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
 	/**  The skill files of `bd install` that exist, without writing anything */
 	agentCliStatus: () => __TAURI_INVOKE<AgentCliStatus>("agent_cli_status"),
 	/**
 	 *  The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window
 	 *  reads the Setup dot again
 	 */
-	cliToolsStatus: () => typedError<CliToolStatus[], CommandError>(__TAURI_INVOKE("cli_tools_status")),
+	cliToolsStatus: () => typedError<CliToolStatus[], ApiError>(__TAURI_INVOKE("cli_tools_status")),
 	/**
 	 *  Runs the action of a row (install, with the agent skill when `with_skill`; update; the skill; the sign-in of
 	 *  `teamcity` to `server`), each line of its output to `progress`; a second action of the same tool while one runs is
 	 *  refused
 	 */
-	runCliToolAction: (params: RunCliToolActionParams, progress: Channel<CliToolProgress>) => typedError<CliToolActionDone, CommandError>(__TAURI_INVOKE("run_cli_tool_action", { params, progress })),
+	runCliToolAction: (params: RunCliToolActionParams, progress: Channel<CliToolProgress>) => typedError<CliToolActionDone, ApiError>(__TAURI_INVOKE("run_cli_tool_action", { params, progress })),
 	/**  Ends the action of `tool` that runs, with its whole process group */
 	cancelCliToolAction: (tool: CliTool) => __TAURI_INVOKE<void>("cancel_cli_tool_action", { tool }),
 	/**
 	 *  What waits for the user (the Setup dot): the downloaded update of the app, the tools' updates and expiring sign-ins
 	 *  from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides
 	 */
-	getSetupItems: (skips: SetupSkip[]) => typedError<SetupEntry[], CommandError>(__TAURI_INVOKE("get_setup_items", { skips })),
+	getSetupItems: (skips: SetupSkip[]) => typedError<SetupEntry[], ApiError>(__TAURI_INVOKE("get_setup_items", { skips })),
 	/**
 	 *  Starts the one-shot browser sign-in that gets the `youtrack` CLI a permanent token of the YouTrack at `url`: the Hub
 	 *  page to open; `wait_youtrack_cli_sign_in` waits for it. It replaces a sign-in in progress
 	 */
-	startYoutrackCliSignIn: (url: string) => typedError<YouTrackSignIn, CommandError>(__TAURI_INVOKE("start_youtrack_cli_sign_in", { url })),
+	startYoutrackCliSignIn: (url: string) => typedError<YouTrackSignIn, ApiError>(__TAURI_INVOKE("start_youtrack_cli_sign_in", { url })),
 	/**
 	 *  Waits for the browser to come back from the Hub page of `start_youtrack_cli_sign_in`, then makes the permanent token
 	 *  and signs the `youtrack` CLI in with it; the token the app made before is revoked. `cancel_youtrack_sign_in` ends it
 	 */
-	waitYoutrackCliSignIn: () => typedError<CliToolActionDone, CommandError>(__TAURI_INVOKE("wait_youtrack_cli_sign_in")),
+	waitYoutrackCliSignIn: () => typedError<CliToolActionDone, ApiError>(__TAURI_INVOKE("wait_youtrack_cli_sign_in")),
 };
 
 /* Types */
@@ -553,6 +553,25 @@ export type AmendUncommittedToBranchParams = {
 	branchName: string,
 	originalCommitId: string,
 	files: string[],
+};
+
+/**
+ *  The error a command of the app answers, the same JSON from Tauri and from the E2E server: `{"code", "message",
+ *  "details", "retry", "operation_id"}`. The page branches on `code` (and `details`), never on `message`, which is for
+ *  the user
+ */
+export type ApiError = {
+	code: ErrorCode,
+	message: string,
+	/**  The data of the code, typed by it; null for a code without data */
+	details: ErrorDetails | null,
+	/**  `code.retry()`, so the page needn't know the classes */
+	retry: Retry,
+	/**
+	 *  The operation that failed, the `operation_id` of its log lines (the key of its Activity entry); null for an error
+	 *  raised outside one
+	 */
+	operation_id: string | null,
 };
 
 export type AppliedConflictFix = 
@@ -934,35 +953,6 @@ export type ClosePullRequestParams = {
 	comment: string,
 };
 
-/**  Error returned by Tauri commands, serialized as `{ message, kind, operation_id }`. */
-export type CommandError = {
-	message: string,
-	/**  What the page acts on without reading the message; null for any other failure */
-	kind?: CommandErrorKind | null,
-	/**
-	 *  The operation that failed, the `operation_id` of its log lines: `run_blocking` names it; null for an error raised
-	 *  outside one
-	 */
-	operation_id?: string | null,
-};
-
-/**  A refusal of a command that is a precondition, not a failure */
-export type CommandErrorKind = 
-/**  git is in the middle of a rebase, merge, cherry-pick or revert (`SyncDeferred`) */
-"operationInProgress" | 
-/**  HEAD is not on a branch (`SyncDeferred`) */
-"detachedHead" | 
-/**
- *  The user stopped the wait for another holder of the repository lock (Stop Waiting, `cancel_lock_wait`): the
- *  command changed nothing
- */
-"lockWaitCanceled" | 
-/**
- *  A newer symbol search of the window, or the user (Escape, Cancel: `cancel_symbol_search`), canceled the search
- *  (`SearchCanceled`): it answers nothing
- */
-"searchCanceled";
-
 /**  Struct to hold commit data returned by git CLI */
 export type Commit = {
 	originalHash: string,
@@ -1289,6 +1279,276 @@ export type EmptyLastLine = {
 	old: boolean,
 	new: boolean,
 };
+
+/**  A stable error code. Agents branch on the code and the exit code, never on the message */
+export type ErrorCode = 
+/**  The arguments don't parse */
+"invalid_arguments" | 
+/**  `-C` (or the current directory) is not inside a git working tree */
+"not_a_repository" | 
+/**  No branch prefix from `--prefix`, the repository's `branchdeck.branchPrefix`, the app setting or the global one */
+"no_branch_prefix" | 
+/**  `--branch` names no current group */
+"unknown_branch" | 
+/**  No `@{u}`, `<remote>/master`, `<remote>/main` or local `master`/`main` to compare against */
+"no_baseline" | 
+/**  A plan doesn't apply to the commits ahead of the baseline */
+"invalid_plan" | 
+/**  A commit of the request is not ahead of the baseline */
+"not_ahead_of_baseline" | 
+/**
+ *  `bd safe-push --whole-stack`: a commit of the stack branch conflicts with the commits of the stack before it
+ *  (`commits`, `paths`), though each branch builds: nothing was pushed or started; land the stack in pieces
+ */
+"stack_conflict" | 
+/**
+ *  `bd safe-push --whole-stack`: the stack branch is not the build of the stack's commits: a branch of it is blocked or
+ *  failed, or the ref is stale (another process moved it); `bd sync` says why. Nothing was pushed or started
+ */
+"stack_not_built" | 
+/**
+ *  `bd safe-push`: Patronus can't rebase what the robot lands onto the newest target: a commit (`commits`) conflicts
+ *  in files (`paths`) that the target changed after the base of the branch. Nothing was pushed or started; `bd update`
+ *  resolves it locally, then start again
+ */
+"target_conflict" | 
+/**
+ *  `bd move-hunk`: the change doesn't apply to a commit between the two, which changes the same lines or lacks the
+ *  file; `commits` and `paths` name it. Nothing was written: move it by hand, or not at all
+ */
+"hunk_conflict" | 
+/**  `bd move-hunk --block` names a block the file in the commit doesn't have now; `blocks` are the ids it has */
+"block_not_found" | 
+/**  HEAD moved since the caller read it; read again and retry */
+"head_moved" | 
+/**  The issue groups (`refs/branch-deck/issue-groups`) changed since the caller read them; read again and retry */
+"groups_moved" | 
+/**  The stack parents (`refs/branch-deck/stack-parents`) changed since the caller read them; read again and retry */
+"stacks_moved" | 
+/**  The parked branches (`refs/branch-deck/parked`) changed since the caller read them; read again and retry */
+"parked_moved" | 
+/**  `bd unpark`: the branch is not parked */
+"not_parked" | 
+/**
+ *  `bd unapply`: the virtual branch is not the copies of its commits now (a conflict, no sync since a new commit):
+ *  a commit would leave HEAD without a copy. `bd sync` says why; fix the conflict, then unapply. Nothing was changed
+ */
+"branch_not_built" | 
+/**  `bd unapply`: a worktree has the virtual branch checked out (the message names it); nothing was changed */
+"branch_checked_out" | 
+/**
+ *  `bd unapply`: a later commit depends on the changes of a commit of the branch, or the range holds a merge; nothing
+ *  was changed. Move that commit into the branch first (`bd group`), or leave the branch applied
+ */
+"drop_conflict" | 
+/**
+ *  `bd reapply`: a commit of the unapplied branch conflicts with HEAD (`commits`, `paths`); nothing was changed. The
+ *  user decides: resolve it in the branch elsewhere, or leave it unapplied
+ */
+"reapply_conflict" | 
+/**
+ *  `bd reapply`: HEAD has every commit of the unapplied branch already, or the branch has no common history with the
+ *  baseline; nothing was changed
+ */
+"nothing_to_reapply" | 
+/**
+ *  `bd push` and `bd safe-push` of a branch that is unapplied (`unapplied` of `bd status`): its commits are not in
+ *  HEAD, it lands nothing; `bd push --unapplied <name>` keeps a copy on the remote. Nothing was pushed or started
+ */
+"unapplied" | 
+/**
+ *  `bd push` and `bd safe-push`: the branch is parked, or built on a parked branch, or the whole stack holds one: its
+ *  commits stay local until the user unparks it (`bd unpark`, never on an agent's own). Nothing was pushed or started
+ */
+"parked" | 
+/**
+ *  The remote branch is not where the lease expects it; bd fetched it, `branches` says what it has now. Not retryable:
+ *  a push again (with --force) would drop what the remote has now; show `dropped_commits` to the user first
+ */
+"lease_rejected" | 
+/**  Another git process holds a lock; retry */
+"locked" | 
+/**  A rebase, merge, cherry-pick or revert is in progress */
+"operation_in_progress" | 
+/**  HEAD is detached */
+"detached_head" | 
+/**
+ *  `bd undo` of a rewrite, an update or a pick the branch (or the issue groups, the stack parents) moved on from: a
+ *  commit, another rewrite, a switch. The token can never succeed again
+ */
+"undo_stale" | 
+/**
+ *  `bd pick --from`: the reflog of the branch has no fork point of the worktree, and their shared history is local:
+ *  commits the branch rewrote since would come back. Name the commits: `bd pick <first>^..<last>`
+ */
+"range_unknown" | 
+/**
+ *  `bd pick --from`: the worktree stands on a newer baseline than the branch; the branch is updated first
+ *  (`bd update`, by the session that owns it)
+ */
+"source_on_newer_baseline" | 
+/**
+ *  Uncommitted, staged or untracked files sit on paths `bd update`, `bd pick` (or their undo) writes; `paths` lists
+ *  them. Nothing was changed; never stash them, ask the user
+ */
+"uncommitted_overlap" | 
+/**  `bd update --continue` or `--abort` without a resolve session of this worktree */
+"no_session" | 
+/**  `--continue --round <n>` names another round than the open one: `bd update` prints the open round */
+"round_moved" | 
+/**
+ *  The resolve session can't continue: the branch was rewritten, HEAD left the branch, or the session belongs to
+ *  another worktree; `bd update --abort` removes it
+ */
+"session_stale" | 
+/**
+ *  The conflict of a round is of a type bd can't resolve (binary, file/directory, rename, mode, submodule, symlink);
+ *  `paths` lists the files
+ */
+"unsupported_conflict" | 
+/**  Conflict markers are left in the `edit` copies of `paths` */
+"unresolved_markers" | 
+/**  The `edit` copies of `paths` changed outside their conflict blocks */
+"resolution_outside_conflict" | 
+/**  The files of `paths` have no resolution: no edited `edit` copy, no `--take`, no `--delete` */
+"missing_resolution" | 
+/**  The resolution leaves the round's commit without changes: ask the user, then `--allow-empty` or `--drop-empty` */
+"empty_resolution" | 
+/**  The branch of a resolve session moved, but the files did not follow and bd can't finish it: show the user */
+"finish_pending" | 
+/**
+ *  A branch can't be pushed: not synced, or behind its remote branch without --force; or the remote refused the push
+ *  with every lease holding (a hook, a protected branch). Nothing was pushed
+ */
+"push_refused" | 
+/**  No remote to push to */
+"no_remote" | 
+/**  `bd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way */
+"install_refused" | 
+/**
+ *  `bd safe-push`: the code owners haven't approved the branch, and a Safe Push fails without their approvals; nothing
+ *  was pushed or started. `review` lists the groups, their reviewers and files, and the merge request; ask the user
+ */
+"approvals_missing" | 
+/**
+ *  `bd safe-push`: the push of new commits into the pull request the robot starts from dismisses its approvals, which
+ *  Patronus counts (the rules of the target dismiss stale reviews on push): the robot would start without them and
+ *  fail; nothing was pushed or started. Push first (`bd push <branch>`), then ask for the review again
+ *  (`bd request-review <branch>`)
+ */
+"push_dismisses_approvals" | 
+/**
+ *  `bd safe-push`: GitHub didn't answer the rules of the target (no token, no access, an error) for a push of new
+ *  commits into a pull request someone approved: the push may dismiss the approvals Patronus counts; nothing was
+ *  pushed or started. Ask the user; `--allow-unknown-rules` starts anyway
+ */
+"rules_unknown" | 
+/**
+ *  `bd safe-push`: a robot runs on the last commit of the branch, on a branch it is built on, or on a branch built on
+ *  it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`). `bd push`: a Safe Push
+ *  runs on the branch or lands it with a branch built on it: a push won't land (`--restart-running`)
+ */
+"robot_running" | 
+/**
+ *  `bd push` and `bd safe-push`: a merged Safe Push landed all of the branch (its own, one of a branch built on it, or
+ *  of the whole stack), or every branch of the whole stack: its commits are in the target until the update archives
+ *  it, a push or a robot would land nothing. `bd status` names who landed it (`landed_by`); `bd update` archives it
+ */
+"landed" | 
+/**
+ *  `bd safe-push`: the branch, or a branch it is built on, removes a declaration that its tree still uses, and a
+ *  commit of another branch changes the use (`bd check` names it); the build would fail. `--allow-dangling` starts
+ *  anyway
+ */
+"dangling_reference" | 
+/**
+ *  `bd safe-push`: a commit of what the robot lands uses a name that a commit of another branch adds, which no merged
+ *  Safe Push landed (`bd check` names it in `missing_declarations`); git merges it, the build would fail. Stack the root
+ *  of what lands on that branch, or move the commit; `--allow-missing` starts anyway
+ */
+"missing_declaration" | 
+/**  `bd safe-push`: the repository is not on Space, or the baseline is not a branch of `origin` */
+"not_on_space" | 
+/**
+ *  `bd safe-push`: no Space token for Patronus, it expired, or Patronus rejected it; the user runs `./safePush.cmd`
+ *  once
+ */
+"not_logged_in" | 
+/**
+ *  `bd safe-push`: Patronus can't start the robot: the target is not protected, the pull request is a draft, or the
+ *  `/patronus` comment was rejected
+ */
+"patronus_refused" | 
+/**
+ *  `bd request-review`: the branch has no open pull request, or only a draft; `bd safe-push <branch>
+ *  --create-pull-request` opens one, a draft is marked ready for review on GitHub
+ */
+"no_pull_request" | 
+/**  `bd request-review`: a missing group has no code owner with a GitHub login Patronus names; pass `--reviewer` */
+"no_reviewer" | 
+/**
+ *  `bd request-review`: GitHub asked nobody, it refused every reviewer (the author, a user without access); the
+ *  message names each with the reason
+ */
+"review_refused" | 
+/**  `bd lease return`: the worktree holds no lease of the pool, or its get still prepares it */
+"no_lease" | 
+/**  `bd lease return --lease-id`: the worktree holds another lease */
+"lease_mismatch" | 
+/**  `bd lease adopt`: the directory is not the top level of a linked worktree of this repository */
+"not_a_slot" | 
+/**  `bd lease adopt`: the pool holds the worktree already */
+"slot_in_pool" | 
+/**
+ *  `bd lease return` and `adopt`: a process other than bd and its ancestors has its working directory in the worktree;
+ *  the message names it. Nothing was changed
+ */
+"slot_busy" | 
+/**
+ *  `bd lease return`: HEAD has commits that no branch, tag or remote branch holds (`commits`): land them first
+ *  (`bd pick --from <worktree> --follow` in the shared checkout), or `--confirm-preserved` gives them up
+ */
+"unlanded_commits" | 
+/**
+ *  `bd lease return` and `adopt`: the worktree has local changes (`paths`); `bd lease return --confirm-preserved`
+ *  discards them, once the user agreed
+ */
+"dirty_worktree" | 
+/**  `bd lease get --branch`: the branch exists */
+"branch_exists" | 
+/**  `bd lease adopt --move`: the worktree is on another volume than the pool directory; a move would copy every file */
+"other_volume" | 
+/**  No usable git executable */
+"git_not_found" | 
+/**  A git command failed */
+"git_error" | 
+/**  A network command (fetch, push) failed */
+"network_error" | 
+/**  A request to Patronus failed; `message` is its answer */
+"patronus_error" | 
+/**
+ *  A failure without a code of its own: `message` is the whole chain of its causes. `bd` prints `git_error` for a
+ *  failure of git or IO, as before; the app answers this code
+ */
+"internal" | 
+/**  The user stopped it: a sign-in, a review fetch, a symbol search, a CLI tool's action, a lock wait. Nothing more to show */
+"canceled";
+
+/**  The data of an error code, tagged by its kind of data: `{"type": "conflict", "commits": [...], "paths": [...]}` */
+export type ErrorDetails = 
+/**
+ *  The commit that conflicts and its files: `target_conflict`, `hunk_conflict`, `stack_conflict`,
+ *  `reapply_conflict`, `drop_conflict`
+ */
+{ type: "conflict"; commits: string[]; paths: string[] } | 
+/**  The files the error is about, relative to the repository: the local files of `uncommitted_overlap` */
+{ type: "paths"; paths: string[] } | 
+/**  The full names of the branches the error is about: the rejected ones of `lease_rejected` */
+{ type: "branches"; branches: string[] } | 
+/**  The ids of the blocks the file has now: `block_not_found` */
+{ type: "blocks"; blocks: string[] } | 
+/**  Who holds the repository lock: `locked`; `None` when the holder wrote no record */
+{ type: "locked"; holder: LockHolderInfo | null };
 
 /**  Everyone else as the median person: the median of each person's value, of the people with at least `MIN_MERGES` */
 export type EveryoneDelivery = {
@@ -1903,6 +2163,13 @@ export type HoldView = {
 	carried: Carried | null,
 };
 
+/**  Which program holds the lock */
+export type HolderTool = 
+/**  The agent CLI */
+"bd" | 
+/**  Branch Deck, the app */
+"app";
+
 export type HourTime = {
 	/**  The median from start to merge, seconds */
 	median: number,
@@ -2064,6 +2331,16 @@ export type LineEnds = {
 	new: LineEndKind,
 	/**  The files differ in their line ends only */
 	only: boolean,
+};
+
+/**  The holder of the repository lock as the page names it: "`bd push auth` (pid 4242) has held the repository for 40 s" */
+export type LockHolderInfo = {
+	tool: HolderTool,
+	/**  Its command line, the program by its file name: `bd check --fix` */
+	command: string,
+	pid: number,
+	/**  Seconds since it took the lock */
+	held_for: number,
 };
 
 /**  What a rewrite of the app tells the page while it waits for another holder of the repository lock */
@@ -3112,6 +3389,15 @@ export type RetargetPullRequestParams = {
 	/**  The branch the pull request merges into from now on, as GitHub names it (`master`, `user/virtual/login`) */
 	base: string,
 };
+
+/**  What may succeed after an error (`ErrorCode::retry`) */
+export type Retry = 
+/**  The same request fails again: the user decides */
+"no" | 
+/**  The same request again may succeed, as it is */
+"same" | 
+/**  A request built again from a new read of the state may succeed; the same one fails again */
+"after_reread";
 
 /**  A commit of the pull request */
 export type ReviewCommit = {

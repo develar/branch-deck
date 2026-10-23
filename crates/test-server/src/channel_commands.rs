@@ -6,11 +6,13 @@
 //! a push and an update tell it on their progress. Without the header (a direct call of a test), the answer alone.
 
 use crate::state::AppState;
-use crate::tauri_command_bridge::{CommandFailure, CommandResult};
+use crate::tauri_command_bridge::{CommandResult, Rejection};
+use app_api::api_error::IntoApiError;
 use axum::Json;
 use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
+use domain_types::error::{ApiError, ErrorCode};
 use history_rewrite::lock_wait::{LockWaitEvent, LockWaits, WaitTicket};
 use history_rewrite::repository_lock::{LockHolder, LockWait, LockWaiter};
 use serde::Serialize;
@@ -65,9 +67,8 @@ where
     async move {
       let result = match answer.await {
         Ok(Json(data)) => serde_json::json!({ "status": "ok", "data": data }),
-        Err(CommandFailure::Error(message)) => serde_json::json!({ "status": "error", "error": { "message": message } }),
-        Err(CommandFailure::Refused { message, kind }) => serde_json::json!({ "status": "error", "error": { "message": message, "kind": kind } }),
-        Err(CommandFailure::Panicked) => serde_json::json!({ "panicked": true }),
+        Err(Rejection::Error(error)) => serde_json::json!({ "status": "error", "error": error }),
+        Err(Rejection::Panicked) => serde_json::json!({ "panicked": true }),
       };
       let _ = sender.send(serde_json::json!({ "result": result }));
     }
@@ -92,15 +93,15 @@ pub fn canceled_by(ticket: &Arc<WaitTicket>) -> impl Fn() -> bool + Send + 'stat
   move || ticket.canceled()
 }
 
-/// `result` of a command whose wait `ticket` is: an error after the page stopped the wait is the refusal
-/// `lockWaitCanceled`, as the app's `CommandErrorKind` names it
-pub fn canceled_kind<T>(result: CommandResult<T>, ticket: &WaitTicket) -> CommandResult<T> {
-  result.map_err(|failure| match failure {
-    CommandFailure::Error(message) if ticket.ended_by_cancel() => CommandFailure::Refused {
-      message,
-      kind: "lockWaitCanceled",
-    },
-    failure => failure,
+/// `result` of a command whose wait `ticket` is: an error after the page stopped the wait is `canceled`, as the app's
+/// `canceled_code` answers it
+pub fn canceled_code<T>(result: CommandResult<T>, ticket: &WaitTicket) -> CommandResult<T> {
+  result.map_err(|rejection| match rejection {
+    Rejection::Error(error) if ticket.ended_by_cancel() && error.code != ErrorCode::Canceled => Rejection::Error(ApiError {
+      operation_id: error.operation_id,
+      ..ApiError::new(ErrorCode::Canceled, error.message)
+    }),
+    rejection => rejection,
   })
 }
 
@@ -110,7 +111,7 @@ pub async fn run_waiting<T, E, F>(state: &AppState, headers: &HeaderMap, operati
 where
   F: FnOnce(LockWait<'_>) -> Result<T, E> + Send + 'static,
   T: Serialize + Send + 'static,
-  E: std::fmt::Display + Send + 'static,
+  E: IntoApiError + Send + 'static,
 {
   let channel = progress_channel(headers);
   let lock_waits = state.lock_waits.clone();
@@ -118,7 +119,7 @@ where
     let ticket = register_wait(&lock_waits, channel, move |holder| progress.send(&LockWaitEvent::of(holder)));
     let step_ticket = Arc::clone(&ticket);
     let result = crate::tauri_command_bridge::run_command(operation, move || step(LockWait::WhileHeld(&*step_ticket))).await;
-    canceled_kind(result, &ticket)
+    canceled_code(result, &ticket)
   })
   .await
 }

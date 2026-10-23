@@ -162,12 +162,22 @@ Mock implementation:
   route handler that fulfills with an answer of its own on any branch is an
   answer, even when another branch forwards the server's `response`. A new page answer fails, a removed one lowers its
   number; `routeCommand` and a fulfilling route name their command by a string literal.
-- **Command errors**: a command that fails answers with 200 and `{ status: "error", error: { message } }`
-  (`CommandFailure` in `tauri_command_bridge.rs`, logged at debug: it is the expected answer of an error-path test),
-  and the mock rejects with `{ name: "CommandError", message }`, as Tauri rejects with the `CommandError`; the
-  bindings return it as `{ status: "error", error }` (an `Error` instance they would throw). A test fails a command
-  with `routeCommandError`. Any other answer is a bug of the mock, thrown and logged: 405 a command the server does
-  not implement, 500 a command that panicked, 410 a page that outlived its repository
+- **Command errors**: a command that fails answers with 200 and `{ status: "error", error: <ApiError> }`: the
+  `ApiError` of `domain-types` (`{ code, message, details, retry, operation_id }`) that the app's command rejects
+  with, made by the same `app_api::api_error::api_error` from the core's error (`Rejection` in
+  `tauri_command_bridge.rs`, a type of the server only because axum's `IntoResponse` can't be implemented for
+  `ApiError` there; logged at debug: it is the expected answer of an error-path test). The mock rejects with the whole
+  error, marked `name: "ApiError"`; the bindings return it as `{ status: "error", error }` (an `Error` instance they
+  would throw), and the page branches on `code`, never on `message`. A test fails a command with
+  `routeCommandError(page, command, { code, message, details?, retry? })`, the code the real command would answer.
+  Any other answer is a bug of the mock, thrown and logged: 405 a command the server does not implement, 500 a command
+  that panicked, 410 a page that outlived its repository. The adapters' contract: both answer the JSON of
+  `crates/app-api/fixtures/api_errors.json` for each case of `app_api::api_error::contract_cases`, the app with the id
+  of the operation besides.
+  [@test] ../../src-tauri/src/api_error_contract_test.rs (`a_command_of_the_app_rejects_with_the_api_error_json_of_the_contract`)
+  [@test] ../../crates/test-server/src/api_error_contract_test.rs (`a_command_of_the_server_answers_the_api_error_json_of_the_contract`)
+  [@test] ../../crates/test-server/src/api_error_contract_test.rs (`a_panicked_command_of_the_server_fails_the_request`)
+  [@test] ../../crates/test-server/src/repository_lifecycle_test.rs (`a_failed_command_answers_with_its_api_error`)
 - **IPC counters**: the mock counts the backend commands of the page in `window.__ipcStats`: `invokes` by command,
   `requestBytes` and `responseBytes` (UTF-8 bytes of the parameters and the answers), `channelMessages` by command and
   `channelBytes` (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`), and `pending`, the commands

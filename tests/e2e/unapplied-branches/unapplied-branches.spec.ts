@@ -85,7 +85,11 @@ test.describe("Unapplied branches", () => {
     await page.keyboard.press("Escape")
     await expect(page.getByRole("button", { name: "Unapply Branch" })).toHaveCount(0)
 
-    await routeCommandError(page, "unapply_branch", "Uncommitted, staged or untracked files sit on paths the unapply writes: docs.md")
+    await routeCommandError(page, "unapply_branch", {
+      code: "uncommitted_overlap",
+      message: "Uncommitted, staged or untracked files sit on paths the unapply writes: docs.md",
+      details: { type: "paths", paths: ["docs.md"] },
+    })
     await openUnapply(page, () => findBranchRow(page, "docs").click({ button: "right" }))
     await page.keyboard.press("Enter")
     await expect(toast(page, "Cannot unapply docs")).toContainText("docs.md")
@@ -169,7 +173,11 @@ test.describe("Unapplied branches", () => {
 
   test("should keep an unapplied branch whose reapply conflicts and say why", async ({ page }) => {
     await unapplyFromMenu(page, "docs")
-    await routeCommandError(page, "reapply_branch", "Document the API (1a2b3c4d) of user-name/unapplied/docs conflicts with HEAD in docs.md: nothing was changed")
+    await routeCommandError(page, "reapply_branch", {
+      code: "reapply_conflict",
+      message: "Document the API (1a2b3c4d) of user-name/unapplied/docs conflicts with HEAD in docs.md: nothing was changed",
+      details: { type: "conflict", commits: ["1a2b3c4d".padEnd(40, "0")], paths: ["docs.md"] },
+    })
     await unappliedRow(page, "docs").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Reapply" }).click()
     await expect(toast(page, "Cannot reapply docs")).toContainText("conflicts with HEAD in docs.md")

@@ -421,7 +421,7 @@ test.describe("Patronus actions", () => {
     const checks = await routeCommand(page, "check_landing_gate", params =>
       (params.allow as LandingAllowances | undefined)?.allowMissing === true ? ({ refusals: [] } satisfies LandingCheck) : ({ refusals: [refusal] } satisfies LandingCheck),
     )
-    await routeCommandError(page, "restack_branch", "Stacked branches are off")
+    await routeCommandError(page, "restack_branch", { code: "internal", message: "Stacked branches are off" })
     const restacks = await recordCommand(page, "restack_branch")
     const reason =
       "“Show each scenario” of JIRA-456 uses Stills (src/lane/BuildLog.kt:7), which “Name lossy stills” of ABC-123 adds: git merges it, but the build of JIRA-456 fails. Stack JIRA-456 on ABC-123 to land it too."
@@ -1184,7 +1184,7 @@ test.describe("Patronus actions", () => {
       reason: string,
     ): Promise<{ repo: TestRepositoryBuilder; rules: readonly unknown[] }> {
       const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice", "approved")] }))
-      await routeCommandError(page, "get_branch_rules", reason)
+      await routeCommandError(page, "get_branch_rules", { code: "internal", message: reason })
       // the later route sees each read first
       const rules = await recordCommand(page, "get_branch_rules")
       return { repo, rules }

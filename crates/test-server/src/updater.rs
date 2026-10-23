@@ -10,7 +10,7 @@ use domain_types::update::{UpdateInfo, UpdateStatus};
 use serde::Deserialize;
 
 use crate::state::{AppState, TestRepository};
-use crate::tauri_command_bridge::{CommandFailure, CommandResult, requesting_repository};
+use crate::tauri_command_bridge::{CommandResult, Rejection, failed, requesting_repository};
 
 /// The version the app of an E2E test runs
 pub const TEST_APP_VERSION: &str = "0.0.0-test";
@@ -41,7 +41,7 @@ pub fn available_update(repository: &TestRepository) -> Option<String> {
 }
 
 /// What the app's check answers for the update of the fixture of the requesting page's repository
-fn update_info(state: &AppState, headers: &axum::http::HeaderMap) -> Result<UpdateInfo, CommandFailure> {
+fn update_info(state: &AppState, headers: &axum::http::HeaderMap) -> Result<UpdateInfo, Rejection> {
   let available = available_update(&*requesting_repository(state, headers)?);
   Ok(match available {
     Some(version) => UpdateInfo {
@@ -71,10 +71,10 @@ pub async fn get_update_status(State(state): State<Arc<AppState>>, headers: axum
 
 /// The install of a downloaded update fails: the test server has nothing to install
 pub async fn install_update() -> CommandResult<()> {
-  Err(CommandFailure::error("install the update", NO_UPDATER_MESSAGE))
+  Err(failed("install the update", NO_UPDATER_MESSAGE))
 }
 
 /// The restart that applies the system title bar fails: the test server has no app to restart
 pub async fn restart_app() -> CommandResult<()> {
-  Err(CommandFailure::error("restart the app", NO_UPDATER_MESSAGE))
+  Err(failed("restart the app", NO_UPDATER_MESSAGE))
 }

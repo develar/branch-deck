@@ -1,7 +1,7 @@
-use crate::command_error::CommandError;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use crate::window_requests::WindowRequests;
+use domain_types::error::ApiError;
 use file_diffs::accio::{AccioCli, SymbolIndex};
 use file_diffs::model::{
   BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
@@ -27,7 +27,7 @@ pub async fn get_file_diffs(
   file_diffs: State<'_, FileDiffs>,
   params: GetFileDiffsParams,
   events: Channel<FileDiffEvent>,
-) -> Result<(), CommandError> {
+) -> Result<(), ApiError> {
   operation(async move {
     let repository_path = params.repository_path.clone();
     stream_to(
@@ -54,7 +54,7 @@ pub async fn get_file_merges(
   file_diffs: State<'_, FileDiffs>,
   params: GetFileMergesParams,
   events: Channel<FileMergeEvent>,
-) -> Result<(), CommandError> {
+) -> Result<(), ApiError> {
   operation(async move {
     let repository_path = params.repository_path.clone();
     stream_to(
@@ -80,7 +80,7 @@ async fn stream_to<E: serde::Serialize + Clone + Send + 'static>(
   repository_path: String,
   events: Channel<E>,
   stream: impl FnOnce(&FileDiffs, &GitCommandExecutor, &ObjectCache, &mut dyn FnMut(E)) -> anyhow::Result<()> + Send + 'static,
-) -> Result<(), CommandError> {
+) -> Result<(), ApiError> {
   let (git, repository_state, file_diffs) = (git_executor.clone(), repository_state.clone(), file_diffs.clone());
   run_blocking(move || {
     let cache = repository_state.object_cache(&git, &repository_path);
@@ -98,7 +98,7 @@ async fn stream_to<E: serde::Serialize + Clone + Send + 'static>(
 #[tauri::command]
 #[instrument(skip(git_executor, file_diffs, params), fields(repository_path = %params.repository_path, blobs = params.blobs.len()))]
 #[specta::specta]
-pub async fn get_blob_texts(git_executor: State<'_, GitCommandExecutor>, file_diffs: State<'_, FileDiffs>, params: GetBlobTextsParams) -> Result<Vec<BlobText>, CommandError> {
+pub async fn get_blob_texts(git_executor: State<'_, GitCommandExecutor>, file_diffs: State<'_, FileDiffs>, params: GetBlobTextsParams) -> Result<Vec<BlobText>, ApiError> {
   let git = (*git_executor).clone();
   let file_diffs = (*file_diffs).clone();
   run_blocking(move || file_diffs.blob_texts(&git, &params.repository_path, &params.blobs)).await
@@ -109,11 +109,7 @@ pub async fn get_blob_texts(git_executor: State<'_, GitCommandExecutor>, file_di
 /// (`src/lib/diff/highlight/backend-syntax.ts`). From the blobs the diffs read, else one `cat-file --batch`
 #[tauri::command]
 #[instrument(skip(git_executor, file_diffs, params), fields(id = %params.blob.id, path = %params.file_path))]
-pub async fn get_blob_syntax(
-  git_executor: State<'_, GitCommandExecutor>,
-  file_diffs: State<'_, FileDiffs>,
-  params: GetBlobSyntaxParams,
-) -> Result<tauri::ipc::Response, CommandError> {
+pub async fn get_blob_syntax(git_executor: State<'_, GitCommandExecutor>, file_diffs: State<'_, FileDiffs>, params: GetBlobSyntaxParams) -> Result<tauri::ipc::Response, ApiError> {
   let git = (*git_executor).clone();
   let file_diffs = (*file_diffs).clone();
   run_blocking(move || file_diffs.blob_syntax(&git, &params)).await.map(tauri::ipc::Response::new)
@@ -137,7 +133,7 @@ pub async fn find_declaration(
   repository_state: State<'_, RepositoryStateCache>,
   file_diffs: State<'_, FileDiffs>,
   params: FindDeclarationParams,
-) -> Result<FoundDeclarations, CommandError> {
+) -> Result<FoundDeclarations, ApiError> {
   let search = searches.0.begin(webview.label());
   let (git, repository_state, file_diffs) = ((*git_executor).clone(), (*repository_state).clone(), (*file_diffs).clone());
   run_blocking(move || {
@@ -161,7 +157,7 @@ pub async fn find_usages(
   git_executor: State<'_, GitCommandExecutor>,
   file_diffs: State<'_, FileDiffs>,
   params: FindDeclarationParams,
-) -> Result<FoundUsages, CommandError> {
+) -> Result<FoundUsages, ApiError> {
   let search = searches.0.begin(webview.label());
   let (git, file_diffs) = ((*git_executor).clone(), (*file_diffs).clone());
   run_blocking(move || {
@@ -176,7 +172,7 @@ pub async fn find_usages(
 #[tauri::command]
 #[instrument(skip(webview, searches))]
 #[specta::specta]
-pub async fn cancel_symbol_search(webview: Webview, searches: State<'_, SymbolSearchState>) -> Result<(), CommandError> {
+pub async fn cancel_symbol_search(webview: Webview, searches: State<'_, SymbolSearchState>) -> Result<(), ApiError> {
   operation(async move {
     searches.0.cancel(webview.label());
     Ok(())

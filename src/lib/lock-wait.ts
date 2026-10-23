@@ -3,7 +3,7 @@ import type { ToastMessage } from "@/lib/toast-message"
 
 /**
  * Stop Waiting: ends the wait of the command whose channel is `channel` (the `wait` of a rewrite, the progress of a push
- * or an update) for another holder of the repository lock. The command then answers `lockWaitCanceled` and changed
+ * or an update) for another holder of the repository lock. The command then answers the code `canceled` and changed
  * nothing; one whose wait ended already (it holds the lock) goes on
  */
 export function stopLockWait(channel: { readonly id: number }): void {
@@ -12,7 +12,7 @@ export function stopLockWait(channel: { readonly id: number }): void {
 
 /** Whether a command failed because the user stopped its wait for the repository lock (`stopLockWait`): nothing changed */
 export function isLockWaitCanceled(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "kind" in error && error.kind === "lockWaitCanceled"
+  return typeof error === "object" && error !== null && "code" in error && error.code === "canceled"
 }
 
 /**

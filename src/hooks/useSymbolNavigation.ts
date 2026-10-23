@@ -110,7 +110,7 @@ export function useSymbolNavigation(files: readonly DiffViewFile[], revisions: D
       void invokeCommand(() => call(prepared.params)).then(result => {
         setSearching(current => (current?.ticket === ticket ? null : current))
         // a search a newer one of the window or the user canceled answers nothing
-        if (!gate.finish(ticket) || (result.status === "error" && result.error.kind === "searchCanceled")) {
+        if (!gate.finish(ticket) || (result.status === "error" && result.error.code === "canceled")) {
           return
         }
         if (result.status === "error") {
@@ -157,7 +157,7 @@ export function useSymbolNavigation(files: readonly DiffViewFile[], revisions: D
   }
 }
 
-/** Kills the symbol search of this window in the backend, its accio; the answer it then gives is `searchCanceled` */
+/** Kills the symbol search of this window in the backend, its accio; the answer it then gives is `canceled` */
 function stopBackendSearch(): void {
   void invokeCommand(() => commands.cancelSymbolSearch())
 }

@@ -1,6 +1,7 @@
 use crate::api_error::{CONTRACT_JSON, api_error, api_error_at, contract_cases};
 use anyhow::{Context, anyhow};
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, LockHolderInfo, Retry};
+use file_diffs::accio::SearchCanceled;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLocked};
 use pretty_assertions::assert_eq;
 use serde_json::{Map, Value};
@@ -74,6 +75,12 @@ fn api_error_finds_a_typed_error_under_context() {
   let error = api_error_at(&error, NOW);
   assert_eq!(error.code, ErrorCode::DetachedHead);
   assert_eq!(error.message, "Cannot refresh: Cannot sync: Not synced: HEAD is detached");
+}
+
+#[test]
+fn api_error_answers_a_canceled_symbol_search_canceled() {
+  let error = anyhow::Error::new(SearchCanceled).context("Cannot find usages");
+  assert_eq!(api_error_at(&error, NOW).code, ErrorCode::Canceled);
 }
 
 #[test]

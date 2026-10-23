@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
 import type {
-  CommandError,
+  ApiError,
   GetPatronusRobotsParams,
   GetRobotCommitMapParams,
   PatronusCommandReply,
@@ -73,8 +74,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     detailCalls: [] as string[],
     commands: [] as PostPatronusCommandParams[],
     /** What a start of a robot and a post of a command fail with; a post succeeds while it is null */
-    startFailure: { message: "start refused" } as CommandError,
-    postFailure: null as CommandError | null,
+    startFailure: { code: "internal", message: "start refused", details: null, retry: "no", operation_id: null } as ApiError,
+    postFailure: null as ApiError | null,
     replies: [] as PatronusCommandReply[],
     replyCalls: 0,
     /** How long the checks of a start in Rust take before the comment is posted */
@@ -1104,14 +1105,14 @@ describe("a failed start", () => {
   }
 
   it("keeps the operation the failed start of a robot names, for Activity and the log line", async () => {
-    patronus.startFailure = { message: "Patronus answered 503", kind: null, operation_id: OPERATION_ID }
+    patronus.startFailure = { ...internalError("Patronus answered 503"), code: "patronus_error", operation_id: OPERATION_ID }
     const told = await tellFailure("Cannot start the Safe Push", () => startPatronusRobot("auth", "rebaseAutosquash", null, null))
     expect(told.recorded).toEqual([{ title: "Cannot start the Safe Push", description: "Patronus answered 503", operationId: OPERATION_ID }])
     expect(told.logged).toEqual([{ title: "Cannot start the Safe Push", keyValues: { error: "Patronus answered 503", operation_id: OPERATION_ID } }])
   })
 
   it("keeps the operation the failed post of a command on the pull request names", async () => {
-    patronus.postFailure = { message: "GitHub answered 403", kind: null, operation_id: OPERATION_ID }
+    patronus.postFailure = { ...internalError("GitHub answered 403"), code: "patronus_error", operation_id: OPERATION_ID }
     const told = await tellFailure("Cannot start the Safe Push", () => startPatronusFromPullRequest(9, "rebaseAutosquash", { branchName: "auth" }))
     expect(told.recorded).toEqual([{ title: "Cannot start the Safe Push", description: "GitHub answered 403", operationId: OPERATION_ID }])
   })

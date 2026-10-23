@@ -1,5 +1,6 @@
 import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { describe, expect, it, vi } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
 import { commandFailure, getErrorDetails, getErrorOperationId, logError } from "@/lib/errors"
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: vi.fn(async () => {}) }))
@@ -16,8 +17,8 @@ describe("getErrorDetails", () => {
     expect(getErrorDetails(new TypeError("fetch failed"))).toBe("fetch failed")
   })
 
-  it("returns the message of a CommandError returned by a Tauri command", () => {
-    expect(getErrorDetails({ message: "Repository not accessible: /work/app" })).toBe("Repository not accessible: /work/app")
+  it("returns the message of an ApiError returned by a Tauri command", () => {
+    expect(getErrorDetails(internalError("Repository not accessible: /work/app"))).toBe("Repository not accessible: /work/app")
   })
 
   it("stringifies anything else", () => {
@@ -27,9 +28,9 @@ describe("getErrorDetails", () => {
 })
 
 describe("logError", () => {
-  it("passes the operation a CommandError names to the backend log line, as operation_id", () => {
+  it("passes the operation an ApiError names to the backend log line, as operation_id", () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
-    logError("Cannot sync", { message: "merge-tree failed", kind: null, operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })
+    logError("Cannot sync", { ...internalError("merge-tree failed"), operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })
     expect(logErrorToBackend).toHaveBeenLastCalledWith("Cannot sync", {
       keyValues: { error: "merge-tree failed", operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" },
     })
@@ -40,22 +41,22 @@ describe("logError", () => {
 })
 
 describe("getErrorOperationId", () => {
-  it("returns the operation a CommandError names, and nothing for any other error", () => {
-    expect(getErrorOperationId({ message: "rejected", kind: null, operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })).toBe("01K8ZQ3V6Y4M2N7P9R1S5T0W2X")
-    expect(getErrorOperationId({ message: "rejected", kind: null, operation_id: null })).toBeUndefined()
+  it("returns the operation an ApiError names, and nothing for any other error", () => {
+    expect(getErrorOperationId({ ...internalError("rejected"), operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })).toBe("01K8ZQ3V6Y4M2N7P9R1S5T0W2X")
+    expect(getErrorOperationId(internalError("rejected"))).toBeUndefined()
     expect(getErrorOperationId(new Error("closed"))).toBeUndefined()
     expect(getErrorOperationId("offline")).toBeUndefined()
   })
 })
 
 describe("commandFailure", () => {
-  it("throws what a command returned with its message, its kind and the operation it names", () => {
-    const failure = commandFailure({ message: "rejected", kind: "lockWaitCanceled", operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })
+  it("throws what a command returned with its message, its code and the operation it names", () => {
+    const failure = commandFailure({ ...internalError("rejected"), code: "canceled", operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })
     expect(failure).toBeInstanceOf(Error)
     expect(getErrorDetails(failure)).toBe("rejected")
-    expect(failure).toMatchObject({ kind: "lockWaitCanceled" })
+    expect(failure).toMatchObject({ code: "canceled" })
     expect(getErrorOperationId(failure)).toBe("01K8ZQ3V6Y4M2N7P9R1S5T0W2X")
-    expect(getErrorOperationId(commandFailure({ message: "rejected" }))).toBeUndefined()
+    expect(getErrorOperationId(commandFailure(internalError("rejected")))).toBeUndefined()
   })
 
   it("is what the page throws for a failed command: no new Error of its message drops the operation", () => {

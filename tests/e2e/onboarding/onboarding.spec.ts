@@ -245,7 +245,7 @@ test.describe("Deferred sync", () => {
     await syncAndWaitForBranches()
     const rows = await page.getByTestId("branch-row").count()
     // the backend refuses the sync while git is in the middle of a rebase (`SyncDeferred`)
-    await routeCommandError(page, "sync_branches", "Not synced: a rebase is in progress", "operationInProgress")
+    await routeCommandError(page, "sync_branches", { code: "operation_in_progress", message: "Not synced: a rebase is in progress" })
     await page.getByTestId("sync-button").click()
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Not synced: a rebase is in progress" })
     await expect(toast).toContainText("The branches sync once git finished it")

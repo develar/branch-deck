@@ -4,7 +4,7 @@
 //! were asked (`GET`). The newest release of each tool is the fixture's until the app checks the releases itself.
 
 use crate::state::{AppState, TestRepository};
-use crate::tauri_command_bridge::{CommandFailure, CommandResult, requesting_repository};
+use crate::tauri_command_bridge::{CommandResult, Rejection, failed, requesting_repository};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -61,7 +61,7 @@ impl CliToolsHost {
   }
 
   /// The statuses on the fakes, kept for the Setup dot
-  async fn read(&self) -> Result<Vec<CliToolStatus>, CommandFailure> {
+  async fn read(&self) -> Result<Vec<CliToolStatus>, Rejection> {
     let ticket = self.statuses.start_read();
     let environment = self.environment();
     let facts: HashMap<CliTool, KnownFacts> = CliTool::ALL.into_iter().map(|tool| (tool, self.facts(tool))).collect();
@@ -69,7 +69,7 @@ impl CliToolsHost {
       .await
       .map_err(|join_error| {
         tracing::error!("Cannot read the CLIs: the read panicked: {join_error}");
-        CommandFailure::Panicked
+        Rejection::Panicked
       })?;
     self.statuses.keep(ticket, &statuses);
     Ok(statuses)
@@ -200,7 +200,7 @@ pub async fn run_cli_tool_action(
   {
     let mut running = repository.cli_tools.running.lock().expect("the running actions");
     if running.contains_key(&request.tool) {
-      return Err(CommandFailure::error("run the action", format!("{} is busy with another action", request.tool.command())));
+      return Err(failed("run the action", format!("{} is busy with another action", request.tool.command())));
     }
     running.insert(request.tool, Arc::clone(&canceled));
   }
@@ -231,10 +231,10 @@ pub async fn run_cli_tool_action(
   }
   match result {
     Ok(Ok(done)) => Ok(Json(serde_json::json!({ "title": done.title, "skill_problem": done.skill_problem }))),
-    Ok(Err(error)) => Err(CommandFailure::error("run the action", error)),
+    Ok(Err(error)) => Err(failed("run the action", error)),
     Err(join_error) => {
       tracing::error!("Cannot run the action: it panicked: {join_error}");
-      Err(CommandFailure::Panicked)
+      Err(Rejection::Panicked)
     }
   }
 }
@@ -306,7 +306,7 @@ pub async fn start_youtrack_cli_sign_in(
   let started = remote.youtrack_sign_in().start_for_cli(remote.youtrack_service(), &request.url).await;
   started
     .map(|started| Json(serde_json::to_value(started).expect("the sign-in serializes")))
-    .map_err(|e| CommandFailure::error("start the sign-in of youtrack", e))
+    .map_err(|e| failed("start the sign-in of youtrack", e))
 }
 
 /// Waits for the browser, then hands the fake `youtrack` CLI a permanent token of the fake Hub, as the app does
@@ -323,9 +323,9 @@ pub async fn wait_youtrack_cli_sign_in(State(state): State<Arc<AppState>>, heade
     .youtrack_sign_in()
     .wait_for_cli(remote.youtrack_service())
     .await
-    .map_err(|e| CommandFailure::error("sign youtrack in", e))?;
+    .map_err(|e| failed("sign youtrack in", e))?;
   let title = remote_facts::youtrack_cli::hand_token_to_cli(remote.youtrack_service(), grant, host.environment(), Some(&kept))
     .await
-    .map_err(|e| CommandFailure::error("sign youtrack in", e))?;
+    .map_err(|e| failed("sign youtrack in", e))?;
   Ok(Json(serde_json::json!({ "title": title, "skill_problem": null })))
 }

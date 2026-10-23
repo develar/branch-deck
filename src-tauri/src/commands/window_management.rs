@@ -1,7 +1,7 @@
-use crate::command_error::CommandError;
-use crate::operation::operation;
+use crate::operation::{operation, tauri_error};
 use crate::title_bar::{prepare_title_bar, title_bar_script, with_title_bar};
 use crate::zoom::{apply_zoom, stored_zoom, sub_window_min_size};
+use domain_types::error::ApiError;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
@@ -44,7 +44,7 @@ pub struct SubWindowUpdate {
 
 impl SubWindowUpdate {
   /// The script that hands the update to a loaded page
-  fn script(&self) -> Result<String, CommandError> {
+  fn script(&self) -> Result<String, ApiError> {
     let open = to_json(&self.open)?;
     Ok(format!(
       "
@@ -197,13 +197,13 @@ pub struct OpenSubWindowParams {
 #[tauri::command]
 #[instrument(skip(app_handle, state, params), fields(window_id = %params.window_id, url = %params.url))]
 #[specta::specta]
-pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowState>, params: OpenSubWindowParams) -> Result<(), CommandError> {
+pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowState>, params: OpenSubWindowParams) -> Result<(), ApiError> {
   operation(async move {
     let _open = state.open_lock.lock().await;
     let open = state.next_open(params.opened_at);
     if let Some(existing_window) = app_handle.get_webview_window(&params.window_id) {
       // titled for what it shows now
-      existing_window.set_title(&params.title)?;
+      existing_window.set_title(&params.title).map_err(tauri_error)?;
       let update = SubWindowUpdate {
         data: params.data,
         store_cache: params.store_cache,
@@ -211,12 +211,12 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
       };
       match state.reopened(&params.window_id, update.clone()) {
         Reopen::Pending => {}
-        Reopen::Hidden => existing_window.eval(update.script()?)?,
+        Reopen::Hidden => existing_window.eval(update.script()?).map_err(tauri_error)?,
         Reopen::Shown => {
-          existing_window.eval(update.script()?)?;
-          existing_window.show()?;
-          existing_window.unminimize()?;
-          existing_window.set_focus()?;
+          existing_window.eval(update.script()?).map_err(tauri_error)?;
+          existing_window.show().map_err(tauri_error)?;
+          existing_window.unminimize().map_err(tauri_error)?;
+          existing_window.set_focus().map_err(tauri_error)?;
         }
       }
       return Ok(());
@@ -254,7 +254,7 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
       Some((x, y)) => builder.position(x, y),
       None => builder.center(),
     };
-    let window = with_title_bar(with_canvas(builder, &app_handle)).build()?;
+    let window = with_title_bar(with_canvas(builder, &app_handle)).build().map_err(tauri_error)?;
     apply_zoom(&window, zoom);
     // the empty GTK titlebar of a custom title bar on Linux, before the page paints and the window shows
     prepare_title_bar(&window);
@@ -276,7 +276,7 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
 #[tauri::command]
 #[instrument(skip(app_handle, webview, state))]
 #[specta::specta]
-pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: State<'_, SubWindowState>) -> Result<Option<SubWindowUpdate>, CommandError> {
+pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: State<'_, SubWindowState>) -> Result<Option<SubWindowUpdate>, ApiError> {
   operation(async move {
     let label = webview.label().to_string();
     let (update, build) = state.loaded(&label);
@@ -293,12 +293,12 @@ pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: S
 #[tauri::command]
 #[instrument(skip(webview, state))]
 #[specta::specta]
-pub async fn sub_window_ready(webview: Webview, state: State<'_, SubWindowState>, open_id: u32) -> Result<(), CommandError> {
+pub async fn sub_window_ready(webview: Webview, state: State<'_, SubWindowState>, open_id: u32) -> Result<(), ApiError> {
   operation(async move {
     if state.ready(webview.label(), open_id) {
       let window = webview.window();
-      window.show()?;
-      window.set_focus()?;
+      window.show().map_err(tauri_error)?;
+      window.set_focus().map_err(tauri_error)?;
     }
     Ok(())
   })
@@ -326,8 +326,8 @@ fn show_after(app_handle: AppHandle, label: String, build: u32, delay: Duration,
   );
 }
 
-fn to_json(open: &SubWindowOpen) -> Result<String, CommandError> {
-  serde_json::to_string(open).map_err(|e| CommandError::new(e.to_string()))
+fn to_json(open: &SubWindowOpen) -> Result<String, ApiError> {
+  serde_json::to_string(open).map_err(|e| ApiError::internal(e.to_string()))
 }
 
 /// The window on the canvas of the theme the main window shows. Not on Linux: a rounded window is transparent there,

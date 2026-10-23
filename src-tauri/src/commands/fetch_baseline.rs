@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::operation::run_blocking;
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::baseline_fetch::{FetchBaselineParams, FetchBaselineResult, fetch_baseline_core};
 use sync_core::transfer_progress::TransferProgress;
@@ -16,7 +16,7 @@ pub async fn fetch_baseline(
   git_executor: State<'_, GitCommandExecutor>,
   params: FetchBaselineParams,
   progress: Channel<TransferProgress>,
-) -> Result<FetchBaselineResult, CommandError> {
+) -> Result<FetchBaselineResult, ApiError> {
   let git = (*git_executor).clone();
   run_blocking(move || {
     fetch_baseline_core(&git, &params, &mut |fetch_progress| {

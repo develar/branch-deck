@@ -1,6 +1,6 @@
 //! A rewrite of the page waits for a live holder of the repository lock as the app's does: the server tells the page
 //! whom for on the channel of the command, as SSE events before its answer, and Stop Waiting (`cancel_lock_wait` of the
-//! channel) ends the wait with nothing changed (`lockWaitCanceled`)
+//! channel) ends the wait with nothing changed (the code `canceled`)
 
 use crate::test_support::{create_repository, post, start_test_server};
 use pretty_assertions::assert_eq;
@@ -85,7 +85,7 @@ async fn stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed() {
     }
   };
   assert_eq!(result["status"], "error", "{result}");
-  assert_eq!(result["error"]["kind"], "lockWaitCanceled", "{result}");
+  assert_eq!(result["error"]["code"], "canceled", "{result}");
   // nothing was parked, and the wait is gone
   let parked = test_utils::git_test_utils::git_command()
     .args(["-C", &path, "rev-parse", "--verify", "--quiet", "refs/branch-deck/parked"])

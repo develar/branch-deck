@@ -1,14 +1,14 @@
 import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
-import type { CommandError } from "@/lib/bindings"
+import type { ApiError } from "@/lib/bindings"
 import type { ToastActionProps } from "@/lib/toast-message"
 
-/** The message of an error for the user: the `message` of an `Error` (no "Error:" prefix) or of a `CommandError` */
+/** The message of an error for the user: the `message` of an `Error` (no "Error:" prefix) or of an `ApiError` */
 export function getErrorDetails(error: unknown): string {
   if (error instanceof Error) {
     return error.message
   }
-  // CommandError returned by Tauri commands
+  // the ApiError a Tauri command returns
   if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
     return error.message
   }
@@ -16,7 +16,7 @@ export function getErrorDetails(error: unknown): string {
 }
 
 /**
- * The operation a failed command names (`CommandError.operation_id`, set by `operation`, `operation_now` or the one
+ * The operation a failed command names (`ApiError.operation_id`, set by `operation`, `operation_now` or the one
  * `run_blocking` step of `src-tauri/src/operation.rs`): the id of its log lines, `operation{operation_id=…}`; undefined
  * for any other error
  */
@@ -28,12 +28,13 @@ export function getErrorOperationId(error: unknown): string | undefined {
 }
 
 /**
- * The error of a failed command as an `Error` to throw, with what the page tells apart: its `kind` (a wait the user
- * stopped, `isLockWaitCanceled`) and its `operation_id`, which `notifyError` and `recordError` keep for Activity and the
- * log line. A step that throws what a command returned throws this, never `new Error(error.message)`, which drops both
+ * The `ApiError` of a failed command as an `Error` to throw, with what the page tells apart: its `code` (a wait the user
+ * stopped is `canceled`, `isLockWaitCanceled`), its data and its `operation_id`, which `notifyError` and `recordError`
+ * keep for Activity and the log line. A step that throws what a command returned throws this, never
+ * `new Error(error.message)`, which drops them
  */
-export function commandFailure(error: CommandError): Error {
-  return Object.assign(new Error(error.message), { kind: error.kind ?? null, operation_id: error.operation_id ?? null })
+export function commandFailure(error: ApiError): Error & ApiError {
+  return Object.assign(new Error(error.message), error)
 }
 
 type ErrorRecorder = (title: string, description: string, operationId: string | undefined) => void

@@ -1,11 +1,12 @@
 // @spec spec/repository/settings.spec.md
 import { describe, expect, it } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
 import type { GitBranchPrefix } from "@/lib/bindings"
 import { computeEffectiveBranchPrefix } from "@/stores/repository"
 import type { BranchPrefixResult } from "@/stores/repository"
 
 const loaded = (prefix: string, repositoryScoped: boolean): BranchPrefixResult => ({ status: "ok", data: { prefix, repositoryScoped } })
-const notLoaded: BranchPrefixResult = { status: "error", error: { message: "Not loaded" } }
+const notLoaded: BranchPrefixResult = { status: "error", error: internalError("Not loaded") }
 const cached = (prefix: string, repositoryScoped: boolean): GitBranchPrefix => ({ prefix, repositoryScoped })
 
 // the cases of `resolve_branch_prefix` in crates/sync-core/src/branch_prefix_test.rs

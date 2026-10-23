@@ -77,7 +77,7 @@ test.describe("Issue Reference Feature", () => {
   })
 
   test("should keep the typed reference when adding it fails", async ({ page }) => {
-    await routeCommandError(page, "add_issue_reference_to_commits", "The branch moved")
+    await routeCommandError(page, "add_issue_reference_to_commits", { code: "head_moved", message: "The branch moved", retry: "after_reread" })
     await openContextMenu(page, findBranchRow(page, "test-branch"))
     await clickContextMenuItem(page, "Add Issue Reference…")
 

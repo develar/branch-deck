@@ -265,5 +265,8 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
   let started = std::time::Instant::now();
   delete_repository(&client, addr, &id, &path).await;
   assert!(started.elapsed() < std::time::Duration::from_secs(5), "the deletion waited {:?}", started.elapsed());
-  assert_eq!(wait.await.unwrap(), json!({"status": "error", "error": {"message": "canceled"}}));
+  assert_eq!(
+    wait.await.unwrap(),
+    json!({"status": "error", "error": {"code": "internal", "message": "canceled", "details": null, "retry": "no", "operation_id": null}})
+  );
 }

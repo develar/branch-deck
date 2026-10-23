@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::move_commits::{MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core};
 use tauri::State;
@@ -15,7 +15,7 @@ pub async fn move_commits_to_branch(
   lock_waits: Waits<'_>,
   params: MoveCommitsParams,
   wait: WaitChannel,
-) -> Result<MoveCommitsResult, CommandError> {
+) -> Result<MoveCommitsResult, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| move_commits_to_branch_core(&git, &params, lock_wait)).await
 }

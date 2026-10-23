@@ -1,9 +1,10 @@
-use crate::command_error::CommandError;
 use crate::commands::github::{GitHubState, app_user_agent};
 use crate::commands::pull_requests::github_repository;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use app_api::api_error::{api_error, patronus_error};
 use domain_types::calendar::Calendar;
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
   PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams,
@@ -74,7 +75,7 @@ impl PatronusState {
   /// The Space repository `origin` pushes to: one `remote get-url --push` (`find_space_repository`) on a miss. The GitHub
   /// repository of its branches (a mirror of the Space one) is the app's, kept while the config stays as it is
   /// (`RepositoryStateCache::github_repository`)
-  pub(crate) async fn space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<SpaceRepository>, CommandError> {
+  pub(crate) async fn space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<SpaceRepository>, ApiError> {
     if let Some(space) = self.repositories.get(repository_path) {
       return Ok(space);
     }
@@ -86,17 +87,17 @@ impl PatronusState {
   }
 
   /// The Space repository, for an action: not on Space is an error
-  async fn required_space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<SpaceRepository, CommandError> {
+  async fn required_space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<SpaceRepository, ApiError> {
     self.space_repository(git_executor, repository_path).await?.ok_or_else(not_on_space)
   }
 }
 
-fn not_on_space() -> CommandError {
-  CommandError::new(NOT_ON_SPACE)
+fn not_on_space() -> ApiError {
+  ApiError::new(ErrorCode::NotOnSpace, NOT_ON_SPACE)
 }
 
 /// The branch a robot pushes to, from the baseline: the branch of `origin` it tracks
-async fn target_branch(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> Result<String, CommandError> {
+async fn target_branch(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> Result<String, ApiError> {
   let git = git_executor.clone();
   let path = repository_path.to_string();
   let baseline = baseline_branch.to_string();
@@ -115,7 +116,7 @@ pub async fn get_robot_stats(
   patronus: State<'_, PatronusState>,
   params: GetRobotStatsParams,
   events: Channel<RobotStatsEvent>,
-) -> Result<RobotStatsResult, CommandError> {
+) -> Result<RobotStatsResult, ApiError> {
   operation(async move {
     let Some(repository) = patronus.space_repository(&git_executor, &params.repository_path).await? else {
       return Ok(RobotStatsResult {
@@ -161,7 +162,7 @@ pub async fn get_patronus_robots(
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
   params: GetPatronusRobotsParams,
-) -> Result<PatronusRobotsResult, CommandError> {
+) -> Result<PatronusRobotsResult, ApiError> {
   operation(async move {
     let Some(repository) = patronus.space_repository(&git_executor, &params.repository_path).await? else {
       return Ok(PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
@@ -182,7 +183,7 @@ pub async fn get_patronus_robots(
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_prefix = %params.branch_prefix, robots = params.robots.len()))]
 #[specta::specta]
-pub async fn poll_patronus_robots(patronus: State<'_, PatronusState>, params: PollPatronusRobotsParams) -> Result<PatronusRobotsResult, CommandError> {
+pub async fn poll_patronus_robots(patronus: State<'_, PatronusState>, params: PollPatronusRobotsParams) -> Result<PatronusRobotsResult, ApiError> {
   operation(async move { Ok(patronus.service.poll(&params.branch_prefix, &params.robots).await) }).await
 }
 
@@ -190,13 +191,13 @@ pub async fn poll_patronus_robots(patronus: State<'_, PatronusState>, params: Po
 #[tauri::command]
 #[instrument(skip(patronus))]
 #[specta::specta]
-pub async fn get_patronus_robot_details(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotDetails, CommandError> {
+pub async fn get_patronus_robot_details(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotDetails, ApiError> {
   operation(async move {
     patronus
       .service
       .robot_details(&params.branch_prefix, &params.robot_id, params.new_api)
       .await
-      .map_err(CommandError::new)
+      .map_err(patronus_error)
   })
   .await
 }
@@ -210,7 +211,7 @@ pub async fn get_robot_failure(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
   params: GetRobotFailureParams,
-) -> Result<RobotFailureReport, CommandError> {
+) -> Result<RobotFailureReport, ApiError> {
   operation(async move {
     let failure = if params.full {
       let teamcity = patronus.teamcity().await;
@@ -218,7 +219,7 @@ pub async fn get_robot_failure(
     } else {
       patronus.service.robot_failure(&params.branch_prefix, &params.robot_id).await
     }
-    .map_err(CommandError::new)?;
+    .map_err(patronus_error)?;
     let git = git_executor.inner().clone();
     run_blocking(move || robot_failure_report(&git, &params.repository_path, &params.branch_prefix, &params.ancestors, &params.baseline_branch, failure)).await
   })
@@ -230,7 +231,7 @@ pub async fn get_robot_failure(
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = ?params.branch_name, stack_root = ?params.stack_root, ancestors = params.ancestors.len()))]
 #[specta::specta]
-pub async fn get_robot_commit_map(git_executor: State<'_, GitCommandExecutor>, params: GetRobotCommitMapParams) -> Result<RobotCommitMap, CommandError> {
+pub async fn get_robot_commit_map(git_executor: State<'_, GitCommandExecutor>, params: GetRobotCommitMapParams) -> Result<RobotCommitMap, ApiError> {
   let git = git_executor.inner().clone();
   run_blocking(move || {
     let subject = RobotSubject {
@@ -259,7 +260,7 @@ pub async fn get_patronus_start_options(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
   params: GetPatronusStartOptionsParams,
-) -> Result<PatronusStartOptions, CommandError> {
+) -> Result<PatronusStartOptions, ApiError> {
   operation(async move {
     let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
     let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
@@ -273,7 +274,7 @@ pub async fn get_patronus_start_options(
         params.last_robot_profile,
       )
       .await
-      .map_err(CommandError::new)
+      .map_err(patronus_error)
   })
   .await
 }
@@ -292,15 +293,12 @@ pub async fn start_patronus_robot(
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
   params: StartPatronusRobotParams,
-) -> Result<PatronusRobot, CommandError> {
+) -> Result<PatronusRobot, ApiError> {
   operation(async move {
     let space = patronus.space_repository(&git_executor, &params.repository_path).await?;
     let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
     let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views);
-    actions
-      .start_robot(move || repository_state.object_cache(&git, &path), &params)
-      .await
-      .map_err(CommandError::from)
+    actions.start_robot(move || repository_state.object_cache(&git, &path), &params).await.map_err(api_error)
   })
   .await
 }
@@ -329,7 +327,7 @@ pub async fn check_landing_gate(
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
   params: LandingGateParams,
-) -> Result<LandingCheck, CommandError> {
+) -> Result<LandingCheck, ApiError> {
   operation(async {
     let space = patronus.space_repository(&git_executor, &params.repository_path).await.unwrap_or_else(|error| {
       warn!(error = ?error, "no robots for the landing check: the Space repository is unknown");
@@ -337,10 +335,7 @@ pub async fn check_landing_gate(
     });
     let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views);
     let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
-    actions
-      .check_landing(move || repository_state.object_cache(&git, &path), &params)
-      .await
-      .map_err(CommandError::from)
+    actions.check_landing(move || repository_state.object_cache(&git, &path), &params).await.map_err(api_error)
   })
   .await
 }
@@ -350,9 +345,9 @@ pub async fn check_landing_gate(
 #[tauri::command]
 #[instrument(skip(git_executor))]
 #[specta::specta]
-pub async fn check_target_conflict(git_executor: State<'_, GitCommandExecutor>, params: TargetConflictParams) -> Result<TargetCheck, CommandError> {
+pub async fn check_target_conflict(git_executor: State<'_, GitCommandExecutor>, params: TargetConflictParams) -> Result<TargetCheck, ApiError> {
   let git = git_executor.inner().clone();
-  run_blocking(move || Ok::<_, CommandError>(target_conflict_core(&git, &params))).await
+  run_blocking(move || Ok::<_, ApiError>(target_conflict_core(&git, &params))).await
 }
 
 /// Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
@@ -365,7 +360,7 @@ pub async fn restart_patronus_robot(
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
   params: PatronusRobotParams,
-) -> Result<PatronusRobot, CommandError> {
+) -> Result<PatronusRobot, ApiError> {
   operation(act_on_robot(&git_executor, &patronus, &views, &params, RobotAction::Restart)).await
 }
 
@@ -378,7 +373,7 @@ pub async fn cancel_patronus_robot(
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
   params: PatronusRobotParams,
-) -> Result<PatronusRobot, CommandError> {
+) -> Result<PatronusRobot, ApiError> {
   operation(act_on_robot(&git_executor, &patronus, &views, &params, RobotAction::Cancel)).await
 }
 
@@ -395,38 +390,38 @@ async fn act_on_robot(
   views: &RepositoryViews,
   params: &PatronusRobotParams,
   action: RobotAction,
-) -> Result<PatronusRobot, CommandError> {
+) -> Result<PatronusRobot, ApiError> {
   let space = patronus.space_repository(git_executor, &params.repository_path).await?;
   let actions = remote_actions(patronus, space.as_ref(), git_executor, views);
   match action {
     RobotAction::Restart => actions.restart_robot(params).await,
     RobotAction::Cancel => actions.cancel_robot(params).await,
   }
-  .map_err(CommandError::from)
+  .map_err(api_error)
 }
 
 /// The current status of one robot, read right before a push into its branch
 #[tauri::command]
 #[instrument(skip(patronus))]
 #[specta::specta]
-pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotStatus, CommandError> {
-  operation(async move { patronus.service.robot_status(&params.robot_id).await.map_err(CommandError::new) }).await
+pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotStatus, ApiError> {
+  operation(async move { patronus.service.robot_status(&params.robot_id).await.map_err(patronus_error) }).await
 }
 
 /// The error problems of a finished robot, once per session: the chip names a missing review
 #[tauri::command]
 #[instrument(skip(patronus))]
 #[specta::specta]
-pub async fn get_patronus_robot_problems(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<Vec<PatronusProblem>, CommandError> {
-  operation(async move { patronus.service.robot_problems(&params.robot_id).await.map_err(CommandError::new) }).await
+pub async fn get_patronus_robot_problems(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<Vec<PatronusProblem>, ApiError> {
+  operation(async move { patronus.service.robot_problems(&params.robot_id).await.map_err(patronus_error) }).await
 }
 
 /// Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, robots = params.robot_ids.len()))]
 #[specta::specta]
-pub async fn get_patronus_failing_robots(patronus: State<'_, PatronusState>, params: PatronusFailingRobotsParams) -> Result<Vec<String>, CommandError> {
-  operation(async move { patronus.service.failing_robots(&params.robot_ids).await.map_err(CommandError::new) }).await
+pub async fn get_patronus_failing_robots(patronus: State<'_, PatronusState>, params: PatronusFailingRobotsParams) -> Result<Vec<String>, ApiError> {
+  operation(async move { patronus.service.failing_robots(&params.robot_ids).await.map_err(patronus_error) }).await
 }
 
 /// Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
@@ -443,7 +438,7 @@ pub async fn get_branch_review_readiness(
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
   params: GetBranchReviewReadinessParams,
-) -> Result<Vec<BranchReviewReadiness>, CommandError> {
+) -> Result<Vec<BranchReviewReadiness>, ApiError> {
   operation(async move {
     let space = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
     let github = github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
@@ -466,7 +461,7 @@ pub async fn get_branch_review_readiness(
       params.recheck,
     )
     .await
-    .map_err(CommandError::from)
+    .map_err(api_error)
   })
   .await
 }
@@ -485,7 +480,7 @@ pub async fn post_patronus_command(
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
   params: PostPatronusCommandParams,
-) -> Result<PatronusCommandComment, CommandError> {
+) -> Result<PatronusCommandComment, ApiError> {
   operation(async move {
     let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
       .await?
@@ -495,7 +490,8 @@ pub async fn post_patronus_command(
       let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
       remote_actions(&patronus, space.as_ref(), &git_executor, &views)
         .check_start_from_pull_request(move || repository_state.object_cache(&git, &path), &params)
-        .await?;
+        .await
+        .map_err(api_error)?;
     }
     remote_facts::patronus_command::post_patronus_command(
       &github.service,
@@ -506,7 +502,7 @@ pub async fn post_patronus_command(
       params.subject,
     )
     .await
-    .map_err(|e| CommandError::new(e.to_string()))
+    .map_err(|e| ApiError::internal(e.to_string()))
   })
   .await
 }
@@ -520,20 +516,20 @@ pub async fn read_patronus_command_reply(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: ReadPatronusCommandReplyParams,
-) -> Result<PatronusCommandReply, CommandError> {
+) -> Result<PatronusCommandReply, ApiError> {
   operation(async move {
     let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
       .await?
       .ok_or_else(unknown_github_repository)?;
     remote_facts::patronus_command::read_patronus_command_reply(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment_id)
       .await
-      .map_err(|e| CommandError::new(e.to_string()))
+      .map_err(|e| ApiError::internal(e.to_string()))
   })
   .await
 }
 
-fn unknown_github_repository() -> CommandError {
-  CommandError::new(remote_facts::patronus_command::UNKNOWN_GITHUB_REPOSITORY_MESSAGE)
+fn unknown_github_repository() -> ApiError {
+  ApiError::internal(remote_facts::patronus_command::UNKNOWN_GITHUB_REPOSITORY_MESSAGE)
 }
 
 /// The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
@@ -541,7 +537,7 @@ fn unknown_github_repository() -> CommandError {
 #[tauri::command]
 #[instrument(skip(git_executor))]
 #[specta::specta]
-pub async fn get_patronus_target_branch(git_executor: State<'_, GitCommandExecutor>, params: GetPatronusTargetBranchParams) -> Result<Option<String>, CommandError> {
+pub async fn get_patronus_target_branch(git_executor: State<'_, GitCommandExecutor>, params: GetPatronusTargetBranchParams) -> Result<Option<String>, ApiError> {
   let git = (*git_executor).clone();
   run_blocking(move || find_target_branch(&git, &params.repository_path, &params.baseline_branch)).await
 }

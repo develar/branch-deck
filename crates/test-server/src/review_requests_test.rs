@@ -81,7 +81,16 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   let error = post(&client, addr, "/invoke/fetch_review_head", fetch).await;
   assert_eq!(
     error,
-    json!({ "status": "error", "error": { "message": "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)" } })
+    json!({
+      "status": "error",
+      "error": {
+        "code": "internal",
+        "message": "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)",
+        "details": null,
+        "retry": "no",
+        "operation_id": null
+      }
+    })
   );
 
   assert_eq!(fixture_calls(&client, addr, &id).await, json!({ "calls": 2, "fetchCalls": 2, "prunes": [[7]] }));

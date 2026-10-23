@@ -1,6 +1,6 @@
-use crate::command_error::CommandError;
-use crate::lock_wait::{canceled_kind, register};
+use crate::lock_wait::{canceled_code, register};
 use crate::operation::{operation, run_blocking};
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::lock_wait::{LockWaits, waiting_for};
 use history_rewrite::repository_lock::LockWait;
@@ -23,7 +23,7 @@ pub async fn update_project(
   lock_waits: State<'_, LockWaits>,
   params: UpdateProjectParams,
   progress: Channel<UpdateProgress>,
-) -> Result<UpdateProjectResult, CommandError> {
+) -> Result<UpdateProjectResult, ApiError> {
   operation(async move {
     let git = (*git_executor).clone();
     let progress_id = progress.id();
@@ -44,7 +44,7 @@ pub async fn update_project(
     });
     let step_ticket = Arc::clone(&ticket);
     let updated = run_blocking(move || update_project_core(&git, &params, &send, LockWait::WhileHeld(&*step_ticket))).await;
-    canceled_kind(updated, &ticket)
+    canceled_code(updated, &ticket)
   })
   .await
 }
@@ -53,7 +53,7 @@ pub async fn update_project(
 #[tauri::command]
 #[instrument(skip(git_executor))]
 #[specta::specta]
-pub async fn dismiss_landed(git_executor: State<'_, GitCommandExecutor>, repository_path: String) -> Result<(), CommandError> {
+pub async fn dismiss_landed(git_executor: State<'_, GitCommandExecutor>, repository_path: String) -> Result<(), ApiError> {
   let git = (*git_executor).clone();
   run_blocking(move || dismiss_landed_core(&git, &repository_path)).await
 }

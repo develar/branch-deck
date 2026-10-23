@@ -1,6 +1,6 @@
-use crate::command_error::CommandError;
 use crate::operation::run_blocking;
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,9 +23,9 @@ pub async fn suggest_branch_names(
   state: State<'_, BranchNameSuggestionState>,
   git_executor: State<'_, GitCommandExecutor>,
   params: SuggestBranchNamesParams,
-) -> Result<BranchNameSuggestionOutcome, CommandError> {
+) -> Result<BranchNameSuggestionOutcome, ApiError> {
   let latest_request = Arc::clone(&state.latest_request);
   let request = latest_request.fetch_add(1, Ordering::SeqCst) + 1;
   let git = (*git_executor).clone();
-  run_blocking(move || Ok::<_, CommandError>(core_suggest_branch_names(&git, &params, &|| latest_request.load(Ordering::SeqCst) != request))).await
+  run_blocking(move || Ok::<_, ApiError>(core_suggest_branch_names(&git, &params, &|| latest_request.load(Ordering::SeqCst) != request))).await
 }

@@ -40,6 +40,8 @@ trial-check = { path = "../trial-check" }
 update-core = { path = "../update-core" }
 history-rewrite = { path = "../history-rewrite" }
 domain-types = { path = "../domain-types" }
+# `api_error`: a core's error as the `ApiError` the app answers
+app-api = { path = "../app-api" }
 cli-tools = { path = "../cli-tools" }
 sync-utils = { path = "../sync-utils" }
 youtrack = { path = "../youtrack", features = ["fake"] }
@@ -50,6 +52,8 @@ dashmap.workspace = true
 [dev-dependencies]
 reqwest.workspace = true
 pretty_assertions = { workspace = true }
+# the cases of the adapters' contract test (`api_error_contract_test.rs`)
+app-api = { path = "../app-api", features = ["fixtures"] }
 
 [lints]
 workspace = true

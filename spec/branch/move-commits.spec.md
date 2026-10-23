@@ -131,7 +131,7 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../crates/test-server/src/channel_commands_test.rs (`a_rewrite_says_whom_it_waits_for_and_runs_once_the_holder_released_the_lock`, `stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed`)
   [@test] ../../crates/history-rewrite/src/lock_wait_test.rs (`a_wait_is_stopped_by_its_channel_and_leaves_the_registry_with_its_ticket`)
   [@test] ../../src/stores/operations.test.ts (`says whom the command of a running rewrite waits for, offers Stop Waiting on its channel, and says its own state again once the wait ended`)
-  [@test] ../../src/lib/lock-wait.test.ts (`says that an action stopped while it waited for the repository lock changed nothing`, `tells a stopped wait from a failure by the kind of the command's error`)
+  [@test] ../../src/lib/lock-wait.test.ts (`says that an action stopped while it waited for the repository lock changed nothing`, `tells a stopped wait from a failure by the code of the command's error`)
 - A commit already in the target branch must not be rewritten; the result lists it as `Unchanged`.
 - All commits must be rewritten in one history rewrite that keeps the trees, the metadata and the working tree.
 - The rewrite must keep the author and the committer of every recreated commit: name, email, date and timezone.

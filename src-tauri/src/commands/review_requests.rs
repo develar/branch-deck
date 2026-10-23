@@ -1,9 +1,9 @@
-use crate::command_error::CommandError;
 use crate::commands::github::GitHubState;
 use crate::commands::pull_requests::github_repository;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use crate::window_requests::WindowRequests;
+use domain_types::error::ApiError;
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::review_request::{FetchReviewHeadParams, GetRangeParams, GetReviewRequestsParams, PruneReviewRefsParams, ReviewRange, ReviewRequestsResult};
 use file_diffs::range_files::RangeFilesCache;
@@ -32,7 +32,7 @@ pub async fn get_review_requests(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: GetReviewRequestsParams,
-) -> Result<ReviewRequestsResult, CommandError> {
+) -> Result<ReviewRequestsResult, ApiError> {
   operation(async move {
     let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await? else {
       return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
@@ -54,7 +54,7 @@ pub async fn fetch_review_head(
   git_executor: State<'_, GitCommandExecutor>,
   params: FetchReviewHeadParams,
   progress: Channel<TransferProgress>,
-) -> Result<ReviewRange, CommandError> {
+) -> Result<ReviewRange, ApiError> {
   let request = state.0.begin(webview.label());
   let git = (*git_executor).clone();
   run_blocking(move || {
@@ -76,7 +76,7 @@ pub async fn fetch_review_head(
 #[tauri::command]
 #[instrument(skip(webview, state))]
 #[specta::specta]
-pub async fn cancel_review_fetch(webview: Webview, state: State<'_, ReviewFetchState>) -> Result<(), CommandError> {
+pub async fn cancel_review_fetch(webview: Webview, state: State<'_, ReviewFetchState>) -> Result<(), ApiError> {
   operation(async move {
     state.0.cancel(webview.label());
     Ok(())
@@ -88,7 +88,7 @@ pub async fn cancel_review_fetch(webview: Webview, state: State<'_, ReviewFetchS
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, keep = params.keep.len()))]
 #[specta::specta]
-pub async fn prune_review_refs(git_executor: State<'_, GitCommandExecutor>, params: PruneReviewRefsParams) -> Result<(), CommandError> {
+pub async fn prune_review_refs(git_executor: State<'_, GitCommandExecutor>, params: PruneReviewRefsParams) -> Result<(), ApiError> {
   let git = (*git_executor).clone();
   run_blocking(move || core_prune_review_refs(&git, &params.repository_path, &params.keep)).await
 }
@@ -98,11 +98,7 @@ pub async fn prune_review_refs(git_executor: State<'_, GitCommandExecutor>, para
 #[tauri::command]
 #[instrument(skip(git_executor, range_files))]
 #[specta::specta]
-pub async fn get_range_files(
-  git_executor: State<'_, GitCommandExecutor>,
-  range_files: State<'_, RangeFilesCache>,
-  params: GetRangeParams,
-) -> Result<Arc<CommitFiles>, CommandError> {
+pub async fn get_range_files(git_executor: State<'_, GitCommandExecutor>, range_files: State<'_, RangeFilesCache>, params: GetRangeParams) -> Result<Arc<CommitFiles>, ApiError> {
   let git = (*git_executor).clone();
   let range_files = (*range_files).clone();
   run_blocking(move || range_files.read(&git, &params.repository_path, &range_subject(params.base, params.head))).await

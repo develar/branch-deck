@@ -1,8 +1,9 @@
-use crate::command_error::CommandError;
 use crate::operation::{operation, run_blocking};
 use crate::progress::TauriProgressReporter;
 use crate::repository_state::RepositoryStateCache;
+use app_api::api_error::api_error;
 use domain_types::SyncEvent;
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use repository_model::branch_table::BranchTable;
 use repository_model::views::RepositoryViews;
@@ -31,7 +32,7 @@ pub async fn sync_branches(
   views: State<'_, RepositoryViews>,
   params: SyncBranchesParams,
   progress: Channel<SyncEvent>,
-) -> Result<(), CommandError> {
+) -> Result<(), ApiError> {
   operation(async move {
     let repository_path = &params.repository_path;
     let branch_prefix = &params.branch_prefix;
@@ -69,7 +70,7 @@ pub async fn sync_branches(
       })
       .map_err(|e| {
         error!(error = ?e, "Branch synchronization failed");
-        CommandError::from(e)
+        api_error(e)
       })
   })
   .await

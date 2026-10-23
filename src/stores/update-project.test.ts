@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
 import type { FetchBaselineResult, TransferProgress, UpdateCheck, UpdateProjectResult } from "@/lib/bindings"
 import { getOperationBlocker, getOperations, operationsStore, runOperation } from "@/stores/operations"
 import { runFetchBaseline, runUpdateProject, runUpdateProjectOf, selectRunningUpdate, updateProjectStore } from "@/stores/update-project"
@@ -209,7 +210,7 @@ describe("the running update", () => {
 
   it("keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository", async () => {
     const failedFetch = runUpdateProject()
-    ;(await commandIn("/a", "fetch")).finish({ status: "error", error: { message: "Failed to fetch origin/master" } })
+    ;(await commandIn("/a", "fetch")).finish({ status: "error", error: { ...internalError("Failed to fetch origin/master"), code: "network_error" } })
     await failedFetch
     expect(fetchTimes).toEqual([])
     // nothing was fetched: nothing to sync, nothing to check
@@ -220,7 +221,10 @@ describe("the running update", () => {
     const failedAfterTheFetch = runUpdateProject()
     const command = await fetched("/a")
     command.progress.onmessage({ phase: "checking", fetch: null })
-    command.finish({ status: "error", error: { message: "Branch Deck or bd is changing this repository. Try again when it is done." } })
+    command.finish({
+      status: "error",
+      error: { ...internalError("`bd push auth` (pid 4242) is changing this repository; try again when it is done"), code: "locked", retry: "same" },
+    })
     await failedAfterTheFetch
     expect(fetchTimes).toEqual(["/a"])
     // the baseline moved: the branches are built against it

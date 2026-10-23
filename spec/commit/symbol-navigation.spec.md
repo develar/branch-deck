@@ -66,7 +66,7 @@ outside it.
   0.03–3 s. While the answer has not come, the name shows "Looking for the declaration…" or "Finding usages…" (faded in
   late, so a quick answer shows none) with Cancel; Escape or Cancel stops it, kills its accio, and its answer, if one
   still comes, does nothing. A newer search of the window, ⌥↓ to another subject and the close of the window kill it
-  too; a killed search answers nothing (`searchCanceled`), never a toast.
+  too; a killed search answers nothing (the code `canceled`), never a toast.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should say that it searches while the backend answers, and stop the search on Escape and on Cancel`)
   [@test] ../../src/lib/navigation-gate.test.ts (`drops the answer of a canceled navigation, and says whether one was in flight`)
   [@test] ../../crates/file-diffs/src/accio_test.rs (`waits_for_a_slow_index_as_long_as_it_runs`, `a_canceled_search_kills_its_query`)

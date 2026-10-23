@@ -435,7 +435,7 @@ test.describe("Stack island", () => {
     const repo = await setupRepo("stack_side_conflict", { patronus: availableRobots() })
     await syncAndWaitForBranches()
     const pushes = await routePush(page, {})
-    await routeCommandError(page, "get_stack_independence", "The trial build failed")
+    await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
     const { air, headerSlot, popover } = await refuseIslandStarts(page, repo)
     const conflict = /^The stack branch conflicts at [0-9a-f]{8} in config\.js: the stack lands in pieces$/
 

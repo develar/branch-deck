@@ -5,6 +5,7 @@
 
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHolderInfo};
 use domain_types::landing::LandingRefusal;
+use file_diffs::accio::SearchCanceled;
 use git_ops::revs::DetachedHead;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::{DropRefused, MoveBlocked};
@@ -26,6 +27,44 @@ use update_core::update_project::{FetchFailed, NoUpstream};
 pub fn api_error(error: anyhow::Error) -> ApiError {
   let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
   api_error_at(&error, now)
+}
+
+/// What a step of a command fails with, as its `ApiError`: a core's error through `api_error`, a message without a code
+/// as `internal`, an `ApiError` as it is. Both adapters bound their blocking steps by it (`run_blocking` of the app,
+/// `run_command` of the e2e server); a trait of this crate, because no `From` of a foreign error into `ApiError` can be
+/// written outside `domain-types`
+pub trait IntoApiError {
+  fn into_api_error(self) -> ApiError;
+}
+
+impl IntoApiError for ApiError {
+  fn into_api_error(self) -> ApiError {
+    self
+  }
+}
+
+impl IntoApiError for anyhow::Error {
+  fn into_api_error(self) -> ApiError {
+    api_error(self)
+  }
+}
+
+impl IntoApiError for String {
+  fn into_api_error(self) -> ApiError {
+    ApiError::internal(self)
+  }
+}
+
+impl IntoApiError for &str {
+  fn into_api_error(self) -> ApiError {
+    ApiError::internal(self)
+  }
+}
+
+/// A request to Patronus that failed, in the words of its service (`PatronusService` answers a message):
+/// `patronus_error`, as `bd` answers it
+pub fn patronus_error(message: String) -> ApiError {
+  ApiError::new(ErrorCode::PatronusError, message)
 }
 
 /// `api_error` with the clock at `now` (seconds since the epoch), which `held_for` of a lock holder counts from
@@ -107,7 +146,8 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   if error.downcast_ref::<NoBaseline>().is_some() || error.downcast_ref::<NoUpstream>().is_some() {
     return code(ErrorCode::NoBaseline);
   }
-  if error.downcast_ref::<LockWaitCanceled>().is_some() {
+  // the user stopped the wait for the lock, or a newer symbol search of the window or the user stopped the search
+  if error.downcast_ref::<LockWaitCanceled>().is_some() || error.is::<SearchCanceled>() {
     return code(ErrorCode::Canceled);
   }
   if error.downcast_ref::<RefLocked>().is_some() {

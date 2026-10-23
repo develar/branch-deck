@@ -1,5 +1,6 @@
 // @spec spec/branch/move-commits.spec.md
 import { describe, expect, it } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
 import { actionOfLabel, canceledBeforeStart, isLockWaitCanceled } from "@/lib/lock-wait"
 
 describe("canceledBeforeStart", () => {
@@ -16,9 +17,10 @@ describe("canceledBeforeStart", () => {
     })
   })
 
-  it("tells a stopped wait from a failure by the kind of the command's error", () => {
-    expect(isLockWaitCanceled({ message: "The wait was canceled", kind: "lockWaitCanceled" })).toBe(true)
-    expect(isLockWaitCanceled({ message: "boom", kind: null })).toBe(false)
+  it("tells a stopped wait from a failure by the code of the command's error", () => {
+    expect(isLockWaitCanceled({ ...internalError("The wait for /repo/.git/branch-deck.lock was canceled"), code: "canceled" })).toBe(true)
+    expect(isLockWaitCanceled(Object.assign(new Error("The wait was canceled"), { code: "canceled" }))).toBe(true)
+    expect(isLockWaitCanceled(internalError("canceled"))).toBe(false)
     expect(isLockWaitCanceled(new Error("boom"))).toBe(false)
   })
 })

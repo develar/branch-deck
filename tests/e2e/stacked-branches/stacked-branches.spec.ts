@@ -940,7 +940,7 @@ test.describe("Stacked branches", () => {
     test("should give the focus to the start of the popover once it can start", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // fixme: the popup keeps the focus it took before the start could start (Enter on the popup still starts)
       await setupStack(page, setupRepo, syncAndWaitForBranches)
-      await routeCommandError(page, "get_stack_independence", "The trial build failed")
+      await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
       await slotSafePush(page, "oauth").click()
       await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
       await expect(popoverStart(page)).toBeFocused()
@@ -1102,7 +1102,7 @@ test.describe("Stacked branches", () => {
       // each start reaches Patronus and is refused: no robot holds the start of the next surface
       const { pushes, repo } = await setupStack(page, setupRepo, syncAndWaitForBranches, true)
       // without the trial build of oauth alone, the landing is the only way
-      await routeCommandError(page, "get_stack_independence", "The trial build failed")
+      await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
       const oauthRow = findBranchRow(page, "oauth")
       /** Enter starts the robot of oauth, which lands auth and login with it; the popover closes, the refusal is told */
       const startWithEnter = async (count: number) => {
@@ -1178,7 +1178,7 @@ test.describe("Stacked branches", () => {
 
     test("should say in the Safe Push popover of a branch in the middle what lands and what stays", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupStack(page, setupRepo, syncAndWaitForBranches)
-      await routeCommandError(page, "get_stack_independence", "The trial build failed")
+      await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
 
       await slotSafePush(page, "login").click()
       const popover = await expectPopoverOf(page, "login")
@@ -1203,7 +1203,7 @@ test.describe("Stacked branches", () => {
         pullRequests: availablePullRequests(pullRequest("oauth", 8)),
       })
       await syncAndWaitForBranches()
-      await routeCommandError(page, "get_stack_independence", "The trial build failed")
+      await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
       const oauthRow = findBranchRow(page, "oauth")
       await expect(oauthRow.getByTestId("pull-request-chip")).toBeVisible()
       await slotSafePush(page, "oauth").click()
@@ -1403,7 +1403,7 @@ test.describe("Stacked branches", () => {
       const repo = await setupRepo("stacked_branches", { patronus: availableRobots() })
       await syncAndWaitForBranches()
       await routePush(page, {})
-      await routeCommandError(page, "get_stack_independence", "The trial build failed")
+      await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
       // the robot the fake Patronus starts
       const started = robot("oauth", "started-1")
       const authRow = findBranchRow(page, "auth")

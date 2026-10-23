@@ -11,10 +11,10 @@ fn command(client: &reqwest::Client, addr: SocketAddr, id: &str, command: &str, 
   client.post(format!("http://{addr}/invoke/{command}")).header(crate::REPOSITORY_ID_HEADER, id).json(params)
 }
 
-/// A failed command answers with 200 and its error, as Tauri rejects a command with a `CommandError`, so neither the
-/// server nor the page logs a failed request for the expected answer of an error-path test
+/// A failed command answers with 200 and its `ApiError`, as Tauri rejects a command, so neither the server nor the page
+/// logs a failed request for the expected answer of an error-path test
 #[tokio::test]
-async fn a_failed_command_answers_with_its_command_error() {
+async fn a_failed_command_answers_with_its_api_error() {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
@@ -49,7 +49,10 @@ async fn a_failed_command_answers_with_its_command_error() {
   .unwrap();
   assert_eq!(
     answer,
-    json!({ "status": "error", "error": { "message": "Repository not accessible: /no/such/repository" } })
+    json!({
+      "status": "error",
+      "error": { "code": "internal", "message": "Repository not accessible: /no/such/repository", "details": null, "retry": "no", "operation_id": null }
+    })
   );
 }
 

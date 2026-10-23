@@ -241,7 +241,7 @@ test.describe("Your Turn card", () => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
     // nothing to say: no footer, the island is its rows
     await expect(getYourTurnCard(page).getByTestId("review-requests-status-line")).toHaveCount(0)
-    await routeCommandError(page, "get_review_requests", "offline")
+    await routeCommandError(page, "get_review_requests", { code: "internal", message: "offline" })
     await getYourTurnCard(page).getByRole("button", { name: "More actions for Your Turn" }).click()
     await page.getByRole("menuitem", { name: "Refresh" }).click()
     await expect(getYourTurnCard(page).getByTestId("review-requests-status-line")).toHaveText("GitHub: offline · checked just nowRefresh")

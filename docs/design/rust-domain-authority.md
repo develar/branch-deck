@@ -927,8 +927,11 @@ repository». Аудит всех функций в тот же день наш�
   `SyncDeferred::code()`, `RepositoryLocked` → `locked`, `NoBaseline` → `no_baseline`): `bd-core` и `app-api`
   вызывают его, второй таблицы соответствий нет.
 - `CommandError`/`CommandErrorKind` (`src-tauri/src/command_error.rs`) удаляются; `OperationInProgress` и
-  `DetachedHead` становятся кодами. Test-server отвечает тем же JSON (`CommandFailure` уходит: `impl IntoResponse for
-  ApiError`, 500 только для паники команды).
+  `DetachedHead` становятся кодами. Test-server отвечает тем же JSON (`CommandFailure` уходит:
+  `Rejection { Error(ApiError) | Panicked }` в `tauri_command_bridge.rs`, потому что `IntoResponse` для `ApiError`
+  вне `domain-types` не реализовать; 500 только для паники команды). Блокирующий шаг обоих адаптеров принимает
+  `E: app_api::api_error::IntoApiError` (ошибка ядра через `api_error`, строка — `internal`): `From` чужой ошибки
+  в `ApiError` вне `domain-types` тоже не написать.
 - `bd-core` сохраняет исчерпывающее по `ErrorCode` отображение в exit codes и свой schema-тест. `notifyError`
   (`src/lib/errors.ts`) ветвится по `code`, никогда по `message` (правило `lint:arch` с `s4-errors`:
   `scripts/lint-arch.mjs`, `pnpm lint:arch`).

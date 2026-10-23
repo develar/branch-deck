@@ -3,7 +3,7 @@
 //!
 //! The time first makes the ids of one log sort by when they started; the random part keeps the ids of the app and of
 //! every `bd` process apart without a shared counter. The root span of a `bd` command and the span of a Tauri command's
-//! body, both built by [`OperationId::span`], carry it as `operation_id`, and a `CommandError` names it, so the Activity
+//! body, both built by [`OperationId::span`], carry it as `operation_id`, and an `ApiError` names it, so the Activity
 //! entry of an error leads to its log lines.
 
 use std::fmt::{self, Write};

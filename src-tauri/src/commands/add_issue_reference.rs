@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
 use sync_core::add_issue_reference::{AddIssueReferenceParams, AddIssueReferenceResult, add_issue_reference_to_commits_core};
@@ -16,7 +16,7 @@ pub async fn add_issue_reference_to_commits(
   lock_waits: Waits<'_>,
   params: AddIssueReferenceParams,
   wait: WaitChannel,
-) -> Result<AddIssueReferenceResult, CommandError> {
+) -> Result<AddIssueReferenceResult, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| {
     add_issue_reference_to_commits_core(&git, params, &RewriteOptions::waiting(lock_wait))

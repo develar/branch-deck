@@ -194,7 +194,7 @@ type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: fals
  * the outcome with a toast (an error through `notifyError`: sticky, logged, in Activity) and closes the form (after an
  * error too, unless `keepFormOnError`). `fn` includes the sync that shows its result: the form shows the progress until
  * then. `fn` gets the channel of its command's wait for another holder of the repository lock (`lockWaitChannel`); a
- * wait the user stopped (Stop Waiting, a `lockWaitCanceled` error thrown) changed nothing: an info toast says so, the
+ * wait the user stopped (Stop Waiting, a `canceled` error thrown) changed nothing: an info toast says so, the
  * form stays. Resolves to the value of `fn`, or `undefined` if it failed, was stopped or had to wait for another
  * operation (said in a toast, the form kept).
  */

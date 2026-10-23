@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import { forgetUnknownRules, peekDismissesStaleReviews, readDismissesStaleReviews, resetDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
+import { internalError } from "@/lib/api-error"
 import type { LandingRefusal, PatronusProfile, PatronusStartOptions } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { SafePushFacts } from "@/lib/safe-push-decision"
@@ -99,7 +100,7 @@ describe("getSafePushDecision", () => {
     // a failed read is no answer kept for the session: the next read asks GitHub again, and the start waits for it
     const rules = vi
       .spyOn(commands, "getBranchRules")
-      .mockResolvedValueOnce({ status: "error", error: { message: "GitHub answered 500." } })
+      .mockResolvedValueOnce({ status: "error", error: internalError("GitHub answered 500.") })
       .mockResolvedValueOnce({ status: "ok", data: { dismissStaleReviewsOnPush: false } })
     expect(await readDismissesStaleReviews("/repo", "master")).toEqual({ kind: "unknown", reason: "GitHub answered 500" })
     expect(peekDismissesStaleReviews("/repo", "master")).toEqual({ kind: "unknown", reason: "GitHub answered 500" })

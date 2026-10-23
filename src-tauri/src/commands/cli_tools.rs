@@ -4,7 +4,6 @@
 //! their adapter.
 
 use crate::auto_update::SharedUpdateState;
-use crate::command_error::CommandError;
 use crate::commands::github::GitHubState;
 use crate::commands::patronus::PatronusState;
 use crate::commands::youtrack::YouTrackState;
@@ -15,6 +14,7 @@ use cli_tools::kept_statuses::KeptStatuses;
 use cli_tools::setup::{SetupFacts, setup_entries};
 use cli_tools::status::{KnownFacts, read_statuses};
 use domain_types::cli_tools::{CliTool, CliToolAction, CliToolStatus};
+use domain_types::error::ApiError;
 use domain_types::setup::{SetupEntry, SetupSkip};
 use domain_types::update::UpdateStatus;
 use remote_facts::cli_tool_releases::{refresh_releases, releases_file};
@@ -50,13 +50,13 @@ impl CliToolsState {
 
   /// The statuses of every tool with the newest releases and the YouTrack the app is signed in to, kept for the Setup
   /// dot
-  async fn read(&self, github: &GitHubState, youtrack: &YouTrackState) -> Result<Vec<CliToolStatus>, CommandError> {
+  async fn read(&self, github: &GitHubState, youtrack: &YouTrackState) -> Result<Vec<CliToolStatus>, ApiError> {
     let ticket = self.statuses.start_read();
     let releases = refresh_releases(&github.service, self.releases_file.as_deref(), unix_now()).await;
     let signed_in = youtrack.service.status();
     let signed_in_youtrack = signed_in.url.filter(|_| signed_in.signed_in_as.is_some() && signed_in.problem.is_none());
     let statuses = run_blocking(move || {
-      Ok::<_, CommandError>(read_statuses(&ToolEnvironment::from_process(), &|tool| KnownFacts {
+      Ok::<_, ApiError>(read_statuses(&ToolEnvironment::from_process(), &|tool| KnownFacts {
         latest: releases.latest(tool).map(str::to_string),
         signed_in_youtrack: signed_in_youtrack.clone(),
       }))
@@ -93,7 +93,7 @@ pub async fn cli_tools_status(
   state: State<'_, CliToolsState>,
   github: State<'_, GitHubState>,
   youtrack: State<'_, YouTrackState>,
-) -> Result<Vec<CliToolStatus>, CommandError> {
+) -> Result<Vec<CliToolStatus>, ApiError> {
   operation(async {
     let statuses = state.read(&github, &youtrack).await?;
     if let Err(e) = app.emit(SETUP_CHANGED_EVENT, ()) {
@@ -115,14 +115,14 @@ pub async fn get_setup_items(
   update_state: State<'_, SharedUpdateState>,
   youtrack: State<'_, YouTrackState>,
   skips: Vec<SetupSkip>,
-) -> Result<Vec<SetupEntry>, CommandError> {
+) -> Result<Vec<SetupEntry>, ApiError> {
   operation(async {
     let statuses = match state.statuses.get() {
       Some(statuses) => statuses,
       None => state.read(&github, &youtrack).await?,
     };
     let app_update = {
-      let update = update_state.lock().map_err(|e| CommandError::new(format!("the update state is poisoned: {e}")))?;
+      let update = update_state.lock().map_err(|e| ApiError::internal(format!("the update state is poisoned: {e}")))?;
       (update.info.is_update_available && update.info.status == UpdateStatus::Downloaded).then(|| update.info.available_version.clone())
     };
     let youtrack_broken = youtrack.service.status().problem.is_some();
@@ -162,7 +162,7 @@ pub async fn run_cli_tool_action(
   patronus: State<'_, PatronusState>,
   params: RunCliToolActionParams,
   progress: Channel<CliToolProgress>,
-) -> Result<CliToolActionDone, CommandError> {
+) -> Result<CliToolActionDone, ApiError> {
   operation(async move {
     let RunCliToolActionParams {
       tool,
@@ -175,7 +175,7 @@ pub async fn run_cli_tool_action(
     {
       let mut running = state.running.lock().expect("the running actions");
       if running.contains_key(&tool) {
-        return Err(CommandError::new(format!("{} is busy with another action", tool.command())));
+        return Err(ApiError::internal(format!("{} is busy with another action", tool.command())));
       }
       running.insert(tool, Arc::clone(&canceled));
     }
@@ -206,7 +206,7 @@ pub async fn run_cli_tool_action(
         on_line: &on_line,
         on_url: &on_url,
       };
-      run_action(&ToolEnvironment::from_process(), tool, action, &input, &output, &|| canceled.load(Ordering::SeqCst)).map_err(CommandError::new)
+      run_action(&ToolEnvironment::from_process(), tool, action, &input, &output, &|| canceled.load(Ordering::SeqCst)).map_err(ApiError::internal)
     })
     .await;
     state.running.lock().expect("the running actions").remove(&tool);

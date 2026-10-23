@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::operation::{operation, run_blocking};
+use domain_types::error::ApiError;
 use std::sync::{Mutex, PoisonError};
 use tracing::instrument;
 
@@ -25,7 +25,7 @@ static LOGGER: CapturedLog = CapturedLog;
 
 /// A command as the app writes one: its span names it, its git work runs through `run_blocking`
 #[instrument]
-async fn get_widget(repository_path: String) -> Result<(), CommandError> {
+async fn get_widget(repository_path: String) -> Result<(), ApiError> {
   run_blocking(|| {
     tracing::debug!(files = 3, "reading the widget");
     Err::<(), _>("no widget".to_string())
@@ -35,12 +35,12 @@ async fn get_widget(repository_path: String) -> Result<(), CommandError> {
 
 /// A command whose work is async, a service call, with a blocking step inside: one operation
 #[instrument]
-async fn restart_widget(widget_id: u32) -> Result<(), CommandError> {
+async fn restart_widget(widget_id: u32) -> Result<(), ApiError> {
   operation(async move {
     tracing::debug!("asking the service");
     let _ = run_blocking(move || Ok::<_, anyhow::Error>(widget_id)).await?;
     tracing::debug!("the service refused");
-    Err(CommandError::new("refused"))
+    Err(ApiError::internal("refused"))
   })
   .await
 }

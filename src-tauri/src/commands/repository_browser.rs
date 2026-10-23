@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::operation::run_blocking;
+use domain_types::error::ApiError;
 use serde::Deserialize;
 use sync_core::repository_validation::BrowseResult;
 use tracing::instrument;
@@ -8,7 +8,7 @@ use tracing::instrument;
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(app_handle))]
-pub async fn browse_repository(app_handle: tauri::AppHandle) -> Result<BrowseResult, CommandError> {
+pub async fn browse_repository(app_handle: tauri::AppHandle) -> Result<BrowseResult, ApiError> {
   use tauri_plugin_dialog::DialogExt;
 
   // Both the modal dialog and the file system checks block, keep them off the async runtime
@@ -22,7 +22,7 @@ pub async fn browse_repository(app_handle: tauri::AppHandle) -> Result<BrowseRes
         error: None, // No error - user just cancelled
       },
     };
-    Ok::<_, CommandError>(result)
+    Ok::<_, ApiError>(result)
   })
   .await
 }
@@ -38,13 +38,13 @@ pub struct ValidateRepositoryPathParams {
 #[tauri::command]
 #[specta::specta]
 #[instrument]
-pub async fn validate_repository_path(params: ValidateRepositoryPathParams) -> Result<String, CommandError> {
+pub async fn validate_repository_path(params: ValidateRepositoryPathParams) -> Result<String, ApiError> {
   run_blocking(move || {
     let message = match sync_core::repository_validation::validate_path(&params.path) {
       Ok(()) => String::new(),
       Err(e) => e.to_string(),
     };
-    Ok::<_, CommandError>(message)
+    Ok::<_, ApiError>(message)
   })
   .await
 }

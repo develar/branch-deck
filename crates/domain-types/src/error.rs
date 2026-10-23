@@ -193,7 +193,7 @@ pub enum ErrorCode {
   /// A failure without a code of its own: `message` is the whole chain of its causes. `bd` prints `git_error` for a
   /// failure of git or IO, as before; the app answers this code
   Internal,
-  /// The user stopped it: a sign-in, a review fetch, an action of a CLI tool, the wait for a lock. Nothing more to show
+  /// The user stopped it: a sign-in, a review fetch, a symbol search, a CLI tool's action, a lock wait. Nothing more to show
   Canceled,
 }
 

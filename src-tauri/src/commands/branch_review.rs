@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::operation::{operation, run_blocking};
+use domain_types::error::ApiError;
 use file_diffs::range_files::RangeFilesCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::DiffSubject;
@@ -38,7 +38,7 @@ pub async fn get_branch_review(
   git_executor: State<'_, GitCommandExecutor>,
   memo: State<'_, BranchReviewMemo>,
   params: GetBranchReviewParams,
-) -> Result<Arc<BranchReview>, CommandError> {
+) -> Result<Arc<BranchReview>, ApiError> {
   let git = (*git_executor).clone();
   let memo = memo.inner().clone();
   run_blocking(move || memo.get(&git, &params)).await
@@ -49,7 +49,7 @@ pub async fn get_branch_review(
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, paths = params.paths.len()))]
 #[specta::specta]
-pub async fn get_file_owners(git_executor: State<'_, GitCommandExecutor>, params: GetFileOwnersParams) -> Result<Vec<FileOwner>, CommandError> {
+pub async fn get_file_owners(git_executor: State<'_, GitCommandExecutor>, params: GetFileOwnersParams) -> Result<Vec<FileOwner>, ApiError> {
   let git = (*git_executor).clone();
   run_blocking(move || read_file_owners(&git, &params.repository_path, &params.baseline_branch, &params.paths)).await
 }
@@ -65,7 +65,7 @@ pub async fn prefetch_branch_review(
   memo: State<'_, BranchReviewMemo>,
   range_files: State<'_, RangeFilesCache>,
   params: PrefetchBranchReviewParams,
-) -> Result<(), CommandError> {
+) -> Result<(), ApiError> {
   operation(async move {
     let git = (*git_executor).clone();
     let memo = memo.inner().clone();

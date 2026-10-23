@@ -1,6 +1,6 @@
 //! The rules of a Tauri command's span and operation (docs/design/async-patterns.md#operation-spans), checked on the
 //! sources of `src-tauri`: every `#[tauri::command]` has an `#[instrument]` span; a command that can fail
-//! (`Result<_, CommandError>`) runs its body as an operation (`operation`, `operation_now`, or the one blocking step
+//! (`Result<_, ApiError>`) runs its body as an operation (`operation`, `operation_now`, or the one blocking step
 //! `run_blocking`); and the span records no argument that holds a collection, whose Debug text a line of the log would
 //! carry whole (`skip_all` and a field or two instead, as `get_branch_review_readiness` does).
 
@@ -126,7 +126,7 @@ fn commands_of(path: &Path, text: &str) -> Vec<Command> {
       name,
       instrument,
       arguments,
-      fallible: returns.starts_with("Result<") && returns.contains("CommandError>"),
+      fallible: returns.starts_with("Result<") && returns.contains("ApiError>"),
       asynchronous: signature.contains("async fn "),
       body: lines[body_start..end].join("\n"),
     });
@@ -274,15 +274,15 @@ fn a_body_is_one_blocking_step_only_without_work_outside_it() {
     "  let git = (*git_executor).clone();\n  run_blocking(move || core(&git, params)).await"
   ));
   assert!(is_one_blocking_step(
-    "  run_blocking(move || {\n    let x = read()?;\n    Ok(x)\n  })\n  .await\n  .map_err(CommandError::from)"
+    "  run_blocking(move || {\n    let x = read()?;\n    Ok(x)\n  })\n  .await\n  .map_err(api_error)"
   ));
   // the preparation can fail, the sync waits after the step
   assert!(!is_one_blocking_step(
-    "  let (a, b) = run_blocking(move || prepare()).await?;\n  sync(a, b).await.map_err(CommandError::from)"
+    "  let (a, b) = run_blocking(move || prepare()).await?;\n  sync(a, b).await.map_err(api_error)"
   ));
   assert!(!is_one_blocking_step("  let space = patronus.space().await?;\n  run_blocking(move || core(&space)).await"));
   assert!(!is_one_blocking_step("  run_blocking(move || {\n    prepare()\n  })\n  .await?;\n  finish().await"));
-  assert!(!is_one_blocking_step("  service.restart().await.map_err(CommandError::new)"));
+  assert!(!is_one_blocking_step("  service.restart().await.map_err(ApiError::internal)"));
   assert!(is_one_blocking_step(
     "  let git = (*git_executor).clone();\n  run_waiting(&lock_waits, wait, move |lock_wait| core(&git, lock_wait)).await"
   ));
@@ -401,7 +401,7 @@ fn the_scan_reads_a_command_with_a_multi_line_signature() {
 pub async fn get_thing(
   git_executor: State<'_, GitCommandExecutor>,
   params: GetThingParams,
-) -> Result<Vec<Thing>, CommandError> {
+) -> Result<Vec<Thing>, ApiError> {
   run_blocking(move || Ok(vec![])).await
 }
 

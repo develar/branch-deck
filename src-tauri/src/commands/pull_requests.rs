@@ -1,8 +1,8 @@
-use crate::command_error::CommandError;
 use crate::commands::github::GitHubState;
 use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use domain_types::error::ApiError;
 use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
@@ -31,7 +31,7 @@ pub async fn get_pull_requests(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: GetPullRequestsParams,
-) -> Result<PullRequestsResult, CommandError> {
+) -> Result<PullRequestsResult, ApiError> {
   operation(async move {
     let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, None).await? else {
       return Ok(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
@@ -51,12 +51,12 @@ pub async fn retarget_pull_request(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: RetargetPullRequestParams,
-) -> Result<(), CommandError> {
+) -> Result<(), ApiError> {
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
     core_retarget_pull_request(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.base)
       .await
-      .map_err(|e| CommandError::new(e.to_string()))
+      .map_err(|e| ApiError::internal(e.to_string()))
   })
   .await
 }
@@ -71,12 +71,12 @@ pub async fn close_pull_request(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: ClosePullRequestParams,
-) -> Result<(), CommandError> {
+) -> Result<(), ApiError> {
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
     core_close_pull_request(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment)
       .await
-      .map_err(|e| CommandError::new(e.to_string()))
+      .map_err(|e| ApiError::internal(e.to_string()))
   })
   .await
 }
@@ -90,7 +90,7 @@ pub async fn submit_pull_request_review(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: SubmitPullRequestReviewParams,
-) -> Result<(), CommandError> {
+) -> Result<(), ApiError> {
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await?;
     core_submit_pull_request_review(
@@ -103,7 +103,7 @@ pub async fn submit_pull_request_review(
       params.body.as_deref(),
     )
     .await
-    .map_err(|e| CommandError::new(e.to_string()))
+    .map_err(|e| ApiError::internal(e.to_string()))
   })
   .await
 }
@@ -118,12 +118,12 @@ pub async fn request_pull_request_reviewers(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: RequestPullRequestReviewersParams,
-) -> Result<RequestedReviewers, CommandError> {
+) -> Result<RequestedReviewers, ApiError> {
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
     core_request_pull_request_reviewers(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
       .await
-      .map_err(|e| CommandError::new(e.to_string()))
+      .map_err(|e| ApiError::internal(e.to_string()))
   })
   .await
 }
@@ -137,12 +137,12 @@ pub async fn get_pull_request_head(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: GetPullRequestHeadParams,
-) -> Result<String, CommandError> {
+) -> Result<String, ApiError> {
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await?;
     read_pull_request_head(&github.service, &params.repository_path, &repository, params.pull_request_number)
       .await
-      .map_err(|e| CommandError::new(e.to_string()))
+      .map_err(|e| ApiError::internal(e.to_string()))
   })
   .await
 }
@@ -158,11 +158,11 @@ pub async fn get_new_pull_request(
   github: State<'_, GitHubState>,
   youtrack: State<'_, YouTrackState>,
   params: GetNewPullRequestParams,
-) -> Result<NewPullRequest, CommandError> {
+) -> Result<NewPullRequest, ApiError> {
   operation(async move {
     let pull_request = new_pull_request(&git_executor, Some(&youtrack.service), "origin", &params)
       .await
-      .map_err(|e| CommandError::new(e.to_string()))?;
+      .map_err(|e| ApiError::internal(e.to_string()))?;
     with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
   })
   .await
@@ -175,7 +175,7 @@ async fn with_viewer(
   github: &State<'_, GitHubState>,
   repository_path: &str,
   mut pull_request: NewPullRequest,
-) -> Result<NewPullRequest, CommandError> {
+) -> Result<NewPullRequest, ApiError> {
   if let Some(repository) = github_repository(git_executor, repository_state, repository_path, None).await? {
     pull_request.viewer_login = read_viewer_login(&github.service, repository_path, &repository).await.ok();
   }
@@ -193,11 +193,11 @@ pub async fn get_new_stack_pull_request(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: GetNewStackPullRequestParams,
-) -> Result<NewPullRequest, CommandError> {
+) -> Result<NewPullRequest, ApiError> {
   operation(async move {
     let git = git_executor.inner().clone();
     let request = params.clone();
-    let pull_request = run_blocking(move || read_new_stack_pull_request(&git, &request).map_err(|e| CommandError::new(e.to_string()))).await?;
+    let pull_request = run_blocking(move || read_new_stack_pull_request(&git, &request).map_err(|e| ApiError::internal(e.to_string()))).await?;
     with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
   })
   .await
@@ -213,12 +213,12 @@ pub async fn create_pull_request(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: CreatePullRequestParams,
-) -> Result<CreatedPullRequest, CommandError> {
+) -> Result<CreatedPullRequest, ApiError> {
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
     core_create_pull_request(&github.service, &repository, &params)
       .await
-      .map_err(|e| CommandError::new(e.to_string()))
+      .map_err(|e| ApiError::internal(e.to_string()))
   })
   .await
 }
@@ -233,12 +233,12 @@ pub async fn wait_for_github_branch(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: WaitForGitHubBranchParams,
-) -> Result<bool, CommandError> {
+) -> Result<bool, ApiError> {
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
     wait_for_branch(&github.service, &params.repository_path, &repository, &params.branch, MIRROR_WAIT)
       .await
-      .map_err(|failure| CommandError::new(failure_message(&failure)))
+      .map_err(|failure| ApiError::internal(failure_message(&failure)))
   })
   .await
 }
@@ -252,12 +252,12 @@ pub async fn search_github_users(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: SearchGitHubUsersParams,
-) -> Result<Vec<GitHubUser>, CommandError> {
+) -> Result<Vec<GitHubUser>, ApiError> {
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
     core_search_github_users(&github.service, &params.repository_path, &repository, &params.query)
       .await
-      .map_err(|failure| CommandError::new(failure_message(&failure)))
+      .map_err(|failure| ApiError::internal(failure_message(&failure)))
   })
   .await
 }
@@ -272,12 +272,12 @@ pub async fn get_branch_rules(
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   params: GetBranchRulesParams,
-) -> Result<BranchRules, CommandError> {
+) -> Result<BranchRules, ApiError> {
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
     read_branch_rules(&github.service, &params.repository_path, &repository, &params.branch)
       .await
-      .map_err(|failure| CommandError::new(failure_message(&failure)))
+      .map_err(|failure| ApiError::internal(failure_message(&failure)))
   })
   .await
 }
@@ -289,7 +289,7 @@ pub async fn github_repository(
   repository_state: &RepositoryStateCache,
   repository_path: &str,
   known: Option<&str>,
-) -> Result<Option<GitHubRepository>, CommandError> {
+) -> Result<Option<GitHubRepository>, ApiError> {
   if let Some(repository) = parse_known_github_repository(known) {
     return Ok(Some(repository));
   }
@@ -302,8 +302,8 @@ async fn required_github_repository(
   repository_state: &RepositoryStateCache,
   repository_path: &str,
   known: Option<&str>,
-) -> Result<GitHubRepository, CommandError> {
+) -> Result<GitHubRepository, ApiError> {
   github_repository(git_executor, repository_state, repository_path, known)
     .await?
-    .ok_or_else(|| CommandError::new(NOT_ON_GITHUB_MESSAGE))
+    .ok_or_else(|| ApiError::internal(NOT_ON_GITHUB_MESSAGE))
 }

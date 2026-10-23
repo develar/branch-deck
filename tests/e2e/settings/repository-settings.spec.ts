@@ -162,7 +162,7 @@ test.describe("Settings → Repository", () => {
   test("should tell a failed write in a toast", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple")
     const window = await openRepositorySettings(page)
-    await routeCommandError(window, "set_repository_config", "could not lock config file .git/config: File exists")
+    await routeCommandError(window, "set_repository_config", { code: "internal", message: "could not lock config file .git/config: File exists" })
     const toggle = row(window, "stacks").getByRole("switch", { name: "Stacked branches" })
     await toggle.click()
     const toast = window.locator("[data-slot=toast]").filter({ hasText: `Cannot turn on stacked branches in ${nameOf(repo.path)}` })

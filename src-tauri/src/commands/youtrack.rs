@@ -1,8 +1,8 @@
-use crate::command_error::CommandError;
 use crate::commands::cli_tools::CliToolActionDone;
 use crate::commands::github::app_user_agent;
-use crate::operation::operation;
+use crate::operation::{operation, tauri_error};
 use cli_tools::environment::ToolEnvironment;
+use domain_types::error::ApiError;
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use remote_facts::youtrack_cli::{hand_token_to_cli, handed_token_file};
 use std::path::{Path, PathBuf};
@@ -42,7 +42,7 @@ impl YouTrackState {
 #[tauri::command]
 #[instrument(skip(youtrack))]
 #[specta::specta]
-pub async fn get_youtrack_auth_status(youtrack: State<'_, YouTrackState>) -> Result<YouTrackAuthStatus, CommandError> {
+pub async fn get_youtrack_auth_status(youtrack: State<'_, YouTrackState>) -> Result<YouTrackAuthStatus, ApiError> {
   operation(async move { Ok(youtrack.service.status()) }).await
 }
 
@@ -51,8 +51,8 @@ pub async fn get_youtrack_auth_status(youtrack: State<'_, YouTrackState>) -> Res
 #[tauri::command]
 #[instrument(skip(youtrack))]
 #[specta::specta]
-pub async fn start_youtrack_sign_in(youtrack: State<'_, YouTrackState>, url: String) -> Result<YouTrackSignIn, CommandError> {
-  operation(async move { youtrack.sign_in.start(&youtrack.service, &url).await.map_err(CommandError::new) }).await
+pub async fn start_youtrack_sign_in(youtrack: State<'_, YouTrackState>, url: String) -> Result<YouTrackSignIn, ApiError> {
+  operation(async move { youtrack.sign_in.start(&youtrack.service, &url).await.map_err(ApiError::internal) }).await
 }
 
 /// Waits until the browser came back from the Hub page of `start_youtrack_sign_in`, then keeps the tokens and tells
@@ -60,10 +60,10 @@ pub async fn start_youtrack_sign_in(youtrack: State<'_, YouTrackState>, url: Str
 #[tauri::command]
 #[instrument(skip(app, youtrack))]
 #[specta::specta]
-pub async fn wait_youtrack_sign_in(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<YouTrackUser, CommandError> {
+pub async fn wait_youtrack_sign_in(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<YouTrackUser, ApiError> {
   operation(async move {
-    let user = youtrack.sign_in.wait(&youtrack.service).await.map_err(CommandError::new)?;
-    app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;
+    let user = youtrack.sign_in.wait(&youtrack.service).await.map_err(ApiError::internal)?;
+    app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(user)
   })
   .await
@@ -74,8 +74,8 @@ pub async fn wait_youtrack_sign_in(app: AppHandle, youtrack: State<'_, YouTrackS
 #[tauri::command]
 #[instrument(skip(youtrack))]
 #[specta::specta]
-pub async fn start_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>, url: String) -> Result<YouTrackSignIn, CommandError> {
-  operation(async move { youtrack.sign_in.start_for_cli(&youtrack.service, &url).await.map_err(CommandError::new) }).await
+pub async fn start_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>, url: String) -> Result<YouTrackSignIn, ApiError> {
+  operation(async move { youtrack.sign_in.start_for_cli(&youtrack.service, &url).await.map_err(ApiError::internal) }).await
 }
 
 /// Waits for the browser to come back from the Hub page of `start_youtrack_cli_sign_in`, then makes the permanent token
@@ -83,12 +83,12 @@ pub async fn start_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>, url:
 #[tauri::command]
 #[instrument(skip(youtrack))]
 #[specta::specta]
-pub async fn wait_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>) -> Result<CliToolActionDone, CommandError> {
+pub async fn wait_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>) -> Result<CliToolActionDone, ApiError> {
   operation(async move {
-    let grant = youtrack.sign_in.wait_for_cli(&youtrack.service).await.map_err(CommandError::new)?;
+    let grant = youtrack.sign_in.wait_for_cli(&youtrack.service).await.map_err(ApiError::internal)?;
     let title = hand_token_to_cli(&youtrack.service, grant, ToolEnvironment::from_process(), youtrack.handed_token.as_deref())
       .await
-      .map_err(CommandError::new)?;
+      .map_err(ApiError::internal)?;
     Ok(CliToolActionDone { title, skill_problem: None })
   })
   .await
@@ -98,7 +98,7 @@ pub async fn wait_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>) -> Re
 #[tauri::command]
 #[instrument(skip(youtrack))]
 #[specta::specta]
-pub async fn cancel_youtrack_sign_in(youtrack: State<'_, YouTrackState>) -> Result<(), CommandError> {
+pub async fn cancel_youtrack_sign_in(youtrack: State<'_, YouTrackState>) -> Result<(), ApiError> {
   operation(async move {
     youtrack.sign_in.cancel();
     Ok(())
@@ -110,10 +110,10 @@ pub async fn cancel_youtrack_sign_in(youtrack: State<'_, YouTrackState>) -> Resu
 #[tauri::command]
 #[instrument(skip(app, youtrack, token))]
 #[specta::specta]
-pub async fn save_youtrack_token(app: AppHandle, youtrack: State<'_, YouTrackState>, url: String, token: String) -> Result<YouTrackUser, CommandError> {
+pub async fn save_youtrack_token(app: AppHandle, youtrack: State<'_, YouTrackState>, url: String, token: String) -> Result<YouTrackUser, ApiError> {
   operation(async move {
-    let user = youtrack.sign_in.save_token(&youtrack.service, &url, &token).await.map_err(CommandError::new)?;
-    app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;
+    let user = youtrack.sign_in.save_token(&youtrack.service, &url, &token).await.map_err(ApiError::internal)?;
+    app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(user)
   })
   .await
@@ -124,10 +124,10 @@ pub async fn save_youtrack_token(app: AppHandle, youtrack: State<'_, YouTrackSta
 #[tauri::command]
 #[instrument(skip(app, youtrack))]
 #[specta::specta]
-pub async fn sign_out_of_youtrack(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<(), CommandError> {
+pub async fn sign_out_of_youtrack(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<(), ApiError> {
   operation(async move {
-    youtrack.sign_in.sign_out(&youtrack.service).await.map_err(CommandError::new)?;
-    app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;
+    youtrack.sign_in.sign_out(&youtrack.service).await.map_err(ApiError::internal)?;
+    app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(())
   })
   .await
@@ -137,7 +137,7 @@ pub async fn sign_out_of_youtrack(app: AppHandle, youtrack: State<'_, YouTrackSt
 #[tauri::command]
 #[instrument(skip(youtrack))]
 #[specta::specta]
-pub async fn get_youtrack_issue(youtrack: State<'_, YouTrackState>, key: String) -> Result<YouTrackIssueAnswer, CommandError> {
+pub async fn get_youtrack_issue(youtrack: State<'_, YouTrackState>, key: String) -> Result<YouTrackIssueAnswer, ApiError> {
   operation(async move { Ok(youtrack.service.issue(&key).await) }).await
 }
 
@@ -146,6 +146,6 @@ pub async fn get_youtrack_issue(youtrack: State<'_, YouTrackState>, key: String)
 #[tauri::command]
 #[instrument(skip(youtrack))]
 #[specta::specta]
-pub async fn set_youtrack_issue_state(youtrack: State<'_, YouTrackState>, key: String, state: String, expected: Option<String>) -> Result<YouTrackStateChange, CommandError> {
-  operation(async move { youtrack.service.set_state(&key, &state, expected.as_deref()).await.map_err(CommandError::new) }).await
+pub async fn set_youtrack_issue_state(youtrack: State<'_, YouTrackState>, key: String, state: String, expected: Option<String>) -> Result<YouTrackStateChange, ApiError> {
+  operation(async move { youtrack.service.set_state(&key, &state, expected.as_deref()).await.map_err(ApiError::internal) }).await
 }

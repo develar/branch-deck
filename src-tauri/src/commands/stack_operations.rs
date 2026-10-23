@@ -1,7 +1,7 @@
-use crate::command_error::CommandError;
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::operation::run_blocking;
 use crate::repository_state::RepositoryStateCache;
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::move_commits::MoveCommitsResult;
 use sync_core::stack_operations::{
@@ -21,7 +21,7 @@ pub async fn rename_branch(
   lock_waits: Waits<'_>,
   params: RenameBranchParams,
   wait: WaitChannel,
-) -> Result<MoveCommitsResult, CommandError> {
+) -> Result<MoveCommitsResult, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| rename_branch_core(&git, &params, lock_wait)).await
 }
@@ -35,7 +35,7 @@ pub async fn restack_branch(
   lock_waits: Waits<'_>,
   params: RestackBranchParams,
   wait: WaitChannel,
-) -> Result<MoveCommitsResult, CommandError> {
+) -> Result<MoveCommitsResult, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| restack_branch_core(&git, &params, lock_wait)).await
 }
@@ -49,7 +49,7 @@ pub async fn get_stack_independence(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   params: StackIndependenceParams,
-) -> Result<StackIndependence, CommandError> {
+) -> Result<StackIndependence, ApiError> {
   let git = (*git_executor).clone();
   let repository_state = (*repository_state).clone();
   run_blocking(move || {
@@ -64,7 +64,7 @@ pub async fn get_stack_independence(
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(git_executor, lock_waits, wait))]
-pub async fn undo_regroup(git_executor: State<'_, GitCommandExecutor>, lock_waits: Waits<'_>, params: UndoRegroupParams, wait: WaitChannel) -> Result<(), CommandError> {
+pub async fn undo_regroup(git_executor: State<'_, GitCommandExecutor>, lock_waits: Waits<'_>, params: UndoRegroupParams, wait: WaitChannel) -> Result<(), ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| undo_regroup_core(&git, &params, lock_wait)).await
 }

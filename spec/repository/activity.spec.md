@@ -30,7 +30,8 @@ targets:
   - ../../src/lib/command.ts
   - ../../src/lib/errors.ts
   - ../../src-tauri/src/operation.rs
-  - ../../src-tauri/src/command_error.rs
+  - ../../crates/domain-types/src/error.rs
+  - ../../crates/app-api/src/api_error.rs
   - ../../src/lib/landed.ts
   - ../../src/lib/git/push.ts
   - ../../src/lib/git/new-pull-request.ts
@@ -122,7 +123,7 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`)
 - The entry of an error a command returned keeps the operation it names as `operationId`, the key to the command's
   lines in the app's log: every command that can fail runs its body as an operation, the `operation{operation_id=…}`
-  span of `src-tauri/src/operation.rs`, and its error carries the id (`CommandError.operation_id`); the app's log keeps
+  span of `src-tauri/src/operation.rs`, and its error carries the id (`ApiError.operation_id`); the app's log keeps
   the lines for days (the retention as the comment of `LOG_FILE_BYTES` in `src-tauri/src/lib.rs` describes it). The page
   log line of the error carries it as `operation_id`. A page step that throws what a command returned throws it as a
   `commandFailure` (`src/lib/errors.ts`), which keeps the id up to the `notifyError` of its caller (a failed start of a
@@ -131,10 +132,10 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   [@test] ../../src/stores/activity.test.ts (`keeps the operation a failed command names, for its lines in the log`)
   [@test] ../../src/stores/patronus.test.ts (`keeps the operation the failed start of a robot names, for Activity and the log line`)
   [@test] ../../src/stores/patronus.test.ts (`keeps the operation the failed post of a command on the pull request names`)
-  [@test] ../../src/lib/errors.test.ts (`throws what a command returned with its message, its kind and the operation it names`)
+  [@test] ../../src/lib/errors.test.ts (`throws what a command returned with its message, its code and the operation it names`)
   [@test] ../../src/lib/errors.test.ts (`is what the page throws for a failed command: no new Error of its message drops the operation`)
-  [@test] ../../src/lib/errors.test.ts (`returns the operation a CommandError names, and nothing for any other error`)
-  [@test] ../../src/lib/errors.test.ts (`passes the operation a CommandError names to the backend log line, as operation_id`)
+  [@test] ../../src/lib/errors.test.ts (`returns the operation an ApiError names, and nothing for any other error`)
+  [@test] ../../src/lib/errors.test.ts (`passes the operation an ApiError names to the backend log line, as operation_id`)
   [@test] ../../src-tauri/src/command_scan_test.rs (`every_command_has_a_span_and_a_fallible_one_runs_as_an_operation`)
   [@test] ../../src-tauri/src/command_scan_test.rs (`a_body_is_one_operation_only_without_work_outside_it`)
   [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`every_closure_or_future_handed_to_another_thread_carries_the_span_of_its_caller`)

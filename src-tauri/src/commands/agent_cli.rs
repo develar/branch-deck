@@ -1,8 +1,8 @@
-use crate::command_error::CommandError;
 use crate::operation::{operation_now, run_blocking};
 use bd_cli::install::{InstallArgs, install, install_status};
 use bd_core::bd_command::bd_command;
 use bd_core::context::Environment;
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use lease_pool::agent_workspace::agent_defaults;
 use sync_utils::child_process::login_shell_path;
@@ -34,7 +34,7 @@ pub struct AgentRules {
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip_all)]
-pub async fn install_agent_cli(git_executor: State<'_, GitCommandExecutor>) -> Result<AgentCliInstall, CommandError> {
+pub async fn install_agent_cli(git_executor: State<'_, GitCommandExecutor>) -> Result<AgentCliInstall, ApiError> {
   let git = (*git_executor).clone();
   run_blocking(move || {
     let mut environment = Environment::from_process();
@@ -42,9 +42,9 @@ pub async fn install_agent_cli(git_executor: State<'_, GitCommandExecutor>) -> R
     if let Some(path) = login_shell_path() {
       environment.path = Some(path);
     }
-    let output = install(&environment, &InstallArgs::default()).map_err(|e| CommandError::new(e.message))?;
+    let output = install(&environment, &InstallArgs::default()).map_err(|e| ApiError::new(e.code, e.message))?;
     let agents = output.agents.unwrap_or_else(|| agent_defaults(Some(&git)));
-    Ok::<_, CommandError>(AgentCliInstall {
+    Ok::<_, ApiError>(AgentCliInstall {
       bd: output.bd,
       on_path: output.on_path,
       skills: output.skills,
@@ -73,9 +73,9 @@ pub struct AgentCliCommand {
 #[specta::specta]
 #[instrument]
 #[expect(clippy::needless_pass_by_value, reason = "Tauri deserializes a command argument into an owned value")]
-pub fn agent_cli_command(repository_path: String) -> Result<AgentCliCommand, CommandError> {
+pub fn agent_cli_command(repository_path: String) -> Result<AgentCliCommand, ApiError> {
   operation_now(|| {
-    let command = bd_command(&Environment::from_process()).map_err(|e| CommandError::new(e.message))?;
+    let command = bd_command(&Environment::from_process()).map_err(|e| ApiError::new(e.code, e.message))?;
     Ok(AgentCliCommand {
       command: command.for_shell_in(&repository_path),
       powershell: cfg!(windows),

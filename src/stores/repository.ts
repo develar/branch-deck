@@ -1,5 +1,6 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
+import { internalError } from "@/lib/api-error"
 import { commands } from "@/lib/bindings"
 import type { GitBranchPrefix, GitSetup } from "@/lib/bindings"
 import { normalizeBranchPrefix } from "@/lib/branch-prefix"
@@ -14,7 +15,7 @@ import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
 export type BranchPrefixResult = Awaited<ReturnType<typeof commands.getBranchPrefixFromGitConfig>>
 
 /** Before the first load of the selected repository answers: the prefix cached for it applies */
-const NOT_LOADED: BranchPrefixResult = { status: "error", error: { message: "Not loaded" } }
+const NOT_LOADED: BranchPrefixResult = { status: "error", error: internalError("Not loaded") }
 
 /** A repository git cannot read has no git prefix; the error is shown through `pathValidation` */
 const NO_GIT_PREFIX: BranchPrefixResult = { status: "ok", data: { prefix: "", repositoryScoped: false } }

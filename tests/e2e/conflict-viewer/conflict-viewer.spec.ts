@@ -151,7 +151,7 @@ test.describe("Conflict Viewer Feature", () => {
     })
 
     test("should say why the merges of a conflict did not load", async ({ page }) => {
-      await routeCommandError(page, "get_file_merges", "Commit 1234 not found")
+      await routeCommandError(page, "get_file_merges", { code: "internal", message: "Commit 1234 not found" })
       const bugFixBranch = findBranchRow(page, "bug-fix")
       await collapseBranch(page, bugFixBranch)
       await expandBranch(page, bugFixBranch)

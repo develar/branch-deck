@@ -1,5 +1,6 @@
-use crate::channel_commands::{answer_with_progress, canceled_by, canceled_kind, progress_channel, register_wait, run_waiting};
+use crate::channel_commands::{answer_with_progress, canceled_by, canceled_code, progress_channel, register_wait, run_waiting};
 use crate::remote_host::PAGE_CLOCK_START;
+use app_api::api_error::{IntoApiError, patronus_error};
 use axum::{
   extract::State,
   http::{HeaderMap, StatusCode, header},
@@ -10,6 +11,7 @@ use axum::{
 };
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
   GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
   PatronusCommandSubject, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult,
@@ -76,69 +78,69 @@ use crate::state::AppState;
 
 use crate::state::TestRepository;
 
-/// How a command fails: with its error, answered the way Tauri rejects a command with a `CommandError`
-/// (`{ status: "error", error: { message } }` with status 200, which the page mock hands to the bindings), or with a
-/// failure of the server itself (500). An error is the expected answer of an error-path test, not a failure of the
-/// server, so it is logged at debug; a panicked command is logged as an error.
-pub enum CommandFailure {
-  Error(String),
-  /// A refusal the page tells apart by its kind, as the app's `CommandErrorKind`
-  Refused {
-    message: String,
-    kind: &'static str,
-  },
+/// How a command fails: with its `ApiError`, answered the way Tauri rejects a command (`{ status: "error", error:
+/// <ApiError> }` with status 200, which the page mock hands to the bindings: the same JSON as the app,
+/// `api_error_contract_test.rs`), or with a failure of the server itself, a panicked command (500). A type of the
+/// server only because axum's `IntoResponse` can't be implemented for `ApiError` outside `domain-types`.
+pub enum Rejection {
+  Error(ApiError),
   Panicked,
 }
 
-impl CommandFailure {
-  pub(crate) fn error(operation: &str, error: impl std::fmt::Display) -> Self {
-    let message = format!("{error:#}");
-    tracing::debug!("Cannot {operation}: {message}");
-    Self::Error(message)
+impl From<ApiError> for Rejection {
+  fn from(error: ApiError) -> Self {
+    Self::Error(error)
   }
 }
 
-impl IntoResponse for CommandFailure {
+impl IntoResponse for Rejection {
   fn into_response(self) -> Response {
     match self {
-      Self::Error(message) => Json(serde_json::json!({ "status": "error", "error": { "message": message } })).into_response(),
-      Self::Refused { message, kind } => Json(serde_json::json!({ "status": "error", "error": { "message": message, "kind": kind } })).into_response(),
+      Self::Error(error) => Json(serde_json::json!({ "status": "error", "error": error })).into_response(),
       Self::Panicked => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
   }
 }
 
-pub(crate) type CommandResult<T> = Result<Json<T>, CommandFailure>;
+/// The rejection of `operation` with `error` (a core's error through `api_error`, a message as `internal`). An error is
+/// the expected answer of an error-path test, not a failure of the server, so it is logged at debug
+pub(crate) fn failed(operation: &str, error: impl IntoApiError) -> Rejection {
+  let error = error.into_api_error();
+  tracing::debug!("Cannot {operation}: {}", error.message);
+  Rejection::Error(error)
+}
+
+pub(crate) type CommandResult<T> = Result<Json<T>, Rejection>;
 
 /// Runs a command off the async runtime, as the app runs its git work (`spawn_blocking`)
 pub(crate) async fn run_command<T, E, F>(operation: &'static str, command: F) -> CommandResult<T>
 where
   F: FnOnce() -> Result<T, E> + Send + 'static,
   T: Send + 'static,
-  E: std::fmt::Display + Send + 'static,
+  E: IntoApiError + Send + 'static,
 {
   match tokio::task::spawn_blocking(command).await {
     Ok(Ok(value)) => Ok(Json(value)),
-    Ok(Err(error)) => Err(CommandFailure::error(operation, error)),
+    Ok(Err(error)) => Err(failed(operation, error)),
     Err(join_error) => {
       tracing::error!("Cannot {operation}: the command panicked: {join_error}");
-      Err(CommandFailure::Panicked)
+      Err(Rejection::Panicked)
     }
   }
 }
 
 /// A path that is no test repository (the deliberately missing directory of `NO_REPO`) fails the command, as the app
 /// fails it for a directory that is gone
-fn ensure_repository_exists(state: &AppState, path: &str) -> Result<(), CommandFailure> {
+fn ensure_repository_exists(state: &AppState, path: &str) -> Result<(), Rejection> {
   repository_by_path(state, path).map(drop)
 }
 
-fn repository_by_path<'a>(state: &'a AppState, path: &str) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, CommandFailure> {
+fn repository_by_path<'a>(state: &'a AppState, path: &str) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, Rejection> {
   state
     .path_to_id
     .get(path)
     .and_then(|id| state.repositories.get(id.value()))
-    .ok_or_else(|| CommandFailure::error("find the test repository", format!("Repository not accessible: {path}")))
+    .ok_or_else(|| failed("find the test repository", format!("Repository not accessible: {path}")))
 }
 
 /// Streams the events sent to `rx` as SSE events named `event_name`, with a keep-alive every second
@@ -157,7 +159,7 @@ pub async fn add_issue_reference_to_commits(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<sync_core::add_issue_reference::AddIssueReferenceParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -168,7 +170,7 @@ pub async fn add_issue_reference_to_commits(
   )
 }
 
-pub async fn reword(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<RewordRequest>) -> Result<Response, CommandFailure> {
+pub async fn reword(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<RewordRequest>) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -229,7 +231,7 @@ pub fn read_local_branch_prefix(git_executor: &git_executor::git_command_executo
 
 /// The git of the config commands of a test repository: its global config is the repository's own file
 /// (`AppState::global_config_of`), never the one of the developer, for a read and for a write
-fn config_git(state: &AppState, repository_path: &str) -> Result<git_executor::git_command_executor::GitCommandExecutor, CommandFailure> {
+fn config_git(state: &AppState, repository_path: &str) -> Result<git_executor::git_command_executor::GitCommandExecutor, Rejection> {
   let repository = repository_by_path(state, repository_path)?;
   let global_config = state.global_config_of(&repository.id);
   Ok(state.git_executor.with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy()))
@@ -324,10 +326,7 @@ pub async fn get_sync_inputs_fingerprint(State(state): State<Arc<AppState>>, Jso
 
 /// Streams the events of the sync once it is done; a failed sync answers with its error instead, as the app's command
 /// rejects (the page alert), without the events sent before the failure
-pub async fn sync_branches(
-  State(state): State<Arc<AppState>>,
-  Json(request): Json<SyncBranchesRequest>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, CommandFailure> {
+pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Json<SyncBranchesRequest>) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Rejection> {
   ensure_repository_exists(&state, &request.repository_path)?;
 
   // Create a channel for streaming events
@@ -351,15 +350,8 @@ pub async fn sync_branches(
     state.repository_views.keep(repository_path, branch_prefix, table);
   }
   if let Err(e) = synced {
-    // a deferred sync, as the app's `CommandError` names it
-    let kind = e.downcast_ref::<sync_core::sync::SyncDeferred>().map(|deferred| match deferred {
-      sync_core::sync::SyncDeferred::OperationInProgress(_) => "operationInProgress",
-      sync_core::sync::SyncDeferred::DetachedHead => "detachedHead",
-    });
-    return Err(match kind {
-      Some(kind) => CommandFailure::Refused { message: e.to_string(), kind },
-      None => CommandFailure::error("sync branches", e),
-    });
+    // a deferred sync answers its code (`operation_in_progress`, `detached_head`), as the app's command does
+    return Err(failed("sync branches", e));
   }
 
   Ok(sse_events(rx, "sync"))
@@ -369,7 +361,7 @@ pub async fn move_commits_to_branch(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<history_rewrite::move_commits::MoveCommitsParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -384,7 +376,7 @@ pub async fn rename_branch(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<sync_core::stack_operations::RenameBranchParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -399,7 +391,7 @@ pub async fn undo_regroup(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<sync_core::stack_operations::UndoRegroupParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -414,7 +406,7 @@ pub async fn restack_branch(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<sync_core::stack_operations::RestackBranchParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -425,7 +417,7 @@ pub async fn restack_branch(
   )
 }
 
-pub async fn park_branches(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::parked::ParkBranchesParams>) -> Result<Response, CommandFailure> {
+pub async fn park_branches(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::parked::ParkBranchesParams>) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -436,11 +428,7 @@ pub async fn park_branches(State(state): State<Arc<AppState>>, headers: HeaderMa
   )
 }
 
-pub async fn unpark_branches(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<sync_core::parked::UnparkBranchesParams>,
-) -> Result<Response, CommandFailure> {
+pub async fn unpark_branches(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::parked::UnparkBranchesParams>) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -455,7 +443,7 @@ pub async fn unapply_branch(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<sync_core::unapply_branch::UnapplyBranchParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -470,7 +458,7 @@ pub async fn undo_unapply_branch(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<sync_core::unapply_branch::UndoUnapplyParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -487,7 +475,7 @@ pub async fn reapply_branch(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<sync_core::reapply_branch::ReapplyBranchParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -502,7 +490,7 @@ pub async fn undo_reapply_branch(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<sync_core::reapply_branch::UndoReapplyParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -525,7 +513,7 @@ pub async fn check_landing_gate(
   let service = space.as_ref().map(|(host, _)| host.patronus_service());
   let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
   let check = actions.check_landing(ObjectCache::disabled, &params).await;
-  check.map(Json).map_err(|e| CommandFailure::error("check the landing gate", e))
+  check.map(Json).map_err(|e| failed("check the landing gate", e))
 }
 
 /// Without the object cache, as every command of the mock server
@@ -610,7 +598,7 @@ pub async fn apply_conflict_fix(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<trial_check::conflict_fix::ApplyConflictFixParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -625,7 +613,7 @@ pub async fn squash_commits(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<history_rewrite::squash::SquashCommitsParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -640,7 +628,7 @@ pub async fn restore_branch_head(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<history_rewrite::squash::RestoreBranchHeadParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -667,7 +655,7 @@ pub async fn squash_fixup_commits(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<history_rewrite::autosquash::SquashFixupsParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -684,7 +672,7 @@ pub async fn update_project(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<update_core::update_project::UpdateProjectParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   use update_core::update_project::{UpdatePhase, UpdateProgress, update_project_core};
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
@@ -712,7 +700,7 @@ pub async fn update_project(
         )
       })
       .await;
-      canceled_kind(updated, &ticket)
+      canceled_code(updated, &ticket)
     })
     .await,
   )
@@ -794,7 +782,7 @@ async fn guarded_push<T: serde::Serialize + Send + 'static>(
       .push_branches(common_dir, params, move |tick| progress.send(&tick), canceled)
       .await
       .and_then(outcome);
-    canceled_kind(pushed.map(Json).map_err(|e| CommandFailure::error(operation, e)), &ticket)
+    canceled_code(pushed.map(Json).map_err(|e| failed(operation, e)), &ticket)
   })
   .await
 }
@@ -812,7 +800,7 @@ pub async fn cancel_lock_wait(State(state): State<Arc<AppState>>, Json(request):
 /// What the push of the repository at `path` needs of the server, as the app's command has it: `$GIT_COMMON_DIR` (where
 /// the lock lives, in a blocking step) and the fake services of its Space repository, None while no Patronus fixture
 /// put it on Space
-async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> Result<(std::path::PathBuf, Option<(Arc<RemoteHost>, SpaceRepository)>), CommandFailure> {
+async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> Result<(std::path::PathBuf, Option<(Arc<RemoteHost>, SpaceRepository)>), Rejection> {
   ensure_repository_exists(state, path)?;
   let (git, repository_path) = (state.git_executor.clone(), path.to_string());
   let Json(common_dir) = run_command(operation, move || git_common_dir(&git, &repository_path)).await?;
@@ -833,7 +821,7 @@ fn git_common_dir(git_executor: &git_executor::git_command_executor::GitCommandE
 
 /// The GitHub repository of the repository at `path` as the app resolves it (`commands/pull_requests.rs`): a known
 /// `owner/name`, else `branchdeck.githubRepository` (a fixture writes it), else none; with the fake services
-async fn github_of(state: &AppState, path: &str, known: Option<&str>) -> Result<(Arc<RemoteHost>, Option<GitHubRepository>), CommandFailure> {
+async fn github_of(state: &AppState, path: &str, known: Option<&str>) -> Result<(Arc<RemoteHost>, Option<GitHubRepository>), Rejection> {
   let host = remote_of(state, path)?;
   if let Some(repository) = parse_known_github_repository(known) {
     return Ok((host, Some(repository)));
@@ -844,10 +832,10 @@ async fn github_of(state: &AppState, path: &str, known: Option<&str>) -> Result<
 }
 
 /// `github_of` for a request that needs the repository: none fails as the app fails it
-async fn required_github_of(state: &AppState, path: &str, known: Option<&str>, operation: &str) -> Result<(Arc<RemoteHost>, GitHubRepository), CommandFailure> {
+async fn required_github_of(state: &AppState, path: &str, known: Option<&str>, operation: &str) -> Result<(Arc<RemoteHost>, GitHubRepository), Rejection> {
   match github_of(state, path, known).await? {
     (host, Some(repository)) => Ok((host, repository)),
-    (_, None) => Err(CommandFailure::error(operation, NOT_ON_GITHUB_MESSAGE)),
+    (_, None) => Err(failed(operation, NOT_ON_GITHUB_MESSAGE)),
   }
 }
 
@@ -869,7 +857,7 @@ pub async fn get_branch_rules(State(state): State<Arc<AppState>>, Json(params): 
   let operation = "read the rules of the branch";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let rules = read_branch_rules(&host.github_service(), &params.repository_path, &repository, &params.branch).await;
-  rules.map(Json).map_err(|failure| CommandFailure::error(operation, failure_message(&failure)))
+  rules.map(Json).map_err(|failure| failed(operation, failure_message(&failure)))
 }
 
 /// The sign-in of the requesting page's repository, as the app reads it, with the OAuth app of a fixture (none by
@@ -885,7 +873,7 @@ pub async fn start_github_sign_in(State(state): State<Arc<AppState>>, headers: H
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let client_id = host.github_client_id();
   let code = host.github_sign_in().start(&host.github_service(), client_id.as_deref()).await;
-  code.map(Json).map_err(|e| CommandFailure::error("start the GitHub sign-in", e))
+  code.map(Json).map_err(|e| failed("start the GitHub sign-in", e))
 }
 
 /// Waits for the code of the sign-in to be entered (a fixture authorizes it) and keeps the token, as the app does; the
@@ -894,7 +882,7 @@ pub async fn wait_github_sign_in(State(state): State<Arc<AppState>>, headers: He
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let client_id = host.github_client_id();
   let login = host.github_sign_in().wait(&host.github_service(), client_id.as_deref()).await;
-  login.map(Json).map_err(|e| CommandFailure::error("sign in to GitHub", e))
+  login.map(Json).map_err(|e| failed("sign in to GitHub", e))
 }
 
 /// Ends the wait of the sign-in in progress, as the app does
@@ -907,7 +895,7 @@ pub async fn cancel_github_sign_in(State(state): State<Arc<AppState>>, headers: 
 pub async fn sign_out_of_github(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<()> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let signed_out = host.github_sign_in().sign_out(&host.github_service()).await;
-  signed_out.map(Json).map_err(|e| CommandFailure::error("sign out of GitHub", e))
+  signed_out.map(Json).map_err(|e| failed("sign out of GitHub", e))
 }
 
 /// Changes the base of a pull request, as the app does
@@ -915,7 +903,7 @@ pub async fn retarget_pull_request(State(state): State<Arc<AppState>>, Json(para
   let operation = "retarget the pull request";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let retarget = core_retarget_pull_request(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.base).await;
-  retarget.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  retarget.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
 /// Closes a pull request with a comment, as the app does
@@ -923,7 +911,7 @@ pub async fn close_pull_request(State(state): State<Arc<AppState>>, Json(params)
   let operation = "close the pull request";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let close = core_close_pull_request(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.comment).await;
-  close.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  close.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
 /// The commit a pull request shows now on GitHub, as the app reads it
@@ -931,7 +919,7 @@ pub async fn get_pull_request_head(State(state): State<Arc<AppState>>, Json(para
   let operation = "read the head of the pull request";
   let (host, repository) = required_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
   let head = read_pull_request_head(&host.github_service(), &params.repository_path, &repository, params.pull_request_number).await;
-  head.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  head.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
 /// Submits the user's review of a pull request, as the app does: the fake GitHub records it
@@ -951,7 +939,7 @@ pub async fn submit_pull_request_review(
     params.body.as_deref(),
   )
   .await;
-  review.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  review.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
 /// Asks users to review a pull request, as the app does: the fake GitHub asks its collaborators only
@@ -964,7 +952,7 @@ pub async fn request_pull_request_reviewers(
   let requested =
     remote_facts::pull_request_writes::request_pull_request_reviewers(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
       .await;
-  requested.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  requested.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
 /// The text a new pull request starts with and the user of the token, as the app reads them: the issue summaries
@@ -972,7 +960,7 @@ pub async fn request_pull_request_reviewers(
 pub async fn get_new_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<GetNewPullRequestParams>) -> CommandResult<NewPullRequest> {
   let host = remote_of(&state, &params.repository_path)?;
   let pull_request = new_pull_request(&state.git_executor, Some(host.youtrack_service()), "origin", &params).await;
-  let pull_request = pull_request.map_err(|e| CommandFailure::error("read the text of the pull request", e))?;
+  let pull_request = pull_request.map_err(|e| failed("read the text of the pull request", e))?;
   with_viewer(&state, &params.repository_path, pull_request).await
 }
 
@@ -989,7 +977,7 @@ pub async fn create_pull_request(State(state): State<Arc<AppState>>, Json(params
   let operation = "create the pull request";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let created = core_create_pull_request(&host.github_service(), &repository, &params).await;
-  created.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  created.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
 /// Waits until GitHub has the branch just pushed, as the app does
@@ -997,7 +985,7 @@ pub async fn wait_for_github_branch(State(state): State<Arc<AppState>>, Json(par
   let operation = "wait for the branch on GitHub";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let has = wait_for_branch(&host.github_service(), &params.repository_path, &repository, &params.branch, MIRROR_WAIT).await;
-  has.map(Json).map_err(|failure| CommandFailure::error(operation, failure_message(&failure)))
+  has.map(Json).map_err(|failure| failed(operation, failure_message(&failure)))
 }
 
 /// The users a review can be asked from, as the app searches them
@@ -1005,7 +993,7 @@ pub async fn search_github_users(State(state): State<Arc<AppState>>, Json(params
   let operation = "search the GitHub users";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let users = core_search_github_users(&host.github_service(), &params.repository_path, &repository, &params.query).await;
-  users.map(Json).map_err(|failure| CommandFailure::error(operation, failure_message(&failure)))
+  users.map(Json).map_err(|failure| failed(operation, failure_message(&failure)))
 }
 
 /// The YouTrack sign-in of the requesting page's repository, as the app reads it
@@ -1023,7 +1011,7 @@ pub struct YouTrackUrlParams {
 pub async fn start_youtrack_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<YouTrackUrlParams>) -> CommandResult<YouTrackSignIn> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let started = host.youtrack_sign_in().start(host.youtrack_service(), &params.url).await;
-  started.map(Json).map_err(|e| CommandFailure::error("start the YouTrack sign-in", e))
+  started.map(Json).map_err(|e| failed("start the YouTrack sign-in", e))
 }
 
 /// Waits for the browser to come back from the Hub page and keeps the tokens, as the app does; the page mock tells the
@@ -1031,7 +1019,7 @@ pub async fn start_youtrack_sign_in(State(state): State<Arc<AppState>>, headers:
 pub async fn wait_youtrack_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<YouTrackUser> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let user = host.youtrack_sign_in().wait(host.youtrack_service()).await;
-  user.map(Json).map_err(|e| CommandFailure::error("sign in to YouTrack", e))
+  user.map(Json).map_err(|e| failed("sign in to YouTrack", e))
 }
 
 /// Ends the wait of the sign-in in progress, as the app does
@@ -1050,14 +1038,14 @@ pub struct SaveYouTrackTokenParams {
 pub async fn save_youtrack_token(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<SaveYouTrackTokenParams>) -> CommandResult<YouTrackUser> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let user = host.youtrack_sign_in().save_token(host.youtrack_service(), &params.url, &params.token).await;
-  user.map(Json).map_err(|e| CommandFailure::error("keep the YouTrack token", e))
+  user.map(Json).map_err(|e| failed("keep the YouTrack token", e))
 }
 
 /// Removes the token of the sign-in, as the app does; the page mock tells the windows
 pub async fn sign_out_of_youtrack(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<()> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let signed_out = host.youtrack_sign_in().sign_out(host.youtrack_service()).await;
-  signed_out.map(Json).map_err(|e| CommandFailure::error("sign out of YouTrack", e))
+  signed_out.map(Json).map_err(|e| failed("sign out of YouTrack", e))
 }
 
 #[derive(Deserialize)]
@@ -1086,7 +1074,7 @@ pub async fn set_youtrack_issue_state(
 ) -> CommandResult<YouTrackStateChange> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let change = host.youtrack_service().set_state(&params.key, &params.state, params.expected.as_deref()).await;
-  change.map(Json).map_err(|e| CommandFailure::error("set the state of the issue", e))
+  change.map(Json).map_err(|e| failed("set the state of the issue", e))
 }
 
 /// The fixture set by `POST /repositories/{id}/review-requests`; GitHub is never asked in E2E
@@ -1113,7 +1101,7 @@ pub async fn fetch_review_head(
     repo.review_requests.read().expect("review request fixture lock").fetch_error.clone()
   };
   if let Some(message) = fetch_error {
-    return Err(CommandFailure::error("fetch the pull request", message));
+    return Err(failed("fetch the pull request", message));
   }
   let git_executor = state.git_executor.clone();
   run_command("fetch the pull request", move || {
@@ -1207,12 +1195,12 @@ pub async fn get_file_owners(State(state): State<Arc<AppState>>, Json(params): J
 }
 
 /// The fake services of the repository at `path` (`remote_host.rs`), started now if not yet; the repository is not held
-fn remote_of(state: &AppState, path: &str) -> Result<Arc<RemoteHost>, CommandFailure> {
+fn remote_of(state: &AppState, path: &str) -> Result<Arc<RemoteHost>, Rejection> {
   Ok(repository_by_path(state, path)?.remote(&state.git_executor))
 }
 
 /// The Space repository of the repository at `path`, None while no Patronus fixture put it on Space
-fn space_of(state: &AppState, path: &str) -> Result<Option<(Arc<RemoteHost>, SpaceRepository)>, CommandFailure> {
+fn space_of(state: &AppState, path: &str) -> Result<Option<(Arc<RemoteHost>, SpaceRepository)>, Rejection> {
   let host = repository_by_path(state, path)?.existing_remote();
   Ok(host.and_then(|host| host.space_repository().map(|space| (host, space))))
 }
@@ -1276,7 +1264,7 @@ pub async fn get_patronus_robot_details(State(state): State<Arc<AppState>>, Json
   repository_by_path(&state, &params.repository_path)?.patronus_detail_calls.fetch_add(1, Ordering::SeqCst);
   let host = remote_of(&state, &params.repository_path)?;
   let details = host.patronus_service().robot_details(&params.branch_prefix, &params.robot_id, params.new_api).await;
-  details.map(Json).map_err(|e| CommandFailure::error("read the Patronus robot", e))
+  details.map(Json).map_err(|e| failed("read the Patronus robot", patronus_error(e)))
 }
 
 /// Why the robot failed, with the commit map of its branch, as the app reads it; there is no `teamcity` CLI
@@ -1287,7 +1275,7 @@ pub async fn get_robot_failure(State(state): State<Arc<AppState>>, Json(params):
   } else {
     service.robot_failure(&params.branch_prefix, &params.robot_id).await
   }
-  .map_err(|e| CommandFailure::error("read the failure of the Patronus robot", e))?;
+  .map_err(|e| failed("read the failure of the Patronus robot", patronus_error(e)))?;
   let git_executor = state.git_executor.clone();
   run_command("read the failure of the Patronus robot", move || {
     robot_failure_report(
@@ -1306,14 +1294,14 @@ pub async fn get_robot_failure(State(state): State<Arc<AppState>>, Json(params):
 pub async fn get_patronus_robot_problems(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<Vec<PatronusProblem>> {
   let host = remote_of(&state, &params.repository_path)?;
   let problems = host.patronus_service().robot_problems(&params.robot_id).await;
-  problems.map(Json).map_err(|e| CommandFailure::error("read the problems of the Patronus robot", e))
+  problems.map(Json).map_err(|e| failed("read the problems of the Patronus robot", patronus_error(e)))
 }
 
 /// The running robots a failed required check dooms, as the app reads them
 pub async fn get_patronus_failing_robots(State(state): State<Arc<AppState>>, Json(params): Json<PatronusFailingRobotsParams>) -> CommandResult<Vec<String>> {
   let host = remote_of(&state, &params.repository_path)?;
   let failing = host.patronus_service().failing_robots(&params.robot_ids).await;
-  failing.map(Json).map_err(|e| CommandFailure::error("read the failing Patronus robots", e))
+  failing.map(Json).map_err(|e| failed("read the failing Patronus robots", patronus_error(e)))
 }
 
 /// The readiness of each branch as the app reads it (`remote_facts::review_readiness`, without the object cache, so every
@@ -1353,7 +1341,7 @@ pub async fn get_branch_review_readiness(
     params.recheck,
   )
   .await;
-  readiness.map(Json).map_err(|e| CommandFailure::error(operation, format!("{e:#}")))
+  readiness.map(Json).map_err(|e| failed(operation, format!("{e:#}")))
 }
 
 /// Starts a Safe Push or a Dry Run from the pull request's comment, as the app does: the checks of a start of the
@@ -1367,7 +1355,7 @@ pub async fn post_patronus_command(State(state): State<Arc<AppState>>, Json(para
     let service = space.as_ref().map(|(host, _)| host.patronus_service());
     let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
     let checked = actions.check_start_from_pull_request(ObjectCache::disabled, &params).await;
-    checked.map_err(|e| CommandFailure::error(operation, e))?;
+    checked.map_err(|e| failed(operation, e))?;
   }
   let posted = core_post_patronus_command(
     &host.github_service(),
@@ -1378,7 +1366,7 @@ pub async fn post_patronus_command(State(state): State<Arc<AppState>>, Json(para
     params.subject,
   )
   .await;
-  posted.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  posted.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
 /// How the bot answered the command comment, as the app reads it
@@ -1386,20 +1374,20 @@ pub async fn read_patronus_command_reply(State(state): State<Arc<AppState>>, Jso
   let operation = "read the reply of Patronus";
   let (host, repository) = commented_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
   let reply = core_read_patronus_command_reply(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.comment_id).await;
-  reply.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  reply.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
 /// `github_of` for a `/patronus` comment: none fails as the app fails it
-async fn commented_github_of(state: &AppState, path: &str, known: Option<&str>, operation: &str) -> Result<(Arc<RemoteHost>, GitHubRepository), CommandFailure> {
+async fn commented_github_of(state: &AppState, path: &str, known: Option<&str>, operation: &str) -> Result<(Arc<RemoteHost>, GitHubRepository), Rejection> {
   match github_of(state, path, known).await? {
     (host, Some(repository)) => Ok((host, repository)),
-    (_, None) => Err(CommandFailure::error(operation, UNKNOWN_GITHUB_REPOSITORY_MESSAGE)),
+    (_, None) => Err(failed(operation, UNKNOWN_GITHUB_REPOSITORY_MESSAGE)),
   }
 }
 
 /// The Space repository of the repository at `path` for an action: not on Space is the app's error
-fn required_space_of(state: &AppState, path: &str, operation: &str) -> Result<(Arc<RemoteHost>, SpaceRepository), CommandFailure> {
-  space_of(state, path)?.ok_or_else(|| CommandFailure::error(operation, NOT_ON_SPACE))
+fn required_space_of(state: &AppState, path: &str, operation: &str) -> Result<(Arc<RemoteHost>, SpaceRepository), Rejection> {
+  space_of(state, path)?.ok_or_else(|| failed(operation, ApiError::new(ErrorCode::NotOnSpace, NOT_ON_SPACE)))
 }
 
 /// The branch a start pushes to and the merge profiles Patronus answers for it, as the app reads them
@@ -1413,7 +1401,7 @@ pub async fn get_patronus_start_options(State(state): State<Arc<AppState>>, Json
     .patronus_service()
     .start_options(&space.project_key, &space.name, &target, params.last_robot_id.as_deref(), params.last_robot_profile)
     .await;
-  options.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  options.map(Json).map_err(|e| failed(operation, patronus_error(e)))
 }
 
 /// The branch of origin a robot pushes into, as the app reads it
@@ -1436,7 +1424,7 @@ pub async fn start_patronus_robot(State(state): State<Arc<AppState>>, Json(param
   let service = space.as_ref().map(|(host, _)| host.patronus_service());
   let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
   let robot = actions.start_robot(ObjectCache::disabled, &params).await;
-  robot.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  robot.map(Json).map_err(|e| failed(operation, e))
 }
 
 /// Restarts a robot as the app does (`RemoteActions::restart_robot`): the fake lists a new one on the newest commit of
@@ -1470,14 +1458,14 @@ async fn act_on_robot(state: &AppState, params: &PatronusRobotParams, action: Ro
     RobotAction::Restart => actions.restart_robot(params).await,
     RobotAction::Cancel => actions.cancel_robot(params).await,
   };
-  robot.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  robot.map(Json).map_err(|e| failed(operation, e))
 }
 
 /// The status of one robot as the app reads it before a push into its branch
 pub async fn get_patronus_robot_status(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobotStatus> {
   let host = remote_of(&state, &params.repository_path)?;
   let status = host.patronus_service().robot_status(&params.robot_id).await;
-  status.map(Json).map_err(|e| CommandFailure::error("read the status of the Patronus robot", e))
+  status.map(Json).map_err(|e| failed("read the status of the Patronus robot", patronus_error(e)))
 }
 
 pub async fn browse_repository(
@@ -1602,7 +1590,7 @@ pub async fn amend_uncommitted_to_branch(
   State(state): State<Arc<AppState>>,
   headers: HeaderMap,
   Json(params): Json<AmendUncommittedToBranchParams>,
-) -> Result<Response, CommandFailure> {
+) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   Ok(
@@ -1644,10 +1632,7 @@ pub async fn get_commits_files(State(state): State<Arc<AppState>>, Json(params):
 
 /// The events of the app's channel as SSE events named `fileDiff`, once all are known; a failed read answers with its
 /// error instead. Without the object cache and with fresh memory caches: each read of a test runs git
-pub async fn get_file_diffs(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<GetFileDiffsParams>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, CommandFailure> {
+pub async fn get_file_diffs(State(state): State<Arc<AppState>>, Json(params): Json<GetFileDiffsParams>) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   stream_events("read the file diffs", "fileDiff", move |send: &mut dyn FnMut(FileDiffEvent)| {
@@ -1657,10 +1642,7 @@ pub async fn get_file_diffs(
 }
 
 /// The events of the app's channel as SSE events named `fileMerge`, as `get_file_diffs`
-pub async fn get_file_merges(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<GetFileMergesParams>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, CommandFailure> {
+pub async fn get_file_merges(State(state): State<Arc<AppState>>, Json(params): Json<GetFileMergesParams>) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   stream_events("read the file merges", "fileMerge", move |send: &mut dyn FnMut(FileMergeEvent)| {
@@ -1670,7 +1652,7 @@ pub async fn get_file_merges(
 }
 
 /// Runs `produce` off the async runtime and answers with the events it sent, as SSE events named `event_name`
-async fn stream_events<E, F>(operation: &'static str, event_name: &'static str, produce: F) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, CommandFailure>
+async fn stream_events<E, F>(operation: &'static str, event_name: &'static str, produce: F) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Rejection>
 where
   E: serde::Serialize + std::fmt::Debug + Send + 'static,
   F: FnOnce(&mut dyn FnMut(E)) -> anyhow::Result<()> + Send + 'static,
@@ -1697,7 +1679,7 @@ pub async fn get_blob_texts(State(state): State<Arc<AppState>>, Json(params): Js
 }
 
 /// The highlighting of one blob as the app answers it: raw bytes (`application/octet-stream`), or the error of a command
-pub async fn get_blob_syntax(State(state): State<Arc<AppState>>, Json(params): Json<GetBlobSyntaxParams>) -> Result<Response, CommandFailure> {
+pub async fn get_blob_syntax(State(state): State<Arc<AppState>>, Json(params): Json<GetBlobSyntaxParams>) -> Result<Response, Rejection> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   let Json(bytes) = run_command("highlight a blob", move || FileDiffs::default().blob_syntax(&git_executor, &params)).await?;
@@ -1751,12 +1733,12 @@ pub async fn agent_cli_command(Json(request): Json<AgentCliCommandRequest>) -> J
 const AGENT_SKILLS: [&str; 2] = ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"];
 
 /// The repository of the page that sends a command (`X-Repository-Id`)
-pub(crate) fn requesting_repository<'a>(state: &'a AppState, headers: &HeaderMap) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, CommandFailure> {
+pub(crate) fn requesting_repository<'a>(state: &'a AppState, headers: &HeaderMap) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, Rejection> {
   headers
     .get(crate::REPOSITORY_ID_HEADER)
     .and_then(|value| value.to_str().ok())
     .and_then(|id| state.repositories.get(id))
-    .ok_or_else(|| CommandFailure::error("find the test repository", "no test repository named by the request"))
+    .ok_or_else(|| failed("find the test repository", "no test repository named by the request"))
 }
 
 /// `bd install` without its files: the installed state of the test repository, and the agent rules of its own global

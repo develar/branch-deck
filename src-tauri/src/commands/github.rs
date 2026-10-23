@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
-use crate::operation::operation;
+use crate::operation::{operation, tauri_error};
+use domain_types::error::ApiError;
 use domain_types::pull_request::{GitHubAuthStatus, GitHubDeviceCode};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::client::GitHubClient;
@@ -43,7 +43,7 @@ pub fn app_user_agent(app_version: &str) -> String {
 #[tauri::command]
 #[instrument(skip(github))]
 #[specta::specta]
-pub async fn get_github_auth_status(github: State<'_, GitHubState>) -> Result<GitHubAuthStatus, CommandError> {
+pub async fn get_github_auth_status(github: State<'_, GitHubState>) -> Result<GitHubAuthStatus, ApiError> {
   operation(async move { Ok(github.sign_in.status(&github.service, GITHUB_OAUTH_CLIENT_ID).await) }).await
 }
 
@@ -51,8 +51,8 @@ pub async fn get_github_auth_status(github: State<'_, GitHubState>) -> Result<Gi
 #[tauri::command]
 #[instrument(skip(github))]
 #[specta::specta]
-pub async fn start_github_sign_in(github: State<'_, GitHubState>) -> Result<GitHubDeviceCode, CommandError> {
-  operation(async move { github.sign_in.start(&github.service, GITHUB_OAUTH_CLIENT_ID).await.map_err(CommandError::new) }).await
+pub async fn start_github_sign_in(github: State<'_, GitHubState>) -> Result<GitHubDeviceCode, ApiError> {
+  operation(async move { github.sign_in.start(&github.service, GITHUB_OAUTH_CLIENT_ID).await.map_err(ApiError::internal) }).await
 }
 
 /// Waits until the user entered the code of `start_github_sign_in` on GitHub, keeps the token and tells every window;
@@ -60,10 +60,10 @@ pub async fn start_github_sign_in(github: State<'_, GitHubState>) -> Result<GitH
 #[tauri::command]
 #[instrument(skip(app, github))]
 #[specta::specta]
-pub async fn wait_github_sign_in(app: AppHandle, github: State<'_, GitHubState>) -> Result<String, CommandError> {
+pub async fn wait_github_sign_in(app: AppHandle, github: State<'_, GitHubState>) -> Result<String, ApiError> {
   operation(async move {
-    let login = github.sign_in.wait(&github.service, GITHUB_OAUTH_CLIENT_ID).await.map_err(CommandError::new)?;
-    app.emit(GITHUB_AUTH_CHANGED_EVENT, ())?;
+    let login = github.sign_in.wait(&github.service, GITHUB_OAUTH_CLIENT_ID).await.map_err(ApiError::internal)?;
+    app.emit(GITHUB_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(login)
   })
   .await
@@ -73,7 +73,7 @@ pub async fn wait_github_sign_in(app: AppHandle, github: State<'_, GitHubState>)
 #[tauri::command]
 #[instrument(skip(github))]
 #[specta::specta]
-pub async fn cancel_github_sign_in(github: State<'_, GitHubState>) -> Result<(), CommandError> {
+pub async fn cancel_github_sign_in(github: State<'_, GitHubState>) -> Result<(), ApiError> {
   operation(async move {
     github.sign_in.cancel();
     Ok(())
@@ -86,10 +86,10 @@ pub async fn cancel_github_sign_in(github: State<'_, GitHubState>) -> Result<(),
 #[tauri::command]
 #[instrument(skip(app, github))]
 #[specta::specta]
-pub async fn sign_out_of_github(app: AppHandle, github: State<'_, GitHubState>) -> Result<(), CommandError> {
+pub async fn sign_out_of_github(app: AppHandle, github: State<'_, GitHubState>) -> Result<(), ApiError> {
   operation(async move {
-    github.sign_in.sign_out(&github.service).await.map_err(CommandError::new)?;
-    app.emit(GITHUB_AUTH_CHANGED_EVENT, ())?;
+    github.sign_in.sign_out(&github.service).await.map_err(ApiError::internal)?;
+    app.emit(GITHUB_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(())
   })
   .await

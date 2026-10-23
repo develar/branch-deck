@@ -1026,7 +1026,7 @@ fn the_page_answer_scan_reads_routes_and_refuses_a_computed_name() {
       "get_patronus_robot_details",
       () => ({ status: "ok (done)" }),
     )
-    await routeCommandError(page, "push_branch", "rejected")
+    await routeCommandError(page, "push_branch", { code: "internal", message: "rejected" })
     await page.route("**/invoke/push_branches", async route => {
       await route.fulfill({ json: { type: "pushed" } })
     })

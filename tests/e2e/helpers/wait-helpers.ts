@@ -1,5 +1,6 @@
 import type { Page, Locator } from "@playwright/test"
 import { expect } from "@playwright/test"
+import type { ApiError } from "../../../src/lib/bindings"
 
 /**
  * Wait for processing state to complete (animate-pulse class removed)
@@ -119,12 +120,13 @@ export async function recordCommand(page: Page, command: string): Promise<Record
 }
 
 /**
- * Fails `command` with `message` (and the `kind` of a refusal the page tells apart, `CommandErrorKind`), as the mock
- * server answers a failed command and Tauri rejects it with the CommandError
+ * Fails `command` with an `ApiError`, as the mock server answers a failed command and Tauri rejects it: the code the
+ * page branches on (`internal` for a failure without one), the message for the user, the data of the code (`details`,
+ * null by default) and its retry class (`no` by default; `locked` is `same`, a `*_moved` code `after_reread`)
  */
-export async function routeCommandError(page: Page, command: string, message: string, kind?: string): Promise<void> {
-  const error = kind === undefined ? { message } : { message, kind }
-  await page.route(`**/invoke/${command}`, route => route.fulfill({ json: { status: "error", error } }))
+export async function routeCommandError(page: Page, command: string, error: Pick<ApiError, "code" | "message"> & Partial<Pick<ApiError, "details" | "retry">>): Promise<void> {
+  const answer: ApiError = { details: null, retry: "no", operation_id: null, ...error }
+  await page.route(`**/invoke/${command}`, route => route.fulfill({ json: { status: "error", error: answer } }))
 }
 
 /**

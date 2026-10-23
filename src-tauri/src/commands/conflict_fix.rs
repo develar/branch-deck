@@ -1,6 +1,6 @@
-use crate::command_error::CommandError;
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::operation::run_blocking;
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -28,7 +28,7 @@ pub async fn find_conflict_fix(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, crate::repository_state::RepositoryStateCache>,
   params: FindConflictFixParams,
-) -> Result<ConflictFix, CommandError> {
+) -> Result<ConflictFix, ApiError> {
   let git = (*git_executor).clone();
   let repository_state = (*repository_state).clone();
   cancel_running();
@@ -60,7 +60,7 @@ pub async fn apply_conflict_fix(
   lock_waits: Waits<'_>,
   params: ApplyConflictFixParams,
   wait: WaitChannel,
-) -> Result<AppliedConflictFix, CommandError> {
+) -> Result<AppliedConflictFix, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| apply_conflict_fix_core(&git, &params, lock_wait)).await
 }

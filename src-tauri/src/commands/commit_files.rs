@@ -1,6 +1,6 @@
-use crate::command_error::CommandError;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::{CommitFiles, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached};
 use tauri::State;
@@ -14,13 +14,13 @@ pub async fn get_commit_files(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   params: GetCommitFilesParams,
-) -> Result<CommitFiles, CommandError> {
+) -> Result<CommitFiles, ApiError> {
   operation(async move {
     let commit_id = params.commit_id;
     read_files(&git_executor, &repository_state, params.repository_path, vec![commit_id.clone()])
       .await?
       .pop()
-      .ok_or_else(|| CommandError::new(format!("No files read for {commit_id}")))
+      .ok_or_else(|| ApiError::internal(format!("No files read for {commit_id}")))
   })
   .await
 }
@@ -35,17 +35,12 @@ pub async fn get_commits_files(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   params: GetCommitsFilesParams,
-) -> Result<Vec<CommitFiles>, CommandError> {
+) -> Result<Vec<CommitFiles>, ApiError> {
   operation(async move { read_files(&git_executor, &repository_state, params.repository_path, params.commit_ids).await }).await
 }
 
 /// The files of `ids` through the object cache of the repository, off the async runtime
-async fn read_files(
-  git_executor: &GitCommandExecutor,
-  repository_state: &RepositoryStateCache,
-  repository_path: String,
-  ids: Vec<String>,
-) -> Result<Vec<CommitFiles>, CommandError> {
+async fn read_files(git_executor: &GitCommandExecutor, repository_state: &RepositoryStateCache, repository_path: String, ids: Vec<String>) -> Result<Vec<CommitFiles>, ApiError> {
   let git = git_executor.clone();
   let repository_state = repository_state.clone();
   run_blocking(move || {

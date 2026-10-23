@@ -221,18 +221,17 @@ export const tauriMockScript = () => {
   }
 
   /**
-   * The rejection of a failed command: Tauri rejects with its CommandError, which the bindings return as
-   * `{ status: "error", error }` (an Error instance they would throw instead): its message, the kind of a refusal the
-   * page tells apart (`CommandErrorKind`) and the operation that failed (`operation_id`, null unless the server names one)
+   * The rejection of a failed command: Tauri rejects with its `ApiError`, which the bindings return as
+   * `{ status: "error", error }` (an Error instance they would throw instead), passed through whole: the code the page
+   * branches on, the message, the data of the code, the retry class and the operation that failed (null unless the
+   * server names one). `name` tells the mock's own rejection from a failure of the mock; an answer that is no object is
+   * an `internal` error with its words.
    */
-  function commandError(error: any): { name: "CommandError"; message: string; kind: string | null; operation_id: string | null } {
-    const isObject = typeof error === "object" && error !== null
-    return {
-      name: "CommandError",
-      message: isObject ? error.message : String(error),
-      kind: isObject ? (error.kind ?? null) : null,
-      operation_id: isObject ? (error.operation_id ?? null) : null,
+  function commandError(error: any): { name: "ApiError" } & Record<string, unknown> {
+    if (typeof error === "object" && error !== null) {
+      return { ...error, name: "ApiError" }
     }
+    return { name: "ApiError", code: "internal", message: String(error), details: null, retry: "no", operation_id: null }
   }
 
   /**
@@ -316,7 +315,7 @@ export const tauriMockScript = () => {
       })
     } catch (error: any) {
       // the error of the command is its answer; anything else is a failure of the mock
-      if (error?.name !== "CommandError") {
+      if (error?.name !== "ApiError") {
         console.error(`[Test Mock] Error in ${cmd}:`, error)
       }
       throw error
@@ -719,8 +718,8 @@ export const tauriMockScript = () => {
     try {
       return await proxyToTestServer(cmd, payload)
     } catch (error: any) {
-      // the command ran and failed: the app gets its CommandError; anything else is a bug of the mock
-      if (error?.name !== "CommandError") {
+      // the command ran and failed: the app gets its ApiError; anything else is a bug of the mock
+      if (error?.name !== "ApiError") {
         console.error(`[Test Mock] Cannot run ${cmd}:`, error)
       }
       throw error

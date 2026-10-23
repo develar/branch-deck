@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::operation::run_blocking;
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use tauri::State;
@@ -18,7 +18,7 @@ pub struct SyncInputsParams {
 #[tauri::command]
 #[instrument(skip(git_executor), fields(repository_path = %params.repository_path))]
 #[specta::specta]
-pub async fn get_sync_inputs_fingerprint(git_executor: State<'_, GitCommandExecutor>, params: SyncInputsParams) -> Result<String, CommandError> {
+pub async fn get_sync_inputs_fingerprint(git_executor: State<'_, GitCommandExecutor>, params: SyncInputsParams) -> Result<String, ApiError> {
   let git = (*git_executor).clone();
   run_blocking(move || sync_core::sync_inputs::sync_inputs_fingerprint(&git, &params.repository_path, &params.branch_prefix)).await
 }

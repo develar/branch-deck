@@ -1,5 +1,4 @@
 pub mod auto_update;
-pub mod command_error;
 pub mod commands;
 pub mod legacy_model_cache;
 pub mod lock_wait;
@@ -13,6 +12,8 @@ pub mod tracing_log;
 pub mod window_requests;
 pub mod zoom;
 
+#[cfg(test)]
+mod api_error_contract_test;
 #[cfg(test)]
 mod bindings_test;
 #[cfg(test)]

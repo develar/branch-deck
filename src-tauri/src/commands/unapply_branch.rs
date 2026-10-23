@@ -1,5 +1,5 @@
-use crate::command_error::CommandError;
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
 use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, UndoReapplyParams, UndoneReapply, reapply_branch_core, undo_reapply_core};
@@ -15,7 +15,7 @@ pub async fn unapply_branch(
   lock_waits: Waits<'_>,
   params: UnapplyBranchParams,
   wait: WaitChannel,
-) -> Result<UnapplyBranchResult, CommandError> {
+) -> Result<UnapplyBranchResult, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| unapply_branch_core(&git, params, &RewriteOptions::waiting(lock_wait))).await
 }
@@ -28,7 +28,7 @@ pub async fn undo_unapply_branch(
   lock_waits: Waits<'_>,
   params: UndoUnapplyParams,
   wait: WaitChannel,
-) -> Result<UndoneUnapply, CommandError> {
+) -> Result<UndoneUnapply, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| {
     let token = UnapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of an unapply: {}", params.undo_token))?;
@@ -45,7 +45,7 @@ pub async fn reapply_branch(
   lock_waits: Waits<'_>,
   params: ReapplyBranchParams,
   wait: WaitChannel,
-) -> Result<ReapplyBranchResult, CommandError> {
+) -> Result<ReapplyBranchResult, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| reapply_branch_core(&git, &params, &RewriteOptions::waiting(lock_wait))).await
 }
@@ -58,7 +58,7 @@ pub async fn undo_reapply_branch(
   lock_waits: Waits<'_>,
   params: UndoReapplyParams,
   wait: WaitChannel,
-) -> Result<UndoneReapply, CommandError> {
+) -> Result<UndoneReapply, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| {
     let token = ReapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of a reapply: {}", params.undo_token))?;

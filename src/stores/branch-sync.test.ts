@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
 import type { Commit, GroupedBranchInfo, RemoteStatusUpdate, StackBranchUpdate, SyncEvent } from "@/lib/bindings"
 import {
   branchSyncStore,
@@ -311,7 +312,7 @@ describe("one sync at a time", () => {
     void syncBranches()
     let call = await nextCall(1)
     void syncBranches({ autoScroll: false, autoExpand: false })
-    call.finish({ status: "error", error: { message: "boom", kind: null } })
+    call.finish({ status: "error", error: internalError("boom") })
     call = await nextCall(2)
     call.finish()
     await whenSynced()
@@ -322,7 +323,7 @@ describe("one sync at a time", () => {
     void syncBranches({ autoScroll: false, autoExpand: false })
     call.finish()
     call = await nextCall(4)
-    call.finish({ status: "error", error: { message: "boom", kind: null } })
+    call.finish({ status: "error", error: internalError("boom") })
     await whenSynced()
     expect(branchSyncStore.getState().syncError).toBe("boom")
   })
@@ -444,7 +445,7 @@ describe("deferred sync", () => {
     branchSyncStore.setState(branchSyncStore.getInitialState(), true)
     syncEvents.current = []
     toasts.length = 0
-    syncResult.current = { status: "error", error: { message: "Not synced: a rebase is in progress", kind: "operationInProgress" } }
+    syncResult.current = { status: "error", error: { ...internalError("Not synced: a rebase is in progress"), code: "operation_in_progress" } }
   })
 
   it("is no failure: no error, the branches as they were, an info toast only for a sync the user asked for", async () => {

@@ -1,8 +1,9 @@
-use crate::command_error::CommandError;
 use crate::commands::patronus::{PatronusState, remote_actions};
-use crate::lock_wait::{canceled_by, canceled_kind, register};
+use crate::lock_wait::{canceled_by, canceled_code, register};
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use app_api::api_error::api_error;
+use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::lock_wait::LockWaits;
 use repository_model::views::RepositoryViews;
@@ -31,7 +32,7 @@ pub async fn push_branch(
   lock_waits: State<'_, LockWaits>,
   params: PushBranchParams,
   progress: Channel<TransferProgress>,
-) -> Result<PushOutcome, CommandError> {
+) -> Result<PushOutcome, ApiError> {
   operation(PushHost::of(&git_executor, &repository_state, &patronus, &views, &lock_waits).push(params.as_stack(), progress, PushOutcome::of_stack)).await
 }
 
@@ -52,7 +53,7 @@ pub async fn push_branches(
   lock_waits: State<'_, LockWaits>,
   params: PushBranchesParams,
   progress: Channel<TransferProgress>,
-) -> Result<PushBranchesOutcome, CommandError> {
+) -> Result<PushBranchesOutcome, ApiError> {
   operation(PushHost::of(&git_executor, &repository_state, &patronus, &views, &lock_waits).push(params, progress, Ok)).await
 }
 
@@ -84,7 +85,7 @@ impl<'a> PushHost<'a> {
 
   /// The guarded push of `params` (`RemoteActions::push_branches`), its progress and its wait for another holder of the
   /// lock sent to `progress`, the wait registered by the channel's id (`cancel_lock_wait`); `outcome` makes the answer
-  async fn push<T>(self, params: PushBranchesParams, progress: Channel<TransferProgress>, outcome: fn(PushBranchesOutcome) -> anyhow::Result<T>) -> Result<T, CommandError> {
+  async fn push<T>(self, params: PushBranchesParams, progress: Channel<TransferProgress>, outcome: fn(PushBranchesOutcome) -> anyhow::Result<T>) -> Result<T, ApiError> {
     let (common_dir, space) = push_inputs(self.git_executor, self.repository_state, self.patronus, &params.repository_path).await?;
     let actions = remote_actions(self.patronus, space.as_ref(), self.git_executor, self.views);
     let ticket = register(self.lock_waits, progress.id(), |_| {});
@@ -92,7 +93,7 @@ impl<'a> PushHost<'a> {
     let pushed = actions
       .push_branches(common_dir, params, move |push_progress| send_progress(&progress, push_progress), canceled)
       .await;
-    canceled_kind(pushed.and_then(outcome).map_err(CommandError::from), &ticket)
+    canceled_code(pushed.and_then(outcome).map_err(api_error), &ticket)
   }
 }
 
@@ -104,7 +105,7 @@ async fn push_inputs(
   repository_state: &RepositoryStateCache,
   patronus: &PatronusState,
   repository_path: &str,
-) -> Result<(PathBuf, Option<SpaceRepository>), CommandError> {
+) -> Result<(PathBuf, Option<SpaceRepository>), ApiError> {
   let (git, state, path) = (git_executor.clone(), repository_state.clone(), repository_path.to_string());
   let common_dir = run_blocking(move || state.git_common_dir(&git, &path)).await?;
   let space = patronus.space_repository(git_executor, repository_path).await.unwrap_or_else(|error| {

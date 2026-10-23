@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { BranchPrefixHelpDialog } from "@/components/repository/BranchPrefixHelp"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
+import { internalError } from "@/lib/api-error"
 import { commands } from "@/lib/bindings"
 import { INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { openSettings } from "@/lib/settings-window"
@@ -14,7 +15,7 @@ import { setGlobalUserBranchPrefix, useAppSettings } from "@/stores/settings/app
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 /** Until this window's read of git answers */
-const NOT_READ: BranchPrefixResult = { status: "error", error: { message: "Not read" } }
+const NOT_READ: BranchPrefixResult = { status: "error", error: internalError("Not read") }
 
 /**
  * The branch prefix of every repository (`globalUserBranchPrefix`), saved on Enter and when the field loses the focus,

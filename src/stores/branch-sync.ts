@@ -1439,14 +1439,14 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
       return repositoryPath
     }
     if (result.status === "error") {
-      const kind = result.error.kind
-      if (kind === "operationInProgress" || kind === "detachedHead") {
+      const code = result.error.code
+      if (code === "operation_in_progress" || code === "detached_head") {
         // a precondition, not a failure: the branches stay as the last sync left them
         if (options?.manual === true) {
           showToast({
             type: "info",
             title: result.error.message,
-            description: kind === "operationInProgress" ? "The branches sync once git finished it" : "Check out a branch to sync its commits",
+            description: code === "operation_in_progress" ? "The branches sync once git finished it" : "Check out a branch to sync its commits",
           })
         }
         return repositoryPath
