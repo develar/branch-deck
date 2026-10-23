@@ -71,7 +71,7 @@ pub struct TestRepository {
   /// The version a check for updates finds (`updater.rs`); none: the app is up to date
   pub available_update: RwLock<Option<String>>,
   /// The fakes of the `teamcity` and `youtrack` CLIs and of `brew` (`cli_tools_fixtures`)
-  pub cli_tools: crate::cli_tools_fixtures::CliToolsHost,
+  pub cli_tools: std::sync::Arc<crate::cli_tools_fixtures::CliToolsHost>,
 }
 
 impl TestRepository {

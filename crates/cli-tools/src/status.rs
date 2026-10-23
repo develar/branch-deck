@@ -156,10 +156,12 @@ pub fn decide_action(version: Option<&str>, servers: &[CliToolServer], skill: Op
   skill_behind.then_some(CliToolAction::UpdateSkill)
 }
 
-/// The command of `action` for a terminal, while the app can't run it: a sign-in until the app starts it, an update of
-/// a `youtrack` not installed by Homebrew (its own `update` upgrades only in a terminal)
+/// The command of `action` for a terminal, while the app can't run it: a sign-in of `youtrack`, and of `teamcity` on
+/// Windows (no `script` there for its terminal); an update of a `youtrack` not installed by Homebrew (its own `update`
+/// upgrades only in a terminal)
 fn terminal_command(tool: CliTool, action: CliToolAction, manager: Option<PackageManager>) -> Option<String> {
   match (action, tool) {
+    (CliToolAction::SignIn, CliTool::Teamcity) if !cfg!(windows) => None,
     (CliToolAction::SignIn, _) => Some(format!("{} auth login", tool.command())),
     (CliToolAction::Update, CliTool::Youtrack) if manager.is_none() => Some("youtrack update".to_string()),
     (CliToolAction::Install, _) if manager.is_none() => Some(manual_install_command(tool).to_string()),

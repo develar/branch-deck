@@ -26,6 +26,12 @@ pub struct RobotFailure {
   pub builds: Option<Vec<FailedBuild>>,
   /// What the limits left out
   pub omitted: OmittedFailures,
+  /// The TeamCity server of a failed build that the user's `teamcity` CLI is not signed in to, or every one without the
+  /// CLI: the full version lacks its log (Settings → Tools signs the CLI in); null in the fast version and when the CLI
+  /// read every build
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub teamcity_unavailable_at: Option<String>,
 }
 
 /// What failed, which decides the first step: a restart for builds that never started, a fix otherwise

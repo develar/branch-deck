@@ -747,7 +747,10 @@ esac"#
   );
   let teamcity = TeamCityCli::open(binary, Duration::from_secs(10)).await.unwrap();
   let (service, _) = service(client, token("t"));
-  let builds = service.robot_failure_full("me", "finished", Some(&teamcity)).await.unwrap().builds.unwrap();
+  let failure = service.robot_failure_full("me", "finished", Some(&teamcity)).await.unwrap();
+  // the CLI read every build: no server waits for its sign-in
+  assert_eq!(failure.teamcity_unavailable_at, None);
+  let builds = failure.builds.unwrap();
   assert_eq!(
     builds.iter().map(|build| (build.build_id.as_str(), build.log_tail.as_deref())).collect::<Vec<_>>(),
     [("300", Some("the log of 300")), ("301", None)]
@@ -764,8 +767,10 @@ esac"#
     ]
   );
   // the builds without the CLI are another answer
-  let without = service.robot_failure_full("me", "finished", None).await.unwrap().builds.unwrap();
-  assert_eq!(without[0].log_tail, None);
+  let without = service.robot_failure_full("me", "finished", None).await.unwrap();
+  // the server of the builds, for the sign-in of the CLI
+  assert_eq!(without.teamcity_unavailable_at.as_deref(), Some("https://ci.example"));
+  assert_eq!(without.builds.unwrap()[0].log_tail, None);
   assert_eq!(fake.attempt_detail_calls.lock().unwrap().len(), 2);
 }
 

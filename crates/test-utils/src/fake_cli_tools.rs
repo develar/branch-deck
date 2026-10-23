@@ -132,6 +132,13 @@ esac"#
       "teamcity" => format!(
         r#"case "$1 $2" in
   "auth status") cat {state}/teamcity.auth; grep -q '"authenticated"' {state}/teamcity.auth || exit 1;;
+  "auth login")
+    # as the CLI: the authorize page, then the token it keeps; a server without the browser sign-in asks to paste one
+    if [ -e {state}/teamcity.paste ]; then printf 'Paste your access token: '; read -r token; exit 1; fi
+    echo "Opening $4/oauth2/authorize?client_id=teamcity-cli&code_challenge=x in your browser"
+    if [ -e {state}/teamcity.denied ]; then echo "Error: the sign-in was denied"; exit 1; fi
+    printf '[{{"server":"%s","status":"authenticated","user":{{"username":"jane"}},"token_expiry":"2026-12-01T00:00:00Z"}}]' "$4" > {state}/teamcity.auth
+    echo "Logged in to $4 as jane";;
   "skill list") echo "teamcity-cli         $(cat {state}/teamcity.skill 2>/dev/null || echo 1.0.0)  Use when working with TeamCity";;
   "skill install"|"skill update") mkdir -p {skill}; printf -- '---\nname: teamcity-cli\nversion: %s\n---\n' "$(cat {state}/teamcity.skill 2>/dev/null || echo 1.0.0)" > {skill}/SKILL.md;;
 esac"#

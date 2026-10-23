@@ -137,7 +137,7 @@ export function SettingsPage() {
             <AgentsPage openCount={openCount} />
           </SettingsPanel>
           <SettingsPanel id="tools">
-            <ToolsPage openCount={openCount} />
+            <ToolsPage openCount={openCount} server={target?.server} />
           </SettingsPanel>
           <SettingsPanel id="repository">
             <RepositoryPage />

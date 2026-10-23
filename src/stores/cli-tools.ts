@@ -15,6 +15,8 @@ export interface RunningCliToolAction {
   readonly action: CliToolAction
   /** The last line of its output; empty before the first */
   readonly line: string
+  /** The authorize page a sign-in opened in the browser */
+  readonly url: string | null
 }
 
 interface CliToolsState {
@@ -34,10 +36,19 @@ export function useRunningCliToolAction(tool: CliTool): RunningCliToolAction | u
 }
 
 let reading: Promise<void> | null = null
+let readAgain = false
 
-/** Reads the status of every tool again; a read running already is joined. A failure keeps the last status */
+/**
+ * Reads the status of every tool again. A read asked while one runs is run once more after it: the one running may
+ * have started before what changed (an action just ended, the user installed a tool in a terminal). A failure keeps the
+ * last status
+ */
 export function refreshCliTools(): Promise<void> {
-  reading ??= commands
+  if (reading !== null) {
+    readAgain = true
+    return reading
+  }
+  reading = commands
     .cliToolsStatus()
     .then(result => {
       if (result.status === "ok") {
@@ -46,6 +57,10 @@ export function refreshCliTools(): Promise<void> {
     })
     .finally(() => {
       reading = null
+      if (readAgain) {
+        readAgain = false
+        void refreshCliTools()
+      }
     })
   return reading
 }
@@ -56,28 +71,30 @@ function setRunning(tool: CliTool, running: RunningCliToolAction | undefined): v
 
 /**
  * Runs `action` of `tool`, its lines shown under its row; then the toast of what it did and the status again, which
- * tells every window's Setup dot (`setup-changed`). `latest` names the release an update wants
+ * tells every window's Setup dot (`setup-changed`). `latest` names the release an update wants, `server` the server a
+ * sign-in is to
  */
-export async function runCliToolAction(tool: CliTool, action: CliToolAction, latest: string | null): Promise<void> {
+export async function runCliToolAction(tool: CliTool, action: CliToolAction, latest: string | null, server: string | null = null): Promise<void> {
   if (cliToolsStore.getState().running[tool] !== undefined) {
     return
   }
-  setRunning(tool, { action, line: "" })
+  setRunning(tool, { action, line: "", url: null })
   const progress = new Channel<CliToolProgress>()
-  progress.onmessage = ({ line }) => {
-    if (cliToolsStore.getState().running[tool] !== undefined) {
-      setRunning(tool, { action, line })
+  progress.onmessage = ({ line, url }) => {
+    const running = cliToolsStore.getState().running[tool]
+    if (running !== undefined) {
+      setRunning(tool, { action, line, url: url ?? running.url })
     }
   }
   try {
-    const result = await commands.runCliToolAction(tool, action, latest, progress)
+    const result = await commands.runCliToolAction(tool, action, latest, server, progress)
     if (result.status === "ok") {
       showToast({ title: result.data.title })
     } else if (result.error.message !== "canceled") {
-      notifyError(`Cannot ${actionVerb(action)} ${tool}`, result.error)
+      notifyError(failedTitle(action, tool), result.error)
     }
   } catch (error) {
-    notifyError(`Cannot ${actionVerb(action)} ${tool}`, error)
+    notifyError(failedTitle(action, tool), error)
   } finally {
     setRunning(tool, undefined)
   }
@@ -89,15 +106,16 @@ export function cancelCliToolAction(tool: CliTool): void {
   void commands.cancelCliToolAction(tool)
 }
 
-function actionVerb(action: CliToolAction): string {
+/** "Cannot install youtrack", "Cannot sign teamcity in" */
+function failedTitle(action: CliToolAction, tool: CliTool): string {
   switch (action) {
     case "install":
-      return "install"
+      return `Cannot install ${tool}`
     case "update":
-      return "update"
+      return `Cannot update ${tool}`
     case "updateSkill":
-      return "update the skill of"
+      return `Cannot update the skill of ${tool}`
     case "signIn":
-      return "sign in"
+      return `Cannot sign ${tool} in`
   }
 }

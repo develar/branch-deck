@@ -650,7 +650,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
     agent_cli_installed: std::sync::atomic::AtomicBool::new(false),
     available_update: std::sync::RwLock::default(),
-    cli_tools: cli_tools_fixtures::CliToolsHost::default(),
+    cli_tools: Arc::new(cli_tools_fixtures::CliToolsHost::new(&state.app_data_of(id))),
   };
   state.repositories.insert(id.to_string(), repo);
 }

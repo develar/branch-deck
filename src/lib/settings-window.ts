@@ -14,6 +14,8 @@ export interface SettingsTarget {
   readonly page?: SettingsPageId
   /** The `data-settings-focus` of the field */
   readonly focus?: string
+  /** Settings → Tools: the TeamCity server to sign `teamcity` in to (the server of a robot's build) */
+  readonly server?: string
 }
 
 /** The page an open shows: the one it names, else `current`; a page the sidebar doesn't know (an event from an older build) is General */

@@ -10,7 +10,7 @@ use crate::commands::patronus::PatronusState;
 use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use cli_tools::environment::ToolEnvironment;
-use cli_tools::install::run_action;
+use cli_tools::install::{ActionInput, ActionOutput, run_action};
 use cli_tools::setup::{SetupFacts, setup_entries};
 use cli_tools::status::{KnownFacts, read_statuses};
 use domain_types::cli_tools::{CliTool, CliToolAction, CliToolStatus};
@@ -61,10 +61,12 @@ impl CliToolsState {
   }
 }
 
-/// A line of the output of a running action
+/// A line of the output of a running action, or the page a sign-in opened in the browser
 #[derive(Clone, Debug, serde::Serialize, specta::Type)]
 pub struct CliToolProgress {
   pub line: String,
+  /// The authorize page of a sign-in, for "Open in Browser" when the browser didn't come up
+  pub url: Option<String>,
 }
 
 /// What an action did, in the words of its toast
@@ -123,8 +125,8 @@ pub async fn get_setup_items(
   .await
 }
 
-/// Runs `action` of `tool` (install, update, the skill), each line of its output to `progress`; a second action of the
-/// same tool while one runs is refused
+/// Runs `action` of `tool` (install, update, the skill, the sign-in of `teamcity` to `server`), each line of its output
+/// to `progress`; a second action of the same tool while one runs is refused
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(state, patronus, progress))]
@@ -134,6 +136,7 @@ pub async fn run_cli_tool_action(
   tool: CliTool,
   action: CliToolAction,
   latest: Option<String>,
+  server: Option<String>,
   progress: Channel<CliToolProgress>,
 ) -> Result<CliToolActionDone, CommandError> {
   operation(async {
@@ -146,15 +149,32 @@ pub async fn run_cli_tool_action(
       running.insert(tool, Arc::clone(&canceled));
     }
     let result = run_blocking(move || {
-      let on_line = |line: &str| {
-        if let Err(e) = progress.send(CliToolProgress { line: line.to_string() }) {
-          warn!(error = %e, "failed to report a line of the action");
+      let send = |progress_event: CliToolProgress| {
+        if let Err(e) = progress.send(progress_event) {
+          warn!(error = %e, "failed to report how far the action is");
         }
       };
-      run_action(&ToolEnvironment::from_process(), tool, action, latest.as_deref(), &on_line, &|| {
-        canceled.load(Ordering::SeqCst)
-      })
-      .map_err(CommandError::new)
+      let on_line = |line: &str| {
+        send(CliToolProgress {
+          line: line.to_string(),
+          url: None,
+        });
+      };
+      let on_url = |url: &str| {
+        send(CliToolProgress {
+          line: "Waiting for the browser…".to_string(),
+          url: Some(url.to_string()),
+        });
+      };
+      let input = ActionInput {
+        latest: latest.as_deref(),
+        server: server.as_deref(),
+      };
+      let output = ActionOutput {
+        on_line: &on_line,
+        on_url: &on_url,
+      };
+      run_action(&ToolEnvironment::from_process(), tool, action, &input, &output, &|| canceled.load(Ordering::SeqCst)).map_err(CommandError::new)
     })
     .await;
     state.running.lock().expect("the running actions").remove(&tool);

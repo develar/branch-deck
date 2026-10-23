@@ -46,7 +46,9 @@ fn an_installed_cli_has_its_version_and_servers_and_offers_its_sign_in_first() {
   let status = read_status(&environment, CliTool::Teamcity, &latest("1.7.0"));
   assert_eq!((status.version.as_deref(), status.servers.len()), (Some("1.6.0"), 0));
   // a sign-in before the update: without it the CLI does nothing for the app
-  assert_eq!((status.action, status.command.as_deref()), (Some(CliToolAction::SignIn), Some("teamcity auth login")));
+  // the app runs its browser sign-in; Windows has no terminal for it
+  let command = cfg!(windows).then_some("teamcity auth login");
+  assert_eq!((status.action, status.command.as_deref()), (Some(CliToolAction::SignIn), command));
   assert_eq!(status.problem, None);
 
   fakes.set("teamcity.auth", SIGNED_IN);

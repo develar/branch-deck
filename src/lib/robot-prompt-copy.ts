@@ -1,11 +1,14 @@
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import type { AgentCliCommand, PatronusRobot, RobotFailureReport } from "@/lib/bindings"
+import { hostOf } from "@/lib/cli-tools"
 import { copyTextLater } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
 import { formatRobotSubject } from "@/lib/patronus"
 import { buildRobotPrompt } from "@/lib/robot-prompt"
+import { openSettings } from "@/lib/settings-window"
 import { stackAncestors } from "@/lib/stack"
+import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { patronusRequest } from "@/stores/patronus"
 
@@ -96,11 +99,13 @@ export function formatFullPromptContents(report: RobotFailureReport): string {
 export async function copyRobotFullPrompt(robot: PatronusRobot): Promise<void> {
   const branch = branchLabel(robot)
   const id = toast.add({ type: "loading", title: `Collecting CI details of ${branch}…`, timeout: 0 })
-  let contents = ""
+  // set by the read, which the copy waits for
+  const read = { contents: "", unavailableServer: null as string | null }
   try {
     await copyTextLater(
       readRobotPrompt(robot, true).then(({ prompt, report }) => {
-        contents = formatFullPromptContents(report)
+        read.contents = formatFullPromptContents(report)
+        read.unavailableServer = report.failure.teamcityUnavailableAt ?? null
         return prompt
       }),
     )
@@ -109,5 +114,17 @@ export async function copyRobotFullPrompt(robot: PatronusRobot): Promise<void> {
     notifyCopyFailed(robot, error)
     return
   }
-  toast.update(id, { type: "success", title: `Copied the prompt for ${branch}`, description: contents, timeout: COPIED_TOAST_TIMEOUT_MS })
+  const { contents, unavailableServer: server } = read
+  if (server === null) {
+    toast.update(id, { type: "success", title: `Copied the prompt for ${branch}`, description: contents, timeout: COPIED_TOAST_TIMEOUT_MS })
+    return
+  }
+  // the CLI that reads the build logs is missing or not signed in to the server of a build: the way to it
+  toast.update(id, {
+    type: "success",
+    title: `Copied the prompt for ${branch}`,
+    description: `${contents} · no build logs: teamcity is not signed in to ${hostOf(server)}`,
+    timeout: ACTION_TOAST_TIMEOUT_MS,
+    actionProps: { children: "Set Up TeamCity CLI", onClick: () => openSettings({ page: "tools", focus: "teamcity", server }) },
+  })
 }

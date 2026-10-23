@@ -451,10 +451,10 @@ export const commands = {
 	 */
 	cliToolsStatus: () => typedError<CliToolStatus[], CommandError>(__TAURI_INVOKE("cli_tools_status")),
 	/**
-	 *  Runs `action` of `tool` (install, update, the skill), each line of its output to `progress`; a second action of the
-	 *  same tool while one runs is refused
+	 *  Runs `action` of `tool` (install, update, the skill, the sign-in of `teamcity` to `server`), each line of its output
+	 *  to `progress`; a second action of the same tool while one runs is refused
 	 */
-	runCliToolAction: (tool: CliTool, action: CliToolAction, latest: string | null, progress: Channel<CliToolProgress>) => typedError<CliToolActionDone, CommandError>(__TAURI_INVOKE("run_cli_tool_action", { tool, action, latest, progress })),
+	runCliToolAction: (tool: CliTool, action: CliToolAction, latest: string | null, server: string | null, progress: Channel<CliToolProgress>) => typedError<CliToolActionDone, CommandError>(__TAURI_INVOKE("run_cli_tool_action", { tool, action, latest, server, progress })),
 	/**  Ends the action of `tool` that runs, with its whole process group */
 	cancelCliToolAction: (tool: CliTool) => __TAURI_INVOKE<void>("cancel_cli_tool_action", { tool }),
 	/**
@@ -827,9 +827,11 @@ export type CliToolActionDone = {
 	title: string,
 };
 
-/**  A line of the output of a running action */
+/**  A line of the output of a running action, or the page a sign-in opened in the browser */
 export type CliToolProgress = {
 	line: string,
+	/**  The authorize page of a sign-in, for "Open in Browser" when the browser didn't come up */
+	url: string | null,
 };
 
 /**  A server the CLI is configured for */
@@ -3334,6 +3336,12 @@ export type RobotFailure = {
 	builds: FailedBuild[] | null,
 	/**  What the limits left out */
 	omitted: OmittedFailures,
+	/**
+	 *  The TeamCity server of a failed build that the user's `teamcity` CLI is not signed in to, or every one without the
+	 *  CLI: the full version lacks its log (Settings → Tools signs the CLI in); null in the fast version and when the CLI
+	 *  read every build
+	 */
+	teamcityUnavailableAt?: string | null,
 };
 
 /**  What failed, which decides the first step: a restart for builds that never started, a fix otherwise */

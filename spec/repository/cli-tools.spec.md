@@ -7,6 +7,7 @@ targets:
   - ../../crates/cli-tools/src/parse.rs
   - ../../crates/cli-tools/src/status.rs
   - ../../crates/cli-tools/src/install.rs
+  - ../../crates/cli-tools/src/terminal_login.rs
   - ../../crates/sync-utils/src/child_process.rs
   - ../../crates/sync-utils/src/known_tools.rs
   - ../../crates/domain-types/src/cli_tools.rs
@@ -89,7 +90,7 @@ to, the skill of the agents (`teamcity`), and the one thing it needs next, which
   tap of a tool lags behind its releases otherwise). A `teamcity` outside Homebrew updates itself
   (`teamcity update --yes`).
   [@test] ../../crates/cli-tools/src/install_test.rs (`installs_and_updates_through_homebrew_streaming_its_lines`, `a_teamcity_outside_homebrew_updates_itself`)
-  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should install a missing CLI through Homebrew, then show its version and how to sign it in`, `should update a CLI to its newest release, then the skill of the agents`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should install a missing CLI through Homebrew, then show its version and its sign-in`, `should update a CLI to its newest release, then the skill of the agents`)
 - Update Skill is `teamcity skill install teamcity-cli` without a skill, `skill update` with one; the CLI finds the
   agents of the machine itself.
   [@test] ../../crates/cli-tools/src/install_test.rs (`installs_the_teamcity_skill_then_updates_it`)
@@ -106,6 +107,28 @@ to, the skill of the agents (`teamcity`), and the one thing it needs next, which
 - What an action did is a toast of the Settings window: "Installed teamcity 1.6.0", "Updated youtrack to 0.7.0",
   "Updated the TeamCity skill of the agents to 1.4.0"; a failure "Cannot install youtrack" with the reason. After an
   action of `teamcity` the prompt of a failed robot looks for the CLI again.
+
+### Sign-in
+
+- Sign In of `teamcity` (macOS, Linux) starts the CLI's own browser sign-in, `teamcity auth login --server <url>`: the
+  CLI opens the browser for its PKCE flow and keeps its token in its own keychain item; the app never sees the token
+  and passes none. The CLI signs in through the browser only with a terminal on stdin, so `script` runs it in a
+  pseudo-terminal (BSD `script -q /dev/null …`, util-linux `script -q -e -c …`), 4096 columns wide, without escape
+  sequences; its stdin stays empty. The row shows the last line and "Open in Browser" with the authorize page the CLI
+  printed, for a browser that didn't come up; it waits 5 minutes, Cancel ends it. Then the status is read again and
+  the toast says "Signed in to ci.example as jane".
+  [@test] ../../crates/cli-tools/src/terminal_login_test.rs (`signs_in_through_the_browser_login_of_the_cli_in_a_terminal_and_names_the_user`, `a_denied_sign_in_says_the_last_words_of_the_cli`, `a_terminal_line_loses_its_escapes_and_the_echo_of_the_end_of_input`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should sign teamcity in through its own browser sign-in, to the server an open names`)
+- Only TeamCity 2026.1 and later, which sign in through the browser: a CLI that asks to paste a token is ended at once,
+  "Cannot sign teamcity in: https://old.example has no browser sign-in (TeamCity 2026.1+)".
+  [@test] ../../crates/cli-tools/src/terminal_login_test.rs (`a_server_without_the_browser_sign_in_fails_at_once_instead_of_waiting_for_a_token`, `a_sign_in_needs_the_url_of_the_server`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should refuse a TeamCity without the browser sign-in at once, and sign in again from a server's line`)
+- The server is the one an open of Settings names (`SettingsTarget.server`: the server of a robot's build, from the toast
+  of a copied prompt), else the first one the CLI knows, else typed; each server line has Sign In Again (a token that
+  expires or was refused). Windows, without `script`, shows `teamcity auth login` to run in a terminal. `youtrack`
+  shows `youtrack auth login`.
+- A read of the status asked while one runs runs once more after it: the one running may have started before the
+  change.
 
 ### Where it is
 
@@ -132,4 +155,4 @@ to, the skill of the agents (`teamcity`), and the one thing it needs next, which
 
 - The newest release comes from GitHub once a day ([Setup Dot](setup-attention.spec.md#items)); a tap that lags
   behind it makes an update say so instead of looping.
-- Windows: no package manager runs yet; the row shows the command.
+- Windows: no package manager runs yet and no sign-in starts; the row shows the command.

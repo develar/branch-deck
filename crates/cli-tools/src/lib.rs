@@ -7,6 +7,7 @@
 //! - `install`: the install and update through Homebrew, the `teamcity` skill
 //! - `parse`: their answers (`--version`, `auth status --json`, the skill)
 //! - `setup`: the rule of the Setup dot: what of the app and the tools waits for the user
+//! - `terminal_login`: the browser sign-in of `teamcity`, in a pseudo-terminal of `script`
 //! - `status`: a tool as Settings → Tools shows it, and its action
 
 pub mod environment;
@@ -14,6 +15,7 @@ pub mod install;
 pub mod parse;
 pub mod setup;
 pub mod status;
+pub mod terminal_login;
 
 #[cfg(test)]
 mod install_test;
@@ -23,5 +25,7 @@ mod parse_test;
 mod setup_test;
 #[cfg(test)]
 mod status_test;
+#[cfg(test)]
+mod terminal_login_test;
 #[cfg(test)]
 mod test_support;

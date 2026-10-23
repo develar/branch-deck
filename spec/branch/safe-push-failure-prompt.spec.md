@@ -48,7 +48,8 @@ with the user.
 
 - Running the agent from the app.
 - A TeamCity client or token of the app's own: the full version asks Patronus with the Space token, and uses the user's
-  `teamcity` CLI only when it is installed and logged in to the server of the build.
+  `teamcity` CLI only when it is installed and logged in to the server of the build. Settings → Tools starts the CLI's
+  own browser sign-in; the app never reads its token ([Command-Line Tools](../repository/cli-tools.spec.md#sign-in)).
 - A prompt for a robot that failed for missing code-owner approvals: no code is wrong ([Patronus](patronus.spec.md#code-owner-review)).
 
 ## Requirements
@@ -84,6 +85,12 @@ with the user.
   [@test] ../../crates/patronus/src/teamcity_cli_test.rs (`no_cli_without_the_binary_or_a_server_it_is_logged_in_to`, `serves_only_the_builds_of_its_servers`, `the_log_tail_is_asked_of_the_server_of_the_build_without_colours`, `a_test_failed_before_when_its_first_failure_is_in_an_earlier_build`, `a_command_that_hangs_is_killed_after_the_timeout`, `the_cli_on_path_comes_first`)
   [@test] ../../crates/patronus/src/actions_test.rs (`the_teamcity_cli_adds_the_log_of_a_build_that_failed_not_only_on_tests_and_whether_a_test_failed_before`)
   [@test] ../../crates/patronus/src/ci_text_test.rs (`colours_are_removed_and_the_text_kept`, `the_head_is_cut_by_lines_and_by_bytes`, `the_tail_starts_at_a_line`)
+- The full failure names the server of the first failed build the CLI can't read, missing or not signed in to it
+  (`teamcityUnavailableAt`, the scheme, host and port of its URL); its toast says "no build logs: teamcity is not
+  signed in to ci.example" with Set Up TeamCity CLI, which opens Settings → Tools at `teamcity` with that server for
+  the sign-in.
+  [@test] ../../crates/patronus/src/actions_test.rs (`the_teamcity_cli_adds_the_log_of_a_build_that_failed_not_only_on_tests_and_whether_a_test_failed_before`)
+  [@test] ../../tests/e2e/patronus/robot-prompt.spec.ts (`should collect the CI details for the full prompt, and say what it copied`)
 
 ### The commit map
 

@@ -1,6 +1,7 @@
 //! The user's `teamcity` CLI, when it is installed and logged in to the server of a build: the log tail of a failed
 //! build and whether a failed test failed before this robot. Optional: without it a prompt names the commands for the
-//! agent. Branch Deck never reads its token (the CLI keeps it in the keychain) and never logs it in.
+//! agent. Branch Deck never reads its token (the CLI keeps it in the keychain); Settings → Tools starts the CLI's own
+//! browser sign-in (`cli_tools::terminal_login`).
 
 use crate::ci_text::{cut_tail, strip_ansi};
 use serde::Deserialize;
@@ -217,6 +218,12 @@ fn parse_auth_status(stdout: &[u8]) -> Vec<String> {
       Vec::new()
     }
   }
+}
+
+/// The server of a build URL: its scheme, host and port (`https://ci.example/viewLog.html?…` → `https://ci.example`)
+pub fn server_of(url: &str) -> Option<String> {
+  let url = reqwest::Url::parse(url).ok()?;
+  Some(url.origin().ascii_serialization()).filter(|origin| origin != "null")
 }
 
 fn host_of(url: &str) -> Option<String> {

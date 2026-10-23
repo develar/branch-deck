@@ -1,5 +1,5 @@
 use crate::environment::ToolEnvironment;
-use crate::install::{ToolTaskDone, run_action};
+use crate::install::{ActionInput, ActionOutput, ToolTaskDone, run_action};
 use crate::status::{KnownFacts, read_status};
 use crate::test_support::fakes;
 use domain_types::cli_tools::{CliTool, CliToolAction, PackageManager};
@@ -8,7 +8,12 @@ use std::cell::RefCell;
 
 fn run(environment: &ToolEnvironment, tool: CliTool, action: CliToolAction, latest: Option<&str>) -> (Result<ToolTaskDone, String>, Vec<String>) {
   let lines = RefCell::new(Vec::new());
-  let result = run_action(environment, tool, action, latest, &|line| lines.borrow_mut().push(line.to_string()), &|| false);
+  let on_line = |line: &str| lines.borrow_mut().push(line.to_string());
+  let output = ActionOutput {
+    on_line: &on_line,
+    on_url: &|_| {},
+  };
+  let result = run_action(environment, tool, action, &ActionInput { latest, server: None }, &output, &|| false);
   (result, lines.into_inner())
 }
 

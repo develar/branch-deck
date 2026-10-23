@@ -10,7 +10,7 @@ use crate::client::{
   TeamCityCheckAttemptDetailsDto, TeamCityCheckAttemptDto, TeamCityCheckDto,
 };
 use crate::service::{PatronusService, parse_push_mode, parse_status, robot_profile, to_robot};
-use crate::teamcity_cli::TeamCityCli;
+use crate::teamcity_cli::{TeamCityCli, server_of};
 use crate::token::Token;
 use domain_types::patronus::{
   PatronusAvailability, PatronusChecks, PatronusMergeRequest, PatronusProblem, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotProfile,
@@ -232,6 +232,7 @@ impl PatronusService {
       }
       failed
     };
+    failure.teamcity_unavailable_at = unavailable_server(&failed.builds, teamcity);
     failure.builds = Some(failed.builds);
     failure.omitted = OmittedFailures {
       truncated: failure.omitted.truncated || failed.omitted.truncated,
@@ -679,6 +680,7 @@ pub fn robot_failure_of(robot: PatronusRobot, dto: &RobotDto, checks: &[TeamCity
     problems,
     builds: None,
     omitted,
+    teamcity_unavailable_at: None,
   }
 }
 
@@ -797,6 +799,15 @@ fn to_failed_build(build: BuildDto, listed_tests: &mut usize, test_limit: usize,
     log_tail: None,
   };
   (failed_build, test_runs)
+}
+
+/// The server of the first failed build the CLI can't read (none at all, or not signed in to it): the server of its URL
+fn unavailable_server(builds: &[FailedBuild], teamcity: Option<&TeamCityCli>) -> Option<String> {
+  builds
+    .iter()
+    .filter_map(|build| build.build_url.as_deref())
+    .find(|url| teamcity.and_then(|cli| cli.server_for(url)).is_none())
+    .and_then(server_of)
 }
 
 /// The log tails (of the builds in `wants_log`) and the `firstFailed` of the builds of the CLI's server, all at once

@@ -5,6 +5,7 @@
 use crate::environment::ToolEnvironment;
 use crate::parse::{compare_versions, parse_version};
 use crate::status::{KnownFacts, TEAMCITY_SKILL, homebrew_formula, read_status};
+use crate::terminal_login::sign_in_teamcity;
 use domain_types::cli_tools::{CliTool, CliToolAction, PackageManager};
 use std::cmp::Ordering;
 use std::path::Path;
@@ -23,17 +24,31 @@ pub struct ToolTaskDone {
   pub title: String,
 }
 
-/// Runs `action` for `tool`, handing each line of its output to `on_line`; the reason in a sentence when it fails
-#[instrument(skip(environment, on_line, is_canceled))]
+/// What an action is for: the release an update wants, the server a sign-in is to
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ActionInput<'a> {
+  pub latest: Option<&'a str>,
+  pub server: Option<&'a str>,
+}
+
+/// Where an action tells how far it is: each line of its output, the page a sign-in opened in the browser
+pub struct ActionOutput<'a> {
+  pub on_line: &'a dyn Fn(&str),
+  pub on_url: &'a dyn Fn(&str),
+}
+
+/// Runs `action` for `tool`; the reason in a sentence when it fails
+#[instrument(skip(environment, output, is_canceled))]
 pub fn run_action(
   environment: &ToolEnvironment,
   tool: CliTool,
   action: CliToolAction,
-  latest: Option<&str>,
-  on_line: &dyn Fn(&str),
+  input: &ActionInput<'_>,
+  output: &ActionOutput<'_>,
   is_canceled: &dyn Fn() -> bool,
 ) -> Result<ToolTaskDone, String> {
   let name = tool.command();
+  let (on_line, latest) = (output.on_line, input.latest);
   match action {
     CliToolAction::Install => {
       let brew = environment.find(&BREW).ok_or_else(|| format!("Homebrew is not installed: install {name} in a terminal"))?;
@@ -91,7 +106,28 @@ pub fn run_action(
         title: format!("Updated the TeamCity skill of the agents to {}", version.unwrap_or_default()),
       })
     }
-    CliToolAction::SignIn => Err(format!("Branch Deck does not sign {name} in yet: run {name} auth login")),
+    CliToolAction::SignIn => {
+      if tool != CliTool::Teamcity {
+        return Err(format!("Branch Deck does not sign {name} in: run {name} auth login"));
+      }
+      let server = input
+        .server
+        .map(|server| server.trim().trim_end_matches('/'))
+        .filter(|server| server.starts_with("https://") || server.starts_with("http://"));
+      let server = server.ok_or_else(|| "the URL of the TeamCity server starts with https://".to_string())?;
+      let binary = environment.find_tool(tool).ok_or_else(|| format!("{name} is not installed"))?;
+      sign_in_teamcity(environment, &binary, server, on_line, output.on_url, is_canceled)?;
+      let status = read_status(environment, tool, &KnownFacts::default());
+      let user = status
+        .servers
+        .iter()
+        .find(|known| known.url == server)
+        .and_then(|known| known.user.clone())
+        .ok_or_else(|| format!("teamcity signed in, but is not signed in to {server}"))?;
+      Ok(ToolTaskDone {
+        title: format!("Signed in to {} as {user}", server.split("://").nth(1).unwrap_or(server)),
+      })
+    }
   }
 }
 

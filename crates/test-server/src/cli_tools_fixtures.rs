@@ -10,7 +10,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 // jscpd:ignore-start: the e2e server is the second adapter of the cores the app's commands call; the imports name them
 use cli_tools::environment::ToolEnvironment;
-use cli_tools::install::run_action;
+use cli_tools::install::{ActionInput, ActionOutput, run_action};
 use cli_tools::setup::{SetupFacts, setup_entries};
 use cli_tools::status::{KnownFacts, read_statuses};
 use domain_types::cli_tools::{CliTool, CliToolAction, CliToolStatus};
@@ -23,9 +23,11 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use sync_utils::span::in_current_span;
 use test_utils::fake_cli_tools::FakeCliTools;
 
-/// The fakes of one repository, made on the first need
-#[derive(Default)]
+/// The fakes of one repository, made on the first need in `root`. Shared (`Arc`): a handler takes it out of the
+/// repository and lets the repository go before it waits, as a guard of the map held over an await would hold up the
+/// creation and deletion of the repositories of the other tests
 pub struct CliToolsHost {
+  root: std::path::PathBuf,
   fakes: OnceLock<FakeCliTools>,
   latest: RwLock<HashMap<CliTool, String>>,
   running: Mutex<HashMap<CliTool, Arc<AtomicBool>>>,
@@ -35,19 +37,29 @@ pub struct CliToolsHost {
 }
 
 impl CliToolsHost {
-  fn fakes(&self, repository: &TestRepository) -> &FakeCliTools {
-    self.fakes.get_or_init(|| FakeCliTools::new(&repository.app_data.join("cli-tools")))
+  pub fn new(app_data: &std::path::Path) -> Self {
+    Self {
+      root: app_data.join("cli-tools"),
+      fakes: OnceLock::new(),
+      latest: RwLock::default(),
+      running: Mutex::default(),
+      statuses: Mutex::default(),
+    }
   }
 
-  fn environment(&self, repository: &TestRepository) -> ToolEnvironment {
-    let fakes = self.fakes(repository);
+  fn fakes(&self) -> &FakeCliTools {
+    self.fakes.get_or_init(|| FakeCliTools::new(&self.root))
+  }
+
+  fn environment(&self) -> ToolEnvironment {
+    let fakes = self.fakes();
     ToolEnvironment::isolated(&fakes.bin(), &fakes.home())
   }
 
   /// The statuses on the fakes, kept for the Setup dot
-  async fn read(&self, repository: &TestRepository) -> Result<Vec<CliToolStatus>, CommandFailure> {
+  async fn read(&self) -> Result<Vec<CliToolStatus>, CommandFailure> {
     let generation = self.statuses.lock().expect("the statuses").0;
-    let environment = self.environment(repository);
+    let environment = self.environment();
     let facts: HashMap<CliTool, KnownFacts> = CliTool::ALL.into_iter().map(|tool| (tool, self.facts(tool))).collect();
     let statuses = tokio::task::spawn_blocking(in_current_span(move || read_statuses(&environment, &|tool| facts.get(&tool).cloned().unwrap_or_default())))
       .await
@@ -105,7 +117,7 @@ fn repository_of<'a>(state: &'a AppState, id: &str) -> Result<dashmap::mapref::o
 pub async fn set_cli_tools(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<CliToolsFixture>) -> Result<StatusCode, StatusCode> {
   let repository = repository_of(&state, &id)?;
   let host = &repository.cli_tools;
-  let fakes = host.fakes(&repository);
+  let fakes = host.fakes();
   {
     let mut kept = host.statuses.lock().expect("the statuses");
     *kept = (kept.0 + 1, None);
@@ -134,13 +146,13 @@ pub async fn set_cli_tools(Path(id): Path<String>, State(state): State<Arc<AppSt
 /// What the fakes were asked, in order: `brew install jetbrains/utils/youtrack`, `teamcity skill install …`
 pub async fn get_cli_tools(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
   let repository = repository_of(&state, &id)?;
-  let log = repository.cli_tools.fakes(&repository).log();
+  let log = repository.cli_tools.fakes().log();
   Ok(Json(serde_json::json!({ "log": log })))
 }
 
 pub async fn cli_tools_status(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<serde_json::Value> {
-  let repository = requesting_repository(&state, &headers)?;
-  let statuses = repository.cli_tools.read(&repository).await?;
+  let host = Arc::clone(&requesting_repository(&state, &headers)?.cli_tools);
+  let statuses = host.read().await?;
   Ok(Json(serde_json::to_value(statuses).expect("the statuses serialize")))
 }
 
@@ -150,6 +162,8 @@ pub struct RunCliToolActionRequest {
   action: CliToolAction,
   #[serde(default)]
   latest: Option<String>,
+  #[serde(default)]
+  server: Option<String>,
 }
 
 /// The action on the fakes; its lines stay unsent, as the page keeps the progress channel
@@ -159,7 +173,7 @@ pub async fn run_cli_tool_action(
   Json(request): Json<RunCliToolActionRequest>,
 ) -> CommandResult<serde_json::Value> {
   let repository = requesting_repository(&state, &headers)?;
-  let environment = repository.cli_tools.environment(&repository);
+  let environment = repository.cli_tools.environment();
   let canceled = Arc::new(AtomicBool::new(false));
   {
     let mut running = repository.cli_tools.running.lock().expect("the running actions");
@@ -170,9 +184,17 @@ pub async fn run_cli_tool_action(
   }
   let repository_id = repository.id.clone();
   drop(repository);
-  let RunCliToolActionRequest { tool, action, latest } = request;
+  let RunCliToolActionRequest { tool, action, latest, server } = request;
   let result = tokio::task::spawn_blocking(in_current_span(move || {
-    run_action(&environment, tool, action, latest.as_deref(), &|_| {}, &|| canceled.load(Ordering::SeqCst))
+    let input = ActionInput {
+      latest: latest.as_deref(),
+      server: server.as_deref(),
+    };
+    let output = ActionOutput {
+      on_line: &|_| {},
+      on_url: &|_| {},
+    };
+    run_action(&environment, tool, action, &input, &output, &|| canceled.load(Ordering::SeqCst))
   }))
   .await;
   if let Some(repository) = state.repositories.get(&repository_id) {
@@ -213,16 +235,20 @@ pub struct SetupItemsRequest {
 /// The items of the Setup dot as the app derives them: the update of the fixture (`updater.rs`), the CLIs on the fakes,
 /// the sign-in of the fake YouTrack; now is the start of the page's clock, which the skips of the page are counted from
 pub async fn get_setup_items(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap, Json(request): Json<SetupItemsRequest>) -> CommandResult<serde_json::Value> {
-  let repository = requesting_repository(&state, &headers)?;
-  let app_update = crate::updater::available_update(&repository);
-  let cached = repository.cli_tools.statuses.lock().expect("the statuses").1.clone();
+  let (app_update, host, remote) = {
+    let repository = requesting_repository(&state, &headers)?;
+    // the fake services only once a test started them: a page that opens starts none
+    (
+      crate::updater::available_update(&repository),
+      Arc::clone(&repository.cli_tools),
+      repository.existing_remote(),
+    )
+  };
+  let cached = host.statuses.lock().expect("the statuses").1.clone();
   let statuses = match cached {
     Some(statuses) => statuses,
-    None => repository.cli_tools.read(&repository).await?,
+    None => host.read().await?,
   };
-  // the fake services only once a test started them: a page that opens starts none
-  let remote = repository.existing_remote();
-  drop(repository);
   let youtrack_broken = match remote {
     Some(remote) => remote.youtrack_service().status().await.problem.is_some(),
     None => false,
