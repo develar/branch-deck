@@ -17,7 +17,8 @@ use tracing::instrument;
 /// - the local branches with the one HEAD is on (`%(HEAD)`): a commit, an amend, a switch, a rebase finished, but not
 ///   the virtual branches of the prefix, which the sync writes itself;
 /// - the `master` and `main` of every remote and the upstream of HEAD's branch (the baseline, moved by a fetch
-///   elsewhere), and the remote virtual branches of the prefix (a push from elsewhere): their remote status;
+///   elsewhere), and every remote branch of the prefix (a push from elsewhere): the remote status of the virtual
+///   branches, the stack branches (`bd safe-push` of a whole stack) and the unapplied ones (`bd push --unapplied`);
 /// - the issue groups, the stack parents and the parked branches;
 /// - the size and the time of `config` and `config.worktree` (descriptions, `branchdeck.stacks`) and of `.idea/vcs.xml`
 ///   (issue links).
@@ -28,8 +29,8 @@ pub fn sync_inputs_fingerprint(git_executor: &GitCommandExecutor, repository_pat
   let dirs = git_executor.execute_command_lines(&["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], repository_path)?;
   let [git_dir, common_dir] = <[String; 2]>::try_from(dirs).map_err(|dirs| anyhow!("Unexpected rev-parse output: {dirs:?}"))?;
   let own_branches = format!("--exclude=refs/heads/{branch_prefix}/");
-  // a glob matches the whole name, and `*` no slash: `**` takes the stacked names too
-  let remote_virtual = format!("refs/remotes/*/{branch_prefix}/virtual/**");
+  // a glob matches the whole name, and `*` no slash: `**` takes `virtual/`, `stack/`, `unapplied/` and the stacked names
+  let remote_branches = format!("refs/remotes/*/{branch_prefix}/**");
   let refs = git_executor.execute_command(
     &[
       "for-each-ref",
@@ -39,7 +40,7 @@ pub fn sync_inputs_fingerprint(git_executor: &GitCommandExecutor, repository_pat
       "refs/heads/",
       "refs/remotes/*/master",
       "refs/remotes/*/main",
-      &remote_virtual,
+      &remote_branches,
       ISSUE_GROUPS_REF,
       STACK_PARENTS_REF,
       PARKED_REF,

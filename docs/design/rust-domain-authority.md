@@ -828,7 +828,8 @@ repository». Аудит всех функций в тот же день наш�
   (`fix/sync-lease`): обход коммитов — `<baseline_commit>..<head>` из `RepoFacts`, не по именам
   (`a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups`); проигранный CAS notes ref sync и detection —
   один повтор от нового tip, затем предупреждение (`write_cache_notes`,
-  `a_sync_that_loses_the_notes_ref_to_another_writer_writes_again_and_finishes`).
+  `a_sync_that_loses_the_notes_ref_to_another_writer_writes_again_and_finishes`); отпечаток — все
+  `refs/remotes/*/{prefix}/**`, с `stack/` и `unapplied/` (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`).
 - **Настройки до s5:** `bd` перечитывает непарсимый `settings.json` до 200 мс (запись плагина на месте), так что чтение
   рядом с записью приложения берёт префикс приложения (`the_prefix_of_the_app_is_read_while_the_app_rewrites_its_settings_file`);
   `lib.rs` внедряет `{}` вместо непарсимого файла (`stored_settings`); sync ждёт загрузку префикса без 5-секундного

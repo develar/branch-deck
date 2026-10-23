@@ -43,6 +43,17 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   git(&executor, &repo, &["update-ref", "refs/remotes/origin/test/virtual/auth", &head]);
   let pushed = fingerprint(&executor, &repo);
   assert_ne!(pushed, fetched);
+  // `bd safe-push` of a whole stack pushes only its stack branch, `bd push --unapplied` an unapplied branch
+  git(&executor, &repo, &["update-ref", "refs/remotes/origin/test/stack/auth", &head]);
+  let stack_pushed = fingerprint(&executor, &repo);
+  assert_ne!(stack_pushed, pushed);
+  git(&executor, &repo, &["update-ref", "refs/remotes/origin/test/unapplied/ui", &head]);
+  let unapplied_pushed = fingerprint(&executor, &repo);
+  assert_ne!(unapplied_pushed, stack_pushed);
+  // another prefix is no input
+  git(&executor, &repo, &["update-ref", "refs/remotes/origin/testing/virtual/auth", &head]);
+  assert_eq!(fingerprint(&executor, &repo), unapplied_pushed);
+  let pushed = unapplied_pushed;
 
   // `bd describe` writes the config; the stack parents and the parked branches are refs of their own
   git(&executor, &repo, &["config", "branch.test/virtual/auth.description", "Login and logout"]);

@@ -1678,9 +1678,10 @@ a `master` or `main`).
 1. `rev-parse --path-format=absolute --git-dir --git-common-dir`: where `config` and `config.worktree` are.
 2. One `for-each-ref --format='%(HEAD)%(objectname) %(refname)%(if)%(HEAD)%(then) %(upstream)%(end)'` over the local
    branches without the virtual branches of the prefix (`--exclude=refs/heads/<prefix>/`, which the sync writes
-   itself), the `master` and `main` of every remote (the baseline a fetch moves), the remote virtual branches of the
-   prefix (`refs/remotes/*/<prefix>/virtual/**`, a push from elsewhere; `**`, as a glob matches the whole name and `*`
-   no slash) and the issue groups, the stack parents and the parked branches (not the rest of `refs/branch-deck/`: a
+   itself), the `master` and `main` of every remote (the baseline a fetch moves), every remote branch of the prefix
+   (`refs/remotes/*/<prefix>/**`: a push from elsewhere of a virtual branch, of a stack branch by `bd safe-push` of a
+   whole stack, of an unapplied branch by `bd push --unapplied`; `**`, as a glob matches the whole name and `*` no
+   slash) and the issue groups, the stack parents and the parked branches (not the rest of `refs/branch-deck/`: a
    review fetch writes there). `%(HEAD)` marks the branch HEAD is on, with its upstream, which `@{u}` makes the baseline.
 3. Only when that upstream is not in the listing (`origin/develop`): `for-each-ref --format=%(objectname) <upstream>`,
    so a fetch of it is a change too.
