@@ -136,6 +136,70 @@ pub fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
   run_json(&environment(repo.path()), &all_args)
 }
 
+/// bd with a git wrapper that logs every command with the state of the repository lock when it started: `locked` while
+/// the holder record of `$GIT_COMMON_DIR/branch-deck.lock` exists (a holder writes it once it has the lock and deletes
+/// it before the release), so a test reads the lock span of a command. `arms` are `case " $* " in` arms that run before
+/// the real git, with `{dir}` replaced by the directory of the wrapper (a barrier, a failure)
+#[cfg(unix)]
+pub struct LockSpanGit {
+  directory: tempfile::TempDir,
+  pub environment: Environment,
+}
+
+#[cfg(unix)]
+impl LockSpanGit {
+  pub fn new(repo: &TestRepo, arms: &str) -> Self {
+    let directory = tempfile::tempdir().unwrap();
+    let dir = directory.path().to_str().unwrap();
+    let holder = repo.path().join(".git").join("branch-deck.lock.holder");
+    let script = directory.path().join("git");
+    let text = format!(
+      "#!/bin/sh\nif [ -f '{holder}' ]; then state=locked; else state=free; fi\necho \"$state $*\" >> '{dir}/log'\ncase \" $* \" in {arms}\nesac\nexec git \"$@\"\n",
+      holder = holder.display(),
+      arms = arms.replace("{dir}", dir),
+    );
+    std::fs::write(&script, text).unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let mut environment = environment(repo.path());
+    environment.git = Some(script.to_str().unwrap().to_string());
+    Self { directory, environment }
+  }
+
+  /// The directory of the wrapper, where its arms keep their marks
+  pub fn dir(&self) -> &Path {
+    self.directory.path()
+  }
+
+  /// Run `bd` with `--prefix test-user`; the log starts empty
+  pub fn run(&self, args: &[&str]) -> (i32, Value) {
+    let mut all = vec!["--prefix", PREFIX];
+    all.extend_from_slice(args);
+    let _ = std::fs::remove_file(self.directory.path().join("log"));
+    run_json(&self.environment, &all)
+  }
+
+  /// `(locked, arguments)` of every git command of the last run, in the order they started
+  pub fn commands(&self) -> Vec<(bool, String)> {
+    let log = std::fs::read_to_string(self.directory.path().join("log")).unwrap_or_default();
+    log
+      .lines()
+      .filter_map(|line| line.split_once(' '))
+      .map(|(state, args)| (state == "locked", args.to_string()))
+      .collect()
+  }
+
+  /// The commands of the last run that started under the repository lock
+  pub fn under_lock(&self) -> Vec<String> {
+    self.commands().into_iter().filter(|(locked, _)| *locked).map(|(_, args)| args).collect()
+  }
+}
+
+/// The subcommand of git arguments as the wrapper logs them: the first word that is neither an option nor the value of
+/// a `-c` option
+pub fn subcommand(args: &str) -> &str {
+  args.split(' ').find(|word| !word.starts_with('-') && !word.contains('=')).unwrap_or_default()
+}
+
 /// A repository whose `origin/master` is its first commit, so every later commit is ahead of the baseline
 pub fn repo_with_baseline(files: &[(&str, &str)]) -> TestRepo {
   let repo = TestRepo::new();

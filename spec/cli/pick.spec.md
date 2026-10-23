@@ -106,6 +106,10 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   the whole branch on `parent`, and the pick must say so in `reparented` (`{"leaf": "parent"}`), in a `--dry-run`
   too; the next `bd sync` must build the stack.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so`)
+- `groups`, `dependencies` and `reparented` decide nothing: they must be read after the moves and the release of the
+  repository lock, from the head the check froze, so the `log` of the commits ahead and the diffs of the dependency
+  check never make another writer wait. A failure of that read after a move must keep the pick and its undo token.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`the_landing_of_a_pick_is_read_after_the_lock`)
 - The range of a worktree must be `<source HEAD> ^<branch> ^<upstream> ^<base>`, the base being the fork point of the
   source in the reflog of the branch, so that a branch folded, regrouped or redated after the worktree was cut gives
   none of its old commits back.

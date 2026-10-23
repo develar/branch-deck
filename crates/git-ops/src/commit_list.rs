@@ -19,20 +19,38 @@ pub fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, basel
   Ok(commits)
 }
 
+/// The commits ahead of `baseline_branch` up to `head`, an id frozen earlier: what HEAD was then, not what it is now
+pub fn get_commit_list_at(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, head: &str) -> Result<Vec<Commit>> {
+  let mut commits = Vec::new();
+  commit_list_at_with_handler(git_executor, repo_path, baseline_branch, head, |commit| {
+    commits.push(commit);
+    Ok(())
+  })?;
+  Ok(commits)
+}
+
 /// Get list of commits between baseline branch and HEAD with a custom handler
 /// This is the most memory efficient approach as it processes commits one by one
 #[instrument(skip(git_executor, commit_handler))]
-pub fn get_commit_list_with_handler<F>(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, mut commit_handler: F) -> Result<()>
+pub fn get_commit_list_with_handler<F>(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, commit_handler: F) -> Result<()>
+where
+  F: FnMut(Commit) -> Result<()>,
+{
+  commit_list_at_with_handler(git_executor, repo_path, baseline_branch, "HEAD", commit_handler)
+}
+
+/// `get_commit_list_with_handler` up to `head` (`HEAD` or an id)
+fn commit_list_at_with_handler<F>(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, head: &str, mut commit_handler: F) -> Result<()>
 where
   F: FnMut(Commit) -> Result<()>,
 {
   // On the local baseline branch itself, every commit but the roots: a history that joined an unrelated one has more
   // than one
   let range: Vec<String> = if is_on_local_baseline(git_executor, repo_path, baseline_branch)? {
-    let roots = git_executor.execute_command_lines(&["rev-list", "--max-parents=0", "HEAD"], repo_path)?;
-    std::iter::once("HEAD".to_string()).chain(roots.iter().map(|root| format!("^{root}"))).collect()
+    let roots = git_executor.execute_command_lines(&["rev-list", "--max-parents=0", head], repo_path)?;
+    std::iter::once(head.to_string()).chain(roots.iter().map(|root| format!("^{root}"))).collect()
   } else {
-    vec![format!("{baseline_branch}..HEAD")]
+    vec![format!("{baseline_branch}..{head}")]
   };
 
   let pretty_format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");

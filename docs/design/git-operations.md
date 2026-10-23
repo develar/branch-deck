@@ -506,7 +506,7 @@ was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`,
 shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
 Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, `bd safe-push` (until its push; with
 `--check` only its sync),
-`bd move-hunk`, `bd pick` (the moves of both worktrees under one hold) and `bd undo` take it, so does the app's push
+`bd move-hunk`, `bd pick` (the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
 (`push_branch`, `push_branches`: `push_guard`, on the `$GIT_COMMON_DIR` the app keeps, so the push and its checks see
 the branches no other writer moves meanwhile; "App stack push"), and so does Update Project (the app's and `bd update`, which also starts a
 resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` and
@@ -1206,20 +1206,22 @@ pick, and interleaves with a fold or an update of the owner.
    patch id, it drops as empty or conflicts.
 5. Both dry runs before either move: `blocking_paths` of the target (HEAD → new tip) and of the source (its HEAD →
    new tip), each on its own index copy and working tree.
-6. How the picked commits land, from one read before the move (`landing` in `crates/update-core/src/pick.rs`): the
-   grouping inputs (`git config`, one `cat-file --batch`) and the commits ahead of the baseline (one `log`), grouped
-   without and with the copies on top, give the `group` of each copy and `reparented`, a branch the target had whose
-   declared parent a `(parent/leaf)` prefix of a copy changed. Only when a prefix names a branch the target has, the
-   diffs of the commits ahead and of the copies (`read_commit_diffs_cached`, by id) give the edges by lines
-   (`compute_dependencies`, no symbols): a copy whose branch is not built on each branch it needs is in
-   `dependencies`, with the move into the branch of the stack that holds them all (`stack::stack_top`, shared with
-   the conflict fix) or, when it needs its own branch too, the restack of its branch. Offered, never applied: the
-   pick stays one guarded move, and `bd group` and `bd restack` have their own lock and undo.
-7. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
+6. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
    through the same move, a detached HEAD with `option no-deref` and a check under the locks that HEAD is still
    detached (`HeadAttached` otherwise), so a `git switch` to a branch at the same commit can't move that branch. A
    source that moved or switched after the check stays where it is while the target moved: the outcome says so, and
    the same pick again finds every commit present and moves only the source.
+7. How the picked commits land (`landing` in `crates/update-core/src/pick.rs`), after the moves and the release of
+   the lock: a report that decides nothing, so its reads never make another writer wait. The grouping inputs (`git
+   config`, one `cat-file --batch`) and the commits ahead of the baseline up to the HEAD the check froze (one `log`
+   `<baseline>..<head>`: HEAD has the copies already), grouped without and with the copies on top, give the `group` of
+   each copy and `reparented`, a branch the target had whose declared parent a `(parent/leaf)` prefix of a copy changed.
+   Only when a prefix names a branch the target has, the diffs of the commits ahead and of the copies
+   (`read_commit_diffs_cached`, by id) give the edges by lines (`compute_dependencies`, no symbols): a copy whose branch
+   is not built on each branch it needs is in `dependencies`, with the move into the branch of the stack that holds them
+   all (`stack::stack_top`, shared with the conflict fix) or, when it needs its own branch too, the restack of its
+   branch. Offered, never applied: the pick stays one guarded move, and `bd group` and `bd restack` have their own lock
+   and undo. A failure of this report after a move is logged, and the pick stands with its undo token.
 
 **Undo** (`bd undo pick:<H>..<N>[+follow:<worktree id>:<S>..<N>]`, `undo_pick_core`): under the lock, both moves are
 checked first as the undo of an update is (`check_pick_undo`, the last reflog entry of the branch, of `HEAD` when

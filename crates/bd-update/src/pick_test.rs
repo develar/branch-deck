@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use bd_cli::fixture_test::LockSpanGit;
 use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, run_in, run_json};
 use pretty_assertions::assert_eq;
@@ -276,13 +278,19 @@ fn a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so() {
   assert!(again.get("reparented").is_none(), "{again}");
 }
 
-#[test_log::test]
-fn a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_it() {
+/// Stacks on: `base`, and `hang` and `teamcity` on it; `hang` adds `monitor.rs`
+fn stack_of_hang_and_teamcity() -> TestRepo {
   let repo = repo_with_baseline(&[("a.txt", "a\n")]);
   repo.set_config("branchdeck.stacks", "true").unwrap();
   repo.create_commit("(base) Add base", "base.txt", "base\n");
   repo.create_commit("(base/hang) Add the monitor", "monitor.rs", "monitor\n");
   repo.create_commit("(base/teamcity) Add the runner", "runner.rs", "runner\n");
+  repo
+}
+
+#[test_log::test]
+fn a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_it() {
+  let repo = stack_of_hang_and_teamcity();
   let lane = TestWorktree::detached(&repo);
   // the prefix names teamcity, the hunk changes the file hang created
   let watch = lane.commit("(base/teamcity) Watch the monitor", "monitor.rs", "monitor\nwatch\n");
@@ -310,6 +318,39 @@ fn a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_i
   let (exit_code, sync) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{sync}");
   assert_eq!(git(&repo, &["log", "-1", "--format=%s"]), "(hang) Watch the monitor");
+}
+
+/// How the picked commits land is a report: its `log` of the commits ahead and the diffs of its dependency check run
+/// after the move, outside the lock, so an agent's `bd pick` never makes the app's Update Project or a regroup wait for
+/// them. It still names the dependency and the groups, from the head the check froze
+#[cfg(unix)]
+#[test_log::test]
+fn the_landing_of_a_pick_is_read_after_the_lock() {
+  let repo = stack_of_hang_and_teamcity();
+  let lane = TestWorktree::detached(&repo);
+  let watch = lane.commit("(base/teamcity) Watch the monitor", "monitor.rs", "monitor\nwatch\n");
+  let wrapped = LockSpanGit::new(&repo, "");
+
+  let (exit_code, output) = wrapped.run(&["--full-ids", "pick", "--from", &lane.path]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+  assert_eq!(subjects(&output, "picked"), ["(base/teamcity) Watch the monitor"]);
+  assert_eq!(
+    (&output["dependencies"][0]["commit"], &output["dependencies"][0]["depends_on"]),
+    (&json!(watch), &json!(["hang"])),
+    "{output}"
+  );
+
+  // the commits ahead (`log --reverse --no-merges`) and their diffs (`log --no-walk=unsorted --stdin --raw`)
+  let landing_reads = [" log --reverse --no-merges ", " log --no-walk=unsorted --stdin "];
+  let commands = wrapped.commands();
+  let moved = commands.iter().rposition(|(locked, _)| *locked).expect("the move runs under the lock");
+  for read in landing_reads {
+    let at = commands
+      .iter()
+      .position(|(_, args)| args.contains(read))
+      .unwrap_or_else(|| panic!("no{read}: {commands:#?}"));
+    assert!(at > moved, "{read} after the lock: {commands:#?}");
+  }
 }
 
 #[test_log::test]

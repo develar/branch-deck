@@ -7,7 +7,7 @@ use anyhow::{Result, anyhow};
 use domain_types::commit::Commit;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::get_commit_list;
+use git_ops::commit_list::get_commit_list_at;
 use git_ops::pick::{AppliedPick, PickCheck, PickRequest, PickSource, PickState, PickedCommit, apply_pick, check_pick, check_pick_undo};
 use git_ops::revs::is_object_id;
 use git_ops::update_branch::UndoBlocked;
@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::baseline_tracking_ref;
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 use trial_check::dependencies::compute_dependencies;
 use trial_check::diff_scan::read_commit_diffs_cached;
 
@@ -128,13 +128,14 @@ impl PickResult {
 
 /// Pick the commits of `params.from` onto the branch checked out at `params.repository_path`. Under the repository lock
 /// (shared by every worktree), after an interrupted move of the target (and of the source with `follow`) is finished:
-/// the check, how the branch groups with the picked commits (`landing`), then, when it is clean, the move of the target
-/// and of the source. A conflict or local changes in the way change nothing (`check.state`). `cache` and `file_diffs`
-/// give the diffs of the dependency check
+/// the check, then, when it is clean, the move of the target and of the source. A conflict or local changes in the way
+/// change nothing (`check.state`). After the lock, how the branch groups with the picked commits (`landing`), from the
+/// head and the commits the check froze: a report that decides nothing, so its `log` and the diffs of its dependency
+/// check never make another writer wait. `cache` and `file_diffs` give those diffs
 #[instrument(skip(git_executor, options, cache, file_diffs))]
 pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options: &RewriteOptions<'_>, cache: &ObjectCache, file_diffs: &FileDiffs) -> Result<PickResult> {
   let target = params.repository_path.as_str();
-  let _lock = if params.dry_run { None } else { options.lock(git_executor, target)? };
+  let lock = if params.dry_run { None } else { options.lock(git_executor, target)? };
   if !params.dry_run {
     finish_pending_update(git_executor, target)?;
     if let (true, PickFrom::Worktree(source)) = (params.follow, &params.from) {
@@ -156,16 +157,25 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     },
   )?;
   options.ensure_head(git_executor, target, &plan.check.head)?;
-  let landing = if plan.check.picked.is_empty() {
-    Landing::default()
-  } else {
-    let diffs = Diffs { cache, file_diffs };
-    landing(git_executor, target, baseline.as_deref(), &plan.check.picked, &diffs)?
-  };
   let applied = if !params.dry_run && plan.check.state == PickState::Clean {
     Some(apply_pick(git_executor, target, &plan)?)
   } else {
     None
+  };
+  drop(lock);
+  let landing = if plan.check.picked.is_empty() {
+    Landing::default()
+  } else {
+    let diffs = Diffs { cache, file_diffs };
+    match landing(git_executor, target, baseline.as_deref(), &plan.check.head, &plan.check.picked, &diffs) {
+      Ok(landing) => landing,
+      // the pick is done: its result and undo token stand without the report
+      Err(e) if applied.is_some() => {
+        warn!(error = %format!("{e:#}"), "cannot read how the picked commits land");
+        Landing::default()
+      }
+      Err(e) => return Err(e),
+    }
   };
   Ok(PickResult {
     check: plan.check,
@@ -194,13 +204,14 @@ struct Landing {
 /// `cat-file --batch`) and the commits ahead of the baseline (one `log`), grouped without and with the copies on top.
 /// Only when a prefix of a picked commit names a branch the target has, the diffs of the commits ahead and of the copies
 /// (`read_commit_diffs_cached`) give the edges by lines (`compute_dependencies`, no symbols)
-fn landing(git_executor: &GitCommandExecutor, target: &str, baseline: Option<&str>, picked: &[PickedCommit], diffs: &Diffs) -> Result<Landing> {
+fn landing(git_executor: &GitCommandExecutor, target: &str, baseline: Option<&str>, head: &str, picked: &[PickedCommit], diffs: &Diffs) -> Result<Landing> {
   let grouping = read_grouping_inputs(git_executor, target)?;
   let groups: Vec<PickedGroup> = picked.iter().map(|commit| picked_group(&grouping, &commit.subject)).collect();
   let Some(baseline) = baseline else {
     return Ok(Landing { groups, ..Landing::default() });
   };
-  let mut commits = get_commit_list(git_executor, target, baseline)?;
+  // the target as the check saw it: after the move, HEAD has the picked commits already
+  let mut commits = get_commit_list_at(git_executor, target, baseline, head)?;
   let before = group_commits(&commits, &grouping);
   let existing: BTreeSet<&str> = before.groups.values().flatten().map(String::as_str).collect();
   let picked_at = commits.len();
