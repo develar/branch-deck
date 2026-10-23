@@ -133,12 +133,22 @@ pub fn add_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path
   Ok(())
 }
 
-/// A new slot registered at `path` without its files: `worktree add --no-checkout --detach`, which writes only `path/.git`
-/// and the admin directory. The files come from a clone of a template (`lease`). `worktree prune` first, as `add_slot`
+/// A new slot registered at `path` without its files: `worktree add --no-checkout --lock --detach`, which writes only
+/// `path/.git` and the admin directory. The files come from a clone of a template (`lease`), moved to `path` after the
+/// `.git` file of the registration: `path` is away for a moment, and the `worktree prune` of a get beside this one
+/// would delete the admin directory of a worktree whose directory is gone, so it is locked until `unlock_slot`.
+/// `worktree prune` first, as `add_slot`
 pub fn register_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path, commit: &str) -> Result<()> {
   let _ = git_executor.cmd(&["worktree", "prune"], repository).status();
   let path = path.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", path.display()))?;
-  git_executor.execute_command(&["worktree", "add", "--quiet", "--no-checkout", "--detach", path, commit], repository)?;
+  git_executor.execute_command(&["worktree", "add", "--quiet", "--no-checkout", "--lock", "--detach", path, commit], repository)?;
+  Ok(())
+}
+
+/// The lock of `register_slot` off the slot at `path`, once its files are there
+pub fn unlock_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path) -> Result<()> {
+  let path = path.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", path.display()))?;
+  git_executor.execute_command(&["worktree", "unlock", path], repository)?;
   Ok(())
 }
 

@@ -83,12 +83,14 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it`)
 - On macOS a new slot must be an APFS clone (`created_by: "clone"`, `cloned_from`) of a template: a free slot of this
   repository that the get passed over, marked `templating` while it is cloned, else the source checkout. The clone
-  must get the `.git` file of a `worktree add --no-checkout`, the template's index refreshed with
+  must get the `.git` file of a `worktree add --no-checkout --lock` (unlocked once the clone is at its path, so the
+  `worktree prune` of a get beside it never deletes the registration), the template's index refreshed with
   `core.checkStat=minimal`, then `checkout --force` to the source HEAD, `clean -fd` and a clean `status`: the
   template's local changes, staged files and untracked files never reach the lease, its ignored files do. The
   template must be free again afterwards, and the source unchanged.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_new_slot_is_a_clone_of_the_source_without_its_local_work`, `a_new_slot_is_a_clone_of_a_free_slot`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_of_a_new_slot_by_a_clone`)
+  [@test] ../../crates/git-ops/src/lease_slot_test.rs (`a_prune_while_a_cloned_slot_is_away_keeps_its_registration_until_the_unlock`)
 - A clone that fails (another volume, no APFS, a file it can't read, not macOS) must leave nothing behind and fall
   back to `git worktree add` (`created_by: "checkout"`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_clone_that_fails_falls_back_to_a_checkout`)

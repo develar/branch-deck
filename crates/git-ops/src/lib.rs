@@ -131,6 +131,8 @@ mod git_command_test;
 mod history_test;
 
 #[cfg(test)]
+mod lease_slot_test;
+#[cfg(test)]
 mod merge_conflict_tests;
 
 #[cfg(test)]

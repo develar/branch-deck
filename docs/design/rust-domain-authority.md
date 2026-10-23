@@ -872,7 +872,8 @@ repository». Аудит всех функций в тот же день наш�
 - **Lease pool:** `Returning`/`cleaning`, `worktree add --lock`. Сделано (`fix/sync-lease`): return резервирует слот
   (`returning` под pool lock с CAS по lease id) до первого действия, clean — маркер `cleaning`
   (`a_return_that_a_retry_overtook_leaves_the_next_lease_of_the_slot_alone`,
-  `a_slot_that_clean_cleans_is_reserved_against_a_get`).
+  `a_slot_that_clean_cleans_is_reserved_against_a_get`); новый слот клоном — `worktree add --lock`, `unlock` после swap
+  (`a_prune_while_a_cloned_slot_is_away_keeps_its_registration_until_the_unlock`).
 
 ### Пути конкурентности
 

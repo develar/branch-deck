@@ -515,7 +515,8 @@ fn a_workspace() {
 }
 
 /// `bd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool
-/// config, `worktree prune` and `worktree add --no-checkout`, the refresh of the copied index, one `checkout` of the
+/// config, `worktree prune`, `worktree add --no-checkout --lock` and its `worktree unlock` once the clone is in place,
+/// the refresh of the copied index, one `checkout` of the
 /// diff, `clean -fd` and one `status`
 #[cfg(target_os = "macos")]
 #[test]
@@ -534,7 +535,7 @@ fn a_lease_get_of_a_new_slot_by_a_clone() {
       ("rev-parse", 2),
       ("status", 1),
       ("update-index", 1),
-      ("worktree", 2),
+      ("worktree", 3),
     ],
   );
 }

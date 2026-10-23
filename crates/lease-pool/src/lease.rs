@@ -10,7 +10,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
   CheckoutWorkers, LeaseConfig, UnlandedCommit, UntrackedFiles, add_slot, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths,
-  is_valid_branch_name, lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, unlanded_commits,
+  is_valid_branch_name, lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, unlanded_commits, unlock_slot,
 };
 use git_ops::pick::commits_to_pick;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists};
@@ -636,10 +636,15 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
   };
   register_slot(git_executor, &request.source.top_level, path, request.commit).map_err(failed)?;
   let registered = |error: anyhow::Error| Cloned::Failed(Added::Registered(error));
-  swap_git_link(path, &cloning).map_err(|error| {
+  let swapped = swap_git_link(path, &cloning);
+  // the lock of the registration kept the `worktree prune` of a get beside this one from deleting the admin directory
+  // while `path` was away; a slot left as a free one must be prunable again once its directory is gone
+  let unlocked = unlock_slot(git_executor, &request.source.top_level, path);
+  swapped.map_err(|error| {
     let _ = std::fs::remove_dir_all(&cloning);
     registered(error)
   })?;
+  unlocked.map_err(registered)?;
   let slot = display_path(path);
   let worktree = linked_worktree(path).ok_or_else(|| registered(anyhow!("{slot} is not a linked worktree after its clone")))?;
   let template_git_dir = if request.template == request.source.top_level {

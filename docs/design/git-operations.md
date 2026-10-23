@@ -1349,9 +1349,12 @@ same tree takes several minutes.
 2. `clonefile(2)` of the template's top level to `<path>.cloning`, then the marker is released. The destination must
    not exist and must be on the same volume; any error (`EXDEV`, `ENOTSUP`, `EACCES` of a file it can't read) removes
    what is left and falls back to `worktree add`.
-3. `worktree add --no-checkout --detach <path> <source HEAD>` writes only `<path>/.git` and the admin directory. That
-   `.git` file replaces the cloned `.git` (the whole git directory of a main checkout: 0.2 s for the 2,079 files of
-   idea-1's), the empty `<path>` goes, and `<path>.cloning` becomes `<path>`.
+3. `worktree add --no-checkout --lock --detach <path> <source HEAD>` writes only `<path>/.git` and the admin
+   directory. That `.git` file replaces the cloned `.git` (the whole git directory of a main checkout: 0.2 s for the
+   2,079 files of idea-1's), the empty `<path>` goes, and `<path>.cloning` becomes `<path>`; then `worktree unlock`.
+   Between the two renames `<path>` is gone, and the `worktree prune` of a get beside this one would delete the admin
+   directory of a worktree without its directory: the lock keeps it
+   (`a_prune_while_a_cloned_slot_is_away_keeps_its_registration_until_the_unlock`).
 4. The template's `index` is copied into the admin directory and refreshed with `update-index -q --refresh` under
    `core.checkStat=minimal`, `core.trustctime=false` and `core.fsmonitor=false`. A clone keeps the mtime and the size
    of every file, but its inodes and ctimes are new: the default check rehashes every file (288 s on idea-1, against 14
