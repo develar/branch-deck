@@ -769,9 +769,10 @@ esac"#
   assert_eq!(fake.attempt_detail_calls.lock().unwrap().len(), 2);
 }
 
-/// A start, a restart and a cancel change the robots, so the next full list asks Patronus instead of reusing the one
-/// just fetched: the app's push reads the list right after the page canceled the robot it restarts, and a reused list
-/// would show it running and refuse the push (`repository_view::push_guard`)
+/// A start, a restart and a cancel change the robots, so the page's next full list asks Patronus instead of reusing the
+/// one just fetched: a reused list would show the robot the page canceled still running and lack the one it started.
+/// Only the page's lists are at stake: the checks of the app's actions (`robots_for_checks`, `robots_for_action`) never
+/// answer from a kept list
 #[tokio::test]
 async fn a_start_a_restart_and_a_cancel_forget_the_full_list() {
   let (fake, client) = start_fake().await;

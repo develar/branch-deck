@@ -2353,7 +2353,9 @@ the branches it is built on (`CheckSession::check_landing`), every branch for a 
 - with `branchdeck.symbols on`, the missing declarations (`missing_declarations`): the edges by symbols from a commit
   of what lands to a commit outside it, which no merged Safe Push landed (the commits the view names landed,
   `landed_commits`, on the robots Rust reads: the start's gate and the popover's check, `start_guard::check_landing`,
-  take the same input, never the page's robots). An edge to a
+  take the same input, the list of a robot action, never the page's robots; a list Patronus doesn't give fails the
+  popover's check, and the page says "Not checked whether …", instead of an empty landed set that would refuse a start
+  whose need a merged Safe Push landed). An edge to a
   branch of the landing stack is none, a sibling's of a whole stack that forks too: one robot lands both.
 
 The result is typed (`LandingRefusal`, with `LandingFix`: the restack of the root of what lands onto the branch that
@@ -2397,7 +2399,10 @@ check of the popover, `check_landing`):
 1. One full list of the user's robots (`PatronusService::robots_for_action`: one request now, never the list kept for
    the page, which a robot the IDE or `bd` started since would be missing from): a list Patronus doesn't give fails the
    action, in the words of a failed action ("Run ./safePush.cmd once to log in to Patronus"), where the
-   [app's push](#app-stack-push) sees no robots and pushes.
+   [app's push](#app-stack-push) sees no robots and pushes; the landing check of the popover fails the same way, and
+   the page says "Not checked whether …". A start from the popover therefore costs three full lists (the landing
+   check, the push, the start; a fourth to cancel the robot it replaces), pinned by
+   `a_start_from_the_popover_asks_three_full_lists` of `remote_fixtures_test.rs`.
 2. The Patronus view of the kept table with them (`RepositoryViews::guard_facts`): no git where the hashes tell, else
    the content walks of the memo. A repository not synced yet is refused.
 3. The checks (`check_start`): a parked subject (the branch, one it is built on, any member of the whole stack), one

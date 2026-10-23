@@ -277,13 +277,14 @@ impl RemoteActions<'_> {
   }
 
   /// The landing gate as the popover asks it before a start (`check_landing_gate`), with the commits merged Safe Pushes
-  /// landed as the view names them (`landed_commits`) on the robots Rust reads now (`robots_for_checks`), the same input
-  /// the start gives its own gate (`start_robot`): the page's robots never decide it. Best effort, as the start checks
-  /// again: off Space, before the first sync or without an answer of Patronus nothing landed; `cache` opens the object
-  /// cache, in the blocking step
+  /// landed as the view names them (`landed_commits`) on the robots Rust reads now (`robots_for_landing_check`: the list
+  /// of a robot action, the same input the start gives its own gate, `start_robot`): the page's robots never decide it.
+  /// A list Patronus doesn't give fails the check instead of counting nothing landed, which would refuse a start whose
+  /// need a merged Safe Push landed; the page then says "Not checked whether …" and the start checks again. Off Space or
+  /// before the first sync nothing landed; `cache` opens the object cache, in the blocking step
   #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack))]
   pub async fn check_landing(&self, cache: impl FnOnce() -> ObjectCache + Send + 'static, params: &LandingGateParams) -> Result<LandingCheck> {
-    let robots = self.robots_for_checks(&params.branch_prefix).await;
+    let robots = self.robots_for_landing_check(&params.branch_prefix).await?;
     let (git, views, params) = (self.git_executor.clone(), self.views.clone(), params.clone());
     tokio::task::spawn_blocking(in_current_span(move || {
       let landed: HashSet<String> = views

@@ -938,7 +938,11 @@ rewrites между процессами через файл `s10`; `s12` ждё
     parked, landed whole, hold и stack branch не built — `push_branch(es)` и маршруты test-server) и
     `crates/repository-view/src/start_guard.rs` (`check_start`,
     `check_restart`, `check_cancel` и последовательности `start_robot`, `restart_robot`, `cancel_robot` по таблице
-    `RepositoryViews` и роботам, которых читает `PatronusService::robots_for_action`).
+    `RepositoryViews` и роботам, которых читает `PatronusService::robots_for_action`; `check_landing` поповера читает
+    их тем же `robots_for_action`: список, которого Patronus не дал, — ошибка проверки («Not checked whether …»), а не
+    пустой landed, который отказал бы старту, чью нужду смёрженный Safe Push уже приземлил. Старт из поповера стоит три
+    полных списка — landing check, push, старт; четвёртый — отмена заменяемого робота — число закреплено тестом
+    `a_start_from_the_popover_asks_three_full_lists`).
   - Удалено: fallback `false` в `useDismissesStaleReviews.ts`; `remote_of` в `bd-remote/patronus_facts.rs` (его место —
     `BranchTable.remote`); поле `landed_commits` в `StartPatronusRobotParams` (gate берёт `landed_commits(&view)`);
     слова отказов и hold'ов в `bd-remote` (`start_refusal_text`, `landed_words` и соседи живут в guard'ах, `bd` их

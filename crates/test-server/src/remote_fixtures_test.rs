@@ -331,33 +331,100 @@ async fn a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes(
 /// The landing check of the popover (`check_landing_gate`) counts as landed what the merged Safe Pushes of the robots
 /// Rust reads landed, never the page's robots: `lane-run` of the `landing_needs` template uses a name only
 /// `stills-codec` adds, so its start is refused with the restack while no robot landed `stills-codec`; a merged Safe
-/// Push of `stills-codec` the fake lists (its commit in the target) leaves nothing to refuse, and nothing of the page
-/// said so
+/// Push of `stills-codec` the fake lists counts the commits of `stills-codec` as landed (`landedBy` of the view: the
+/// target itself never gets the commit here), so nothing is left to refuse, and nothing of the page said so
 #[tokio::test]
 async fn the_landing_check_counts_what_the_robots_rust_reads_landed() {
-  let addr = start_test_server().await;
-  let client = reqwest::Client::new();
-  let (id, repository_path) = create_repository_from(&client, addr, "landing_needs").await;
-  let fixture = format!("/repositories/{id}/patronus");
-  post(&client, addr, &fixture, json!({"availability": {"status": "available"}, "robots": []})).await;
-  sync(&client, addr, &repository_path).await;
-
-  let check = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "lane-run"});
+  let (addr, client, fixture, check) = synced_landing_needs(json!({"availability": {"status": "available"}, "robots": []})).await;
   let refused = post(&client, addr, "/invoke/check_landing_gate", check.clone()).await;
   assert_eq!(refused["refusals"].as_array().map(Vec::len), Some(1), "{refused}");
   assert_eq!(refused["refusals"][0]["kind"], "missingDeclaration");
   assert_eq!(refused["refusals"][0]["identifier"], "Stills");
   assert_eq!(refused["refusals"][0]["fix"], json!({"kind": "restack", "branch": "lane-run", "onto": "stills-codec"}));
 
-  // the Safe Push of stills-codec merged: its commit is in the target, so lane-run's start has what it needs
-  let merged = json!({"availability": {"status": "available"}, "robots": [{
-    "id": "landed", "name": "Safe Push of stills-codec", "status": "success", "pushMode": "rebaseAutosquash", "branchName": "stills-codec",
-    "sourceRevision": "", "targetBranch": "master", "startTime": 1_704_139_200, "finishTime": 1_704_142_800, "cancellationReason": null,
-    "url": "ignored",
-  }]});
-  post(&client, addr, &fixture, merged).await;
+  // the Safe Push of stills-codec merged: the view counts its commits as landed (the target is unchanged), so lane-run's
+  // start has what it needs
+  post(&client, addr, &fixture, stills_codec_merged("available")).await;
   let landed = post(&client, addr, "/invoke/check_landing_gate", check).await;
   assert_eq!(landed, json!({"refusals": []}));
   let log: serde_json::Value = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json().await.unwrap();
   assert_eq!(log["requests"]["list"], 2, "each check asked the fake for the user's robots");
+}
+
+/// A server with a repository of the `landing_needs` template, its Patronus fixture `patronus` set, synced: the server,
+/// its client, the fixture path of the repository and the `check_landing_gate` params of `lane-run`
+async fn synced_landing_needs(patronus: serde_json::Value) -> (std::net::SocketAddr, reqwest::Client, String, serde_json::Value) {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, repository_path) = create_repository_from(&client, addr, "landing_needs").await;
+  let fixture = format!("/repositories/{id}/patronus");
+  post(&client, addr, &fixture, patronus).await;
+  sync(&client, addr, &repository_path).await;
+  let check = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "lane-run"});
+  (addr, client, fixture, check)
+}
+
+/// The Patronus fixture of the merged Safe Push of `stills-codec` of the `landing_needs` template, with the availability
+/// `status` (`error` with a message)
+fn stills_codec_merged(status: &str) -> serde_json::Value {
+  let availability = if status == "error" {
+    json!({"status": status, "message": "down"})
+  } else {
+    json!({"status": status})
+  };
+  json!({"availability": availability, "robots": [{
+    "id": "landed", "name": "Safe Push of stills-codec", "status": "success", "pushMode": "rebaseAutosquash", "branchName": "stills-codec",
+    "sourceRevision": "", "targetBranch": "master", "startTime": 1_704_139_200, "finishTime": 1_704_142_800, "cancellationReason": null,
+    "url": "ignored",
+  }]})
+}
+
+/// A list Patronus doesn't give fails the landing check instead of counting nothing landed: `lane-run` needs what the
+/// merged Safe Push of `stills-codec` landed, and with the token rejected (401) or Patronus down (500) that robot can't
+/// be read, so the check is an error in the words of a failed action (the page says "Not checked whether …", and the
+/// start checks again), not a refusal with the restack. The list of the check is a foreground request, as the start's:
+/// Patronus is asked although its requests back off
+#[tokio::test]
+async fn a_landing_check_without_the_robots_fails_instead_of_refusing() {
+  let (addr, client, fixture, check) = synced_landing_needs(stills_codec_merged("available")).await;
+
+  post(&client, addr, &fixture, stills_codec_merged("notLoggedIn")).await;
+  let rejected = post(&client, addr, "/invoke/check_landing_gate", check.clone()).await;
+  assert_eq!(rejected["status"], "error", "{rejected}");
+  assert_eq!(rejected["error"]["message"], "Run ./safePush.cmd once to log in to Patronus");
+
+  // the fake answers every request with 500 and the description "no such repository", which the error carries
+  post(&client, addr, &fixture, stills_codec_merged("error")).await;
+  let down = post(&client, addr, "/invoke/check_landing_gate", check.clone()).await;
+  assert_eq!(down["status"], "error", "{down}");
+  assert_eq!(down["error"]["message"], "no such repository");
+  let again = post(&client, addr, "/invoke/check_landing_gate", check.clone()).await;
+  assert_eq!(again["status"], "error", "{again}");
+
+  post(&client, addr, &fixture, stills_codec_merged("available")).await;
+  assert_eq!(post(&client, addr, "/invoke/check_landing_gate", check).await, json!({"refusals": []}));
+  let log: serde_json::Value = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json().await.unwrap();
+  // the two checks against a 500 asked twice each: a transient failure of a GET is asked again once (`GET_RETRY_DELAY`)
+  assert_eq!(log["requests"]["list"], 6, "every check asked, the two while Patronus was down too, past the backoff");
+}
+
+/// A start from the popover asks Patronus three full lists of the user's robots, one per check and never a kept one:
+/// the landing check, the push, then the start (a fourth would cancel the robot the start replaces); the fake logs them
+#[tokio::test]
+async fn a_start_from_the_popover_asks_three_full_lists() {
+  let (addr, client, id, repository_path) = synced_on_space(&[]).await;
+  let check = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "test-branch"});
+  assert_eq!(post(&client, addr, "/invoke/check_landing_gate", check).await, json!({"refusals": []}));
+  let push = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "test-branch", "myEmail": null,
+    "baselineBranch": "origin/master", "parentBranch": null, "expectedRemote": null, "tip": null});
+  let pushed = post(&client, addr, "/invoke/push_branch", push).await;
+  assert_ne!(pushed["status"], "error", "{pushed}");
+  let start = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "baselineBranch": "origin/master", "branchName": "test-branch",
+    "mode": "rebaseAutosquash", "profileId": null, "mergeRequest": null});
+  let started: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/start_patronus_robot", start).await).unwrap();
+  assert_eq!(started.status, PatronusRobotStatus::Running);
+
+  let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
+  assert_eq!(log["requests"]["list"], 3, "the landing check, the push and the start each asked once");
+  assert_eq!(log["starts"].as_array().map(Vec::len), Some(1));
 }

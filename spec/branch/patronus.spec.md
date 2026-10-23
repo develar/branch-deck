@@ -177,7 +177,10 @@ reports in it and closes it once merged.
   repository) is answered from the last one, unless the robots changed since (a start, a restart, a cancel, a poll
   that saw a change). The list of a check before an action of the app (its push, the landing check of the popover, a
   start, a restart, a cancel) is asked anew every time, never answered from a kept one: a robot the IDE or `bd`
-  started since the page's list must hold, and the list it fetched answers the page's next list.
+  started since the page's list must hold, and the list it fetched answers the page's next list. So a start from the
+  popover asks three lists (the landing check, the push, then the start; a fourth cancels the robot it replaces), each
+  a full window: the cost of a check that sees what the page's list can't.
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_from_the_popover_asks_three_full_lists`)
   [@test] ../../src/stores/patronus.test.ts (`lists the last days first, then only the robots started since shortly before the last list`)
   [@test] ../../src/stores/patronus.test.ts (`lists the full window on the refresh button, asked by the user`)
   [@test] ../../crates/patronus/src/service_test.rs (`reuses_a_fresh_full_list_but_not_an_incremental_one`, `the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere`, `a_poll_that_sees_a_change_drops_the_kept_full_list`)
@@ -608,8 +611,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   (`checkLandingBeforeStart`, `check_landing_gate`, `sync_core::landing_gate`): a trial check of what lands, with the
   proven dangling references and, with `branchdeck.symbols on`, the missing declarations, the uses by a commit of what
   lands of a name that a commit outside it adds, which no merged Safe Push landed (the commits the repository view
-  names landed, on the robots Rust reads for the check, one full list asked now: the same input as the start's own
-  gate, never the page's robots). Meanwhile the slot
+  names landed, on the robots Rust reads for the check, one full list asked now as for the start itself: the same
+  input as the start's own gate, never the page's robots; a list Patronus doesn't give fails the check, never counts
+  nothing landed). Meanwhile the slot
   button says "Checking…". A refusal starts nothing and pushes nothing: the error toast "Cannot start the Safe Push"
   says "“Show each scenario” of JIRA-456 uses Stills (src/lane/BuildLog.kt:7), which “Name lossy stills” of ABC-123
   adds: git merges it, but the build of JIRA-456 fails. Stack JIRA-456 on ABC-123 to land it too." (one more refusal:
@@ -618,10 +622,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   start with the override of what refused it (a name the user knows is a false alarm). A commit unassigned, stacked
   branches off or a restack that would close a cycle: the text names the move of the commit, and "Start Anyway" is the
   only action. The start command checks again, with the override, before it asks Patronus, so no surface starts past
-  the gate; the start from a pull request asks the gate first too. A check that can't run holds nothing back, and the
-  start's toast says "Not checked whether JIRA-456 uses a name only another branch adds: …".
+  the gate; the start from a pull request asks the gate first too. A check that can't run (the robots can't be read:
+  no token, a rejected one, Patronus down) holds nothing back, and the start's toast says "Not checked whether JIRA-456
+  uses a name only another branch adds: …".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse a Safe Push whose branch uses a name another branch adds, with the restack and Start Anyway`)
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_landing_check_counts_what_the_robots_rust_reads_landed`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_landing_check_counts_what_the_robots_rust_reads_landed`, `a_landing_check_without_the_robots_fails_instead_of_refusing`)
 - The row knows it before the press: after a sync Rust computes the refusals of every branch's start by the same rule
   (the landing needs, [Next Step](next-step.spec.md#what-the-safe-push-needs)), and the slot says "Needs ABC-123" with
   the restack. The popover of the start (S, a click, Dry Run) then opens first (a confirm reason, `landing`) and shows the

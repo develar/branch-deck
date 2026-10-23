@@ -33,12 +33,23 @@ impl<'a> RemoteActions<'a> {
     }
   }
 
-  /// The user's robots for a check that holds nothing up (the push, the landing check): one full list asked now
+  /// The user's robots for the check of the push, which holds nothing up: one full list asked now
   /// (`PatronusService::robots_for_checks`), read before the lock, as no network request runs under it; none off Space
   pub(crate) async fn robots_for_checks(&self, branch_prefix: &str) -> Vec<PatronusRobot> {
     match self.patronus {
       Some((service, repository)) => service.robots_for_checks(repository, branch_prefix).await,
       None => Vec::new(),
+    }
+  }
+
+  /// The user's robots for the landing check of the popover: the list of a robot action
+  /// (`PatronusService::robots_for_action`, one full list asked now, past the backoff), as the start's own gate gets it,
+  /// so both gates count the same commits landed; a list Patronus doesn't give fails the check, which holds nothing back
+  /// (the page says "Not checked whether …", and the start checks again). Off Space none: no Safe Push landed anything
+  pub(crate) async fn robots_for_landing_check(&self, branch_prefix: &str) -> Result<Vec<PatronusRobot>> {
+    match self.patronus {
+      Some((service, repository)) => service.robots_for_action(repository, branch_prefix).await.map_err(|e| anyhow!(e)),
+      None => Ok(Vec::new()),
     }
   }
 
