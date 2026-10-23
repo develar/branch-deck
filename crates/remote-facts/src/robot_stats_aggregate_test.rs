@@ -2,7 +2,7 @@ use crate::robot_stats_aggregate::{aggregate_robot_stats, needs_run, stats_windo
 use domain_types::calendar::Calendar;
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::robot_failure::RobotFailureKind;
-use domain_types::robot_stats::{CheckRun, HistoryRobot, HistoryRobotKind, KindCount, RobotRun, RobotStats, RobotStatsInput, Share, Spread, StatsPeriod, TimeSpent};
+use domain_types::robot_stats::{CheckRun, FastestHours, HistoryRobot, HistoryRobotKind, KindCount, RobotRun, RobotStats, RobotStatsInput, Share, Spread, StatsPeriod, TimeSpent};
 use pretty_assertions::assert_eq;
 
 /// Friday 2026-10-23 10:00 UTC
@@ -44,6 +44,7 @@ fn input(robots: Vec<HistoryRobot>) -> RobotStatsInput {
     runs_start: NOW - 14 * DAY,
     me: Some(ME),
     branch_prefix: "jane".to_string(),
+    robot_page: "https://patronus/robot/".to_string(),
     robots,
     ..RobotStatsInput::default()
   }
@@ -241,8 +242,9 @@ fn failure_causes_count_the_kinds_and_checks_of_the_failed_robots_of_the_runs_wi
       }
     ]
   );
-  let checks: Vec<(&str, u32)> = failures.checks.iter().map(|check| (check.name.as_str(), check.count)).collect();
-  assert_eq!(checks, vec![("Build", 2), ("Unit Tests", 2)]);
+  // each opens the newest robot it failed
+  let checks: Vec<(&str, u32, &str)> = failures.checks.iter().map(|check| (check.name.as_str(), check.count, check.robot_url.as_str())).collect();
+  assert_eq!(checks, vec![("Build", 2, "https://patronus/robot/a"), ("Unit Tests", 2, "https://patronus/robot/a")]);
   assert_eq!(stats(&input).coverage.runs_missing, 1);
 }
 
@@ -261,13 +263,18 @@ fn a_flaky_check_passed_on_a_later_attempt_and_has_a_share_from_five_runs() {
   }
   let mut input = input(robots);
   input.runs.extend(runs);
-  let flaky: Vec<(String, u32, u32, Option<f32>)> = stats(&input)
+  let flaky: Vec<(String, u32, u32, Option<f32>, String)> = stats(&input)
     .failures
     .flaky
     .into_iter()
-    .map(|check| (check.name, check.count, check.runs, check.share))
+    .map(|check| (check.name, check.count, check.runs, check.share, check.robot_url))
     .collect();
-  assert_eq!(flaky, vec![("UI Tests".to_string(), 2, 5, Some(0.4)), ("Smoke".to_string(), 1, 5, Some(0.2))]);
+  // each opens the newest robot it passed on a retry in
+  let url = |id: &str| format!("https://patronus/robot/{id}");
+  assert_eq!(
+    flaky,
+    vec![("UI Tests".to_string(), 2, 5, Some(0.4), url("r0")), ("Smoke".to_string(), 1, 5, Some(0.2), url("r0"))]
+  );
 }
 
 #[test]
@@ -328,4 +335,40 @@ fn the_start_hours_are_local_workday_hours_shown_with_five_people_and_three_of_m
   assert_eq!(ten.level, Some(0));
   assert_eq!(hours[9].everyone, None);
   assert_eq!(hours.iter().filter(|hour| hour.everyone.is_some()).count(), 1);
+}
+
+#[test]
+fn a_week_has_everyone_elses_median_its_lost_time_and_says_whether_it_is_the_current_one() {
+  let mut robots: Vec<HistoryRobot> = (0..5u32)
+    .map(|index| robot(&format!("this-{index}"), 10 + u64::from(index), Success, DAY, 1 + index))
+    .collect();
+  // four people last week: too few for a median
+  robots.extend((0..4u32).map(|index| robot(&format!("last-{index}"), 10 + u64::from(index), Success, 8 * DAY, 1)));
+  // last week a failure of 2 hours, and its restart 10 hours after it
+  robots.push(on_branch(robot("fail", ME, Failure, 8 * DAY, 2), "jane/virtual/x"));
+  robots.push(on_branch(robot("retry", ME, Success, 8 * DAY - 12 * HOUR, 1), "jane/virtual/x"));
+  let weeks = stats(&input(robots)).mine.weeks;
+  let (last, before) = (weeks[9], weeks[8]);
+  assert_eq!((last.everyone_merge_time, last.lost, last.current), (Some(3 * HOUR), 0, true));
+  assert_eq!((before.everyone_merge_time, before.lost, before.current), (None, 12 * HOUR, false));
+  assert!(weeks[..9].iter().all(|week| !week.current));
+}
+
+#[test]
+fn the_fastest_hours_are_the_longest_run_of_the_fastest_against_the_slowest_hour() {
+  // Thursday 10:00 and 11:00 UTC an hour, 14:00 three hours, five people each
+  let at = |hour: u32, hours: u32| (0..5u64).map(move |owner| robot(&format!("{hour}-{owner}"), 10 + owner, Success, DAY - (hour - 10) * HOUR, hours));
+  let robots: Vec<HistoryRobot> = at(10, 1).chain(at(11, 1)).chain(at(14, 3)).collect();
+  assert_eq!(
+    stats(&input(robots)).fastest_hours,
+    Some(FastestHours {
+      start: 10,
+      end: 12,
+      median: HOUR,
+      slowest: 14,
+      slowest_median: 3 * HOUR,
+    })
+  );
+  // one hour says nothing
+  assert_eq!(stats(&input(at(10, 1).collect())).fastest_hours, None);
 }

@@ -4,12 +4,15 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { TableView } from "@/components/landing/charts/TableView"
 import type { StartHour } from "@/lib/bindings"
 import { formatShortDuration } from "@/lib/robot-eta"
-import { formatHour } from "@/lib/robot-stats"
+import { formatAxisMinutes, formatHour, minuteTicks } from "@/lib/robot-stats"
 
-/** Everyone else's bars and the user's dots in the first two slots of the chart palette */
+/**
+ * Everyone else's bars in the colour of the merged robots they are (`--chart-1`), the user's dots in the ink of the text:
+ * the shape and the legend tell them apart, and no hue of another entity (orange is Failed) stands for the user
+ */
 const config = {
   everyone: { label: "Everyone else, median", color: "var(--chart-1)" },
-  mine: { label: "You", color: "var(--chart-2)" },
+  mine: { label: "You", color: "var(--foreground)" },
 } satisfies ChartConfig
 
 /** The hours that are not the fastest: the series hue muted, readable on both cards */
@@ -19,34 +22,32 @@ function isSeries(key: string): key is keyof typeof config {
   return key in config
 }
 
-/** Minutes on the axis: "0", "45m", "1h", "1.5h" (one line, unlike "1h 30m") */
-function formatAxisMinutes(minutes: number): string {
-  if (minutes === 0) {
-    return "0"
-  }
-  return minutes < 60 ? `${Math.round(minutes)}m` : `${Number((minutes / 60).toFixed(1))}h`
-}
-
 /**
- * The 24 workday hours by the hour a merged robot started: everyone else's median time to merge as a bar (shorter is
- * faster; the fastest fifth, `StartHour.level` 0, in full colour, the others muted: emphasis, not a second hue), the
- * user's median as a dot with a card ring. One axis of time; an hour with too few robots stays empty
+ * The workday hours by the hour a merged robot started, from the first hour with a value to the last (the night is no
+ * empty width): everyone else's median time to merge as a bar (shorter is faster; the fastest fifth, `StartHour.level`
+ * 0, in full colour, the others muted: emphasis, not a second hue), the user's median as a dot with a card ring. One
+ * axis of time; an hour with too few robots inside the range stays empty
  */
 export function HourChart({ hours }: { hours: readonly StartHour[] }) {
-  const data = hours.map(hour => ({
+  const known = (hour: StartHour) => hour.everyone !== null || hour.mine !== null
+  const first = hours.findIndex(known)
+  const last = hours.findLastIndex(known)
+  const shown = first === -1 ? hours : hours.slice(first, last + 1)
+  const data = shown.map(hour => ({
     hour: formatHour(hour.hour),
     everyone: hour.everyone === null ? null : hour.everyone.median / 60,
     mine: hour.mine === null ? null : hour.mine.median / 60,
     fastest: hour.level === 0,
     counts: { everyone: hour.everyone?.count ?? 0, mine: hour.mine?.count ?? 0 },
   }))
+  const ticks = minuteTicks(Math.max(0, ...data.flatMap(row => [row.everyone ?? 0, row.mine ?? 0])))
   return (
     <figure className="flex flex-col" data-testid="hour-chart">
       <ChartContainer id="hours" config={config} className="aspect-auto h-48 w-full">
         <ComposedChart data={data} accessibilityLayer margin={{ top: 8, right: 0, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="hour" tickLine={false} axisLine={false} tickMargin={6} interval={2} />
-          <YAxis tickLine={false} axisLine={false} width={40} tickFormatter={formatAxisMinutes} />
+          <XAxis dataKey="hour" tickLine={false} axisLine={false} tickMargin={6} interval="preserveStartEnd" minTickGap={16} />
+          <YAxis tickLine={false} axisLine={false} width={40} tickFormatter={formatAxisMinutes} ticks={ticks} domain={[0, ticks.at(-1) ?? 0]} />
           <ChartTooltip
             cursor={false}
             content={

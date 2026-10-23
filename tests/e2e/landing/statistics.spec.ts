@@ -4,6 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { DAY_ROBOTS, ROBOTS_NOW, availableRobots, failedFastTests, setupRobots, unavailableRobots } from "../helpers/patronus-helpers"
+import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { openLandingOverview } from "../helpers/review-status-helpers"
 import { emitTauriEvent, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { HistoryRobotFixture, TestRepositoryBuilder } from "../helpers/test-repository"
@@ -95,10 +96,16 @@ test.describe("Landing view", () => {
     await expect(view.getByTestId("landing-merge-time-comparison")).toHaveClass(/text-destructive/)
     await expect(view.getByTestId("landing-delivery")).toContainText("against everyone else, the median of 5 people")
     // the robots of each week, the table twin of the chart: the 5 Mondays of the 30 days from Sunday 2023-12-03; the
-    // week of the day has the merge and the failure
+    // week of the day, so far, has the merge and the failure
     const weeks = view.getByRole("table", { name: "Robots per week" }).getByRole("row")
     await expect(weeks).toHaveCount(6)
-    await expect(weeks.last()).toHaveText("Jan 1110")
+    await expect(weeks.last()).toHaveText("This week, so far110")
+    // the time to merge by week against everyone else's: last week the merge of old-work, this week the merge of the
+    // day against the hour of everyone else
+    const mergeTimes = view.getByRole("table", { name: "Median time to merge by week" }).getByRole("row")
+    await expect(mergeTimes.filter({ hasText: /^(Dec 25|This week)/ })).toHaveText(["Dec 252h–", "This week40m1h"])
+    // the trends are of the weeks that ended: the time lost last week to the failure of old-work and its wait
+    await expect(view.getByRole("img", { name: "Time lost by week" })).toBeVisible()
     // where the time went: 2 h 40 min in merges, 1 h 30 min in failures, 23 hours from last week's failure of old-work
     // to its merge
     await expect(view.getByTestId("landing-time-lost")).toContainText("Lost to failures25 h90% of the robot time")
@@ -114,25 +121,28 @@ test.describe("Landing view", () => {
     const failures = view.getByTestId("landing-failures")
     await expect(failures.getByRole("table", { name: "Failed robots by kind" }).getByRole("row")).toHaveText(["KindRobots", "Checks failed1", "Unknown1"])
     await expect(failures.getByTestId("landing-failed-checks").getByRole("listitem")).toHaveText(["Fast Tests1"])
+    // a check opens the newest robot it failed
+    await failures.getByRole("button", { name: "Fast Tests, 1: open the newest robot where it failed" }).click()
+    expect(await getOpenedUrls(page)).toEqual([expect.stringMatching(new RegExp(`/robot/${DAY_ROBOTS.failed.id}$`))])
     // Monday 09:00 UTC: five people, an hour each; the user has too few robots at any hour
     const hours = view.getByRole("table", { name: "Median time to merge by start hour" }).getByRole("row")
     await expect(hours.filter({ hasText: /^09:00/ })).toHaveText("09:001h15–0")
-    // the keyboard walks the marks of a chart and its tooltip says each (the accessibility layer of the charts): 09:00
+    // the keyboard walks the marks of a chart and its tooltip says each (the accessibility layer of the charts): the
+    // axis runs from the first hour with a value, 09:00, to the last, so the first press shows it
     const hourChart = view.getByTestId("hour-chart")
     await hourChart.getByRole("application").focus()
-    // the first press shows 00:00
-    for (let hour = 0; hour < 10; hour++) {
-      await page.keyboard.press("ArrowRight")
-    }
-    await page.keyboard.press("ArrowLeft")
+    await page.keyboard.press("ArrowRight")
     await expect(hourChart).toContainText("09:00Everyone else, median1h · 15 robots")
+    // one hour says nothing of the fastest
+    await expect(view.getByTestId("landing-hours")).toBeVisible()
+    await expect(view.getByTestId("landing-fastest-hours")).toHaveCount(0)
     const weekChart = view.getByTestId("week-chart")
     await weekChart.getByRole("application").focus()
     // the fifth week, the current one
     for (let week = 0; week < 5; week++) {
       await page.keyboard.press("ArrowRight")
     }
-    await expect(weekChart).toContainText("Week of Jan 1Merged1Failed1Canceled0")
+    await expect(weekChart).toContainText("This week, so farMerged1Failed1Canceled0")
     await captureHtmlSnapshot(view, "landing-statistics")
 
     // everyone's robots into the target, week by week: no owner, an end
@@ -228,6 +238,20 @@ test.describe("Landing view", () => {
     await repo.setPatronus(unavailableRobots({ status: "notPatronus" }))
     await landingView(page).getByTestId("landing-refresh").click()
     await expect(landingView(page).getByTestId("landing-state")).toHaveText("This repository is not on Space: Patronus has no robots of it")
+  })
+
+  test("should say when robots merge fastest: the fastest hours against the slowest", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // five more people merge in three hours when they start at 14:00 on Monday
+    const slow = ["7", "8", "9", "10", "11"].map(owner => ({
+      id: `slow-${owner}`,
+      owner,
+      status: "success" as const,
+      startTime: MONDAY_NINE + 5 * HOUR,
+      finishTime: MONDAY_NINE + 8 * HOUR,
+    }))
+    await setupHistory(page, setupRepo, syncAndWaitForBranches, [...HISTORY, ...slow])
+    await page.getByTestId("main-view-landing").click()
+    await expect(landingView(page).getByTestId("landing-fastest-hours")).toHaveText("Robots that start 09:00–10:00 merge fastest: 1h, against 3h at 14:00")
   })
 
   test("should say there was no Safe Push in the period", async ({ page, setupRepo, syncAndWaitForBranches }) => {

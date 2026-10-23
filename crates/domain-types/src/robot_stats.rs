@@ -125,6 +125,8 @@ pub struct RobotStatsInput {
   /// The user's owner key; None when Patronus did not say who asks
   pub me: Option<u64>,
   pub branch_prefix: String,
+  /// The page of a robot in the web UI of Patronus without its id, e.g. `https://patronus/robot/`
+  pub robot_page: String,
   pub robots: Vec<HistoryRobot>,
   /// By robot id
   pub runs: BTreeMap<String, RobotRun>,
@@ -150,6 +152,8 @@ pub struct RobotStats {
   pub failures: FailureCauses,
   /// Workdays only, by the local hour a merged robot started: 24 hours
   pub start_hours: Vec<StartHour>,
+  /// What the start hours say: the fastest hours against the slowest; null while fewer than two hours differ
+  pub fastest_hours: Option<FastestHours>,
   pub coverage: Coverage,
 }
 
@@ -211,6 +215,14 @@ pub struct WeekCount {
   pub robots: u32,
   /// The median from start to merge of the week's merged robots, seconds; null without one
   pub merge_time: Option<u32>,
+  /// The median from start to merge of everyone else's merges that finished in the week, seconds; null while fewer
+  /// than `MIN_PEOPLE` people merged in it
+  pub everyone_merge_time: Option<u32>,
+  /// The seconds lost in the week: failed and canceled robots that finished in it, and the waits after them before the
+  /// next robot of their branch
+  pub lost: u32,
+  /// The week of now: its robots so far
+  pub current: bool,
 }
 
 /// Everyone else as the median person: the median of each person's value, of the people with at least `MIN_MERGES`
@@ -289,6 +301,8 @@ pub struct KindCount {
 pub struct CheckCount {
   pub name: String,
   pub count: u32,
+  /// The page of the newest robot it failed
+  pub robot_url: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -302,6 +316,8 @@ pub struct FlakyCheck {
   pub runs: u32,
   /// `count / runs`; null below `MIN_FLAKY_RUNS` runs
   pub share: Option<f32>,
+  /// The page of the newest robot it passed on a retry in
+  pub robot_url: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -316,6 +332,22 @@ pub struct StartHour {
   pub mine: Option<HourTime>,
   /// 0 (the fastest hour) to 4 (the slowest) of everyone's medians; null without one
   pub level: Option<u8>,
+}
+
+/// The fastest start hours of everyone else's merges against the slowest one, to say when to start a robot
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct FastestHours {
+  /// The first local hour of the longest run of the fastest hours (`StartHour::level` 0)
+  pub start: u8,
+  /// The hour after its last one
+  pub end: u8,
+  /// The median of everyone else's merges that started in them, seconds
+  pub median: u32,
+  /// The hour of the slowest median
+  pub slowest: u8,
+  pub slowest_median: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

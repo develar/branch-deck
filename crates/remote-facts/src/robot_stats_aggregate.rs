@@ -13,8 +13,8 @@ use domain_types::calendar::Calendar;
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::robot_failure::RobotFailureKind;
 use domain_types::robot_stats::{
-  CheckCount, Coverage, Delivery, EveryoneDelivery, FailureCauses, FlakyCheck, HistoryRobot, HistoryRobotKind, HourTime, KindCount, LandingValue, RobotStats, RobotStatsInput,
-  Share, Spread, StartHour, StatsPeriod, StatsWindow, TimeSpent, WeekCount,
+  CheckCount, Coverage, Delivery, EveryoneDelivery, FailureCauses, FastestHours, FlakyCheck, HistoryRobot, HistoryRobotKind, HourTime, KindCount, LandingValue, RobotStats,
+  RobotStatsInput, Share, Spread, StartHour, StatsPeriod, StatsWindow, TimeSpent, WeekCount,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -59,11 +59,14 @@ pub fn aggregate_robot_stats(input: &RobotStatsInput, calendar: &Calendar, now: 
   let mine_all: Vec<&HistoryRobot> = in_window.iter().copied().filter(|robot| is_mine(robot) && robot.status.is_finished()).collect();
   let weeks = week_starts(calendar, now, input.window_start);
 
+  let others: Vec<&HistoryRobot> = counted.iter().copied().filter(|robot| !is_mine(robot)).collect();
   let mut delivery = delivery(&mine, &weeks, calendar);
   delivery.dry_runs = count_u32(mine_all.iter().filter(|robot| robot.dry_run));
   delivery.emergency = count_u32(mine_all.iter().filter(|robot| robot.emergency && !robot.dry_run));
+  everyone_weeks(&others, &mut delivery.weeks, calendar);
+  lost_weeks(&mine, &mut delivery.weeks, calendar);
+  let (start_hours, fastest_hours) = start_hours(&mine, &others, calendar);
 
-  let others: Vec<&HistoryRobot> = counted.iter().copied().filter(|robot| !is_mine(robot)).collect();
   RobotStats {
     window: StatsWindow {
       period: input.period,
@@ -79,7 +82,8 @@ pub fn aggregate_robot_stats(input: &RobotStatsInput, calendar: &Calendar, now: 
     value: value(input, &mine),
     time: time_spent(&mine),
     failures: failures(input, &mine),
-    start_hours: start_hours(&mine, &others, calendar),
+    start_hours,
+    fastest_hours,
     coverage: Coverage {
       robots: count_u32(counted.iter()),
       runs_missing: count_u32(
@@ -112,22 +116,26 @@ fn week_starts(calendar: &Calendar, now: u32, window_start: u32) -> Vec<u32> {
 fn delivery(robots: &[&HistoryRobot], weeks: &[u32], calendar: &Calendar) -> Delivery {
   let status_count = |status: PatronusRobotStatus| count_u32(robots.iter().filter(|robot| robot.status == status));
   let merged = status_count(PatronusRobotStatus::Success);
+  let last = weeks.len().saturating_sub(1);
   let mut week_counts: Vec<WeekCount> = weeks
     .iter()
-    .map(|&start| WeekCount {
+    .enumerate()
+    .map(|(index, &start)| WeekCount {
       start,
       merged: 0,
       failed: 0,
       canceled: 0,
       robots: 0,
       merge_time: None,
+      everyone_merge_time: None,
+      lost: 0,
+      current: index == last,
     })
     .collect();
   let mut week_merges: Vec<Vec<u32>> = vec![Vec::new(); week_counts.len()];
   for robot in robots {
     let Some(finish) = robot.finish else { continue };
-    let start = calendar.week_start(finish);
-    if let Some(index) = week_counts.iter().position(|week| week.start == start) {
+    if let Some(index) = week_of(&week_counts, calendar, finish) {
       let week = &mut week_counts[index];
       week.robots += 1;
       match robot.status {
@@ -153,6 +161,40 @@ fn delivery(robots: &[&HistoryRobot], weeks: &[u32], calendar: &Calendar) -> Del
     weeks: week_counts,
     dry_runs: 0,
     emergency: 0,
+  }
+}
+
+/// The index of the week `at` is in
+fn week_of(weeks: &[WeekCount], calendar: &Calendar, at: u32) -> Option<usize> {
+  let start = calendar.week_start(at);
+  weeks.iter().position(|week| week.start == start)
+}
+
+/// Everyone else's median time to merge of each week, of the merges that finished in it, with `MIN_PEOPLE` people
+fn everyone_weeks(others: &[&HistoryRobot], weeks: &mut [WeekCount], calendar: &Calendar) {
+  let mut merges: Vec<(Vec<u32>, BTreeSet<u64>)> = vec![(Vec::new(), BTreeSet::new()); weeks.len()];
+  for robot in others.iter().filter(|robot| robot.status == PatronusRobotStatus::Success) {
+    let (Some(finish), Some(time)) = (robot.finish, duration(robot)) else { continue };
+    if let Some(index) = week_of(weeks, calendar, finish) {
+      merges[index].0.push(time);
+      merges[index].1.insert(robot.owner);
+    }
+  }
+  for (week, (times, people)) in weeks.iter_mut().zip(merges) {
+    week.everyone_merge_time = if people.len() >= MIN_PEOPLE { median(times) } else { None };
+  }
+}
+
+/// The time the user lost in each week: a failed or canceled robot in the week it finished, the wait after it too
+fn lost_weeks(mine: &[&HistoryRobot], weeks: &mut [WeekCount], calendar: &Calendar) {
+  let failures = mine
+    .iter()
+    .filter(|robot| matches!(robot.status, PatronusRobotStatus::Failure | PatronusRobotStatus::Canceled))
+    .filter_map(|robot| Some((robot.finish?, duration(robot)?)));
+  for (at, seconds) in failures.chain(restart_waits(mine)) {
+    if let Some(index) = week_of(weeks, calendar, at) {
+      weeks[index].lost += seconds;
+    }
   }
 }
 
@@ -239,13 +281,24 @@ fn value(input: &RobotStatsInput, mine: &[&HistoryRobot]) -> LandingValue {
 
 fn time_spent(mine: &[&HistoryRobot]) -> TimeSpent {
   let total = |status: PatronusRobotStatus| -> u32 { mine.iter().filter(|robot| robot.status == status).filter_map(|robot| duration(robot)).sum() };
+  TimeSpent {
+    merged: total(PatronusRobotStatus::Success),
+    failed: total(PatronusRobotStatus::Failure),
+    canceled: total(PatronusRobotStatus::Canceled),
+    between: restart_waits(mine).into_iter().map(|(_, wait)| wait).sum(),
+  }
+}
+
+/// The waits from a failed or canceled robot to the next robot of the same branch started within `FOLLOW_UP_SECONDS`:
+/// the finish of the failed one and the seconds
+fn restart_waits(mine: &[&HistoryRobot]) -> Vec<(u32, u32)> {
   let mut by_branch: BTreeMap<&str, Vec<&HistoryRobot>> = BTreeMap::new();
   for robot in mine {
     if let Some(branch) = robot.source_branch.as_deref() {
       by_branch.entry(branch).or_default().push(robot);
     }
   }
-  let mut between = 0;
+  let mut waits = Vec::new();
   for robots in by_branch.values_mut() {
     robots.sort_by_key(|robot| robot.start);
     for pair in robots.windows(2) {
@@ -257,23 +310,19 @@ fn time_spent(mine: &[&HistoryRobot]) -> TimeSpent {
         && next.start >= finish
         && next.start - finish <= FOLLOW_UP_SECONDS
       {
-        between += next.start - finish;
+        waits.push((finish, next.start - finish));
       }
     }
   }
-  TimeSpent {
-    merged: total(PatronusRobotStatus::Success),
-    failed: total(PatronusRobotStatus::Failure),
-    canceled: total(PatronusRobotStatus::Canceled),
-    between,
-  }
+  waits
 }
 
 fn failures(input: &RobotStatsInput, mine: &[&HistoryRobot]) -> FailureCauses {
   let in_runs: Vec<&&HistoryRobot> = mine.iter().filter(|robot| robot.start >= input.runs_start).collect();
   let failed: Vec<&&&HistoryRobot> = in_runs.iter().filter(|robot| robot.status == PatronusRobotStatus::Failure).collect();
   let mut kinds: Vec<KindCount> = Vec::new();
-  let mut checks: BTreeMap<&str, u32> = BTreeMap::new();
+  // by name: the robots, and the newest of them
+  let mut checks: BTreeMap<&str, (u32, &HistoryRobot)> = BTreeMap::new();
   let mut read = 0;
   for robot in &failed {
     let Some(run) = input.runs.get(&robot.id) else { continue };
@@ -284,10 +333,13 @@ fn failures(input: &RobotStatsInput, mine: &[&HistoryRobot]) -> FailureCauses {
       None => kinds.push(KindCount { kind, count: 1 }),
     }
     for name in &run.failed_checks {
-      *checks.entry(name).or_default() += 1;
+      let entry = checks.entry(name).or_insert((0, robot));
+      entry.0 += 1;
+      entry.1 = newer(entry.1, robot);
     }
   }
-  let mut flaky: BTreeMap<&str, (u32, u32)> = BTreeMap::new();
+  // by name: passed on a retry, the runs, and the newest robot it passed on a retry in
+  let mut flaky: BTreeMap<&str, (u32, u32, Option<&HistoryRobot>)> = BTreeMap::new();
   for robot in &in_runs {
     let Some(run) = input.runs.get(&robot.id) else { continue };
     for check in &run.checks {
@@ -295,27 +347,39 @@ fn failures(input: &RobotStatsInput, mine: &[&HistoryRobot]) -> FailureCauses {
       entry.1 += 1;
       if check.passed && check.attempts >= 2 {
         entry.0 += 1;
+        entry.2 = Some(entry.2.map_or(robot, |seen| newer(seen, robot)));
       }
     }
   }
+  let robot_url = |robot: &HistoryRobot| format!("{}{}", input.robot_page, robot.id);
   // stable: among equal counts, the kind seen first
   kinds.sort_by_key(|kind| std::cmp::Reverse(kind.count));
   FailureCauses {
     failed: count_u32(failed.iter()),
     read,
     kinds,
-    checks: top(checks.into_iter().map(|(name, count)| CheckCount { name: name.to_string(), count }).collect(), |check| {
-      check.count
-    }),
+    checks: top(
+      checks
+        .into_iter()
+        .map(|(name, (count, robot))| CheckCount {
+          name: name.to_string(),
+          count,
+          robot_url: robot_url(robot),
+        })
+        .collect(),
+      |check| check.count,
+    ),
     flaky: top(
       flaky
         .into_iter()
-        .filter(|(_, (count, _))| *count > 0)
-        .map(|(name, (count, runs))| FlakyCheck {
-          name: name.to_string(),
-          count,
-          runs,
-          share: (runs >= MIN_FLAKY_RUNS).then(|| fraction(count as usize, runs as usize)),
+        .filter_map(|(name, (count, runs, robot))| {
+          Some(FlakyCheck {
+            name: name.to_string(),
+            count,
+            runs,
+            share: (runs >= MIN_FLAKY_RUNS).then(|| fraction(count as usize, runs as usize)),
+            robot_url: robot_url(robot?),
+          })
         })
         .collect(),
       |check| check.count,
@@ -323,7 +387,12 @@ fn failures(input: &RobotStatsInput, mine: &[&HistoryRobot]) -> FailureCauses {
   }
 }
 
-fn start_hours(mine: &[&HistoryRobot], others: &[&HistoryRobot], calendar: &Calendar) -> Vec<StartHour> {
+/// The later started of two robots
+const fn newer<'a>(seen: &'a HistoryRobot, robot: &'a HistoryRobot) -> &'a HistoryRobot {
+  if robot.start > seen.start { robot } else { seen }
+}
+
+fn start_hours(mine: &[&HistoryRobot], others: &[&HistoryRobot], calendar: &Calendar) -> (Vec<StartHour>, Option<FastestHours>) {
   let mut everyone: Vec<(Vec<u32>, BTreeSet<u64>)> = vec![(Vec::new(), BTreeSet::new()); 24];
   let mut own: Vec<Vec<u32>> = vec![Vec::new(); 24];
   let workday_merge = |robot: &&&HistoryRobot| robot.status == PatronusRobotStatus::Success && calendar.is_workday(robot.start);
@@ -364,7 +433,33 @@ fn start_hours(mine: &[&HistoryRobot], others: &[&HistoryRobot], calendar: &Cale
       hour.level = hour.everyone.map(|time| level(time.median, min, max));
     }
   }
-  hours
+  let fastest = fastest_hours(&hours, &everyone);
+  (hours, fastest)
+}
+
+/// The longest run of the fastest hours (the lowest median among equal ones) against the slowest hour; None while no
+/// two hours differ
+fn fastest_hours(hours: &[StartHour], everyone: &[(Vec<u32>, BTreeSet<u64>)]) -> Option<FastestHours> {
+  let slowest = hours.iter().filter_map(|hour| Some((hour.hour, hour.everyone?.median))).max_by_key(|&(_, median)| median)?;
+  let mut runs: Vec<(u8, u8)> = Vec::new();
+  for hour in hours.iter().filter(|hour| hour.level == Some(0)) {
+    match runs.last_mut() {
+      Some((_, end)) if *end == hour.hour => *end = hour.hour + 1,
+      _ => runs.push((hour.hour, hour.hour + 1)),
+    }
+  }
+  let run_median = |&(start, end): &(u8, u8)| median((start..end).flat_map(|hour| everyone[usize::from(hour)].0.iter().copied()).collect());
+  let (start, end, median) = runs
+    .iter()
+    .filter_map(|run| Some((run.0, run.1, run_median(run)?)))
+    .min_by_key(|&(start, end, median)| (std::cmp::Reverse(end - start), median))?;
+  (median < slowest.1).then_some(FastestHours {
+    start,
+    end,
+    median,
+    slowest: slowest.0,
+    slowest_median: slowest.1,
+  })
 }
 
 /// 0 (`min`) to 4 (`max`), in five equal steps

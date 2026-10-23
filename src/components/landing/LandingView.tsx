@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner"
 import { HourChart } from "@/components/landing/charts/HourChart"
 import { KindChart } from "@/components/landing/charts/KindChart"
+import { MergeTimeChart } from "@/components/landing/charts/MergeTimeChart"
 import { Sparkline } from "@/components/landing/charts/Sparkline"
 import { TimeChart } from "@/components/landing/charts/TimeChart"
 import { WeekChart } from "@/components/landing/charts/WeekChart"
@@ -17,10 +18,10 @@ import { useRobotStats } from "@/hooks/useRobotStats"
 import type { RobotStats, StatsPeriod } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { formatTotalDuration } from "@/lib/duration"
-import { formatSafePushLoginCommand } from "@/lib/patronus"
+import { formatSafePushLoginCommand, openRobotUrl } from "@/lib/patronus"
 import { isWindows } from "@/lib/platform"
 import { formatShortDuration } from "@/lib/robot-eta"
-import { STATS_PERIODS, compareToEveryone, formatRatio, formatShare, formatShareCount, formatStatsPeriod } from "@/lib/robot-stats"
+import { STATS_PERIODS, compareToEveryone, formatHour, formatRatio, formatShare, formatShareCount, formatStatsPeriod } from "@/lib/robot-stats"
 import { useSelectedProjectPath } from "@/stores/repository"
 import type { RobotStatsProgress } from "@/stores/robot-stats"
 
@@ -253,7 +254,7 @@ function DeliveryCard({ stats }: { stats: RobotStats }) {
           label="Merged"
           value={String(mine.merged)}
           detail={extras.length > 0 ? extras.join(" · ") : undefined}
-          trend={<Sparkline id="merged-trend" values={mine.weeks.map(week => week.merged)} label="Merges per week" />}
+          trend={<Sparkline id="merged-trend" values={fullWeeks(mine.weeks).map(week => week.merged)} label="Merges per week" />}
           testId="landing-merged"
         />
         <Figure
@@ -282,6 +283,7 @@ function DeliveryCard({ stats }: { stats: RobotStats }) {
         />
       </div>
       <WeekChart weeks={mine.weeks} />
+      <MergeTimeChart weeks={mine.weeks} />
       {(value.commits_per_merge !== null || value.whole_stack > 0) && (
         <p className="text-xs text-muted-foreground" data-testid="landing-value">
           {[
@@ -296,6 +298,11 @@ function DeliveryCard({ stats }: { stats: RobotStats }) {
   )
 }
 
+/** The weeks that ended: a count of the week of now is of its days so far, and would read as a drop */
+function fullWeeks(weeks: RobotStats["mine"]["weeks"]): RobotStats["mine"]["weeks"] {
+  return weeks.filter(week => !week.current)
+}
+
 function TimeCard({ stats }: { stats: RobotStats }) {
   const { time } = stats
   const lost = time.failed + time.canceled + time.between
@@ -307,6 +314,7 @@ function TimeCard({ stats }: { stats: RobotStats }) {
           label="Lost to failures"
           value={formatTotalDuration(lost)}
           detail={`${Math.round((lost / total) * 100)}% of the robot time on the way into master: failed and canceled robots, and the waits before their restarts`}
+          trend={<Sparkline id="lost-trend" values={fullWeeks(stats.mine.weeks).map(week => week.lost)} label="Time lost by week" />}
           testId="landing-time-lost"
         />
       )}
@@ -321,13 +329,22 @@ function FailuresCard({ stats, busy }: { stats: RobotStats; busy: boolean }) {
     <StatsCard title="Why robots failed" note="the last 14 days" testId="landing-failures" busy={busy}>
       {failures.failed === 0 ? <p className="text-sm text-muted-foreground">No robot failed</p> : <KindChart kinds={failures.kinds} />}
       <div className="grid gap-4 @2xl:grid-cols-2">
-        <CheckList title="Failed the most" testId="landing-failed-checks" items={failures.checks.map(check => ({ name: check.name, value: String(check.count) }))} />
+        <CheckList
+          title="Failed the most"
+          testId="landing-failed-checks"
+          tone="failed"
+          items={failures.checks.map(check => ({ name: check.name, count: check.count, value: String(check.count), url: check.robot_url, robot: "failed" }))}
+        />
         <CheckList
           title="Passed on a retry"
           testId="landing-flaky-checks"
+          tone="merged"
           items={failures.flaky.map(check => ({
             name: check.name,
+            count: check.count,
             value: check.share === null ? `${check.count} of ${check.runs}` : `${Math.round(check.share * 100)}% · ${check.count} of ${check.runs}`,
+            url: check.robot_url,
+            robot: "passed on a retry",
           }))}
         />
       </div>
@@ -340,18 +357,43 @@ function FailuresCard({ stats, busy }: { stats: RobotStats; busy: boolean }) {
   )
 }
 
-function CheckList({ title, items, testId }: { title: string; items: readonly { name: string; value: string }[]; testId: string }) {
+interface CheckItem {
+  readonly name: string
+  readonly count: number
+  readonly value: string
+  /** The newest robot of the check, opened by its row */
+  readonly url: string
+  /** What the check did in that robot: "failed", "passed on a retry" */
+  readonly robot: string
+}
+
+/**
+ * The checks, the most first: each row opens the newest robot of its check in Patronus, a thin bar in the colour of its
+ * entity (Failed, Merged) beside its name scales its count to the first one
+ */
+function CheckList({ title, items, tone, testId }: { title: string; items: readonly CheckItem[]; tone: "failed" | "merged"; testId: string }) {
   if (items.length === 0) {
     return null
   }
+  const most = Math.max(...items.map(item => item.count))
   return (
     <section aria-label={title} className="flex flex-col gap-1" data-testid={testId}>
       <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
-      <ul className="flex flex-col gap-0.5 text-xs">
+      <ul className="-mx-1 flex flex-col text-xs">
         {items.map(item => (
-          <li key={item.name} className="flex justify-between gap-2">
-            <span className="truncate text-foreground">{item.name}</span>
-            <span className="shrink-0 text-muted-foreground tabular-nums">{item.value}</span>
+          <li key={item.name}>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+              aria-label={`${item.name}, ${item.value}: open the newest robot where it ${item.robot}`}
+              onClick={() => openRobotUrl(item.url)}
+            >
+              <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
+              <span aria-hidden className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-muted">
+                <span className={tone === "failed" ? "block h-full bg-chart-2" : "block h-full bg-chart-1"} style={{ width: `${(item.count / most) * 100}%` }} />
+              </span>
+              <span className="w-24 shrink-0 text-right text-muted-foreground tabular-nums">{item.value}</span>
+            </button>
           </li>
         ))}
       </ul>
@@ -363,6 +405,11 @@ function HoursCard({ stats }: { stats: RobotStats }) {
   const known = stats.start_hours.some(hour => hour.everyone !== null || hour.mine !== null)
   return (
     <StatsCard title="When robots run fastest" note={`workdays, by the hour a merged robot started (${stats.window.time_zone})`} testId="landing-hours">
+      {stats.fastest_hours !== null && (
+        <p className="text-sm text-foreground" data-testid="landing-fastest-hours">
+          {`Robots that start ${formatHour(stats.fastest_hours.start)}–${formatHour(stats.fastest_hours.end)} merge fastest: ${formatShortDuration(stats.fastest_hours.median)}, against ${formatShortDuration(stats.fastest_hours.slowest_median)} at ${formatHour(stats.fastest_hours.slowest)}`}
+        </p>
+      )}
       {known ? <HourChart hours={stats.start_hours} /> : <p className="text-sm text-muted-foreground">Too few merged robots to tell an hour</p>}
     </StatsCard>
   )

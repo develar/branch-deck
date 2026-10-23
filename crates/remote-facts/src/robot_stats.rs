@@ -150,6 +150,7 @@ pub async fn robot_stats_core(
     runs_start,
     me,
     branch_prefix: source.branch_prefix.to_string(),
+    robot_page: source.service.robot_url(""),
     robots: kept.into_iter().flatten().flat_map(|week| week.robots).collect(),
     runs: BTreeMap::new(),
     weeks_missing,

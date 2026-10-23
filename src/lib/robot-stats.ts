@@ -60,6 +60,29 @@ export function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
 }
 
+/** The label of a week in a chart: "Oct 19", "This week" for the current one */
+export function formatChartWeek(week: { readonly start: number; readonly current: boolean }): string {
+  return week.current ? "This week" : formatWeek(week.start)
+}
+
+/** The ticks of an axis of minutes up to `max`: whole quarters, halves or hours, at most about five */
+export function minuteTicks(max: number): number[] {
+  const step = [15, 30, 60, 120, 240].find(candidate => max / candidate <= 5) ?? 480
+  const ticks = [0]
+  while (ticks[ticks.length - 1]! < max) {
+    ticks.push(ticks[ticks.length - 1]! + step)
+  }
+  return ticks
+}
+
+/** Minutes on an axis: "0", "45m", "1h", "1.5h" (one line, unlike "1h 30m") */
+export function formatAxisMinutes(minutes: number): string {
+  if (minutes === 0) {
+    return "0"
+  }
+  return minutes < 60 ? `${Math.round(minutes)}m` : `${Number((minutes / 60).toFixed(1))}h`
+}
+
 /**
  * How the user's value compares to everyone else's, where lower is better: "22% more", "8% less", "the same"; `better`
  * says the direction is good. None without both values

@@ -44,7 +44,11 @@ fn the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothin
   assert_eq!(output["everyone"], Value::Null);
   // the failed robot's checks and problems were read: the built-in checks fail Fast Tests
   assert_eq!(output["failures"]["kinds"], json!([{"kind": "checks", "count": 1}]));
-  assert_eq!(output["failures"]["checks"], json!([{"name": "Fast Tests", "count": 1}]));
+  let check = &output["failures"]["checks"][0];
+  assert_eq!((check["name"].clone(), check["count"].clone()), (json!("Fast Tests"), json!(1)));
+  // the newest robot it failed opens in the web UI
+  assert!(check["robot_url"].as_str().is_some_and(|url| url.ends_with("/robot/failed")), "{check}");
+  assert_eq!(output["failures"]["checks"].as_array().map(Vec::len), Some(1));
   assert_eq!(output["start_hours"].as_array().unwrap().len(), 24);
   let (_, schema) = run_json(&space.environment(), &["schema"]);
   assert_covered(&schema["outputs"]["robot_stats"], &schema["outputs"]["robot_stats"], &output, "robot_stats");

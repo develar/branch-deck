@@ -10,6 +10,7 @@ targets:
   - ../../src/components/repository/LandingPopover.tsx
   - ../../src/components/landing/LandingView.tsx
   - ../../src/components/landing/charts/WeekChart.tsx
+  - ../../src/components/landing/charts/MergeTimeChart.tsx
   - ../../src/components/landing/charts/TimeChart.tsx
   - ../../src/components/landing/charts/KindChart.tsx
   - ../../src/components/landing/charts/HourChart.tsx
@@ -80,12 +81,22 @@ nothing from the work: the view changes only when the user changes it, and the b
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should count the chosen period: its robots, its weeks, and keep the choice`)
   [@test] ../../src/lib/robot-stats.test.ts (`names every period by its days, the shortest first`)
 - Landing shows the statistics of the selected repository in four islands: into master (merged, robots per merge, the
-  time to merge and the first try against everyone else, the merges per week, what a merge landed), where the time
-  went, why robots failed in the last 14 days, and when robots run fastest by the start hour. A figure says how it
-  compares to everyone else (an arrow and words, success where it is better, destructive where it is worse) and its
-  trend over the weeks; every chart has a table twin with every value, and the keyboard walks its marks with their
-  tooltips.
+  time to merge and the first try against everyone else, the merges per week, the time to merge by week against
+  everyone else's, what a merge landed), where the time went, why robots failed in the last 14 days, and when robots
+  run fastest by the start hour. A figure says how it compares to everyone else (an arrow and words, success where it
+  is better, destructive where it is worse) and its trend over the weeks that ended (the time lost too); every chart
+  has a table twin with every value, and the keyboard walks its marks with their tooltips.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
+- The week of now is "This week": muted in the chart of the weeks and "so far" in its tooltip and table, so its robots
+  of a few days never read as a drop; the trends of counts end with the week before.
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
+- A check of "Failed the most" and "Passed on a retry" opens the newest robot it failed or passed on a retry in, in
+  Patronus; a thin bar beside it scales its count to the first one.
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
+- The start hours say when to start: "Robots that start 09:00–10:00 merge fastest: 1h, against 3h at 14:00", the
+  longest run of the fastest hours against the slowest hour, none while no two hours differ; the chart runs from the
+  first hour with a value to the last.
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should say when robots merge fastest: the fastest hours against the slowest`)
 - The statistics are read while Landing shows: when it shows and when the window gets the focus; a hidden Landing
   reads nothing; a change of the period reads its numbers. Refresh asks again whatever the age of the lists, and
   tells its failure (`notifyError`).
@@ -103,12 +114,16 @@ nothing from the work: the view changes only when the user changes it, and the b
 - The switcher is two `xs` ghost buttons on the canvas, the shown view soft primary (no surface on the canvas); the
   names give way to the icons below `@4xl`.
 - The charts are shadcn Charts (Recharts, `src/components/ui/chart.tsx`), in a chunk of their own that loads the first
-  time Landing shows. Their series take the chart palette `--chart-1…4` of `src/index.css` (blue, orange, aqua,
-  yellow, the categorical slots of the dataviz reference palette in an order that passes its colour-blind checks on
-  the light and the dark card), each entity one colour in every chart (Failed is orange in the weeks, the time and the
-  kinds); bars of at most 24px with a 2px card gap and a rounded data end, hairline solid grid, the legend for two
-  series or more, the values in the text tokens; the fastest hours in full colour, the others muted (emphasis, not a
-  second hue). A read in progress dims the numbers it replaces, never a skeleton. The Period is a small Select after the
+  time Landing shows. Their series take the chart palette `--chart-1…4` of `src/index.css` (blue, orange, a neutral,
+  yellow: slots 1, 2 and 4 of the dataviz reference palette and a neutral for Canceled, which ended without an
+  outcome and in a hue would read as success; in this order the adjacent marks pass the colour-blind and
+  normal-vision checks on the light and the dark card), each entity one colour in every chart: Merged blue in the
+  weeks and the time, and everyone else's merges blue in the hours and the time to merge by week; Failed orange in the
+  weeks, the time, the kinds and the bars of the checks; the user in the ink of the text (the dots of the hours, the
+  line of the time to merge), told apart by the shape and the legend, never in the hue of another entity. Bars of at
+  most 24px with a 2px card gap and a rounded data end, 2px lines with a line key, hairline solid grid, the axes of
+  time in whole quarters, halves or hours, the legend for two series or more, the values in the text tokens; the
+  fastest hours in full colour, the others muted (emphasis, not a second hue). A read in progress dims the numbers it replaces, never a skeleton. The Period is a small Select after the
   heading, in the one row above the islands that it scopes.
 
 ## Testing / Local Run

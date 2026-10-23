@@ -789,6 +789,8 @@ export type Carried = {
 export type CheckCount = {
 	name: string,
 	count: number,
+	/**  The page of the newest robot it failed */
+	robot_url: string,
 };
 
 export type ChecksState = "passing" | "failing" | "pending";
@@ -1307,6 +1309,19 @@ export type FailureCauses = {
 	flaky: FlakyCheck[],
 };
 
+/**  The fastest start hours of everyone else's merges against the slowest one, to say when to start a robot */
+export type FastestHours = {
+	/**  The first local hour of the longest run of the fastest hours (`StartHour::level` 0) */
+	start: number,
+	/**  The hour after its last one */
+	end: number,
+	/**  The median of everyone else's merges that started in them, seconds */
+	median: number,
+	/**  The hour of the slowest median */
+	slowest: number,
+	slowest_median: number,
+};
+
 export type FetchBaselineParams = {
 	repositoryPath: string,
 };
@@ -1459,6 +1474,8 @@ export type FlakyCheck = {
 	runs: number,
 	/**  `count / runs`; null below `MIN_FLAKY_RUNS` runs */
 	share: number | null,
+	/**  The page of the newest robot it passed on a retry in */
+	robot_url: string,
 };
 
 /**
@@ -3393,6 +3410,8 @@ export type RobotStats = {
 	failures: FailureCauses,
 	/**  Workdays only, by the local hour a merged robot started: 24 hours */
 	start_hours: StartHour[],
+	/**  What the start hours say: the fastest hours against the slowest; null while fewer than two hours differ */
+	fastest_hours: FastestHours | null,
 	coverage: Coverage,
 };
 
@@ -4410,6 +4429,18 @@ export type WeekCount = {
 	robots: number,
 	/**  The median from start to merge of the week's merged robots, seconds; null without one */
 	merge_time: number | null,
+	/**
+	 *  The median from start to merge of everyone else's merges that finished in the week, seconds; null while fewer
+	 *  than `MIN_PEOPLE` people merged in it
+	 */
+	everyone_merge_time: number | null,
+	/**
+	 *  The seconds lost in the week: failed and canceled robots that finished in it, and the waits after them before the
+	 *  next robot of their branch
+	 */
+	lost: number,
+	/**  The week of now: its robots so far */
+	current: boolean,
 };
 
 /**  The whitespace option of a diff view (`IgnorePolicy`) */

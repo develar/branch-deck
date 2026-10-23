@@ -72,8 +72,11 @@ it for little.
 - The weeks of a delivery are the local weeks from Monday whose Monday is in the period, the current one always: 2 of
   14 days, 4 or 5 of 30, 10 of 10 weeks, 26 of 6 months, so no week is cut by the start of the period. A robot counts
   in the week it finished, each week with its merged, failed and canceled robots and the median time to merge of its
-  merges; a robot that finished before the first Monday counts in the totals only.
+  merges; a robot that finished before the first Monday counts in the totals only. Each week also has everyone else's
+  median time to merge of the merges that finished in it (with 5 people), the user's time lost in it (failed and
+  canceled robots by their finish, and the wait after each), and whether it is the week of now.
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`weeks_count_by_the_local_monday_a_robot_finished_in_with_their_median_time_to_merge`)
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`a_week_has_everyone_elses_median_its_lost_time_and_says_whether_it_is_the_current_one`)
   [@test] ../../crates/domain-types/src/calendar_test.rs (`a_week_starts_on_the_local_monday`)
 - Everyone else is the median person: the median of each person's robots per merge and time to merge, of the people
   with 3 merges; none while fewer than 5 people have.
@@ -88,16 +91,21 @@ it for little.
   stack (`{prefix}/stack/<root>`).
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`commits_and_whole_stack_merges_are_what_the_merged_robots_landed`)
 - The failure causes are of the user's failed robots of the last 14 days: by kind, as the failure prompt decides it
-  (`spec/branch/safe-push-failure-prompt.spec.md`), and the 10 checks that failed the most robots, by count.
+  (`spec/branch/safe-push-failure-prompt.spec.md`), and the 10 checks that failed the most robots, by count, each
+  with the page of the newest robot it failed.
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`failure_causes_count_the_kinds_and_checks_of_the_failed_robots_of_the_runs_window`)
   [@test] ../../crates/patronus/src/stats_test.rs (`a_failed_run_reads_the_checks_and_problems_a_merged_one_the_checks_and_changes`)
-- A flaky check passed on attempt 2 or later; its share of its runs is given from 5 runs.
+- A flaky check passed on attempt 2 or later; its share of its runs is given from 5 runs, with the page of the newest
+  robot it passed on a retry in.
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`a_flaky_check_passed_on_a_later_attempt_and_has_a_share_from_five_runs`)
 - The start hours are the 24 local hours of the workdays: the median time to merge of everyone else's merged robots
   that started then, shown with 5 people, and the user's, shown with 3 of them, and a level 0 (fastest) to 4 of the
   hours shown; the local zone follows its daylight saving changes.
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`the_start_hours_are_local_workday_hours_shown_with_five_people_and_three_of_mine`)
   [@test] ../../crates/domain-types/src/calendar_test.rs (`weekday_and_hour_are_local`, `the_hour_follows_the_daylight_saving_change`)
+- The fastest hours are the longest run of the hours of level 0 (the lowest median of everyone else's merges that
+  started in it among equal ones) against the slowest hour; none while no two hours differ.
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`the_fastest_hours_are_the_longest_run_of_the_fastest_against_the_slowest_hour`)
 
 ### Privacy
 

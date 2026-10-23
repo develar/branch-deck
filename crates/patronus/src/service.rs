@@ -284,6 +284,11 @@ impl PatronusService {
     self.client.base_url()
   }
 
+  /// The robot page in the web UI
+  pub fn robot_url(&self, robot_id: &str) -> String {
+    self.client.robot_url(robot_id)
+  }
+
   /// Who asks, for a key of an answer that depends on the user: the server and a hash of the current token (a renewed
   /// token is another key, which costs one more question per branch every 14 days); None without a token. The Space
   /// user is not known locally: the `name` of the token file is the CLI client, which another user's login keeps.
