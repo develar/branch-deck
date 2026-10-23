@@ -114,12 +114,17 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 The codes are `ErrorCode` of `crates/domain-types/src/error.rs` (its `exit_code`, `retry` and `retryable`), one registry
 for `bd` and the app: a command of the app fails with `ApiError` of the same file, whose `code` is one of these. `CliError`,
 the error object of `bd`, is in `crates/bd-core/src/error.rs`. A typed error of a core names its code itself
-(`RegroupError::code`, `SyncDeferred::code`), so `bd` and the app read one mapping; the app and the e2e server convert a
-core's error with one function, `app_api::api_error` (`crates/app-api`), which gives the other typed errors the code
-`bd` gives them. `canceled` is an action the user stopped (the wait for a lock, a sign-in, an action of a CLI tool, a review
-fetch: `LockWaitCanceled`, `SignInError::Canceled`, `DeviceFlowError::Canceled`, `ActionError::Canceled`,
-`StoppedCommand::Cancelled`); `internal` is a
-failure without a code of its own, which the app answers, while `bd` prints a failure of git or IO as `git_error`.
+(`RegroupError::code`, `SyncDeferred::code`), so `bd` and the app read one mapping. The app's conversion is
+`crates/app-api/src/api_error.rs`: the app and the e2e server turn a core's error into `ApiError` with its one function,
+`app_api::api_error`, which also names the holder of a held lock (`details`) and gives the other typed errors
+(`ParkError`, `GuardRefusal`, the refusals of unapply, reapply and landing) the code the `bd` command gives them; that
+mapping is still written twice, in `api_error.rs` and in the commands of `bd` (`park_error`, `unapply_error`,
+`update_command::core_error`), until each type names its code. Both adapters answer the JSON of
+`crates/app-api/fixtures/api_errors.json` for each of its cases (`api_error_contract_test.rs` of `src-tauri` and of
+`test-server`). `canceled` is an action the user stopped (the wait for a lock, a sign-in, an action of a CLI tool, a
+review fetch: `LockWaitCanceled`, `SignInError::Canceled`, `DeviceFlowError::Canceled`, `ActionError::Canceled`,
+`StoppedCommand::Cancelled`); `internal` is a failure without a code of its own, which the app answers, while `bd`
+prints a failure of git or IO as `git_error`.
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
 `retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `round_moved`, `locked` and `network_error`: retry when it is

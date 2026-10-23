@@ -792,7 +792,7 @@ repository». Аудит всех функций в тот же день наш�
   своим `landed.lock`, и поздняя запись update, чей HEAD уже сдвинут, только добавляет отчёт
   (`a_late_record_of_an_update_keeps_the_record_of_the_update_after_it`); законченная resolve session удаляет свои копии
   до unlock; toast `locked` Update Project
-  называет держателя из его записи (`locked_message`), до `Busy { holder }` s4. Сделано (`fix/pick-lock-span`, жалоба
+  называет держателя из его записи (с s4 — `ErrorDetails::Locked { holder }` и `describeError` в `errors.ts`; `Busy { holder }` — s10). Сделано (`fix/pick-lock-span`, жалоба
   2026-10-23: `bd pick --follow` держал lock 48 с на idea-1, Safe Push приложения получил `locked`): check `bd pick`
   (fork point, replay, dry runs обоих worktree на копиях индекса) — до lock; check, который ничего не двигает, — ответ
   без lock; под lock — метки прерванных move, witness (ветка, оба HEAD, upstream), локальные изменения по путям move
@@ -910,23 +910,31 @@ repository». Аудит всех функций в тот же день наш�
 - `ErrorCode` переезжает в `domain-types::error` с прежними serde snake_case и JsonSchema, получает specta, так что TS
   имеет тот же union.
 - `ApiError { code, message, details: Option<ErrorDetails>, retry, operation_id }` в `domain-types::error`
-  (`operation_id` — ключ записи Activity к строкам лога, как у `CommandError` сегодня). `ErrorDetails` — enum с
+  (`operation_id` — ключ записи Activity к строкам лога, как было у `CommandError`). `ErrorDetails` — enum с
   `tag = "type"`, типизирован по данным кода: `Conflict { commits, paths }` (target/hunk/stack/reapply/drop),
   `Paths { paths }` (`uncommitted_overlap`), `Branches { branches }` (`lease_rejected`), `Blocks { blocks }`,
   `Locked { holder: Option<LockHolderInfo { tool: Bd | App, command, pid, held_for }> }`; код без данных — `details:
   null`. Позже: `Refused{reasons}` и `LandingRefused{refusals}` с `Plan` (s9), `Busy { op, holder }` с реестром
   (s10) — код `busy` появляется вместе со своим производителем. `effects` (`EffectRecord`) — с s9.
 - `retry: No | Same | AfterReread` — один `ErrorCode::retry()`; `retryable` bd (`retry != No`) и его wire не меняются.
-  `locked` — `Same`, `head_moved`/`*_moved` — `AfterReread`, остальное `No`.
+  `locked` и `network_error` — `Same`, `head_moved`/`*_moved` — `AfterReread`, остальное `No`.
 - Новые коды реестра: `internal` (ошибка без кода: `{err:#}` в `message`, exit 5; `bd` для нетипизированной ошибки
   печатает `git_error`, как сегодня) и `canceled` (пользователь прервал: sign-in, review fetch, действие CLI tool,
-  ожидание lock; сегодня пять мест читают `message === "canceled"`; exit 4, `retry: No`).
-- Одна цепочка downcast: `app_api::api_error(anyhow::Error) -> ApiError` в новом crate `app-api` (в s4 только этот
-  модуль; s12 наполняет его телами команд), от которого зависят только `branch-deck` и `test-server`
-  (`architecture_test.rs`). Код типизированной ошибки живёт у её типа (`RegroupError::code()`,
-  `SyncDeferred::code()`, `RepositoryLocked` → `locked`, `NoBaseline` → `no_baseline`): `bd-core` и `app-api`
-  вызывают его, второй таблицы соответствий нет.
-- `CommandError`/`CommandErrorKind` (`src-tauri/src/command_error.rs`) удаляются; `OperationInProgress` и
+  ожидание lock; exit 4, `retry: No`). До s4 пять мест читали `message === "canceled"`; теперь отмена — тип:
+  `LockWaitCanceled`, `SignInError::Canceled`, `DeviceFlowError::Canceled`, `ActionError::Canceled`,
+  `StoppedCommand::Cancelled` (`is_canceled` в `crates/app-api/src/api_error.rs`).
+- Одна цепочка downcast: `app_api::api_error(anyhow::Error) -> ApiError` (`crates/app-api/src/api_error.rs`) в
+  новом crate `app-api` (в s4 только этот модуль; s12 наполняет его телами команд), от которого зависят только
+  `branch-deck` и `test-server` (`architecture_test.rs` в `bd-cli`). Код у самого типа — `RegroupError::code()` и
+  `SyncDeferred::code()`: их вызывают и `bd-core`, и `app-api`. `NoBaseline` → `no_baseline` обе стороны находят
+  downcast'ом; `RepositoryLocked` → `locked` с держателем (`ErrorDetails::Locked`) — только `app-api`. Остальные
+  типизированные ошибки (`ParkError`, `GuardRefusal`, отказы unapply и reapply, landing) сопоставлены дважды:
+  в `classify` `app-api` и в мапперах команд `bd` (`park_error`, `unapply_error`, `update_command::core_error`);
+  ошибки только `bd` (`ResolveError`, `PickRefusal`, `LeaseRefusal`, `MoveHunkError`) — только там, приложение отвечает на них `internal`. Долг после s4:
+  перенести эти коды к типам (`code()`), чтобы вторая таблица исчезла. Контракт адаптеров — фикстура
+  `crates/app-api/fixtures/api_errors.json` на случаи `app_api::api_error::contract_cases`
+  (`src-tauri/src/api_error_contract_test.rs`, `crates/test-server/src/api_error_contract_test.rs`).
+- `CommandError`/`CommandErrorKind` (`src-tauri/src/command_error.rs`) удалены; `OperationInProgress` и
   `DetachedHead` становятся кодами. Test-server отвечает тем же JSON (`CommandFailure` уходит:
   `Rejection { Error(ApiError) | Panicked }` в `tauri_command_bridge.rs`, потому что `IntoResponse` для `ApiError`
   вне `domain-types` не реализовать; 500 только для паники команды). Блокирующий шаг обоих адаптеров принимает
@@ -1045,7 +1053,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
     каждый вызов (корневой span `operation{op, operation_id}` в `bd_cli::run`; в приложении span
     `operation{operation_id}` на тело каждой команды, которая может упасть: `operation`, `operation_now`, один
     blocking-шаг `run_blocking`, `src-tauri/src/operation.rs`; замыкания и futures, отданные другому потоку, входят в
-    span вызывающего — `sync_utils::span::in_current_span`, скан `thread_span_scan_test.rs`); с `s10` его создаёт допуск. `CommandError` несёт `operation_id`
+    span вызывающего — `sync_utils::span::in_current_span`, скан `thread_span_scan_test.rs`); с `s10` его создаёт допуск. `CommandError` (с s4 — `ApiError`) несёт `operation_id`
     (аддитивно), запись Activity об ошибке — `operationId`; JSON `bd` до `s10` не меняется. Сделано: `OperationId`
     свой (ULID на `getrandom`, без нового crate); у всех 113 команд (112 `collect_commands!` и `get_blob_syntax`) есть `#[instrument]`;
     поле на проводе `operation_id` (snake_case, как поля Rust в bindings), в записи Activity — `operationId`; без
@@ -1468,11 +1476,11 @@ rewrites между процессами через файл `s10`; `s12` ждё
   ветвятся по `code`; test-server отвечает тем же JSON; `e2e-testing.md` (ошибки команд), `agent-cli.md` (один реестр
   кодов). `bd` на wire не меняется. **Конкурентность:** `locked` несёт держателя из `RepositoryLocked.holder`
   (`repository_lock.rs`, `LockHolder`) на IPC как `ErrorDetails::Locked { holder }` (`Busy { holder }` — с реестром
-  s10); toast говорит «Cannot update the project · `bd push` of auth (pid 4242) has held the repository for 40 s» без
+  s10); toast говорит «`bd push auth` (pid 4242) has held the repository for 40 s» (`describeError` в `errors.ts`) без
   пути lock-файла; `retry` отличает повторяемый `locked` (`Same`) от `head_moved` (`AfterReread`); у Update Project
   после завершённого fetch (шаг fetch в `UpdateProgress` пройден) — действие «Retry Without Fetch». Ожидание lock с
-  отменой (`LockWaitCanceled`) приземляется отдельно (`fix/lock-wait-everywhere`); s4 даёт ему код `canceled` и
-  перебазируется на него.
+  отменой (`LockWaitCanceled`) приземлилось отдельно (`fix/lock-wait-everywhere`, `1d7ef573`); s4 дал ему код
+  `canceled` (`isLockWaitCanceled` в `src/lib/lock-wait.ts`).
 - **Удаляется:** `src-tauri/src/command_error.rs`, `CommandFailure` в `tauri_command_bridge.rs`; `LOCKED_MESSAGE`,
   `locked_message` и `app_error` в `crates/update-core/src/update_project.rs` (слова о держателе — у `errors.ts` по
   `details.holder`); чтения `message === "canceled"` в `review-fetch.ts`, `youtrack.ts`, `cli-tools.ts`,
@@ -1481,7 +1489,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   e2e путей ошибок; `lint:arch` стартует с правилом «нет чтения `error.message` для управления»; `bindings.ts`
   меняется только в типе ошибки; `update_takes_the_repository_lock_after_the_fetch_and_says_it_waits` утверждает и
   держателя; unit-тест `errors.ts` на toast с держателем; путь «`bd` рядом»: `bd push` держит lock, Update Project
-  показывает его команду и pid.
+  показывает его команду и pid (e2e `should name the holder of the repository lock and retry the update without a
+  fetch`, ошибка `locked` с держателем через `routeCommandError`).
 - **Критерий выхода:** ни `CommandErrorKind`, ни чтения `kind` у ошибки: `accio references CommandErrorKind` пуст,
   `accio locate 'error\.kind' --mode regex --scope src/ --scope tests/` пуст (`kind ==` у размеченных union —
   `NextStep`, строки diff — остаётся); `pnpm lint:arch` зелёный.
@@ -2087,7 +2096,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s1-holes | приземлён |
 | s2-types | приземлён |
 | s3-crates | приземлён |
-| s4-errors | не начат |
+| s4-errors | приземлён |
 | s5-settings | не начат |
 | s6-session-table | не начат |
 | s7-session-facts | не начат |

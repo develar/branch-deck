@@ -75,7 +75,7 @@ pub struct WaitTicket {
 
 impl WaitTicket {
   /// Whether a wait of the command ended because the user stopped it: nothing was read or written, the command answers
-  /// so (`CommandErrorKind::LockWaitCanceled`) instead of an error. A Stop Waiting that came after the lock was taken
+  /// so (the code `canceled` of its `ApiError`) instead of a failure. A Stop Waiting that came after the lock was taken
   /// ends nothing
   pub fn ended_by_cancel(&self) -> bool {
     self.ended_by_cancel.load(Ordering::Relaxed)

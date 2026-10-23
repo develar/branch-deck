@@ -161,7 +161,11 @@ Mock implementation:
   An overload signature of a helper is read as the formatter writes it (no `;`, the declaration on the next line). A
   route handler that fulfills with an answer of its own on any branch is an
   answer, even when another branch forwards the server's `response`. A new page answer fails, a removed one lowers its
-  number; `routeCommand` and a fulfilling route name their command by a string literal.
+  number; `routeCommand` and a fulfilling route name their command by a string literal. Beside this ratchet,
+  `pnpm lint:arch` (`scripts/lint-arch.mjs`, its own tests in `scripts/lint-arch.test.mjs`) scans the same tests and
+  the page (`src/**/*.ts(x)`): no branch on the words of an error (`.message` compared or searched), no `kind` of an
+  error, and every `routeCommandError` names the code its error answers (below); an exception is an entry of its
+  `ALLOWLIST` with a reason, and an entry that matches nothing fails.
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: <ApiError> }`: the
   `ApiError` of `domain-types` (`{ code, message, details, retry, operation_id }`) that the app's command rejects
   with, made by the same `app_api::api_error::api_error` from the core's error (`Rejection` in
