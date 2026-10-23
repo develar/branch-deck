@@ -1,4 +1,6 @@
-use crate::test_support::{create_repository, start_test_server};
+use crate::test_support::{create_repository, start_test_server, start_test_server_with_state, sync};
+use domain_types::repository_view::{GetRepositoryViewParams, RemoteFacts, RepositoryView, RobotMatch, WaitLandingNeedsParams};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -86,4 +88,42 @@ async fn deleting_a_repository_waits_for_its_running_command() {
     .await
     .unwrap();
   assert_eq!(late.status(), 410);
+}
+
+/// The view of `path` under the prefix `user-name` as the page asks it: it starts the computation of the landing needs
+/// in the background, beyond the command
+async fn ask_view(state: &std::sync::Arc<crate::state::AppState>, path: &str) -> RepositoryView {
+  let (views, git) = (state.repository_views.clone(), state.git_executor.clone());
+  let params = GetRepositoryViewParams {
+    repository_path: path.to_string(),
+    branch_prefix: "user-name".to_string(),
+    revision: 1,
+    robots: Vec::new(),
+    matched: RobotMatch::default(),
+    remote: RemoteFacts::default(),
+  };
+  tokio::task::spawn_blocking(move || views.view(&git, &ObjectCache::disabled(), &params)).await.unwrap()
+}
+
+/// The deletion at the end of a test waits for the computation of the landing needs a view started, which no command
+/// holds, and forgets the views of the repository: no git of it runs in the deleted directory
+#[tokio::test]
+async fn deleting_a_repository_waits_for_its_landing_needs_and_forgets_its_views() {
+  let (addr, state) = start_test_server_with_state().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  sync(&client, addr, &path).await;
+  let view = ask_view(&state, &path).await;
+  assert_eq!((view.table_generation > 0, view.landing_generation), (true, 0), "the computation started: {view:?}");
+
+  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
+  assert_eq!(deleted.status(), 204);
+  assert!(!std::path::Path::new(&path).exists());
+  let wait = WaitLandingNeedsParams {
+    repository_path: path.clone(),
+    branch_prefix: "user-name".to_string(),
+    after: 0,
+  };
+  assert_eq!(state.repository_views.wait_landing_needs(&wait), 0, "no computation is left to wait for");
+  assert_eq!(ask_view(&state, &path).await.table_generation, 0, "the table of the sync is forgotten");
 }

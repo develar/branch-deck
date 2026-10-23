@@ -241,9 +241,11 @@ State isolation:
 - **Teardown**: the mock names its repository on every request (`X-Repository-Id`), and the server holds the
   repository while the command runs, in a task of its own: closing a page aborts its requests and drops their
   handlers, but their git work runs on. The `setupRepo` fixture closes the pages of the test first, and
-  `delete_repository` forgets the repository, waits for its running commands (10 s at most), then deletes the
-  directory. Before, a test's cleanup deleted the files under a running sync, file read or note write
-  (`repository_lifecycle_test.rs`)
+  `delete_repository` forgets the repository, waits for its running commands (10 s at most) and for the computation
+  of its landing needs that a view started in the background, which no command holds (`RepositoryViews::forget`),
+  then deletes the directory. Before, a test's cleanup deleted the files under a running sync, file read or note
+  write, and the landing needs ran git in a deleted directory ("Unable to read current working directory", "not a git
+  repository") (`repository_lifecycle_test.rs`)
 - **Port**: `E2E_PORT` (default 3030, `tests/e2e/helpers/test-server-url.ts`) sets the port of the server, the
   Playwright `baseURL` and the helpers; the mock script calls its page's origin. `/health` answers the checkout the
   server serves, and global setup refuses a server of another checkout: Playwright reuses whatever listens on the port

@@ -161,3 +161,26 @@ async fn a_running_safe_push_of_the_branch_the_start_needs_is_named() {
     })
   );
 }
+
+/// A repository forgotten is forgotten once the computation of its landing needs that ran ended, so no git of it runs
+/// after: the E2E server deletes the directory next. The views of another repository stay
+#[tokio::test]
+async fn a_forgotten_repository_has_no_landing_computation_running_and_no_view() {
+  let (repo, views, _) = synced_views().await;
+  views.keep("/repo", "test", BranchTable::default());
+  let git = GitCommandExecutor::new();
+  let cache = ObjectCache::disabled();
+  let first = views.view(&git, &cache, &repo_params(&repo, Vec::new(), RobotMatch::default()));
+  assert_eq!(first.landing_generation, 0, "the computation started in the background");
+  let facts = views
+    .landing
+    .get(&(repo.path_str().to_string(), "test".to_string()))
+    .expect("the landing facts of the view");
+
+  assert!(views.forget(repo.path_str()), "every computation ended in time");
+  let state = facts.lock();
+  assert_eq!((state.computing, state.generation), (None, 1), "the computation ended before forget returned");
+  drop(state);
+  assert_eq!(views.view(&git, &cache, &repo_params(&repo, Vec::new(), RobotMatch::default())).table_generation, 0);
+  assert_eq!(views.view(&git, &cache, &params(1)).table_generation, 2, "another repository keeps its table");
+}

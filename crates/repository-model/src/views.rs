@@ -7,7 +7,8 @@
 //! The landing needs (`trial_check::landing_gate::landing_needs`) are a fact with its inputs: the baseline, the tips of
 //! the table and the commits merged Safe Pushes landed. A view whose inputs have no answer yet says `unknown` and starts
 //! the computation in the background, one trial session for every branch; while the inputs stay, nothing is computed
-//! again. `wait_landing_needs` resolves once it finished, and the page asks the view again.
+//! again. `wait_landing_needs` resolves once it finished, and the page asks the view again. `forget` drops what is kept
+//! of a repository once its computations ended, before the E2E server deletes it.
 
 use crate::branch_table::BranchTable;
 use crate::patronus_view::{ContentMemo, landed_commits, match_robots, patronus_view, with_landing_needs};
@@ -207,6 +208,32 @@ impl RepositoryViews {
       .wait_timeout_while(state, LANDING_WAIT, |state| state.computing.is_some() && state.generation == params.after)
       .unwrap_or_else(std::sync::PoisonError::into_inner);
     state.generation
+  }
+
+  /// Forgets the tables, the memos and the landing needs of `repository_path` under every branch prefix, once the
+  /// computations of its landing needs that run ended, at most `LANDING_WAIT` each: the E2E server deletes the directory
+  /// of a test's repository after it, so no git of a computation runs in a deleted directory. Call it once no command
+  /// asks a view of the repository any more (a view starts a computation again), from a blocking context. Returns
+  /// whether every computation ended
+  pub fn forget(&self, repository_path: &str) -> bool {
+    let mut ended = true;
+    for (key, facts) in self.landing.iter().filter(|(key, _)| key.0 == repository_path) {
+      let state = facts.lock();
+      let (state, wait) = facts
+        .finished
+        .wait_timeout_while(state, LANDING_WAIT, |state| state.computing.is_some())
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+      drop(state);
+      ended &= !wait.timed_out();
+      self.landing.invalidate(&*key);
+    }
+    for (key, _) in self.tables.iter().filter(|(key, _)| key.0 == repository_path) {
+      self.tables.invalidate(&*key);
+    }
+    for (key, _) in self.memos.iter().filter(|(key, _)| key.0 == repository_path) {
+      self.memos.invalidate(&*key);
+    }
+    ended
   }
 }
 

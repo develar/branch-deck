@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use sync_utils::span::in_current_span;
 use tracing::Instrument;
 
 use tower_http::cors::{Any, CorsLayer};
@@ -837,8 +838,8 @@ pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::
 /// How long a deletion waits for the commands still running for the repository; a command that takes longer is stuck
 const DELETE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Forgets the repository, so no new command starts for it, waits for the running ones (`hold_repository`), then
-/// deletes its directory; `NO_REPO` has none
+/// Forgets the repository, so no new command starts for it, waits for the running ones (`hold_repository`) and for the
+/// computations of its landing needs (`RepositoryViews::forget`), then deletes its directory; `NO_REPO` has none
 pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
   let Some((_, repo)) = state.repositories.remove(&id) else {
     return Err(StatusCode::UNPROCESSABLE_ENTITY);
@@ -852,6 +853,12 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   let no_commands = tokio::time::timeout(DELETE_WAIT, Arc::clone(&repo.in_flight).write_owned()).await;
   if no_commands.is_err() {
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
+  }
+  // a view the page asked computes the landing needs in the background, beyond the command that asked it
+  let views = state.repository_views.clone();
+  let path = repo.path.clone();
+  if !tokio::task::spawn_blocking(in_current_span(move || views.forget(&path))).await.unwrap_or(false) {
+    tracing::warn!(id, "The landing needs of the test repository are still computed; deleting it anyway");
   }
 
   if repo.app_data.exists()
