@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
+import { clearClipboard } from "./clipboard-helpers"
 import { parseSetupOptions, type SetupRepoOptions } from "./setup-options"
 import { TestRepositoryBuilder } from "./test-repository"
 import { TEST_SERVER_URL } from "./test-server-url"
@@ -132,6 +133,11 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   // Wait for the page to be ready - use domcontentloaded instead of networkidle
   // because networkidle might timeout with SSE connections
   await page.waitForLoadState("domcontentloaded")
+  // the clipboard belongs to the browser, which the worker keeps for its next tests, each in a new context: a prompt the
+  // test before copied would satisfy an `expect.poll(readClipboard)` before this test's own copy lands
+  if (page.context().browser()?.browserType().name() !== "webkit") {
+    await clearClipboard(page)
+  }
 
   // Wait for the React app to mount and render content
   // The ConfigurationHeader contains the sync button we need
