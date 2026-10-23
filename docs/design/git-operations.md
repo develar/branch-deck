@@ -753,7 +753,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 |---|---|---|
 | 0. Guards | `rev-parse --git-path` for the operation markers, `symbolic-ref HEAD` | error: an operation in progress, a detached HEAD |
 | 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
-| 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` | error (`FetchFailed`), nothing changed |
+| 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` and for the app (`UpdateProjectParams.fetch: false`: it fetched with `fetch_baseline` first, the same fetch) | error (`FetchFailed`), nothing changed |
 | 2b. Lock | after step 6: `$GIT_COMMON_DIR/branch-deck.lock`, held to the end of step 10; the wait is the step `waiting` | `locked` after 10 s, nothing changed |
 | 2c. Pending files | under the lock: `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below), and steps 3 to 8 run again | `finish_pending`: the branch moved since, nothing changed |
 | 2d. Witness | under the lock (`recheck_update`): step 0 and `rev-parse HEAD^{commit} U^{commit}` again; another branch, H or U: steps 3 to 8 once more, under the lock | as steps 0 and 3 |
@@ -771,7 +771,9 @@ Details:
 - **Lock.** The fetch and the check (steps 3 to 6: the replay, the resolution by words, the landed candidates) run
   before the repository lock, on the HEAD and the upstream one `rev-parse` read (`check_update_before_lock`), so
   neither a slow network nor a long replay blocks another writer: a regroup, a push or an agent's `bd` goes on
-  meanwhile. Under the lock run only the witness (2d), the local changes on the paths the update writes (7, 8) and the
+  meanwhile. The app runs the fetch as a command of its own (`fetch_baseline`), outside the slot of its rewrites, then
+  `update_project` without a fetch, so a regroup of the page runs during the fetch (a forced update is excluded by the
+  fork point of the reflog, step 4, as for `--no-fetch`). Under the lock run only the witness (2d), the local changes on the paths the update writes (7, 8) and the
   move (9, 10), so the app's Update Project, `bd update` and every rewrite of the app or of bd never interleave with
   the move. A writer that moved the branch or the upstream during the check makes the update check once more, under
   the lock, so an update never applies a check made before another writer moved the branch; the progress says the

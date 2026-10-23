@@ -32,6 +32,9 @@ use tracing::{info, instrument, warn};
 #[serde(rename_all = "camelCase")]
 pub struct UpdateProjectParams {
   pub repository_path: String,
+  /// Fetch the baseline first; false updates onto the tracking ref as the last fetch left it. The app fetches with
+  /// `fetch_baseline` first, so the network never holds the slot of its rewrites, then updates without a fetch
+  pub fetch: bool,
 }
 
 /// The step an update is at
@@ -117,7 +120,7 @@ pub fn locked_message(holder: Option<&LockHolder>) -> String {
 #[instrument(skip(git_executor, params, on_progress), fields(repository_path = %params.repository_path))]
 pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdateProjectParams, on_progress: &dyn Fn(UpdateProgress)) -> Result<UpdateProjectResult> {
   let options = UpdateOptions {
-    fetch: true,
+    fetch: params.fetch,
     lock_timeout: DEFAULT_LOCK_TIMEOUT,
   };
   update_project_with(git_executor, &params.repository_path, options, on_progress).map_err(app_error)

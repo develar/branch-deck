@@ -103,11 +103,26 @@ function stepIn(repositoryPath: string) {
   return running === undefined ? undefined : { step: running.run.step, fetch: running.run.fetch }
 }
 
-function commandOf(repositoryPath: string): RunningCommand {
-  const command = backend.commands.find(it => it.repositoryPath === repositoryPath)
-  expect(command).toBeDefined()
-  return command!
+/** The command of `kind` of the repository, once it started */
+async function commandIn(repositoryPath: string, kind: RunningCommand["kind"]): Promise<RunningCommand> {
+  const find = () => backend.commands.find(it => it.repositoryPath === repositoryPath && it.kind === kind)
+  await vi.waitFor(() => expect(find()).toBeDefined())
+  return find()!
 }
+
+/** Ends the fetch of the update of the repository; resolves to the command of its check and apply */
+async function fetched(repositoryPath: string): Promise<RunningCommand> {
+  ;(await commandIn(repositoryPath, "fetch")).finish({ status: "ok", data: FETCHED })
+  return commandIn(repositoryPath, "update")
+}
+
+/** The kinds of the commands that started, in their order */
+function kinds(): string[] {
+  return backend.commands.map(it => `${it.kind} ${it.repositoryPath}`)
+}
+
+const UNSTACK = { id: "unstack", subject: "branch:auth", objects: ["auth"], kind: "rewrite", label: "Unstacking auth", repositoryPath: "/a" } as const
+const MOVE = { id: "move-to", subject: "branch:login", objects: ["login"], kind: "rewrite", label: "Moving 1 commit to login", repositoryPath: "/a" } as const
 
 beforeEach(() => {
   updateProjectStore.setState({ running: {}, refused: null })
@@ -121,22 +136,28 @@ beforeEach(() => {
 })
 
 describe("the running update", () => {
-  it("waits in the queue for a rewrite of the repository that runs, then runs, and the rewrites wait for it: one rewrite at a time", async () => {
-    let finishRewrite!: () => void
-    const rewrite = runOperation(
-      { id: "unstack", subject: "branch:auth", objects: ["auth"], kind: "rewrite", label: "Unstacking auth", repositoryPath: "/a" },
-      () => new Promise<void>(resolve => (finishRewrite = resolve)),
-    )
+  it("fetches outside the slot of the rewrites, which run meanwhile, then waits for a running rewrite in the queue for its check and apply, and the rewrites wait for those", async () => {
     const update = runUpdateProject()
-    expect(backend.commands).toEqual([])
-    expect(getOperations().map(operation => operation.waitsFor)).toEqual([null, "Unstacking auth"])
+    const fetch = await commandIn("/a", "fetch")
+    fetch.progress.onmessage(PROGRESS)
+    expect(stepIn("/a")).toEqual({ step: "fetch", fetch: PROGRESS })
+    // a move during the fetch reaches the backend at once
+    await expect(runOperation(MOVE, () => Promise.resolve("moved"))).resolves.toBe("moved")
+
+    // a rewrite that runs when the fetch ends: the check and the apply wait for it, the bar says so
+    let finishRewrite!: () => void
+    const rewrite = runOperation(UNSTACK, () => new Promise<void>(resolve => (finishRewrite = resolve)))
+    fetch.finish({ status: "ok", data: FETCHED })
+    await vi.waitFor(() => expect(getOperations().map(operation => operation.waitsFor)).toEqual([null, "Unstacking auth"]))
+    expect(stepIn("/a")?.step).toBe("waiting")
+    expect(kinds()).toEqual(["fetch /a"])
     finishRewrite()
     await rewrite
 
-    await vi.waitFor(() => expect(backend.commands).toHaveLength(1))
-    const move = { id: "move-to", subject: "branch:login", objects: ["login"], kind: "rewrite", repositoryPath: "/a" } as const
-    expect(getOperationBlocker(getOperations(), move)?.label).toBe("Updating the project")
-    commandOf("/a").finish({ status: "ok", data: UP_TO_DATE })
+    const command = await commandIn("/a", "update")
+    // the update checks against the fetched baseline, without a fetch of its own
+    expect(getOperationBlocker(getOperations(), MOVE)?.label).toBe("Updating the project")
+    command.finish({ status: "ok", data: UP_TO_DATE })
     await update
     expect(getOperations()).toEqual([])
   })
@@ -144,7 +165,7 @@ describe("the running update", () => {
   it("belongs to its repository: switching repositories never shows the other repository's phase", async () => {
     // the Fetch of a merge toast of /a
     const fetch = runFetchBaseline("/a")
-    commandOf("/a").progress.onmessage(PROGRESS)
+    ;(await commandIn("/a", "fetch")).progress.onmessage(PROGRESS)
     expect(stepIn("/a")).toEqual({ step: "fetch", fetch: PROGRESS })
 
     selection.path = "/b"
@@ -152,18 +173,19 @@ describe("the running update", () => {
 
     // /b updates while /a fetches
     const update = runUpdateProject()
-    commandOf("/b").progress.onmessage({ phase: "checking", fetch: null })
+    const command = await fetched("/b")
+    command.progress.onmessage({ phase: "checking", fetch: null })
     expect(stepIn("/b")).toEqual({ step: "check", fetch: null })
     expect(stepIn("/a")).toEqual({ step: "fetch", fetch: PROGRESS })
 
-    commandOf("/a").finish({ status: "ok", data: FETCHED })
+    ;(await commandIn("/a", "fetch")).finish({ status: "ok", data: FETCHED })
     await fetch
     expect(runningIn("/a")).toBeUndefined()
     expect(stepIn("/b")).toEqual({ step: "check", fetch: null })
     // the fetched repository is not the selected one: the table of /b is not synced for it
     expect(syncs.count).toBe(0)
 
-    commandOf("/b").finish({ status: "ok", data: UP_TO_DATE })
+    command.finish({ status: "ok", data: UP_TO_DATE })
     await update
     expect(runningIn("/b")).toBeUndefined()
   })
@@ -171,32 +193,34 @@ describe("the running update", () => {
   it("updates the repository a toast is about only while it is shown, else only fetches it: never the one shown since", async () => {
     // Update Project of a toast of /a while /a is shown: its update
     const update = runUpdateProjectOf("/a")
-    expect(backend.commands.map(it => [it.kind, it.repositoryPath])).toEqual([["update", "/a"]])
-    commandOf("/a").finish({ status: "ok", data: UP_TO_DATE })
+    ;(await fetched("/a")).finish({ status: "ok", data: UP_TO_DATE })
     await update
+    expect(kinds()).toEqual(["fetch /a", "update /a"])
 
     // the same toast clicked after a switch to /b: the fetch of /a, nothing of /b moves
     backend.commands = []
     selection.path = "/b"
     const fetch = runUpdateProjectOf("/a")
-    expect(backend.commands.map(it => [it.kind, it.repositoryPath])).toEqual([["fetch", "/a"]])
-    commandOf("/a").finish({ status: "ok", data: FETCHED })
+    ;(await commandIn("/a", "fetch")).finish({ status: "ok", data: FETCHED })
     await fetch
+    expect(kinds()).toEqual(["fetch /a"])
     expect(runningIn("/b")).toBeUndefined()
   })
 
   it("keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository", async () => {
-    const failedBeforeTheCheck = runUpdateProject()
-    commandOf("/a").finish({ status: "error", error: { message: "Failed to fetch origin/master" } })
-    await failedBeforeTheCheck
+    const failedFetch = runUpdateProject()
+    ;(await commandIn("/a", "fetch")).finish({ status: "error", error: { message: "Failed to fetch origin/master" } })
+    await failedFetch
     expect(fetchTimes).toEqual([])
-    // nothing was fetched: nothing to sync
+    // nothing was fetched: nothing to sync, nothing to check
     expect(syncs.count).toBe(0)
+    expect(kinds()).toEqual(["fetch /a"])
 
     backend.commands = []
     const failedAfterTheFetch = runUpdateProject()
-    commandOf("/a").progress.onmessage({ phase: "checking", fetch: null })
-    commandOf("/a").finish({ status: "error", error: { message: "Branch Deck or bd is changing this repository. Try again when it is done." } })
+    const command = await fetched("/a")
+    command.progress.onmessage({ phase: "checking", fetch: null })
+    command.finish({ status: "error", error: { message: "Branch Deck or bd is changing this repository. Try again when it is done." } })
     await failedAfterTheFetch
     expect(fetchTimes).toEqual(["/a"])
     // the baseline moved: the branches are built against it
@@ -212,7 +236,7 @@ describe("the running update", () => {
     for (const [index, answer] of answers.entries()) {
       backend.commands = []
       const update = runUpdateProject()
-      commandOf("/a").finish({ status: "ok", data: answer })
+      ;(await fetched("/a")).finish({ status: "ok", data: answer })
       await update
       expect(syncs.count).toBe(index + 1)
     }
@@ -220,30 +244,45 @@ describe("the running update", () => {
 
   it("syncs only the selected repository: another one selected during the update is not synced for it", async () => {
     const update = runUpdateProject()
+    const command = await fetched("/a")
     selection.path = "/b"
-    commandOf("/a").finish({ status: "ok", data: UP_TO_DATE })
+    command.finish({ status: "ok", data: UP_TO_DATE })
     await update
     expect(syncs.count).toBe(0)
   })
 
-  it("runs one at a time in a repository", async () => {
+  it("runs one at a time in a repository: a second start joins it, and an update during a Fetch goes on from that fetch", async () => {
     const fetch = runFetchBaseline("/a")
-    await runFetchBaseline("/a")
-    await runUpdateProject()
-    expect(backend.commands).toHaveLength(1)
+    const again = runFetchBaseline("/a")
+    // ⌘T during the Fetch of a toast
+    const update = runUpdateProject()
+    const second = runUpdateProject()
+    expect(kinds()).toEqual(["fetch /a"])
 
-    commandOf("/a").finish({ status: "ok", data: FETCHED })
+    ;(await commandIn("/a", "fetch")).finish({ status: "ok", data: FETCHED })
     await fetch
+    await again
     // the selected repository fetched: its table is synced against the fetched baseline
     expect(syncs.count).toBe(1)
+    const command = await commandIn("/a", "update")
+    expect(kinds()).toEqual(["fetch /a", "update /a"])
+    expect(runningIn("/a")?.run.plan).toEqual(["check", "apply", "sync"])
+    // a Fetch during the update joins it
+    const third = runFetchBaseline("/a")
+    command.finish({ status: "ok", data: UP_TO_DATE })
+    await update
+    await second
+    await third
+    expect(kinds()).toEqual(["fetch /a", "update /a"])
     expect(runningIn("/a")).toBeUndefined()
   })
 
   it("is busy through the sync of an applied update, its own run of it; the toast doesn't wait for the sync", async () => {
     const update = runUpdateProject()
-    commandOf("/a").progress.onmessage({ phase: "checking", fetch: null })
-    commandOf("/a").progress.onmessage({ phase: "updating", fetch: null })
-    commandOf("/a").finish({ status: "ok", data: APPLIED })
+    const command = await fetched("/a")
+    command.progress.onmessage({ phase: "checking", fetch: null })
+    command.progress.onmessage({ phase: "updating", fetch: null })
+    command.finish({ status: "ok", data: APPLIED })
     await vi.waitFor(() => expect(syncs.requested).toHaveLength(1))
     expect(stepIn("/a")?.step).toBe("sync")
     expect(runningIn("/a")?.syncRun).toBe(1)
@@ -259,7 +298,7 @@ describe("the running update", () => {
 
   it("ignores a progress message that arrives after the command answered", async () => {
     const update = runUpdateProject()
-    const command = commandOf("/a")
+    const command = await fetched("/a")
     command.finish({ status: "ok", data: APPLIED })
     await vi.waitFor(() => expect(syncs.requested).toHaveLength(1))
     command.progress.onmessage({ phase: "updating", fetch: null })
@@ -271,17 +310,19 @@ describe("the running update", () => {
   it("lists every step of an update from its start, also when the last check found the branch up to date", async () => {
     const update = runUpdateProject()
     expect(runningIn("/a")?.run.plan).toEqual(["fetch", "check", "apply", "sync"])
-    commandOf("/a").progress.onmessage({ phase: "checking", fetch: null })
+    const command = await fetched("/a")
+    command.progress.onmessage({ phase: "checking", fetch: null })
     expect(runningIn("/a")?.run.plan).toEqual(["fetch", "check", "apply", "sync"])
-    commandOf("/a").finish({ status: "ok", data: UP_TO_DATE })
+    command.finish({ status: "ok", data: UP_TO_DATE })
     await update
   })
 
   it("changes the step only when the phase changes, and learns what the steps took once the update ends", async () => {
     const update = runUpdateProject()
-    const command = commandOf("/a")
-    command.progress.onmessage({ phase: "fetching", fetch: null })
-    command.progress.onmessage({ phase: "fetching", fetch: PROGRESS })
+    const fetch = await commandIn("/a", "fetch")
+    fetch.progress.onmessage(PROGRESS)
+    fetch.progress.onmessage(PROGRESS)
+    const command = await fetched("/a")
     command.progress.onmessage({ phase: "waiting", fetch: null })
     command.progress.onmessage({ phase: "checking", fetch: null })
     command.progress.onmessage({ phase: "checking", fetch: null })

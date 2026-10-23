@@ -345,16 +345,21 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/stores/update-project.test.ts (`ignores a progress message that arrives after the command answered`)
 - The step and the fetch progress belong to the repository the update (or the Fetch of a merge toast) runs in: after a
   switch, the buttons show the selected repository's, never another one's. One update or fetch runs at a time in a
-  repository; another repository can update meanwhile. An update in a repository that is no longer selected doesn't
-  sync the selected one.
+  repository, and none is dropped: a second Update (⌘T, a toast) joins the running update, Update during the Fetch of
+  a toast goes on from that fetch with the check and the apply (no second fetch), and a Fetch during an update joins
+  it; another repository can update meanwhile. An update in a repository that is no longer selected doesn't sync the
+  selected one.
   [@test] ../../src/stores/update-project.test.ts (`belongs to its repository: switching repositories never shows the other repository's phase`)
   [@test] ../../src/stores/update-project.test.ts (`syncs only the selected repository: another one selected during the update is not synced for it`)
-  [@test] ../../src/stores/update-project.test.ts (`runs one at a time in a repository`)
-- An update is a rewrite of the repository ([Running Operations](../../docs/design/operations.md)): while a regroup, a
-  squash or another rewrite runs, Update stays enabled with the busy state it would wait for on hover ("Unstacking
-  oauth…"), and a start waits for it in the queue, never refused; while the update runs, a rewrite of a menu waits for
-  it in the queue ("Waits for Updating the project").
-  [@test] ../../src/stores/update-project.test.ts (`waits in the queue for a rewrite of the repository that runs, then runs, and the rewrites wait for it: one rewrite at a time`)
+  [@test] ../../src/stores/update-project.test.ts (`runs one at a time in a repository: a second start joins it, and an update during a Fetch goes on from that fetch`)
+- The fetch of an update holds nothing of the page: it runs before the update's operation, so a move, a park, an
+  Unstack, a reword or an Undo during the fetch runs at once. Only the check, the apply and the sync of the update are
+  a rewrite of the repository ([Running Operations](../../docs/design/operations.md)): while a regroup, a squash or
+  another rewrite runs, Update stays enabled with the busy state it would wait for on hover ("Unstacking oauth…"); a
+  start fetches, then its check waits for that rewrite in the queue (the step "waiting"), never refused; while the
+  check and the apply run, a rewrite of a menu waits for them in the queue ("Waits for Updating the project").
+  [@test] ../../src/stores/update-project.test.ts (`fetches outside the slot of the rewrites, which run meanwhile, then waits for a running rewrite in the queue for its check and apply, and the rewrites wait for those`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should let a rewrite run during the fetch of an update, which checks and applies after it`)
 - Once git reports a stage of the fetch, its percent of the whole fetch moves the progress of the update, and the
   tooltip shows the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas

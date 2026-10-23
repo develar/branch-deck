@@ -28,9 +28,9 @@ test.describe("Header", () => {
   })
 
   test("should keep its controls apart while an update runs", async ({ page }) => {
-    const update = await holdWithProgress(page, "update_project")
+    const update = await holdWithProgress(page, "fetch_baseline")
     await page.getByTestId("update-project-button").click()
-    await update.send({ phase: "fetching", fetch: { percent: 99, transferred: null, speed: null, line: "Receiving objects:  99% (99/100)" } })
+    await update.send({ percent: 99, transferred: null, speed: null, line: "Receiving objects:  99% (99/100)" })
     await expect(page.getByTestId("update-project-button")).toHaveText(/^Updating \d+%$/)
     await expectHeaderControlsOnOneLine(page, HEADER_CONTROLS)
     update.release()

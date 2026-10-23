@@ -144,9 +144,12 @@ the stack's pull request).
 The next step reads the operation on its row (`NextStepFacts.busy`): the slot's own action runs (`running`), the
 others wait with its busy state.
 
-- **Update Project** (`runUpdateProject`, `UPDATE_OPERATION`): a rewrite of the repository for its whole run, the fetch
-  included: the backend lock would only queue its apply behind a regroup, and a regroup behind it; its steps and
-  percent stay in its own store (`update-progress.ts`), which ticks too often for the registry's subscribers.
+- **Update Project** (`runUpdateProject`, `UPDATE_OPERATION`): its fetch (`fetch_baseline`) runs outside the registry,
+  so the rewrites of the page run during the network; then its check, apply and sync (`update_project` without a fetch)
+  are a rewrite of the repository, which waits for a running regroup in the queue (its step `waiting`) and the regroups
+  for it. A second ⌘T joins the running update, ⌘T during the Fetch of a toast goes on from that fetch without its
+  own, and a Fetch during an update joins it. Its steps and percent stay in its own store (`update-progress.ts`), which
+  ticks too often for the registry's subscribers.
 
 ### Moves
 

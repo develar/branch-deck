@@ -50,6 +50,7 @@ pub(crate) fn update(repo: &TestRepo) -> anyhow::Result<UpdateProjectResult> {
     repo.git_executor(),
     &UpdateProjectParams {
       repository_path: path(repo).to_string(),
+      fetch: true,
     },
     &|_| {},
   )
@@ -62,6 +63,7 @@ fn update_reporting_progress(repo: &TestRepo) -> (anyhow::Result<UpdateProjectRe
     repo.git_executor(),
     &UpdateProjectParams {
       repository_path: path(repo).to_string(),
+      fetch: true,
     },
     &|it| progress.borrow_mut().push(it),
   );
@@ -541,7 +543,15 @@ fn e2e_templates_have_the_expected_update_states() {
 
   let (repo, state) = check("behind_upstream", templates::behind_upstream());
   assert_eq!(state, UpdateState::Clean { kind: UpdateKind::Rebase });
-  let result = update_project_core(&git_executor, &UpdateProjectParams { repository_path: repo.clone() }, &|_| {}).unwrap();
+  let result = update_project_core(
+    &git_executor,
+    &UpdateProjectParams {
+      repository_path: repo.clone(),
+      fetch: true,
+    },
+    &|_| {},
+  )
+  .unwrap();
   assert_eq!(result.applied.unwrap().replayed, 1);
   assert_eq!(fs::read_to_string(format!("{repo}/src/config.txt")).unwrap(), "debug=true\n", "the dirty file is kept");
 

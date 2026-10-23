@@ -4401,6 +4401,11 @@ export type UpdateProgress = {
 
 export type UpdateProjectParams = {
 	repositoryPath: string,
+	/**
+	 *  Fetch the baseline first; false updates onto the tracking ref as the last fetch left it. The app fetches with
+	 *  `fetch_baseline` first, so the network never holds the slot of its rewrites, then updates without a fetch
+	 */
+	fetch: boolean,
 };
 
 export type UpdateProjectResult = {

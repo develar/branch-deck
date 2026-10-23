@@ -20,6 +20,7 @@ fn an_update() {
     &git,
     &UpdateProjectParams {
       repository_path: path(&fixture.clone).to_string(),
+      fetch: true,
     },
     &|_| {},
   )
@@ -40,6 +41,47 @@ fn an_update() {
       ("replay", 1),
       ("rev-list", 3),
       ("rev-parse", 13),
+      ("symbolic-ref", 6),
+      ("update-index", 3),
+      ("update-ref", 2),
+    ],
+  );
+}
+
+/// Update Project of the app after its `fetch_baseline`: the same update without the fetch, the network outside the
+/// slot of the page's rewrites
+#[test]
+fn an_update_after_its_fetch() {
+  let fixture = setup();
+  fixture.clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  fixture.upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+  fixture.clone.git(&["fetch", "--quiet", "origin"]);
+  let git = counting();
+  let result = update_project_core(
+    &git,
+    &UpdateProjectParams {
+      repository_path: path(&fixture.clone).to_string(),
+      fetch: false,
+    },
+    &|_| {},
+  )
+  .unwrap();
+  assert!(result.applied.is_some(), "{result:?}");
+  // the processes of `an_update` without the fetch; one more `rev-parse` reads the time of the last fetch
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("for-each-ref", 1),
+      ("log", 3),
+      ("merge-base", 2),
+      ("read-tree", 2),
+      ("remote", 2),
+      ("replay", 1),
+      ("rev-list", 3),
+      ("rev-parse", 14),
       ("symbolic-ref", 6),
       ("update-index", 3),
       ("update-ref", 2),

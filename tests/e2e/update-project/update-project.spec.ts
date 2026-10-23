@@ -4,8 +4,9 @@ import { expect, test } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
-import { holdCommand, holdWithProgress } from "../helpers/wait-helpers"
+import { dropAt, startDrag } from "../helpers/selection-helpers"
+import { emitTauriEvent, runAndWaitForSync } from "../helpers/sync-helpers"
+import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand } from "../helpers/wait-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
 // at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored 2024-01-01, landed 2024-01-02) and
@@ -72,7 +73,8 @@ test.describe("Update Project", () => {
   test("should show one progress from the click to the end of its sync, its steps in the tooltip", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    // the update stays in its fetch until released: the test reports its steps as the backend does
+    // the update stays in its fetch, then in its check, until released: the test reports its steps as the backend does
+    const fetch = await holdWithProgress(page, "fetch_baseline")
     const update = await holdWithProgress(page, "update_project")
     const button = updateButton(page)
     const progress = page.getByTestId("update-progress")
@@ -90,17 +92,18 @@ test.describe("Update Project", () => {
     await expect(page.getByTestId("update-project-tooltip")).not.toContainText("fetch and update")
 
     // git's percent moves the bar on
-    await update.send({ phase: "fetching", fetch: { percent: 20, transferred: "1.20 MiB", speed: null, line: "Receiving objects:  20% (2/10)" } })
+    await fetch.send({ percent: 20, transferred: "1.20 MiB", speed: null, line: "Receiving objects:  20% (2/10)" })
     await expect(steps.first()).toHaveText("Receiving objects:  20% (2/10)")
     // the button grew to its running width when the run started (its transition is over by now)
     const width = (await button.boundingBox())!.width
     const atTwenty = Number(await progress.getAttribute("aria-valuenow"))
-    await update.send({ phase: "fetching", fetch: { percent: 90, transferred: "5.79 MiB", speed: null, line: "Receiving objects:  90% (9/10)" } })
+    await fetch.send({ percent: 90, transferred: "5.79 MiB", speed: null, line: "Receiving objects:  90% (9/10)" })
     await expect.poll(async () => Number(await progress.getAttribute("aria-valuenow"))).toBeGreaterThan(atTwenty)
     // the Dock shows the update, the user may wait for it in another app
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toMatchObject({ progressBar: { status: "normal" } })
 
-    // the check runs before the repository lock
+    // the fetch ends; the check runs before the repository lock
+    fetch.release()
     await update.send({ phase: "checking", fetch: null })
     await expect(steps.nth(1)).toHaveText("Checking the update onto origin/master…")
     // another operation holds the repository: the wait for the move is told, not hidden in the check
@@ -134,6 +137,32 @@ test.describe("Update Project", () => {
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ progressBar: { status: "none" } })
   })
 
+  test("should let a rewrite run during the fetch of an update, which checks and applies after it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    const fetch = await holdCommandCalls(page, "fetch_baseline")
+    const updates = await recordCommand(page, "update_project")
+    const parks = await recordCommand(page, "park_branches")
+    await updateButton(page).click()
+    await expect.poll(() => fetch.calls.length).toBe(1)
+    await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "fetch")
+
+    // the fetch holds no slot of the rewrites: a park during it runs at once, its toast before the update ends
+    await startDrag(page, findBranchRow(page, "feature-auth"))
+    await runAndWaitForSync(page, () => dropAt(page, page.getByTestId("drag-target-bar").getByTestId("park-drop-zone")))
+    expect(parks).toHaveLength(1)
+    await expect(page.locator("[data-slot=toast]", { hasText: "Parked feature-auth" })).toBeVisible()
+    await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot park/ })).toHaveCount(0)
+    expect(updates).toHaveLength(0)
+
+    // the update checks and applies once its fetch ended, without a fetch of its own
+    fetch.release()
+    await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    expect(updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({ fetch: false })
+    expect(fetch.calls).toHaveLength(1)
+  })
+
   test("should end the progress at the result when there is nothing to apply, its sync on Sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
@@ -142,12 +171,14 @@ test.describe("Update Project", () => {
     await expect(updateButton(page)).toHaveText("Update")
 
     // up to date now: the tooltip still lists every step, the check decides what runs
+    const fetch = await holdCommandCalls(page, "fetch_baseline")
     const update = await holdWithProgress(page, "update_project")
     await updateButton(page).click()
     await page.mouse.move(0, 0)
     await updateButton(page).hover()
     const steps = page.getByTestId("update-steps").getByRole("listitem")
     await expect(steps).toHaveText(["Fetching origin/master…", "Check the update", "Update to origin/master", "Sync branches"])
+    fetch.release()
     await update.send({ phase: "checking", fetch: null })
     await expect(steps).toHaveText(["Fetched origin/master", "Checking the update onto origin/master…", "Update to origin/master", "Sync branches"])
 
