@@ -4,6 +4,7 @@ import { LazyStore } from "@tauri-apps/plugin-store"
 import pDebounce from "p-debounce"
 import { logError } from "@/lib/errors"
 import { SubWindowStoreSync } from "./sub-window-app-store"
+import type { StoreSnapshot } from "./sub-window-app-store"
 import { applyIncomingValue, EchoTracker, stableStringify } from "./sync-utils"
 import type { StoreRegistration } from "./sync-utils"
 
@@ -19,6 +20,8 @@ interface StoreSetRequest {
   requestId: string
   key: string
   value: unknown
+  /** The fields of an object store the sub-window changed: only they are taken, the others stay as the main window has them */
+  fields?: readonly string[]
 }
 
 function detectWindowLabel(): string {
@@ -163,15 +166,30 @@ class MainStoreSync {
     }).catch((error: unknown) => {
       logError("Failed to listen to store-set-request", error)
     })
+
+    // a sub-window that listens now asks for what changed while its page loaded
+    listen<{ label: string }>("store-snapshot-request", event => {
+      const answer: StoreSnapshot = { label: event.payload.label, snapshot: getStoreSnapshot() }
+      emit("store-snapshot", answer).catch((error: unknown) => {
+        logError(`Failed to send the settings to ${event.payload.label}`, error)
+      })
+    }).catch((error: unknown) => {
+      logError("Failed to listen to store-snapshot-request", error)
+    })
   }
 
-  private async applySetRequest({ requestId, key, value }: StoreSetRequest): Promise<void> {
+  private async applySetRequest({ requestId, key, value, fields }: StoreSetRequest): Promise<void> {
     try {
       const registration = registry.get(key)
       if (registration === undefined) {
         await this.write(key, value)
       } else {
-        const validated = registration.parse(value)
+        // the fields the sub-window changed, on the main window's value: a field changed here meanwhile stays
+        const merged =
+          fields === undefined || registration.isArray
+            ? value
+            : { ...(registration.getValue() as Record<string, unknown>), ...Object.fromEntries(fields.map(field => [field, (value as Record<string, unknown>)[field]])) }
+        const validated = registration.parse(merged)
         applyIncomingValue(registration, validated)
         await this.write(key, toPersistedValue(registration, validated))
       }

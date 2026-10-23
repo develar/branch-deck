@@ -43,6 +43,8 @@ targets:
   - ../../src/stores/ai-suggestions.ts
   - ../../src/stores/settings/appSettings.ts
   - ../../src/stores/settings/repositorySettings.ts
+  - ../../src/stores/settings/app-store.ts
+  - ../../src/stores/settings/sub-window-app-store.ts
   - ../../src/stores/repository.ts
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/sync-core/src/repository_config.rs
@@ -242,6 +244,12 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the main window`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should zoom every window from Appearance with the items of the View menu`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
+- A sub-window's write changes only the settings it changed: a setting the main window changed a moment before (the
+  Activity panel opened) stays, also when the sub-window had not heard of it yet; and a sub-window that loads takes the
+  changes made while it loaded (it asks the main window once it listens).
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should keep the Activity panel the main window opened when a review window hides its sidebar right after`)
+  [@test] ../../src/stores/settings/app-store.test.ts (`takes only the fields a sub-window changed, so a field the main window changed meanwhile stays`, `answers a sub-window that asks for the settings with those it has now`)
+  [@test] ../../src/stores/settings/app-store.test.ts (`sends the main window the fields a change made, not the whole object`, `asks for the settings once it listens, and takes a change the main window made while the page loaded`, `keeps the field of a write the main window has not answered when another window's change arrives`)
 - The main window starts from the saved settings, and with the defaults from a settings file that does not parse (one
   cut within a write): it never starts without its settings because of a syntax error in its init script
   (`stored_settings`).

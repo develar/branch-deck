@@ -830,7 +830,11 @@ repository». Аудит всех функций в тот же день наш�
   `lib.rs` внедряет `{}` вместо непарсимого файла (`stored_settings`); sync ждёт загрузку префикса без 5-секундного
   таймаута, и загрузку репозитория, выбранного за это время (`syncs with the prefix of a load that takes longer than a
   few seconds, without an error`). Сделано (`fix/settings-config`); один писатель tmp + rename, летучие поля вне файла,
-  явный источник fallback в JSON и префикс в Rust (ожидание исчезает с параметром) остаются s5.
+  явный источник fallback в JSON и префикс в Rust (ожидание исчезает с параметром) остаются s5. Под-окно шлёт поля,
+  которые изменило (`fields` у `store-set-request`), главное окно берёт только их, обновление не откатывает поля
+  неотвеченных записей, а под-окно, начав слушать, спрашивает снимок (`store-snapshot-request`): изменение во время
+  загрузки не теряется (`should keep the Activity panel the main window opened when a review window hides its sidebar
+  right after`); `set_setting` в Rust и версии остаются s5.
 - **Факты и сервисы:** `/problems` после ответа; single-flight токена GitHub и refresh YouTrack; scope `read:org`;
   записи `.git/config`. Single-flight токена GitHub сделан (`fix/remote-perf`): источник-процесс один раз на всех
   спрашивающих, ответ (и отсутствие токена) хранится `SOURCE_TTL` 30 с, состояние цепочки — короткий `std` mutex

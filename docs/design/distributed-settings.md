@@ -59,8 +59,8 @@ sequenceDiagram
     participant Others as Other sub-windows
 
     Sub->>Sub: setState (local change)
-    Sub->>Main: store-set-request (echo recorded)
-    Main->>Main: parse, setState(value, true) without re-persisting
+    Sub->>Main: store-set-request with the changed fields (echo recorded)
+    Main->>Main: the fields on its own value, parse, setState(value, true) without re-persisting
     Main->>Disk: write non-default fields (echo recorded)
     Main-->>Sub: store-response
     Disk->>Main: onChange (own echo, not re-applied)
@@ -100,6 +100,18 @@ broadcast to all sub-windows.
 
 6. **Decision**: Array stores (recent projects) wrap the array as `{ items }`.
    **Rationale**: zustand state must be an object. The sync layer and the file see the plain array.
+
+7. **Decision**: A sub-window sends the fields of an object store its change made (`fields` of `store-set-request`,
+   against the value it last knew), and the main window takes only them, on its own value.
+   **Rationale**: The main window broadcasts its own changes only after the debounced write (500 ms): a whole object
+   from a sub-window would put back the field the main window changed meanwhile (the Activity panel opened in the main
+   window, then F in a review window closed it again). An update that reaches a sub-window keeps the fields of its
+   writes the main window has not answered yet, so the update never rolls the newer field back either.
+
+8. **Decision**: A sub-window asks for the settings once it listens (`store-snapshot-request`, answered with
+   `getStoreSnapshot()` as `store-snapshot` for its label).
+   **Rationale**: Its injected snapshot is the opener's state at the open; a change broadcast while its page loaded
+   reached no listener (a zoom changed while a review window loaded).
 
 ### Implementation Notes
 

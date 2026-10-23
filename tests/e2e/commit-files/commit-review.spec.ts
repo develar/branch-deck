@@ -3,7 +3,8 @@ import type { Locator, Page } from "@playwright/test"
 import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, expandBranch, getBranchCommitRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
+import { activityButton, activityPanel } from "../helpers/activity-helpers"
+import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
@@ -201,6 +202,29 @@ simpleTest.describe("Commit review", () => {
     await expect(page.getByTestId("review-sidebar")).toHaveCount(0)
     await page.getByTestId("review-sidebar-toggle").click()
     await expect(page.getByTestId("review-sidebar")).toBeVisible()
+  })
+
+  testWithIssueLinks("should keep the Activity panel the main window opened when a review window hides its sidebar right after", async ({ page }) => {
+    await page.setViewportSize({ width: 2000, height: 1000 })
+    // a push, so that the main window has activity to show
+    const pushed = findBranchRow(page, "ABC-123")
+    await getPushButton(pushed).click()
+    await expectNothingToPush(pushed)
+    const window = await openLinkedSubWindow(page, await reviewPoolSizeCommit(page))
+    const toggle = window.getByTestId("review-sidebar-toggle")
+    await expect(toggle).toHaveAttribute("aria-pressed", "true")
+
+    // the main window opens its panel, and the review window hides its sidebar before it heard of the panel
+    await activityButton(page).click()
+    await expect(activityPanel(page)).toBeVisible()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute("aria-pressed", "false")
+    // the main window takes only the sidebar from the review window: its panel stays open, and both are saved
+    await waitForStorePersistence(page, "appSettings", settings => {
+      const saved = settings as { activityPanel?: boolean; reviewSidebar?: boolean } | undefined
+      return saved?.reviewSidebar === false && saved.activityPanel === true
+    })
+    await expect(activityPanel(page)).toBeVisible()
   })
 
   simpleTest("should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click", async ({ page }) => {
