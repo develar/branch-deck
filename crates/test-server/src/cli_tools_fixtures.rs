@@ -34,7 +34,8 @@ pub struct CliToolsHost {
   /// The YouTrack the app is signed in to, as the requests that start the reads found it
   signed_in_youtrack: RwLock<Option<String>>,
   /// The last statuses read, which the Setup dot takes, as the app keeps them, by the generation of the fixture they
-  /// were read with: a fixture drops them, and a read that started before it keeps nothing
+  /// were read with: a fixture drops them once it is written, and a read that started before, which may have seen half
+  /// of it, keeps nothing
   statuses: Mutex<(u64, Option<Vec<CliToolStatus>>)>,
 }
 
@@ -121,19 +122,21 @@ fn repository_of<'a>(state: &'a AppState, id: &str) -> Result<dashmap::mapref::o
 pub async fn set_cli_tools(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<CliToolsFixture>) -> Result<StatusCode, StatusCode> {
   let repository = repository_of(&state, &id)?;
   let host = &repository.cli_tools;
+  // the tool of each newest release before anything is written: a fixture is taken whole or not at all
+  let latest = fixture
+    .latest
+    .iter()
+    .map(|(name, version)| CliTool::ALL.into_iter().find(|tool| tool.command() == name).map(|tool| (tool, name, version)))
+    .collect::<Option<Vec<_>>>()
+    .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   let fakes = host.fakes();
-  {
-    let mut kept = host.statuses.lock().expect("the statuses");
-    *kept = (kept.0 + 1, None);
-  }
   if fixture.brew {
     fakes.add_brew();
   }
   for (name, text) in &fixture.files {
     fakes.set(name, text);
   }
-  for (name, version) in &fixture.latest {
-    let tool = CliTool::ALL.into_iter().find(|tool| tool.command() == name).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  for (tool, name, version) in latest {
     fakes.set_latest(name, version);
     host.latest.write().expect("the latest releases").insert(tool, version.clone());
   }
@@ -144,6 +147,9 @@ pub async fn set_cli_tools(Path(id): Path<String>, State(state): State<Arc<AppSt
       fakes.install(installed.tool.command(), &installed.version);
     }
   }
+  // after the fixture, not before: a read of the page meanwhile (the Setup dot of a window that opens) saw half of it
+  let mut kept = host.statuses.lock().expect("the statuses");
+  *kept = (kept.0 + 1, None);
   Ok(StatusCode::OK)
 }
 
