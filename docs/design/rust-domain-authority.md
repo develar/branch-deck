@@ -827,8 +827,10 @@ repository». Аудит всех функций в тот же день наш�
   (`issue_config_follows_a_rewrite_of_vcs_xml`).
 - **Настройки до s5:** `bd` перечитывает непарсимый `settings.json` до 200 мс (запись плагина на месте), так что чтение
   рядом с записью приложения берёт префикс приложения (`the_prefix_of_the_app_is_read_while_the_app_rewrites_its_settings_file`);
-  `lib.rs` внедряет `{}` вместо непарсимого файла (`stored_settings`). Сделано (`fix/settings-config`); один писатель
-  tmp + rename, летучие поля вне файла и явный источник fallback в JSON остаются s5.
+  `lib.rs` внедряет `{}` вместо непарсимого файла (`stored_settings`); sync ждёт загрузку префикса без 5-секундного
+  таймаута, и загрузку репозитория, выбранного за это время (`syncs with the prefix of a load that takes longer than a
+  few seconds, without an error`). Сделано (`fix/settings-config`); один писатель tmp + rename, летучие поля вне файла,
+  явный источник fallback в JSON и префикс в Rust (ожидание исчезает с параметром) остаются s5.
 - **Факты и сервисы:** `/problems` после ответа; single-flight токена GitHub и refresh YouTrack; scope `read:org`;
   записи `.git/config`. Single-flight токена GitHub сделан (`fix/remote-perf`): источник-процесс один раз на всех
   спрашивающих, ответ (и отсутствие токена) хранится `SOURCE_TTL` 30 с, состояние цепочки — короткий `std` mutex
@@ -1446,8 +1448,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `lib.rs` внедряет `{}` вместо непарсимого файла; ожидание префикса в sync исчезает вместе с параметром.
 - **Удаляется:** `MainStoreSync`, `SubWindowStoreSync`, `EchoTracker`, `store-set-request`/`store-response`,
   писатель `LazyStore` (`app-store.ts`, `sub-window-app-store.ts`, части `sync-utils.ts`); ручные читатели в
-  `zoom.rs`, `menu.rs`, `title_bar.rs`, `bd-core/context.rs`; `computeEffectiveBranchPrefix`; 5-секундный таймаут
-  префикса (`branch-sync.ts:1305-1318`); параметр `store_cache` у `open_sub_window` и `SubWindowUpdate`.
+  `zoom.rs`, `menu.rs`, `title_bar.rs`, `bd-core/context.rs`; `computeEffectiveBranchPrefix`; ожидание загрузки
+  префикса в `runSync` (`branch-sync.ts`, таймаут снят в `fix/settings-config`); параметр `store_cache` у `open_sub_window` и `SubWindowUpdate`.
 - **Проверки:** отсутствующий, старый, частично невалидный файл и неизвестные ключи round-trip; быстрые правки из двух
   окон и позднее эхо, которое не откатывает — **два поля одного ключа** (`activityPanel` из главного, `reviewSidebar`
   из review); ошибка сохранения показана; `bd` читает те же эффективные значения без приложения; путь «`bd` рядом»:

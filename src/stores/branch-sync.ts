@@ -27,7 +27,6 @@ import type {
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
-import { UserError } from "@/lib/git/vcs-request"
 import type { ParkedState } from "@/lib/parked"
 import { collectParkedStates } from "@/lib/parked"
 import { sameStringRecord } from "@/lib/record"
@@ -1388,20 +1387,12 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
   let repositoryPath: string | null = null
 
   try {
-    // wait for a pending branch prefix load, so the sync does not run with a stale prefix
-    const loadingPromise = getLoadingPromise()
-    if (loadingPromise !== null) {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      try {
-        await Promise.race([
-          loadingPromise,
-          new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new UserError("Timeout waiting for branch prefix configuration")), 5000)
-          }),
-        ])
-      } finally {
-        clearTimeout(timer)
-      }
+    // wait for a pending branch prefix load, so the sync does not run with a stale prefix: as long as it takes (it
+    // never rejects, and answers once its git does), and for the load of a repository selected meanwhile too; a fixed
+    // timeout failed the sync of a busy machine
+    for (let loading = getLoadingPromise(), waited: Promise<void> | null = null; loading !== null && loading !== waited; loading = getLoadingPromise()) {
+      waited = loading
+      await loading
     }
 
     const vcsRequest = vcsRequestFactory.createRequest()

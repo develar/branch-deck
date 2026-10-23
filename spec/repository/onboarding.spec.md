@@ -102,8 +102,11 @@ alert with the reason and the next step, never a raw Git error.
   on Enter and when it loses the focus, never on a key (the prefix names the branches of the sync and the robots of
   Patronus), refuses a prefix git cannot take in place, and Escape takes the typing back before it closes the window.
   Empty, the prefix of git for the selected repository applies (the window reads it itself), shown as the placeholder.
-  A sync reads the prefix when it starts: a change during one names the branches of the next.
+  A sync reads the prefix when it starts: a change during one names the branches of the next. A sync that starts while
+  the prefix of git loads (a selected repository, a changed config) waits for that load as long as it takes, also for
+  the load of a repository selected meanwhile, and never fails on a busy machine for a fixed timeout.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
+  [@test] ../../src/stores/branch-sync.test.ts (`syncs with the prefix of a load that takes longer than a few seconds, without an error`, `waits for the load of a repository selected while the first load ran`)
 - The specific prefix wins, in the app as in `bd` ([Settings](settings.spec.md#branch-prefix-order)): a repository
   whose own git config (local or worktree, or `git -c`) sets `branchdeck.branchPrefix` names its branches by it, whatever the field
   says; the field says so ("This repository uses its own prefix `user-name`", with "Open Repository Settings") and
