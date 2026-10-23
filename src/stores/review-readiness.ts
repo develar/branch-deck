@@ -153,7 +153,13 @@ let approvalListener: (news: ApprovalNews) => void = () => {}
 const toldApprovals = new Set<string>()
 /** By `recheckKey`, the last answer Patronus gave (not unavailable): a failure between two answers hides no approval */
 const lastAnswered = new Map<string, ReadinessEntry>()
-let inFlight = false
+/** The repositories (`currentKey`) whose background batch is in flight: one each, so a switch asks the new one at once */
+const inFlight = new Set<string>()
+/**
+ * By `recheckKey`, the input key a demand or a recheck asks in a call of its own: a surface that needs the answer now
+ * (the Safe Push popover, Check Approvals Again) never waits for the background batch
+ */
+const demandsInFlight = new Map<string, string>()
 let scanTimer: ReturnType<typeof setTimeout> | undefined
 
 function update(key: string, patch: (entries: Readonly<Record<string, ReadinessEntry>>) => Readonly<Record<string, ReadinessEntry>>): void {
@@ -188,10 +194,10 @@ function askedOrder(key: string): string[] {
 }
 
 /**
- * Asks for the next batch, if none is in flight: the rechecks first (one call with `recheck`), then the branches a
- * surface demands, then the shown ones whose step needs it, in table order (`askedOrder`), up to
- * `READINESS_BATCH_SIZE`. An entry whose input changed is marked stale at once, so no surface acts on it while its
- * answer loads. Repeats until nothing is due.
+ * Asks for what is due: the rechecks (one call with `recheck`) and the branches a surface demands (one call) at once,
+ * each in a call of its own beside a batch in flight; then, if the repository has no batch in flight, the shown ones
+ * whose step needs it, in table order (`askedOrder`), up to `READINESS_BATCH_SIZE`. An entry whose input changed is
+ * marked stale at once, so no surface acts on it while its answer loads. Repeats until nothing is due.
  */
 function scan(): void {
   scanTimer = undefined
@@ -210,18 +216,23 @@ function scan(): void {
     }
   }
   const rechecked = recheckNames.filter(name => rechecks.has(recheckKey(key, name)))
-  const names = rechecked.length > 0 ? rechecked : [...new Set([...demanded.keys(), ...wantedOf()])]
-  const due: ReadinessInput[] = []
-  for (const name of names) {
-    const input = readinessInputOf(name)
-    if (input !== null && isDue(key, entries[name], input, now)) {
-      due.push(input)
+  const dueOf = (names: readonly string[]): ReadinessInput[] => {
+    const due: ReadinessInput[] = []
+    for (const name of names) {
+      const input = readinessInputOf(name)
+      if (input !== null && isDue(key, entries[name], input, now)) {
+        due.push(input)
+      }
     }
+    return due
   }
+  const recheckDue = dueOf(rechecked)
+  const demandDue = dueOf([...demanded.keys()].filter(name => !rechecked.includes(name)))
+  const wantedDue = dueOf(wantedOf().filter(name => !demanded.has(name) && !rechecked.includes(name)))
   // what changed is stale now, also beyond the batch and while another batch is in flight: no surface acts on it
   update(key, current => {
     let next = current
-    for (const input of due) {
+    for (const input of [...recheckDue, ...demandDue, ...wantedDue]) {
       const entry = current[input.branch.branchName]
       if (entry !== undefined && !entry.stale) {
         next = { ...next, [input.branch.branchName]: { ...entry, stale: true } }
@@ -229,20 +240,45 @@ function scan(): void {
     }
     return next
   })
-  if (inFlight) {
+  for (const input of recheckDue) {
+    rechecks.delete(recheckKey(key, input.branch.branchName))
+  }
+  askNow(key, recheckDue, true)
+  // a demand already asked for its input waits for that call, not for another
+  askNow(
+    key,
+    demandDue.filter(input => demandsInFlight.get(recheckKey(key, input.branch.branchName)) !== input.key),
+    false,
+  )
+  if (inFlight.has(key)) {
     return
   }
-  const batch = due.slice(0, READINESS_BATCH_SIZE)
+  const batch = wantedDue.slice(0, READINESS_BATCH_SIZE)
   if (batch.length === 0) {
     return
   }
-  const recheck = rechecked.length > 0
-  for (const input of batch) {
-    rechecks.delete(recheckKey(key, input.branch.branchName))
+  inFlight.add(key)
+  void ask(key, batch, false).finally(() => {
+    inFlight.delete(key)
+    scheduleReadinessScan()
+  })
+}
+
+/** One call of its own for what a surface needs now, beside the batch in flight */
+function askNow(key: string, inputs: readonly ReadinessInput[], recheck: boolean): void {
+  if (inputs.length === 0) {
+    return
   }
-  inFlight = true
-  void ask(key, batch, recheck).finally(() => {
-    inFlight = false
+  for (const input of inputs) {
+    demandsInFlight.set(recheckKey(key, input.branch.branchName), input.key)
+  }
+  void ask(key, inputs, recheck).finally(() => {
+    for (const input of inputs) {
+      const asked = recheckKey(key, input.branch.branchName)
+      if (demandsInFlight.get(asked) === input.key) {
+        demandsInFlight.delete(asked)
+      }
+    }
     scheduleReadinessScan()
   })
 }
@@ -271,6 +307,7 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
   const news: ApprovalNews[] = []
   update(key, current => {
     const next = { ...current }
+    let changed = false
     for (const { input, readiness, requirement } of answers) {
       const name = input.branch.branchName
       const stale = currentKey() !== key || readinessInputOf(name)?.key !== input.key
@@ -278,6 +315,21 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
       if (stale && current[name] !== undefined && current[name].key !== input.key && !current[name].stale) {
         continue
       }
+      // the same answer again (a demand beside the batch that asked the same input) changes nothing: no surface renders.
+      // An unavailable one counts its time anew (`isDue` asks again after a while)
+      const before = current[name]
+      if (
+        !stale &&
+        readiness.kind !== "unavailable" &&
+        before !== undefined &&
+        !before.stale &&
+        before.key === input.key &&
+        JSON.stringify(before.readiness) === JSON.stringify(readiness) &&
+        JSON.stringify(before.requirement) === JSON.stringify(requirement)
+      ) {
+        continue
+      }
+      changed = true
       const pullRequest = input.branch.start.kind === "pullRequest" ? input.branch.start.number : null
       const reviewers = input.branch.reviewers ?? []
       const entry: ReadinessEntry = {
@@ -306,7 +358,7 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
         rememberReviewGroups(name, requirement)
       }
     }
-    return next
+    return changed ? next : current
   })
   for (const approval of news) {
     approvalListener(approval)
@@ -411,7 +463,8 @@ export function resetReviewReadiness(): void {
   demanded.clear()
   shown.clear()
   rechecks.clear()
-  inFlight = false
+  inFlight.clear()
+  demandsInFlight.clear()
   clearTimeout(scanTimer)
   scanTimer = undefined
   wantedOf = () => []

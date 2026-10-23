@@ -325,8 +325,11 @@ branch from all the facts (the branch, its robots, its pull request and the read
   through `useBranchNextStep`): a row on the screen, not one a collapsed stack, side stack or island hides (it is not
   rendered), and of the root of a stack that forks its whole stack too, so a small stack without an island knows the
   approvals of its whole stack before a click; the header of an island (its whole stack, below, or the last branch of
-  a straight chain, also while collapsed); the preview; the review window (its chain, or `stack:<root>` of the review of the whole stack). They go in table order, the branches a start (a click that waits, its popover) or the dialog asks first (`demandReviewReadiness`),
-  at most 8 per call, one call in flight. A hidden branch is asked once it shows; its answer stays meanwhile, marked
+  a straight chain, also while collapsed); the preview; the review window (its chain, or `stack:<root>` of the review of the whole stack). They go in table order, at most 8 per call, one call in flight per repository (a switch asks the new
+  one at once). The branches a start (a click that waits, its popover) or the dialog asks (`demandReviewReadiness`)
+  and the rechecks of Check Approvals Again go at once, each in a call of its own beside the batch in flight, once per
+  input: a click never waits for 8 background pre-checks. An answer equal to the one shown (the batch beside a demand
+  answering the same input) changes nothing, so no surface renders again. A hidden branch is asked once it shows; its answer stays meanwhile, marked
   stale when it shows with another input. One exception: a hidden branch whose last answer waits for an approval in its
   pull request stays asked, so a new review of it asks once and its approval is still news. The start is the one of
   the robot: the open pull request into the target with its reviewers and author, else through the API
@@ -335,6 +338,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   root in the order, only while the sync built the stack branch (another state has nothing its Safe Push would land).
   [@test] ../../src/stores/review-readiness.test.ts (`asks for the whole stack its header shows as its stack branch with its pull request, right before its root, only while the sync built it`)
   [@test] ../../src/stores/review-readiness.test.ts (`asks for the wanted branches in one batch, with the start the robot would take`, `keeps one batch in flight, of at most READINESS_BATCH_SIZE branches`, `asks only the branches whose next step depends on the readiness`, `asks only the branches a surface shows, and keeps asking the hidden ones that wait for an approval`)
+  [@test] ../../src/stores/review-readiness.test.ts (`asks a demanded branch at once in its own call while the background batch is in flight`, `asks the branches of another repository at once while the batch of the one before is in flight`, `keeps the entry when the batch answers what the demand beside it answered: no surface renders again`)
   [@test] ../../src/lib/branch-next-step.test.ts (`asks for the readiness of a branch on GitHub, pushed or not: Patronus judges the local commits`)
 - An answer is keyed by its input: the tip, the start and the reviews. A sync onto a new baseline that keeps them asks
   nothing (the backend keeps the answers on disk by what Patronus decides on); a new tip or a new review asks once. The

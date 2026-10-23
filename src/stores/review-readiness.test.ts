@@ -6,6 +6,7 @@ import { stackReadinessKey } from "@/lib/whole-stack"
 import type { StackBranch } from "@/stores/branch-sync"
 import {
   READINESS_BATCH_SIZE,
+  demandReviewReadiness,
   freshReadiness,
   getReviewReadiness,
   recheckReviewReadiness,
@@ -23,8 +24,11 @@ const { state } = vi.hoisted(() => ({
     stackPullRequests: {} as Record<string, PullRequest>,
     calls: [] as GetBranchReviewReadinessParams[],
     readiness: { kind: "notRequired" } as ReviewReadiness,
-    /** Resolves the call in flight; null answers at once */
+    /** Resolves the calls in flight; null answers at once */
     pending: null as (() => void) | null,
+    /** The resolvers of the held calls, in the order they were made */
+    held: [] as (() => void)[],
+    key: "/repo\nuser",
     hold: false,
     refreshes: 0,
   },
@@ -38,7 +42,8 @@ vi.mock("@/lib/bindings", () => ({
       state.calls.push(params)
       if (state.hold) {
         await new Promise<void>(resolve => {
-          state.pending = resolve
+          state.held.push(resolve)
+          state.pending = () => state.held.splice(0).forEach(release => release())
         })
       }
       const data: BranchReviewReadiness[] = params.branches.map(branch => ({ branchName: branch.branchName, tip: branch.tip, requirement: null, readiness: state.readiness }))
@@ -69,7 +74,7 @@ vi.mock("@/stores/patronus", async () => {
     isPatronusAvailable: () => true,
     getPatronusGitHubRepository: () => "acme/monorepo",
     repositoryKey: (repositoryPath: string, branchPrefix: string) => `${repositoryPath}\n${branchPrefix}`,
-    currentKey: () => "/repo\nuser",
+    currentKey: () => state.key,
   }
 })
 
@@ -135,6 +140,8 @@ beforeEach(() => {
   state.readiness = { kind: "notRequired" }
   state.hold = false
   state.pending = null
+  state.held = []
+  state.key = "/repo\nuser"
   state.refreshes = 0
 })
 
@@ -221,6 +228,64 @@ describe("review readiness", () => {
     state.pending!()
     await settle()
     expect(state.calls.map(call => call.branches.length)).toEqual([READINESS_BATCH_SIZE, 2])
+  })
+
+  it("asks a demanded branch at once in its own call while the background batch is in flight", async () => {
+    state.tips = Object.fromEntries(Array.from({ length: READINESS_BATCH_SIZE }, (_, index) => [`b${index}`, `t${index}`]))
+    state.tips.auth = "a1"
+    state.hold = true
+    unwatch = watchShown(order => order.filter(name => name !== "auth"))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.calls.map(call => call.branches.length)).toEqual([READINESS_BATCH_SIZE])
+    // the Safe Push popover of auth opens: its readiness goes out before the batch answers
+    const release = demandReviewReadiness("auth")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.calls.map(call => call.branches.map(branch => branch.branchName))).toEqual([Object.keys(state.tips).filter(name => name !== "auth"), ["auth"]])
+    // asked once: another scan while it is in flight sends nothing more
+    scheduleReadinessScan()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.calls).toHaveLength(2)
+    state.held[1]!()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(freshReadiness(getReviewReadiness("auth"), "auth")).toMatchObject({ tip: "a1" })
+    expect(getReviewReadiness("b0")).toBeUndefined()
+    state.hold = false
+    state.pending!()
+    await settle()
+    expect(state.calls).toHaveLength(2)
+    release()
+  })
+
+  it("keeps the entry when the batch answers what the demand beside it answered: no surface renders again", async () => {
+    state.hold = true
+    unwatch = watchShown(order => order)
+    await vi.advanceTimersByTimeAsync(0)
+    const release = demandReviewReadiness("auth")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.calls.map(call => call.branches.map(branch => branch.branchName))).toEqual([["auth"], ["auth"]])
+    state.held[1]!()
+    await vi.advanceTimersByTimeAsync(0)
+    const answered = getReviewReadiness("auth")
+    expect(answered).toMatchObject({ stale: false, tip: "a1" })
+    state.hold = false
+    state.pending!()
+    await settle()
+    expect(getReviewReadiness("auth")).toBe(answered)
+    release()
+  })
+
+  it("asks the branches of another repository at once while the batch of the one before is in flight", async () => {
+    state.hold = true
+    unwatch = watchShown(order => order)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.calls.map(call => call.repositoryPath)).toEqual(["/repo"])
+    state.key = "/other\nuser"
+    scheduleReadinessScan()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.calls.map(call => call.repositoryPath)).toEqual(["/repo", "/other"])
+    state.hold = false
+    state.pending!()
+    await settle()
   })
 
   it("asks again with recheck after the pull requests from GitHub, the answer stale meanwhile", async () => {
