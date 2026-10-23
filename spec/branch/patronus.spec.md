@@ -805,7 +805,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the pull request with a /patronus merge comment`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs`)
 - The bot answers the comment with a reaction: 👍 started, 👎 not, with a comment starting `⚠️` that says why. After the
-  comment, every 3 s for up to a minute, the app reads the reactions of its comment (`GET
+  comment, every 3 s for up to a minute counted from the comment (the checks of the start before it take none of it),
+  the app reads the reactions of its comment (`GET
   repos/<owner>/<name>/issues/comments/<id>`, conditional: a poll that sees no change costs no rate limit); after 👎 the first later `⚠️` comment of a bot is the reason, looked for
   once more if it isn't there yet; after 👍 an incremental list (`since` shortly before the comment) finds the robot of
   the pull request (`githubPrUrl`), which shows at once and is polled: of that pull request, a Dry Run for a Dry Run and
@@ -816,19 +817,23 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   minute is "Patronus did not answer the comment within a minute: see pull request #7". A 👍 is the start: when
   Patronus lists no robot of it within the minute, the toast is "Safe Push started", "Patronus accepted the comment on
   #7: the robot shows once Patronus lists it", with "Open Pull Request #7", and the robot is looked for every 15 s for 5
-  minutes more in the background. Until it is listed (or the 5 minutes end, or another repository is selected) the
-  start holds: the slot says "Starting…", a second click or key starts nothing, and a repeat of the same pull request
-  and mode joins the start instead of posting a second comment, which Patronus would answer with a second robot or 👎.
+  minutes more in the background. Until it is listed (or the 5 minutes end) the start holds: the slot says "Starting…",
+  a second click or key starts nothing, and a repeat of the same pull request and mode joins the start instead of
+  posting a second comment, which Patronus would answer with a second robot or 👎. The hold is the repository's own: a
+  switch to another repository shows nothing on its branch of the same name, and back in the repository the slot still
+  says "Starting…" while the look in the background goes on there.
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_comment_without_reactions_is_pending_and_a_thumbs_up_is_accepted`)
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_thumbs_down_reads_the_reason_from_the_bot_comment`)
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`the_reason_is_a_later_bot_comment_and_a_user_warning_is_not_one`)
   [@test] ../../src/stores/patronus.test.ts (`posts the command, waits for the thumbs up and returns the robot of the pull request`)
   [@test] ../../src/stores/patronus.test.ts (`throws the reason the bot gave with its thumbs down`)
   [@test] ../../src/stores/patronus.test.ts (`gives up after a minute without an answer`)
+  [@test] ../../src/stores/patronus.test.ts (`counts the minute of the bot from the comment, not from the checks before it`)
   [@test] ../../src/stores/patronus.test.ts (`never takes an earlier robot of the pull request: one listed before the comment or of the other mode, the newest of the rest`)
   [@test] ../../src/stores/patronus.test.ts (`resolves an accepted comment without a listed robot as started, and looks for the robot in the background`)
   [@test] ../../src/stores/patronus.test.ts (`joins a repeat of an accepted comment whose robot Patronus lists not yet, and posts no second comment`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should keep holding a start Patronus accepted through a switch to another repository and back`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_robot_of_a_comment_is_never_an_earlier_robot_of_the_pull_request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say why Patronus refused the comment`)
 - A branch without an open pull request starts through the API, as on Space, without a merge request; that start counts

@@ -16,7 +16,7 @@ import { recordActivity, recordRobot } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { StartRepository } from "@/stores/patronus"
 import { startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patronus"
-import { getRepositorySwitchReason, getSelectedProject, repositoryStore, vcsRequestFactory } from "@/stores/repository"
+import { getRepositorySwitchReason, vcsRequestFactory } from "@/stores/repository"
 import type { SafePushMode, SafePushStarting } from "@/stores/safe-push"
 import { getSafePushStarting, setSafePushStarting } from "@/stores/safe-push"
 import { runUpdateProjectOf } from "@/stores/update-project"
@@ -146,29 +146,20 @@ export function admitStart(errorTitle: string): StartRepository | null {
 }
 
 /**
- * Keeps the start of `branchName` "Starting…" while Patronus lists not yet the robot of the comment it accepted: the
- * row offers no second start, whose check would see no robot and post a second `/patronus` comment. Ends once
- * `listed` settles (the robot holds the next start back then) or another repository is selected. Returns true.
+ * Keeps the start of `branchName` in `repositoryPath` "Starting…" while Patronus lists not yet the robot of the comment
+ * it accepted: the row offers no second start, whose check would see no robot and post a second `/patronus` comment.
+ * The slot is the repository's own (`setSafePushStarting`): a switch to another repository shows nothing on its branch
+ * of the same name, and the hold is there again on the way back. Ends once `listed` settles (the robot holds the next
+ * start back then, or none came within `LATE_ROBOT_WAIT_MS`). Returns true.
  */
 function holdUntilListed(branchName: string, mode: SafePushMode, listed: Promise<unknown>, repositoryPath: string): true {
-  let unsubscribe: (() => void) | null = null
+  setSafePushStarting(branchName, { mode, step: "starting" }, repositoryPath)
   const release = () => {
-    if (unsubscribe === null) {
-      return
-    }
-    unsubscribe()
-    unsubscribe = null
     if (getSafePushStarting(branchName, repositoryPath)?.step === "starting") {
       setSafePushStarting(branchName, null, repositoryPath)
     }
   }
-  unsubscribe = repositoryStore.subscribe(() => {
-    if (getSelectedProject()?.path !== repositoryPath) {
-      release()
-    }
-  })
-  setSafePushStarting(branchName, { mode, step: "starting" }, repositoryPath)
-  void listed.then(release)
+  void listed.then(release, release)
   return true
 }
 

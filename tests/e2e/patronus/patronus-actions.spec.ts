@@ -941,34 +941,64 @@ test.describe("Patronus actions", () => {
       expect(await getOpenedUrls(page)).toContain("https://github.com/acme/monorepo/pull/7")
     })
 
-    test("should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      // nothing to push: the start is the comment alone
-      await remoteHasCommitsOfJira(page)
-      const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7))
-      // the 👍 comes, the fake Patronus lists the robot only later
-
+    /** Starts the Safe Push of JIRA-456 from #7: the 👍 comes, the minute of the list after it runs out without the robot */
+    async function startAcceptedWithoutRobot(page: Page, repo: TestRepositoryBuilder): Promise<void> {
       await openSafePushWithKey(page, "JIRA-456")
       await popoverStart(page).click()
       await skipReplyWait(page, repo)
-      // the minute the app lists the robots after the 👍 runs out
       await page.clock.fastForward(60_000)
       const toast = toastWith(page, "Safe Push started")
       await expect(toast.locator("[data-slot=toast-description]")).toHaveText("Patronus accepted the comment on #7: the robot shows once Patronus lists it")
       await expect(slotSafePush(page, "JIRA-456")).toHaveText("Starting…")
       await expect(slotSafePush(page, "JIRA-456")).toHaveAttribute("aria-busy", "true")
+    }
 
-      // a second start meanwhile opens no popover and posts nothing: the press that opened the popover above
+    /**
+     * The held start of #7: a second start opens no popover and posts nothing (the press that opened the popover of
+     * `startAcceptedWithoutRobot`); then the look in the background finds the robot, which takes the slot of the start
+     */
+    async function expectHeldUntilListed(page: Page, repo: TestRepositoryBuilder): Promise<void> {
       await findBranchRow(page, "JIRA-456").focus()
       await page.keyboard.press("s")
       await expect(safePushPopover(page)).toHaveCount(0)
       expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
 
-      // the look in the background finds the robot, which takes the slot of the start ("Starting…" above)
-      await repo.setPatronus(availableRobots(robotOfComment()))
+      await repo.setPatronus({ ...availableRobots(robotOfComment()), githubRepository: "acme/monorepo" })
       await page.clock.fastForward(15_000)
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
       await expect(slotSafePush(page, "JIRA-456")).toHaveCount(0)
       expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+    }
+
+    test("should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // nothing to push: the start is the comment alone
+      await remoteHasCommitsOfJira(page)
+      const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7))
+      // the 👍 comes, the fake Patronus lists the robot only later
+      await startAcceptedWithoutRobot(page, repo)
+      await expectHeldUntilListed(page, repo)
+    })
+
+    test("should keep holding a start Patronus accepted through a switch to another repository and back", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("issue_links", {
+        patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+        pullRequests: availablePullRequests(pullRequest("JIRA-456", 7)),
+      })
+      await addRecentProject(page)
+      // nothing to push: the start is the comment alone
+      await remoteHasCommitsOfJira(page)
+      await syncAndWaitForBranches()
+      await expect(findBranchRow(page, "JIRA-456").getByTestId("pull-request-chip")).toBeVisible()
+      await startAcceptedWithoutRobot(page, repo)
+
+      // the user opens another repository and comes back: the start of #7 still holds its slot
+      await switchRepository(page, OTHER_REPOSITORY)
+      await expect(findBranchRow(page, "JIRA-456")).toHaveCount(0)
+      await switchRepository(page, repo.path)
+      await expect(slotSafePush(page, "JIRA-456")).toHaveText("Starting…")
+      await expect(slotSafePush(page, "JIRA-456")).toHaveAttribute("aria-busy", "true")
+      // the look in the background went on in the repository of the start
+      await expectHeldUntilListed(page, repo)
     })
 
     test("should say why Patronus refused the comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {

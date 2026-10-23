@@ -71,6 +71,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     commands: [] as PostPatronusCommandParams[],
     replies: [] as PatronusCommandReply[],
     replyCalls: 0,
+    /** How long the checks of a start in Rust take before the comment is posted */
+    checkMs: 0,
     viewCalls: [] as GetRepositoryViewParams[],
     view: { branches: {}, stacks: {}, landedByRobot: {} } as PatronusView,
     /** The waits for the landing needs; the view the backend answers once the computation finished, then counted */
@@ -105,6 +107,7 @@ vi.mock("@/lib/bindings", () => ({
       return { status: "ok", data: patronus.poll }
     },
     postPatronusCommand: async (params: PostPatronusCommandParams) => {
+      await new Promise(resolve => setTimeout(resolve, patronus.checkMs))
       patronus.commands.push(params)
       return { status: "ok", data: { id: "4402154133", url: "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133" } }
     },
@@ -328,6 +331,7 @@ beforeEach(() => {
   patronus.commands = []
   patronus.replies = []
   patronus.replyCalls = 0
+  patronus.checkMs = 0
   patronus.viewCalls = []
   patronus.view = { branches: {}, stacks: {}, landedByRobot: {} }
   patronus.landingWaits = []
@@ -995,6 +999,20 @@ describe("pull request start", () => {
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
     expect((await next).robot?.id).toBe("pr-2")
     expect(patronus.commands).toHaveLength(2)
+  })
+
+  it("counts the minute of the bot from the comment, not from the checks before it", async () => {
+    // the list and the landing gate take 50 s before the comment, the 👍 comes 30 s after it
+    patronus.checkMs = 50_000
+    patronus.replies = [...Array.from({ length: 30_000 / COMMAND_REPLY_INTERVAL_MS - 1 }, () => ({ status: "pending" }) as const), { status: "accepted" }]
+    const commented = START + patronus.checkMs
+    patronus.list = available({ ...ofPullRequest, startTime: (commented + 30_000) / 1000 })
+    const asked = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
+    await vi.advanceTimersByTimeAsync(patronus.checkMs + 30_000)
+    expect((await asked).robot?.id).toBe("pr")
+    expect(patronus.commands).toHaveLength(1)
+    // the robots listed from shortly before the comment
+    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", since: Math.floor((commented - LIST_OVERLAP_MS) / 1000), background: false }])
   })
 
   it("throws the reason the bot gave with its thumbs down", async () => {

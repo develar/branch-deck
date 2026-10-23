@@ -1490,7 +1490,8 @@ export function findCommentRobot(
 }
 
 /**
- * Posts the command, waits up to a minute for the reaction of the bot (👎 throws its reason, no answer throws), then,
+ * Posts the command, waits up to a minute from the comment (the checks before it take none of it) for the reaction of
+ * the bot (👎 throws its reason, no answer throws), then,
  * within that minute and for up to `robotWait` after the 👍, lists the robots started since the comment for the one it
  * started (`findCommentRobot`): stored and returned, polled while it runs; null when none came, then looked for in the
  * background with an infinite `robotWait` (the user's own robot).
@@ -1513,7 +1514,6 @@ async function askPatronusOnPullRequest(
     return joined
   }
   const known = new Set(Object.keys(patronusStore.getState().repositories[key]?.robots ?? {}))
-  const postedAt = Date.now()
   const posted = await commands.postPatronusCommand({
     repositoryPath,
     pullRequestNumber,
@@ -1525,6 +1525,9 @@ async function askPatronusOnPullRequest(
   if (posted.status === "error") {
     throw new Error(posted.error.message)
   }
+  // the comment is posted once the command answers, after the checks of the start in Rust (the list, the landing gate):
+  // the minute of the bot counts from here, not from before the checks
+  const postedAt = Date.now()
   const replyParams = { repositoryPath, pullRequestNumber, commentId: posted.data.id, githubRepository }
   const lookUp = async (): Promise<PatronusRobot | undefined> => {
     const since = Math.floor((postedAt - LIST_OVERLAP_MS) / 1000)
