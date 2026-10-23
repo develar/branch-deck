@@ -8,7 +8,7 @@ use bd_core::sync_command::lock;
 use domain_types::error::ErrorCode;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::parked::{ParkError, ParkLine, ParkOutcome, park_core, unpark_core};
-use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -68,7 +68,7 @@ fn locked(context: &RepoContext, write: impl FnOnce(&RewriteOptions) -> Result<P
   let held = lock(context)?;
   let options = RewriteOptions {
     held_lock: Some(&held),
-    lock_timeout: context.lock_timeout,
+    lock_wait: LockWait::Bounded(context.lock_timeout),
     ..RewriteOptions::default()
   };
   let outcome = write(&options).map_err(park_error)?;

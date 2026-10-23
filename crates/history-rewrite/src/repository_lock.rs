@@ -213,6 +213,80 @@ pub fn lock_repository_while_held(git_common_dir: &Path, unknown_timeout: Durati
 /// How often the wait for a live holder tells it again: the time of its hold grows
 const HOLDER_TICK: Duration = Duration::from_secs(1);
 
+/// The app's side of a wait for a live holder of the lock (`LockWait::WhileHeld`): it hears whom the wait is for and
+/// ends it when the user stops waiting (`lock_wait::WaitTicket`, Stop Waiting on the surface of the operation)
+pub trait LockWaiter: Sync {
+  /// The holder the wait is for, when it changes and about once a second; `None` once the wait ended, with the lock or
+  /// without it. Not called when the lock is free at once
+  fn holder(&self, holder: Option<&LockHolder>);
+  /// Whether the user stopped waiting: the wait ends with `LockWaitCanceled`, before the rewrite read or wrote anything
+  fn canceled(&self) -> bool;
+  /// How long the wait goes on while no record names a live holder (one that writes none), then `RepositoryLocked`
+  fn unknown_timeout(&self) -> Duration {
+    DEFAULT_LOCK_TIMEOUT
+  }
+}
+
+/// How a rewrite waits for another holder of the repository lock
+#[derive(Clone, Copy)]
+pub enum LockWait<'a> {
+  /// At most this long, then `RepositoryLocked`: `bd` (`locked`, exit 3), and a rewrite nobody waits on
+  Bounded(Duration),
+  /// The app (`lock_repository_while_held`): as long as the record of the holder names a live process, another one or
+  /// this app's own push or rewrite; only a holder no record names refuses, after `LockWaiter::unknown_timeout`
+  WhileHeld(&'a dyn LockWaiter),
+}
+
+impl Default for LockWait<'_> {
+  fn default() -> Self {
+    Self::Bounded(DEFAULT_LOCK_TIMEOUT)
+  }
+}
+
+impl fmt::Debug for LockWait<'_> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Bounded(timeout) => f.debug_tuple("Bounded").field(timeout).finish(),
+      Self::WhileHeld(_) => f.write_str("WhileHeld"),
+    }
+  }
+}
+
+impl LockWait<'_> {
+  /// The lock of the repository at `repository_path`, waited for as this wait says
+  pub fn lock(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<RepositoryLock> {
+    self.lock_with(git_executor, repository_path, &|| {})
+  }
+
+  /// `lock`; `on_wait` is called once, when another holds the lock and the wait starts (the update says so)
+  pub fn lock_with(&self, git_executor: &GitCommandExecutor, repository_path: &str, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
+    let common_dir = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repository_path)?;
+    self.lock_in(Path::new(common_dir.trim()), on_wait)
+  }
+
+  /// `lock_with` for a caller that knows `$GIT_COMMON_DIR` (absolute): no git process
+  pub fn lock_in(&self, git_common_dir: &Path, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
+    match self {
+      Self::Bounded(timeout) => lock_repository_in(git_common_dir, *timeout, on_wait),
+      Self::WhileHeld(waiter) => {
+        let mut waited = false;
+        let mut on_holder = |holder: &LockHolder| {
+          if !waited {
+            waited = true;
+            on_wait();
+          }
+          waiter.holder(Some(holder));
+        };
+        let locked = lock_repository_while_held(git_common_dir, waiter.unknown_timeout(), &mut on_holder, &|| waiter.canceled());
+        if waited {
+          waiter.holder(None);
+        }
+        locked
+      }
+    }
+  }
+}
+
 /// The lock file at `path`, created when missing
 fn open_lock_file(path: &Path) -> Result<File> {
   OpenOptions::new()
@@ -267,33 +341,29 @@ pub fn lock_file(path: PathBuf, timeout: Duration, on_wait: &dyn Fn()) -> Result
 /// What every rewrite of the checked out branch takes besides its request (`*_core(…, options)`): the HEAD the request
 /// was made for and the repository lock. The core takes the lock before it reads anything, so two rewrites never
 /// interleave, also when one runs in the app and the other in `bd`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RewriteOptions<'a> {
   /// The HEAD the request was made for; abbreviated ids are fine. Another HEAD is `HeadMoved`
   pub expect_head: Option<String>,
-  /// How long the rewrite waits for another holder of the lock before it fails with `RepositoryLocked`
-  pub lock_timeout: Duration,
+  /// How the rewrite waits for another holder of the lock: `bd` at most its timeout, then `RepositoryLocked`; the app
+  /// as long as the holder lives
+  pub lock_wait: LockWait<'a>,
   /// The repository lock the caller holds, so that it can write more under it; `None` takes the lock for the rewrite
   pub held_lock: Option<&'a RepositoryLock>,
 }
 
-impl Default for RewriteOptions<'_> {
-  fn default() -> Self {
-    Self {
-      expect_head: None,
-      lock_timeout: DEFAULT_LOCK_TIMEOUT,
-      held_lock: None,
-    }
+impl<'a> RewriteOptions<'a> {
+  /// The options of a rewrite of the app: no expected HEAD, the lock waited for as `lock_wait` says
+  pub fn waiting(lock_wait: LockWait<'a>) -> Self {
+    Self { lock_wait, ..Self::default() }
   }
-}
 
-impl RewriteOptions<'_> {
-  /// The lock of the rewrite, held until the guard is dropped: none when the caller holds it, else `lock_repository`
-  /// with `lock_timeout`
+  /// The lock of the rewrite, held until the guard is dropped: none when the caller holds it, else the lock waited for
+  /// as `lock_wait` says
   pub fn lock(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<RepositoryLock>> {
     match self.held_lock {
       Some(_) => Ok(None),
-      None => lock_repository(git_executor, repository_path, self.lock_timeout).map(Some),
+      None => self.lock_wait.lock(git_executor, repository_path).map(Some),
     }
   }
 

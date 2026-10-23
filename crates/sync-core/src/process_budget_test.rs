@@ -19,7 +19,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::parked::{ParkLine, park_core, unpark_core};
 use history_rewrite::regroup::RegroupOptions;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
+use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::ObjectCache;
@@ -496,7 +496,7 @@ async fn an_undo_of_an_unapply() {
   let unapplied = unapply_beta(&GitCommandExecutor::new(), &repo, &commits);
   let git = counting();
   let token = UnapplyUndoToken::parse(&unapplied.undo_token).unwrap();
-  undo_unapply_core(&git, &path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  undo_unapply_core(&git, &path(&repo), &token, LockWait::default()).unwrap();
   assert_processes(&git, UNDO_OF_A_MOVE);
 }
 
@@ -541,7 +541,7 @@ async fn an_undo_of_a_reapply() {
   let reapplied = reapply_beta(&GitCommandExecutor::new(), &repo);
   let git = counting();
   let token = ReapplyUndoToken::parse(reapplied.undo_token.as_deref().unwrap()).unwrap();
-  undo_reapply_core(&git, &path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  undo_reapply_core(&git, &path(&repo), &token, LockWait::default()).unwrap();
   assert_processes(&git, UNDO_OF_A_MOVE);
 }
 

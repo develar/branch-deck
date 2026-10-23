@@ -3,7 +3,7 @@ use domain_types::stack::StackProblem;
 use history_rewrite::regroup::{
   RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core,
 };
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, lock_repository};
 use history_rewrite::store_lines::LineStore;
 use history_rewrite::test_commit::plan;
 use pretty_assertions::assert_eq;
@@ -410,7 +410,7 @@ fn waits_for_the_repository_lock() {
   let ids = commits(&repo, &["One"]);
   let held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
   let options = RegroupOptions {
-    lock_timeout: Duration::from_millis(200),
+    lock_wait: LockWait::Bounded(Duration::from_millis(200)),
     ..RegroupOptions::default()
   };
   let one = plan(&[("a", &[&ids[0]])], &[]);
@@ -434,7 +434,7 @@ fn a_held_lock_is_not_taken_again() {
   let held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
   let one = plan(&[("a", &[&ids[0]])], &[]);
   let without = RegroupOptions {
-    lock_timeout: Duration::ZERO,
+    lock_wait: LockWait::Bounded(Duration::ZERO),
     ..RegroupOptions::default()
   };
   let error = regroup_commits_core(repo.git_executor(), path(&repo), &one, &without).unwrap_err();
@@ -457,12 +457,12 @@ fn undo_restores_the_previous_head() {
 
   let token = UndoToken::of(&outcome).unwrap();
   assert_eq!(token.to_string(), format!("{}..{}", outcome.previous_head, outcome.new_head));
-  undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
   assert_eq!(repo.head(), outcome.previous_head);
   assert_eq!(subjects(&repo, 2), ["One", "Two"]);
 
   // HEAD is no longer the rewritten one
-  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap_err();
+  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap_err();
   assert!(matches!(error, RegroupError::HeadMoved(_)), "{error}");
 }
 

@@ -28,7 +28,7 @@ export async function squashCommits(commits: readonly Commit[], message: string,
     },
     "Cannot squash the commits",
     // the ids as the rewrite before it in the queue left them (`resolveCommitsOf`)
-    () => commands.squashCommits({ repositoryPath, commitIds: resolveCommitsOf(repositoryPath, commits).map(commit => commit.originalHash), message }),
+    wait => commands.squashCommits({ repositoryPath, commitIds: resolveCommitsOf(repositoryPath, commits).map(commit => commit.originalHash), message }, wait),
     ({ newHead, previousHead, squashedCount }) => ({
       sync: true,
       after: () => showUndoToast(`Squashed ${formatCommitCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead, "Cannot undo the squash")),
@@ -42,7 +42,7 @@ export async function squashCommits(commits: readonly Commit[], message: string,
  * of its own, then the sync.
  */
 export async function undoSquash(repositoryPath: string, expectedHead: string, previousHead: string, failureTitle: string): Promise<boolean> {
-  return await runUndo({ id: "undo", subject: `undo:${expectedHead}`, objects: [], label: "Undoing the squash", repositoryPath }, failureTitle, () =>
-    commands.restoreBranchHead({ repositoryPath, expectedHead, previousHead }),
+  return await runUndo({ id: "undo", subject: `undo:${expectedHead}`, objects: [], label: "Undoing the squash", repositoryPath }, failureTitle, wait =>
+    commands.restoreBranchHead({ repositoryPath, expectedHead, previousHead }, wait),
   )
 }

@@ -518,7 +518,8 @@ export async function pushAlone(branchName: string): Promise<boolean> {
     return pushWholeStack(root)
   }
   const result = await pushForAction(branchName)
-  if (!result.pushed) {
+  // a push stopped while it waited for the lock said so itself
+  if (!result.pushed && result.canceled !== true) {
     notifyError(`Cannot push ${branchName}`, result.reason)
   }
   return result.pushed

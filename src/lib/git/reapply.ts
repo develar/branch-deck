@@ -21,7 +21,7 @@ export async function reapplyBranch(name: string): Promise<boolean> {
   const result = await runRewrite(
     { id: "reapply", subject: branchSubject(name), objects: [name], label: `Reapplying ${branch.branch}` },
     `Cannot reapply ${branch.branch}`,
-    () => commands.reapplyBranch({ repositoryPath, branchName: branch.branch, branchPrefix }),
+    wait => commands.reapplyBranch({ repositoryPath, branchName: branch.branch, branchPrefix }, wait),
     data => ({
       sync: true,
       after: () =>
@@ -40,6 +40,6 @@ async function undoReapply(repositoryPath: string, branch: string, undoToken: st
   return await runUndo(
     { id: "undo", subject: `undo:${undoToken}`, objects: [branch], label: `Undoing the reapply of ${branch}`, repositoryPath },
     `Cannot undo the reapply of ${branch}`,
-    () => commands.undoReapplyBranch({ repositoryPath, undoToken }),
+    wait => commands.undoReapplyBranch({ repositoryPath, undoToken }, wait),
   )
 }

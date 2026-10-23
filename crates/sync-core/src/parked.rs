@@ -6,7 +6,7 @@ use anyhow::Result;
 use domain_types::GroupedBranchInfo;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::parked::{ParkLine, ParkOutcome, park_core, unpark_core};
-use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tracing::instrument;
@@ -80,9 +80,10 @@ impl From<ParkOutcome> for ParkResult {
   }
 }
 
-/// Park branches, or change the notes of parked ones, under the repository lock (`park_core`)
+/// Park branches, or change the notes of parked ones, under the repository lock (`park_core`), waited for as
+/// `lock_wait` says
 #[instrument(skip(git_executor, params), fields(branches = params.branches.len()))]
-pub fn park_branches(git_executor: &GitCommandExecutor, params: &ParkBranchesParams) -> Result<ParkResult> {
+pub fn park_branches(git_executor: &GitCommandExecutor, params: &ParkBranchesParams, lock_wait: LockWait) -> Result<ParkResult> {
   let lines: Vec<ParkLine<'_>> = params
     .branches
     .iter()
@@ -91,14 +92,22 @@ pub fn park_branches(git_executor: &GitCommandExecutor, params: &ParkBranchesPar
       note: &line.note,
     })
     .collect();
-  Ok(park_core(git_executor, &params.repository_path, &lines, &RewriteOptions::default())?.into())
+  let options = RewriteOptions {
+    lock_wait,
+    ..RewriteOptions::default()
+  };
+  Ok(park_core(git_executor, &params.repository_path, &lines, &options)?.into())
 }
 
-/// Unpark branches under the repository lock (`unpark_core`)
+/// Unpark branches under the repository lock (`unpark_core`), waited for as `lock_wait` says
 #[instrument(skip(git_executor, params), fields(branches = params.branch_names.len()))]
-pub fn unpark_branches(git_executor: &GitCommandExecutor, params: &UnparkBranchesParams) -> Result<ParkResult> {
+pub fn unpark_branches(git_executor: &GitCommandExecutor, params: &UnparkBranchesParams, lock_wait: LockWait) -> Result<ParkResult> {
   let branches: Vec<&str> = params.branch_names.iter().map(String::as_str).collect();
-  Ok(unpark_core(git_executor, &params.repository_path, &branches, &RewriteOptions::default())?.into())
+  let options = RewriteOptions {
+    lock_wait,
+    ..RewriteOptions::default()
+  };
+  Ok(unpark_core(git_executor, &params.repository_path, &branches, &options)?.into())
 }
 
 /// Why a branch is parked

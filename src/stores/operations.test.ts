@@ -1,8 +1,25 @@
 // @spec spec/branch/branch-row.spec.md
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
+import { commands } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import type { OperationSpec } from "@/stores/operations"
-import { getOperationMoves, getOperations, operationItem, operationsStore, runOperation, whenRewritesDone } from "@/stores/operations"
+import {
+  getOperationMoves,
+  getOperations,
+  lockWaitChannel,
+  operationItem,
+  operationLabel,
+  operationsStore,
+  runOperation,
+  stopWaitingItem,
+  whenRewritesDone,
+} from "@/stores/operations"
+
+vi.mock("@tauri-apps/api/core", async () => await import("@/test-support/channel-mock"))
+vi.mock("@/lib/bindings", async importOriginal => {
+  const original = await importOriginal<typeof import("@/lib/bindings")>()
+  return { ...original, commands: { ...original.commands, cancelLockWait: vi.fn(async () => true) } }
+})
 
 const REPOSITORY = "/repo"
 
@@ -179,6 +196,38 @@ describe("runOperation", () => {
       }),
     ).rejects.toThrow("git failed")
     expect(getOperations()).toEqual([])
+  })
+})
+
+describe("the wait for the repository lock", () => {
+  afterEach(() => {
+    operationsStore.setState({ running: [], claims: {} })
+  })
+
+  it("says whom the command of a running rewrite waits for, offers Stop Waiting on its channel, and says its own state again once the wait ended", async () => {
+    const result = deferred<null>()
+    let channel: ReturnType<typeof lockWaitChannel> | undefined
+    const done = runOperation(rewriteOf("auth"), key => {
+      channel = lockWaitChannel(key)
+      return result.promise
+    })
+    const running = () => getOperations()[0]!
+    expect(operationLabel(running())).toBe("Unstacking auth")
+    expect(stopWaitingItem(running())).toBeNull()
+
+    channel!.onmessage({ waitingFor: "Waiting for `bd pick` (pid 4242, for 12 s)" })
+    expect(operationLabel(running())).toBe("Waiting for `bd pick` (pid 4242, for 12 s)")
+    const stop = stopWaitingItem(running())!
+    expect(stop).toMatchObject({ id: "stop-waiting", label: "Stop Waiting", description: "Waiting for `bd pick` (pid 4242, for 12 s); stop and change nothing" })
+    stop.onSelect({ surface: null })
+    expect(vi.mocked(commands.cancelLockWait)).toHaveBeenCalledExactlyOnceWith(channel!.id)
+
+    // the holder released the lock: the rewrite runs
+    channel!.onmessage({ waitingFor: null })
+    expect(operationLabel(running())).toBe("Unstacking auth")
+    expect(stopWaitingItem(running())).toBeNull()
+    result.resolve(null)
+    await done
   })
 })
 

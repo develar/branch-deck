@@ -1,5 +1,5 @@
 use crate::command_error::CommandError;
-use crate::operation::run_blocking;
+use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
@@ -11,16 +11,26 @@ use tracing::instrument;
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, commits = params.commit_ids.len()))]
 #[specta::specta]
-pub async fn squash_commits(git_executor: State<'_, GitCommandExecutor>, params: SquashCommitsParams) -> Result<SquashCommitsResult, CommandError> {
+pub async fn squash_commits(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: SquashCommitsParams,
+  wait: WaitChannel,
+) -> Result<SquashCommitsResult, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || squash_commits_core(&git, &params, &RewriteOptions::default())).await
+  run_waiting(&lock_waits, wait, move |lock_wait| squash_commits_core(&git, &params, &RewriteOptions::waiting(lock_wait))).await
 }
 
 /// Undoes a squash: moves the current branch back to its previous commit, if it was not moved since
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(git_executor))]
-pub async fn restore_branch_head(git_executor: State<'_, GitCommandExecutor>, params: RestoreBranchHeadParams) -> Result<(), CommandError> {
+#[instrument(skip(git_executor, lock_waits, wait))]
+pub async fn restore_branch_head(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: RestoreBranchHeadParams,
+  wait: WaitChannel,
+) -> Result<(), CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || restore_branch_head_core(&git, &params)).await
+  run_waiting(&lock_waits, wait, move |lock_wait| restore_branch_head_core(&git, &params, lock_wait)).await
 }

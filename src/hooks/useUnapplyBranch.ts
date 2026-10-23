@@ -27,13 +27,16 @@ export async function unapplyBranch(branch: Branch, options: UnapplyOptions = {}
   const result = await runRewrite(
     { id: "unapply", subject: branchSubject(branch.name), objects: [branch.name], label: `Unapplying ${branch.name}`, surface: options.surface ?? null },
     `Cannot unapply ${branch.name}`,
-    () =>
-      commands.unapplyBranch({
-        repositoryPath,
-        branchName: branch.name,
-        branchPrefix,
-        originalCommitIds: branch.commits.map(commit => commit.originalHash),
-      }),
+    wait =>
+      commands.unapplyBranch(
+        {
+          repositoryPath,
+          branchName: branch.name,
+          branchPrefix,
+          originalCommitIds: branch.commits.map(commit => commit.originalHash),
+        },
+        wait,
+      ),
     data => ({
       sync: true,
       after: () =>
@@ -52,6 +55,6 @@ async function undoUnapply(repositoryPath: string, branchName: string, undoToken
   return await runUndo(
     { id: "undo", subject: `undo:${undoToken}`, objects: [branchName], label: `Undoing the unapply of ${branchName}`, repositoryPath },
     `Cannot undo the unapply of ${branchName}`,
-    () => commands.undoUnapplyBranch({ repositoryPath, undoToken }),
+    wait => commands.undoUnapplyBranch({ repositoryPath, undoToken }, wait),
   )
 }

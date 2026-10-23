@@ -11,6 +11,7 @@ import {
   runLabel,
   runningStepSentence,
   runStepLines,
+  stopWaitingUpdateItem,
   updateFooterWords,
 } from "@/lib/update-state"
 
@@ -114,6 +115,21 @@ describe("the labels of a running update", () => {
     const waiting = advanceRun(fetching, "waiting", 1000)
     expect(runningStepSentence(waiting, "origin/master")).toBe("Waiting for Branch Deck or bd to finish…")
     expect(runningStepSentence(advanceRun(waiting, "check", 2000), "origin/master")).toBe("Checking the update onto origin/master…")
+  })
+
+  it("names whom an update waits for while another holder has the repository lock, with Stop Waiting, until its next step", () => {
+    const stops: string[] = []
+    const waiting = { ...advanceRun(fetching, "waiting", 1000), lockWait: { waitingFor: "Waiting for `bd pick` (pid 4242, for 12 s)", stop: () => stops.push("stop") } }
+    expect(runningStepSentence(waiting, "origin/master")).toBe("Waiting for `bd pick` (pid 4242, for 12 s)…")
+    const stop = stopWaitingUpdateItem(waiting)!
+    expect(stop).toMatchObject({ label: "Stop Waiting", description: "Waiting for `bd pick` (pid 4242, for 12 s); stop and change nothing" })
+    stop.onSelect({ surface: null })
+    expect(stops).toEqual(["stop"])
+    // the lock taken: the check names itself, nothing to stop
+    const checking = advanceRun(waiting, "check", 2000)
+    expect(checking.lockWait).toBeNull()
+    expect(stopWaitingUpdateItem(checking)).toBeNull()
+    expect(stopWaitingUpdateItem(undefined)).toBeNull()
   })
 
   it("lists the steps done, the running one and those left, without a wait that ended", () => {

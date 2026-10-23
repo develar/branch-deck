@@ -1343,6 +1343,17 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed_one`)
   [@test] ../../src/lib/transfer-progress.test.ts (`names the holder of the repository lock the push waits for, without a percent`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should wait for another holder of the repository lock as long as it lives, and then start`)
+- Stop Waiting must end the wait of a push for another holder of the repository lock, before anything was pushed: in
+  the hover of the push button and beside the step of a Safe Push while its push waits. The push answers
+  `lockWaitCanceled`, the info toast "Canceled the push of auth before it started" says "Nothing was pushed", and the
+  action whose step the push is (the Safe Push start, a review request) starts nothing and shows no error; the same
+  step pushes and starts once pressed again. Safe Pushes and a move pressed while the holder holds the lock all run
+  once it released it.
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_push_whose_wait_is_stopped_pushes_nothing`)
+  [@test] ../../src/lib/transfer-progress.test.ts (`offers Stop Waiting of a push only while it waits for another holder of the repository lock, on the push's channel`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should stop the wait of a Safe Push for another holder of the repository lock with Stop Waiting beside its step, nothing pushed or started`)
+  [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should say whom a push waits for in the hover of its button, whose Stop Waiting pushes nothing`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should run two Safe Pushes and a move started while another process holds the repository lock once it released it`)
 - The one push into a held branch is a robot action: "Restart Safe Push" of a running robot whose branch
   changed since (the menu, the robot details, the landing overview; "Cancels the run on 1a2b3c4, pushes auth and starts
   it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit. The restart is the action: its

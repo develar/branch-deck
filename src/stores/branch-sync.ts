@@ -20,7 +20,6 @@ import type {
   StackBranchUpdate,
   StackMemberBlock,
   SyncEvent,
-  TransferProgress,
   UpdateCheck,
   WordResolutionSummary,
 } from "@/lib/bindings"
@@ -34,6 +33,7 @@ import { stackIslandRoots } from "@/lib/stack-collapse"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
 import { showToast } from "@/lib/toast-message"
+import type { PushProgress } from "@/lib/transfer-progress"
 import { addTiming } from "@/lib/update-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
@@ -257,7 +257,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
  * How far each running push is, by `pushKey` of the repository it started in, absent before git reports a stage: apart
  * from `branchSyncStore`, because a progress tick would re-run every selector of it (docs/design/rendering-performance.md)
  */
-const pushProgressStore = createStore<Readonly<Record<string, TransferProgress>>>(() => ({}))
+const pushProgressStore = createStore<Readonly<Record<string, PushProgress>>>(() => ({}))
 
 // ---- hooks ----
 
@@ -866,7 +866,7 @@ export function useIsStackBranchPushing(root: string): boolean {
 }
 
 /** How far the running push of the stack branch of the whole stack of `root` is (`useBranchPushProgress`) */
-export function useStackBranchPushProgress(root: string): TransferProgress | null {
+export function useStackBranchPushProgress(root: string): PushProgress | null {
   return useBranchPushProgress(stackReadinessKey(root))
 }
 
@@ -874,12 +874,12 @@ export function useStackBranchPushProgress(root: string): TransferProgress | nul
  * How far the running push of the branch in the selected repository is; null before git reports a stage and when no
  * push runs
  */
-export function useBranchPushProgress(name: string): TransferProgress | null {
+export function useBranchPushProgress(name: string): PushProgress | null {
   const key = pushKey(useSelectedProjectPath() ?? "", name)
   return useStore(pushProgressStore, state => state[key] ?? null)
 }
 
-export function getBranchPushProgress(name: string, repositoryPath: string = selectedRepositoryPath()): TransferProgress | null {
+export function getBranchPushProgress(name: string, repositoryPath: string = selectedRepositoryPath()): PushProgress | null {
   return pushProgressStore.getState()[pushKey(repositoryPath, name)] ?? null
 }
 
@@ -1117,12 +1117,12 @@ export function setStackPush(startedFrom: string, names: readonly string[] | nul
  * Records how far the push of the branch in `repositoryPath` is, for its rows there; a message that arrives after the
  * push ended is dropped
  */
-export function setBranchPushProgress(name: string, progress: TransferProgress, repositoryPath: string): void {
+export function setBranchPushProgress(name: string, progress: PushProgress, repositoryPath: string): void {
   setBranchesPushProgress([name], progress, repositoryPath)
 }
 
 /** Records how far the one push of the branches is, for each of them in one update; the ones whose push ended drop it */
-export function setBranchesPushProgress(names: readonly string[], progress: TransferProgress, repositoryPath: string): void {
+export function setBranchesPushProgress(names: readonly string[], progress: PushProgress, repositoryPath: string): void {
   const pushing = names.filter(name => isBranchPushing(name, repositoryPath))
   if (pushing.length > 0) {
     pushProgressStore.setState(Object.fromEntries(pushing.map(name => [pushKey(repositoryPath, name), progress])))

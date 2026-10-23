@@ -8,13 +8,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Spinner } from "@/components/ui/spinner"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { RobotActionButton } from "@/components/branch/PatronusChip"
+import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
 import type { PushButtonAction } from "@/hooks/usePushButton"
 import { usePushButton, useStackBranchPushAlone } from "@/hooks/usePushButton"
-import type { TransferProgress } from "@/lib/bindings"
 import { pushBranch, pushFromButton } from "@/lib/git/push"
 import { blockingBranchOf, formatStackPushing, stackPushSubject } from "@/lib/stack"
-import { transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
+import type { PushProgress } from "@/lib/transfer-progress"
+import { stopWaitingPushItem, transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
@@ -302,12 +303,19 @@ function PushAlternative({ action, disabled, close }: { action: PushButtonAction
  * The last progress line of git, "Pushing feature-auth…" ("Pushing 3 branches…") until git reports a stage, and what was
  * sent so far and how fast when that line doesn't say it
  */
-export function PushProgressDescription({ subject, progress }: { subject: string; progress: TransferProgress | null }) {
+export function PushProgressDescription({ subject, progress }: { subject: string; progress: PushProgress | null }) {
   const amount = transferAmountNotInLine(progress)
+  // a push that waits for another holder of the repository lock: whom for, and Stop Waiting
+  const stopWaiting = stopWaitingPushItem(progress)
   return (
     <div className="flex flex-col gap-0.5" data-testid="push-progress">
       <span className="break-words">{progress?.line ?? `Pushing ${subject}…`}</span>
       {amount !== null && <span className="text-muted-foreground tabular-nums">{amount}</span>}
+      {stopWaiting !== null && (
+        <div className="flex justify-end pt-1">
+          <MenuItemButton item={stopWaiting} variant="outline" data-testid="stop-waiting" />
+        </div>
+      )}
     </div>
   )
 }

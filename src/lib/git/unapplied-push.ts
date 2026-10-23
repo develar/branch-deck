@@ -1,12 +1,11 @@
-import { Channel } from "@tauri-apps/api/core"
 import { toast } from "@/components/ui/toast"
-import type { TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
+import { reportPushError } from "@/lib/git/push"
 import { showToast } from "@/lib/toast-message"
 import { branchSyncStore, syncBranches } from "@/stores/branch-sync"
-import { branchSubject, runOperation } from "@/stores/operations"
+import { branchSubject, pushLockWaitChannel, runOperation } from "@/stores/operations"
 import { vcsRequestFactory } from "@/stores/repository"
 import { getUnappliedBranch } from "@/stores/unapplied-branches"
 
@@ -25,7 +24,7 @@ export async function pushUnappliedBranch(name: string): Promise<void> {
   const request = vcsRequestFactory.createRequest()
   await runOperation(
     { id: "push", kind: "remote", subject: branchSubject(name), objects: [name], label: `Pushing ${branch.branch}`, repositoryPath: request.repositoryPath },
-    async () => {
+    async key => {
       const result = await invokeCommand(() =>
         commands.pushBranches(
           {
@@ -35,11 +34,11 @@ export async function pushUnappliedBranch(name: string): Promise<void> {
             baselineBranch: branchSyncStore.getState().baselineBranch ?? "",
             branches: [{ branchName: branch.branch, expectedRemote: branch.remoteStatus?.remoteTip ?? null, unapplied: true }],
           },
-          new Channel<TransferProgress>(),
+          pushLockWaitChannel(key),
         ),
       )
       if (result.status === "error") {
-        notifyError(failureTitle, result.error)
+        reportPushError(notifyError, branch.branch, result.error)
         return
       }
       if (result.data.type === "remoteMoved") {

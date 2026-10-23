@@ -11,12 +11,11 @@ use git_ops::revs::is_object_id;
 use git_ops::unapply::{UnappliedMove, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
 use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{UndoCheck, UpdateUndo, finish_pending_update};
-use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions, lock_repository};
+use history_rewrite::repository_lock::{LockWait, RepositoryLock, RewriteOptions};
 use history_rewrite::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::sync::PoisonError;
-use std::time::Duration;
 use tracing::{debug, info, instrument};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -287,8 +286,8 @@ pub struct UndoneUnapply {
 /// when local changes sit on a path the undo writes; a moved unapplied branch, or a virtual branch of the name that
 /// exists again, fails the transaction and changes nothing. Undoing again is no error: `already_undone`
 #[instrument(skip(git_executor))]
-pub fn undo_unapply_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UnapplyUndoToken, lock_timeout: Duration) -> Result<UndoneUnapply> {
-  let (_lock, undo) = checked_undo(git_executor, repo_path, lock_timeout, || {
+pub fn undo_unapply_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UnapplyUndoToken, lock_wait: LockWait) -> Result<UndoneUnapply> {
+  let (_lock, undo) = checked_undo(git_executor, repo_path, lock_wait, || {
     check_unapply_undo(git_executor, repo_path, &token.previous_head, &token.new_head)
   })?;
   let Some(undo) = undo else {
@@ -314,10 +313,10 @@ pub fn undo_unapply_core(git_executor: &GitCommandExecutor, repo_path: &str, tok
 pub(crate) fn checked_undo(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
-  lock_timeout: Duration,
+  lock_wait: LockWait,
   check: impl FnOnce() -> Result<UndoCheck>,
 ) -> Result<(RepositoryLock, Option<UpdateUndo>)> {
-  let lock = lock_repository(git_executor, repo_path, lock_timeout)?;
+  let lock = lock_wait.lock(git_executor, repo_path)?;
   finish_pending_update(git_executor, repo_path)?;
   match check()? {
     UndoCheck::Ready(undo) if !undo.blocked().is_empty() => Err(anyhow::Error::new(UndoBlocked { paths: undo.blocked().to_vec() })),

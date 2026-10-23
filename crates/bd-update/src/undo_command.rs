@@ -12,6 +12,7 @@ use domain_types::error::ErrorCode;
 use git_ops::revs::read_head;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::regroup::{UndoToken, undo_regroup_core};
+use history_rewrite::repository_lock::LockWait;
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -138,7 +139,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       ),
     ));
   };
-  undo_regroup_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|error| {
+  undo_regroup_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(|error| {
     let mut error = regroup_error(error);
     error.code = match error.code {
       // the token names no write of the issue groups or the stack parents: a wrong argument, not a wrong plan

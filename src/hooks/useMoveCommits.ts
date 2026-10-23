@@ -48,13 +48,16 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
       surface: options.surface,
     },
     targetBranch === null ? "Cannot move the commits back" : `Cannot move the commits to ${targetBranch}`,
-    () =>
-      commands.moveCommitsToBranch({
-        repositoryPath,
-        // the ids as the rewrite before it left them, while the table shows the repository of the move
-        commitIds: resolveCommitsOf(repositoryPath, commits).map(commit => commit.originalHash),
-        targetBranch,
-      }),
+    wait =>
+      commands.moveCommitsToBranch(
+        {
+          repositoryPath,
+          // the ids as the rewrite before it left them, while the table shows the repository of the move
+          commitIds: resolveCommitsOf(repositoryPath, commits).map(commit => commit.originalHash),
+          targetBranch,
+        },
+        wait,
+      ),
     moved => {
       const count = countMoved(moved)
       if (count === 0) {

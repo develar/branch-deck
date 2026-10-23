@@ -1,4 +1,4 @@
-use crate::repository_lock::RewriteOptions;
+use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -92,7 +92,7 @@ fn undo_restores_the_previous_head_and_refuses_after_a_new_commit() {
       expected_head: result.new_head.clone(),
       previous_head: result.previous_head.clone(),
     };
-    restore_branch_head_core(test_repo.git_executor(), &params)
+    restore_branch_head_core(test_repo.git_executor(), &params, LockWait::default())
   };
 
   let result = squash(&test_repo, &[&a, &b], "Add a and b").unwrap();

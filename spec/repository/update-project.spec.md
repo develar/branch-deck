@@ -304,6 +304,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/update-state.test.ts (`names the whole run with one word and its percent, the toast's Fetch as a fetch`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart while an update runs`)
+- While another process holds the repository lock (an agent's `bd pick --follow`, `bd`) or the app's own push, the
+  update must wait after its fetch and its check as long as the holder lives, never refused after 10 s: its tooltip
+  step says whom for ("Waiting for `bd pick` (pid 4242, for 12 s)…"), and Stop Waiting beside the Update button ends
+  the wait with nothing changed but the fetch ("Canceled the update before it started"). Only a holder no record
+  names refuses it after 10 s; `bd update` waits 10 s, then `locked`.
+  [@test] ../../src/lib/update-state.test.ts (`names whom an update waits for while another holder has the repository lock, with Stop Waiting, until its next step`)
 - A bar of 2 px along the bottom edge of the button shows the progress, a sibling of the button (`progressbar`,
   `aria-valuenow`, `aria-valuetext` with the step, "Checking the update onto origin/master… 62%"); while the run is on,
   the name of the button is "Update Project: updating", without the percent. Once the run ends the button works again

@@ -16,6 +16,9 @@ pub struct AppState {
   pub templates_dir: PathBuf,
   /// The table each repository's last sync finished, which `get_repository_view` answers from, as the app keeps it
   pub repository_views: repository_model::views::RepositoryViews,
+  /// The waits of the rewrites, the pushes and the updates for a holder of the repository lock, by the channel of the
+  /// page each reports on (`channel_commands`): `cancel_lock_wait` stops one
+  pub lock_waits: history_rewrite::lock_wait::LockWaits,
 }
 
 impl AppState {

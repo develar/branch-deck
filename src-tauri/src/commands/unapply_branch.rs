@@ -1,7 +1,7 @@
 use crate::command_error::CommandError;
-use crate::operation::run_blocking;
+use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
+use history_rewrite::repository_lock::RewriteOptions;
 use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, UndoReapplyParams, UndoneReapply, reapply_branch_core, undo_reapply_core};
 use sync_core::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, UndoUnapplyParams, UndoneUnapply, unapply_branch_core, undo_unapply_core};
 use tauri::State;
@@ -10,41 +10,59 @@ use tracing::instrument;
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, original_commits = ?params.original_commit_ids.as_ref().map(Vec::len)))]
 #[specta::specta]
-pub async fn unapply_branch(git_executor: State<'_, GitCommandExecutor>, params: UnapplyBranchParams) -> Result<UnapplyBranchResult, CommandError> {
+pub async fn unapply_branch(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: UnapplyBranchParams,
+  wait: WaitChannel,
+) -> Result<UnapplyBranchResult, CommandError> {
   let git = (*git_executor).clone();
-
-  run_blocking(move || unapply_branch_core(&git, params, &RewriteOptions::default())).await
+  run_waiting(&lock_waits, wait, move |lock_wait| unapply_branch_core(&git, params, &RewriteOptions::waiting(lock_wait))).await
 }
 
 #[tauri::command]
-#[instrument(skip(git_executor))]
+#[instrument(skip(git_executor, lock_waits, wait))]
 #[specta::specta]
-pub async fn undo_unapply_branch(git_executor: State<'_, GitCommandExecutor>, params: UndoUnapplyParams) -> Result<UndoneUnapply, CommandError> {
+pub async fn undo_unapply_branch(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: UndoUnapplyParams,
+  wait: WaitChannel,
+) -> Result<UndoneUnapply, CommandError> {
   let git = (*git_executor).clone();
-
-  run_blocking(move || {
+  run_waiting(&lock_waits, wait, move |lock_wait| {
     let token = UnapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of an unapply: {}", params.undo_token))?;
-    undo_unapply_core(&git, &params.repository_path, &token, DEFAULT_LOCK_TIMEOUT)
+    undo_unapply_core(&git, &params.repository_path, &token, lock_wait)
   })
   .await
 }
 
 #[tauri::command]
-#[instrument(skip(git_executor))]
+#[instrument(skip(git_executor, lock_waits, wait))]
 #[specta::specta]
-pub async fn reapply_branch(git_executor: State<'_, GitCommandExecutor>, params: ReapplyBranchParams) -> Result<ReapplyBranchResult, CommandError> {
+pub async fn reapply_branch(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: ReapplyBranchParams,
+  wait: WaitChannel,
+) -> Result<ReapplyBranchResult, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || reapply_branch_core(&git, &params, &RewriteOptions::default())).await
+  run_waiting(&lock_waits, wait, move |lock_wait| reapply_branch_core(&git, &params, &RewriteOptions::waiting(lock_wait))).await
 }
 
 #[tauri::command]
-#[instrument(skip(git_executor))]
+#[instrument(skip(git_executor, lock_waits, wait))]
 #[specta::specta]
-pub async fn undo_reapply_branch(git_executor: State<'_, GitCommandExecutor>, params: UndoReapplyParams) -> Result<UndoneReapply, CommandError> {
+pub async fn undo_reapply_branch(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: UndoReapplyParams,
+  wait: WaitChannel,
+) -> Result<UndoneReapply, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || {
+  run_waiting(&lock_waits, wait, move |lock_wait| {
     let token = ReapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of a reapply: {}", params.undo_token))?;
-    undo_reapply_core(&git, &params.repository_path, &token, DEFAULT_LOCK_TIMEOUT)
+    undo_reapply_core(&git, &params.repository_path, &token, lock_wait)
   })
   .await
 }

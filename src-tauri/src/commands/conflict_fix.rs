@@ -1,6 +1,6 @@
 use crate::command_error::CommandError;
+use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::operation::run_blocking;
-use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -26,7 +26,7 @@ fn cancel_running() {
 #[instrument(skip(git_executor, repository_state))]
 pub async fn find_conflict_fix(
   git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
+  repository_state: State<'_, crate::repository_state::RepositoryStateCache>,
   params: FindConflictFixParams,
 ) -> Result<ConflictFix, CommandError> {
   let git = (*git_executor).clone();
@@ -54,8 +54,13 @@ pub fn cancel_conflict_fix() {
 /// Applies a component of a fix as one regroup under the repository lock, or says it is stale.
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(git_executor, params))]
-pub async fn apply_conflict_fix(git_executor: State<'_, GitCommandExecutor>, params: ApplyConflictFixParams) -> Result<AppliedConflictFix, CommandError> {
+#[instrument(skip(git_executor, lock_waits, params, wait))]
+pub async fn apply_conflict_fix(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: ApplyConflictFixParams,
+  wait: WaitChannel,
+) -> Result<AppliedConflictFix, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || apply_conflict_fix_core(&git, &params)).await
+  run_waiting(&lock_waits, wait, move |lock_wait| apply_conflict_fix_core(&git, &params, lock_wait)).await
 }

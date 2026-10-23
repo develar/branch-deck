@@ -1,5 +1,6 @@
+import type { Channel } from "@tauri-apps/api/core"
 import { toast } from "@/components/ui/toast"
-import type { MoveCommitsResult } from "@/lib/bindings"
+import type { LockWaitEvent, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import type { CommandResult } from "@/lib/command"
@@ -27,7 +28,7 @@ export interface StackOperationOptions {
 async function runStackOperation(
   spec: RewriteSpec,
   /** The command in the repository of the click (`repositoryPath`), whichever the main window shows when it runs */
-  operation: (repositoryPath: string) => Promise<CommandResult<MoveCommitsResult>>,
+  operation: (repositoryPath: string, wait: Channel<LockWaitEvent>) => Promise<CommandResult<MoveCommitsResult>>,
   failureTitle: string,
   /** `suffix` is " (3 commits)", or empty when no commit moved */
   successTitle: (suffix: string) => string,
@@ -37,7 +38,7 @@ async function runStackOperation(
   const result = await runRewrite(
     { ...spec, repositoryPath },
     failureTitle,
-    () => operation(repositoryPath),
+    wait => operation(repositoryPath, wait),
     data => {
       const { undoToken } = data
       if (undoToken == null) {
@@ -72,7 +73,7 @@ export async function restackBranch(branchName: string, parent: string | null, o
       label: parent === null ? `Unstacking ${branchName}` : `Stacking ${branchName} on ${parent}`,
       surface: options.surface,
     },
-    repositoryPath => commands.restackBranch({ repositoryPath, branchName, parent }),
+    (repositoryPath, wait) => commands.restackBranch({ repositoryPath, branchName, parent }, wait),
     parent === null ? `Cannot unstack ${branchName}` : `Cannot stack ${branchName} on ${parent}`,
     suffix => (parent === null ? `Unstacked ${branchName}${suffix}` : `Stacked ${branchName} on ${parent}${suffix}`),
     branchName,
@@ -88,7 +89,7 @@ export async function restackBranch(branchName: string, parent: string | null, o
 export async function renameBranch(branchName: string, newName: string, options: StackOperationOptions = {}): Promise<boolean> {
   const done = await runStackOperation(
     { id: "rename", subject: branchSubject(branchName), objects: [branchName], label: options.label ?? `Renaming ${branchName} to ${newName}`, surface: options.surface },
-    repositoryPath => commands.renameBranch({ repositoryPath, branchName, newName }),
+    (repositoryPath, wait) => commands.renameBranch({ repositoryPath, branchName, newName }, wait),
     `Cannot rename ${branchName}`,
     suffix => `Renamed ${branchName} to ${newName}${suffix}`,
     newName,
@@ -113,7 +114,7 @@ export async function undoRegroup(repositoryPath: string, token: string | null |
   return await runUndo(
     { id: "undo", subject: `undo:${token}`, objects: [], label, repositoryPath },
     failureTitle,
-    () => commands.undoRegroup({ repositoryPath, token }),
+    wait => commands.undoRegroup({ repositoryPath, token }, wait),
     () => {
       requestReveal(null)
       applied?.()

@@ -8,13 +8,15 @@ import type { PushOutcome } from "@/lib/git/push-toast"
 import { showPushToast } from "@/lib/git/push-toast"
 import { pushStack } from "@/lib/git/stack-push"
 import type { VcsRequest } from "@/lib/git/vcs-request"
+import { canceledBeforeStart, isLockWaitCanceled } from "@/lib/lock-wait"
 import { describeRobot, formatPushHoldReason, formatPushMode, openRobot } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush, dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { buttonStackPushOrder, needsPush, stackAncestors, stackPushOrder } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
-import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
+import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
+import { pushProgressOf } from "@/lib/transfer-progress"
 import { recordPush, recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import {
@@ -67,8 +69,18 @@ export interface PushOptions {
   report?: PushReport
 }
 
-/** Says why a push failed or was refused: the title of an error toast and its reason */
-export type PushReport = (title: string, error: unknown, action?: ToastActionProps) => void
+/**
+ * Says why a push failed or was refused: the title of an error toast and its reason. `canceled` hears a push whose wait
+ * for another holder of the repository lock the user stopped (Stop Waiting): nothing was pushed and nothing failed, its
+ * info toast said so, so an action whose step the push is ends without an error of its own (`pushForAction`)
+ */
+export type PushReport = ((title: string, error: unknown, action?: ToastActionProps) => void) & { readonly canceled?: () => void }
+
+/** `own`, a report that passes on to `report`, with the `canceled` of `report` */
+export function passingCanceled(own: (title: string, error: unknown, action?: ToastActionProps) => void, report: PushReport): PushReport {
+  const canceled = report.canceled
+  return canceled === undefined ? own : Object.assign(own, { canceled })
+}
 
 /**
  * Pushes a virtual branch and updates its remote status from the result, then the pull requests (the pull request of
@@ -151,10 +163,10 @@ async function pushOne(branchName: string, options: PushOptions): Promise<{ outc
     return { outcome, joined: true }
   }
   const entry: RunningPush = { options, report, promise: Promise.resolve(null), failure: null }
-  const own: PushReport = (title, error, action) => {
+  const own = passingCanceled((title, error, action) => {
     entry.failure ??= [title, error, action]
     report(title, error, action)
-  }
+  }, report)
   const run = () => pushOneOf(request, branchName, { ...options, report: own }, own)
   // another push of the branch first: this one goes over what it sent
   entry.promise = (before === undefined ? run() : before.promise.catch(() => null).then(run)).finally(() => {
@@ -292,6 +304,19 @@ export function sentPart(before: RemoteStatus | null, tip: string | undefined): 
 }
 
 /**
+ * A failed push of `subject` as `report` says it ("Cannot push auth"); a push whose wait for another holder of the
+ * repository lock the user stopped (Stop Waiting) pushed nothing and failed nothing: an info toast says so
+ */
+export function reportPushError(report: PushReport, subject: string, error: unknown): void {
+  if (isLockWaitCanceled(error)) {
+    showToast(canceledBeforeStart(`the push of ${subject}`, "Nothing was pushed"))
+    report.canceled?.()
+  } else {
+    report(`Cannot push ${subject}`, error)
+  }
+}
+
+/**
  * The push itself, while the row shows its progress: the remote status the remote moved to when nothing was pushed
  * (`moved`), null when it failed (an error toast said so)
  */
@@ -309,7 +334,7 @@ async function pushWithProgress(
   try {
     const progress = new Channel<TransferProgress>()
     progress.onmessage = pushProgress => {
-      setBranchPushProgress(branchName, pushProgress, repositoryPath)
+      setBranchPushProgress(branchName, pushProgressOf(pushProgress, progress), repositoryPath)
     }
     const result = await commands.pushBranch(
       {
@@ -337,7 +362,7 @@ async function pushWithProgress(
       void refreshPullRequestsAfterPush(branchName, options.tip ?? branch.commits[0]?.hash, request)
       return { moved: null }
     }
-    report(`Cannot push ${branchName}`, result.error)
+    reportPushError(report, branchName, result.error)
   } catch (error) {
     report(`Cannot push ${branchName}`, error)
   } finally {
@@ -492,7 +517,8 @@ export async function showRemoteMovedToast(request: VcsRequest, branchName: stri
 }
 
 /** How the push of an action went: pushed (or nothing to push), else why not, for the action to say in place */
-export type ActionPush = { readonly pushed: true } | { readonly pushed: false; readonly reason: string }
+/** A push of an action: pushed, or not with the reason; `canceled` when the user stopped its wait for the lock */
+export type ActionPush = { readonly pushed: true } | { readonly pushed: false; readonly reason: string; readonly canceled?: true }
 
 export interface ActionPushOptions {
   /** The running robot a Safe Push start replaces: canceled, never restarted (`PushOptions.replacesRobot`) */
@@ -535,9 +561,13 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
     return { pushed: false, reason: blocker }
   }
   let reason: string | null = null
-  const report: PushReport = (_title, error) => {
-    reason ??= getErrorDetails(error)
-  }
+  let canceled = false
+  const report: PushReport = Object.assign(
+    (_title: string, error: unknown) => {
+      reason ??= getErrorDetails(error)
+    },
+    { canceled: () => (canceled = true) },
+  )
   const replacesRobot = options.replacesRobot
   const order = stackPushOrder(branchName, getBranch, { stopAtConfirm: true, isHeld })
   let pushed: boolean
@@ -551,7 +581,13 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
         : await pushBranch(branchName, { replacesRobot, announce: false, report })
   }
   // no reason: the remote moved since the row showed it, and its toast says what the remote has and pushes over it
-  return pushed ? { pushed: true } : { pushed: false, reason: reason ?? `The remote branch of ${branchName} changed: nothing was pushed` }
+  if (pushed) {
+    return { pushed: true }
+  }
+  // stopped while it waited for the lock: its toast said so, the action fails nothing
+  return canceled
+    ? { pushed: false, reason: `Canceled the push of ${branchName} before it started`, canceled: true }
+    : { pushed: false, reason: reason ?? `The remote branch of ${branchName} changed: nothing was pushed` }
 }
 
 /**

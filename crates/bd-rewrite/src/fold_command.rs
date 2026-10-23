@@ -10,7 +10,7 @@ use git_ops::revs::{DetachedHead, current_branch};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
 use history_rewrite::autosquash::{AutosquashScope, PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
 use history_rewrite::regroup::UndoToken;
-use history_rewrite::repository_lock::{RepositoryLocked, RewriteOptions, ensure_expected_head};
+use history_rewrite::repository_lock::{LockWait, RepositoryLocked, RewriteOptions, ensure_expected_head};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -91,7 +91,7 @@ pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliErr
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
-    lock_timeout: context.lock_timeout,
+    lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
   };
   let result = squash_fixup_commits_core(&context.git, &params, &options).map_err(|e| {

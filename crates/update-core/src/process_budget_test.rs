@@ -4,6 +4,7 @@
 
 use crate::update_project::update_project_test::{path, setup};
 use crate::update_project::{UpdateProjectParams, update_project_core};
+use history_rewrite::repository_lock::LockWait;
 use test_utils::process_budget::{assert_processes, counting};
 
 /// Update Project: the fetch, the check and the rebase of the local commit onto the upstream, the files following. The
@@ -23,6 +24,7 @@ fn an_update() {
       fetch: true,
     },
     &|_| {},
+    LockWait::default(),
   )
   .unwrap();
   assert!(result.applied.is_some(), "{result:?}");
@@ -64,6 +66,7 @@ fn an_update_after_its_fetch() {
       fetch: false,
     },
     &|_| {},
+    LockWait::default(),
   )
   .unwrap();
   assert!(result.applied.is_some(), "{result:?}");

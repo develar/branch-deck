@@ -13,6 +13,7 @@ import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
@@ -264,7 +265,10 @@ export function CommitPreviewDialog({
           <PreviewDialogFooter
             start={
               isEditing ? (
-                <PrefixChangeHint before={commit.message} after={draft} action="Saving" refusesStackProblems />
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <LockWaitNotice surface={REWORD_SURFACE} />
+                  <PrefixChangeHint before={commit.message} after={draft} action="Saving" refusesStackProblems />
+                </div>
               ) : (
                 <span className="tabular-nums" data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>
               )

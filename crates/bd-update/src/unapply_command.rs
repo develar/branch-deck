@@ -10,7 +10,7 @@ use bd_core::output::SchemaVersion;
 use bd_core::sync_command::lock;
 use domain_types::error::ErrorCode;
 use git_ops::unapply::{DropRefused, MoveBlocked};
-use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyRefusal, ReapplyUndoToken, UndoneReapply, reapply_branch_core, undo_reapply_core};
@@ -46,7 +46,7 @@ pub fn unapply(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutpu
   let held = lock(context)?;
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
-    lock_timeout: context.lock_timeout,
+    lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: Some(&held),
   };
   let params = UnapplyBranchParams {
@@ -114,7 +114,7 @@ fn undo_unapply_token(context: &RepoContext, text: &str) -> Result<(UnapplyUndoT
       format!("{text:?} is not an unapply token: unapply:<previous head>..<new head>:<tip>:<branch>:<unapplied branch>, as bd unapply printed it"),
     )
   })?;
-  let undone = undo_unapply_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|e| core_error(e, ErrorCode::UndoStale))?;
+  let undone = undo_unapply_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(|e| core_error(e, ErrorCode::UndoStale))?;
   Ok((token, undone))
 }
 
@@ -166,7 +166,7 @@ pub fn reapply(context: &RepoContext, args: &ReapplyArgs) -> Result<ReapplyOutpu
   let held = if args.dry_run { None } else { Some(lock(context)?) };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
-    lock_timeout: context.lock_timeout,
+    lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: held.as_ref(),
   };
   let params = ReapplyBranchParams {
@@ -239,6 +239,6 @@ fn undo_reapply_token(context: &RepoContext, text: &str) -> Result<(ReapplyUndoT
       format!("{text:?} is not a reapply token: reapply:<previous head>..<new head>:<tip>:<unapplied branch>, as bd reapply printed it"),
     )
   })?;
-  let undone = undo_reapply_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|e| core_error(e, ErrorCode::UndoStale))?;
+  let undone = undo_reapply_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(|e| core_error(e, ErrorCode::UndoStale))?;
   Ok((token, undone))
 }

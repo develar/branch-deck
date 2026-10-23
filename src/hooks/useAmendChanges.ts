@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import type { MergeConflictInfo, UncommittedChangesResult } from "@/lib/bindings"
+import { commandFailure } from "@/lib/command"
 import { formatFileCount } from "@/lib/commit-files"
 import type { Branch } from "@/stores/branch-sync"
 import { resolveCommitsOf, syncBranches } from "@/stores/branch-sync"
@@ -55,16 +56,20 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
     branch.name,
     // an amend of other files is an amend of its own: it waits for this one, never joins it
     { id: "amend-changes", kind: "rewrite", parameters: JSON.stringify(files), label: `Amending changes to ${branch.name}`, repositoryPath },
-    async () => {
-      const result = await commands.amendUncommittedToBranch({
-        repositoryPath,
-        branchName: branch.name,
-        // the id as the rewrite before it in the queue left it (`resolveCommitsOf`)
-        originalCommitId: resolveCommitsOf(repositoryPath, [tipCommit])[0]?.originalHash ?? tipCommit.originalHash,
-        files,
-      })
+    async wait => {
+      const result = await commands.amendUncommittedToBranch(
+        {
+          repositoryPath,
+          branchName: branch.name,
+          // the id as the rewrite before it in the queue left it (`resolveCommitsOf`)
+          originalCommitId: resolveCommitsOf(repositoryPath, [tipCommit])[0]?.originalHash ?? tipCommit.originalHash,
+          files,
+        },
+        wait,
+      )
       if (result.status !== "ok") {
-        throw new Error(result.error.message)
+        // the error as the command answered it: a wait the user stopped is no failure (`isLockWaitCanceled`)
+        throw commandFailure(result.error)
       }
       if (result.data.status === "branchError") {
         const branchError = result.data.data

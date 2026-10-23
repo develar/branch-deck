@@ -112,10 +112,13 @@ puts its commits back on top of the current branch, their files and their groupi
   - the branch moved meanwhile.
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`unapply_refuses_an_unknown_or_changed_branch_one_not_built_and_one_checked_out`)
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`rewrite_refused_during_merge`)
-- The unapply must run under the repository lock: while another Branch Deck operation holds it, the unapply waits up
-  to 10 s, then it is refused with nothing changed and the error toast says that another operation holds the lock; a
-  HEAD the request was not made for refuses it too.
+- The unapply, the reapply and their undo must run under the repository lock: while another process holds it (an
+  agent's `bd pick --follow`, `bd`) or the app's own push, the app's wait as long as the holder lives, their surface
+  saying whom for with Stop Waiting, which ends the wait with nothing changed; only a holder no record names refuses
+  them after 10 s, with nothing changed and the error toast saying that another operation holds the lock; `bd
+  unapply` and `bd reapply` wait 10 s, then `locked`. A HEAD the request was not made for refuses it too.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
 - A later commit that depends on a dropped commit must make the unapply fail with a conflict, and no ref, index
   entry or file may change.

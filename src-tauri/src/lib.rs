@@ -2,6 +2,7 @@ pub mod auto_update;
 pub mod command_error;
 pub mod commands;
 pub mod legacy_model_cache;
+pub mod lock_wait;
 pub mod menu;
 pub mod operation;
 pub mod progress;
@@ -75,6 +76,7 @@ use commands::youtrack::{
   YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, set_youtrack_issue_state, sign_out_of_youtrack,
   start_youtrack_cli_sign_in, start_youtrack_sign_in, wait_youtrack_cli_sign_in, wait_youtrack_sign_in,
 };
+use lock_wait::cancel_lock_wait;
 use stored_settings::stored_settings;
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
@@ -99,6 +101,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
   Builder::<tauri::Wry>::new().disable_serde_phases().commands(collect_commands![
     push_branch,
     push_branches,
+    cancel_lock_wait,
     get_pull_requests,
     retarget_pull_request,
     get_new_pull_request,
@@ -304,6 +307,7 @@ pub fn run() {
       ts_builder.mount_events(app);
 
       app.manage(GitCommandExecutor::new());
+      app.manage(history_rewrite::lock_wait::LockWaits::default());
       app.manage(RepositoryStateCache::new());
       app.manage(repository_model::views::RepositoryViews::default());
       app.manage(BranchReviewMemo::new());

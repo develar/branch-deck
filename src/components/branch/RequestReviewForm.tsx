@@ -49,7 +49,8 @@ async function pushFirst(name: string, errorTitle: string, repositoryPath: strin
     return pushWholeStack(root, { report: (_title, reason) => notifyError(errorTitle, reason) })
   }
   const pushed = await pushForAction(name, { repositoryPath })
-  if (!pushed.pushed) {
+  // a push stopped while it waited for the lock said so itself
+  if (!pushed.pushed && pushed.canceled !== true) {
     notifyError(errorTitle, pushed.reason)
   }
   return pushed.pushed

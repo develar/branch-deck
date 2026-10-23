@@ -46,10 +46,10 @@ export async function rewordCommit(commit: CommitUnion, message: string, onFollo
     // a reword of another commit of the branch, or with another message, is a reword of its own: it never joins this one
     { id, subject, objects, parameters: JSON.stringify([commitId, message]), label: "Editing the commit message", surface, repositoryPath },
     "Cannot edit the commit message",
-    () => {
+    wait => {
       // the id as the rewrite before it in the queue left it (`resolveCommitsOf`); a missing commit goes by its hash
       target = "originalHash" in commit ? (resolveCommitsOf(repositoryPath, [commit])[0]?.originalHash ?? commitId) : commitId
-      return commands.reword({ repositoryPath, rewords: [{ commit: target, text: { message } }] })
+      return commands.reword({ repositoryPath, rewords: [{ commit: target, text: { message } }] }, wait)
     },
     data => {
       const newCommitId = data.newCommitIds[target] ?? target

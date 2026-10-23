@@ -30,7 +30,7 @@ export async function parkBranches(names: readonly string[], note: string, optio
   const result = await runRewrite(
     parkSpec("park", names, `Parking ${joinNames(names)}`, repositoryPath, options),
     `Cannot park ${joinNames(names)}`,
-    () => commands.parkBranches({ repositoryPath, branches: names.map(branchName => ({ branchName, note })) }),
+    wait => commands.parkBranches({ repositoryPath, branches: names.map(branchName => ({ branchName, note })) }, wait),
     data => {
       if (!data.changed) {
         return { sync: false }
@@ -59,7 +59,7 @@ export async function unparkBranches(names: readonly string[], options: ParkOpti
   const result = await runRewrite(
     parkSpec("unpark", names, `Unparking ${joinNames(names)}`, repositoryPath, options),
     `Cannot unpark ${joinNames(names)}`,
-    () => commands.unparkBranches({ repositoryPath, branchNames: [...names] }),
+    wait => commands.unparkBranches({ repositoryPath, branchNames: [...names] }, wait),
     data => ({ sync: true, after: () => showUndoToast(`Unparked ${joinNames(names)}`, () => restoreQuietly(data.branches, repositoryPath)) }),
   )
   return result !== null
@@ -77,16 +77,16 @@ async function restoreQuietly(changes: readonly ParkedBranchChange[], repository
   const unparks = changes.filter(change => change.previousNote === null && (lines === null || lines[change.branchName] !== undefined)).map(change => change.branchName)
   if (parks.length > 0) {
     const names = parks.map(change => change.branchName)
-    const parked = await runUndo(parkSpec("park", names, `Parking ${joinNames(names)}`, repositoryPath), `Cannot park ${joinNames(names)}`, () =>
-      commands.parkBranches({ repositoryPath, branches: parks.map(change => ({ branchName: change.branchName, note: change.previousNote ?? "" })) }),
+    const parked = await runUndo(parkSpec("park", names, `Parking ${joinNames(names)}`, repositoryPath), `Cannot park ${joinNames(names)}`, wait =>
+      commands.parkBranches({ repositoryPath, branches: parks.map(change => ({ branchName: change.branchName, note: change.previousNote ?? "" })) }, wait),
     )
     if (!parked) {
       return false
     }
   }
   if (unparks.length > 0) {
-    return await runUndo(parkSpec("unpark", unparks, `Unparking ${joinNames(unparks)}`, repositoryPath), `Cannot unpark ${joinNames(unparks)}`, () =>
-      commands.unparkBranches({ repositoryPath, branchNames: unparks }),
+    return await runUndo(parkSpec("unpark", unparks, `Unparking ${joinNames(unparks)}`, repositoryPath), `Cannot unpark ${joinNames(unparks)}`, wait =>
+      commands.unparkBranches({ repositoryPath, branchNames: unparks }, wait),
     )
   }
   return true

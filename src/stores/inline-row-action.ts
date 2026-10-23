@@ -1,12 +1,14 @@
+import type { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { toast } from "@/components/ui/toast"
-import type { MergeConflictInfo } from "@/lib/bindings"
+import type { LockWaitEvent, MergeConflictInfo } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { actionOfLabel, canceledBeforeStart, isLockWaitCanceled } from "@/lib/lock-wait"
 import type { ToastMessage } from "@/lib/toast-message"
 import { showToast } from "@/lib/toast-message"
 import type { OperationKind } from "@/stores/operations"
-import { branchSubject, runOperation, useSurfaceBusy } from "@/stores/operations"
+import { branchSubject, lockWaitChannel, runOperation, useSurfaceBusy } from "@/stores/operations"
 
 export type InlineActionType =
   | "issue-reference"
@@ -191,20 +193,32 @@ type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: fals
  * Runs `fn` as the operation of the row (`runOperation`), while the row's inline form shows its progress state, reports
  * the outcome with a toast (an error through `notifyError`: sticky, logged, in Activity) and closes the form (after an
  * error too, unless `keepFormOnError`). `fn` includes the sync that shows its result: the form shows the progress until
- * then. Resolves to the value of `fn`, or `undefined` if it failed or had to wait for another operation (said in a
- * toast, the form kept).
+ * then. `fn` gets the channel of its command's wait for another holder of the repository lock (`lockWaitChannel`); a
+ * wait the user stopped (Stop Waiting, a `lockWaitCanceled` error thrown) changed nothing: an info toast says so, the
+ * form stays. Resolves to the value of `fn`, or `undefined` if it failed, was stopped or had to wait for another
+ * operation (said in a toast, the form kept).
  */
-export async function withRowProcessing<T>(key: string, operation: RowOperation, fn: () => Promise<T>, options: RowProcessingOptions<T>): Promise<T | undefined> {
+export async function withRowProcessing<T>(
+  key: string,
+  operation: RowOperation,
+  fn: (wait: Channel<LockWaitEvent>) => Promise<T>,
+  options: RowProcessingOptions<T>,
+): Promise<T | undefined> {
   const outcome = await runOperation<Outcome<T>>(
     { ...operation, subject: branchSubject(key), objects: [key], surface: inlineSurface(key) },
-    () =>
-      fn().then(
+    operationKey =>
+      fn(lockWaitChannel(operationKey)).then(
         value => ({ ok: true, value }),
         (error: unknown) => ({ ok: false, error }),
       ),
     reason => toast.add({ type: "info", title: options.errorTitle(reason) ?? operation.label, description: reason }),
   )
   if (outcome === undefined) {
+    return undefined
+  }
+  if (!outcome.ok && isLockWaitCanceled(outcome.error)) {
+    // stopped before it started: nothing changed, the form stays with its input
+    showToast(canceledBeforeStart(actionOfLabel(operation.label)))
     return undefined
   }
   if (!outcome.ok) {

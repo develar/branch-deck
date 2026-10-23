@@ -329,7 +329,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   regroup (`regroup.rs`, also `bd reword` and the app's reword through `reword.rs`) and the move of a hunk through their
   options, and the app's squash and its undo, squash fixups (also `bd fold`), amend, unapply and add issue reference
   through `RewriteOptions` (`held_lock`,
-  `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push`,
+  `lock_wait`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push`,
   `bd safe-push` (the sync, the checks and the commits of the push; the network push and the robot start after it),
   the app's `push_branch` and
   `push_branches` (`repository_model::push_guard`: the user's robots before the lock, the refusals of unknown, parked,
@@ -340,8 +340,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   the move, also when it starts a resolve session; the landed report after the release), `bd pick` (after its check:
   the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
-  (bounded wait, then `locked`; the app's push waits as long as the holder record names a live process and says whom
-  for, `lock_repository_while_held`), because the app and `bd` processes rewrite the same branch. A sync never waits for it:
+  (`bd`: `LockWait::Bounded`, then `locked`; the app's rewrites, pushes and Update Project: `LockWait::WhileHeld`, as
+  long as the holder record names a live process, its own included, saying whom for on the command's channel and
+  stopped by `cancel_lock_wait` of it, `lock_wait.rs`), because the app and `bd` processes rewrite the same branch. A sync never waits for it:
   neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release; only its drop of
   store lines takes it, while it is free (`drop_store_lines`), and skips the drop when it is held. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no

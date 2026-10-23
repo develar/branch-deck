@@ -5,7 +5,19 @@ import { notifyError } from "@/lib/errors"
 import type { Retargeted } from "@/lib/git/new-pull-request"
 import { retargetBeforePush } from "@/lib/git/new-pull-request"
 import type { PushClearance, PushReport } from "@/lib/git/push"
-import { cancelHoldingRobot, checkPushHold, createPushRequest, isHeldBy, isStillIn, pushesOverMovedRemote, restartAfterPush, sentPart, showRemoteMovedToast } from "@/lib/git/push"
+import {
+  cancelHoldingRobot,
+  checkPushHold,
+  createPushRequest,
+  isHeldBy,
+  isStillIn,
+  passingCanceled,
+  pushesOverMovedRemote,
+  reportPushError,
+  restartAfterPush,
+  sentPart,
+  showRemoteMovedToast,
+} from "@/lib/git/push"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showStackPushToast } from "@/lib/git/push-toast"
 import type { VcsRequest } from "@/lib/git/vcs-request"
@@ -15,6 +27,7 @@ import { getPushAction } from "@/lib/push-summary"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
+import { pushProgressOf } from "@/lib/transfer-progress"
 import { formatWholeStack, formatWholeStackBranch, getStackBranchAlong, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { recordPush } from "@/stores/activity"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
@@ -142,10 +155,10 @@ async function pushTogether(startedFrom: string, intent: string, orderOf: () => 
     return pushed
   }
   const entry: RunningStackPush = { intent, report, promise: Promise.resolve(false), failure: null }
-  const own: PushReport = (title, error, action) => {
+  const own = passingCanceled((title, error, action) => {
     entry.failure ??= [title, error, action]
     report(title, error, action)
-  }
+  }, report)
   const run = () => pushTogetherOf(request, startedFrom, orderOf, { ...options, report: own })
   // another push from the row first: this one goes over what it sent; else the row shows the push at once
   entry.promise = (before === undefined ? run() : before.promise.catch(() => false).then(run)).finally(() => {
@@ -387,7 +400,7 @@ async function sendTogether(
   try {
     const progress = new Channel<TransferProgress>()
     progress.onmessage = pushProgress => {
-      setBranchesPushProgress(pushing, pushProgress, repositoryPath)
+      setBranchesPushProgress(pushing, pushProgressOf(pushProgress, progress), repositoryPath)
     }
     const result = await commands.pushBranches(
       {
@@ -410,7 +423,7 @@ async function sendTogether(
       progress,
     )
     if (result.status === "error") {
-      report(`Cannot push ${joinNames(subjects)}`, result.error)
+      reportPushError(report, joinNames(subjects), result.error)
       return undefined
     }
     const statuses = result.data.remoteStatuses.map(status => toRemoteStatus(status))
@@ -667,7 +680,7 @@ async function sendStackBranch(request: VcsRequest, sent: StackBranchToSend, rep
   try {
     const progress = new Channel<TransferProgress>()
     progress.onmessage = pushProgress => {
-      setBranchPushProgress(key, pushProgress, repositoryPath)
+      setBranchPushProgress(key, pushProgressOf(pushProgress, progress), repositoryPath)
     }
     const result = await commands.pushBranches(
       {
@@ -680,7 +693,7 @@ async function sendStackBranch(request: VcsRequest, sent: StackBranchToSend, rep
       progress,
     )
     if (result.status === "error") {
-      report(`Cannot push ${subject}`, result.error)
+      reportPushError(report, subject, result.error)
       return undefined
     }
     const status = result.data.remoteStatuses[0] === undefined ? null : toRemoteStatus(result.data.remoteStatuses[0])

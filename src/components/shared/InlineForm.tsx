@@ -4,6 +4,7 @@ import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { StopWaitingButton } from "@/components/shared/LockWaitNotice"
 import { inlineSurface, useInlineProcessing, useInlineRowAction } from "@/stores/inline-row-action"
 import { useIndicatorClaim } from "@/stores/operations"
 
@@ -190,6 +191,7 @@ export function InlineForm({
           <div className="flex items-center gap-3">
             <Spinner className="size-4 shrink-0 text-primary" />
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{processingMessage || "Processing"}</p>
+            <StopWaitingButton surface={inlineSurface(rowKey)} />
           </div>
         </div>
       ) : (

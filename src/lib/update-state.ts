@@ -1,5 +1,6 @@
 import type { UpdateCheck, UpdateResolvedCommit, UpdateState } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
+import type { MenuItem } from "@/lib/menu"
 import { resolvingWords } from "@/lib/resolved-by-words"
 import { cutList } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
@@ -130,7 +131,7 @@ export function runningStepSentence(run: UpdateRun, upstream: string): string {
     case "fetch":
       return run.fetch?.line ?? `Fetching ${upstream}…`
     case "waiting":
-      return WAITING_SENTENCE
+      return run.lockWait === null ? WAITING_SENTENCE : `${run.lockWait.waitingFor}…`
     case "check":
       return `Checking the update onto ${upstream}…`
     case "apply":
@@ -166,6 +167,18 @@ function nextSentence(step: TimedStep, upstream: string): string {
     case "sync":
       return "Sync branches"
   }
+}
+
+/**
+ * Stop Waiting of an update that waits for another holder of the repository lock, beside its button; null while it
+ * waits for nobody. The fetch stays, nothing else changes
+ */
+export function stopWaitingUpdateItem(run: UpdateRun | undefined): MenuItem | null {
+  const lockWait = run?.lockWait
+  if (lockWait == null) {
+    return null
+  }
+  return { id: "stop-waiting", label: "Stop Waiting", description: `${lockWait.waitingFor}; stop and change nothing`, onSelect: lockWait.stop }
 }
 
 /**

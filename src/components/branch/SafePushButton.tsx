@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { useClosePreview } from "@/hooks/useClosePreview"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useStartStep } from "@/hooks/useStackNextStep"
 import { formatStackPushing } from "@/lib/stack"
-import { transferLabel } from "@/lib/transfer-progress"
+import { stopWaitingPushItem, transferLabel } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useStackPush } from "@/stores/branch-sync"
@@ -115,7 +116,9 @@ export function SafePushButton({
       restWidth.current = button.getBoundingClientRect().width
     }
   }, [compact, busy, label])
-  return (
+  // its push waits for another holder of the repository lock: Stop Waiting beside it, the hover says whom for
+  const stopWaiting = starting?.step === "pushing" ? stopWaitingPushItem(pushProgress) : null
+  const button = (
     <Tooltip>
       <TooltipTrigger
         render={
@@ -157,5 +160,14 @@ export function SafePushButton({
         {blocker === null && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>
+  )
+  if (stopWaiting === null) {
+    return button
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      {button}
+      <MenuItemButton item={stopWaiting} variant="outline" data-testid="stop-waiting" />
+    </span>
   )
 }

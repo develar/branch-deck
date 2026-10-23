@@ -6,6 +6,7 @@ import { ChoiceChip } from "@/components/shared/ChoiceChip"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { InlineInputDialog } from "@/components/shared/InlineInputDialog"
 import type { InlineInputDialogHandle } from "@/components/shared/InlineInputDialog"
+import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
 import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
 import { moveCommits } from "@/hooks/useMoveCommits"
@@ -144,6 +145,7 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
   return (
     <div className="relative overflow-hidden" data-testid="inline-branch-target">
       {isMoving && <InlineRowProgressBar />}
+      <LockWaitNotice surface={MOVE_TARGET_SURFACE} />
       <InlineInputDialog
         ref={dialogRef}
         title={`Move ${commitCount} to a branch`}

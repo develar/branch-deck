@@ -3,7 +3,7 @@ use crate::regroup_test::{commits, entries, path, plant_store, sync};
 use domain_types::GroupedBranchInfo;
 use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkLine, ParkOutcome, ParkedChange, drop_integrated_parked, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, lock_repository};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, RewriteOptions, lock_repository};
 use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::store_lines::StoreLines;
 use pretty_assertions::assert_eq;
@@ -93,7 +93,7 @@ fn park_waits_for_the_repository_lock() {
   commits(&repo, &["(auth) Add auth"]);
   let _held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
   let options = RewriteOptions {
-    lock_timeout: Duration::from_millis(100),
+    lock_wait: LockWait::Bounded(Duration::from_millis(100)),
     ..RewriteOptions::default()
   };
   let error = park_core(repo.git_executor(), path(&repo), &[ParkLine { branch: "auth", note: "" }], &options).unwrap_err();
@@ -114,6 +114,7 @@ fn the_app_wrapper_reports_the_notes() {
         note: "later".to_string(),
       }],
     },
+    LockWait::default(),
   )
   .unwrap();
   assert!(parked_result.changed);
@@ -124,6 +125,7 @@ fn the_app_wrapper_reports_the_notes() {
       repository_path: path(&repo).to_string(),
       branch_names: vec!["auth".to_string()],
     },
+    LockWait::default(),
   )
   .unwrap();
   assert_eq!((unparked.branches[0].note.as_deref(), unparked.branches[0].previous_note.as_deref()), (None, Some("later")));
@@ -175,7 +177,7 @@ fn a_rename_carries_the_line_and_its_undo_moves_it_back() {
   let token = UndoToken::of(&outcome).unwrap();
   assert!(token.to_string().contains("+parked:"), "{token}");
   assert_eq!(UndoToken::parse(&token.to_string()), Some(token.clone()));
-  undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
   assert_eq!(parked(&repo).entries, entries(&[("auth", "IJPL-1")]));
 
   // a rename into a parked branch keeps the note of the target; one of an unparked branch leaves the store alone
@@ -197,14 +199,14 @@ fn an_undo_of_a_rename_passes_over_the_drops_of_a_sync() {
   let token = UndoToken::of(&rename_branch_core(repo.git_executor(), path(&repo), "auth", "sign-in", &RegroupOptions::default()).unwrap()).unwrap();
   drop_integrated_parked(repo.git_executor(), path(&repo), &["ghost"]);
   assert_eq!(parked(&repo).entries, entries(&[("sign-in", "")]));
-  undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
   // the rename is undone, the drop stays
   assert_eq!(parked(&repo).entries, entries(&[("auth", "")]));
 
   // a park after the token is no drop: the undo refuses
   let token = UndoToken::of(&rename_branch_core(repo.git_executor(), path(&repo), "auth", "sign-in", &RegroupOptions::default()).unwrap()).unwrap();
   park(&repo, "sign-in", "changed").unwrap();
-  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap_err();
+  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap_err();
   assert!(matches!(error, RegroupError::ParkedMoved(_)), "{error}");
 }
 

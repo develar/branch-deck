@@ -11,7 +11,8 @@ export const commands = {
 	 *  status; a remote that moved is fetched and returned instead. Under the repository lock, and refused in Rust as `bd
 	 *  push` refuses it (`push_guard`): a branch the last sync did not build, a parked branch or one built on parked, one a
 	 *  merged Safe Push landed whole, one a running Safe Push holds (the robots as Rust reads them). `progress` receives how
-	 *  far the push is.
+	 *  far the push is, and whom it waits for while another holder has the repository lock (as long as it lives);
+	 *  `cancel_lock_wait` of the channel's id ends that wait, with nothing pushed.
 	 */
 	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<PushOutcome, CommandError>(__TAURI_INVOKE("push_branch", { params, progress })),
 	/**
@@ -19,9 +20,15 @@ export const commands = {
 	 *  branch only as the user saw it, and returns their new remote statuses; a remote branch that moved is named, with the
 	 *  statuses fetched after it. Under the repository lock, refused in Rust as `push_branch` is for any of its branches; the
 	 *  stack branch of a whole stack also while a member is parked, every member landed whole, its robot runs on it or it is
-	 *  not built; an unapplied branch takes only the lock. `progress` receives how far the push is.
+	 *  not built; an unapplied branch takes only the lock. `progress` receives how far the push is, and whom it waits for
+	 *  while another holder has the lock, until `cancel_lock_wait` of its id.
 	 */
 	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<PushBranchesOutcome, CommandError>(__TAURI_INVOKE("push_branches", { params, progress })),
+	/**
+	 *  Stops the wait of the command whose channel has the id `channel` for another holder of the repository lock: the
+	 *  command answers `LockWaitCanceled`, nothing changed. A wait that ended already (the lock taken) goes on
+	 */
+	cancelLockWait: (channel: number) => __TAURI_INVOKE<boolean>("cancel_lock_wait", { channel }),
 	/**
 	 *  The GitHub pull requests of the virtual branches, one GraphQL search; when GitHub can't answer, the availability says
 	 *  why
@@ -308,7 +315,7 @@ export const commands = {
 	 *  Moves commits to another branch by setting (or removing) the `(branch)` prefix of their subjects in one history
 	 *  rewrite; the working tree is not touched.
 	 */
-	moveCommitsToBranch: (params: MoveCommitsParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("move_commits_to_branch", { params })),
+	moveCommitsToBranch: (params: MoveCommitsParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("move_commits_to_branch", { params, wait })),
 	/**
 	 *  The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
 	 *  cache only, no repository lock). One search at a time: a new one cancels the one before.
@@ -317,21 +324,21 @@ export const commands = {
 	/**  Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts. */
 	cancelConflictFix: () => __TAURI_INVOKE<void>("cancel_conflict_fix"),
 	/**  Applies a component of a fix as one regroup under the repository lock, or says it is stale. */
-	applyConflictFix: (params: ApplyConflictFixParams) => typedError<AppliedConflictFix, CommandError>(__TAURI_INVOKE("apply_conflict_fix", { params })),
+	applyConflictFix: (params: ApplyConflictFixParams, wait: Channel<LockWaitEvent>) => typedError<AppliedConflictFix, CommandError>(__TAURI_INVOKE("apply_conflict_fix", { params, wait })),
 	/**
 	 *  Renames a branch, and its name in the prefixes of the branches stacked on it and in the issue groups, in one history
 	 *  rewrite.
 	 */
-	renameBranch: (params: RenameBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("rename_branch", { params })),
+	renameBranch: (params: RenameBranchParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("rename_branch", { params, wait })),
 	/**  Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite. */
-	restackBranch: (params: RestackBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("restack_branch", { params })),
+	restackBranch: (params: RestackBranchParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("restack_branch", { params, wait })),
 	/**
 	 *  Parks branches with their notes, or changes the notes of parked ones: kept local, never pushed, until unparked. No
 	 *  rewrite: one commit of the store `refs/branch-deck/parked`, under the repository lock.
 	 */
-	parkBranches: (params: ParkBranchesParams) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("park_branches", { params })),
+	parkBranches: (params: ParkBranchesParams, wait: Channel<LockWaitEvent>) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("park_branches", { params, wait })),
 	/**  Unparks branches: they can be pushed and landed again. */
-	unparkBranches: (params: UnparkBranchesParams) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("unpark_branches", { params })),
+	unparkBranches: (params: UnparkBranchesParams, wait: Channel<LockWaitEvent>) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("unpark_branches", { params, wait })),
 	/**
 	 *  Whether a stacked branch builds on the baseline without its parent: a trial build of it as a root, objects only,
 	 *  through the object cache of the repository.
@@ -341,34 +348,36 @@ export const commands = {
 	 *  Moves back what a move, a rename or a restack wrote (its `undo_token`): HEAD and the issue groups in one ref
 	 *  transaction with compare-and-swap.
 	 */
-	undoRegroup: (params: UndoRegroupParams) => typedError<null, CommandError>(__TAURI_INVOKE("undo_regroup", { params })),
+	undoRegroup: (params: UndoRegroupParams, wait: Channel<LockWaitEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("undo_regroup", { params, wait })),
 	/**
 	 *  Adds an issue reference to commits in a branch that don't already have one.
 	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
 	 */
-	addIssueReferenceToCommits: (params: AddIssueReferenceParams) => typedError<AddIssueReferenceResult, CommandError>(__TAURI_INVOKE("add_issue_reference_to_commits", { params })),
+	addIssueReferenceToCommits: (params: AddIssueReferenceParams, wait: Channel<LockWaitEvent>) => typedError<AddIssueReferenceResult, CommandError>(__TAURI_INVOKE("add_issue_reference_to_commits", { params, wait })),
 	/**
 	 *  Replaces the messages of commits ahead of the baseline in one regroup (`bd reword`); the commits after the oldest one
 	 *  are recreated with the same trees, and the undo token restores HEAD.
 	 */
-	reword: (params: RewordRequest) => typedError<RewordResult, CommandError>(__TAURI_INVOKE("reword", { params })),
+	reword: (params: RewordRequest, wait: Channel<LockWaitEvent>) => typedError<RewordResult, CommandError>(__TAURI_INVOKE("reword", { params, wait })),
 	/**
 	 *  Squashes commits of the current branch into the oldest of them in one history rewrite that keeps HEAD's tree; the
 	 *  index and the working tree are not touched.
 	 */
-	squashCommits: (params: SquashCommitsParams) => typedError<SquashCommitsResult, CommandError>(__TAURI_INVOKE("squash_commits", { params })),
+	squashCommits: (params: SquashCommitsParams, wait: Channel<LockWaitEvent>) => typedError<SquashCommitsResult, CommandError>(__TAURI_INVOKE("squash_commits", { params, wait })),
 	/**  Undoes a squash: moves the current branch back to its previous commit, if it was not moved since */
-	restoreBranchHead: (params: RestoreBranchHeadParams) => typedError<null, CommandError>(__TAURI_INVOKE("restore_branch_head", { params })),
+	restoreBranchHead: (params: RestoreBranchHeadParams, wait: Channel<LockWaitEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("restore_branch_head", { params, wait })),
 	/**  The `fixup!`, `squash!` and `amend!` commits ahead of the baseline, grouped by the commit each one is squashed into */
 	getAutosquashPlan: (params: GetAutosquashPlanParams) => typedError<AutosquashPlan, CommandError>(__TAURI_INVOKE("get_autosquash_plan", { params })),
 	/**
 	 *  Squashes fixup commits into their targets in one history rewrite that keeps HEAD's tree; the index and the working
 	 *  tree are not touched.
 	 */
-	squashFixupCommits: (params: SquashFixupsParams) => typedError<SquashFixupsResult, CommandError>(__TAURI_INVOKE("squash_fixup_commits", { params })),
+	squashFixupCommits: (params: SquashFixupsParams, wait: Channel<LockWaitEvent>) => typedError<SquashFixupsResult, CommandError>(__TAURI_INVOKE("squash_fixup_commits", { params, wait })),
 	/**
 	 *  Fetches the baseline and brings the current branch onto it, keeping unrelated local changes; a conflict or a block
-	 *  is a result with nothing changed. `progress` receives the step the update is at and how far the fetch is.
+	 *  is a result with nothing changed. `progress` receives the step the update is at, how far the fetch is, and whom
+	 *  the update waits for while another holder has the repository lock (as long as it lives); `cancel_lock_wait` of the
+	 *  channel's id ends that wait, with nothing changed.
 	 */
 	updateProject: (params: UpdateProjectParams, progress: Channel<UpdateProgress>) => typedError<UpdateProjectResult, CommandError>(__TAURI_INVOKE("update_project", { params, progress })),
 	/**
@@ -382,7 +391,7 @@ export const commands = {
 	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
 	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
 	 */
-	amendUncommittedToBranch: (params: AmendUncommittedToBranchParams) => typedError<AmendCommandResult, CommandError>(__TAURI_INVOKE("amend_uncommitted_to_branch", { params })),
+	amendUncommittedToBranch: (params: AmendUncommittedToBranchParams, wait: Channel<LockWaitEvent>) => typedError<AmendCommandResult, CommandError>(__TAURI_INVOKE("amend_uncommitted_to_branch", { params, wait })),
 	/**
 	 *  Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
 	 *  logged-out `claude` and its failures are outcomes
@@ -392,10 +401,10 @@ export const commands = {
 	getUnappliedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchPrefix, branchName })),
 	deleteUnappliedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_unapplied_branch", { params })),
 	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_archived_branch", { params })),
-	unapplyBranch: (params: UnapplyBranchParams) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params })),
-	undoUnapplyBranch: (params: UndoUnapplyParams) => typedError<UndoneUnapply, CommandError>(__TAURI_INVOKE("undo_unapply_branch", { params })),
-	reapplyBranch: (params: ReapplyBranchParams) => typedError<ReapplyBranchResult, CommandError>(__TAURI_INVOKE("reapply_branch", { params })),
-	undoReapplyBranch: (params: UndoReapplyParams) => typedError<UndoneReapply, CommandError>(__TAURI_INVOKE("undo_reapply_branch", { params })),
+	unapplyBranch: (params: UnapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params, wait })),
+	undoUnapplyBranch: (params: UndoUnapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneUnapply, CommandError>(__TAURI_INVOKE("undo_unapply_branch", { params, wait })),
+	reapplyBranch: (params: ReapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<ReapplyBranchResult, CommandError>(__TAURI_INVOKE("reapply_branch", { params, wait })),
+	undoReapplyBranch: (params: UndoReapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneReapply, CommandError>(__TAURI_INVOKE("undo_reapply_branch", { params, wait })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
 	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, CommandError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
 	/**  The changed files of a commit with their line counts, from the object cache or one `diff-tree` */
@@ -940,7 +949,12 @@ export type CommandErrorKind =
 /**  git is in the middle of a rebase, merge, cherry-pick or revert (`SyncDeferred`) */
 "operationInProgress" | 
 /**  HEAD is not on a branch (`SyncDeferred`) */
-"detachedHead";
+"detachedHead" | 
+/**
+ *  The user stopped the wait for another holder of the repository lock (Stop Waiting, `cancel_lock_wait`): the
+ *  command changed nothing
+ */
+"lockWaitCanceled";
 
 /**  Struct to hold commit data returned by git CLI */
 export type Commit = {
@@ -2043,6 +2057,15 @@ export type LineEnds = {
 	new: LineEndKind,
 	/**  The files differ in their line ends only */
 	only: boolean,
+};
+
+/**  What a rewrite of the app tells the page while it waits for another holder of the repository lock */
+export type LockWaitEvent = {
+	/**
+	 *  Whom it waits for, "Waiting for `bd pick` (pid 4242, for 12 s)", told again about once a second; null once the
+	 *  wait ended
+	 */
+	waitingFor: string | null,
 };
 
 /**  A block of a merge */
@@ -4402,6 +4425,11 @@ export type UpdateProgress = {
 	phase: UpdatePhase,
 	/**  How far the fetch is; `None` until git reports a stage, and in the other phases */
 	fetch: TransferProgress | null,
+	/**
+	 *  While the app's update waits for another holder of the repository lock (`Waiting`), whom it waits for: "Waiting
+	 *  for `bd pick` (pid 4242, for 12 s)", told again about once a second
+	 */
+	waitingFor?: string | null,
 };
 
 export type UpdateProjectParams = {

@@ -4,6 +4,7 @@
 use crate::commit_grouper::parse_subject;
 use crate::move_plan::{move_target, plan_move};
 use crate::regroup::{RegroupOptions, RegroupOutcome, RegroupedCommit, UndoToken, regroup_planned};
+use crate::repository_lock::LockWait;
 use anyhow::{Result, ensure};
 use domain_types::branch_names::sanitize_branch_name;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -103,9 +104,9 @@ impl MoveCommitsResult {
 /// Moves commits to another branch, or back, with the smallest regroup (`move_plan.rs`): a whole issue by the issue
 /// groups, without a rewrite; the other commits by setting or removing the `(branch)` prefix of their subjects. One
 /// history rewrite for all commits and one ref transaction with the issue groups; the next sync rebuilds the virtual
-/// branches.
+/// branches. The lock is waited for as `lock_wait` says
 #[instrument(skip(git_executor, params), fields(count = params.commit_ids.len(), target = ?params.target_branch, dry_run = params.dry_run))]
-pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &MoveCommitsParams) -> Result<MoveCommitsResult> {
+pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &MoveCommitsParams, lock_wait: LockWait) -> Result<MoveCommitsResult> {
   let target = params.target_branch.as_deref();
   if let Some(target) = target {
     validate_branch_name(target)?;
@@ -115,6 +116,7 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
   let options = RegroupOptions {
     expect_head: params.expect_head.clone(),
     dry_run: params.dry_run,
+    lock_wait,
     ..RegroupOptions::default()
   };
   let mut leaf = None;

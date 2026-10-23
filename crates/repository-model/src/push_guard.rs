@@ -37,7 +37,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use sync_core::parked::parked_state;
 use sync_core::patronus_start::{carried_ids, carried_words, join_names, push_mode_name};
-use sync_core::push::{NOT_SYNCED_YET, PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, prepare_push_branches, push_ref_names};
+use sync_core::push::{NOT_SYNCED_YET, PushBranchesOutcome, PushBranchesParams, StackPushBranch, prepare_push_branches, push_ref_names};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
@@ -234,8 +234,9 @@ pub fn stack_hold_words(root: &str, robot: &PatronusRobot) -> String {
 /// the kept table with `robots` (`check_push`) and the commits of the push fixed (`prepare_push_branches`, which refuses
 /// a branch the last sync did not build), then, after the lock, the network push of those commits. While another
 /// process (or a rewrite of this one) holds the lock, the push waits as long as the holder lives, its progress naming
-/// it ("Waiting for `bd pick` (pid 4242, for 12 s)", `TransferProgress::waiting_for`); a lock whose holder no record
-/// names refuses it after `DEFAULT_LOCK_TIMEOUT`, and so does a repository not synced yet
+/// it ("Waiting for `bd pick` (pid 4242, for 12 s)", `TransferProgress::waiting_for`), until `canceled` says the user
+/// stopped waiting (Stop Waiting: `LockWaitCanceled`, nothing pushed); a lock whose holder no record names refuses it
+/// after `DEFAULT_LOCK_TIMEOUT`, and so does a repository not synced yet
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
 pub fn push_guarded(
   git_executor: &GitCommandExecutor,
@@ -244,18 +245,20 @@ pub fn push_guarded(
   robots: Vec<PatronusRobot>,
   params: &PushBranchesParams,
   on_progress: &mut dyn FnMut(TransferProgress),
+  canceled: &dyn Fn() -> bool,
 ) -> Result<PushBranchesOutcome> {
   let on_wait = || debug!(git_common_dir = %git_common_dir.display(), "the push waits for a push of its refs");
-  push_guarded_within(DEFAULT_LOCK_TIMEOUT, &on_wait, git_executor, git_common_dir, views, robots, params, on_progress)
+  push_guarded_within(DEFAULT_LOCK_TIMEOUT, &on_wait, canceled, git_executor, git_common_dir, views, robots, params, on_progress)
 }
 
 /// `push_guarded`, waiting as long as it takes for the pushes of this process that write one of its refs, then for a live
-/// holder of the lock, and at most `unknown_timeout` for one no record names; `on_wait` is called when the wait for
-/// the refs starts
+/// holder of the lock until `canceled`, and at most `unknown_timeout` for one no record names; `on_wait` is called when
+/// the wait for the refs starts
 #[expect(clippy::too_many_arguments, reason = "push_guarded and the waits its tests control")]
 fn push_guarded_within(
   unknown_timeout: Duration,
   on_wait: &dyn Fn(),
+  canceled: &dyn Fn() -> bool,
   git_executor: &GitCommandExecutor,
   git_common_dir: &Path,
   views: &RepositoryViews,
@@ -267,7 +270,7 @@ fn push_guarded_within(
   let _claim = PUSHING_REFS.claim(git_common_dir, &names, on_wait);
   let prepared = {
     let mut on_holder = |holder: &_| on_progress(TransferProgress::waiting_for(holder));
-    let _lock = lock_repository_while_held(git_common_dir, unknown_timeout, &mut on_holder, &|| false).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
+    let _lock = lock_repository_while_held(git_common_dir, unknown_timeout, &mut on_holder, canceled).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
       Some(locked) => anyhow!(locked_refusal(locked)),
       None => error,
     })?;
@@ -285,22 +288,21 @@ fn push_guarded_within(
 impl RemoteActions<'_> {
   /// The app's push of a stack: the user's robots (`robots_for_checks`), then, in a blocking step, `push_guarded`, its
   /// checks under the repository lock of `git_common_dir` (`$GIT_COMMON_DIR` of the repository, which the host knows),
-  /// its progress sent to `on_progress`
+  /// its progress sent to `on_progress`, its wait for another holder of the lock ended by `canceled`
   #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
   pub async fn push_branches(
     &self,
     git_common_dir: PathBuf,
     params: PushBranchesParams,
     mut on_progress: impl FnMut(TransferProgress) + Send + 'static,
+    canceled: impl Fn() -> bool + Send + 'static,
   ) -> Result<PushBranchesOutcome> {
     let robots = self.robots_for_checks(&params.branch_prefix).await;
     let (git, views) = (self.git_executor.clone(), self.views.clone());
-    tokio::task::spawn_blocking(in_current_span(move || push_guarded(&git, &git_common_dir, &views, robots, &params, &mut on_progress))).await?
-  }
-
-  /// The app's push of one branch, as `push_branches` pushes the stack of it alone
-  pub async fn push_branch(&self, git_common_dir: PathBuf, params: &PushBranchParams, on_progress: impl FnMut(TransferProgress) + Send + 'static) -> Result<PushOutcome> {
-    PushOutcome::of_stack(self.push_branches(git_common_dir, params.as_stack(), on_progress).await?)
+    tokio::task::spawn_blocking(in_current_span(move || {
+      push_guarded(&git, &git_common_dir, &views, robots, &params, &mut on_progress, &canceled)
+    }))
+    .await?
   }
 }
 

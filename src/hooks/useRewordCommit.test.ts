@@ -18,6 +18,7 @@ const { toasts, selection, syncs, renamed } = vi.hoisted(() => ({
 }))
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
+vi.mock("@tauri-apps/api/core", async () => await import("@/test-support/channel-mock"))
 vi.mock("@/components/ui/toast", () => ({
   toast: {
     add: (toast: (typeof toasts)[number]) => {
@@ -86,10 +87,13 @@ describe("rewordCommit", () => {
 
     expect(await rewordCommit(commit, "(auth) Add the login form\n\nWith a body", follow)).toBe(true)
 
-    expect(vi.mocked(commands.reword)).toHaveBeenCalledWith({
-      repositoryPath: "/repo",
-      rewords: [{ commit: OLD_ID, text: { message: "(auth) Add the login form\n\nWith a body" } }],
-    })
+    expect(vi.mocked(commands.reword)).toHaveBeenCalledWith(
+      {
+        repositoryPath: "/repo",
+        rewords: [{ commit: OLD_ID, text: { message: "(auth) Add the login form\n\nWith a body" } }],
+      },
+      expect.anything(),
+    )
     expect(follow.mock.calls).toEqual([[OLD_ID, NEW_ID]])
     expect(toasts.map(toast => [toast.title, toast.description, toast.timeout])).toEqual([["Reworded 11111111", "(auth) Add the login form", UNDO_WINDOW_MS]])
     const entry = entries()[0]!
@@ -98,7 +102,7 @@ describe("rewordCommit", () => {
 
     undoActivity(entry)
     await vi.waitFor(() => expect(follow.mock.calls).toHaveLength(2))
-    expect(vi.mocked(commands.undoRegroup)).toHaveBeenCalledExactlyOnceWith({ repositoryPath: "/repo", token: TOKEN })
+    expect(vi.mocked(commands.undoRegroup)).toHaveBeenCalledExactlyOnceWith({ repositoryPath: "/repo", token: TOKEN }, expect.anything())
     // the preview on the new commit follows the Undo back
     expect(follow.mock.calls[1]).toEqual([NEW_ID, OLD_ID])
     expect(entries()[0]!.undo?.undone).toBe(true)
@@ -116,7 +120,7 @@ describe("rewordCommit", () => {
     selection.path = "/other"
 
     toasts[0]!.actionProps!.onClick!()
-    await vi.waitFor(() => expect(vi.mocked(commands.undoRegroup)).toHaveBeenCalledExactlyOnceWith({ repositoryPath: "/repo", token: TOKEN }))
+    await vi.waitFor(() => expect(vi.mocked(commands.undoRegroup)).toHaveBeenCalledExactlyOnceWith({ repositoryPath: "/repo", token: TOKEN }, expect.anything()))
     // the table shows /other: nothing of it is synced for the undo of /repo
     await vi.advanceTimersByTimeAsync(0)
     expect(syncs.count).toBe(1)
@@ -131,7 +135,10 @@ describe("rewordCommit", () => {
 
     expect(await rewordCommit(commit, "(auth) Add the login form", follow)).toBe(true)
 
-    expect(vi.mocked(commands.reword)).toHaveBeenCalledExactlyOnceWith({ repositoryPath: "/repo", rewords: [{ commit: MOVED_ID, text: { message: "(auth) Add the login form" } }] })
+    expect(vi.mocked(commands.reword)).toHaveBeenCalledExactlyOnceWith(
+      { repositoryPath: "/repo", rewords: [{ commit: MOVED_ID, text: { message: "(auth) Add the login form" } }] },
+      expect.anything(),
+    )
     expect(follow.mock.calls).toEqual([[MOVED_ID, NEW_ID]])
     expect(toasts.map(toast => toast.title)).toEqual(["Reworded 33333333"])
   })

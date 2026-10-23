@@ -4,7 +4,7 @@ use crate::unapply_branch_test::{PREFIX, unapply};
 use anyhow::Result;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, lock_repository};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, RewriteOptions, lock_repository};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, baseline_repo};
@@ -48,7 +48,7 @@ fn undo(repo: &TestRepo, token: &str) -> Result<UndoneReapply> {
     repo.git_executor(),
     path(repo),
     &ReapplyUndoToken::parse(token).expect("a reapply token"),
-    DEFAULT_LOCK_TIMEOUT,
+    LockWait::default(),
   )
 }
 
@@ -167,7 +167,7 @@ fn reapply_waits_for_the_repository_lock_and_fails_with_locked() {
   let repo = unapplied_repo();
   let _held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
   let options = RewriteOptions {
-    lock_timeout: std::time::Duration::from_millis(100),
+    lock_wait: LockWait::Bounded(std::time::Duration::from_millis(100)),
     ..RewriteOptions::default()
   };
   let params = ReapplyBranchParams {

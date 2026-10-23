@@ -5,7 +5,7 @@ use git_ops::commit_writer::write_store_updates;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_REF};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
-use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
+use history_rewrite::repository_lock::LockWait;
 use history_rewrite::store_lines::{StoreLineProblem, StoreLines, format_store_lines};
 use history_rewrite::test_commit::commit;
 use history_rewrite::test_commit::plan;
@@ -91,7 +91,7 @@ fn plant(repo: &TestRepo, text: &str) {
 }
 
 fn undo(repo: &TestRepo, token: &UndoToken) -> Result<(), RegroupError> {
-  undo_regroup_core(repo.git_executor(), path(repo), token, DEFAULT_LOCK_TIMEOUT)
+  undo_regroup_core(repo.git_executor(), path(repo), token, LockWait::default())
 }
 
 #[test]

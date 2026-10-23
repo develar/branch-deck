@@ -507,15 +507,35 @@ built on it, which carries its commits.
   parked again.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
-share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
-the app and parallel `bd` processes. A dry run reads only and takes no lock. Every rewrite of the checked out branch
-takes it in its core, before it reads anything: the regroup (also the app's reword) and the move of a hunk (their
-options), and the app's squash and its undo, squash fixups (also `bd fold`), amend, unapply and add issue reference, each a
-`*_core(…, &RewriteOptions)` (`crates/history-rewrite/src/repository_lock.rs`): `lock_timeout` (10 s by default),
-`held_lock` for a caller that holds the lock already, so the core takes none, and `expect_head`, the HEAD the request
-was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`, one check for every core). The app
-shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
-Branch Deck operation holds … ; retry when it is done". `bd push` and `bd safe-push` (until the commits of their
+share it). The in-process mutexes don't cover the app and parallel `bd` processes. A dry run reads only and takes no
+lock. Every rewrite of the checked out branch takes it in its core, before it reads anything: the regroup (also the
+app's reword) and the move of a hunk (their options), and the app's squash and its undo, squash fixups (also `bd
+fold`), amend, unapply and add issue reference, each a `*_core(…, &RewriteOptions)`
+(`crates/history-rewrite/src/repository_lock.rs`): `lock_wait`, `held_lock` for a caller that holds the lock already,
+so the core takes none, and `expect_head`, the HEAD the request was made for, abbreviated ids allowed, else
+`HeadMoved` (`ensure_expected_head`, one check for every core). The app's cores without options (a move, a rename, a
+restack, an undo of a regroup, park and unpark, the squash undo, the unapply and reapply undo, the conflict fix,
+Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWait` of its caller:
+
+- **`bd`**: `LockWait::Bounded(lock_timeout)`, 10 s by default (`BRANCH_DECK_LOCK_TIMEOUT`), then `locked`, exit 3.
+- **The app**: `LockWait::WhileHeld(&WaitTicket)`, `lock_repository_while_held`: it waits, without a bound, while the
+  holder record names a live process, an agent's `bd pick --follow` or this app's own push or rewrite (two operations
+  of one process conflict on the `flock` as two processes do, and the page's queue orders its rewrites anyway); only
+  a lock no record names a live holder of (a holder that writes none) refuses after `DEFAULT_LOCK_TIMEOUT` ("Another
+  Branch Deck operation holds …; retry when it is done"). Each rewrite command of the app takes a `wait:
+  Channel<LockWaitEvent>`, the push its progress channel and Update Project its progress channel; the command
+  registers its wait by the id of that channel in the host's `LockWaits` (`crates/history-rewrite/src/lock_wait.rs`,
+  `src-tauri/src/lock_wait.rs`), tells the page whom it waits for when the holder changes and about once a second
+  ("Waiting for `bd pick` (pid 4242, for 12 s)": `LockWaitEvent.waitingFor`, `TransferProgress.waiting` with its
+  `line`, `UpdateProgress.waitingFor`) and that the wait ended (`waitingFor: null`). `cancel_lock_wait` of the
+  channel's id (Stop Waiting) ends a wait before the rewrite read or wrote anything: the wait sees the flag on its
+  next poll and returns `LockWaitCanceled`, and the command answers `CommandErrorKind::LockWaitCanceled` only when
+  its own wait ended so (`WaitTicket::ended_by_cancel`), never for a Stop Waiting that came after the lock was taken.
+  The page says "Canceled squashing 2 commits before it started" (an info toast, no error) and changes nothing. The
+  E2E server keeps the same registry and streams the messages of the channel as SSE events before the answer
+  (`crates/test-server/src/channel_commands.rs`).
+
+`bd push` and `bd safe-push` (until the commits of their
 push are fixed, the network push after it; with `--check` only its sync),
 `bd move-hunk`, `bd pick` (after its check, the witness and the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
 (`push_branch`, `push_branches`: `push_guard`, on the `$GIT_COMMON_DIR` the app keeps, so the checks see the branches
@@ -821,8 +841,10 @@ Details:
   progress: an unknown line changes nothing. The error of a failed command keeps the `\n` lines only, without the `\r`
   updates.
 - **Steps of an update.** The update reports its step on the progress channel (`UpdatePhase`): `fetching` with the
-  transfer progress, `waiting` once when the lock is held by another operation (`lock_repository_with` calls its
-  `on_wait` on the first `WouldBlock`; the poll loop and its `rev-parse` stay one), `checking` once the lock is taken,
+  transfer progress, `waiting` once when the lock is held by another operation (`LockWait::lock_with` calls its
+  `on_wait` on the first `WouldBlock` of `bd`, on the first named holder of the app; the poll loop and its `rev-parse`
+  stay one), in the app again with `waitingFor` while a live holder keeps it (Stop Waiting beside the Update button
+  ends it, the fetch stays), `checking` once the lock is taken,
   `updating` before the move. The page turns the steps into one progress, the share of each its usual time in the
   repository (`src/lib/update-progress.ts`). The file write itself reports nothing: `read-tree -v` prints "Updating
   files" only after git's 1 s progress delay, translated, and reading it would put a progress reader with its idle
@@ -2739,7 +2761,10 @@ lacks, and its pull request showing the parent's commits.
    the app), the push waits as long as the holder record names a live process, and its progress says whom for
    (`TransferProgress::waiting_for`, "Waiting for `bd pick` (pid 4242, for 12 s)", the label and the hover of the
    push and of the Safe Push step), told again about once a second; a killed holder frees the lock with its process.
-   Only a lock no record names a live holder of refuses it after `DEFAULT_LOCK_TIMEOUT` ("Nothing was pushed: another
+   Stop Waiting in the hover of the push button and beside the Safe Push step (`stopWaitingPushItem`) ends the wait
+   through `cancel_lock_wait` of the push's progress channel: nothing pushed, "Canceled the push of auth before it
+   started", and the action whose step the push is (a Safe Push start, a review request) fails nothing more
+   (`PushReport.canceled`). Only a lock no record names a live holder of refuses it after `DEFAULT_LOCK_TIMEOUT` ("Nothing was pushed: another
    Branch Deck operation holds the repository; try again when it is done"); `bd` keeps its bounded wait (`locked`).
    The lock is held only while the push is decided:
    under it the checks of `bd push` on the table of `RepositoryViews` and the Patronus

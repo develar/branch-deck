@@ -20,7 +20,7 @@ import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
 import { useIsBranchPushing } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { branchSubject, useUnclaimedBusy } from "@/stores/operations"
+import { branchSubject, operationLabel, stopWaitingItem, useUnclaimedOperation } from "@/stores/operations"
 import { usePatronusAvailable, usePushHold } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
@@ -92,8 +92,11 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
  */
 export function BranchPreviewMenu({ name }: { name: string }) {
   // an action started from this menu shows its spinner here, as on the row's "⋯"
-  const busy = useUnclaimedBusy(branchSubject(name))
-  return <MoreActionsMenu name={name} busy={busy} menu={<BranchMenuItems name={name} setExpanded={expandRow} Items={PreviewMenuItems} />} />
+  const operation = useUnclaimedOperation(branchSubject(name))
+  const busy = operation === undefined ? null : operationLabel(operation)
+  return (
+    <MoreActionsMenu name={name} busy={busy} stopWaiting={stopWaitingItem(operation)} menu={<BranchMenuItems name={name} setExpanded={expandRow} Items={PreviewMenuItems} />} />
+  )
 }
 
 /** The keys the preview handles itself (`BranchPreviewDialog`): only their hints are shown in its menu */

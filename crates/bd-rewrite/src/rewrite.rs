@@ -12,7 +12,7 @@ use bd_core::sync_command::{SyncOutput, lock, sync};
 use bd_core::text_input::read_text;
 use git_ops::branch_description::Description;
 use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, UndoToken, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core};
-use history_rewrite::repository_lock::RepositoryLock;
+use history_rewrite::repository_lock::{LockWait, RepositoryLock};
 use history_rewrite::stack::{StackForest, describe_problem, problem_view};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -267,7 +267,7 @@ pub(crate) fn rewrite(
     expect_head: args.expect_head.clone(),
     allow_append: args.allow_append,
     dry_run: args.dry_run,
-    lock_timeout: context.lock_timeout,
+    lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: held_lock.as_ref(),
   };
   // read before the rewrite: only the writes can fail after it

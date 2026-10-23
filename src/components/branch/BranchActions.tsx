@@ -12,7 +12,7 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
-import { branchSubject, useObjectBusy, useUnclaimedBusy } from "@/stores/operations"
+import { branchSubject, operationLabel, stopWaitingItem, useObjectBusy, useUnclaimedOperation } from "@/stores/operations"
 import { usePushHold } from "@/stores/patronus"
 
 export interface BranchActionsProps {
@@ -33,7 +33,8 @@ export interface BranchActionsProps {
 export function BranchActions({ branch, setExpanded, stackPushInHeader = false }: BranchActionsProps) {
   const processing = useObjectBusy(branch.name) !== null
   // an action of the row started from its menu, a key or a toast shows its spinner on "⋯"
-  const unclaimedBusy = useUnclaimedBusy(branchSubject(branch.name))
+  const unclaimed = useUnclaimedOperation(branchSubject(branch.name))
+  const unclaimedBusy = unclaimed === undefined ? null : operationLabel(unclaimed)
   const isPushing = useIsBranchPushing(branch.name)
   const startedStackPush = useStackPush(branch.name)
   // one indicator of a stack push: the island header of the stack it pushes, or the row it started from; so is the push
@@ -65,6 +66,7 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
           name={branch.name}
           disabled={processing}
           busy={unclaimedBusy}
+          stopWaiting={stopWaitingItem(unclaimed)}
           menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />}
         />
       </ColumnTrack>

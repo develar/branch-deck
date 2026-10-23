@@ -121,6 +121,17 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
 - Rewrites must hold the repository lock, so the app and the agent CLI don't rewrite the branch at the same time.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`)
+- A move, a rename, a restack and their undo of the app must wait for the lock as long as its holder lives (an
+  agent's `bd pick --follow`, `bd`, the app's own push), never refused after 10 s: a move started from a menu shows
+  its spinner on the "⋯" of its row, whose hover says whom it waits for ("Waiting for `bd pick` (pid 4242, for 12
+  s)") and whose click offers Stop Waiting, which ends the wait with nothing moved ("Canceled moving 1 commit to docs
+  before it started"); the surface that started it says the same. Once the holder released the lock the move runs.
+  Only a holder no record names refuses it after 10 s.
+  [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved`)
+  [@test] ../../crates/test-server/src/channel_commands_test.rs (`a_rewrite_says_whom_it_waits_for_and_runs_once_the_holder_released_the_lock`, `stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed`)
+  [@test] ../../crates/history-rewrite/src/lock_wait_test.rs (`a_wait_is_stopped_by_its_channel_and_leaves_the_registry_with_its_ticket`)
+  [@test] ../../src/stores/operations.test.ts (`says whom the command of a running rewrite waits for, offers Stop Waiting on its channel, and says its own state again once the wait ended`)
+  [@test] ../../src/lib/lock-wait.test.ts (`says that an action stopped while it waited for the repository lock changed nothing`, `tells a stopped wait from a failure by the kind of the command's error`)
 - A commit already in the target branch must not be rewritten; the result lists it as `Unchanged`.
 - All commits must be rewritten in one history rewrite that keeps the trees, the metadata and the working tree.
 - The rewrite must keep the author and the committer of every recreated commit: name, email, date and timezone.

@@ -1,5 +1,6 @@
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
+import { commandFailure } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import type { Branch } from "@/stores/branch-sync"
 import { resolveCommitsOf, syncBranches } from "@/stores/branch-sync"
@@ -24,16 +25,20 @@ export async function addIssueReference(issueReference: string, branch: Branch):
     branch.name,
     // another reference is a start of its own: it waits for this one, never joins it
     { id: "add-issue-reference", kind: "rewrite", parameters: issueReference, label: `Adding ${issueReference} to ${branch.name}`, repositoryPath },
-    async () => {
-      const result = await commands.addIssueReferenceToCommits({
-        repositoryPath,
-        branchName: branch.name,
-        // the ids as the rewrite before it in the queue left them (`resolveCommitsOf`)
-        commits: resolveCommitsOf(repositoryPath, branch.commits).map(commit => ({ hash: commit.originalHash, message: commit.message })),
-        issueReference,
-      })
+    async wait => {
+      const result = await commands.addIssueReferenceToCommits(
+        {
+          repositoryPath,
+          branchName: branch.name,
+          // the ids as the rewrite before it in the queue left them (`resolveCommitsOf`)
+          commits: resolveCommitsOf(repositoryPath, branch.commits).map(commit => ({ hash: commit.originalHash, message: commit.message })),
+          issueReference,
+        },
+        wait,
+      )
       if (result.status !== "ok") {
-        throw new Error(result.error.message)
+        // the error as the command answered it: a wait the user stopped is no failure (`isLockWaitCanceled`)
+        throw commandFailure(result.error)
       }
       // refresh without auto-expand or auto-scroll; the table shows another repository after a switch: this one is
       // synced when it opens

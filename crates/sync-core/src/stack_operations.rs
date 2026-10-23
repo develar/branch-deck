@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::move_commits::{MoveCommitsResult, move_result};
 use history_rewrite::regroup::{RegroupOptions, UndoToken, rename_branch_core, restack_branch_core, undo_regroup_core};
-use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
+use history_rewrite::repository_lock::LockWait;
 use serde::Deserialize;
 use tracing::instrument;
 
@@ -41,32 +41,36 @@ pub struct UndoRegroupParams {
 }
 
 /// Renames a branch in one history rewrite: its commits and those of the branches stacked on it get the new name in
-/// their prefix, and the issue groups of that name get the new name without a rewrite
+/// their prefix, and the issue groups of that name get the new name without a rewrite; the lock is waited for as
+/// `lock_wait` says
 #[instrument(skip(git_executor, params), fields(branch = %params.branch_name, new_name = %params.new_name))]
-pub fn rename_branch(git_executor: &GitCommandExecutor, params: &RenameBranchParams) -> Result<MoveCommitsResult> {
-  let outcome = rename_branch_core(git_executor, &params.repository_path, &params.branch_name, &params.new_name, &RegroupOptions::default())?;
+pub fn rename_branch(git_executor: &GitCommandExecutor, params: &RenameBranchParams, lock_wait: LockWait) -> Result<MoveCommitsResult> {
+  let options = RegroupOptions {
+    lock_wait,
+    ..RegroupOptions::default()
+  };
+  let outcome = rename_branch_core(git_executor, &params.repository_path, &params.branch_name, &params.new_name, &options)?;
   Ok(move_result(&outcome, &[], Some(params.new_name.clone())))
 }
 
-/// Stacks a branch on `parent`, or makes it a root, in one history rewrite of its commits' prefixes
+/// Stacks a branch on `parent`, or makes it a root, in one history rewrite of its commits' prefixes; the lock is
+/// waited for as `lock_wait` says
 #[instrument(skip(git_executor, params), fields(branch = %params.branch_name, parent = ?params.parent))]
-pub fn restack_branch(git_executor: &GitCommandExecutor, params: &RestackBranchParams) -> Result<MoveCommitsResult> {
-  let outcome = restack_branch_core(
-    git_executor,
-    &params.repository_path,
-    &params.branch_name,
-    params.parent.as_deref(),
-    &RegroupOptions::default(),
-  )?;
+pub fn restack_branch(git_executor: &GitCommandExecutor, params: &RestackBranchParams, lock_wait: LockWait) -> Result<MoveCommitsResult> {
+  let options = RegroupOptions {
+    lock_wait,
+    ..RegroupOptions::default()
+  };
+  let outcome = restack_branch_core(git_executor, &params.repository_path, &params.branch_name, params.parent.as_deref(), &options)?;
   Ok(move_result(&outcome, &[], Some(params.branch_name.clone())))
 }
 
 /// Moves back what a move, a rename or a restack wrote, as its `undo_token` names it: HEAD and the issue groups in one
 /// ref transaction with compare-and-swap, under the repository lock (`undo_regroup_core`)
 #[instrument(skip(git_executor, params), fields(token = %params.token))]
-pub fn undo_regroup(git_executor: &GitCommandExecutor, params: &UndoRegroupParams) -> Result<()> {
+pub fn undo_regroup(git_executor: &GitCommandExecutor, params: &UndoRegroupParams, lock_wait: LockWait) -> Result<()> {
   let token = UndoToken::parse(&params.token).with_context(|| format!("Not an undo token: {}", params.token))?;
-  undo_regroup_core(git_executor, &params.repository_path, &token, DEFAULT_LOCK_TIMEOUT)?;
+  undo_regroup_core(git_executor, &params.repository_path, &token, lock_wait)?;
   Ok(())
 }
 

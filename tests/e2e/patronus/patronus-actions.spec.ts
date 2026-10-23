@@ -13,7 +13,18 @@ import type {
   TargetCheck,
 } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expectNothingToPush, findBranchRow, getLandingNode, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
+import {
+  expandBranch,
+  expectNothingToPush,
+  findBranchRow,
+  getBranchCommitRow,
+  getLandingNode,
+  getMoreButton,
+  getPushButton,
+  pushFromRowMenu,
+  verifyBranchState,
+  verifyCommitCount,
+} from "../helpers/branch-helpers"
 import {
   availableRobots,
   missingApprovals,
@@ -43,7 +54,7 @@ import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } 
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { hoverStatusChip, openBranchPreview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
-import { closeMenus, openSubmenu } from "../helpers/selection-helpers"
+import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
@@ -52,6 +63,9 @@ import type { PatronusLog, TestRepositoryBuilder } from "../helpers/test-reposit
 import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
+/** Whom a push waits for while another process holds the repository lock: here the test server */
+const WAITING_FOR_HOLDER = /^Waiting for `[^`]+` \(pid \d+, for \d+ s\)/
+
 const RUNNING = robot("JIRA-456", "running-robot")
 const FAILED = robot("ABC-123", "failed-robot", { status: "failure", finishTime: 1704142800 })
 /** A Safe Push of JIRA-456 running on a commit the branch moved past */
@@ -150,6 +164,19 @@ async function setupOlderWithPushedCommits(
 ): Promise<TestRepositoryBuilder> {
   await remoteHasCommitsOfJira(page)
   return setupRobots(page, setupRepo, syncAndWaitForBranches, OLDER)
+}
+
+/**
+ * The Safe Push of JIRA-456 pressed while another process holds the repository lock (`bd pick --follow` of an agent):
+ * here the test server, whose record names it; the pushes that reach the backend and the step
+ */
+async function safePushWhileLocked(page: Page, setupRepo: Parameters<typeof setupRobots>[1], syncAndWaitForBranches: Parameters<typeof setupRobots>[2]) {
+  const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+  const pushes = await recordCommand(page, "push_branch")
+  await repo.holdRepositoryLock(true)
+  const button = slotSafePush(page, "JIRA-456")
+  await button.click()
+  return { repo, pushes, button }
 }
 
 /** JIRA-456 shown running, after Patronus got one start of it: `patch` of the default start request */
@@ -280,23 +307,69 @@ test.describe("Patronus actions", () => {
   })
 
   test("should wait for another holder of the repository lock as long as it lives, and then start", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
-    const pushes = await recordCommand(page, "push_branch")
-    // another process holds the lock (`bd pick --follow` of an agent): here the test server, whose record names it
-    await repo.holdRepositoryLock(true)
-    const button = slotSafePush(page, "JIRA-456")
-    await button.click()
-    // the push reached the backend and waits there, its step busy (no bound while the holder lives, and its progress
-    // names the holder: push_guard_test.rs, transfer-progress.test.ts; the E2E server sends no push progress); nothing
-    // starts meanwhile
+    const { repo, pushes, button } = await safePushWhileLocked(page, setupRepo, syncAndWaitForBranches)
+    // the push reached the backend and waits there, its step busy and named by whom it waits for, told again as the
+    // time grows (no bound while the holder lives: push_guard_test.rs); Stop Waiting beside it; nothing starts meanwhile
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
     await expect(button).toHaveAttribute("aria-busy", "true")
+    await expect(button).toHaveAccessibleName(WAITING_FOR_HOLDER)
+    await expect(findBranchRow(page, "JIRA-456").getByRole("button", { name: "Stop Waiting" })).toBeVisible()
     expect((await repo.getPatronusLog()).starts).toEqual([])
     await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
     // the holder is done: the push goes and the robot starts
     await repo.holdRepositoryLock(false)
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
+  })
+
+  test("should stop the wait of a Safe Push for another holder of the repository lock with Stop Waiting beside its step, nothing pushed or started", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const { repo, pushes, button } = await safePushWhileLocked(page, setupRepo, syncAndWaitForBranches)
+    await expect(button).toHaveAccessibleName(WAITING_FOR_HOLDER)
+
+    await findBranchRow(page, "JIRA-456").getByRole("button", { name: "Stop Waiting" }).click()
+    await expect(toastWith(page, "Canceled the push of JIRA-456 before it started")).toBeVisible()
+    await expect(button).not.toHaveAttribute("aria-busy", "true")
+    await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
+    expect((await repo.getPatronusLog()).starts).toEqual([])
+    // nothing was pushed or started: once the holder is done, the same step pushes and starts
+    await repo.holdRepositoryLock(false)
+    await button.click()
+    await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+    expect(pushes).toHaveLength(2)
+    expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
+  })
+
+  test("should run two Safe Pushes and a move started while another process holds the repository lock once it released it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const moves = await recordCommand(page, "move_commits_to_branch")
+    await repo.holdRepositoryLock(true)
+    await slotSafePush(page, "JIRA-456").click()
+    await slotSafePush(page, "ABC-123").click()
+    await expect(slotSafePush(page, "JIRA-456")).toHaveAccessibleName(WAITING_FOR_HOLDER)
+    await expect(slotSafePush(page, "ABC-123")).toHaveAccessibleName(WAITING_FOR_HOLDER)
+    // a move of the docs commit to feature-ui from its menu, a rewrite: the "⋯" of its row says whom it waits for
+    const docs = findBranchRow(page, "feature-docs")
+    await expandBranch(page, docs)
+    await openContextMenu(page, getBranchCommitRow(page, "feature-docs", "Update documentation"))
+    await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
+    await clickContextMenuItem(page, "feature-ui")
+    await expect(getMoreButton(docs)).toHaveAttribute("aria-busy", "true")
+    expect(moves).toHaveLength(1)
+    expect((await repo.getPatronusLog()).starts).toEqual([])
+    await expect(page.getByText(/^Cannot /)).toHaveCount(0)
+
+    // the holder is done: both pushes go, both robots start, and the move runs
+    await repo.holdRepositoryLock(false)
+    await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+    await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
+    expect(await startedBranches(repo)).toEqual(expect.arrayContaining(["JIRA-456", "ABC-123"]))
+    await expect(page.getByText("Moved 1 commit to feature-ui")).toBeVisible()
+    await verifyCommitCount(findBranchRow(page, "feature-ui"), "2 commits")
+    await expect(page.getByText(/^Cannot /)).toHaveCount(0)
   })
 
   test("should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project", async ({ page, setupRepo, syncAndWaitForBranches }) => {

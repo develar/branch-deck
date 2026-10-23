@@ -5,6 +5,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { HintList } from "@/components/conflict/ConflictResolutionHint"
 import { Callout } from "@/components/shared/Callout"
+import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { FixComponent, MergeConflictInfo } from "@/lib/bindings"
@@ -100,10 +101,13 @@ function FixSteps({ component }: { component: FixComponent }) {
   const grouping = describeFixGrouping(component)
   const result = describeFixResult(component, branch => pullRequests[branch]?.state === "open")
   const apply = (
-    <Button size="sm" disabled={applying || reason !== null} onClick={() => void applyConflictFix(component)} data-testid="apply-conflict-fix">
-      {applying ? <Spinner data-icon="inline-start" /> : <WandSparklesIcon data-icon="inline-start" />}
-      Apply Fix
-    </Button>
+    <>
+      <Button size="sm" disabled={applying || reason !== null} onClick={() => void applyConflictFix(component)} data-testid="apply-conflict-fix">
+        {applying ? <Spinner data-icon="inline-start" /> : <WandSparklesIcon data-icon="inline-start" />}
+        Apply Fix
+      </Button>
+      <LockWaitNotice surface={APPLY_FIX_SURFACE} />
+    </>
   )
   return (
     // one step is the title; more are a list under "Fix: N steps"

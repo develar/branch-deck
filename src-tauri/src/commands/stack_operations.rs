@@ -1,4 +1,5 @@
 use crate::command_error::CommandError;
+use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::operation::run_blocking;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -14,19 +15,29 @@ use trial_check::check::{StackIndependence, StackIndependenceParams, get_stack_i
 /// rewrite.
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(git_executor))]
-pub async fn rename_branch(git_executor: State<'_, GitCommandExecutor>, params: RenameBranchParams) -> Result<MoveCommitsResult, CommandError> {
+#[instrument(skip(git_executor, lock_waits, wait))]
+pub async fn rename_branch(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: RenameBranchParams,
+  wait: WaitChannel,
+) -> Result<MoveCommitsResult, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || rename_branch_core(&git, &params)).await
+  run_waiting(&lock_waits, wait, move |lock_wait| rename_branch_core(&git, &params, lock_wait)).await
 }
 
 /// Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite.
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(git_executor))]
-pub async fn restack_branch(git_executor: State<'_, GitCommandExecutor>, params: RestackBranchParams) -> Result<MoveCommitsResult, CommandError> {
+#[instrument(skip(git_executor, lock_waits, wait))]
+pub async fn restack_branch(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: RestackBranchParams,
+  wait: WaitChannel,
+) -> Result<MoveCommitsResult, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || restack_branch_core(&git, &params)).await
+  run_waiting(&lock_waits, wait, move |lock_wait| restack_branch_core(&git, &params, lock_wait)).await
 }
 
 /// Whether a stacked branch builds on the baseline without its parent: a trial build of it as a root, objects only,
@@ -52,8 +63,8 @@ pub async fn get_stack_independence(
 /// transaction with compare-and-swap.
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(git_executor))]
-pub async fn undo_regroup(git_executor: State<'_, GitCommandExecutor>, params: UndoRegroupParams) -> Result<(), CommandError> {
+#[instrument(skip(git_executor, lock_waits, wait))]
+pub async fn undo_regroup(git_executor: State<'_, GitCommandExecutor>, lock_waits: Waits<'_>, params: UndoRegroupParams, wait: WaitChannel) -> Result<(), CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || undo_regroup_core(&git, &params)).await
+  run_waiting(&lock_waits, wait, move |lock_wait| undo_regroup_core(&git, &params, lock_wait)).await
 }

@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
+import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { squashCommits } from "@/hooks/useSquashCommits"
 import type { Commit } from "@/lib/bindings"
@@ -142,6 +143,7 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
       <PreviewDialogFooter
         start={
           <div className="flex min-w-0 flex-col gap-0.5">
+            <LockWaitNotice surface={SQUASH_SURFACE} />
             {target !== undefined && <PrefixChangeHint before={target.message} after={draft} action="Squashing" />}
             {pushedCount > 0 && (
               <span data-testid="squash-pushed-warning" className="flex items-center gap-1.5 text-warning">

@@ -13,10 +13,12 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::Instrument;
 
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+pub mod channel_commands;
 pub mod cli_tools_fixtures;
 pub mod remote_fixtures;
 pub mod remote_host;
@@ -58,6 +60,9 @@ mod reword_test;
 mod test_support;
 
 #[cfg(test)]
+mod channel_commands_test;
+
+#[cfg(test)]
 mod sse_test;
 
 #[cfg(test)]
@@ -97,6 +102,7 @@ pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
     templates_dir,
     // every repository of a run: a view of an evicted table would be empty
     repository_views: repository_model::views::RepositoryViews::with_capacity(100_000),
+    lock_waits: history_rewrite::lock_wait::LockWaits::default(),
   });
 
   let app = create_app(Arc::clone(&state));
@@ -182,6 +188,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/dismiss_landed", post(tauri_command_bridge::dismiss_landed))
     .route("/invoke/fetch_baseline", post(tauri_command_bridge::fetch_baseline))
     .route("/invoke/push_branch", post(tauri_command_bridge::push_branch))
+    .route("/invoke/cancel_lock_wait", post(tauri_command_bridge::cancel_lock_wait))
     .route("/invoke/push_branches", post(tauri_command_bridge::push_branches))
     .route("/invoke/get_pull_requests", post(tauri_command_bridge::get_pull_requests))
     .route("/invoke/get_review_requests", post(tauri_command_bridge::get_review_requests))
@@ -287,8 +294,10 @@ pub const REPOSITORY_ID_HEADER: &str = "x-repository-id";
 ///
 /// The command runs in a task of its own that holds the lock: a test that ends closes its page, the browser aborts the
 /// requests, and the server drops their handlers, but the git work of a command (`spawn_blocking`) cannot be canceled
-/// and runs on. The commands do all their work before they answer (a sync streams events it has already sent), so the
-/// handler is the whole command. A request for a deleted repository is a page that outlived its test.
+/// and runs on. Most commands do all their work before they answer (a sync streams events it has already sent), so the
+/// handler is the whole command; a command that answers while it runs (`channel_commands`: SSE events of its channel,
+/// then its answer) holds the lock until its event stream ends, read to its end also when the page went away. A
+/// request for a deleted repository is a page that outlived its test.
 async fn hold_repository(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
   let Some(id) = request.headers().get(REPOSITORY_ID_HEADER).and_then(|value| value.to_str().ok()).map(str::to_owned) else {
     return next.run(request).await;
@@ -305,8 +314,29 @@ async fn hold_repository(State(state): State<Arc<AppState>>, request: Request, n
   }
   let uri = request.uri().clone();
   let handler = tokio::spawn(async move {
-    let _command = command;
-    next.run(request).await
+    let response = next.run(request).await;
+    let streams = response
+      .headers()
+      .get(axum::http::header::CONTENT_TYPE)
+      .is_some_and(|value| value.as_bytes().starts_with(b"text/event-stream"));
+    if !streams {
+      drop(command);
+      return response;
+    }
+    // the events go on to the page while the command runs; the lock is held until the last one
+    let (parts, body) = response.into_parts();
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(
+      async move {
+        let _command = command;
+        let mut events = body.into_data_stream();
+        while let Some(chunk) = tokio_stream::StreamExt::next(&mut events).await {
+          let _ = sender.send(chunk);
+        }
+      }
+      .in_current_span(),
+    );
+    Response::from_parts(parts, axum::body::Body::from_stream(tokio_stream::wrappers::UnboundedReceiverStream::new(receiver)))
   });
   handler.await.unwrap_or_else(|e| {
     tracing::error!(%uri, "The command task failed: {e}");

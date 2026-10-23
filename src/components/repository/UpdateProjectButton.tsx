@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { ProgressLine } from "@/components/shared/ProgressLine"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import { useRunProgress } from "@/hooks/useRunProgress"
@@ -21,6 +22,7 @@ import {
   runLabel,
   runningStepSentence,
   runStepLines,
+  stopWaitingUpdateItem,
   updateFooterWords,
 } from "@/lib/update-state"
 import type { BaselineStatus } from "@/stores/branch-sync"
@@ -189,6 +191,8 @@ function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: Base
   const summary = landingSentence === null ? description.summary : `${description.summary} · ${landingSentence}`
   const state = status.update?.state.status ?? "unknown"
   const upstream = upstreamName(status)
+  // the update waits for another holder of the repository lock: Stop Waiting beside the button, the tooltip says whom for
+  const stopWaiting = stopWaitingUpdateItem(running?.run)
   return (
     <span className="relative inline-flex">
       <Tooltip>
@@ -229,6 +233,7 @@ function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: Base
         </TooltipContent>
       </Tooltip>
       {shown !== undefined && <RunProgressLine shown={shown} upstream={upstream} />}
+      {stopWaiting !== null && <MenuItemButton item={stopWaiting} variant="outline" size="sm" className="ml-1" data-testid="stop-waiting" />}
     </span>
   )
 }

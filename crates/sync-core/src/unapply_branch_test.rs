@@ -6,7 +6,7 @@ use domain_types::{SyncEvent, UnappliedBranchInfo};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
 use git_ops::update_branch::UndoBlocked;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
+use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, baseline_repo};
@@ -206,7 +206,7 @@ fn undo(repo: &TestRepo, token: &str) -> Result<UndoneUnapply> {
     repo.git_executor(),
     path(repo),
     &UnapplyUndoToken::parse(token).expect("an unapply token"),
-    DEFAULT_LOCK_TIMEOUT,
+    LockWait::default(),
   )
 }
 

@@ -12,7 +12,7 @@ use git_ops::update_branch::{
   check_update_undo, no_landed_candidates,
 };
 use git_ops::word_resolve::ResolveMode;
-use history_rewrite::repository_lock::{RepositoryLocked, lock_repository};
+use history_rewrite::repository_lock::{LockWait, RepositoryLocked, lock_repository};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -53,6 +53,7 @@ pub(crate) fn update(repo: &TestRepo) -> anyhow::Result<UpdateProjectResult> {
       fetch: true,
     },
     &|_| {},
+    LockWait::default(),
   )
 }
 
@@ -66,6 +67,7 @@ fn update_reporting_progress(repo: &TestRepo) -> (anyhow::Result<UpdateProjectRe
       fetch: true,
     },
     &|it| progress.borrow_mut().push(it),
+    LockWait::default(),
   );
   (result, progress.into_inner())
 }
@@ -550,6 +552,7 @@ fn e2e_templates_have_the_expected_update_states() {
       fetch: true,
     },
     &|_| {},
+    LockWait::default(),
   )
   .unwrap();
   assert_eq!(result.applied.unwrap().replayed, 1);
@@ -885,7 +888,7 @@ fn undo_tokens_are_strict() {
 /// A fetch, and a wait for the repository lock that ends soon
 const FETCH_AND_A_SHORT_WAIT: UpdateOptions = UpdateOptions {
   fetch: true,
-  lock_timeout: Duration::from_millis(200),
+  lock_wait: LockWait::Bounded(Duration::from_millis(200)),
 };
 
 /// `update_project_with` in `repo`, with the phases it told, each once
@@ -937,7 +940,7 @@ fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
   let (sender, phases) = std::sync::mpsc::channel();
   let options = UpdateOptions {
     fetch: false,
-    lock_timeout: Duration::from_secs(60),
+    lock_wait: LockWait::Bounded(Duration::from_secs(60)),
   };
   let result = std::thread::scope(|scope| {
     let update = scope.spawn(|| update_project_with(clone.git_executor(), path(&clone), options, &|it| sender.send(it.phase).unwrap()));
@@ -992,7 +995,7 @@ fn update_without_a_fetch_goes_onto_the_last_fetched_state() {
   upstream.create_commit("Not fetched", "later.txt", "later\n");
   let options = UpdateOptions {
     fetch: false,
-    lock_timeout: Duration::from_millis(200),
+    lock_wait: LockWait::Bounded(Duration::from_millis(200)),
   };
 
   let result = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap();

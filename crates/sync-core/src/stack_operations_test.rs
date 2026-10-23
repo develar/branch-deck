@@ -2,6 +2,7 @@ use crate::grouping::group_commits_ahead_of_baseline;
 use crate::stack_operations::{RenameBranchParams, RestackBranchParams, UndoRegroupParams, rename_branch, restack_branch, undo_regroup};
 use domain_types::stack::{StackFix, StackProblemView};
 use history_rewrite::move_commits::MoveChange;
+use history_rewrite::repository_lock::LockWait;
 use history_rewrite::stack_parents::{STACK_PARENTS_FILE, STACK_PARENTS_REF};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -30,7 +31,7 @@ fn renaming_a_parent_renames_it_in_its_children() {
     new_name: "identity".to_string(),
   };
 
-  let result = rename_branch(test_repo.git_executor(), &params).unwrap();
+  let result = rename_branch(test_repo.git_executor(), &params, LockWait::default()).unwrap();
 
   assert_eq!(test_repo.get_commit_messages(3), ["(docs) Document", "(identity/login) Add form", "(identity) Add auth"]);
   let renamed: Vec<MoveChange> = result.commits.iter().map(|commit| commit.change).collect();
@@ -42,7 +43,7 @@ fn renaming_a_parent_renames_it_in_its_children() {
     repository_path: path(&test_repo),
     token: result.undo_token.unwrap(),
   };
-  undo_regroup(test_repo.git_executor(), &undo).unwrap();
+  undo_regroup(test_repo.git_executor(), &undo, LockWait::default()).unwrap();
   assert_eq!(test_repo.get_commit_messages(3), ["(docs) Document", "(auth/login) Add form", "(auth) Add auth"]);
 }
 
@@ -54,13 +55,13 @@ fn undo_refuses_a_bad_token_and_a_moved_head() {
     branch_name: "docs".to_string(),
     new_name: "guide".to_string(),
   };
-  let token = rename_branch(test_repo.git_executor(), &params).unwrap().undo_token.unwrap();
+  let token = rename_branch(test_repo.git_executor(), &params, LockWait::default()).unwrap().undo_token.unwrap();
   let undo = |token: &str| {
     let params = UndoRegroupParams {
       repository_path: path(&test_repo),
       token: token.to_string(),
     };
-    undo_regroup(test_repo.git_executor(), &params)
+    undo_regroup(test_repo.git_executor(), &params, LockWait::default())
   };
 
   let error = undo("abc..def").unwrap_err();
@@ -74,7 +75,7 @@ fn undo_refuses_a_bad_token_and_a_moved_head() {
 fn restack_writes_the_store_and_rewrites_only_differing_parent_levels() {
   let test_repo = stacked_repo();
   test_repo.create_commit("(login) Add button", "button.rs", "// button");
-  let result = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", Some("docs"))).unwrap();
+  let result = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", Some("docs")), LockWait::default()).unwrap();
   // `(auth/login)` declares another parent and loses its parent level; the bare `(login)` stays
   assert_eq!(result.commits.len(), 1);
   assert_eq!(test_repo.get_commit_messages(3), ["(login) Add button", "(docs) Document", "(login) Add form"]);
@@ -84,7 +85,7 @@ fn restack_writes_the_store_and_rewrites_only_differing_parent_levels() {
 
   // a restack onto the parent the store names already rewrites nothing
   let head = test_repo.head();
-  let result = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", Some("docs"))).unwrap();
+  let result = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", Some("docs")), LockWait::default()).unwrap();
   assert_eq!((result.undo_token, test_repo.head()), (None, head));
 
   // one undo moves HEAD and the stack parents back
@@ -94,6 +95,7 @@ fn restack_writes_the_store_and_rewrites_only_differing_parent_levels() {
       repository_path: path(&test_repo),
       token,
     },
+    LockWait::default(),
   )
   .unwrap();
   assert_eq!(test_repo.get_commit_messages(3), ["(login) Add button", "(docs) Document", "(auth/login) Add form"]);
@@ -104,16 +106,16 @@ fn restack_writes_the_store_and_rewrites_only_differing_parent_levels() {
 fn unstack_removes_the_line_and_the_parent_levels() {
   let test_repo = stacked_repo();
   test_repo.create_commit("(login) Add button", "button.rs", "// button");
-  restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", Some("auth"))).unwrap();
+  restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", Some("auth")), LockWait::default()).unwrap();
   assert_eq!(stack_parents(&test_repo), "login\tauth\n");
 
-  let result = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", None)).unwrap();
+  let result = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", None), LockWait::default()).unwrap();
   assert_eq!(test_repo.get_commit_messages(3), ["(login) Add button", "(docs) Document", "(login) Add form"]);
   assert_eq!(result.commits.len(), 1);
   assert_eq!(stack_parents(&test_repo), "");
 
   // a root is not stacked
-  let error = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", None)).unwrap_err();
+  let error = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", None), LockWait::default()).unwrap_err();
   assert!(error.to_string().contains("not stacked"), "{error:#}");
 }
 
@@ -151,7 +153,7 @@ fn each_restack_a_stack_problem_offers_removes_it() {
         StackFix::Unstack => None,
         StackFix::Rename | StackFix::Reword => unreachable!("{fix:?}"),
       };
-      restack_branch(test_repo.git_executor(), &restack(&test_repo, branch, parent)).unwrap();
+      restack_branch(test_repo.git_executor(), &restack(&test_repo, branch, parent), LockWait::default()).unwrap();
       assert_eq!(problems_of(&test_repo, branch), [], "{subjects:?} {fix:?}");
     }
   }
@@ -161,8 +163,8 @@ fn each_restack_a_stack_problem_offers_removes_it() {
 fn renaming_a_branch_renames_it_in_the_stored_parents() {
   let test_repo = stacked_repo();
   test_repo.create_commit("(guide) Write the guide", "guide.md", "guide");
-  restack_branch(test_repo.git_executor(), &restack(&test_repo, "guide", Some("docs"))).unwrap();
-  restack_branch(test_repo.git_executor(), &restack(&test_repo, "docs", Some("auth"))).unwrap();
+  restack_branch(test_repo.git_executor(), &restack(&test_repo, "guide", Some("docs")), LockWait::default()).unwrap();
+  restack_branch(test_repo.git_executor(), &restack(&test_repo, "docs", Some("auth")), LockWait::default()).unwrap();
   let rename = |branch: &str, new_name: &str| RenameBranchParams {
     repository_path: path(&test_repo),
     branch_name: branch.to_string(),
@@ -170,10 +172,10 @@ fn renaming_a_branch_renames_it_in_the_stored_parents() {
   };
 
   // as a child and as a parent, in the transaction of the rename
-  let result = rename_branch(test_repo.git_executor(), &rename("docs", "manual")).unwrap();
+  let result = rename_branch(test_repo.git_executor(), &rename("docs", "manual"), LockWait::default()).unwrap();
   assert_eq!(stack_parents(&test_repo), "guide\tmanual\nmanual\tauth\n");
   assert!(result.undo_token.unwrap().contains("+stacks:"));
-  rename_branch(test_repo.git_executor(), &rename("auth", "identity")).unwrap();
+  rename_branch(test_repo.git_executor(), &rename("auth", "identity"), LockWait::default()).unwrap();
   assert_eq!(stack_parents(&test_repo), "guide\tmanual\nmanual\tidentity\n");
 }
 

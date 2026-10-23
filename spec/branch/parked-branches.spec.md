@@ -97,7 +97,9 @@ branch built on it carries its commits, so it is parked with it.
   processes don't grow with the number of branches.
   [@test] ../../crates/sync-core/src/parked_test.rs (`several_branches_park_and_unpark_in_one_store_commit_or_not_at_all`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_park_and_an_unpark`)
-- A park must wait for the repository lock as a rewrite does, and fail with `locked` after the wait.
+- A park must wait for the repository lock as a rewrite does: `bd park` up to 10 s, then `locked`; the app's park and
+  unpark as long as the holder lives, the row's "⋯" saying whom for with Stop Waiting, which ends the wait with
+  nothing changed.
   [@test] ../../crates/sync-core/src/parked_test.rs (`park_waits_for_the_repository_lock`)
 - An unpark must drop the line, also of a branch that groups no commit here; a branch that is not parked is
   `not_parked`.

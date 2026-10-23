@@ -69,6 +69,12 @@ export interface UpdateRun {
   readonly usual: Readonly<Record<TimedStep, number>>
   /** How far the fetch is; null before git reports a stage and after the fetch */
   readonly fetch: TransferProgress | null
+  /**
+   * While the step is `waiting` for another holder of the repository lock, whom for, as the backend says it ("Waiting
+   * for `bd pick` (pid 4242, for 12 s)"), with its Stop Waiting; null while it waits for a rewrite of the page, or for
+   * nobody
+   */
+  readonly lockWait: { readonly waitingFor: string; readonly stop: () => void } | null
 }
 
 /** A run that starts with its first step now */
@@ -82,6 +88,7 @@ export function startRun(kind: UpdateRun["kind"], plan: readonly TimedStep[], ti
     done: [],
     usual: { fetch: usualDuration(timings, "fetch"), check: usualDuration(timings, "check"), apply: usualDuration(timings, "apply"), sync: usualDuration(timings, "sync") },
     fetch: null,
+    lockWait: null,
   }
 }
 
@@ -135,6 +142,7 @@ export function advanceRun(run: UpdateRun, step: UpdateStep, now: number, detail
     base: overallProgress(run, now, syncFraction),
     done: [...run.done, { step: run.step, duration: now - run.stepStartedAt, detail }],
     fetch: null,
+    lockWait: null,
   }
 }
 

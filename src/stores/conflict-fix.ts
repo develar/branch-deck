@@ -134,7 +134,7 @@ export async function applyConflictFix(component: FixComponent): Promise<void> {
   await runRewrite(
     { ...conflictFixOperation(component), label: "Applying the fix", surface: APPLY_FIX_SURFACE, repositoryPath: syncedInputs.repositoryPath },
     "Cannot apply the fix",
-    () => commands.applyConflictFix({ repositoryPath: syncedInputs.repositoryPath, fingerprint: fix.fingerprint, plan: component.plan }),
+    wait => commands.applyConflictFix({ repositoryPath: syncedInputs.repositoryPath, fingerprint: fix.fingerprint, plan: component.plan }, wait),
     data => {
       if (data.kind === "stale") {
         return { sync: false, after: () => void requestConflictFix(true) }

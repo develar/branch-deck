@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import type { MenuItem } from "@/lib/menu"
 
 export interface MoreActionsMenuProps {
   /** The object of the actions, for the accessible name: "More actions for feature-auth" */
@@ -17,13 +19,36 @@ export interface MoreActionsMenuProps {
    * button shows its spinner, the hover says it
    */
   busy?: string | null
+  /**
+   * Stop Waiting of the busy action while its command waits for another holder of the repository lock
+   * (`stopWaitingItem`): the spinner opens a menu of it
+   */
+  stopWaiting?: MenuItem | null
 }
 
 /**
  * The "⋯" button of a row, inside its `ActionTracks` or `RowActions` (a click doesn't toggle the row): the menu its right-click opens,
  * under a button, so its actions are found without knowing the right-click.
  */
-export function MoreActionsMenu({ name, menu, disabled = false, busy = null }: MoreActionsMenuProps) {
+export function MoreActionsMenu({ name, menu, disabled = false, busy = null, stopWaiting = null }: MoreActionsMenuProps) {
+  if (busy !== null && stopWaiting !== null) {
+    // the action waits for another holder of the repository lock: the hover says whom for, a click offers Stop Waiting
+    return (
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger
+            render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} aria-busy />} />}
+          >
+            <Spinner />
+          </TooltipTrigger>
+          <TooltipContent>{`${busy}…`}</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-auto min-w-36" finalFocus={false}>
+          <DropdownMenuItems groups={[[stopWaiting]]} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
   if (busy !== null) {
     // no menu while it runs; the hover says what runs (Base UI keeps a disabled button hoverable here, the dimming is off)
     return (

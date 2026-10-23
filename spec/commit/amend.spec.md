@@ -77,10 +77,13 @@ tree is never written, and the user's other staged work stays staged.
   - the branch moved meanwhile.
   [@test] ../../crates/git-ops/src/amend_operations_test.rs (`amend_refuses_range_with_merges`)
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`rewrite_refused_during_merge`)
-- The amend must run under the repository lock: while another Branch Deck operation holds it, the amend waits up to
-  10 s, then it is refused with nothing changed and the error toast says that another operation holds the lock; a
-  HEAD the request was not made for refuses it too.
+- The amend must run under the repository lock: while another process holds it (an agent's `bd pick --follow`, `bd`)
+  or the app's own push, the amend waits as long as the holder lives, its inline form saying whom for ("Waiting for
+  `bd pick` (pid 4242, for 12 s)") with Stop Waiting, which ends the wait with nothing changed and the form kept;
+  only a holder no record names refuses it after 10 s, with nothing changed and the error toast saying that another
+  operation holds the lock; a HEAD the request was not made for refuses it too.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
 - A conflict between the amended change and a later commit must refuse the amend and change no ref, index entry or
   file.

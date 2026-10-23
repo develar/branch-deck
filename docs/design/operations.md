@@ -1,7 +1,7 @@
 # Running Operations
 
 **Status:** Implemented  
-**Updated:** 2026-10-20  
+**Updated:** 2026-10-23  
 **Tags:** [frontend, actions, ux, concurrency]
 
 ## Problem
@@ -121,8 +121,30 @@ the spinner of the operation it started (`useSurfaceBusy`): `MenuItemButton` wit
 notice, `unstack-alert:<branch>`), an inline form (`inline:<branch>`, its progress row in place of itself), the Safe
 Push popover (its status line), the squash dialog, the commit message editor, the move form, Apply Fix. An operation
 whose surface has no mounted claim (a menu, a key, a toast, a popover the click closed) shows its spinner on the "⋯" of
-its subject's row (`useUnclaimedBusy`, `MoreActionsMenu busy`), and of the branch preview's header while it is open.
+its subject's row (`useUnclaimedOperation`, `MoreActionsMenu busy`), and of the branch preview's header while it is open.
 Every row the operation works on is busy (`useObjectBusy`): no right-click menu, "⋯" disabled, no drag, no push.
+
+### Waiting for the repository lock
+
+The queue orders the rewrites of the page; another process (an agent's `bd pick --follow`, a `bd` rewrite) or a push
+of the app may still hold the repository lock when a command reaches the backend. The command waits as long as the
+holder lives ([Git Operations](git-operations.md), "Repository lock") and says whom for on its channel: `runRewrite`
+and `withRowProcessing` give the command of an operation `lockWaitChannel(key)`, whose messages set the operation's
+`lockWait` ("Waiting for `bd pick` (pid 4242, for 12 s)", told again about once a second, null once the wait ended).
+`operationLabel` says it in place of the busy state, so every surface of the operation shows it: the spinner's hover
+on the "⋯" of its row (`useUnclaimedOperation`), the label of a `MenuItemButton`, the progress row of an inline form,
+and `LockWaitNotice` on the surfaces that show their own busy state (the squash dialog, the commit message editor,
+the move form, the squash of the fixups, Apply Fix).
+
+Stop Waiting is one builder, `stopWaitingItem(operation)` (null while it waits for nobody), and every surface that
+shows the waiting operation renders it: the "⋯" opens a menu of it, a `MenuItemButton` and an inline form show it
+beside themselves, `LockWaitNotice` beside the text. It calls `cancel_lock_wait` of the channel's id: the command
+answers `lockWaitCanceled`, nothing changed, and the rewrite says so in an info toast ("Canceled squashing 2 commits
+before it started"), never an error; the surface that started it stays (the squash dialog keeps its message). A push
+says it on its progress (`TransferProgress.waiting`), its Stop Waiting is `stopWaitingPushItem` in the hover of the
+push button and beside the Safe Push step; the push of an unapplied branch, an operation itself, takes
+`pushLockWaitChannel(key)`; Update Project keeps it in its run (`UpdateRun.lockWait`, Stop Waiting beside the Update
+button).
 
 ### Rewrites
 

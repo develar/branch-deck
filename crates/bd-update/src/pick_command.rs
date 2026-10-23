@@ -10,7 +10,7 @@ use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::suggest_plan::SuggestPlan;
 use domain_types::error::ErrorCode;
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
-use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -236,7 +236,7 @@ pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
-    lock_timeout: context.lock_timeout,
+    lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
   };
   let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(pick_error)?;

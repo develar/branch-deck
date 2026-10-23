@@ -28,7 +28,18 @@ describe("getSafePushBlocker", () => {
     expect(getSafePushBlocker(testBranch("login", null, { commitCount: 0 }))).toBe("No commits to push")
     operationsStore.setState({
       running: [
-        { key: 1, id: "rename", subject: "branch:login", objects: ["login"], kind: "rewrite", label: "Renaming login to auth", repositoryPath: "", surface: null, waitsFor: null },
+        {
+          key: 1,
+          id: "rename",
+          subject: "branch:login",
+          objects: ["login"],
+          kind: "rewrite",
+          label: "Renaming login to auth",
+          repositoryPath: "",
+          surface: null,
+          waitsFor: null,
+          lockWait: null,
+        },
       ],
     })
     expect(getSafePushBlocker(testBranch("login", null))).toBe("Renaming login to auth…")

@@ -32,6 +32,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::move_commits::{MoveCommitsResult, move_result};
 use history_rewrite::move_plan::plan_move;
 use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupPlan, regroup_planned};
+use history_rewrite::repository_lock::LockWait;
 use history_rewrite::snapshot::Snapshot;
 use history_rewrite::stack::stack_top;
 use object_cache::cache::ObjectCache;
@@ -1256,10 +1257,14 @@ pub enum AppliedConflictFix {
 struct FixStale;
 
 /// Applies the plan of a fix as one regroup under the repository lock (message-only rewrite, issue groups and stack
-/// parents in one ref transaction), after checking under the lock that the repository is as the fix found it
+/// parents in one ref transaction), after checking under the lock that the repository is as the fix found it; the lock
+/// is waited for as `lock_wait` says
 #[instrument(skip(git_executor, params), fields(fingerprint = %params.fingerprint))]
-pub fn apply_conflict_fix_core(git_executor: &GitCommandExecutor, params: &ApplyConflictFixParams) -> Result<AppliedConflictFix> {
-  let options = RegroupOptions::default();
+pub fn apply_conflict_fix_core(git_executor: &GitCommandExecutor, params: &ApplyConflictFixParams, lock_wait: LockWait) -> Result<AppliedConflictFix> {
+  let options = RegroupOptions {
+    lock_wait,
+    ..RegroupOptions::default()
+  };
   let outcome = regroup_planned(git_executor, &params.repository_path, &options, |snapshot| {
     if fingerprint(snapshot) == params.fingerprint {
       Ok(params.plan.clone())

@@ -11,6 +11,7 @@ use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::CommitGrouper;
 use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
 use history_rewrite::regroup::RegroupOptions;
+use history_rewrite::repository_lock::LockWait;
 use history_rewrite::reword::{CommitReword, RewordText, reword_core};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -318,7 +319,7 @@ async fn assigning_an_older_commit_reuses_every_virtual_commit() {
 
   // recreates every commit after it
   let params = MoveCommitsParams::new(repo_path(&test_repo), vec![unassigned], Some("docs"));
-  move_commits_to_branch_core(test_repo.git_executor(), &params).unwrap();
+  move_commits_to_branch_core(test_repo.git_executor(), &params, LockWait::default()).unwrap();
 
   let statuses = sync(&test_repo).await;
   assert_eq!(statuses["auth"], [CommitSyncStatus::Unchanged, CommitSyncStatus::Unchanged]);
@@ -342,7 +343,7 @@ async fn moving_a_commit_to_another_branch_copies_it_there() {
 
   // only the prefix changes: the note moves with the commit, but its virtual commit is in another branch
   let params = MoveCommitsParams::new(repo_path(&test_repo), vec![logout], Some("cache"));
-  move_commits_to_branch_core(test_repo.git_executor(), &params).unwrap();
+  move_commits_to_branch_core(test_repo.git_executor(), &params, LockWait::default()).unwrap();
 
   let statuses = sync(&test_repo).await;
   assert_eq!(statuses["auth"], [CommitSyncStatus::Unchanged]);

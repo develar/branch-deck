@@ -5,7 +5,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { MenuItem } from "@/lib/menu"
-import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
+import { operationLabel, stopWaitingItem, useIndicatorClaim, useSurfaceOperation } from "@/stores/operations"
 
 /** A `Kbd` inside a primary button: the muted key would vanish on the primary colour */
 export const PRIMARY_KBD_CLASS_NAME = "bg-primary-foreground/20 text-primary-foreground"
@@ -26,7 +26,8 @@ export interface MenuItemButtonProps {
   narrow?: "key" | "label"
   /**
    * The key of this button as the surface that starts the action (`SelectContext.surface`): while the action it started
-   * runs, the button shows its spinner and its busy state ("Unstacking tool-events…"); without one the row shows it
+   * runs, the button shows its spinner and its busy state ("Unstacking tool-events…"), and while its command waits for
+   * another holder of the repository lock, whom for and Stop Waiting beside it; without one the row shows it
    */
   surface?: string
   className?: string
@@ -42,7 +43,9 @@ export interface MenuItemButtonProps {
  */
 export function MenuItemButton({ item, variant = "ghost", size = "xs", pending = false, narrow, surface, className, ref, "data-testid": testId }: MenuItemButtonProps) {
   useIndicatorClaim(surface)
-  const busy = useSurfaceBusy(surface)
+  const operation = useSurfaceOperation(surface)
+  const busy = operation === undefined ? null : operationLabel(operation)
+  const stopWaiting = stopWaitingItem(operation)
   const running = pending || busy !== null
   const key = item.kbds?.at(-1)
   const kbd = key !== undefined && <Kbd className={cn(variant === "default" && PRIMARY_KBD_CLASS_NAME, narrow !== undefined && "hidden @4xl:inline-flex")}>{key.toUpperCase()}</Kbd>
@@ -75,6 +78,14 @@ export function MenuItemButton({ item, variant = "ghost", size = "xs", pending =
     )
   // the busy state is the label: no reason to hover for; an icon left alone is named by its hover
   const description = item.description ?? (narrow === "label" ? item.label : undefined)
+  if (stopWaiting !== null) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        {button}
+        <MenuItemButton item={stopWaiting} variant="outline" size={size} data-testid="stop-waiting" />
+      </span>
+    )
+  }
   if (description === undefined || busy !== null) {
     return button
   }

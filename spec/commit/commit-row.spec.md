@@ -231,10 +231,12 @@ The commit hash popover shows the same header and body.
 - A save that changed nothing (the same message after the cleanup) must show no toast, record nothing and run no sync.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should save an unchanged message without a toast`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records nothing for an unchanged message`)
-- The save must run under the repository lock: while another Branch Deck operation holds it, the save waits up to
-  10 s, then it is refused with nothing changed and the toast "Cannot edit the commit message" says that another
-  operation holds the lock.
+- The save must run under the repository lock: while another process holds it (an agent's `bd pick --follow`, `bd`)
+  or the app's own push, the save waits as long as the holder lives, the editor saying whom for with Stop Waiting,
+  which ends the wait with nothing changed; only a holder no record names refuses it after 10 s, with nothing changed
+  and the toast "Cannot edit the commit message" saying that another operation holds the lock.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
 
 ### Message body
 

@@ -16,7 +16,7 @@ use git_ops::update_branch::{
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::commit_grouper::GroupingInputs;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, RepositoryLocked, lock_repository, lock_repository_with};
+use history_rewrite::repository_lock::{LockHolder, LockWait, RepositoryLocked, lock_repository};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::path::Path;
@@ -57,11 +57,20 @@ pub struct UpdateProgress {
   pub phase: UpdatePhase,
   /// How far the fetch is; `None` until git reports a stage, and in the other phases
   pub fetch: Option<TransferProgress>,
+  /// While the app's update waits for another holder of the repository lock (`Waiting`), whom it waits for: "Waiting
+  /// for `bd pick` (pid 4242, for 12 s)", told again about once a second
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub waiting_for: Option<String>,
 }
 
 impl From<UpdatePhase> for UpdateProgress {
   fn from(phase: UpdatePhase) -> Self {
-    Self { phase, fetch: None }
+    Self {
+      phase,
+      fetch: None,
+      waiting_for: None,
+    }
   }
 }
 
@@ -79,11 +88,12 @@ pub struct UpdateProjectResult {
 
 /// How an update runs
 #[derive(Debug, Clone, Copy)]
-pub struct UpdateOptions {
+pub struct UpdateOptions<'a> {
   /// Fetch the baseline first; without, the update goes onto the last fetched state
   pub fetch: bool,
-  /// How long the update waits for the repository lock, which it takes after the fetch
-  pub lock_timeout: Duration,
+  /// How the update waits for the repository lock, which it takes after the fetch: `bd` at most its timeout, the app
+  /// as long as the holder lives
+  pub lock_wait: LockWait<'a>,
 }
 
 /// The fetch of an update failed; nothing was changed
@@ -116,13 +126,15 @@ pub fn locked_message(holder: Option<&LockHolder>) -> String {
 }
 
 /// Fetch the baseline, check the update and apply it if it is clean. A conflict or a block is a result, not an error:
-/// nothing is changed, and the check says why.
+/// nothing is changed, and the check says why. The lock is waited for as `lock_wait` says
 #[instrument(skip(git_executor, params, on_progress), fields(repository_path = %params.repository_path))]
-pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdateProjectParams, on_progress: &dyn Fn(UpdateProgress)) -> Result<UpdateProjectResult> {
-  let options = UpdateOptions {
-    fetch: params.fetch,
-    lock_timeout: DEFAULT_LOCK_TIMEOUT,
-  };
+pub fn update_project_core(
+  git_executor: &GitCommandExecutor,
+  params: &UpdateProjectParams,
+  on_progress: &dyn Fn(UpdateProgress),
+  lock_wait: LockWait,
+) -> Result<UpdateProjectResult> {
+  let options = UpdateOptions { fetch: params.fetch, lock_wait };
   update_project_with(git_executor, &params.repository_path, options, on_progress).map_err(app_error)
 }
 
@@ -198,6 +210,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       on_progress(UpdateProgress {
         phase: UpdatePhase::Fetching,
         fetch: Some(fetch),
+        waiting_for: None,
       });
     };
     let previous = fetch_baseline(git_executor, repo_path, &upstream, &mut on_fetch_progress).map_err(|e| {
@@ -232,7 +245,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       landed: Vec::new(),
     })));
   }
-  let lock = lock_repository_with(git_executor, repo_path, options.lock_timeout, &|| on_progress(UpdatePhase::Waiting.into()))?;
+  let lock = options.lock_wait.lock_with(git_executor, repo_path, &|| on_progress(UpdatePhase::Waiting.into()))?;
   // an update or undo that a crash stopped before its files followed: they follow first
   let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
   if recovered || !recheck_update(git_executor, repo_path, &mut prepared.plan, &upstream.tracking_ref)? {

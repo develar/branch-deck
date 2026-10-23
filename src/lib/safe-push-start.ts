@@ -189,7 +189,8 @@ function pushFirst(start: SafePushStart, errorTitle: string, repositoryPath: str
     return pushWholeStack(start.wholeStack, { replacesRobot, report: (_title, reason) => notifyError(errorTitle, reason) })
   }
   return pushForAction(start.branchName, { replacesRobot, repositoryPath }).then(pushed => {
-    if (!pushed.pushed) {
+    // a push stopped while it waited for the lock said so itself: the start fails nothing
+    if (!pushed.pushed && pushed.canceled !== true) {
       notifyError(errorTitle, pushed.reason)
     }
     return pushed.pushed

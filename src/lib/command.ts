@@ -15,6 +15,14 @@ export async function invokeCommand<T>(run: () => Promise<CommandResult<T>>): Pr
 }
 
 /**
+ * The error of a failed command as an `Error` to throw, with what the page tells apart: its `kind` (a wait the user
+ * stopped, `isLockWaitCanceled`) and its `operation_id`
+ */
+export function commandFailure(error: CommandError): Error {
+  return Object.assign(new Error(error.message), { kind: error.kind ?? null, operation_id: error.operation_id ?? null })
+}
+
+/**
  * Success toast of a history rewrite, with an Undo button for 10 seconds; Activity records it with the same Undo.
  * `undo` resolves to whether it undid the rewrite: the toast closes then, and stays after an undo that failed (an error
  * toast says why), so its Undo can be pressed again. Returns the id of the toast, so a check that answers later can add

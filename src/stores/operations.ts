@@ -1,6 +1,9 @@
 import { useEffect } from "react"
+import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
+import type { LockWaitEvent, TransferProgress } from "@/lib/bindings"
+import { stopLockWait } from "@/lib/lock-wait"
 import type { MenuItem } from "@/lib/menu"
 import type { RunningMove } from "@/lib/running-move"
 import { getSelectedProject } from "@/stores/repository"
@@ -58,6 +61,11 @@ export interface Operation extends OperationSpec {
   readonly surface: string | null
   /** The busy state of the operation it waits for in the queue ("Unstacking oauth"); null once it runs */
   readonly waitsFor: string | null
+  /**
+   * Whom its command waits for while another holder has the repository lock, as the backend says it: "Waiting for `bd
+   * pick` (pid 4242, for 12 s)" (`lockWaitChannel`); null while it waits for nobody
+   */
+  readonly lockWait: string | null
 }
 
 export type Operations = readonly Operation[]
@@ -75,6 +83,8 @@ export const operationsStore = createStore<OperationsState>(() => ({ running: NO
 
 /** The running promise of each operation: a second start of the same action resolves with it */
 const promises = new Map<number, Promise<unknown>>()
+/** The channel each operation's command hears its wait for the repository lock on: Stop Waiting ends that wait */
+const lockWaitChannels = new Map<number, { readonly id: number }>()
 let nextKey = 1
 
 /** The subject of a branch: the row whose menu and keys start its actions */
@@ -118,9 +128,65 @@ function conflicts(operation: Operation, key: OperationKey): boolean {
   return operation.subject === key.subject || operation.objects.some(name => key.objects.includes(name))
 }
 
-/** The busy state of an operation as its surfaces show it: "Unstacking tool-events", or what it waits for in the queue */
+/**
+ * The busy state of an operation as its surfaces show it: "Unstacking tool-events", what it waits for in the queue
+ * ("Waits for Unstacking oauth"), or whom its command waits for while another holder has the repository lock ("Waiting
+ * for `bd pick` (pid 4242, for 12 s)")
+ */
 export function operationLabel(operation: Operation): string {
+  if (operation.lockWait !== null) {
+    return operation.lockWait
+  }
   return operation.waitsFor === null ? operation.label : `Waits for ${operation.waitsFor}`
+}
+
+/**
+ * The channel the command of the operation `key` hears its wait for the repository lock on (the `wait` of a rewrite):
+ * while the backend says whom it waits for, the operation's surfaces say it and offer Stop Waiting (`stopWaitingItem`)
+ */
+export function lockWaitChannel(key: number): Channel<LockWaitEvent> {
+  const channel = new Channel<LockWaitEvent>()
+  channel.onmessage = event => setLockWait(key, event.waitingFor)
+  lockWaitChannels.set(key, channel)
+  return channel
+}
+
+/**
+ * The progress channel of a push that is an operation itself (the push of an unapplied branch): while it waits for
+ * another holder of the repository lock, the operation says whom for and offers Stop Waiting, as a rewrite does
+ */
+export function pushLockWaitChannel(key: number): Channel<TransferProgress> {
+  const channel = new Channel<TransferProgress>()
+  channel.onmessage = progress => setLockWait(key, progress.waiting === true ? progress.line : null)
+  lockWaitChannels.set(key, channel)
+  return channel
+}
+
+function setLockWait(key: number, lockWait: string | null): void {
+  operationsStore.setState(state => ({ running: state.running.map(it => (it.key === key && it.lockWait !== lockWait ? { ...it, lockWait } : it)) }))
+}
+
+/**
+ * Stop Waiting of an operation whose command waits for another holder of the repository lock: the one builder of the
+ * action, every surface that shows the waiting operation renders it (the "⋯" of its row, the surface that started it);
+ * null while it waits for nobody. The command then changes nothing and the operation says so ("Canceled squashing 2
+ * commits before it started")
+ */
+export function stopWaitingItem(operation: Operation | undefined): MenuItem | null {
+  if (operation?.lockWait == null) {
+    return null
+  }
+  const channel = lockWaitChannels.get(operation.key)
+  return {
+    id: "stop-waiting",
+    label: "Stop Waiting",
+    description: `${operation.lockWait}; stop and change nothing`,
+    onSelect: () => {
+      if (channel !== undefined) {
+        stopLockWait(channel)
+      }
+    },
+  }
 }
 
 /** The busy state of `operation` with the ellipsis, as an item that runs it says it: "Unstacking tool-events…" */
@@ -184,7 +250,7 @@ export function operationItem(running: Operations, item: MenuItem, key: Operatio
  * action that must wait (a cancel of the robot a restart replaces) runs nothing, tells `onBlocked` why and resolves to
  * `undefined`: it would act on the robot or the pull request as it was before the one it waits for.
  */
-export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBlocked: (reason: string) => void = () => {}): Promise<T | undefined> {
+export function runOperation<T>(spec: OperationSpec, run: (key: number) => Promise<T>, onBlocked: (reason: string) => void = () => {}): Promise<T | undefined> {
   const { running } = operationsStore.getState()
   const same = findSame(running, spec)
   if (same !== undefined) {
@@ -206,6 +272,7 @@ export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBl
     repositoryPath: repositoryOf(spec),
     surface: spec.surface ?? null,
     waitsFor: blocker?.label ?? null,
+    lockWait: null,
     ...(spec.resources === undefined ? null : { resources: spec.resources }),
     ...(spec.parameters === undefined ? null : { parameters: spec.parameters }),
     ...(spec.move === undefined ? null : { move: spec.move }),
@@ -218,12 +285,13 @@ export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBl
     settle = { resolve, reject }
   }).finally(() => {
     promises.delete(operation.key)
+    lockWaitChannels.delete(operation.key)
     operationsStore.setState(state => ({ running: state.running.filter(it => it.key !== operation.key) }))
   })
   promises.set(operation.key, promise)
   const start = () => {
     try {
-      run().then(settle.resolve, settle.reject)
+      run(operation.key).then(settle.resolve, settle.reject)
     } catch (error) {
       settle.reject(error)
     }
@@ -319,14 +387,12 @@ export function useObjectBusy(name: string): string | null {
 }
 
 /**
- * The busy state of the operation of the subject `subject` whose start no mounted surface shows (a menu, a key, a toast,
- * a popover closed by the click): the trigger of the object's menu shows its spinner; null otherwise
+ * The operation of the subject `subject` whose start no mounted surface shows (a menu, a key, a toast, a popover closed
+ * by the click): the trigger of the object's menu shows its spinner and busy state (`operationLabel`), and its Stop
+ * Waiting (`stopWaitingItem`); undefined otherwise
  */
-export function useUnclaimedBusy(subject: string): string | null {
-  return useStore(operationsStore, state => {
-    const operation = state.running.find(it => it.subject === subject && !isClaimed(state, it.surface))
-    return operation === undefined ? null : operationLabel(operation)
-  })
+export function useUnclaimedOperation(subject: string): Operation | undefined {
+  return useStore(operationsStore, state => state.running.find(it => it.subject === subject && !isClaimed(state, it.surface)))
 }
 
 function isClaimed(state: OperationsState, surface: string | null): boolean {
@@ -336,14 +402,23 @@ function isClaimed(state: OperationsState, surface: string | null): boolean {
 /** The busy state of the operation `surface` started, while it runs: the surface shows its spinner; null otherwise */
 export function useSurfaceBusy(surface: string | undefined): string | null {
   return useStore(operationsStore, state => {
-    const operation = surface === undefined ? undefined : state.running.find(it => it.surface === surface)
+    const operation = surfaceOf(state, surface)
     return operation === undefined ? null : operationLabel(operation)
   })
 }
 
+function surfaceOf(state: OperationsState, surface: string | undefined): Operation | undefined {
+  return surface === undefined ? undefined : state.running.find(it => it.surface === surface)
+}
+
+/** The operation `surface` started, while it runs, for its Stop Waiting (`stopWaitingItem`); undefined otherwise */
+export function useSurfaceOperation(surface: string | undefined): Operation | undefined {
+  return useStore(operationsStore, state => surfaceOf(state, surface))
+}
+
 /**
  * Claims the spinner of the operations `surface` starts while the component is mounted; a surface that unmounts (a
- * closed popover) leaves the spinner to the trigger of the object's menu (`useUnclaimedBusy`)
+ * closed popover) leaves the spinner to the trigger of the object's menu (`useUnclaimedOperation`)
  */
 export function useIndicatorClaim(surface: string | undefined): void {
   useEffect(() => {

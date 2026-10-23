@@ -7,6 +7,8 @@ import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
 import { appliedUpdateToast } from "@/lib/landed"
+import { canceledBeforeStart, isLockWaitCanceled, stopLockWait } from "@/lib/lock-wait"
+import { showToast } from "@/lib/toast-message"
 import type { FinishedStep, TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
 import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-progress"
 import { recordUpdate } from "@/stores/activity"
@@ -137,13 +139,17 @@ function finishedDetail(run: UpdateRun): string | null {
   return run.step === "fetch" ? (run.fetch?.transferred ?? null) : null
 }
 
-/** The run at the step of the message: a new step only when the phase changes, the fetch progress within the fetch */
-function applyProgress(run: UpdateRun, { phase, fetch }: UpdateProgress): UpdateRun {
+/**
+ * The run at the step of the message: a new step only when the phase changes, the fetch progress within the fetch, and
+ * whom the wait is for while another holder has the repository lock, stopped through the update's channel
+ */
+function applyProgress(run: UpdateRun, { phase, fetch, waitingFor }: UpdateProgress, channel: { readonly id: number }): UpdateRun {
   const step = PHASE_STEPS[phase]
-  if (step === run.step) {
-    return step === "fetch" ? { ...run, fetch } : run
+  const next = step === run.step ? (step === "fetch" ? { ...run, fetch } : run) : advanceRun(run, step, Date.now(), finishedDetail(run))
+  if (step === "waiting" && waitingFor != null) {
+    return { ...next, lockWait: { waitingFor, stop: () => stopLockWait(channel) } }
   }
-  return advanceRun(run, step, Date.now(), finishedDetail(run))
+  return next
 }
 
 /** The operation of an update of the selected repository: a rewrite of it, as a regroup or a squash */
@@ -244,7 +250,7 @@ async function applyUpdate(repositoryPath: string): Promise<readonly FinishedSte
   let closed = false
   progress.onmessage = message => {
     if (!closed) {
-      patchRunning(repositoryPath, running => ({ ...running, run: applyProgress(running.run, message) }))
+      patchRunning(repositoryPath, running => ({ ...running, run: applyProgress(running.run, message, progress) }))
     }
   }
   const result = await invokeCommand(() => commands.updateProject({ repositoryPath, fetch: false }, progress))
@@ -253,7 +259,11 @@ async function applyUpdate(repositoryPath: string): Promise<readonly FinishedSte
   const done = run?.done ?? []
   if (result.status !== "ok") {
     syncFetched(repositoryPath)
-    notifyError("Cannot update the project", result.error)
+    if (isLockWaitCanceled(result.error)) {
+      showToast(canceledBeforeStart("the update", "Nothing changed; the fetch stays"))
+    } else {
+      notifyError("Cannot update the project", result.error)
+    }
     return done
   }
 

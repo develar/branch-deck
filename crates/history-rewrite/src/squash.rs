@@ -1,7 +1,7 @@
 //! The app's squash of commits into the oldest of them, which keeps its place and its author
 //! (`git_ops::squash_commits`), and its undo, a move of the branch back; both under the repository lock.
 
-use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, lock_repository};
+use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::reword::normalize_message;
 use anyhow::{Result, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -89,10 +89,11 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
   })
 }
 
-/// Undoes a squash: moves the checked out branch back to the commit it pointed at before, under the repository lock
+/// Undoes a squash: moves the checked out branch back to the commit it pointed at before, under the repository lock,
+/// waited for as `lock_wait` says
 #[instrument(skip(git_executor))]
-pub fn restore_branch_head_core(git_executor: &GitCommandExecutor, params: &RestoreBranchHeadParams) -> Result<()> {
-  let _lock = lock_repository(git_executor, &params.repository_path, DEFAULT_LOCK_TIMEOUT)?;
+pub fn restore_branch_head_core(git_executor: &GitCommandExecutor, params: &RestoreBranchHeadParams, lock_wait: LockWait) -> Result<()> {
+  let _lock = lock_wait.lock(git_executor, &params.repository_path)?;
   restore_branch_head(git_executor, &params.repository_path, &params.expected_head, &params.previous_head, "undo squash")?;
   info!("Restored the branch head");
   Ok(())

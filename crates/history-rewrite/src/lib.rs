@@ -19,7 +19,9 @@
 //! - `parked`: `PARKED`, branch -> note: the branches kept local, never pushed; park and unpark
 //!
 //! Rewrites, each under the repository lock its core takes:
-//! - `repository_lock`: `$GIT_COMMON_DIR/branch-deck.lock`, `RewriteOptions` and `ensure_expected_head`
+//! - `repository_lock`: `$GIT_COMMON_DIR/branch-deck.lock`, `RewriteOptions`, `LockWait` and `ensure_expected_head`
+//! - `lock_wait`: the app's waits for a live holder of the lock, by the channel the page hears each on, and their Stop
+//!   Waiting
 //! - `regroup`: one reword that sets the prefixes of a plan, with the issue groups and the stack parents, and its undo
 //! - `move_commits`: the app's move of commits to a branch, through the regroup
 //! - `move_plan`: the smallest regroup of a move: by the issue groups, by prefixes, or both
@@ -35,6 +37,7 @@ pub mod commit_grouper;
 pub mod commit_ids;
 mod fixup_targets;
 pub mod issue_groups;
+pub mod lock_wait;
 pub mod move_commits;
 pub mod move_plan;
 pub mod parked;
@@ -51,3 +54,5 @@ pub mod test_commit;
 
 #[cfg(test)]
 mod baseline_test;
+#[cfg(test)]
+mod lock_wait_test;

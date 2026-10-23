@@ -6,7 +6,7 @@ use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::regroup::{
   RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core,
 };
-use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait};
 use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::stack::{StackForest, describe_problem, place_branches, problem_view};
 use history_rewrite::stack_parents::{STACK_PARENTS, STACK_PARENTS_REF, drop_integrated_stack_parents, integrated_children};
@@ -423,7 +423,7 @@ fn a_mixed_plan_moves_head_and_the_store_in_one_transaction() {
   let reflog: Vec<String> = repo.log(&["-g", "--format=%gs", "master"]).unwrap().lines().map(str::to_string).collect();
   assert!(reflog[0].starts_with("branch-deck: reword"), "{reflog:?}");
 
-  undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
   assert_eq!(repo.head(), head);
   assert_eq!(read_store_head(repo.git_executor(), path(&repo), STACK_PARENTS_REF).unwrap(), None);
   assert_eq!(read_grouping_inputs(repo.git_executor(), path(&repo)).unwrap().issue_groups.commit, None);
@@ -482,7 +482,7 @@ fn an_undo_passes_over_the_drops_of_a_sync() {
   // a sync drops the line of an integrated branch meanwhile: the token's commit is no longer the store
   drop_integrated_stack_parents(repo.git_executor(), path(&repo), &["ghost"]);
   assert_eq!(stack_parents(&repo).entries, entries(&[("login", "auth")]));
-  undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
   // the restack is undone, the drop stays
   assert_eq!(stack_parents(&repo).entries, BTreeMap::new());
   assert_eq!(history(&repo), 4);
@@ -490,7 +490,7 @@ fn an_undo_passes_over_the_drops_of_a_sync() {
   // a write of a regroup after the token is no drop: the undo refuses
   let token = UndoToken::of(&restack(&repo, "login", Some("auth")).unwrap()).unwrap();
   restack(&repo, "docs", Some("auth")).unwrap();
-  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap_err();
+  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap_err();
   assert!(matches!(error, RegroupError::StacksMoved(_)), "{error}");
 }
 

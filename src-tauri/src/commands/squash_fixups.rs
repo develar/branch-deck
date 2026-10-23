@@ -1,4 +1,5 @@
 use crate::command_error::CommandError;
+use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::operation::run_blocking;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::autosquash::{AutosquashPlan, GetAutosquashPlanParams, SquashFixupsParams, SquashFixupsResult, get_autosquash_plan_core, squash_fixup_commits_core};
@@ -19,8 +20,16 @@ pub async fn get_autosquash_plan(git_executor: State<'_, GitCommandExecutor>, pa
 /// tree are not touched.
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(git_executor))]
-pub async fn squash_fixup_commits(git_executor: State<'_, GitCommandExecutor>, params: SquashFixupsParams) -> Result<SquashFixupsResult, CommandError> {
+#[instrument(skip(git_executor, lock_waits, wait))]
+pub async fn squash_fixup_commits(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: SquashFixupsParams,
+  wait: WaitChannel,
+) -> Result<SquashFixupsResult, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || squash_fixup_commits_core(&git, &params, &RewriteOptions::default())).await
+  run_waiting(&lock_waits, wait, move |lock_wait| {
+    squash_fixup_commits_core(&git, &params, &RewriteOptions::waiting(lock_wait))
+  })
+  .await
 }

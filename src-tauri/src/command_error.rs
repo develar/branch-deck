@@ -28,6 +28,9 @@ pub enum CommandErrorKind {
   OperationInProgress,
   /// HEAD is not on a branch (`SyncDeferred`)
   DetachedHead,
+  /// The user stopped the wait for another holder of the repository lock (Stop Waiting, `cancel_lock_wait`): the
+  /// command changed nothing
+  LockWaitCanceled,
 }
 
 impl CommandError {

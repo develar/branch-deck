@@ -1,4 +1,31 @@
 import type { TransferProgress } from "@/lib/bindings"
+import { stopLockWait } from "@/lib/lock-wait"
+import type { MenuItem } from "@/lib/menu"
+
+/** How far a push is, as the page keeps it: while it waits for another holder of the repository lock, its Stop Waiting */
+export interface PushProgress extends TransferProgress {
+  readonly stopWaiting?: () => void
+}
+
+/**
+ * The progress the push on `channel` reported: one that waits for another holder of the repository lock can be stopped
+ * there (`stopLockWait` of the channel), with nothing pushed
+ */
+export function pushProgressOf(progress: TransferProgress, channel: { readonly id: number }): PushProgress {
+  return progress.waiting === true ? { ...progress, stopWaiting: () => stopLockWait(channel) } : progress
+}
+
+/**
+ * Stop Waiting of a push that waits for another holder of the repository lock, as the hover of its button and the step
+ * of its Safe Push offer it; null while it waits for nobody
+ */
+export function stopWaitingPushItem(progress: PushProgress | null): MenuItem | null {
+  const stop = progress?.stopWaiting
+  if (stop === undefined) {
+    return null
+  }
+  return { id: "stop-waiting", label: "Stop Waiting", description: `${progress?.line}; stop and push nothing`, onSelect: stop }
+}
 
 /**
  * The label of a running fetch or push, e.g. "Pushing 45%"; "Pushing…" until git reports a stage; while the push waits

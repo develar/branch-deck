@@ -19,7 +19,7 @@ use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, pending_update};
 use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use history_rewrite::baseline::detect_baseline_branch;
-use history_rewrite::repository_lock::RepositoryLocked;
+use history_rewrite::repository_lock::{LockWait, RepositoryLocked};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write as _;
@@ -477,7 +477,7 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
 
   let options = UpdateOptions {
     fetch: !args.no_fetch,
-    lock_timeout: context.lock_timeout,
+    lock_wait: LockWait::Bounded(context.lock_timeout),
   };
   let output = match update_and_resolve(&context.git, &context.repository, options, args.dir.as_deref()).map_err(|e| core_error(e, ErrorCode::HeadMoved))? {
     BdUpdate::Update(result) => {

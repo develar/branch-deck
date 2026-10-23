@@ -66,10 +66,16 @@ tree and the index are not touched, and an undo is a move of the branch back.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`validates_the_groups`, `refuses_a_range_with_merges`)
   [@test] ../../crates/history-rewrite/src/squash_test.rs (`refuses_fewer_than_two_commits_a_duplicate_or_a_blank_subject`)
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`squash_conflicting_with_commit_in_between_changes_nothing`, `refusal_after_writing_a_commit_leaves_no_temp_refs`, `squash_refuses_empty_result`, `squash_refuses_kept_commit_that_becomes_empty`)
-- The squash and its undo must run under the repository lock: while another Branch Deck operation holds it, they wait
-  up to 10 s, then they are refused with nothing changed and the error toast says that another operation holds the
-  lock. A HEAD the request was not made for (`expect_head`) refuses the squash as `HeadMoved`.
+- The squash and its undo must run under the repository lock: while another process holds it (an agent's `bd pick
+  --follow`, `bd`) or the app's own push, they wait as long as the holder lives; the squash dialog says whom for
+  ("Waiting for `bd pick` (pid 4242, for 12 s)") with Stop Waiting, which ends the wait with nothing changed
+  ("Canceled squashing 2 commits before it started"), the dialog kept with its message for the next press. Only a
+  holder no record names refuses them after 10 s, with nothing changed and the error toast saying that another
+  operation holds the lock. A HEAD the request was not made for (`expect_head`) refuses the squash as `HeadMoved`.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
+  [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should wait for the holder in the squash dialog, say whom for, and squash once it released the lock`)
+  [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should stop the wait of a squash with Stop Waiting in its dialog, squash nothing, and squash on the next press`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
 - A group that keeps the target's message (for fixups) must keep its bytes and its encoding.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`target_message_keeps_the_bytes_and_the_encoding`)

@@ -14,7 +14,7 @@ use crate::fixup_targets::check_fixup_targets;
 use crate::issue_groups::{ISSUE_GROUPS, validate_issue_group_name, validate_issue_key, validate_leaf_name};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::parked::{PARKED, PARKED_DROP_MESSAGE};
-use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
+use crate::repository_lock::{LockWait, RepositoryLock, RepositoryLocked, ensure_expected_head};
 use crate::reword::{normalize_message, reword_read_commits_at};
 use crate::snapshot::{Grouped, Snapshot, group_commits};
 use crate::stack::{StackForest, problem_view};
@@ -31,7 +31,6 @@ use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::restore_branch_head_with;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::time::Duration;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::{info, instrument};
 
@@ -61,7 +60,7 @@ pub struct RegroupPlan {
   pub unstack: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RegroupOptions<'a> {
   /// The HEAD the plan was made for (`bd status` printed it); abbreviated ids are fine. Another HEAD is `HeadMoved`,
   /// also for a regroup that changes only the issue groups
@@ -71,21 +70,17 @@ pub struct RegroupOptions<'a> {
   pub allow_append: bool,
   /// Compute and validate the result, write nothing
   pub dry_run: bool,
-  pub lock_timeout: Duration,
+  /// How the regroup waits for another holder of the lock (`RewriteOptions::lock_wait`)
+  pub lock_wait: LockWait<'a>,
   /// The repository lock the caller holds, so that it can write more under it (`bd group --sync`); `None` takes the
   /// lock for the regroup only
   pub held_lock: Option<&'a RepositoryLock>,
 }
 
-impl Default for RegroupOptions<'_> {
-  fn default() -> Self {
-    Self {
-      expect_head: None,
-      allow_append: false,
-      dry_run: false,
-      lock_timeout: DEFAULT_LOCK_TIMEOUT,
-      held_lock: None,
-    }
+impl<'a> RegroupOptions<'a> {
+  /// The options of a regroup of the app: no expected HEAD, the lock waited for as `lock_wait` says
+  pub fn waiting(lock_wait: LockWait<'a>) -> Self {
+    Self { lock_wait, ..Self::default() }
   }
 }
 
@@ -652,8 +647,8 @@ fn with_stack_parents(snapshot: &Snapshot, mut change: Change, set: BTreeMap<Str
 /// from the new to the previous commit (or away, when there was none). Message-only rewrites keep HEAD's tree, so the index and the working
 /// tree stay valid
 #[instrument(skip(git_executor))]
-pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken, lock_timeout: Duration) -> Result<(), RegroupError> {
-  let _lock = lock_repository(git_executor, repository_path, lock_timeout)?;
+pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken, lock_wait: LockWait) -> Result<(), RegroupError> {
+  let _lock = lock_wait.lock(git_executor, repository_path)?;
   let mut also = RefTransaction::new();
   if let Some(pair) = &token.issue_groups {
     undo_store_write(git_executor, repository_path, &ISSUE_GROUPS, pair, &mut also)?;
@@ -803,7 +798,7 @@ fn regroup_accepted(
   let _lock = if options.dry_run || options.held_lock.is_some() {
     None
   } else {
-    Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
+    Some(options.lock_wait.lock(git_executor, repository_path)?)
   };
   let snapshot = Snapshot::read(git_executor, repository_path)?;
   let appended = match ensure_expected_head(options.expect_head.as_deref(), &snapshot.head, || snapshot.branch.clone()) {

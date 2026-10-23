@@ -145,9 +145,14 @@ export const tauriMockScript = () => {
     }
   }
 
-  let nextProgressChannel = 0
+  // the server keeps the waits of every page by these keys (`cancel_lock_wait`): the pages of tests that run at once must
+  // not share one, so each page counts from a random start
+  let nextProgressChannel = Math.floor(Math.random() * 2 ** 29)
 
-  /** Keeps a `Channel` the command got, so a test can call its `onmessage`; null without one */
+  /**
+   * Keeps a `Channel` the command got (the `progress` of a push or an update, the `wait` of a rewrite), so the server's
+   * messages and a test reach its `onmessage`; null without one
+   */
   function registerProgressChannel(channel: any): number | null {
     if (channel === null || typeof channel !== "object" || typeof channel.onmessage !== "function") {
       return null
@@ -156,6 +161,13 @@ export const tauriMockScript = () => {
     const id = nextProgressChannel++
     channels[id] = channel
     return id
+  }
+
+  /** The key of the kept channel whose Tauri id is `tauriId` (`Channel.id`, which Stop Waiting names); null when none */
+  function progressChannelKey(tauriId: unknown): number | null {
+    const channels: Record<string, any> = (window as any).__progressChannels ?? {}
+    const entry = Object.entries(channels).find(([, channel]) => channel.id === tauriId)
+    return entry === undefined ? null : Number(entry[0])
   }
 
   /**
@@ -167,17 +179,25 @@ export const tauriMockScript = () => {
     // Unwrap params if present - the frontend wraps parameters in { params: actualParams }
     // but the test server expects the parameters directly
     const actualPayload = payload?.params || payload
-    // a progress channel (`push_branch`) stays in the page: a test route sends messages to it by its key
+    // a progress channel (`push_branch`, `update_project`, the `wait` of a rewrite) stays in the page: the server sends
+    // its messages as SSE events before the answer (`channel_commands.rs`), a test route by its key
     // (`window.__progressChannels`, see `routePush`)
-    const channelId = registerProgressChannel(payload?.progress)
+    const channel = payload?.progress ?? payload?.wait
+    const channelId = registerProgressChannel(channel)
 
     const init = {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId) }) },
+      headers: {
+        "Content-Type": "application/json",
+        ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId), Accept: "text/event-stream, application/json" }),
+      },
       body: JSON.stringify(actualPayload),
     }
     const { contentType, body } = await invokeServer(cmd, `/invoke/${cmd}`, init, async response => {
       await checkServerResponse(cmd, response)
+      if (response.headers.get("content-type")?.includes("text/event-stream")) {
+        return { contentType: "application/json", body: await readChannelAnswer(cmd, response, channel) }
+      }
       return { contentType: response.headers.get("content-type"), body: await readAnswer(response) }
     })
 
@@ -226,6 +246,31 @@ export const tauriMockScript = () => {
     if (!response.ok) {
       throw new Error(`The mock server failed ${cmd}: ${response.status} ${(await response.text()) || response.statusText}`)
     }
+  }
+
+  /**
+   * The answer of a command with a channel, as SSE events (`channel_commands.rs`): each `{ progress }` goes to the
+   * channel's `onmessage` while the command runs, `{ result }` is its answer, as the bytes of the JSON answer
+   */
+  async function readChannelAnswer(cmd: string, response: Response, channel: any): Promise<ArrayBuffer> {
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error("No response body")
+    }
+    let result: unknown = undefined
+    await parseSSEStream(cmd, reader, event => {
+      if ("progress" in event) {
+        channel.onmessage(event.progress)
+      } else if ("result" in event) {
+        result = event.result
+      } else if (event.panicked === true) {
+        throw new Error(`The mock server failed ${cmd}: the command panicked`)
+      }
+    })
+    if (result === undefined) {
+      throw new Error(`The mock server answered ${cmd} without a result`)
+    }
+    return encoder.encode(JSON.stringify(result)).buffer as ArrayBuffer
   }
 
   // === Command Handlers ===
@@ -594,6 +639,10 @@ export const tauriMockScript = () => {
       await navigator.clipboard.writeText(payload?.text ?? "")
       return null
     },
+
+    // Stop Waiting names the wait by the Tauri id of its command's channel (`Channel.id`): the server knows the channel by
+    // the key the mock gave it
+    cancel_lock_wait: async (cmd: string, payload: any) => proxyToTestServer(cmd, { channel: progressChannelKey(payload?.channel) ?? 4294967295 }),
 
     // the diffs of the files stream through the channel `events` (`FileDiffEvent`); the server answers them as SSE
     get_file_diffs: async (cmd: string, payload: any) => handleStreamingCommand(cmd, { ...payload, progress: payload.events }),

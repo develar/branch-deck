@@ -4,6 +4,7 @@ use domain_types::{BranchOrigin, GroupedBranchInfo, SyncEvent};
 use history_rewrite::issue_groups::ISSUE_GROUPS;
 use history_rewrite::move_commits::{MoveChange, MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
 use history_rewrite::regroup::RegroupError;
+use history_rewrite::repository_lock::LockWait;
 use history_rewrite::test_commit::issue_group_plan;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -15,7 +16,7 @@ fn params(test_repo: &TestRepo, commit_ids: &[&str], target_branch: Option<&str>
 }
 
 fn move_to(test_repo: &TestRepo, commit_ids: &[&str], target_branch: Option<&str>) -> anyhow::Result<MoveCommitsResult> {
-  move_commits_to_branch_core(test_repo.git_executor(), &params(test_repo, commit_ids, target_branch))
+  move_commits_to_branch_core(test_repo.git_executor(), &params(test_repo, commit_ids, target_branch), LockWait::default())
 }
 
 /// `move_to` with the ids of `commits`
@@ -42,7 +43,7 @@ fn undo(test_repo: &TestRepo, result: &MoveCommitsResult) {
     repository_path: path(test_repo).to_string(),
     token: result.undo_token.clone().unwrap(),
   };
-  undo_regroup(test_repo.git_executor(), &params).unwrap();
+  undo_regroup(test_repo.git_executor(), &params, LockWait::default()).unwrap();
 }
 
 /// Oldest first
@@ -404,7 +405,7 @@ fn a_dry_run_writes_nothing_and_expect_head_refuses_a_moved_head() {
   let mut dry_run = params(&test_repo, &[&ids[0], &ids[1]], Some("maps"));
   dry_run.dry_run = true;
 
-  let result = move_commits_to_branch_core(test_repo.git_executor(), &dry_run).unwrap();
+  let result = move_commits_to_branch_core(test_repo.git_executor(), &dry_run, LockWait::default()).unwrap();
   assert_eq!(changes(&result), [MoveChange::Regrouped, MoveChange::Prefixed]);
   assert_eq!(result.grouped_issues, ["IJPL-1"]);
   assert_eq!((result.undo_token, result.head), (None, ids[1].clone()));
@@ -412,6 +413,6 @@ fn a_dry_run_writes_nothing_and_expect_head_refuses_a_moved_head() {
 
   let mut stale = params(&test_repo, &[&ids[1]], Some("maps"));
   stale.expect_head = Some(ids[0].clone());
-  let error = move_commits_to_branch_core(test_repo.git_executor(), &stale).unwrap_err();
+  let error = move_commits_to_branch_core(test_repo.git_executor(), &stale, LockWait::default()).unwrap_err();
   assert!(matches!(error.downcast_ref::<RegroupError>(), Some(RegroupError::HeadMoved(_))), "{error:#}");
 }

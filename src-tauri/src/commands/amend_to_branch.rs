@@ -1,5 +1,5 @@
 use crate::command_error::CommandError;
-use crate::operation::run_blocking;
+use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
@@ -11,7 +11,15 @@ use tracing::instrument;
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, files = params.files.len()))]
 #[specta::specta]
-pub async fn amend_uncommitted_to_branch(git_executor: State<'_, GitCommandExecutor>, params: AmendUncommittedToBranchParams) -> Result<AmendCommandResult, CommandError> {
+pub async fn amend_uncommitted_to_branch(
+  git_executor: State<'_, GitCommandExecutor>,
+  lock_waits: Waits<'_>,
+  params: AmendUncommittedToBranchParams,
+  wait: WaitChannel,
+) -> Result<AmendCommandResult, CommandError> {
   let git = (*git_executor).clone();
-  run_blocking(move || amend_uncommitted_to_branch_core(&git, params, &RewriteOptions::default())).await
+  run_waiting(&lock_waits, wait, move |lock_wait| {
+    amend_uncommitted_to_branch_core(&git, params, &RewriteOptions::waiting(lock_wait))
+  })
+  .await
 }

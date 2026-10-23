@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { LinkedText } from "@/components/commit/LinkedText"
+import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { squashFixups, squashFixupsSurface } from "@/hooks/useSquashFixups"
 import { formatFixupCount, getAutosquashScope, getDisplaySubject, getFixupMarker, getListFixups } from "@/lib/autosquash"
 import type { ListFixups } from "@/lib/autosquash"
@@ -94,6 +95,7 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
         </div>
       )}
 
+      <LockWaitNotice surface={surface} />
       <div className="flex justify-end gap-2">
         <Button size="xs" variant="ghost" disabled={isSquashing} onClick={onClose}>
           Cancel

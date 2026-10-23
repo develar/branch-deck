@@ -12,10 +12,9 @@ use git_ops::pick::{PickRequest, PickSource, PickState, check_pick};
 use git_ops::reapply::{UnappliedRef, apply_reapply, apply_reapply_undo, check_reapply_undo, restore_chain_messages};
 use git_ops::unapply::MoveBlocked;
 use git_ops::update_branch::{REAPPLY, finish_pending_update};
-use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use history_rewrite::snapshot::read_grouping_inputs;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use tracing::{info, instrument};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,8 +246,8 @@ pub struct UndoneReapply {
 /// of the branch is not this reapply, `UndoBlocked` when local changes sit on a path the undo writes; an unapplied branch
 /// of the name that exists again fails the transaction. Undoing again is no error: `already_undone`
 #[instrument(skip(git_executor))]
-pub fn undo_reapply_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &ReapplyUndoToken, lock_timeout: Duration) -> Result<UndoneReapply> {
-  let (_lock, undo) = checked_undo(git_executor, repo_path, lock_timeout, || {
+pub fn undo_reapply_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &ReapplyUndoToken, lock_wait: LockWait) -> Result<UndoneReapply> {
+  let (_lock, undo) = checked_undo(git_executor, repo_path, lock_wait, || {
     check_reapply_undo(git_executor, repo_path, &token.previous_head, &token.new_head)
   })?;
   let Some(undo) = undo else {
