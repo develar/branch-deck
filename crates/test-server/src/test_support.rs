@@ -56,3 +56,30 @@ pub(crate) async fn sync(client: &reqwest::Client, addr: SocketAddr, path: &str)
   assert_eq!(response.status(), 200, "sync");
   response.text().await.unwrap();
 }
+
+/// What the server logs from now on at warning level and above, for a test that asserts it logs none: the global
+/// subscriber, which sees the threads of the server too, sound because nextest runs each test in a process of its own
+pub(crate) fn capture_warnings() -> std::sync::Arc<std::sync::Mutex<Vec<u8>>> {
+  let captured = std::sync::Arc::<std::sync::Mutex<Vec<u8>>>::default();
+  let writer = std::sync::Arc::clone(&captured);
+  tracing_subscriber::fmt()
+    .with_max_level(tracing::Level::WARN)
+    .with_ansi(false)
+    .with_writer(move || CapturedWriter(std::sync::Arc::clone(&writer)))
+    .init();
+  captured
+}
+
+/// A writer of `capture_warnings`
+struct CapturedWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for CapturedWriter {
+  fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+    self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend_from_slice(bytes);
+    Ok(bytes.len())
+  }
+
+  fn flush(&mut self) -> std::io::Result<()> {
+    Ok(())
+  }
+}

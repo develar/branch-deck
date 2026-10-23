@@ -243,6 +243,7 @@ State isolation:
   handlers, but their git work runs on. The `setupRepo` fixture closes the pages of the test first, and
   `delete_repository` forgets the repository, waits for its running commands (10 s at most) and for the computation
   of its landing needs that a view started in the background, which no command holds (`RepositoryViews::forget`),
+  releases the repository lock its test held (`holdRepositoryLock`, also when the test failed before it released it),
   then deletes the directory. Before, a test's cleanup deleted the files under a running sync, file read or note
   write, and the landing needs ran git in a deleted directory ("Unable to read current working directory", "not a git
   repository") (`repository_lifecycle_test.rs`)

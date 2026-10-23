@@ -1,4 +1,4 @@
-use crate::test_support::{create_repository, start_test_server, start_test_server_with_state, sync};
+use crate::test_support::{capture_warnings, create_repository, post, start_test_server, start_test_server_with_state, sync};
 use domain_types::repository_view::{GetRepositoryViewParams, RemoteFacts, RepositoryView, RobotMatch, WaitLandingNeedsParams};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
@@ -126,4 +126,21 @@ async fn deleting_a_repository_waits_for_its_landing_needs_and_forgets_its_views
   };
   assert_eq!(state.repository_views.wait_landing_needs(&wait), 0, "no computation is left to wait for");
   assert_eq!(ask_view(&state, &path).await.table_generation, 0, "the table of the sync is forgotten");
+}
+
+/// A test that ended while it held the repository lock (`holdRepositoryLock`) has it released with the deletion,
+/// before the directory goes: the lock deletes its holder record, which is still there, and logs nothing
+#[tokio::test]
+async fn deleting_a_repository_releases_the_lock_its_test_held_before_the_directory_goes() {
+  let logged = capture_warnings();
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  post(&client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": true })).await;
+  assert!(std::path::Path::new(&path).join(".git/branch-deck.lock.holder").exists(), "the holder record of the lock");
+
+  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
+  assert_eq!(deleted.status(), 204);
+  assert!(!std::path::Path::new(&path).exists());
+  assert_eq!(String::from_utf8_lossy(&logged.lock().unwrap()), "");
 }

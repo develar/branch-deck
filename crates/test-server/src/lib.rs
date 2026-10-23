@@ -839,7 +839,8 @@ pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::
 const DELETE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Forgets the repository, so no new command starts for it, waits for the running ones (`hold_repository`) and for the
-/// computations of its landing needs (`RepositoryViews::forget`), then deletes its directory; `NO_REPO` has none
+/// computations of its landing needs (`RepositoryViews::forget`), releases the repository lock a test held, then deletes
+/// its directory; `NO_REPO` has none
 pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
   let Some((_, repo)) = state.repositories.remove(&id) else {
     return Err(StatusCode::UNPROCESSABLE_ENTITY);
@@ -860,6 +861,8 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   if !tokio::task::spawn_blocking(in_current_span(move || views.forget(&path))).await.unwrap_or(false) {
     tracing::warn!(id, "The landing needs of the test repository are still computed; deleting it anyway");
   }
+  // a test that ended before it released the lock it held: the holder record goes with the lock, before the directory
+  drop(repo.held_lock.lock().expect("held lock").take());
 
   if repo.app_data.exists()
     && let Err(e) = std::fs::remove_dir_all(&repo.app_data)
