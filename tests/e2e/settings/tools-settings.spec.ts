@@ -1,8 +1,10 @@
 // @spec spec/repository/cli-tools.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
+import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
+import { completeYouTrackSignIn, youTrackHost, youTrackUrlOf } from "../helpers/youtrack-helpers"
 
 test.describe("Settings → Tools", () => {
   test("should install a missing CLI through Homebrew with its agent skill, then show its version and its sign-in", async ({ page, setupRepo }) => {
@@ -179,5 +181,29 @@ test.describe("Settings → Tools", () => {
     await expect(row.getByTestId("cli-tool-server")).toContainText("expires Jan 3")
     await row.getByTestId("cli-tool-server").getByRole("button", { name: "Sign In Again" }).click()
     await expect.poll(() => repo.getCliToolsLog()).toContain("teamcity auth login --server https://ci.example --no-color")
+  })
+
+  test("should sign youtrack in with a permanent token of the app's YouTrack sign-in, through one browser sign-in", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    await repo.setYouTrack({ signedIn: "signIn" })
+    await repo.setCliTools({ installed: [{ tool: "youtrack", version: "0.7.0" }] })
+    const url = await youTrackUrlOf(repo)
+    const window = await openSettingsWindow(page, { page: "tools" })
+    const row = window.getByTestId("cli-tool-youtrack")
+    // no command to copy: the app's sign-in signs it in
+    await expect(row.locator("pre")).toHaveCount(0)
+    await row.getByRole("button", { name: "Use Branch Deck Sign-In" }).click()
+    await expect(row.getByTestId("cli-tool-progress")).toContainText("Waiting for the browser…")
+    // the browser: the Hub page of a sign-in that asks Hub itself, without a refresh token
+    await expect.poll(async () => (await getOpenedUrls(window)).length).toBe(1)
+    const query = new URL((await getOpenedUrls(window))[0]!).searchParams
+    expect([query.get("scope"), query.get("access_type")]).toEqual(["fake-youtrack-service 0-0-0-0-0", null])
+    await completeYouTrackSignIn(window)
+    await expect(window.locator("[data-slot=toast]", { hasText: `Signed youtrack in to ${youTrackHost(url)} as jane` })).toBeVisible()
+    await expect(row.getByTestId("cli-tool-server")).toContainText(`${youTrackHost(url)} · jane`)
+    const [token] = (await repo.getYouTrack()).permanentTokens
+    expect([token?.name, token?.scope, token?.revoked]).toEqual(["Branch Deck: youtrack CLI", ["fake-youtrack-service"], false])
+    // the token went on the stdin of the CLI, never on its command line
+    expect((await repo.getCliToolsLog()).some(line => line.includes(token!.token))).toBe(false)
   })
 })

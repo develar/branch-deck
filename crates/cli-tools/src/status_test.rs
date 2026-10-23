@@ -8,6 +8,7 @@ const SIGNED_IN: &str = r#"[{"server":"https://ci.example","status":"authenticat
 fn latest(version: &str) -> KnownFacts {
   KnownFacts {
     latest: Some(version.to_string()),
+    ..KnownFacts::default()
   }
 }
 

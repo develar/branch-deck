@@ -78,11 +78,45 @@ pub fn parse_teamcity_auth(stdout: &str) -> Result<Vec<CliToolServer>, String> {
 #[serde(rename_all = "camelCase")]
 struct YoutrackStatusDto {
   #[serde(default)]
+  alias: Option<String>,
+  #[serde(default)]
   url: String,
   #[serde(default)]
   login: Option<String>,
   #[serde(default)]
   status: String,
+  #[serde(default)]
+  active: Option<bool>,
+}
+
+/// An instance of the `youtrack` CLI, with its alias and whether it is the active one
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct YoutrackInstance {
+  pub alias: Option<String>,
+  pub url: String,
+  pub login: Option<String>,
+  pub authenticated: bool,
+  /// The one object of a single instance is the active one
+  pub active: bool,
+}
+
+/// The instances of `youtrack auth status --json`, "not configured" left out
+pub fn parse_youtrack_instances(stdout: &str) -> Result<Vec<YoutrackInstance>, String> {
+  let entries = one_or_many::<YoutrackStatusDto>(stdout).map_err(|e| format!("youtrack auth status answered what Branch Deck can't read: {e}"))?;
+  let single = entries.len() == 1;
+  Ok(
+    entries
+      .into_iter()
+      .filter(|entry| !entry.url.is_empty() && entry.status != "not configured")
+      .map(|entry| YoutrackInstance {
+        alias: entry.alias,
+        url: entry.url.trim_end_matches('/').to_string(),
+        login: entry.login.filter(|login| !login.is_empty()),
+        authenticated: entry.status == "authenticated",
+        active: entry.active.unwrap_or(single),
+      })
+      .collect(),
+  )
 }
 
 /// The instances of `youtrack auth status --json`; "not configured" is no instance. It always exits with 0

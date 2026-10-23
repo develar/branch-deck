@@ -464,6 +464,16 @@ export const commands = {
 	 *  from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides
 	 */
 	getSetupItems: (skips: SetupSkip[]) => typedError<SetupEntry[], CommandError>(__TAURI_INVOKE("get_setup_items", { skips })),
+	/**
+	 *  Starts the one-shot browser sign-in that gets the `youtrack` CLI a permanent token of the YouTrack at `url`: the Hub
+	 *  page to open; `wait_youtrack_cli_sign_in` waits for it. It replaces a sign-in in progress
+	 */
+	startYoutrackCliSignIn: (url: string) => typedError<YouTrackSignIn, CommandError>(__TAURI_INVOKE("start_youtrack_cli_sign_in", { url })),
+	/**
+	 *  Waits for the browser to come back from the Hub page of `start_youtrack_cli_sign_in`, then makes the permanent token
+	 *  and signs the `youtrack` CLI in with it; the token the app made before is revoked. `cancel_youtrack_sign_in` ends it
+	 */
+	waitYoutrackCliSignIn: () => typedError<CliToolActionDone, CommandError>(__TAURI_INVOKE("wait_youtrack_cli_sign_in")),
 };
 
 /* Types */
@@ -899,6 +909,11 @@ export type CliToolStatus = {
 	command: string | null,
 	/**  Why a part could not be read (the CLI timed out, answered what the app can't parse), in a sentence */
 	problem: string | null,
+	/**
+	 *  The YouTrack of the app's own sign-in, for a `youtrack` signed in to none: Use Branch Deck Sign-In hands it a token
+	 *  of it; None for `teamcity`, or when the app is signed in to no YouTrack
+	 */
+	signInWith: string | null,
 };
 
 export type ClosePullRequestParams = {

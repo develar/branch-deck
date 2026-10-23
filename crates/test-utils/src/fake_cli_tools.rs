@@ -149,6 +149,13 @@ esac"#
       _ => format!(
         r#"case "$1 $2" in
   "auth status") cat {state}/youtrack.auth;;
+  "auth login")
+    # as the CLI: the token from stdin, checked and kept; its instance the active one, beside the others
+    read -r token; printf '%s' "$token" > {state}/youtrack.token
+    host=$(echo "$4" | sed -e 's|^[a-z]*://||' -e 's|[:/.].*||')
+    printf '[%s{{"alias":"%s","url":"%s","login":"jane","status":"authenticated","active":true}}]' "$(cat {state}/youtrack.others 2>/dev/null)" "$host" "$4" > {state}/youtrack.auth
+    echo '{{"status":"authenticated"}}';;
+  "instance use") echo "now $3";;
 esac"#
       ),
     };

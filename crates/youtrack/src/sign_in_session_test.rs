@@ -139,3 +139,38 @@ async fn a_sign_in_whose_refresh_token_the_hub_does_not_know_is_expired() {
     }
   );
 }
+
+#[test_log::test(tokio::test)]
+async fn the_sign_in_for_the_cli_asks_hub_once_keeps_nothing_and_its_token_makes_and_revokes_a_permanent_token() {
+  let dir = tempfile::tempdir().unwrap();
+  let (fake, url, service, session) = set_up(&dir).await;
+  let started = session.start_for_cli(&service, &url).await.unwrap();
+  let query: std::collections::HashMap<String, String> = reqwest::Url::parse(&started.authorize_url).unwrap().query_pairs().into_owned().collect();
+  // the YouTrack and Hub itself, no refresh token
+  assert_eq!(query.get("scope").map(String::as_str), Some("fake-youtrack-service 0-0-0-0-0"));
+  assert_eq!(query.get("access_type"), None);
+  let waiting = tokio::spawn({
+    let (service, session) = (Arc::clone(&service), Arc::clone(&session));
+    async move { session.wait_for_cli(&service).await }
+  });
+  assert_eq!(reqwest::get(&started.authorize_url).await.unwrap().status(), 200);
+  let grant = waiting.await.unwrap().unwrap();
+  assert_eq!(grant.hub.url, format!("{url}/hub"));
+  // the app's own sign-in is as it was: none
+  assert!(read_token(&token_file(dir.path())).is_none());
+
+  let token = crate::hub::create_permanent_token(&service.client, &grant.hub.url, &grant.access_token, "Branch Deck: youtrack CLI", &[&grant.hub.service_id])
+    .await
+    .unwrap();
+  let made = fake.permanent_tokens();
+  assert_eq!(
+    (made[0].name.as_str(), made[0].scope.clone(), made[0].token == token.token),
+    ("Branch Deck: youtrack CLI", vec!["fake-youtrack-service".to_string()], true)
+  );
+  crate::hub::delete_permanent_token(&service.client, &grant.hub.url, &grant.access_token, &token.id)
+    .await
+    .unwrap();
+  assert!(fake.permanent_tokens()[0].revoked);
+  // an app sign-in waits for nothing of the CLI's
+  assert_eq!(session.wait(&service).await, Err("No YouTrack sign-in is in progress".to_string()));
+}

@@ -14,6 +14,7 @@ const INSTALLED: CliToolStatus = {
   action: null,
   command: null,
   problem: null,
+  signInWith: null,
 }
 
 describe("cli tools", () => {
@@ -23,6 +24,7 @@ describe("cli tools", () => {
     expect(cliToolActionLabel({ ...INSTALLED, action: "update" })).toBe("Update to 1.7.0")
     expect(cliToolActionLabel({ ...INSTALLED, action: "update", command: "youtrack update" })).toBeNull()
     expect(cliToolActionLabel({ ...INSTALLED, action: "signIn", command: "teamcity auth login" })).toBeNull()
+    expect(cliToolActionLabel({ ...INSTALLED, tool: "youtrack", action: "signIn", signInWith: "https://youtrack.example.com" })).toBe("Use Branch Deck Sign-In")
     expect(cliToolActionLabel(INSTALLED)).toBeNull()
   })
 

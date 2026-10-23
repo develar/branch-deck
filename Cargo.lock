@@ -4850,6 +4850,7 @@ name = "remote-facts"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cli-tools",
  "domain-types",
  "git-executor",
  "git-ops",
@@ -4857,6 +4858,7 @@ dependencies = [
  "object-cache",
  "patronus",
  "pretty_assertions",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2 0.11.1",

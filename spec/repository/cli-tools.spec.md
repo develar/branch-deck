@@ -145,8 +145,11 @@ update through Homebrew, the sign-in of `teamcity`) and otherwise names as a com
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should refuse a TeamCity without the browser sign-in at once, and sign in again from a server's line`)
 - The server is the one an open of Settings names (`SettingsTarget.server`: the server of a robot's build, from the toast
   of a copied prompt), else the first one the CLI knows, else typed; each server line has Sign In Again (a token that
-  expires or was refused). Windows, without `script`, shows `teamcity auth login` to run in a terminal. `youtrack`
-  shows `youtrack auth login`.
+  expires or was refused). Windows, without `script`, shows `teamcity auth login` to run in a terminal.
+- `youtrack` signed in to no instance, with the app signed in to a YouTrack, offers Use Branch Deck Sign-In
+  (`signInWith`): one browser sign-in, after which the CLI has a permanent token of that YouTrack
+  ([YouTrack](youtrack.spec.md#the-youtrack-cli)); the row waits with "Waiting for the browser…" and Open in Browser.
+  Without the app's sign-in it shows `youtrack auth login` to run in a terminal.
 - A read of the status asked while one runs runs once more after it: the one running may have started before the
   change.
 

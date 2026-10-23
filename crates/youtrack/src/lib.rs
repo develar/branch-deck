@@ -4,6 +4,7 @@
 pub mod client;
 #[cfg(any(test, feature = "fake"))]
 pub mod fake_youtrack;
+pub mod hub;
 pub mod issue;
 pub mod service;
 pub mod sign_in;

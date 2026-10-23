@@ -47,12 +47,16 @@ impl CliToolsState {
     }
   }
 
-  /// The statuses of every tool with the newest releases, kept for the Setup dot
-  async fn read(&self, github: &GitHubState) -> Result<Vec<CliToolStatus>, CommandError> {
+  /// The statuses of every tool with the newest releases and the YouTrack the app is signed in to, kept for the Setup
+  /// dot
+  async fn read(&self, github: &GitHubState, youtrack: &YouTrackState) -> Result<Vec<CliToolStatus>, CommandError> {
     let releases = refresh_releases(&github.service, self.releases_file.as_deref(), unix_now()).await;
+    let signed_in = youtrack.service.status().await;
+    let signed_in_youtrack = signed_in.url.filter(|_| signed_in.signed_in_as.is_some() && signed_in.problem.is_none());
     let statuses = run_blocking(move || {
       Ok::<_, CommandError>(read_statuses(&ToolEnvironment::from_process(), &|tool| KnownFacts {
         latest: releases.latest(tool).map(str::to_string),
+        signed_in_youtrack: signed_in_youtrack.clone(),
       }))
     })
     .await?;
@@ -82,9 +86,14 @@ pub struct CliToolActionDone {
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip_all)]
-pub async fn cli_tools_status(app: AppHandle, state: State<'_, CliToolsState>, github: State<'_, GitHubState>) -> Result<Vec<CliToolStatus>, CommandError> {
+pub async fn cli_tools_status(
+  app: AppHandle,
+  state: State<'_, CliToolsState>,
+  github: State<'_, GitHubState>,
+  youtrack: State<'_, YouTrackState>,
+) -> Result<Vec<CliToolStatus>, CommandError> {
   operation(async {
-    let statuses = state.read(&github).await?;
+    let statuses = state.read(&github, &youtrack).await?;
     if let Err(e) = app.emit(SETUP_CHANGED_EVENT, ()) {
       warn!(error = %e, "can't tell the windows that the setup changed");
     }
@@ -109,7 +118,7 @@ pub async fn get_setup_items(
     let cached = state.statuses.lock().expect("the statuses").clone();
     let statuses = match cached {
       Some(statuses) => statuses,
-      None => state.read(&github).await?,
+      None => state.read(&github, &youtrack).await?,
     };
     let app_update = {
       let update = update_state.lock().map_err(|e| CommandError::new(format!("the update state is poisoned: {e}")))?;

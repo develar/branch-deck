@@ -46,6 +46,8 @@ export interface YouTrackLog {
   commands: { query: string; issues: string[] }[]
   lookups: string[]
   meTokens: (string | null)[]
+  /** The permanent tokens the fake Hub made: the one of the \`youtrack\` CLI */
+  permanentTokens: { id: string; name: string; token: string; scope: string[]; revoked: boolean }[]
 }
 
 /** 2024-01-02 10:00Z, where the clock of every page starts (`fixtures/base-test.ts`), in Unix milliseconds */

@@ -6,6 +6,9 @@ targets:
   - ../../crates/youtrack/src/url.rs
   - ../../crates/youtrack/src/client.rs
   - ../../crates/youtrack/src/sign_in.rs
+  - ../../crates/youtrack/src/hub.rs
+  - ../../crates/remote-facts/src/youtrack_cli.rs
+  - ../../crates/cli-tools/src/youtrack_login.rs
   - ../../crates/youtrack/src/sign_in_session.rs
   - ../../crates/youtrack/src/fake_youtrack.rs
   - ../../crates/youtrack/src/issue.rs
@@ -55,11 +58,14 @@ client takes a pasted token.
 ## Non-goals
 
 - A token "for a month": Hub's permanent tokens have no expiry (`permanentToken` has only `creationTime` and
-  `lastAccessTime`); the refresh token is the time-limited form.
+  `lastAccessTime`); the refresh token is the time-limited form. The one permanent token the app makes is the one it
+  hands to the `youtrack` CLI, which keeps no other ([The youtrack CLI](#the-youtrack-cli)).
 - Reading the token the `youtrack` CLI saved: it is in a keychain item of another program, which macOS guards with a
-  prompt, and the CLI prints no saved token.
-- Several YouTracks, revoking a token (that is Account Security of the YouTrack profile), `bd`: a refresh by two
-  processes would need a lock on the secret, so `bd` does not read it yet.
+  prompt, and the CLI prints no saved token. The app gives the CLI a token; it never takes one.
+- A Hub scope on the app's own sign-in: its refresh token is in a file `bd` reads, and with Hub's scope it would make
+  permanent tokens. Only the one-shot sign-in for the CLI asks Hub, and keeps nothing.
+- Several YouTracks, revoking a token the user made (that is Account Security of the YouTrack profile), `bd`: a refresh
+  by two processes would need a lock on the secret, so `bd` does not read it yet.
 
 ## Requirements
 
@@ -224,6 +230,25 @@ client takes a pasted token.
   where the work landed. Patronus marks an issue fixed itself only for a commit that says so ("fixed ABC-1", also
   "ABC-1 fix the …"): for those the popover shows it resolved already.
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
+
+### The youtrack CLI
+
+- With the app signed in to a YouTrack and the `youtrack` CLI signed in to none, Settings → Tools offers Use Branch
+  Deck Sign-In ([Command-Line Tools](cli-tools.spec.md#sign-in)): a one-shot browser sign-in of the public client whose
+  scope is the YouTrack and Hub itself (`0-0-0-0-0`), without `access_type=offline`, so Hub gives one access token and
+  no refresh token; it replaces a sign-in in progress, and Cancel ends it as Cancel of the app's sign-in does.
+  [@test] ../../crates/youtrack/src/sign_in_session_test.rs (`the_sign_in_for_the_cli_asks_hub_once_keeps_nothing_and_its_token_makes_and_revokes_a_permanent_token`)
+- With that access token the app makes a permanent token named "Branch Deck: youtrack CLI" for the YouTrack alone
+  (`POST <hub>/api/rest/users/me/permanenttokens`) and hands it to `youtrack auth login --base-url <url> --no-browser
+  --json --quiet` on its stdin, never as an argument or a line of a log, without the `YOUTRACK_*` variables of the
+  app; the CLI checks it and keeps it in its own keychain item. The instance the CLI had active stays active
+  (`instance use`). The access token is dropped; the app keeps only the id of the token it made
+  (`youtrack-cli-token.json` of the app data), and revokes that token once the CLI took the next one. A CLI that is
+  missing gets no token made; one that refuses the token gets it revoked. The toast: "Signed youtrack in to
+  youtrack.example.com as jane".
+  [@test] ../../crates/remote-facts/src/youtrack_cli_test.rs (`the_cli_gets_a_permanent_token_of_the_youtrack_alone_and_the_one_before_is_revoked`, `a_cli_that_is_missing_leaves_no_token_behind`)
+  [@test] ../../crates/cli-tools/src/youtrack_login_test.rs (`hands_the_token_on_stdin_and_keeps_the_instance_the_user_had_active`, `a_cli_without_instances_needs_no_instance_back`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should sign youtrack in with a permanent token of the app's YouTrack sign-in, through one browser sign-in`)
 
 ## User Experience
 

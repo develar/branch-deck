@@ -19,6 +19,8 @@ export function cliToolActionLabel(status: CliToolStatus): string | null {
     case "update":
       return status.command === null ? (status.latest === null ? "Update" : `Update to ${status.latest}`) : null
     case "signIn":
+      // the app's own YouTrack sign-in signs youtrack in; teamcity has its form
+      return status.signInWith === null ? null : "Use Branch Deck Sign-In"
     case "installSkill":
     case "updateSkill":
     case "removeSkill":

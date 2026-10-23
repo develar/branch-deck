@@ -121,4 +121,7 @@ pub struct CliToolStatus {
   pub command: Option<String>,
   /// Why a part could not be read (the CLI timed out, answered what the app can't parse), in a sentence
   pub problem: Option<String>,
+  /// The YouTrack of the app's own sign-in, for a `youtrack` signed in to none: Use Branch Deck Sign-In hands it a token
+  /// of it; None for `teamcity`, or when the app is signed in to no YouTrack
+  pub sign_in_with: Option<String>,
 }

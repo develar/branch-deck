@@ -6,7 +6,7 @@
 //! accepted only when the fake issued it or a test added it (`accept_token`, a token pasted from Account Security).
 //! Every request is logged.
 
-use crate::sign_in::{CLIENT_ID, TokenAnswer, challenge_of};
+use crate::sign_in::{CLIENT_ID, HUB_SERVICE_ID, TokenAnswer, challenge_of};
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, StatusCode, Uri};
@@ -66,12 +66,27 @@ pub struct FakeCommand {
   pub issues: Vec<String>,
 }
 
-/// A code of the Hub page: what its exchange must match
+/// A code of the Hub page: what its exchange must match, and what its tokens may do
 struct Code {
   value: String,
   challenge: String,
   redirect_uri: String,
   used: bool,
+  /// `access_type=offline`: a refresh token comes with it
+  offline: bool,
+  /// The scope named Hub itself: its access token may make permanent tokens
+  hub: bool,
+}
+
+/// A permanent token the Hub made (`POST /hub/api/rest/users/me/permanenttokens`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct FakePermanentToken {
+  pub id: String,
+  pub name: String,
+  pub token: String,
+  /// The ids of the services it is for
+  pub scope: Vec<String>,
+  pub revoked: bool,
 }
 
 struct Data {
@@ -79,6 +94,9 @@ struct Data {
   issues: Vec<FakeIssue>,
   access_tokens: Vec<String>,
   refresh_tokens: Vec<String>,
+  /// The access tokens that may ask Hub itself
+  hub_tokens: Vec<String>,
+  permanent_tokens: Vec<FakePermanentToken>,
   codes: Vec<Code>,
   /// Codes and tokens issued, for their names
   issued: u32,
@@ -97,6 +115,8 @@ impl Default for Data {
       issues: Vec::new(),
       access_tokens: Vec::new(),
       refresh_tokens: Vec::new(),
+      hub_tokens: Vec::new(),
+      permanent_tokens: Vec::new(),
       codes: Vec::new(),
       issued: 0,
       commands: Vec::new(),
@@ -158,6 +178,11 @@ impl FakeYouTrack {
     self.data.lock().unwrap().issue_tokens()
   }
 
+  /// The permanent tokens the Hub made, in order
+  pub fn permanent_tokens(&self) -> Vec<FakePermanentToken> {
+    self.data.lock().unwrap().permanent_tokens.clone()
+  }
+
   /// The resolved time a command sets is `seconds` (Unix) from now on
   pub fn set_clock(&self, seconds: u32) {
     self.data.lock().unwrap().clock = Some(seconds);
@@ -192,6 +217,7 @@ impl FakeYouTrack {
       ("GET", ["api", "config"]) => json_answer(StatusCode::OK, &json!({"ring": {"url": "/hub", "serviceId": FAKE_SERVICE_ID}})),
       ("GET", ["hub", "api", "rest", "oauth2", "auth"]) => self.hub_page(&request),
       ("POST", ["hub", "api", "rest", "oauth2", "token"]) => self.token(&request),
+      (_, ["hub", "api", "rest", "users", "me", "permanenttokens", rest @ ..]) => self.permanent_token(&request, rest),
       (_, ["api", ..]) => {
         let state = self.data.lock().unwrap();
         if !request.token.as_ref().is_some_and(|token| state.access_tokens.contains(token)) {
@@ -208,9 +234,11 @@ impl FakeYouTrack {
   fn hub_page(&self, request: &FakeRequest) -> Response {
     let get = |name: &str| field_of(request.query.as_deref().unwrap_or_default(), name);
     let redirect_uri = get("redirect_uri").unwrap_or_default();
+    let scope = get("scope").unwrap_or_default();
+    let hub = scope == format!("{FAKE_SERVICE_ID} {HUB_SERVICE_ID}");
     let accepted = get("client_id").as_deref() == Some(CLIENT_ID)
       && get("response_type").as_deref() == Some("code")
-      && get("scope").as_deref() == Some(FAKE_SERVICE_ID)
+      && (scope == FAKE_SERVICE_ID || hub)
       && get("code_challenge_method").as_deref() == Some("S256")
       && redirect_uri.starts_with("http://127.0.0.1:");
     let (Some(challenge), Some(state_of_app), true) = (get("code_challenge"), get("state"), accepted) else {
@@ -223,6 +251,8 @@ impl FakeYouTrack {
       challenge,
       redirect_uri: redirect_uri.clone(),
       used: false,
+      offline: get("access_type").as_deref() == Some("offline"),
+      hub,
     });
     let mut back = url::Url::parse(&redirect_uri).expect("a checked redirect URI");
     back.query_pairs_mut().append_pair("code", &code).append_pair("state", &state_of_app);
@@ -248,7 +278,15 @@ impl FakeYouTrack {
           return error_answer(StatusCode::BAD_REQUEST, "invalid_grant", "The code is not valid");
         };
         issued.used = true;
-        json_answer(StatusCode::OK, &serde_json::to_value(state.issue_tokens()).unwrap())
+        let (offline, hub) = (issued.offline, issued.hub);
+        let mut tokens = state.issue_tokens();
+        if !offline {
+          tokens.refresh_token = None;
+        }
+        if hub {
+          state.hub_tokens.push(tokens.access_token.clone());
+        }
+        json_answer(StatusCode::OK, &serde_json::to_value(tokens).unwrap())
       }
       Some("refresh_token") if get("refresh_token").is_some_and(|token| state.refresh_tokens.contains(&token)) && get("scope").as_deref() == Some(FAKE_SERVICE_ID) => {
         let access = state.next_name("access");
@@ -262,6 +300,47 @@ impl FakeYouTrack {
 }
 
 impl FakeYouTrack {
+  /// The permanent tokens of the user, for an access token that may ask Hub: a POST makes one (YouTrack accepts it from
+  /// then on), a DELETE of its id revokes it
+  fn permanent_token(&self, request: &FakeRequest, rest: &[&str]) -> Response {
+    let mut state = self.data.lock().unwrap();
+    if !request.token.as_ref().is_some_and(|token| state.hub_tokens.contains(token)) {
+      return error_answer(StatusCode::FORBIDDEN, "Forbidden", "The token may not ask Hub");
+    }
+    match (request.method.as_str(), rest) {
+      ("POST", []) => {
+        let body: Value = serde_json::from_str(&request.body).unwrap_or(Value::Null);
+        let id = state.next_name("permanent");
+        let token = format!("perm-{id}");
+        state.access_tokens.push(token.clone());
+        let scope = body["scope"]
+          .as_array()
+          .into_iter()
+          .flatten()
+          .filter_map(|it| it["id"].as_str().map(str::to_string))
+          .collect();
+        state.permanent_tokens.push(FakePermanentToken {
+          id: id.clone(),
+          name: body["name"].as_str().unwrap_or_default().to_string(),
+          token: token.clone(),
+          scope,
+          revoked: false,
+        });
+        json_answer(StatusCode::OK, &json!({"id": id, "token": token}))
+      }
+      ("DELETE", [id]) => {
+        let Some(found) = state.permanent_tokens.iter_mut().find(|it| it.id == *id && !it.revoked) else {
+          return error_answer(StatusCode::NOT_FOUND, "Not Found", "No such token");
+        };
+        found.revoked = true;
+        let token = found.token.clone();
+        state.access_tokens.retain(|it| *it != token);
+        StatusCode::OK.into_response()
+      }
+      _ => error_answer(StatusCode::NOT_FOUND, "Not Found", "Not found"),
+    }
+  }
+
   /// `/api/<segments…>` with an accepted token
   fn api(&self, request: &FakeRequest, segments: &[&str]) -> Response {
     let mut state = self.data.lock().unwrap();

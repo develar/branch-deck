@@ -52,6 +52,8 @@ const fn manual_install_command(tool: CliTool) -> &'static str {
 pub struct KnownFacts {
   /// The newest release, from the app's daily check
   pub latest: Option<String>,
+  /// The YouTrack the app is signed in to (`youtrack`)
+  pub signed_in_youtrack: Option<String>,
 }
 
 /// The status of every tool, each read in its own threads: a CLI asking its server must not hold up the other
@@ -86,6 +88,7 @@ pub fn read_status(environment: &ToolEnvironment, tool: CliTool, facts: &KnownFa
       action: Some(CliToolAction::Install),
       command: manager.is_none().then(|| manual_install_command(tool).to_string()),
       problem: None,
+      sign_in_with: None,
     };
   };
   let (version, servers, skill) = std::thread::scope(|scope| {
@@ -108,7 +111,12 @@ pub fn read_status(environment: &ToolEnvironment, tool: CliTool, facts: &KnownFa
   // a tool installed by Homebrew updates through it; another one through its own `update` (`teamcity`) or a terminal
   let manager = manager.filter(|_| installed_with_homebrew(&binary));
   let action = decide_action(version.as_deref(), &servers, facts.latest.as_deref());
-  let command = action.and_then(|action| terminal_command(tool, action, manager));
+  // the app's own YouTrack sign-in signs youtrack in: no command then
+  let sign_in_with = facts
+    .signed_in_youtrack
+    .clone()
+    .filter(|_| tool == CliTool::Youtrack && action == Some(CliToolAction::SignIn));
+  let command = action.and_then(|action| terminal_command(tool, action, manager)).filter(|_| sign_in_with.is_none());
   CliToolStatus {
     tool,
     binary: Some(binary.to_string_lossy().into_owned()),
@@ -120,6 +128,7 @@ pub fn read_status(environment: &ToolEnvironment, tool: CliTool, facts: &KnownFa
     action,
     command,
     problem,
+    sign_in_with,
   }
 }
 

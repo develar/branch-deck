@@ -100,6 +100,12 @@ impl YouTrackClient {
     parse(&self.send(Method::POST, url, Some(token), Some(body)).await?)
   }
 
+  /// A DELETE; never repeated by itself
+  #[instrument(skip(self, token), fields(url = %url.path()))]
+  pub async fn delete(&self, url: &Url, token: &str) -> Result<(), YouTrackError> {
+    self.send(Method::DELETE, url, Some(token), None).await.map(drop)
+  }
+
   async fn send(&self, method: Method, url: &Url, token: Option<&str>, body: Option<&serde_json::Value>) -> Result<Vec<u8>, YouTrackError> {
     let mut request = self.http.request(method, url.clone()).header(ACCEPT, "application/json").timeout(REQUEST_TIMEOUT);
     if let Some(token) = token {

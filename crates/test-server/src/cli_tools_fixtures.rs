@@ -31,6 +31,8 @@ pub struct CliToolsHost {
   fakes: OnceLock<FakeCliTools>,
   latest: RwLock<HashMap<CliTool, String>>,
   running: Mutex<HashMap<CliTool, Arc<AtomicBool>>>,
+  /// The YouTrack the app is signed in to, as the requests that start the reads found it
+  signed_in_youtrack: RwLock<Option<String>>,
   /// The last statuses read, which the Setup dot takes, as the app keeps them, by the generation of the fixture they
   /// were read with: a fixture drops them, and a read that started before it keeps nothing
   statuses: Mutex<(u64, Option<Vec<CliToolStatus>>)>,
@@ -43,6 +45,7 @@ impl CliToolsHost {
       fakes: OnceLock::new(),
       latest: RwLock::default(),
       running: Mutex::default(),
+      signed_in_youtrack: RwLock::default(),
       statuses: Mutex::default(),
     }
   }
@@ -77,6 +80,7 @@ impl CliToolsHost {
   fn facts(&self, tool: CliTool) -> KnownFacts {
     KnownFacts {
       latest: self.latest.read().expect("the latest releases").get(&tool).cloned(),
+      signed_in_youtrack: self.signed_in_youtrack.read().expect("the YouTrack of the app").clone(),
     }
   }
 }
@@ -151,7 +155,19 @@ pub async fn get_cli_tools(Path(id): Path<String>, State(state): State<Arc<AppSt
 }
 
 pub async fn cli_tools_status(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<serde_json::Value> {
-  let host = Arc::clone(&requesting_repository(&state, &headers)?.cli_tools);
+  let (host, remote) = {
+    let repository = requesting_repository(&state, &headers)?;
+    (Arc::clone(&repository.cli_tools), repository.existing_remote())
+  };
+  // the YouTrack the app is signed in to, of the fake YouTrack a test started
+  let signed_in = match remote {
+    Some(remote) => {
+      let status = remote.youtrack_service().status().await;
+      status.url.filter(|_| status.signed_in_as.is_some() && status.problem.is_none())
+    }
+    None => None,
+  };
+  *host.signed_in_youtrack.write().expect("the YouTrack of the app") = signed_in;
   let statuses = host.read().await?;
   Ok(Json(serde_json::to_value(statuses).expect("the statuses serialize")))
 }
@@ -272,4 +288,43 @@ pub async fn get_setup_items(State(state): State<Arc<AppState>>, headers: axum::
     now: crate::remote_host::PAGE_CLOCK_START,
   });
   Ok(Json(serde_json::to_value(entries).expect("the entries serialize")))
+}
+
+#[derive(Deserialize)]
+pub struct YouTrackCliSignInRequest {
+  url: String,
+}
+
+/// The one-shot sign-in for the `youtrack` CLI on the fake YouTrack, as the app starts it
+pub async fn start_youtrack_cli_sign_in(
+  State(state): State<Arc<AppState>>,
+  headers: axum::http::HeaderMap,
+  Json(request): Json<YouTrackCliSignInRequest>,
+) -> CommandResult<serde_json::Value> {
+  let remote = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  let started = remote.youtrack_sign_in().start_for_cli(remote.youtrack_service(), &request.url).await;
+  started
+    .map(|started| Json(serde_json::to_value(started).expect("the sign-in serializes")))
+    .map_err(|e| CommandFailure::error("start the sign-in of youtrack", e))
+}
+
+/// Waits for the browser, then hands the fake `youtrack` CLI a permanent token of the fake Hub, as the app does
+pub async fn wait_youtrack_cli_sign_in(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<serde_json::Value> {
+  let (remote, host, kept) = {
+    let repository = requesting_repository(&state, &headers)?;
+    (
+      repository.remote(&state.git_executor),
+      Arc::clone(&repository.cli_tools),
+      remote_facts::youtrack_cli::handed_token_file(&repository.app_data),
+    )
+  };
+  let grant = remote
+    .youtrack_sign_in()
+    .wait_for_cli(remote.youtrack_service())
+    .await
+    .map_err(|e| CommandFailure::error("sign youtrack in", e))?;
+  let title = remote_facts::youtrack_cli::hand_token_to_cli(remote.youtrack_service(), grant, host.environment(), Some(&kept))
+    .await
+    .map_err(|e| CommandFailure::error("sign youtrack in", e))?;
+  Ok(Json(serde_json::json!({ "title": title, "skill_problem": null })))
 }

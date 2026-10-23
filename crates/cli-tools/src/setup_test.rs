@@ -18,6 +18,7 @@ fn tool(tool: CliTool, version: Option<&str>, latest: Option<&str>) -> CliToolSt
     action: None,
     command: None,
     problem: None,
+    sign_in_with: None,
   }
 }
 

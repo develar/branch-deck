@@ -8,7 +8,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { SettingsSection } from "@/components/settings/SettingRow"
 import { CommandLine } from "@/components/shared/CommandLine"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
-import type { CliToolServer, CliToolSkill, CliToolStatus } from "@/lib/bindings"
+import type { CliToolAction, CliToolServer, CliToolSkill, CliToolStatus } from "@/lib/bindings"
 import {
   CLI_TOOL_PURPOSE,
   cliToolActionLabel,
@@ -21,7 +21,16 @@ import {
 } from "@/lib/cli-tools"
 import { notifyError } from "@/lib/errors"
 import { resolveHomeDir, tildePath } from "@/lib/home-path"
-import { cancelCliToolAction, refreshCliTools, runCliToolAction, setInstallWithSkill, useCliToolStatuses, useInstallWithSkill, useRunningCliToolAction } from "@/stores/cli-tools"
+import {
+  cancelCliToolAction,
+  refreshCliTools,
+  runCliToolAction,
+  setInstallWithSkill,
+  signInYoutrackWithApp,
+  useCliToolStatuses,
+  useInstallWithSkill,
+  useRunningCliToolAction,
+} from "@/stores/cli-tools"
 import type { RunningCliToolAction } from "@/stores/cli-tools"
 
 /**
@@ -79,8 +88,8 @@ function CliToolRow({ status, homeDir, server }: { status: CliToolStatus; homeDi
         ) : (
           label !== null &&
           action !== null && (
-            <Button size="xs" variant="outline" disabled={running !== undefined} title={busy} onClick={() => void runCliToolAction(status.tool, action, status.latest)}>
-              {action === "update" ? <CircleArrowUpIcon data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
+            <Button size="xs" variant="outline" disabled={running !== undefined} title={busy} onClick={() => runRowAction(status, action)}>
+              {actionIcon(action)}
               {label}
             </Button>
           )
@@ -102,6 +111,26 @@ function CliToolRow({ status, homeDir, server }: { status: CliToolStatus; homeDi
       {status.problem !== null && <p className="text-xs text-warning">{status.problem}</p>}
     </div>
   )
+}
+
+/** The main action of a row: the sign-in of youtrack with the app's YouTrack, else the action of the CLI */
+function runRowAction(status: CliToolStatus, action: CliToolAction): void {
+  if (action === "signIn" && status.signInWith !== null) {
+    void signInYoutrackWithApp(status.signInWith)
+    return
+  }
+  void runCliToolAction(status.tool, action, status.latest)
+}
+
+function actionIcon(action: CliToolAction) {
+  switch (action) {
+    case "update":
+      return <CircleArrowUpIcon data-icon="inline-start" />
+    case "signIn":
+      return <LogInIcon data-icon="inline-start" />
+    default:
+      return <DownloadIcon data-icon="inline-start" />
+  }
 }
 
 /**

@@ -8,6 +8,7 @@
 //! - `parse`: their answers (`--version`, `auth status --json`, the skill)
 //! - `setup`: the rule of the Setup dot: what of the app and the tools waits for the user
 //! - `terminal_login`: the browser sign-in of `teamcity`, in a pseudo-terminal of `script`
+//! - `youtrack_login`: the sign-in of `youtrack` with a permanent token of the app's YouTrack sign-in
 //! - `status`: a tool as Settings → Tools shows it, and its action
 
 pub mod environment;
@@ -16,6 +17,7 @@ pub mod parse;
 pub mod setup;
 pub mod status;
 pub mod terminal_login;
+pub mod youtrack_login;
 
 #[cfg(test)]
 mod install_test;
@@ -29,3 +31,5 @@ mod status_test;
 mod terminal_login_test;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod youtrack_login_test;

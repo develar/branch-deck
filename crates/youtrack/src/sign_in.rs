@@ -99,10 +99,28 @@ pub struct PendingSignIn {
   verifier: String,
 }
 
+/// The service of Hub itself: an access token needs it to call the Hub API (its permanent tokens)
+pub const HUB_SERVICE_ID: &str = "0-0-0-0-0";
+
+/// What a sign-in is for
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignInPurpose {
+  /// The app's own sign-in: the YouTrack service, with a refresh token (`access_type=offline`)
+  App,
+  /// One access token that may also ask Hub itself (its service `0-0-0-0-0`), to create a permanent token for the
+  /// `youtrack` CLI; no refresh token, nothing kept
+  PermanentToken,
+}
+
+/// Prepares the app's sign-in (`SignInPurpose::App`)
+pub async fn start_sign_in(client: &YouTrackClient, base: &str) -> Result<PendingSignIn, SignInError> {
+  start_sign_in_for(client, base, SignInPurpose::App).await
+}
+
 /// Prepares the sign-in: the listener on a free loopback port and the Hub page to open. A Hub that does not know the
 /// public client is told at once (`ClientRejected`), before the browser opens.
 #[instrument(skip(client))]
-pub async fn start_sign_in(client: &YouTrackClient, base: &str) -> Result<PendingSignIn, SignInError> {
+pub async fn start_sign_in_for(client: &YouTrackClient, base: &str, purpose: SignInPurpose) -> Result<PendingSignIn, SignInError> {
   let hub = discover_hub(client, base).await?;
   let listener = TcpListener::bind("127.0.0.1:0")
     .await
@@ -113,16 +131,23 @@ pub async fn start_sign_in(client: &YouTrackClient, base: &str) -> Result<Pendin
   let verifier = random_token()?;
   let state = random_token()?;
   let mut authorize = url_of(&hub.url, &["api", "rest", "oauth2", "auth"]).map_err(SignInError::Failed)?;
-  authorize
-    .query_pairs_mut()
-    .append_pair("response_type", "code")
-    .append_pair("client_id", CLIENT_ID)
-    .append_pair("redirect_uri", &redirect_uri)
-    .append_pair("scope", &hub.service_id)
-    .append_pair("state", &state)
-    .append_pair("access_type", "offline")
-    .append_pair("code_challenge", &challenge_of(&verifier))
-    .append_pair("code_challenge_method", "S256");
+  let scope = match purpose {
+    SignInPurpose::App => hub.service_id.clone(),
+    SignInPurpose::PermanentToken => format!("{} {HUB_SERVICE_ID}", hub.service_id),
+  };
+  {
+    let mut query = authorize.query_pairs_mut();
+    query
+      .append_pair("response_type", "code")
+      .append_pair("client_id", CLIENT_ID)
+      .append_pair("redirect_uri", &redirect_uri)
+      .append_pair("scope", &scope)
+      .append_pair("state", &state);
+    if purpose == SignInPurpose::App {
+      query.append_pair("access_type", "offline");
+    }
+    query.append_pair("code_challenge", &challenge_of(&verifier)).append_pair("code_challenge_method", "S256");
+  }
   preflight(client, &authorize).await?;
   Ok(PendingSignIn {
     hub,

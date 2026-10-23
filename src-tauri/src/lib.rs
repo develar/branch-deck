@@ -73,7 +73,7 @@ use commands::window_management::{SubWindowState, open_sub_window, sub_window_lo
 use commands::window_menu::show_window_menu;
 use commands::youtrack::{
   YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, set_youtrack_issue_state, sign_out_of_youtrack,
-  start_youtrack_sign_in, wait_youtrack_sign_in,
+  start_youtrack_cli_sign_in, start_youtrack_sign_in, wait_youtrack_cli_sign_in, wait_youtrack_sign_in,
 };
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
@@ -214,6 +214,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     run_cli_tool_action,
     cancel_cli_tool_action,
     get_setup_items,
+    start_youtrack_cli_sign_in,
+    wait_youtrack_cli_sign_in,
   ])
 }
 

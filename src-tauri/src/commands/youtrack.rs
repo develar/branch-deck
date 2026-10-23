@@ -1,8 +1,11 @@
 use crate::command_error::CommandError;
+use crate::commands::cli_tools::CliToolActionDone;
 use crate::commands::github::app_user_agent;
 use crate::operation::operation;
+use cli_tools::environment::ToolEnvironment;
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
-use std::path::Path;
+use remote_facts::youtrack_cli::{hand_token_to_cli, handed_token_file};
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, State};
 use tracing::instrument;
 use youtrack::client::YouTrackClient;
@@ -17,6 +20,8 @@ pub const YOUTRACK_AUTH_CHANGED_EVENT: &str = "youtrack-auth-changed";
 pub struct YouTrackState {
   pub service: YouTrackService,
   sign_in: YouTrackSignInSession,
+  /// The id of the permanent token the app made for the `youtrack` CLI (`remote_facts::youtrack_cli`)
+  handed_token: Option<PathBuf>,
 }
 
 impl YouTrackState {
@@ -28,6 +33,7 @@ impl YouTrackState {
         app_data_dir.map(token_file),
       ),
       sign_in: YouTrackSignInSession::default(),
+      handed_token: app_data_dir.map(handed_token_file),
     }
   }
 }
@@ -59,6 +65,31 @@ pub async fn wait_youtrack_sign_in(app: AppHandle, youtrack: State<'_, YouTrackS
     let user = youtrack.sign_in.wait(&youtrack.service).await.map_err(CommandError::new)?;
     app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;
     Ok(user)
+  })
+  .await
+}
+
+/// Starts the one-shot browser sign-in that gets the `youtrack` CLI a permanent token of the YouTrack at `url`: the Hub
+/// page to open; `wait_youtrack_cli_sign_in` waits for it. It replaces a sign-in in progress
+#[tauri::command]
+#[instrument(skip(youtrack))]
+#[specta::specta]
+pub async fn start_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>, url: String) -> Result<YouTrackSignIn, CommandError> {
+  operation(async move { youtrack.sign_in.start_for_cli(&youtrack.service, &url).await.map_err(CommandError::new) }).await
+}
+
+/// Waits for the browser to come back from the Hub page of `start_youtrack_cli_sign_in`, then makes the permanent token
+/// and signs the `youtrack` CLI in with it; the token the app made before is revoked. `cancel_youtrack_sign_in` ends it
+#[tauri::command]
+#[instrument(skip(youtrack))]
+#[specta::specta]
+pub async fn wait_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>) -> Result<CliToolActionDone, CommandError> {
+  operation(async move {
+    let grant = youtrack.sign_in.wait_for_cli(&youtrack.service).await.map_err(CommandError::new)?;
+    let title = hand_token_to_cli(&youtrack.service, grant, ToolEnvironment::from_process(), youtrack.handed_token.as_deref())
+      .await
+      .map_err(CommandError::new)?;
+    Ok(CliToolActionDone { title, skill_problem: None })
   })
   .await
 }

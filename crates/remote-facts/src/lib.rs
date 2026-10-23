@@ -14,6 +14,7 @@
 //! - `review_requests`: the pull requests of others that wait for the user's review
 //! - `branch_rules`: the rules GitHub applies to pull requests into a branch
 //! - `cli_tool_releases`: the newest release of the CLIs of Settings → Tools, once a day
+//! - `youtrack_cli`: the `youtrack` CLI signed in with a permanent token of the app's YouTrack
 //!
 //! Patronus:
 //! - `patronus_command`: the `/patronus` comment of a pull request
@@ -35,6 +36,7 @@ pub mod review_requests;
 pub mod robot_stats;
 pub mod robot_stats_aggregate;
 pub mod stack_pull_request;
+pub mod youtrack_cli;
 
 #[cfg(test)]
 mod branch_rules_test;
@@ -54,3 +56,5 @@ mod pull_request_writes_test;
 mod pull_requests_test;
 #[cfg(test)]
 mod review_readiness_test;
+#[cfg(test)]
+mod youtrack_cli_test;

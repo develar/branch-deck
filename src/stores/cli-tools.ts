@@ -1,4 +1,5 @@
 import { Channel } from "@tauri-apps/api/core"
+import { openUrl } from "@tauri-apps/plugin-opener"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { CliTool, CliToolAction, CliToolProgress, CliToolStatus } from "@/lib/bindings"
@@ -117,8 +118,43 @@ export async function runCliToolAction(tool: CliTool, action: CliToolAction, lat
   await refreshCliTools()
 }
 
+/**
+ * Signs `youtrack` in with a token of the app's YouTrack sign-in (`status.signInWith`): a one-shot sign-in in the
+ * browser, then Rust makes a permanent token and hands it to the CLI; the row waits meanwhile, with the page to open
+ */
+export async function signInYoutrackWithApp(url: string): Promise<void> {
+  const tool = "youtrack"
+  if (cliToolsStore.getState().running[tool] !== undefined) {
+    return
+  }
+  setRunning(tool, { action: "signIn", line: "Starting…", url: null })
+  try {
+    const started = await commands.startYoutrackCliSignIn(url)
+    if (started.status === "error") {
+      notifyError(failedTitle("signIn", tool), started.error)
+      return
+    }
+    const page = started.data.authorizeUrl
+    setRunning(tool, { action: "signIn", line: "Waiting for the browser…", url: page })
+    await openUrl(page).catch((error: unknown) => notifyError("Cannot open the YouTrack sign-in", error))
+    const result = await commands.waitYoutrackCliSignIn()
+    if (result.status === "ok") {
+      showToast({ title: result.data.title })
+    } else if (result.error.message !== "canceled") {
+      notifyError(failedTitle("signIn", tool), result.error)
+    }
+  } finally {
+    setRunning(tool, undefined)
+  }
+  await refreshCliTools()
+}
+
 /** Ends the action running for `tool`; its command answers "canceled", which toasts nothing */
 export function cancelCliToolAction(tool: CliTool): void {
+  if (tool === "youtrack" && cliToolsStore.getState().running[tool]?.action === "signIn") {
+    void commands.cancelYoutrackSignIn()
+    return
+  }
   void commands.cancelCliToolAction(tool)
 }
 

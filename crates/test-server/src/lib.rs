@@ -261,6 +261,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/run_cli_tool_action", post(cli_tools_fixtures::run_cli_tool_action))
     .route("/invoke/cancel_cli_tool_action", post(cli_tools_fixtures::cancel_cli_tool_action))
     .route("/invoke/get_setup_items", post(cli_tools_fixtures::get_setup_items))
+    .route("/invoke/start_youtrack_cli_sign_in", post(cli_tools_fixtures::start_youtrack_cli_sign_in))
+    .route("/invoke/wait_youtrack_cli_sign_in", post(cli_tools_fixtures::wait_youtrack_cli_sign_in))
     // the updater, by the update of the fixture; the install and the restart of the app fail
     .route("/invoke/check_for_updates", post(updater::check_for_updates))
     .route("/invoke/get_update_status", post(updater::get_update_status))

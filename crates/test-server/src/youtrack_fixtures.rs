@@ -113,5 +113,6 @@ pub async fn get_youtrack(Path(id): Path<String>, State(state): State<Arc<AppSta
     "commands": host.youtrack().commands(),
     "lookups": lookups,
     "meTokens": me_tokens,
+    "permanentTokens": host.youtrack().permanent_tokens(),
   })))
 }

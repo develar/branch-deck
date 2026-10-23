@@ -16,6 +16,7 @@ object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
 github = { path = "../github" }
 youtrack = { path = "../youtrack" }
+cli-tools = { path = "../cli-tools" }
 anyhow.workspace = true
 tracing.workspace = true
 serde.workspace = true
@@ -33,6 +34,8 @@ specta = ["dep:specta", "sync-core/specta", "domain-types/specta", "git-ops/spec
 [dev-dependencies]
 github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
+youtrack = { path = "../youtrack", features = ["fake"] }
+reqwest.workspace = true
 test-utils = { path = "../test-utils" }
 tempfile.workspace = true
 tokio.workspace = true
