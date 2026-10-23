@@ -435,8 +435,9 @@ commit id (`crates/object-cache`, LMDB through heed):
 
 Moves commits between branches by their subject prefixes, in one message-only history rewrite
 (`history_rewrite::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)), and changes
-the issue groups and the stack parents in the same ref transaction. Then it sets the pull request texts of the plan and, with `--sync`,
-rebuilds the virtual branches, under the same repository lock. The plan is the file of `--plan`, or stdin for
+the issue groups and the stack parents in the same ref transaction. Then it sets the pull request texts of the plan under
+the same repository lock and, with `--sync`, rebuilds the virtual branches after its release, as `bd sync` does: another
+rewrite may come in between, and the sync then shows the newer HEAD. The plan is the file of `--plan`, or stdin for
 `--plan -`; without `--plan` it is `invalid_arguments`, and stdin is never read.
 
 ```json

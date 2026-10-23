@@ -20,7 +20,7 @@ use git_ops::update_resolve::{
 };
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
-use history_rewrite::repository_lock::lock_repository;
+use history_rewrite::repository_lock::{RepositoryLock, lock_repository};
 use history_rewrite::snapshot::read_grouping_inputs;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -253,8 +253,9 @@ fn landed_dropped(git_executor: &GitCommandExecutor, repo_path: &str, state: &Se
     .collect()
 }
 
-/// Start the session of an update whose check conflicted, under the lock the update holds. `candidates` are the landed
-/// candidates the check found, when it asked for them; `resolve` is the resolve by words of the check
+/// Start the session of an update whose check conflicted, under the lock the update holds and passes as `lock`, which a
+/// session that finishes at once releases before its landed report. `candidates` are the landed candidates the check
+/// found, when it asked for them; `resolve` is the resolve by words of the check
 #[expect(clippy::too_many_arguments, reason = "what the update read under its lock, passed on")]
 pub(crate) fn start_resolve(
   git_executor: &GitCommandExecutor,
@@ -265,6 +266,7 @@ pub(crate) fn start_resolve(
   candidates: Option<Vec<Vec<String>>>,
   dir: Option<(String, bool)>,
   resolve: ResolveMode,
+  lock: RepositoryLock,
 ) -> Result<SessionOutcome> {
   let (check, excluded) = (&plan.check, plan.excluded());
   let candidates = candidates.unwrap_or_else(|| {
@@ -295,7 +297,7 @@ pub(crate) fn start_resolve(
       resolve,
     },
   )?;
-  outcome(git_executor, repo_path, step, None, Some(grouping))
+  outcome(git_executor, repo_path, step, None, Some(grouping), Some(lock))
 }
 
 /// What `bd update --continue` passes
@@ -317,7 +319,7 @@ pub struct ContinueOptions {
 /// its resolution in a loop never makes an update, a rewrite or another `bd` wait
 #[instrument(skip(git_executor))]
 pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, options: &ContinueOptions, lock_timeout: Duration) -> Result<SessionOutcome> {
-  let _lock = if options.dry_run {
+  let lock = if options.dry_run {
     None
   } else {
     Some(lock_repository(git_executor, repo_path, lock_timeout)?)
@@ -344,7 +346,7 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
   let resolve = ConfigSnapshot::read(git_executor, repo_path)?.resolve_mode()?;
   let step = continue_session(git_executor, repo_path, &worktree, session, options.round, &input, options.dry_run, resolve)
     .map_err(|e| explain_refusal(git_executor, repo_path, &previous, e))?;
-  outcome(git_executor, repo_path, step, Some(&previous), None)
+  outcome(git_executor, repo_path, step, Some(&previous), None, lock)
 }
 
 /// A refused resolution with the absolute `edit` copy of each path, and, for leftover markers or a missing resolution,
@@ -371,8 +373,16 @@ fn explain_refusal(git_executor: &GitCommandExecutor, repo_path: &str, state: &S
   anyhow::Error::new(ResolveError::Refused(refusal))
 }
 
-/// The outcome of a step: the copies of a new round are written and those of the closed one removed
-fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previous: Option<&SessionState>, grouping: Option<&GroupingInputs>) -> Result<SessionOutcome> {
+/// The outcome of a step: the copies of a new round are written and those of the closed one removed, under `lock`. A
+/// finished session releases it first: the update is done, and what it landed is a report, read without the lock
+fn outcome(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  step: Step,
+  previous: Option<&SessionState>,
+  grouping: Option<&GroupingInputs>,
+  lock: Option<RepositoryLock>,
+) -> Result<SessionOutcome> {
   let closed = |state: &SessionState| {
     if let Some(previous) = previous
       && let Some(conflict) = &previous.conflict
@@ -399,6 +409,7 @@ fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previ
       resolution,
     }),
     Step::Applied { session, previous_head } => {
+      drop(lock);
       let state = session.state();
       closed(state);
       remove_root(state);

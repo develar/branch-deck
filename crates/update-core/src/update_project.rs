@@ -11,7 +11,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{Worktree, current_worktree, is_object_id};
 use git_ops::update_branch::{
   CheckPurpose, LandedScope, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards,
-  check_update_undo, finish_pending_update, recheck_update,
+  check_update_undo, finish_pending_update, pending_update, recheck_update,
 };
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::detect_baseline_branch;
@@ -131,9 +131,10 @@ pub fn app_error(error: anyhow::Error) -> anyhow::Error {
   }
 }
 
-/// `update_project_core` with options. The fetch runs first, without the repository lock, so a slow network never
-/// blocks another writer; the check and the update then run under the lock, so the app, `bd` and their rewrites never
-/// interleave with an update. A held lock is a `RepositoryLocked` error, a failed fetch `FetchFailed`, a local
+/// `update_project_core` with options. The fetch and the check run first, without the repository lock, so a slow
+/// network never blocks another writer; a check that moves nothing (up to date, blocked, a conflict) is the answer
+/// without the lock; otherwise its witness and the update run under the lock, so the app, `bd` and their rewrites
+/// never interleave with an update. A held lock is a `RepositoryLocked` error, a failed fetch `FetchFailed`, a local
 /// baseline `NoUpstream`, a refused guard `GuardRefusal`
 #[instrument(skip(git_executor, on_progress))]
 pub fn update_project_with(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress)) -> Result<UpdateProjectResult> {
@@ -216,6 +217,18 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // before the lock: the lock is held only for the witness, the local changes and the move
   on_progress(UpdatePhase::Checking.into());
   let mut prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::NotHeld)?;
+  // nothing to move (up to date, blocked, or a conflict that starts no session): the check is the answer, and no lock
+  // is waited for, unless a crash left files to follow
+  if moves_nothing(&prepared.plan.check.state, resolve) && pending_update(git_executor, repo_path)?.is_none() {
+    let mut check = prepared.plan.check;
+    check.fetched_at = fetched_at;
+    info!(state = ?check.state, "update not applied, checked without the lock");
+    return Ok(BdUpdate::Update(Box::new(UpdateProjectResult {
+      check,
+      applied: None,
+      landed: Vec::new(),
+    })));
+  }
   let lock = lock_repository_with(git_executor, repo_path, options.lock_timeout, &|| on_progress(UpdatePhase::Waiting.into()))?;
   // an update or undo that a crash stopped before its files followed: they follow first
   let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
@@ -234,7 +247,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
 
   if let (UpdateState::Conflict { .. }, Resolve::Yes { dir, worktree }) = (&plan.check.state, resolve) {
     let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir, &worktree.git_dir)).transpose()?;
-    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, candidates, dir, resolve_mode)?;
+    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, candidates, dir, resolve_mode, lock)?;
     return Ok(BdUpdate::Session(Box::new(outcome)));
   }
   let applied = match &plan.check.state {
@@ -258,6 +271,16 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     applied,
     landed,
   })))
+}
+
+/// Whether an update in `state` moves nothing: only a clean one moves the branch, and a conflict only when it starts a
+/// resolve session
+const fn moves_nothing(state: &UpdateState, resolve: Resolve<'_>) -> bool {
+  match state {
+    UpdateState::UpToDate | UpdateState::Blocked { .. } => true,
+    UpdateState::Conflict { .. } => matches!(resolve, Resolve::No),
+    UpdateState::Clean { .. } => false,
+  }
 }
 
 /// Whether the caller of `prepare_update` holds the repository lock

@@ -732,7 +732,7 @@ The steps, a fixed number of processes whatever the range (`crates/git-ops/src/m
    temporary refs. The undo token `<previous>..<new>` works with `bd undo`: the trees are equal.
 
 `--dry-run` stops after step 6 and deletes the temporary ref at once: no ref moves and no note is written, only the
-objects of theirs and the merges. `--sync` syncs under the same lock.
+objects of theirs and the merges. `--sync` syncs after the lock is released, as `bd sync` does.
 
 A trial (`MoveHunkMode::Trial`, no lock) also runs step 7 without the notes and then deletes the temporary refs instead
 of step 8: the rewritten commits exist as objects only, for a trial build of the history after the move.
@@ -774,9 +774,12 @@ Details:
   meanwhile. Under the lock run only the witness (2d), the local changes on the paths the update writes (7, 8) and the
   move (9, 10), so the app's Update Project, `bd update` and every rewrite of the app or of bd never interleave with
   the move. A writer that moved the branch or the upstream during the check makes the update check once more, under
-  the lock, so an update never applies a check made before another writer moved the branch. What the update landed
-  is recorded after the release (`record_landed_update`, a report). A conflict of `bd update` starts its resolve
-  session under the lock, its search for the first conflict too. `bd update --dry-run` is the check inside sync
+  the lock, so an update never applies a check made before another writer moved the branch. A check that moves
+  nothing (up to date, blocked, or a conflict that starts no session: the app's) is the answer without the lock,
+  unless the mark of an interrupted update (`pending_update`) asks for its files to follow under it. What the update
+  landed is recorded after the release (`record_landed_update`, a report), also when a resolve session finishes: its
+  `--continue`, or a start that resolves every round by words, releases the lock once the session refs moved. A
+  conflict of `bd update` starts its resolve session under the lock, its search for the first conflict too. `bd update --dry-run` is the check inside sync
   (below): no fetch, no lock, no move.
 - **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay
   where the last push saw them, so the `--force-with-lease` of the virtual branches keeps protecting work pushed from

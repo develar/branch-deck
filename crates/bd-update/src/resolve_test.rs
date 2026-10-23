@@ -1148,3 +1148,26 @@ fn a_round_that_resolves_by_words_is_named_in_the_next_round_the_status_and_the_
   assert_eq!(done["resolutions"][1]["words"], Value::Null, "{done}");
   assert_eq!(read(clone.path().join("shared.txt").to_str().unwrap()), "one\nALPHA beta GAMMA\nthree\n");
 }
+
+/// The finish of a session releases the repository lock once the branch, the files and the session refs moved: what
+/// the update landed is a report, read and written (landed.json) without the lock, as on the clean path of an update
+#[cfg(unix)]
+#[test_log::test]
+fn the_landed_report_of_a_finished_session_runs_after_the_lock() {
+  let (upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&clone, "");
+  let (exit_code, done) = wrapped.run(&["update", "--continue"]);
+  assert_eq!((exit_code, &done["replayed"]), (0, &json!(1)), "{done}");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+  let commands = wrapped.commands();
+  let finished = commands
+    .iter()
+    .position(|(_, args)| args.contains(" update-ref -m branch-deck: resolve session finished "))
+    .unwrap_or_else(|| panic!("the finish moves the session refs: {commands:#?}"));
+  assert!(commands[finished].0, "the finish under the lock: {commands:#?}");
+  let report = &commands[finished + 1..];
+  assert!(report.iter().any(|(_, args)| args.contains("branch-deck/landed")), "the landed report: {commands:#?}");
+  assert!(report.iter().all(|(locked, _)| !*locked), "nothing after the finish under the lock: {commands:#?}");
+}

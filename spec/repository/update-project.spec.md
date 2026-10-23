@@ -153,13 +153,15 @@ The header shows whether an update would apply cleanly, from a check that every 
   repository lock, on the HEAD and the upstream it read once, then take the lock only for the witness, the local
   changes on the paths it writes and the move, so the app, `bd update` and the rewrites of either never interleave
   with the move, while a regroup, a push or an agent's `bd` goes on during the check; the fetch and the record of what
-  landed never run under the lock. A branch or an upstream moved during the check must be checked once more, under
+  landed never run under the lock. A check that moves nothing (up to date, or a conflict, which starts no session in
+  the app) is the answer at once, without waiting for the lock, unless an interrupted update left files to follow.
+  A branch or an upstream moved during the check must be checked once more, under
   the lock, and a file the update writes, edited during the check, must block it. A lock held for the whole wait
   (10 s in the app) is an error with only the fetch and the check done: the app shows "Cannot update the project"
   with the holder its record names, "`bd push` (pid 4242, for 12 s) is changing this repository. Try again when it
   is done." ("Branch Deck or bd is changing this repository. …" once the record is gone; no lock file path), and
   keeps the time of the fetch.
-  [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`, `an_update_that_moves_nothing_answers_without_waiting_for_the_lock`)
   [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`, `the_check_of_an_update_runs_before_the_lock`, `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`, `a_file_edited_during_the_replay_of_an_update_blocks_it`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - `bd update --no-fetch` must update onto the last fetched baseline ([bd update](../cli/update.spec.md)).
@@ -286,8 +288,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/hooks/useNow.test.ts (`ages a relative time without anything else changing: "Last synced just now" becomes "1 minute ago"`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)
 - A click, or File → Update Project (`⌘T`), runs the update. Its steps are one progress from the click to its end:
-  the fetch, the wait for the repository lock (only while another operation holds it), the check, and, for an update
-  that applies, the update of the files and the sync that rebuilds the rebased branches. Meanwhile the button shows a
+  the fetch, the check, the wait for the repository lock (only while another operation holds it and the check found
+  something to apply), and, for an update that applies, the update of the files and the sync that rebuilds the rebased branches. Meanwhile the button shows a
   spinner and one word for the whole run with its percent, "Updating 62%" ("Updating…" below 1 %), never a word per
   step; the Fetch of a merge toast says "Fetching 30%". The label keeps the width of the widest one, "Updating 99%",
   from the start of the run to its end, so the header doesn't move per step or tick.
@@ -332,7 +334,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)
 - The backend tells the wait for the lock as a step of its own (`waiting`), once, when another operation holds the
-  lock as the update asks for it; the check starts once it has the lock. A progress message after the command answered
+  lock as the update asks for it, after the check (`checking`), which runs before the lock. A progress message after the command answered
   changes nothing: the steps after it are the frontend's.
   [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
   [@test] ../../src/stores/update-project.test.ts (`ignores a progress message that arrives after the command answered`)

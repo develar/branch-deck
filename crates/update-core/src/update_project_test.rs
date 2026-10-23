@@ -8,8 +8,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{
-  BranchSwitched, CheckPurpose, NotAnUpdate, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, blocked_state, check_update, check_update_undo,
-  no_landed_candidates,
+  BranchSwitched, CheckPurpose, NotAnUpdate, PENDING_UPDATE_PREFIX, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, blocked_state, check_update,
+  check_update_undo, no_landed_candidates,
 };
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::repository_lock::{RepositoryLocked, lock_repository};
@@ -872,6 +872,21 @@ fn undo_tokens_are_strict() {
   assert!(UpdateUndoToken::is_update_token(&format!("update:{a}")));
 }
 
+/// A fetch, and a wait for the repository lock that ends soon
+const FETCH_AND_A_SHORT_WAIT: UpdateOptions = UpdateOptions {
+  fetch: true,
+  lock_timeout: Duration::from_millis(200),
+};
+
+/// `update_project_with` in `repo`, with the phases it told, each once
+fn update_with_phases(repo: &TestRepo, options: UpdateOptions) -> (anyhow::Result<UpdateProjectResult>, Vec<UpdatePhase>) {
+  let progress = RefCell::new(Vec::new());
+  let result = update_project_with(repo.git_executor(), path(repo), options, &|it| progress.borrow_mut().push(it.phase));
+  let mut phases = progress.into_inner();
+  phases.dedup();
+  (result, phases)
+}
+
 #[test]
 fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   let Setup { upstream, clone } = setup();
@@ -879,17 +894,11 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   let head = clone.head();
   // another Branch Deck process (bd) holds the lock for the whole wait
   let held = lock_repository(clone.git_executor(), path(&clone), Duration::from_millis(200)).unwrap();
-  let options = UpdateOptions {
-    fetch: true,
-    lock_timeout: Duration::from_millis(200),
-  };
 
-  let progress = RefCell::new(Vec::new());
-  let error = update_project_with(clone.git_executor(), path(&clone), options, &|it| progress.borrow_mut().push(it.phase)).unwrap_err();
+  let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
+  let error = result.unwrap_err();
   assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
   // the check runs before the lock; the wait is a step of its own, told once
-  let mut phases = progress.into_inner();
-  phases.dedup();
   assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Checking, UpdatePhase::Waiting]);
   // the app says who holds it (here the test itself), without the lock file
   let message = format!("{:#}", app_error(error));
@@ -902,12 +911,42 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   assert_eq!(clone.head(), head);
 
   drop(held);
-  let progress = RefCell::new(Vec::new());
-  let result = update_project_with(clone.git_executor(), path(&clone), options, &|it| progress.borrow_mut().push(it.phase)).unwrap();
-  assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
+  let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
+  assert_eq!(result.unwrap().check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
   // a free lock is no step
-  assert!(!progress.into_inner().contains(&UpdatePhase::Waiting));
+  assert!(!phases.contains(&UpdatePhase::Waiting));
   assert_eq!(clone.head(), upstream.head());
+}
+
+/// A check that moves nothing answers while another process holds the lock: up to date, or a conflict in the app,
+/// which starts no session. A mark of files that a crash left behind still waits for the lock
+#[test]
+fn an_update_that_moves_nothing_answers_without_waiting_for_the_lock() {
+  let Setup { upstream, clone } = setup();
+  // an agent's `bd push` holds the lock for the whole wait
+  let held = lock_repository(clone.git_executor(), path(&clone), Duration::from_millis(200)).unwrap();
+
+  let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
+  let result = result.unwrap();
+  assert_eq!(result.check.state, UpdateState::UpToDate);
+  assert!(result.check.fetched_at.is_some(), "{result:?}");
+  assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Checking]);
+
+  clone.create_commit("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n");
+  upstream.create_commit("Upstream change", "shared.txt", "one\nupstream two\nthree\n");
+  let head = clone.head();
+  let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
+  let result = result.unwrap();
+  assert!(matches!(result.check.state, UpdateState::Conflict { .. }), "{result:?}");
+  assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Checking]);
+  assert_eq!(clone.head(), head);
+
+  // the files of an interrupted update are finished under the lock only
+  git(&clone, &["update-ref", &format!("{PENDING_UPDATE_PREFIX}main"), &head]);
+  let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
+  assert!(result.unwrap_err().downcast_ref::<RepositoryLocked>().is_some());
+  assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Checking, UpdatePhase::Waiting]);
+  drop(held);
 }
 
 #[test]
