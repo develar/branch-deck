@@ -11,6 +11,7 @@ use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use cli_tools::environment::ToolEnvironment;
 use cli_tools::install::{ActionInput, ActionOutput, run_action};
+use cli_tools::kept_statuses::KeptStatuses;
 use cli_tools::setup::{SetupFacts, setup_entries};
 use cli_tools::status::{KnownFacts, read_statuses};
 use domain_types::cli_tools::{CliTool, CliToolAction, CliToolStatus};
@@ -32,8 +33,8 @@ pub const SETUP_CHANGED_EVENT: &str = "setup-changed";
 pub struct CliToolsState {
   /// The actions running now, by tool: a cancel sets its flag
   running: Mutex<HashMap<CliTool, Arc<AtomicBool>>>,
-  /// The last statuses read, which the Setup dot takes without running the CLIs again
-  statuses: Mutex<Option<Vec<CliToolStatus>>>,
+  /// The statuses of the read that started last, which the Setup dot takes without running the CLIs again
+  statuses: KeptStatuses,
   /// The newest releases, asked of GitHub at most once a day (no lock: two reads at once ask twice at worst)
   releases_file: Option<PathBuf>,
 }
@@ -42,7 +43,7 @@ impl CliToolsState {
   pub fn new(app_data_dir: Option<&Path>) -> Self {
     Self {
       running: Mutex::default(),
-      statuses: Mutex::default(),
+      statuses: KeptStatuses::default(),
       releases_file: app_data_dir.map(releases_file),
     }
   }
@@ -50,6 +51,7 @@ impl CliToolsState {
   /// The statuses of every tool with the newest releases and the YouTrack the app is signed in to, kept for the Setup
   /// dot
   async fn read(&self, github: &GitHubState, youtrack: &YouTrackState) -> Result<Vec<CliToolStatus>, CommandError> {
+    let ticket = self.statuses.start_read();
     let releases = refresh_releases(&github.service, self.releases_file.as_deref(), unix_now()).await;
     let signed_in = youtrack.service.status();
     let signed_in_youtrack = signed_in.url.filter(|_| signed_in.signed_in_as.is_some() && signed_in.problem.is_none());
@@ -60,7 +62,7 @@ impl CliToolsState {
       }))
     })
     .await?;
-    *self.statuses.lock().expect("the statuses") = Some(statuses.clone());
+    self.statuses.keep(ticket, &statuses);
     Ok(statuses)
   }
 }
@@ -115,8 +117,7 @@ pub async fn get_setup_items(
   skips: Vec<SetupSkip>,
 ) -> Result<Vec<SetupEntry>, CommandError> {
   operation(async {
-    let cached = state.statuses.lock().expect("the statuses").clone();
-    let statuses = match cached {
+    let statuses = match state.statuses.get() {
       Some(statuses) => statuses,
       None => state.read(&github, &youtrack).await?,
     };

@@ -11,6 +11,7 @@ use axum::http::StatusCode;
 // jscpd:ignore-start: the e2e server is the second adapter of the cores the app's commands call; the imports name them
 use cli_tools::environment::ToolEnvironment;
 use cli_tools::install::{ActionInput, ActionOutput, run_action};
+use cli_tools::kept_statuses::KeptStatuses;
 use cli_tools::setup::{SetupFacts, setup_entries};
 use cli_tools::status::{KnownFacts, read_statuses};
 use domain_types::cli_tools::{CliTool, CliToolAction, CliToolStatus};
@@ -33,10 +34,9 @@ pub struct CliToolsHost {
   running: Mutex<HashMap<CliTool, Arc<AtomicBool>>>,
   /// The YouTrack the app is signed in to, as the requests that start the reads found it
   signed_in_youtrack: RwLock<Option<String>>,
-  /// The last statuses read, which the Setup dot takes, as the app keeps them, by the generation of the fixture they
-  /// were read with: a fixture drops them once it is written, and a read that started before, which may have seen half
-  /// of it, keeps nothing
-  statuses: Mutex<(u64, Option<Vec<CliToolStatus>>)>,
+  /// The statuses of the read that started last, which the Setup dot takes, as the app keeps them: a fixture forgets
+  /// them once it is written, and a read that started before, which may have seen half of it, keeps nothing
+  statuses: KeptStatuses,
 }
 
 impl CliToolsHost {
@@ -47,7 +47,7 @@ impl CliToolsHost {
       latest: RwLock::default(),
       running: Mutex::default(),
       signed_in_youtrack: RwLock::default(),
-      statuses: Mutex::default(),
+      statuses: KeptStatuses::default(),
     }
   }
 
@@ -62,7 +62,7 @@ impl CliToolsHost {
 
   /// The statuses on the fakes, kept for the Setup dot
   async fn read(&self) -> Result<Vec<CliToolStatus>, CommandFailure> {
-    let generation = self.statuses.lock().expect("the statuses").0;
+    let ticket = self.statuses.start_read();
     let environment = self.environment();
     let facts: HashMap<CliTool, KnownFacts> = CliTool::ALL.into_iter().map(|tool| (tool, self.facts(tool))).collect();
     let statuses = tokio::task::spawn_blocking(in_current_span(move || read_statuses(&environment, &|tool| facts.get(&tool).cloned().unwrap_or_default())))
@@ -71,10 +71,7 @@ impl CliToolsHost {
         tracing::error!("Cannot read the CLIs: the read panicked: {join_error}");
         CommandFailure::Panicked
       })?;
-    let mut kept = self.statuses.lock().expect("the statuses");
-    if kept.0 == generation {
-      kept.1 = Some(statuses.clone());
-    }
+    self.statuses.keep(ticket, &statuses);
     Ok(statuses)
   }
 
@@ -148,8 +145,7 @@ pub async fn set_cli_tools(Path(id): Path<String>, State(state): State<Arc<AppSt
     }
   }
   // after the fixture, not before: a read of the page meanwhile (the Setup dot of a window that opens) saw half of it
-  let mut kept = host.statuses.lock().expect("the statuses");
-  *kept = (kept.0 + 1, None);
+  host.statuses.forget();
   Ok(StatusCode::OK)
 }
 
@@ -277,8 +273,7 @@ pub async fn get_setup_items(State(state): State<Arc<AppState>>, headers: axum::
       repository.existing_remote(),
     )
   };
-  let cached = host.statuses.lock().expect("the statuses").1.clone();
-  let statuses = match cached {
+  let statuses = match host.statuses.get() {
     Some(statuses) => statuses,
     None => host.read().await?,
   };

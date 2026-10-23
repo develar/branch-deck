@@ -4,6 +4,7 @@ description: Requirements for the dot on the Settings button of the header - wha
 style: plain-1
 targets:
   - ../../crates/cli-tools/src/setup.rs
+  - ../../crates/cli-tools/src/kept_statuses.rs
   - ../../crates/domain-types/src/setup.rs
   - ../../crates/remote-facts/src/cli_tool_releases.rs
   - ../../src-tauri/src/commands/cli_tools.rs
@@ -59,9 +60,12 @@ click lists each item with its action and its skip, then Settings.
   the user's token, conditional on the last answer, at most once a day and kept in `cli-tool-releases.json` of the app
   data; a failed answer keeps the last release and asks again next time.
   [@test] ../../crates/remote-facts/src/cli_tool_releases_test.rs (`asks_github_once_a_day_and_keeps_the_answer_in_its_file`, `a_failed_answer_keeps_the_last_release_and_asks_again_next_time`)
-- The first read of the app runs the CLIs; later reads take their last statuses. The main window reads the CLIs again
-  every 6 hours, Settings → Tools on each open and focus; each read tells every window (`setup-changed`), as does a
-  YouTrack sign-in.
+- The first read of the app runs the CLIs; later reads take their last statuses, those of the read that started last:
+  reads run at once and end in any order, and one that started before an update and ends after the read that followed
+  it brings back nothing the update changed. The main window reads the CLIs again every 6 hours, Settings → Tools on
+  each open and focus; each read tells every window (`setup-changed`), as does a YouTrack sign-in.
+  [@test] ../../crates/cli-tools/src/kept_statuses_test.rs (`a_read_that_started_before_the_last_one_kept_keeps_nothing`, `forget_drops_the_statuses_and_the_reads_running`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should mark Tools in the sidebar while a CLI waits for you, until it is done`)
 
 ### The dot
 
