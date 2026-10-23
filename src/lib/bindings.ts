@@ -236,8 +236,9 @@ export const commands = {
 	getBranchReviewReadiness: (params: GetBranchReviewReadinessParams) => typedError<BranchReviewReadiness[], CommandError>(__TAURI_INVOKE("get_branch_review_readiness", { params })),
 	/**
 	 *  Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the
-	 *  branch: Patronus links the robot to the pull request only from its comment. The posted comment; the bot answers
-	 *  with a reaction (`read_patronus_command_reply`).
+	 *  branch: Patronus links the robot to the pull request only from its comment. The comment of the user's own branch
+	 *  comes after the checks of `start_patronus_robot` (`RemoteActions::check_start_from_pull_request`), which the test
+	 *  server runs too. The posted comment; the bot answers with a reaction (`read_patronus_command_reply`).
 	 */
 	postPatronusCommand: (params: PostPatronusCommandParams) => typedError<PatronusCommandComment, CommandError>(__TAURI_INVOKE("post_patronus_command", { params })),
 	/**
@@ -2654,6 +2655,11 @@ export type PostPatronusCommandParams = {
 	subject?: PatronusCommandSubject,
 	/**  `owner/name` of the pull request when the review requests know it; else the mirror of the Space repository */
 	githubRepository?: string | null,
+	/**
+	 *  The branch of the user the comment starts (`OwnBranch`, required there): the checks of `start_patronus_robot` run
+	 *  on it before the comment (`RemoteActions::check_start_from_pull_request`)
+	 */
+	start?: PullRequestStartBranch | null,
 };
 
 export type PrefetchBranchReviewParams = {
@@ -2728,6 +2734,16 @@ export type PullRequestAvailability =
 export type PullRequestReviewEvent = "approve" | 
 /**  Needs a body: GitHub refuses a request for changes without one */
 "requestChanges";
+
+/**  The branch of the user a `/patronus` comment on its pull request starts, as `start_patronus_robot` names it */
+export type PullRequestStartBranch = {
+	branchPrefix: string,
+	/**  The virtual branch, without the `{prefix}/virtual/` namespace; with `stack`, the root of the whole stack */
+	branchName: string,
+	stack?: boolean,
+	/**  What the user started anyway (Start Anyway) */
+	allow?: LandingAllowances,
+};
 
 export type PullRequestState = "open" | "closed" | "merged";
 

@@ -300,6 +300,59 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
   );
 }
 
+/// A start from the pull request of the user's branch (the `/patronus merge` comment) runs the checks of
+/// `start_patronus_robot` before the comment, refused in its words: a parked branch, a branch whose Safe Push runs on
+/// its last commit (the page knew of none: the robot started after its list), and a comment that names no branch; the
+/// fake GitHub logs no comment
+#[tokio::test]
+async fn a_start_from_the_pull_request_runs_the_checks_of_a_start_before_the_comment() {
+  let (addr, client, id, repository_path) = synced_on_space(&[("test-branch", "IJPL-1")]).await;
+  let github = json!({"availability": {"status": "available", "owner": "acme", "name": "monorepo"}, "pullRequests": {}, "stackPullRequests": {}});
+  post(&client, addr, &format!("/repositories/{id}/pull-requests"), github).await;
+  let comment = |start: serde_json::Value| {
+    json!({"repositoryPath": repository_path, "pullRequestNumber": 7, "mode": "rebaseAutosquash", "subject": "ownBranch",
+      "githubRepository": "acme/monorepo", "start": start})
+  };
+  let test_branch = json!({"branchPrefix": "user-name", "branchName": "test-branch"});
+  let refusal = |answer: serde_json::Value| {
+    assert_eq!(answer["status"], "error", "{answer}");
+    answer["error"]["message"].as_str().unwrap().to_string()
+  };
+
+  let parked = refusal(post(&client, addr, "/invoke/post_patronus_command", comment(test_branch.clone())).await);
+  assert!(
+    parked.ends_with("Nothing was started: test-branch is parked: IJPL-1; it stays local until the user unparks it"),
+    "{parked}"
+  );
+  post(
+    &client,
+    addr,
+    "/invoke/unpark_branches",
+    json!({"repositoryPath": repository_path, "branchNames": ["test-branch"]}),
+  )
+  .await;
+  sync(&client, addr, &repository_path).await;
+  post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("test-branch")).await;
+  let running = refusal(post(&client, addr, "/invoke/post_patronus_command", comment(test_branch)).await);
+  assert!(running.ends_with("Nothing was started: A Safe Push of the last commit is running"), "{running}");
+  let nameless = refusal(post(&client, addr, "/invoke/post_patronus_command", comment(serde_json::Value::Null)).await);
+  assert!(
+    nameless.ends_with("Nothing was started: the comment on pull request #7 names no branch of the user"),
+    "{nameless}"
+  );
+
+  let log: serde_json::Value = client
+    .get(format!("http://{addr}/repositories/{id}/pull-requests"))
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+  let comments: Vec<&serde_json::Value> = log["requests"].as_array().unwrap().iter().filter(|request| request["method"] == "POST").collect();
+  assert_eq!(comments, Vec::<&serde_json::Value>::new(), "no comment reached GitHub");
+}
+
 /// A Safe Push that replaces the failing robot of its branch, which finished while the page checked (the landing gate,
 /// the target): the cancel of the replaced robot answers it as Patronus lists it, finished, instead of "not running",
 /// Patronus is asked no cancel, and the start goes on; an explicit Cancel of the same robot still says "not running"

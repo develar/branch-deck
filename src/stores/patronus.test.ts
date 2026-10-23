@@ -901,15 +901,26 @@ describe("merges", () => {
 
 describe("pull request start", () => {
   const ofPullRequest = robot({ id: "pr", startTime: START / 1000, pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" } })
+  const auth = { branchName: "auth" }
 
   it("posts the command, waits for the thumbs up and returns the robot of the pull request", async () => {
     patronus.replies = [{ status: "pending" }, { status: "accepted" }]
     patronus.list = available(ofPullRequest)
-    const started = startPatronusFromPullRequest(7, "rebaseAutosquash")
+    const started = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
     await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
     expect(await started).toEqual(ofPullRequest)
-    // the merge of an own branch keeps it, in the GitHub repository of the Space mirror
-    expect(patronus.commands).toEqual([{ repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", subject: "ownBranch", githubRepository: null }])
+    // the merge of an own branch keeps it, in the GitHub repository of the Space mirror; Rust checks the start of the
+    // branch before the comment
+    expect(patronus.commands).toEqual([
+      {
+        repositoryPath: "/repo",
+        pullRequestNumber: 7,
+        mode: "rebaseAutosquash",
+        subject: "ownBranch",
+        githubRepository: null,
+        start: { branchName: "auth", branchPrefix: "user" },
+      },
+    ])
     expect(patronus.replyCalls).toBe(2)
     // an incremental list from shortly before the comment
     expect(patronus.lists).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", since: Math.floor((START - LIST_OVERLAP_MS) / 1000), background: false }])
@@ -921,7 +932,7 @@ describe("pull request start", () => {
       { status: "rejected", reason: null },
       { status: "rejected", reason: "Pull request #7 is a draft and cannot be merged." },
     ]
-    const started = startPatronusFromPullRequest(7, "rebaseAutosquash")
+    const started = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
     const failed = expect(started).rejects.toThrow("Pull request #7 is a draft and cannot be merged.")
     await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
     await failed
@@ -929,7 +940,7 @@ describe("pull request start", () => {
   })
 
   it("gives up after a minute without an answer", async () => {
-    const started = startPatronusFromPullRequest(7, "dryRun")
+    const started = startPatronusFromPullRequest(7, "dryRun", auth)
     const failed = expect(started).rejects.toThrow("Patronus did not start a robot within a minute: see pull request #7")
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
     await failed
@@ -942,7 +953,7 @@ describe("pull request start", () => {
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
     expect(await found).toEqual(ofPullRequest)
     expect(patronus.commands).toEqual([
-      { repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", subject: "reviewedPullRequest", githubRepository: "acme/monorepo" },
+      { repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", subject: "reviewedPullRequest", githubRepository: "acme/monorepo", start: null },
     ])
 
     // Patronus may count the robot as the author's: the thumbs up is the start all the same

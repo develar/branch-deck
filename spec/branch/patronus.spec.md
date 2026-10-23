@@ -696,7 +696,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   running: wait until it merges"; a Dry Run waits only for a robot on the last commit). Then the landing gate, with the
   commits the view names landed (`landedBy`, the page sends none), and the target (`prepare_robot_start`). The page
   checks the same before it asks; the command refuses a start that raced with another one (the IDE, `bd`) or came by
-  IPC, and the E2E server runs the same sequence (`start_robot`).
+  IPC, and the E2E server runs the same sequence (`start_robot`). A start from the pull request of the user's branch
+  (the `/patronus` comment, `post_patronus_command` with the branch it starts) runs the same checks and the landing
+  gate before the comment, in the same words (`check_start_from_pull_request`); a refused one posts nothing. A comment
+  on a pull request of someone else the user reviewed has no branch of the table to check.
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_from_the_pull_request_runs_the_checks_of_a_start_before_the_comment`)
   [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_parked_branch_a_branch_built_on_parked_and_a_whole_stack_with_a_parked_member_are_refused`, `a_branch_and_a_whole_stack_merged_safe_pushes_landed_whole_are_refused`)
   [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_branch_and_a_stack_branch_the_sync_did_not_build_are_refused`, `a_robot_on_the_last_commit_or_one_that_lands_a_part_of_the_subject_is_refused`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_of_a_parked_branch_is_refused_before_patronus_is_asked`)

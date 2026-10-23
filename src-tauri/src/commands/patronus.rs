@@ -6,8 +6,8 @@ use crate::repository_state::RepositoryStateCache;
 use domain_types::calendar::Calendar;
 use domain_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
-  PatronusCommandComment, PatronusCommandReply, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
-  PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams,
+  PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
@@ -468,21 +468,31 @@ pub async fn get_branch_review_readiness(
 }
 
 /// Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the
-/// branch: Patronus links the robot to the pull request only from its comment. The posted comment; the bot answers
-/// with a reaction (`read_patronus_command_reply`).
+/// branch: Patronus links the robot to the pull request only from its comment. The comment of the user's own branch
+/// comes after the checks of `start_patronus_robot` (`RemoteActions::check_start_from_pull_request`), which the test
+/// server runs too. The posted comment; the bot answers with a reaction (`read_patronus_command_reply`).
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
+#[instrument(skip(git_executor, repository_state, github, patronus, views))]
 #[specta::specta]
 pub async fn post_patronus_command(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
+  patronus: State<'_, PatronusState>,
+  views: State<'_, RepositoryViews>,
   params: PostPatronusCommandParams,
 ) -> Result<PatronusCommandComment, CommandError> {
   operation(async move {
     let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
       .await?
       .ok_or_else(unknown_github_repository)?;
+    if params.subject == PatronusCommandSubject::OwnBranch {
+      let space = patronus.space_repository(&git_executor, &params.repository_path).await?;
+      let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
+      remote_actions(&patronus, space.as_ref(), &git_executor, &views)
+        .check_start_from_pull_request(move || repository_state.object_cache(&git, &path), &params)
+        .await?;
+    }
     remote_facts::patronus_command::post_patronus_command(
       &github.service,
       &params.repository_path,

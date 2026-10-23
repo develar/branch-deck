@@ -11,7 +11,8 @@
 //! IDE, the CLI) is not restarted: it would test its old commit. A cancel needs a running robot of the user; the cancel
 //! of the robot a start or a push replaces answers one that finished meanwhile as it is (`CancelCheck::AlreadyFinished`).
 //!
-//! `RemoteActions::start_robot`, `restart_robot` and `cancel_robot` (`actions`) are the whole sequence of both hosts: one
+//! `RemoteActions::start_robot`, `restart_robot` and `cancel_robot` (`actions`) are the whole sequence of both hosts, and
+//! `check_start_from_pull_request` the same checks before the `/patronus` comment of the other route of a start: one
 //! list of the robots asked now (a failed list fails the action), the checks, then the landing gate and the target
 //! (`prepare_robot_start`) and the call of Patronus; `check_landing` is the landing check of the popover on the same
 //! robots. The words of the robot refusals are `bd`'s too (`start_refusal_text`).
@@ -23,7 +24,7 @@ use anyhow::{Result, anyhow, bail};
 use domain_types::GroupedBranchInfo;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::landing::Subject;
-use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotParams, StartPatronusRobotParams};
+use domain_types::patronus::{PatronusCommandSubject, PatronusPushMode, PatronusRobot, PatronusRobotParams, PostPatronusCommandParams, StartPatronusRobotParams};
 use domain_types::repository_view::StartRefusal;
 use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -97,6 +98,11 @@ pub fn check_start(facts: &GuardFacts, subject: &Subject, mode: PatronusPushMode
     Some(refusal) => Err(format!("Nothing was started: {refusal}")),
     None => Ok(()),
   }
+}
+
+/// The subject a start names: the branch, or with `stack` the whole stack of the root `name`
+fn start_subject(name: &str, stack: bool) -> Subject {
+  if stack { Subject::whole_stack(name) } else { Subject::branch(name) }
 }
 
 /// Why the restart of `robot_id` is refused: "Nothing was restarted: …". A robot the list lacks or of a temporary ref is
@@ -296,12 +302,7 @@ impl RemoteActions<'_> {
     let (git, start) = (self.git_executor.clone(), params.clone());
     let branches = self
       .with_facts(&params.repository_path, &params.branch_prefix, "Nothing was started", move |facts| {
-        let subject = if start.stack {
-          Subject::whole_stack(&start.branch_name)
-        } else {
-          Subject::branch(&start.branch_name)
-        };
-        if let Err(refusal) = check_start(facts, &subject, start.mode) {
+        if let Err(refusal) = check_start(facts, &start_subject(&start.branch_name, start.stack), start.mode) {
           bail!(refusal);
         }
         let mut landed: Vec<String> = landed_commits(&facts.view).into_iter().collect();
@@ -321,6 +322,47 @@ impl RemoteActions<'_> {
       )
       .await
       .map_err(|e| anyhow!(e))
+  }
+
+  /// The checks of a start from the pull request of the user's branch (the `/patronus` comment, `post_patronus_command`
+  /// of both hosts), before the comment: those of `start_robot` before it asks Patronus, on one list of the user's
+  /// robots: `check_start` (parked, landed whole, not built, a robot of the last commit or one that lands a part of it),
+  /// then the landing gate with the commits the view names landed; the pull request names the target. A comment on a
+  /// pull request of someone else (`ReviewedPullRequest`) has no branch of the table to check; an `OwnBranch` comment
+  /// without its branch is refused. `cache` opens the object cache of the gate, in the blocking step
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, pull_request = params.pull_request_number, mode = ?params.mode))]
+  pub async fn check_start_from_pull_request(&self, cache: impl FnOnce() -> ObjectCache + Send + 'static, params: &PostPatronusCommandParams) -> Result<()> {
+    if params.subject == PatronusCommandSubject::ReviewedPullRequest {
+      return Ok(());
+    }
+    let Some(start) = &params.start else {
+      bail!(
+        "Nothing was started: the comment on pull request #{} names no branch of the user",
+        params.pull_request_number
+      );
+    };
+    let (git, path, mode, prefix, start) = (
+      self.git_executor.clone(),
+      params.repository_path.clone(),
+      params.mode,
+      start.branch_prefix.clone(),
+      start.clone(),
+    );
+    self
+      .with_facts(&params.repository_path, &prefix, "Nothing was started", move |facts| {
+        if let Err(refusal) = check_start(facts, &start_subject(&start.branch_name, start.stack), mode) {
+          bail!(refusal);
+        }
+        let gate = LandingGateParams {
+          repository_path: path,
+          branch_prefix: start.branch_prefix,
+          branch_name: start.branch_name,
+          stack: start.stack,
+          allow: start.allow,
+        };
+        ensure_landing_starts(&git, &cache(), &gate, &landed_commits(&facts.view))
+      })
+      .await
   }
 
   /// The landing gate as the popover asks it before a start (`check_landing_gate`), with the commits merged Safe Pushes

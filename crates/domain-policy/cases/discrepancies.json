@@ -219,7 +219,7 @@
     "closed": "s1-holes",
     "today": {
       "app": [
-        "crates/repository-model/src/start_guard.rs#if let Err(refusal) = check_start(facts, &subject, start.mode) {",
+        "crates/repository-model/src/start_guard.rs#if let Err(refusal) = check_start(facts, &start_subject(&start.branch_name, start.stack), start.mode) {",
         "crates/repository-model/src/start_guard.rs#check_restart(facts, &robot_id)",
         "crates/repository-model/src/start_guard.rs#check_cancel(&robots, &params.robot_id, params.replaced)",
         "crates/repository-model/src/push_guard.rs#pub fn push_guarded("

@@ -11,8 +11,8 @@ use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestB
 use domain_types::calendar::Calendar;
 use domain_types::patronus::{
   GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
-  PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
-  PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  PatronusCommandSubject, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult,
+  PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use domain_types::pull_request::{
   CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
@@ -1221,11 +1221,19 @@ pub async fn get_branch_review_readiness(
   readiness.map(Json).map_err(|e| CommandFailure::error(operation, format!("{e:#}")))
 }
 
-/// Starts a Safe Push or a Dry Run from the pull request's comment, as the app does: the fake GitHub posts it and its
-/// Patronus bot answers (`POST /repositories/{id}/patronus-replies`)
+/// Starts a Safe Push or a Dry Run from the pull request's comment, as the app does: the checks of a start of the
+/// user's own branch first (`RemoteActions::check_start_from_pull_request`, without the object cache), then the fake
+/// GitHub posts it and its Patronus bot answers (`POST /repositories/{id}/patronus-replies`)
 pub async fn post_patronus_command(State(state): State<Arc<AppState>>, Json(params): Json<PostPatronusCommandParams>) -> CommandResult<PatronusCommandComment> {
   let operation = "post the Patronus command";
   let (host, repository) = commented_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
+  if params.subject == PatronusCommandSubject::OwnBranch {
+    let space = space_of(&state, &params.repository_path)?;
+    let service = space.as_ref().map(|(host, _)| host.patronus_service());
+    let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+    let checked = actions.check_start_from_pull_request(ObjectCache::disabled, &params).await;
+    checked.map_err(|e| CommandFailure::error(operation, e))?;
+  }
   let posted = core_post_patronus_command(
     &host.github_service(),
     &params.repository_path,

@@ -13,6 +13,7 @@ import type {
   PatronusRobot,
   PatronusRobotStatus,
   PatronusView,
+  PullRequestStartBranch,
   RemoteFacts,
   RobotMatch,
   RobotOf,
@@ -1401,14 +1402,24 @@ export interface StartRepository {
   readonly baselineBranch: string
 }
 
+/** The branch of the user a comment on its pull request starts, checked in Rust before the comment as a start is */
+export type OwnPullRequestStart = Omit<PullRequestStartBranch, "branchPrefix">
+
 /**
- * Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) of the pushed branch from its GitHub pull
- * request: Patronus links the robot to the pull request only from its comment, so the approvals of the pull request
- * count and Patronus closes it once merged. Posts the comment, then waits up to a minute for the bot: 👎 throws its
- * reason; after 👍, the new robot of the pull request is listed, stored and returned (polled while it runs).
+ * Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) of the pushed branch `start` (or whole
+ * stack) from its GitHub pull request: Patronus links the robot to the pull request only from its comment, so the
+ * approvals of the pull request count and Patronus closes it once merged. Rust checks the start before the comment, as
+ * `start_patronus_robot` checks it (parked, landed, not built, a robot in its way, the landing gate). Posts the comment,
+ * then waits up to a minute for the bot: 👎 throws its reason; after 👍, the new robot of the pull request is listed,
+ * stored and returned (polled while it runs).
  */
-export async function startPatronusFromPullRequest(pullRequestNumber: number, mode: PatronusPushMode, request: VcsRequest | null = null): Promise<PatronusRobot> {
-  const robot = await askPatronusOnPullRequest(pullRequestNumber, mode, "ownBranch", null, Number.POSITIVE_INFINITY, request)
+export async function startPatronusFromPullRequest(
+  pullRequestNumber: number,
+  mode: PatronusPushMode,
+  start: OwnPullRequestStart,
+  request: VcsRequest | null = null,
+): Promise<PatronusRobot> {
+  const robot = await askPatronusOnPullRequest(pullRequestNumber, mode, "ownBranch", null, Number.POSITIVE_INFINITY, request, start)
   if (robot === null) {
     throw new Error(noRobotWithinAMinute(pullRequestNumber))
   }
@@ -1443,12 +1454,20 @@ async function askPatronusOnPullRequest(
   githubRepository: string | null,
   robotWait: number,
   request: VcsRequest | null = null,
+  start: OwnPullRequestStart | null = null,
 ): Promise<PatronusRobot | null> {
   // the repository the start was asked in: the answer of the bot applies there, also after a switch
   const { repositoryPath, branchPrefix } = request ?? patronusRequest()
   const key = repositoryKey(repositoryPath, branchPrefix)
   const postedAt = Date.now()
-  const posted = await commands.postPatronusCommand({ repositoryPath, pullRequestNumber, mode, subject, githubRepository })
+  const posted = await commands.postPatronusCommand({
+    repositoryPath,
+    pullRequestNumber,
+    mode,
+    subject,
+    githubRepository,
+    start: start === null ? null : { ...start, branchPrefix },
+  })
   if (posted.status === "error") {
     throw new Error(posted.error.message)
   }

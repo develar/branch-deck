@@ -684,6 +684,28 @@ pub struct PostPatronusCommandParams {
   /// `owner/name` of the pull request when the review requests know it; else the mirror of the Space repository
   #[serde(default)]
   pub github_repository: Option<String>,
+  /// The branch of the user the comment starts (`OwnBranch`, required there): the checks of `start_patronus_robot` run
+  /// on it before the comment (`RemoteActions::check_start_from_pull_request`)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub start: Option<PullRequestStartBranch>,
+}
+
+/// The branch of the user a `/patronus` comment on its pull request starts, as `start_patronus_robot` names it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestStartBranch {
+  pub branch_prefix: String,
+  /// The virtual branch, without the `{prefix}/virtual/` namespace; with `stack`, the root of the whole stack
+  pub branch_name: String,
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack: bool,
+  /// What the user started anyway (Start Anyway)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub allow: LandingAllowances,
 }
 
 /// The posted command comment

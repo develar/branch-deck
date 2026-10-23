@@ -105,7 +105,7 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
     const robot =
       start.fromPullRequest === null
         ? await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null, allow, admitted)
-        : await startPatronusFromPullRequest(start.fromPullRequest.number, mode, request)
+        : await startPatronusFromPullRequest(start.fromPullRequest.number, mode, { branchName: root ?? branchName, stack: root !== null, allow }, request)
     const note = [landing.note, target.note].filter(line => line !== null).join(" ")
     announceStart(`${modeName} started`, robot, start.fromPullRequest === null ? (start.profile?.name ?? null) : null, note === "" ? null : note, repositoryPath)
     return true

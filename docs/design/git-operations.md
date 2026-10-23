@@ -2451,6 +2451,10 @@ check of the popover, `check_landing`):
    Patronus, so the start or the push goes on.
 4. For a start, the [landing gate](#landing-gate) with the commits the view names landed (`landed_commits` of
    `landedBy`; the page sends none) and the target (`prepare_robot_start`), then `POST /robots`.
+   A start from the pull request of the user's branch (`post_patronus_command` of the `ownBranch` subject, which names
+   the branch it starts) runs steps 1 to 3 and the landing gate before the `/patronus` comment
+   (`check_start_from_pull_request`; the pull request names the target), so a refused one posts nothing; a comment
+   on a pull request of someone else the user reviewed has no branch of the table to check.
 
 No lock: the start changes no ref of the repository, and `bd safe-push` starts after its lock too.
 
