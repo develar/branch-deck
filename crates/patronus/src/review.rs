@@ -50,6 +50,7 @@ impl PatronusService {
       return Ok(requirement);
     }
 
+    let asked_at = Instant::now();
     let token = self.action_token()?;
     let without_review = self.check(&token, subject, None).await?;
     let requirement = if without_review.approval_required {
@@ -64,7 +65,11 @@ impl PatronusService {
       to_requirement(&without_review, None)
     };
     let ttl = if requirement.required { REQUIRED_TTL } else { NOT_REQUIRED_TTL };
-    self.caches.reviews.insert(key, (Instant::now(), ttl, requirement.clone()));
+    // a background answer replaces no answer kept since it was asked (a Recheck beside it): that one is newer
+    let newer_kept = !recheck && self.caches.reviews.get(&key).is_some_and(|(fetched_at, _, _)| fetched_at >= asked_at);
+    if !newer_kept {
+      self.caches.reviews.insert(key, (Instant::now(), ttl, requirement.clone()));
+    }
     Ok(requirement)
   }
 

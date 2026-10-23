@@ -832,7 +832,10 @@ repository». Аудит всех функций в тот же день наш�
   Scope `read:org` сделан (`fix/remote-perf`): отказ `INSUFFICIENT_SCOPES` запоминается на токен, следующее обновление —
   один поиск без команд (C13, `a_token_without_read_org_is_asked_again_without_teams`). Стопгап readiness в TS сделан
   (`fix/remote-perf`): demand и recheck — отдельный вызов сразу, batch в полёте — по репозиторию (C10,
-  `asks a demanded branch at once in its own call while the background batch is in flight`); параллельный batch в Rust
+  `asks a demanded branch at once in its own call while the background batch is in flight`); ответ вызова, начатого
+  раньше показанного, отбрасывается, а его pre-check не перезаписывает в кэше ответ, сохранённый после начала
+  (`keeps the answer of Check Approvals Again when the background batch asked before it answers later`,
+  `a_background_answer_after_a_recheck_beside_it_keeps_the_answer_of_the_recheck`); параллельный batch в Rust
   и попадания кэша до очереди — s7. `/problems` после ответа сделано (`fix/patronus-start`: `loadRobotFacts` в задаче списка и
   опроса, `failingInFlight` по ключу); одна команда на пачку `loadReviewProblems` — s7.
 - **Окно review:** кэш списка range, prefetch после `complete`, блобы по одному запросу в полёте, текст подсветки

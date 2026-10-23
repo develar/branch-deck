@@ -160,6 +160,13 @@ const inFlight = new Set<string>()
  * (the Safe Push popover, Check Approvals Again) never waits for the background batch
  */
 const demandsInFlight = new Map<string, string>()
+/** The number of the last call made: a call asked later answers later what it asks (`answeredBy`) */
+let lastCall = 0
+/**
+ * By `recheckKey`, the number of the call whose answer the entry shows: the answer of a call made before it (a
+ * background batch that answers after the recheck beside it) is older than what Patronus told since, and is dropped
+ */
+const answeredBy = new Map<string, number>()
 let scanTimer: ReturnType<typeof setTimeout> | undefined
 
 function update(key: string, patch: (entries: Readonly<Record<string, ReadinessEntry>>) => Readonly<Record<string, ReadinessEntry>>): void {
@@ -283,8 +290,12 @@ function askNow(key: string, inputs: readonly ReadinessInput[], recheck: boolean
   })
 }
 
-/** One call for `batch`; an answer for an input the branch no longer has is kept stale, a failure is `unavailable` */
+/**
+ * One call for `batch`; an answer for an input the branch no longer has is kept stale, a failure is `unavailable`, an
+ * answer of a call made before the one the entry shows is dropped (`answeredBy`)
+ */
 async function ask(key: string, batch: readonly ReadinessInput[], recheck: boolean): Promise<void> {
+  const call = ++lastCall
   const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
   const params = { repositoryPath, branchPrefix, baselineBranch: branchSyncStore.getState().baselineBranch ?? "", branches: batch.map(input => input.branch), recheck }
   let answers: { input: ReadinessInput; readiness: ReviewReadiness; requirement: PatronusReviewRequirement | null }[]
@@ -315,6 +326,11 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
       if (stale && current[name] !== undefined && current[name].key !== input.key && !current[name].stale) {
         continue
       }
+      // an answer of a call made before the one the entry shows is older than it
+      if ((answeredBy.get(recheckKey(key, name)) ?? 0) > call) {
+        continue
+      }
+      answeredBy.set(recheckKey(key, name), call)
       // the same answer again (a demand beside the batch that asked the same input) changes nothing: no surface renders.
       // An unavailable one counts its time anew (`isDue` asks again after a while)
       const before = current[name]
@@ -465,6 +481,7 @@ export function resetReviewReadiness(): void {
   rechecks.clear()
   inFlight.clear()
   demandsInFlight.clear()
+  answeredBy.clear()
   clearTimeout(scanTimer)
   scanTimer = undefined
   wantedOf = () => []

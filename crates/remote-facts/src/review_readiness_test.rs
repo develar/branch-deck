@@ -12,7 +12,7 @@ use patronus::token::{Token, TokenLookup, TokenStamp};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::SpaceRepository;
 use test_log::test;
@@ -154,6 +154,41 @@ async fn the_answer_about_a_pull_request_is_kept_until_a_review_changes() {
   // a recheck always asks, and keeps the answer
   setup.readiness(std::slice::from_ref(&approved), true).await;
   assert_eq!(setup.checks(), 3);
+}
+
+/// A background ask that answers after a recheck beside it keeps the answer of the recheck, which asked Patronus later
+#[test(tokio::test(flavor = "multi_thread"))]
+async fn a_background_answer_after_a_recheck_beside_it_keeps_the_answer_of_the_recheck() {
+  let setup = setup().await;
+  let (entered_tx, mut entered) = tokio::sync::mpsc::unbounded_channel::<()>();
+  let (release_tx, release) = std::sync::mpsc::channel::<()>();
+  let release = std::sync::Mutex::new(release);
+  let hooked = AtomicU32::new(0);
+  *setup.fake.review_hook.lock().unwrap() = Some(Arc::new(move |_: &serde_json::Value| {
+    if hooked.fetch_add(1, Ordering::SeqCst) == 0 {
+      // the background check: asked before the approval, answered after the recheck
+      entered_tx.send(()).unwrap();
+      release.lock().unwrap().recv().unwrap();
+      None
+    } else {
+      Some((200, json!({"approvalRequired": false, "reviewerGroups": []})))
+    }
+  }));
+  let from_pull_request = branch(&setup.tip, ReviewStart::PullRequest { number: 7 }, Vec::new());
+  let branches = std::slice::from_ref(&from_pull_request);
+  let (background, rechecked) = tokio::join!(setup.readiness(branches, false), async {
+    entered.recv().await.unwrap();
+    let rechecked = setup.readiness(branches, true).await;
+    release_tx.send(()).unwrap();
+    rechecked
+  });
+  assert!(matches!(background[0].readiness, ReviewReadiness::Missing { .. }), "{background:?}");
+  assert_eq!(rechecked[0].readiness, ReviewReadiness::NotRequired);
+
+  // the next background ask reads the answer of the recheck, not the older one
+  let kept = setup.readiness(branches, false).await;
+  assert_eq!(setup.checks(), 2);
+  assert_eq!(kept[0].readiness, ReviewReadiness::NotRequired);
 }
 
 /// A start through the API sends no pull request: the answer without one is the verdict

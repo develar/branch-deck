@@ -208,15 +208,26 @@ async fn ask(
     ReviewStart::PullRequest { number } => Some(GitHubPullRequestDto { repository: &full_name, number }),
     ReviewStart::Rest => None,
   };
+  let asked_at = unix_now();
   let requirement = service.review_check(&subject, pull_request, !recheck).await?;
   if let Some(key) = key {
-    cache.put_review_answers(&[(
-      key,
-      ReviewAnswer {
-        fetched_at: unix_now(),
-        answer: requirement.clone(),
-      },
-    )]);
+    // a background answer replaces no answer kept since it was asked (a recheck beside it): that one is newer. A kept
+    // answer older than the ask was not fresh, else the ask had returned it
+    let newer_kept = !recheck
+      && cache
+        .get_review_answers::<PatronusReviewRequirement>(&[key])
+        .pop()
+        .flatten()
+        .is_some_and(|kept| kept.fetched_at >= asked_at);
+    if !newer_kept {
+      cache.put_review_answers(&[(
+        key,
+        ReviewAnswer {
+          fetched_at: unix_now(),
+          answer: requirement.clone(),
+        },
+      )]);
+    }
   }
   Ok(requirement)
 }

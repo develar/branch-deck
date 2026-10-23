@@ -40,13 +40,15 @@ vi.mock("@/lib/bindings", () => ({
   commands: {
     getBranchReviewReadiness: async (params: GetBranchReviewReadinessParams) => {
       state.calls.push(params)
+      // the answer of Patronus at the time of the call
+      const readiness = state.readiness
       if (state.hold) {
         await new Promise<void>(resolve => {
           state.held.push(resolve)
           state.pending = () => state.held.splice(0).forEach(release => release())
         })
       }
-      const data: BranchReviewReadiness[] = params.branches.map(branch => ({ branchName: branch.branchName, tip: branch.tip, requirement: null, readiness: state.readiness }))
+      const data: BranchReviewReadiness[] = params.branches.map(branch => ({ branchName: branch.branchName, tip: branch.tip, requirement: null, readiness }))
       return { status: "ok", data }
     },
   },
@@ -272,6 +274,28 @@ describe("review readiness", () => {
     await settle()
     expect(getReviewReadiness("auth")).toBe(answered)
     release()
+  })
+
+  it("keeps the answer of Check Approvals Again when the background batch asked before it answers later", async () => {
+    state.readiness = missing
+    state.hold = true
+    unwatch = watchShown(order => order)
+    await vi.advanceTimersByTimeAsync(0)
+    // the batch asked Patronus before the approval; the user presses Check Approvals Again after it
+    state.readiness = { kind: "approved", groups: [] }
+    const recheck = recheckReviewReadiness("auth")
+    await vi.advanceTimersByTimeAsync(0)
+    await recheck
+    await vi.advanceTimersByTimeAsync(0)
+    expect(state.calls.map(call => call.recheck)).toEqual([false, true])
+    state.held[1]!()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getReviewReadiness("auth")).toMatchObject({ readiness: { kind: "approved" }, stale: false })
+    state.hold = false
+    state.held[0]!()
+    await settle()
+    expect(getReviewReadiness("auth")).toMatchObject({ readiness: { kind: "approved" }, stale: false })
+    expect(state.calls).toHaveLength(2)
   })
 
   it("asks the branches of another repository at once while the batch of the one before is in flight", async () => {

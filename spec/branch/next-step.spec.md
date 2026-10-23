@@ -329,7 +329,9 @@ branch from all the facts (the branch, its robots, its pull request and the read
   one at once). The branches a start (a click that waits, its popover) or the dialog asks (`demandReviewReadiness`)
   and the rechecks of Check Approvals Again go at once, each in a call of its own beside the batch in flight, once per
   input: a click never waits for 8 background pre-checks. An answer equal to the one shown (the batch beside a demand
-  answering the same input) changes nothing, so no surface renders again. A hidden branch is asked once it shows; its answer stays meanwhile, marked
+  answering the same input) changes nothing, so no surface renders again. An answer of a call made before the one the
+  entry shows (the batch that asked before Check Approvals Again answering after it) is dropped, and its pre-check
+  replaces no answer the cache kept since it was asked: the recheck is the last word. A hidden branch is asked once it shows; its answer stays meanwhile, marked
   stale when it shows with another input. One exception: a hidden branch whose last answer waits for an approval in its
   pull request stays asked, so a new review of it asks once and its approval is still news. The start is the one of
   the robot: the open pull request into the target with its reviewers and author, else through the API
@@ -338,7 +340,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   root in the order, only while the sync built the stack branch (another state has nothing its Safe Push would land).
   [@test] ../../src/stores/review-readiness.test.ts (`asks for the whole stack its header shows as its stack branch with its pull request, right before its root, only while the sync built it`)
   [@test] ../../src/stores/review-readiness.test.ts (`asks for the wanted branches in one batch, with the start the robot would take`, `keeps one batch in flight, of at most READINESS_BATCH_SIZE branches`, `asks only the branches whose next step depends on the readiness`, `asks only the branches a surface shows, and keeps asking the hidden ones that wait for an approval`)
-  [@test] ../../src/stores/review-readiness.test.ts (`asks a demanded branch at once in its own call while the background batch is in flight`, `asks the branches of another repository at once while the batch of the one before is in flight`, `keeps the entry when the batch answers what the demand beside it answered: no surface renders again`)
+  [@test] ../../src/stores/review-readiness.test.ts (`asks a demanded branch at once in its own call while the background batch is in flight`, `asks the branches of another repository at once while the batch of the one before is in flight`, `keeps the entry when the batch answers what the demand beside it answered: no surface renders again`, `keeps the answer of Check Approvals Again when the background batch asked before it answers later`)
+  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`a_background_answer_after_a_recheck_beside_it_keeps_the_answer_of_the_recheck`)
   [@test] ../../src/lib/branch-next-step.test.ts (`asks for the readiness of a branch on GitHub, pushed or not: Patronus judges the local commits`)
 - An answer is keyed by its input: the tip, the start and the reviews. A sync onto a new baseline that keeps them asks
   nothing (the backend keeps the answers on disk by what Patronus decides on); a new tip or a new review asks once. The
