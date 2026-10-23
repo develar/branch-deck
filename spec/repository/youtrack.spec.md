@@ -140,6 +140,10 @@ client takes a pasted token.
   renewal and send its token. A sign-in or a sign-out meanwhile makes the late answer of the Hub one of a sign-in that is
   gone: it is neither kept nor written to the token file.
   [@test] ../../crates/youtrack/src/service_test.rs (`a_renewal_held_at_the_hub_leaves_the_status_free_and_is_shared_by_the_lookups`, `a_sign_out_during_a_renewal_keeps_nothing_of_the_answer`)
+- A sign-in or a sign-out must change what a lookup sends before it writes the token file: a lookup while the file is
+  written or removed sends the new token, or nothing, and never reads the token being replaced back from the file to
+  renew it; a renewal writes the file before or after that write, never over it or after it.
+  [@test] ../../crates/youtrack/src/service_test.rs (`a_lookup_during_the_removal_of_a_sign_out_renews_nothing`, `a_lookup_during_the_write_of_a_sign_in_sends_the_new_token`)
 - `bd` (the issue summaries of the pull request texts it writes) only reads the token: it sends a token that doesn't
   expire within a minute and never renews it (`YouTrackService::without_renewal`). A renewal rotates the refresh token,
   and the app, which keeps the old one in memory, would be signed out by its next renewal; an expiring token gives `bd`

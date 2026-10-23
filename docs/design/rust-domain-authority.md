@@ -865,7 +865,10 @@ repository». Аудит всех функций в тот же день наш�
   Refresh YouTrack сделан (`fix/sync-lease`): состояние auth — короткий `std` mutex, refresh — single-flight
   (`renewal`), поколение `forget` отбрасывает поздний ответ Hub; `status()` синхронный и не ждёт
   (`a_renewal_held_at_the_hub_leaves_the_status_free_and_is_shared_by_the_lookups`,
-  `a_sign_out_during_a_renewal_keeps_nothing_of_the_answer`).
+  `a_sign_out_during_a_renewal_keeps_nothing_of_the_answer`). Sign-in и sign-out кладут токен в состояние до записи
+  файла (`replace_stored`, новое поколение), записи файла идут по одной под `store`: поиск во время записи не читает
+  старый токен из файла и не обновляет его (`a_lookup_during_the_removal_of_a_sign_out_renews_nothing`,
+  `a_lookup_during_the_write_of_a_sign_in_sends_the_new_token`).
 - **Окно review:** кэш списка range, prefetch после `complete`, блобы по одному запросу в полёте, текст подсветки
   один раз, поколение навигации, trailing refresh uncommitted с путём в ключе. Сделано (`fix/remote-perf`): один кэш
   списка range у `get_range_files` и `FileDiffs::stream` (C7, `the_list_and_the_diffs_of_a_range_run_one_diff_tree`);

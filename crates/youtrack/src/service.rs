@@ -8,10 +8,11 @@ use crate::token_store::{StoredToken, read_token};
 use crate::url::{is_issue_key, normalize_base_url};
 use domain_types::youtrack::{YouTrackAuthProblem, YouTrackAuthStatus, YouTrackIssue, YouTrackIssueAnswer, YouTrackStateChange, YouTrackTokenSource, YouTrackUser};
 use moka::sync::Cache;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
-use sync_utils::secret_store::write_secret_json;
+use sync_utils::secret_store::{remove_secret, write_secret_json};
+use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, warn};
 
@@ -92,6 +93,9 @@ pub struct YouTrackService {
   /// The single flight of a renewal: held across the request to the Hub by the one lookup that renews; a lookup that
   /// waited for it sends the token it brought
   renewal: tokio::sync::Mutex<()>,
+  /// The writes of the token file in order: a sign-in, a sign-out (`replace_stored`) and the write of a renewal. Held
+  /// across the write (a local `security` process or a file), never across a request
+  store: tokio::sync::Mutex<()>,
   issues: Cache<String, YouTrackIssue>,
   /// A token that expires is renewed (the app); `false` for `bd`, which only reads
   renews: bool,
@@ -105,6 +109,7 @@ impl YouTrackService {
       token_file,
       auth: Mutex::new(Auth::default()),
       renewal: tokio::sync::Mutex::new(()),
+      store: tokio::sync::Mutex::new(()),
       issues: Cache::builder().max_capacity(ISSUE_CACHE_CAPACITY).time_to_live(ISSUE_TTL).build(),
       renews: true,
     }
@@ -131,13 +136,56 @@ impl YouTrackService {
   /// After a sign-in or a sign-out: the token file is read again, a rejection is forgotten, and a renewal in flight
   /// keeps nothing of its answer
   pub fn forget(&self) {
+    self.start_generation(Auth::default());
+  }
+
+  /// `state` in a new generation: a renewal in flight keeps nothing of its answer
+  fn start_generation(&self, state: Auth) {
     let mut auth = self.auth();
     *auth = Auth {
       generation: auth.generation + 1,
-      ..Auth::default()
+      ..state
     };
     drop(auth);
     self.issues.invalidate_all();
+  }
+
+  /// The token of a sign-in, or none for a sign-out, into the token file. The state takes it first, in a new
+  /// generation: a lookup meanwhile sends it (or nothing) and never reads the token it replaces from the file, which
+  /// the write has not reached yet, and a renewal in flight keeps nothing of its answer. A renewal writes under the
+  /// same `store` lock, so it never writes over this write or after it. A failed write leaves the token file the truth.
+  pub async fn replace_stored(&self, token: Option<StoredToken>) -> std::io::Result<()> {
+    self
+      .replace_stored_with(token, |file, token| match token {
+        Some(token) => write_secret_json(file, token),
+        None => remove_secret(file),
+      })
+      .await
+  }
+
+  /// `replace_stored` with the write of the token file as given (a test holds it)
+  pub(crate) async fn replace_stored_with(
+    &self,
+    token: Option<StoredToken>,
+    write: impl FnOnce(&Path, Option<&StoredToken>) -> std::io::Result<()> + Send + 'static,
+  ) -> std::io::Result<()> {
+    let store = self.store.lock().await;
+    self.start_generation(Auth {
+      loaded: true,
+      stored: token.clone(),
+      ..Auth::default()
+    });
+    let Some(file) = self.token_file.clone() else {
+      return Ok(());
+    };
+    let result = tokio::task::spawn_blocking(in_current_span(move || write(&file, token.as_ref())))
+      .await
+      .unwrap_or_else(|e| Err(std::io::Error::other(e)));
+    if result.is_err() {
+      self.forget();
+    }
+    drop(store);
+    result
   }
 
   /// Never waits for YouTrack or the Hub: a renewal in flight holds no lock this reads
@@ -207,10 +255,13 @@ impl YouTrackService {
         return Ok((stored.url, stored.access_token));
       };
       let answer = refresh(&self.client, &grant.hub_url, &grant.service_id, &grant.refresh_token).await;
+      // a sign-in or a sign-out that writes the token file now is waited for, and its generation is then the current
+      let store = self.store.lock().await;
       let mut auth = self.auth();
       if auth.generation != generation {
         // signed in or out while the Hub answered: the answer is of a sign-in that is gone
         drop(auth);
+        drop(store);
         drop(renewal);
         continue;
       }
@@ -223,7 +274,9 @@ impl YouTrackService {
           if let (Some(refresh_token), Some(grant)) = (answer.refresh_token, renewed.refresh.as_mut()) {
             grant.refresh_token = refresh_token;
           }
-          // under the state lock, so a sign-out (`forget`, then the removal of the file) never finds it written after
+          drop(auth);
+          // under the store lock, so a sign-in or a sign-out (`replace_stored`) writes after it, and the status does not
+          // wait for the write
           if let Some(file) = &self.token_file
             && let Err(e) = write_secret_json(file, &renewed)
           {
@@ -231,7 +284,11 @@ impl YouTrackService {
           }
           info!("renewed the YouTrack token");
           let access = (renewed.url.clone(), renewed.access_token.clone());
-          auth.stored = Some(renewed);
+          let mut auth = self.auth();
+          // a `forget` meanwhile reads the token file again, which holds the renewed token
+          if auth.generation == generation {
+            auth.stored = Some(renewed);
+          }
           Ok(access)
         }
         Err(RefreshError::Expired(message)) => {

@@ -10,8 +10,6 @@ use crate::token_store::{RefreshGrant, StoredToken};
 use crate::url::normalize_base_url;
 use domain_types::youtrack::{YouTrackSignIn, YouTrackUser};
 use std::sync::Mutex;
-use sync_utils::secret_store::{remove_secret, write_secret_json};
-use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument};
 
@@ -195,28 +193,14 @@ impl YouTrackSignInSession {
   #[instrument(skip(self, service))]
   pub async fn sign_out(&self, service: &YouTrackService) -> Result<(), String> {
     self.cancel();
-    // first: a renewal in flight writes no token after the removal
-    service.forget();
-    if let Some(file) = service.token_file().cloned() {
-      tokio::task::spawn_blocking(in_current_span(move || remove_secret(&file)))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("Cannot remove the YouTrack token: {e}"))?;
-    }
-    service.forget();
-    Ok(())
+    service.replace_stored(None).await.map_err(|e| format!("Cannot remove the YouTrack token: {e}"))
   }
 }
 
-/// Writes `token` to the token file of `service`, which reads it again
+/// Keeps `token` in the state and the token file of `service`
 async fn keep(service: &YouTrackService, token: StoredToken) -> Result<(), String> {
-  let file = service.token_file().cloned().ok_or("The app has no data directory to keep the YouTrack token in")?;
-  // first: a renewal in flight of the token before does not overwrite this one
-  service.forget();
-  tokio::task::spawn_blocking(in_current_span(move || write_secret_json(&file, &token)))
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| format!("Cannot keep the YouTrack token: {e}"))?;
-  service.forget();
-  Ok(())
+  if service.token_file().is_none() {
+    return Err("The app has no data directory to keep the YouTrack token in".to_string());
+  }
+  service.replace_stored(Some(token)).await.map_err(|e| format!("Cannot keep the YouTrack token: {e}"))
 }

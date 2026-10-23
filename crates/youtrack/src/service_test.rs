@@ -244,3 +244,67 @@ async fn a_sign_out_during_a_renewal_keeps_nothing_of_the_answer() {
   assert_eq!(service.status().signed_in_as, None);
   assert!(fake.requests_to("GET", "/api/issues/ABC-1").is_empty());
 }
+
+/// `token` (none: a sign-out) on its way into the token file of `service`: the state took it, and the write waits until
+/// the test sends to the returned sender
+async fn held_replace(service: &Arc<YouTrackService>, token: Option<StoredToken>) -> (tokio::task::JoinHandle<std::io::Result<()>>, std::sync::mpsc::Sender<()>) {
+  let (release, released) = std::sync::mpsc::channel::<()>();
+  let (started, writes) = tokio::sync::oneshot::channel::<()>();
+  let replace = tokio::spawn({
+    let service = Arc::clone(service);
+    async move {
+      service
+        .replace_stored_with(token, move |file, token| {
+          started.send(()).unwrap();
+          released.recv().unwrap();
+          match token {
+            Some(token) => write_secret_json(file, token),
+            None => sync_utils::secret_store::remove_secret(file),
+          }
+        })
+        .await
+    }
+  });
+  writes.await.unwrap();
+  (replace, release)
+}
+
+/// A lookup while a sign-out removes the token file, which still holds the expiring token: the lookup never reads it
+/// back, so it renews nothing at the Hub and writes no renewed token after the removal
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lookup_during_the_removal_of_a_sign_out_renews_nothing() {
+  let (fake, service, dir) = expiring_with_renewal().await;
+  let service = Arc::new(service);
+  let (sign_out, release) = held_replace(&service, None).await;
+  assert!(read_token(&token_file(dir.path())).is_some(), "the removal has not reached the file yet");
+  assert!(matches!(service.issue("ABC-1").await, YouTrackIssueAnswer::NotSignedIn));
+  release.send(()).unwrap();
+  sign_out.await.unwrap().unwrap();
+  assert!(fake.requests_to("POST", "/hub/api/rest/oauth2/token").is_empty());
+  assert_eq!(read_token(&token_file(dir.path())), None);
+  service.forget();
+  assert_eq!(service.status().signed_in_as, None, "after the token file is read again");
+}
+
+/// A lookup while a sign-in writes its token over an expiring one: it sends the new token, never renews the old one
+/// from the file, and the file ends with the new token
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lookup_during_the_write_of_a_sign_in_sends_the_new_token() {
+  let (fake, service, dir) = expiring_with_renewal().await;
+  let service = Arc::new(service);
+  let url = service.status().url.unwrap();
+  let fresh = StoredToken {
+    access_token: "access-fresh".to_string(),
+    login: "john".to_string(),
+    ..stored(&url, Some(unix_now() + 3600), true)
+  };
+  let (sign_in, release) = held_replace(&service, Some(fresh.clone())).await;
+  assert!(is_found(&service.issue("ABC-1").await));
+  release.send(()).unwrap();
+  sign_in.await.unwrap().unwrap();
+  assert!(fake.requests_to("POST", "/hub/api/rest/oauth2/token").is_empty());
+  assert_eq!(fake.requests_to("GET", "/api/issues/ABC-1")[0].authorization.as_deref(), Some("Bearer access-fresh"));
+  assert_eq!(read_token(&token_file(dir.path())), Some(fresh));
+  service.forget();
+  assert_eq!(service.status().signed_in_as.map(|user| user.login).as_deref(), Some("john"));
+}
