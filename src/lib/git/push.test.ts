@@ -227,8 +227,9 @@ vi.mock("@/stores/patronus", () => ({
     robots.whileViewing()
     robots.spans = Object.fromEntries(Object.entries(robots.spans).filter(([name]) => !robots.released.includes(name)))
   },
-  cancelPatronusRobot: async (robot: PatronusRobot, request: { repositoryPath: string } | null) => {
-    calls.push(`cancel ${robot.id}`)
+  cancelPatronusRobot: async (robot: PatronusRobot, request: { repositoryPath: string } | null, replaced = false) => {
+    // the cancel of a robot the push or the start replaces or restarts: one that finished meanwhile lets it go on
+    calls.push(replaced ? `cancel ${robot.id}` : `cancel ${robot.id} explicitly`)
     robots.askedIn.push(request?.repositoryPath ?? stores.selected)
     robots.whileCanceling()
     // the store has it canceling: it holds nothing

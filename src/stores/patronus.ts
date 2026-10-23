@@ -1495,9 +1495,9 @@ export async function readPatronusTargetBranch(): Promise<string | null> {
   return result.status === "ok" ? result.data : null
 }
 
-async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot, request: VcsRequest | null = null): Promise<PatronusRobot> {
+async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot, request: VcsRequest | null = null, replaced = false): Promise<PatronusRobot> {
   const { repositoryPath, branchPrefix } = request ?? patronusRequest()
-  const result = await command({ repositoryPath, branchPrefix, robotId: robot.id })
+  const result = await command({ repositoryPath, branchPrefix, robotId: robot.id, replaced })
   if (result.status === "error") {
     throw new Error(result.error.message)
   }
@@ -1516,10 +1516,11 @@ export function restartPatronusRobot(robot: PatronusRobot, request: VcsRequest |
 
 /**
  * Asks Patronus to cancel the robot of the repository (by default the selected one); resolves to it canceling, throws
- * what Patronus said
+ * what Patronus said. `replaced`: the robot a start or a push replaces or restarts, which resolves to it as listed when
+ * it finished meanwhile (nothing left to cancel) instead of throwing "not running"
  */
-export function cancelPatronusRobot(robot: PatronusRobot, request: VcsRequest | null = null): Promise<PatronusRobot> {
-  return robotAction(commands.cancelPatronusRobot, robot, request)
+export function cancelPatronusRobot(robot: PatronusRobot, request: VcsRequest | null = null, replaced = false): Promise<PatronusRobot> {
+  return robotAction(commands.cancelPatronusRobot, robot, request, replaced)
 }
 
 /** The current status of the robot (one row read), stored; null when Patronus can't answer */

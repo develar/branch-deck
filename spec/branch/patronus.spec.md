@@ -1158,8 +1158,10 @@ explicit choice of the user, offered only where the approvals count in a pull re
   refused ("Nothing was restarted: the Safe Push is of a temporary ref (the IDE, the CLI): a restart would test its old
   commit"), a branch without a row restarts on its remote branch. A cancel of a robot the list lacks or one that
   finished is refused ("Nothing was canceled: the Safe Push is not running"); a canceling one is canceled again.
-  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_restart_is_a_start_its_own_robot_does_not_refuse_never_of_a_temporary_ref`, `a_cancel_of_a_robot_not_in_the_list_or_finished_is_refused`)
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_restart_and_cancel_run_the_real_service_against_the_fake`)
+  The cancel of the robot a start or a push replaces or restarts (`replaced`) answers one that finished meanwhile as it
+  is, already finished, without asking Patronus, and the start or the push goes on.
+  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_restart_is_a_start_its_own_robot_does_not_refuse_never_of_a_temporary_ref`, `a_cancel_of_a_robot_not_in_the_list_or_finished_is_refused`, `the_cancel_of_a_replaced_robot_that_finished_meanwhile_is_already_finished`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_restart_and_cancel_run_the_real_service_against_the_fake`, `a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel`)
 - A restart or a cancel runs once per robot (an operation of the robot, [Running Operations](../../docs/design/operations.md)):
   while it runs, it is running on every surface of the robot (the slot, the details, the landing overview: disabled,
   a spinner in place of its icon, `aria-busy`), a second click joins it, the other one of the robot waits with its busy
@@ -1308,12 +1310,13 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - A Safe Push of a branch whose Safe Push runs on an older commit replaces it, and confirms first: "Cancels the Safe
   Push of auth running on 1a2b3c4." Its push cancels the robot at the first branch that robot holds (the branch, or an
   ancestor the stack push takes along), never restarts it; the start then starts the one robot of the branch. Without
-  a push (the remote branch has the commits by content) the start cancels it itself. The push of "Create Pull
+  a push (the remote branch has the commits by content) the start cancels it itself. A robot that finished while the
+  start checked is not canceled: nothing is left to cancel, and the start goes on. The push of "Create Pull
   Request…" replaces nothing: it is refused as any push, and goes on as any push for a branch the robot's commit
   doesn't have. A Dry Run of a held branch that needs a push is refused with
   why: a dry run doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the popover, and not restart it`, `should cancel the robot it replaces without a push when the remote branch has the commits`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the popover, and not restart it`, `should cancel the robot it replaces without a push when the remote branch has the commits`, `should start the Safe Push that replaces a robot which finished meanwhile, without a cancel`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast

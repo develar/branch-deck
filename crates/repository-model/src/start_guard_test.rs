@@ -2,7 +2,7 @@ use crate::branch_table::BranchTable;
 use crate::patronus_view::patronus_view_test::{chain, merged, robot, running, stack_robot};
 use crate::push_guard::GuardFacts;
 use crate::push_guard::push_guard_test::stacked_chain;
-use crate::start_guard::{check_cancel, check_restart, check_start};
+use crate::start_guard::{CancelCheck, check_cancel, check_restart, check_start};
 use crate::views::RepositoryViews;
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
@@ -180,11 +180,30 @@ fn a_restart_is_a_start_its_own_robot_does_not_refuse_never_of_a_temporary_ref()
 /// A cancel needs a running robot of the user's list; a canceling one is canceled again, a finished one is refused
 #[test]
 fn a_cancel_of_a_robot_not_in_the_list_or_finished_is_refused() {
-  assert_eq!(check_cancel(&[running("r", "auth", "va1")], "r"), Ok(()));
-  assert_eq!(check_cancel(&[robot("c", "auth", PatronusRobotStatus::Canceling, "va1")], "c"), Ok(()));
+  assert_eq!(check_cancel(&[running("r", "auth", "va1")], "r", false), Ok(CancelCheck::Cancel));
   assert_eq!(
-    check_cancel(&[merged("m", "auth", "va1", 200)], "m"),
-    refused("Nothing was canceled: the Safe Push is not running (https://patronus/robot/m)")
+    check_cancel(&[robot("c", "auth", PatronusRobotStatus::Canceling, "va1")], "c", false),
+    Ok(CancelCheck::Cancel)
   );
-  assert_eq!(check_cancel(&[], "x"), refused("Nothing was canceled: Patronus lists no robot x of the user"));
+  assert_eq!(
+    check_cancel(&[merged("m", "auth", "va1", 200)], "m", false),
+    Err("Nothing was canceled: the Safe Push is not running (https://patronus/robot/m)".to_string())
+  );
+  assert_eq!(
+    check_cancel(&[], "x", false),
+    Err("Nothing was canceled: Patronus lists no robot x of the user".to_string())
+  );
+}
+
+/// The cancel of the robot a start or a push replaces: one that finished meanwhile (failed, merged) is answered as it is,
+/// already finished, so the start goes on without asking Patronus; a running one is canceled, and a robot the list
+/// lacks is still refused
+#[test]
+fn the_cancel_of_a_replaced_robot_that_finished_meanwhile_is_already_finished() {
+  let failed = robot("f", "auth", PatronusRobotStatus::Failure, "va1");
+  assert_eq!(check_cancel(std::slice::from_ref(&failed), "f", true), Ok(CancelCheck::AlreadyFinished(Box::new(failed))));
+  let landed = merged("m", "auth", "va1", 200);
+  assert_eq!(check_cancel(std::slice::from_ref(&landed), "m", true), Ok(CancelCheck::AlreadyFinished(Box::new(landed))));
+  assert_eq!(check_cancel(&[running("r", "auth", "va1")], "r", true), Ok(CancelCheck::Cancel));
+  assert_eq!(check_cancel(&[], "x", true), Err("Nothing was canceled: Patronus lists no robot x of the user".to_string()));
 }

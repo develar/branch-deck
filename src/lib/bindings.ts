@@ -2529,6 +2529,11 @@ export type PatronusRobotParams = {
 	 *  the builds are asked as before while Patronus answers 404
 	 */
 	newApi?: boolean,
+	/**
+	 *  The cancel of the robot a start or a push replaces or restarts (`start_guard::check_cancel`): a robot that finished
+	 *  meanwhile is answered as it is, already finished, instead of "not running", and the start or the push goes on
+	 */
+	replaced?: boolean,
 };
 
 /**

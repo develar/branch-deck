@@ -135,6 +135,18 @@ async function setupStarts(
 /** What the fake did for a start of JIRA-456 that replaces its running robot `OLDER`: canceled it, started a new one */
 const REPLACED = { cancels: [OLDER.id], restarts: [], starts: [startRequest("JIRA-456").sourceBranch] }
 
+/** A Safe Push of an older commit of JIRA-456 runs; the remote branch has its commits, rebuilt since on a newer baseline */
+async function setupOlderWithPushedCommits(
+  page: Page,
+  setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+): Promise<TestRepositoryBuilder> {
+  await rewriteNextRemoteStatus(page, status =>
+    status.branchName === "JIRA-456" ? { ...status, remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } : status,
+  )
+  return setupRobots(page, setupRepo, syncAndWaitForBranches, OLDER)
+}
+
 /** JIRA-456 shown running, after Patronus got one start of it: `patch` of the default start request */
 async function expectJiraStarted(page: Page, repo: TestRepositoryBuilder, patch: Parameters<typeof startRequest>[1] = {}): Promise<void> {
   await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
@@ -502,11 +514,7 @@ test.describe("Patronus actions", () => {
   })
 
   test("should cancel the robot it replaces without a push when the remote branch has the commits", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // a Safe Push of an older commit runs; the remote branch has the commits of JIRA-456, rebuilt since on a newer baseline
-    await rewriteNextRemoteStatus(page, status =>
-      status.branchName === "JIRA-456" ? { ...status, remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } : status,
-    )
-    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, OLDER)
+    const repo = await setupOlderWithPushedCommits(page, setupRepo, syncAndWaitForBranches)
     const pushes = await routePushNotingPatronus(page, repo)
 
     await safePushFromMenu(page, "JIRA-456")
@@ -541,6 +549,18 @@ test.describe("Patronus actions", () => {
     // back in it, the branch is landing
     await switchRepository(page, repo.path)
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+  })
+
+  test("should start the Safe Push that replaces a robot which finished meanwhile, without a cancel", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupOlderWithPushedCommits(page, setupRepo, syncAndWaitForBranches)
+    await safePushFromMenu(page, "JIRA-456")
+    await expect(safePushPopover(page).getByTestId("safe-push-replaces")).toHaveText("Cancels the Safe Push of JIRA-456 running on older-co.")
+    // the robot fails while the popover is open: the page still has it running, Patronus lists it finished
+    await repo.setPatronus({ availability: { status: "available" }, robots: [{ ...OLDER, status: "failure", finishTime: 1704142800 }] })
+    await popoverStart(page).click()
+    // nothing is left to cancel: the start goes on, never "Cannot cancel the Safe Push: … not running"
+    await expect(toastWith(page, "Safe Push started")).toBeVisible()
+    expect(await patronusActions(repo)).toEqual({ ...REPLACED, cancels: [] })
   })
 
   test("should wait to start until the remote status of the branch is loaded", async ({ page, setupRepo, syncAndWaitForBranches }) => {

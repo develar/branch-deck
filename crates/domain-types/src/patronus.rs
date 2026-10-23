@@ -288,6 +288,11 @@ pub struct PatronusRobotParams {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub new_api: bool,
+  /// The cancel of the robot a start or a push replaces or restarts (`start_guard::check_cancel`): a robot that finished
+  /// meanwhile is answered as it is, already finished, instead of "not running", and the start or the push goes on
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub replaced: bool,
 }
 
 /// The running robots to ask whether they will fail

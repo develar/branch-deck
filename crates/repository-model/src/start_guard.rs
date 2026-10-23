@@ -8,7 +8,8 @@
 //! start that raced with another one (the IDE, `bd`) or came by IPC.
 //!
 //! A restart is a start of the robot's subject that the robot itself does not refuse; a robot of a temporary ref (the
-//! IDE, the CLI) is not restarted: it would test its old commit. A cancel needs a running robot of the user.
+//! IDE, the CLI) is not restarted: it would test its old commit. A cancel needs a running robot of the user; the cancel
+//! of the robot a start or a push replaces answers one that finished meanwhile as it is (`CancelCheck::AlreadyFinished`).
 //!
 //! `RemoteActions::start_robot`, `restart_robot` and `cancel_robot` (`actions`) are the whole sequence of both hosts: one
 //! list of the robots asked now (a failed list fails the action), the checks, then the landing gate and the target
@@ -128,13 +129,23 @@ pub fn check_restart(facts: &GuardFacts, robot_id: &str) -> Result<(), String> {
   }
 }
 
+/// What the cancel of a robot does after its check: asks Patronus, or answers the robot a start or a push replaces as it
+/// is, finished already: nothing is left to cancel, and the replacing start or push goes on
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CancelCheck {
+  Cancel,
+  AlreadyFinished(Box<PatronusRobot>),
+}
+
 /// Why the cancel of `robot_id` is refused: "Nothing was canceled: …" for a robot the list of the user lacks or one that
-/// finished; a canceling robot is canceled again
-pub fn check_cancel(robots: &[PatronusRobot], robot_id: &str) -> Result<(), String> {
+/// finished; a canceling robot is canceled again. For the robot a start or a push replaces or restarts (`replaced`), one
+/// that finished meanwhile is no refusal but `AlreadyFinished`: an explicit Cancel still says "not running"
+pub fn check_cancel(robots: &[PatronusRobot], robot_id: &str, replaced: bool) -> Result<CancelCheck, String> {
   match robots.iter().find(|robot| robot.id == robot_id) {
     None => Err(format!("Nothing was canceled: Patronus lists no robot {robot_id} of the user")),
+    Some(robot) if !is_robot_active(robot) && replaced => Ok(CancelCheck::AlreadyFinished(Box::new(robot.clone()))),
     Some(robot) if !is_robot_active(robot) => Err(format!("Nothing was canceled: the {} is not running ({})", push_mode_name(robot.push_mode), robot.url)),
-    Some(_) => Ok(()),
+    Some(_) => Ok(CancelCheck::Cancel),
   }
 }
 
@@ -345,13 +356,16 @@ impl RemoteActions<'_> {
   }
 
   /// Cancels the robot of `params` as the app does: one list of the user's robots (`check_cancel`), then the cancel; no
-  /// table: a cancel changes no branch
-  #[instrument(skip_all, fields(repository_path = %params.repository_path, robot_id = %params.robot_id))]
+  /// table: a cancel changes no branch. The robot a start or a push replaces (`replaced`) that finished meanwhile is
+  /// answered as listed, and Patronus is not asked
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, robot_id = %params.robot_id, replaced = params.replaced))]
   pub async fn cancel_robot(&self, params: &PatronusRobotParams) -> Result<PatronusRobot> {
     let (service, _) = self.patronus()?;
     let robots = self.robots_for_action(&params.branch_prefix).await?;
-    check_cancel(&robots, &params.robot_id).map_err(|refusal| anyhow!(refusal))?;
-    service.cancel(&params.branch_prefix, &params.robot_id).await.map_err(|e| anyhow!(e))
+    match check_cancel(&robots, &params.robot_id, params.replaced).map_err(|refusal| anyhow!(refusal))? {
+      CancelCheck::AlreadyFinished(robot) => Ok(*robot),
+      CancelCheck::Cancel => service.cancel(&params.branch_prefix, &params.robot_id).await.map_err(|e| anyhow!(e)),
+    }
   }
 }
 

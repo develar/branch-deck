@@ -300,6 +300,45 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
   );
 }
 
+/// A Safe Push that replaces the failing robot of its branch, which finished while the page checked (the landing gate,
+/// the target): the cancel of the replaced robot answers it as Patronus lists it, finished, instead of "not running",
+/// Patronus is asked no cancel, and the start goes on; an explicit Cancel of the same robot still says "not running"
+#[tokio::test]
+async fn a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel() {
+  let (addr, client, id, repository_path) = synced_on_space(&[]).await;
+  let fixture = format!("/repositories/{id}/patronus");
+  let mut failed = running_on("test-branch");
+  failed["robots"][0]["status"] = json!("failure");
+  failed["robots"][0]["finishTime"] = json!(1_704_142_800);
+  post(&client, addr, &fixture, failed).await;
+
+  let cancel = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "robotId": "r1", "replaced": true});
+  let replaced: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/cancel_patronus_robot", cancel).await).unwrap();
+  assert_eq!((replaced.id.as_str(), replaced.status), ("r1", PatronusRobotStatus::Failure));
+  start_safe_push_of_test_branch(&client, addr, &repository_path).await;
+
+  let explicit = post(
+    &client,
+    addr,
+    "/invoke/cancel_patronus_robot",
+    json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "robotId": "r1"}),
+  )
+  .await;
+  assert_eq!(explicit["status"], "error", "{explicit}");
+  let refusal = explicit["error"]["message"].as_str().unwrap();
+  assert!(refusal.contains("Nothing was canceled: the Safe Push is not running ("), "{refusal}");
+  let log: serde_json::Value = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json().await.unwrap();
+  assert_eq!((log["cancels"].clone(), log["starts"].as_array().map(Vec::len)), (json!([]), Some(1)));
+}
+
+/// A Safe Push of `test-branch` started through `start_patronus_robot`, as the popover starts it: running
+async fn start_safe_push_of_test_branch(client: &reqwest::Client, addr: std::net::SocketAddr, repository_path: &str) {
+  let start = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "baselineBranch": "origin/master", "branchName": "test-branch",
+    "mode": "rebaseAutosquash", "profileId": null, "mergeRequest": null});
+  let started: PatronusRobot = serde_json::from_value(post(client, addr, "/invoke/start_patronus_robot", start).await).unwrap();
+  assert_eq!(started.status, PatronusRobotStatus::Running);
+}
+
 /// A push the IPC asks for a branch whose own Safe Push runs is refused in Rust, by the checks of the app's command on
 /// the robots the fake lists (the page knew of none: the robot started after its list), before git pushes anything
 #[tokio::test]
@@ -419,10 +458,7 @@ async fn a_start_from_the_popover_asks_three_full_lists() {
     "baselineBranch": "origin/master", "parentBranch": null, "expectedRemote": null, "tip": null});
   let pushed = post(&client, addr, "/invoke/push_branch", push).await;
   assert_ne!(pushed["status"], "error", "{pushed}");
-  let start = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "baselineBranch": "origin/master", "branchName": "test-branch",
-    "mode": "rebaseAutosquash", "profileId": null, "mergeRequest": null});
-  let started: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/start_patronus_robot", start).await).unwrap();
-  assert_eq!(started.status, PatronusRobotStatus::Running);
+  start_safe_push_of_test_branch(&client, addr, &repository_path).await;
 
   let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
   assert_eq!(log["requests"]["list"], 3, "the landing check, the push and the start each asked once");

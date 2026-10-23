@@ -2446,7 +2446,9 @@ check of the popover, `check_landing`):
    restart (`check_restart`) is a start of the robot's subject in its mode that the robot itself does not refuse as the
    robot of the last commit; a robot the list lacks or of a temporary ref is refused, a subject without a row of the
    table is not checked (Patronus restarts on its remote branch). A cancel (`check_cancel`) needs a robot of the list
-   that is running or canceling, and no table.
+   that is running or canceling, and no table; the cancel of the robot a start or a push replaces or restarts
+   (`replaced`) answers one that finished meanwhile as listed (`CancelCheck::AlreadyFinished`), without asking
+   Patronus, so the start or the push goes on.
 4. For a start, the [landing gate](#landing-gate) with the commits the view names landed (`landed_commits` of
    `landedBy`; the page sends none) and the target (`prepare_robot_start`), then `POST /robots`.
 
