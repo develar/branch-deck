@@ -56,6 +56,11 @@ outside it.
 - ⌘B (Ctrl+B off macOS) on the selection and the item "Go to Declaration" of the menu of the code must do the same; the
   item is disabled, with the reason, where no name is.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should offer the declarations of an ambiguous name and show the one chosen, from ⌘B and from the menu of the code`)
+- One Go to Declaration or Find Usages is in flight per view: the same name asked again before the answer joins it (two
+  ⌘B open one file, one Back returns), another name replaces it, and an answer that arrives after the view shows
+  another commit (⌥↓) does nothing.
+  [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should open one file for a name clicked twice before the answer, so one Back returns to the review`)
+  [@test] ../../src/lib/navigation-gate.test.ts (`joins a repeat of the same name: two ⌘B open one view`, `drops an answer whose subject changed, and one another name replaced`)
 - The declaration shown has its file open, the fold around it expanded, the view scrolled to it and its name selected.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline a name under the pointer with the modifier, go to its declaration in a fold on a click, and back`)
 - A name declared in its own file by the scopes (a parameter, a local, a property of the class around it, a member

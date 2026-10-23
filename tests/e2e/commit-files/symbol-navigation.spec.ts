@@ -7,6 +7,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { holdCommandCalls } from "../helpers/wait-helpers"
 
 // the `symbol_navigation` template: Uses.kt calls `store.add` of an untyped receiver (an `add` in Store.kt and in
 // Queue.kt) and `helper`, declared at the end of Store.kt, which its change at the top leaves in a fold
@@ -27,6 +28,14 @@ async function openNavigationReview(page: Page): Promise<Locator> {
   const code = page.getByTestId("commit-review-code")
   await expect(code).toContainText("store.add(1)")
   return code
+}
+
+/** The index of the repository, as accio answers `symbol outsider`: its declaration in src/Base.kt, outside the review */
+function writeOutsiderIndex(repositoryPath: string): void {
+  writeFileSync(
+    path.join(repositoryPath, ".git", "branch-deck-accio.json"),
+    JSON.stringify({ symbol: { outsider: [{ file: "src/Base.kt", line: 1, kind: "function", name: "outsider" }] } }),
+  )
 }
 
 /** The middle of the first `word` in the code of the file `path`, on the new side, the file shown by its row of the tree */
@@ -147,11 +156,7 @@ test.describe("Go to Declaration", () => {
   test("should open a declaration outside the review that the index of the repository knows, go back to the review, and from that file to a declaration of the review", async ({
     page,
   }) => {
-    // the index of the repository, as accio answers `symbol outsider`
-    writeFileSync(
-      path.join(repositoryPath, ".git", "branch-deck-accio.json"),
-      JSON.stringify({ symbol: { outsider: [{ file: "src/Base.kt", line: 1, kind: "function", name: "outsider" }] } }),
-    )
+    writeOutsiderIndex(repositoryPath)
     const code = await openNavigationReview(page)
     const fileView = page.getByTestId("declaration-file-view")
     await expect(fileView).toBeHidden()
@@ -204,6 +209,27 @@ test.describe("Go to Declaration", () => {
       await page.keyboard.press(key)
       await expect(fileView).toBeHidden()
     }
+  })
+
+  test("should open one file for a name clicked twice before the answer, so one Back returns to the review", async ({ page }) => {
+    writeOutsiderIndex(repositoryPath)
+    const code = await openNavigationReview(page)
+    const fileView = page.getByTestId("declaration-file-view")
+    const at = await pointOf(code, "src/Uses.kt", "outsider")
+    const held = await holdCommandCalls(page, "find_declaration")
+    for (let click = 0; click < 2; click++) {
+      await page.keyboard.down(MODIFIER)
+      await page.mouse.click(at.x, at.y)
+      await page.keyboard.up(MODIFIER)
+    }
+    // the second click joins the first: one question reached the backend
+    await expect.poll(() => held.calls.length).toBe(1)
+    held.release()
+    await expect(fileView).toContainText("src/Base.kt")
+    await page.keyboard.press(BACK)
+    await expect(fileView).toBeHidden()
+    await expect.poll(() => selected(page)).toEqual({ text: "outsider", path: "src/Uses.kt" })
+    expect(held.calls).toHaveLength(1)
   })
 })
 
