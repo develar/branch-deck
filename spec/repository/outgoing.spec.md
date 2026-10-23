@@ -252,6 +252,13 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should describe a disabled push on hover`)
 - A push the remote refuses while the lease holds (a hook, a protected branch) must be an error.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`)
+- A push belongs to the repository it started in. A switch of the repository while it waits (for the sync, the holds,
+  a retarget) stops it before it reads the branches again: the branch of the same name there is another branch, so
+  nothing of it is pushed, and "Cannot push auth" says "idea-1 is no longer the open repository" (a push of an action
+  returns that reason to its action). A push already sent ends in its repository: its spinner, its progress and the
+  remote status it brings stay off the rows of the other repository, whose branch of the same name pushes on its own.
+  [@test] ../../src/lib/git/push.test.ts (`pushes nothing of the branch of the same name there, and says why`, `pushes no stack of the same names there`, `refuses the push of an action in place`)
+  [@test] ../../src/stores/branch-sync.test.ts (`keeps a push that ends after a switch of the repository out of the branch of the same name there`)
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
   a stage; the compact button of the row "45%" after the spinner, the label its accessible name), and its description on hover the last progress line of git, then what was sent so far and how fast,
   "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)), unless git's

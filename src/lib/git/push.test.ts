@@ -63,6 +63,8 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     /** Why the next stack push fails, as the backend says it; null: it pushes */
     pushError: null as string | null,
     whileAsking: () => {},
+    /** The repository the main window shows */
+    selected: "/repo",
   },
 }))
 
@@ -253,7 +255,9 @@ vi.mock("@/stores/activity", async () => ({
   },
 }))
 vi.mock("@/stores/repository", () => ({
-  vcsRequestFactory: { createRequest: () => ({ repositoryPath: "/repo", branchPrefix: "user" }) },
+  vcsRequestFactory: { createRequest: () => ({ repositoryPath: stores.selected, branchPrefix: "user" }) },
+  getSelectedRepositoryPath: () => stores.selected,
+  getRepositorySwitchReason: (path: string) => (path === stores.selected ? null : `${path} is no longer the open repository`),
   getFullBranchName: (name: string) => `user/virtual/${name}`,
 }))
 
@@ -308,6 +312,7 @@ beforeEach(() => {
   stores.synced = Promise.resolve()
   stores.pushGate = Promise.resolve()
   stores.pushError = null
+  stores.selected = "/repo"
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
 })
@@ -912,6 +917,51 @@ describe("pushForAction", () => {
     expect(await pushForAction("auth")).toEqual({ pushed: false, reason: "auth can't be pushed: merge conflict" })
     addBranch("login", "auth", false)
     expect(await pushForAction("login")).toEqual({ pushed: false, reason: "auth can't be pushed: merge conflict" })
+    expect(calls).toEqual([])
+  })
+})
+
+describe("a push that started in another repository", () => {
+  beforeEach(() => {
+    robots.running = undefined
+  })
+
+  /** The sync the push waits for ends after the main window opened `/other`, whose `auth` is another branch */
+  function switchDuringSync(): () => void {
+    let finish!: () => void
+    stores.synced = new Promise<void>(resolve => {
+      finish = resolve
+    })
+    return () => {
+      stores.selected = "/other"
+      finish()
+    }
+  }
+
+  it("pushes nothing of the branch of the same name there, and says why", async () => {
+    const finish = switchDuringSync()
+    const pushed = pushBranch("auth")
+    finish()
+    expect(await pushed).toBe(false)
+    expect(calls).toEqual([])
+    expect(toasts.map(toast => [toast.title, toast.description])).toEqual([["Cannot push auth", "/repo is no longer the open repository"]])
+  })
+
+  it("pushes no stack of the same names there", async () => {
+    addBranch("login", "auth")
+    const finish = switchDuringSync()
+    const pushed = pushStack("login")
+    finish()
+    expect(await pushed).toBe(false)
+    expect(calls).toEqual([])
+    expect(stores.stackPushes).toEqual({})
+  })
+
+  it("refuses the push of an action in place", async () => {
+    const finish = switchDuringSync()
+    const pushed = pushForAction("auth")
+    finish()
+    expect(await pushed).toEqual({ pushed: false, reason: "/repo is no longer the open repository" })
     expect(calls).toEqual([])
   })
 })

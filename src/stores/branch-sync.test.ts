@@ -69,7 +69,7 @@ vi.mock("@/lib/bindings", () => ({
 
 vi.mock("@/stores/repository", () => ({
   getLoadingPromise: () => null,
-  getSelectedProject: () => null,
+  getSelectedProject: () => ({ path: repository.path }),
   vcsRequestFactory: { createRequest: () => ({ repositoryPath: repository.path, branchPrefix: "user" }) },
 }))
 
@@ -432,7 +432,7 @@ describe("sync during a push", () => {
 
   it("keeps the push state of a branch", async () => {
     await syncBranches()
-    setBranchPushing("a", true)
+    setBranchPushing("a", true, "/repo")
     // mark one to prove the second sync rebuilt the records from its grouping
     branchSyncStore.setState(state => ({ branches: { ...state.branches, a: { ...state.branches.a!, summary: "marked" } } }))
 
@@ -445,15 +445,15 @@ describe("sync during a push", () => {
 
   it("keeps the push progress only while the push runs", () => {
     const writing = { percent: 55, transferred: "1.23 KiB", speed: "1.23 MiB/s", line: "Writing objects:  50% (2/4)" }
-    setBranchPushing("a", true)
+    setBranchPushing("a", true, "/repo")
     expect(getBranchPushProgress("a")).toBeNull()
-    setBranchPushProgress("a", writing)
+    setBranchPushProgress("a", writing, "/repo")
     expect(getBranchPushProgress("a")).toEqual(writing)
     expect(isBranchPushing("a")).toBe(true)
 
-    setBranchPushing("a", false)
+    setBranchPushing("a", false, "/repo")
     // a channel message that arrives after the push ended
-    setBranchPushProgress("a", { ...writing, percent: 95 })
+    setBranchPushProgress("a", { ...writing, percent: 95 }, "/repo")
     expect(isBranchPushing("a")).toBe(false)
     expect(getBranchPushProgress("a")).toBeNull()
     expect(branchSyncStore.getState().pushingBranches).toEqual({})
@@ -462,34 +462,57 @@ describe("sync during a push", () => {
   it("ignores the remote status computed by the sync while the branch is pushing", async () => {
     await syncBranches()
     const pushed = toRemoteStatus(remoteStatusUpdate("a", 0))
-    setBranchRemoteStatus("a", pushed)
-    setBranchPushing("a", true)
+    setBranchRemoteStatus("a", pushed, "/repo")
+    setBranchPushing("a", true, "/repo")
     syncEvents.current = [branchesGrouped, { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 2) }, { type: "remoteStatusUpdate", data: remoteStatusUpdate("b", 3) }]
 
     await syncBranches()
     expect(getBranch("a")!.remoteStatus).toEqual(pushed)
     expect(getBranch("b")!.remoteStatus!.commitsAhead).toBe(3)
 
-    setBranchPushing("a", false)
+    setBranchPushing("a", false, "/repo")
     await syncBranches()
     expect(getBranch("a")!.remoteStatus!.commitsAhead).toBe(2)
   })
 
   it("keeps the push result when the push ends before the sync applies the status it computed mid-push", async () => {
     await syncBranches()
-    setBranchPushing("a", true)
+    setBranchPushing("a", true, "/repo")
     const pushed = toRemoteStatus(remoteStatusUpdate("a", 0))
     syncEvents.current = [
       branchesGrouped,
       { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 2) },
       () => {
-        setBranchRemoteStatus("a", pushed)
-        setBranchPushing("a", false)
+        setBranchRemoteStatus("a", pushed, "/repo")
+        setBranchPushing("a", false, "/repo")
       },
     ]
 
     await syncBranches()
     expect(getBranch("a")!.remoteStatus).toEqual(pushed)
+  })
+
+  it("keeps a push that ends after a switch of the repository out of the branch of the same name there", async () => {
+    await syncBranches()
+    const pushed = toRemoteStatus(remoteStatusUpdate("a", 0))
+    setBranchPushing("a", true, "/repo")
+    const known = getBranch("a")!.remoteStatus
+    // another repository opens, with a branch of the same name; it shows no push of it and pushes its own
+    repository.path = "/other"
+    try {
+      expect(isBranchPushing("a")).toBe(false)
+      setBranchPushing("a", true, "/other")
+      // the push of /repo ends: nothing of it reaches the rows, the push of /other still runs
+      setBranchRemoteStatus("a", pushed, "/repo")
+      setBranchPushing("a", false, "/repo")
+      expect(getBranch("a")!.remoteStatus).toBe(known)
+      expect(isBranchPushing("a")).toBe(true)
+      setBranchPushing("a", false, "/other")
+      expect(isBranchPushing("a")).toBe(false)
+      expect(branchSyncStore.getState().pushingBranches).toEqual({})
+    } finally {
+      repository.path = "/repo"
+    }
   })
 
   it("keeps the last known remote status across a regroup", async () => {
@@ -537,7 +560,7 @@ describe("sync events", () => {
     syncEvents.current = [branchesGrouped, { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 1) }]
     await syncBranches()
     const branch = getBranch("a")
-    setBranchRemoteStatus("a", toRemoteStatus(remoteStatusUpdate("a", 1)))
+    setBranchRemoteStatus("a", toRemoteStatus(remoteStatusUpdate("a", 1)), "/repo")
     expect(getBranch("a")).toBe(branch)
   })
 

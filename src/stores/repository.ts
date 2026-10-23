@@ -5,6 +5,7 @@ import type { GitBranchPrefix, GitSetup } from "@/lib/bindings"
 import { normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { getErrorDetails, notifyError } from "@/lib/errors"
 import { VcsRequestFactory } from "@/lib/git/vcs-request"
+import { repositoryName } from "@/lib/repository-config"
 import { appSettingsStore, useAppSettings } from "@/stores/settings/appSettings"
 import { getRecentProjects, repositorySettingsStore, setRecentProjects, updateProject, useRecentProjects } from "@/stores/settings/repositorySettings"
 import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
@@ -54,6 +55,25 @@ export function useRepository<T>(selector: (state: RepositoryState) => T): T {
 
 export function getSelectedProject(): ProjectMetadata | null {
   return getRecentProjects()[0] ?? null
+}
+
+/**
+ * Why an action that started in `repositoryPath` (a push, a Safe Push start, a pull request, an undo) stops before a
+ * step that reads the branches: the main window shows another repository now, whose branch of the same name is another
+ * branch; null while it shows that one. The steps that name the repository (a command with its path) go on.
+ */
+export function getRepositorySwitchReason(repositoryPath: string): string | null {
+  return isSelectedRepository(repositoryPath) ? null : `${repositoryName(repositoryPath)} is no longer the open repository`
+}
+
+/** Whether the main window shows `repositoryPath` (the path of a `VcsRequest`) */
+export function isSelectedRepository(repositoryPath: string): boolean {
+  return getSelectedRepositoryPath() === repositoryPath
+}
+
+/** The path of the selected repository as a `VcsRequest` names it; empty while none is selected */
+export function getSelectedRepositoryPath(): string {
+  return (getSelectedProject()?.path ?? "").trim()
 }
 
 /**

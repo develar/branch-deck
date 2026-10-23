@@ -39,7 +39,7 @@ import { addTiming } from "@/lib/update-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
-import { getLoadingPromise, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
+import { getLoadingPromise, getSelectedProject, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
 
@@ -194,9 +194,10 @@ export interface BranchSyncState {
   branches: Record<string, Branch>
   /**
    * Branches with a push in flight, and the stack branch of the whole stack of a root under its key `stack:<root>`
-   * (`stackReadinessKey`, a name no branch has); how far each is lives in `pushProgressStore`, so its ticks don't re-run
-   * the selectors of this store. Owned by push, never touched by sync: a sync rebuilds `branches` and must not reset a
-   * running push.
+   * (`stackReadinessKey`, a name no branch has), by `pushKey` of the repository the push started in: a push that ends
+   * after a switch of the repository marks nothing of the branch of the same name there; how far each is lives in
+   * `pushProgressStore`, so its ticks don't re-run the selectors of this store. Owned by push, never touched by sync: a
+   * sync rebuilds `branches` and must not reset a running push.
    */
   pushingBranches: Readonly<Record<string, true>>
   /**
@@ -797,7 +798,8 @@ export function useBranchRemoteStatus(name: string): RemoteStatus | null {
 }
 
 export function useIsBranchPushing(name: string): boolean {
-  return useStore(branchSyncStore, state => Object.hasOwn(state.pushingBranches, name))
+  const key = pushKey(useSelectedProjectPath() ?? "", name)
+  return useStore(branchSyncStore, state => Object.hasOwn(state.pushingBranches, key))
 }
 
 /**
@@ -957,18 +959,29 @@ export function consumeAutoRequests(name: string): void {
   updateBranch(name, branch => (branch.autoExpandRequested || branch.autoScrollRequested ? { ...branch, autoExpandRequested: false, autoScrollRequested: false } : branch))
 }
 
-export function isBranchPushing(name: string): boolean {
-  return Object.hasOwn(branchSyncStore.getState().pushingBranches, name)
+/** The key of a push in flight (`pushingBranches`): the repository it started in and the branch */
+function pushKey(repositoryPath: string, name: string): string {
+  return `${repositoryPath}\n${name}`
 }
 
-/** Resolves once no push of the branch runs: at once while none does */
+function selectedRepositoryPath(): string {
+  return getSelectedProject()?.path ?? ""
+}
+
+/** Whether a push of the branch runs in the repository (by default the selected one) */
+export function isBranchPushing(name: string, repositoryPath: string = selectedRepositoryPath()): boolean {
+  return Object.hasOwn(branchSyncStore.getState().pushingBranches, pushKey(repositoryPath, name))
+}
+
+/** Resolves once no push of the branch runs in the selected repository: at once while none does */
 export function whenBranchPushed(name: string): Promise<void> {
-  if (!isBranchPushing(name)) {
+  const key = pushKey(selectedRepositoryPath(), name)
+  if (!Object.hasOwn(branchSyncStore.getState().pushingBranches, key)) {
     return Promise.resolve()
   }
   return new Promise(resolve => {
     const unsubscribe = branchSyncStore.subscribe(state => {
-      if (!Object.hasOwn(state.pushingBranches, name)) {
+      if (!Object.hasOwn(state.pushingBranches, key)) {
         unsubscribe()
         resolve()
       }
@@ -976,18 +989,24 @@ export function whenBranchPushed(name: string): Promise<void> {
   })
 }
 
-export function setBranchPushing(name: string, isPushing: boolean): void {
+/**
+ * Marks the push of the branch in `repositoryPath`, the repository it started in, as running or ended: the rows of a
+ * branch of the same name in another repository show no push of it
+ */
+export function setBranchPushing(name: string, isPushing: boolean, repositoryPath: string): void {
+  const key = pushKey(repositoryPath, name)
   branchSyncStore.setState(state => {
-    if (Object.hasOwn(state.pushingBranches, name) === isPushing) {
+    if (Object.hasOwn(state.pushingBranches, key) === isPushing) {
       return state
     }
     if (isPushing) {
-      return { pushingBranches: { ...state.pushingBranches, [name]: true } }
+      return { pushingBranches: { ...state.pushingBranches, [key]: true } }
     }
-    const { [name]: _, ...pushingBranches } = state.pushingBranches
+    const { [key]: _, ...pushingBranches } = state.pushingBranches
     return { pushingBranches }
   })
-  if (!isPushing && Object.hasOwn(pushProgressStore.getState(), name)) {
+  // the progress is of the rows of the selected repository
+  if (!isPushing && repositoryPath === selectedRepositoryPath() && Object.hasOwn(pushProgressStore.getState(), name)) {
     const { [name]: _, ...progress } = pushProgressStore.getState()
     pushProgressStore.setState(progress, true)
   }
@@ -1011,30 +1030,42 @@ export function setStackPush(startedFrom: string, names: readonly string[] | nul
   })
 }
 
-/** Records how far the push of the branch is; a message that arrives after the push ended is dropped */
-export function setBranchPushProgress(name: string, progress: TransferProgress): void {
-  setBranchesPushProgress([name], progress)
+/**
+ * Records how far the push of the branch in `repositoryPath` is; a message that arrives after the push ended, or while
+ * another repository is selected, is dropped
+ */
+export function setBranchPushProgress(name: string, progress: TransferProgress, repositoryPath: string): void {
+  setBranchesPushProgress([name], progress, repositoryPath)
 }
 
 /** Records how far the one push of the branches is, for each of them in one update; the ones whose push ended drop it */
-export function setBranchesPushProgress(names: readonly string[], progress: TransferProgress): void {
-  const pushing = names.filter(name => isBranchPushing(name))
+export function setBranchesPushProgress(names: readonly string[], progress: TransferProgress, repositoryPath: string): void {
+  if (repositoryPath !== selectedRepositoryPath()) {
+    return
+  }
+  const pushing = names.filter(name => isBranchPushing(name, repositoryPath))
   if (pushing.length > 0) {
     pushProgressStore.setState(Object.fromEntries(pushing.map(name => [name, progress])))
   }
 }
 
-export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus): void {
-  updateBranch(name, branch => withRemoteStatus(branch, remoteStatus))
+/**
+ * The remote status of the branch after a push of it in `repositoryPath`; nothing once another repository is selected:
+ * its branch of the same name is another branch
+ */
+export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus, repositoryPath: string): void {
+  if (repositoryPath === selectedRepositoryPath()) {
+    updateBranch(name, branch => withRemoteStatus(branch, remoteStatus))
+  }
 }
 
 /**
- * The remote status of the stack branch of `root` after a push of it (`pushWholeStack`), until the next sync reports it
- * again; nothing for a stack branch the store doesn't have
+ * The remote status of the stack branch of `root` after a push of it in `repositoryPath` (`pushWholeStack`), until the
+ * next sync reports it again; nothing for a stack branch the store doesn't have, nor once another repository is selected
  */
-export function setStackBranchRemoteStatus(root: string, remoteStatus: RemoteStatus): void {
+export function setStackBranchRemoteStatus(root: string, remoteStatus: RemoteStatus, repositoryPath: string): void {
   const stack = branchSyncStore.getState().stackBranches[root]
-  if (stack === undefined || (stack.remoteStatus !== null && sameRemoteStatus(stack.remoteStatus, remoteStatus))) {
+  if (repositoryPath !== selectedRepositoryPath() || stack === undefined || (stack.remoteStatus !== null && sameRemoteStatus(stack.remoteStatus, remoteStatus))) {
     return
   }
   branchSyncStore.setState(state => ({ stackBranches: { ...state.stackBranches, [root]: { ...stack, remoteStatus } } }))
@@ -1465,7 +1496,7 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null
 function queueSyncEvent(event: SyncEvent, repositoryPath: string, options: SyncOptions | undefined): void {
   // decided on arrival, not at the flush: the push result is authoritative, and a push that ends before the flush
   // would let a status the sync computed mid-push overwrite it
-  if (event.type === "remoteStatusUpdate" && isBranchPushing(event.data.branchName)) {
+  if (event.type === "remoteStatusUpdate" && isBranchPushing(event.data.branchName, repositoryPath)) {
     return
   }
   queuedSyncEvents.push({ event, repositoryPath, options })

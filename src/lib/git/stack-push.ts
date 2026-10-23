@@ -5,9 +5,10 @@ import { notifyError } from "@/lib/errors"
 import type { Retargeted } from "@/lib/git/new-pull-request"
 import { retargetBeforePush } from "@/lib/git/new-pull-request"
 import type { PushReport } from "@/lib/git/push"
-import { cancelHoldingRobot, checkPushHold, isHeldBy, pushesOverMovedRemote, restartAfterPush, sentPart, showRemoteMovedToast } from "@/lib/git/push"
+import { cancelHoldingRobot, checkPushHold, createPushRequest, isHeldBy, isStillIn, pushesOverMovedRemote, restartAfterPush, sentPart, showRemoteMovedToast } from "@/lib/git/push"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showStackPushToast } from "@/lib/git/push-toast"
+import type { VcsRequest } from "@/lib/git/vcs-request"
 import { formatPushMode, formatStackPushHoldReason } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import { getPushAction } from "@/lib/push-summary"
@@ -36,7 +37,6 @@ import {
 } from "@/stores/branch-sync"
 import { getPushHold, getStackBranchHoldReason, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
 import { getStackPullRequest, refreshPullRequests, refreshPullRequestsAfterPushes } from "@/stores/pull-requests"
-import { vcsRequestFactory } from "@/stores/repository"
 
 export interface StackPushOptions {
   /** The order of the push button: it starts above an ancestor whose push drops remote commits (`stackPushOrder`) */
@@ -126,12 +126,21 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
     return false
   }
   const report = options.report ?? notifyError
+  const request = createPushRequest(`Cannot push ${startedFrom}`, report)
+  if (request === null) {
+    return false
+  }
+  // the branches of the table are of the selected repository: the push goes on only while it is the one it started in
+  const stillIn = () => isStillIn(request.repositoryPath, startedFrom, report)
   // the row shows the push while it waits for a sync, and a second click does nothing
   setStackPush(startedFrom, [])
   // a push of the stack branch alone asked meanwhile (Request Review…, a restart) waits for this one, which may take it
   let settleStackBranch: (() => void) | null = null
   try {
     const order = await settledOrder(orderOf)
+    if (!stillIn()) {
+      return false
+    }
     const wholeStack = order.wholeStack ?? null
     if (wholeStack !== null) {
       settleStackBranch = joinableStackBranchPush(wholeStack)
@@ -140,6 +149,9 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
       return order.names.length === 0 && wholeStack === null
     }
     // the checks may have waited for Patronus while a sync changed the branches: push them as they are now
+    if (!stillIn()) {
+      return false
+    }
     const branches = findBranches(order.names, report)
     if (branches === null) {
       return false
@@ -153,20 +165,26 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
         retargeted.set(branch.name, it)
       }
     }
+    if (!stillIn()) {
+      return false
+    }
     setStackPush(startedFrom, order.names)
     let pushed = branches
     let stack = stackBranchAlong(wholeStack)
-    let moved = await sendTogether(pushed, tips, stack, report)
+    let moved = await sendTogether(request, pushed, tips, stack, report)
     // nobody's work is lost: the stack goes over what the remotes have now, once, as the push of one branch does; a
     // remote that moves again, or one with commits its branch lacks, is told
     if (moved != null && pushesOverMovedRemote(moved.status)) {
+      if (!stillIn()) {
+        return false
+      }
       const fetched = findBranches(order.names, report)
       if (fetched === null) {
         return false
       }
       pushed = fetched
       stack = stackBranchAlong(wholeStack)
-      moved = await sendTogether(pushed, tips, stack, report)
+      moved = await sendTogether(request, pushed, tips, stack, report)
     }
     if (moved === undefined) {
       return false
@@ -267,6 +285,7 @@ function findBranches(names: readonly string[], report: PushReport): Branch[] | 
  * stack branch), with what its remote has now; null when they were pushed; undefined when the push failed (it said why).
  */
 async function sendTogether(
+  request: VcsRequest,
   branches: readonly Branch[],
   tips: ReadonlyMap<string, string>,
   stack: StackBranch | null,
@@ -276,14 +295,15 @@ async function sendTogether(
   // what an error names: the branches, then the stack branch
   const subjects = stack === null ? names : [...names, formatWholeStackBranch(stack.root)]
   const pushing = stack === null ? names : [...names, stackReadinessKey(stack.root)]
+  // the repository the push started in: its result applies there, also after a switch of the repository
+  const repositoryPath = request.repositoryPath
   for (const name of pushing) {
-    setBranchPushing(name, true)
+    setBranchPushing(name, true, repositoryPath)
   }
   try {
-    const request = vcsRequestFactory.createRequest()
     const progress = new Channel<TransferProgress>()
     progress.onmessage = pushProgress => {
-      setBranchesPushProgress(pushing, pushProgress)
+      setBranchesPushProgress(pushing, pushProgress, repositoryPath)
     }
     const result = await commands.pushBranches(
       {
@@ -313,12 +333,12 @@ async function sendTogether(
     branches.forEach((branch, index) => {
       const status = statuses[index]
       if (status !== undefined) {
-        setBranchRemoteStatus(branch.name, status)
+        setBranchRemoteStatus(branch.name, status, repositoryPath)
       }
     })
     const stackStatus = stack === null ? undefined : statuses[branches.length]
     if (stack !== null && stackStatus !== undefined) {
-      setStackBranchRemoteStatus(stack.root, stackStatus)
+      setStackBranchRemoteStatus(stack.root, stackStatus, repositoryPath)
     }
     if (result.data.type === "remoteMoved") {
       const { branchName, wholeStack } = result.data
@@ -349,7 +369,7 @@ async function sendTogether(
     return undefined
   } finally {
     for (const name of pushing) {
-      setBranchPushing(name, false)
+      setBranchPushing(name, false, repositoryPath)
     }
   }
 }
@@ -459,6 +479,10 @@ async function sendWholeStack(root: string, joined: Promise<boolean> | null, opt
   const report = options.report ?? notifyError
   const subject = formatWholeStack(root)
   const key = stackReadinessKey(root)
+  const request = createPushRequest(`Cannot push ${subject}`, report)
+  if (request === null) {
+    return false
+  }
   // a failed push of the stack branch alone was said by the request that pushed: one toast
   if (joined !== null && !(await joined)) {
     return false
@@ -467,6 +491,9 @@ async function sendWholeStack(root: string, joined: Promise<boolean> | null, opt
   while (isBranchPushing(key)) {
     await whenBranchPushed(key)
     await whenSynced()
+  }
+  if (!isStillIn(request.repositoryPath, subject, report)) {
+    return false
   }
   // its commits are in the target for good: nothing a push sends lands
   const landed = getStackLandedReason(root)
@@ -490,9 +517,15 @@ async function sendWholeStack(root: string, joined: Promise<boolean> | null, opt
   if (upToDate) {
     return true
   }
-  let moved = await sendStackBranch(root, report)
+  if (!isStillIn(request.repositoryPath, subject, report)) {
+    return false
+  }
+  let moved = await sendStackBranch(request, root, report)
   if (moved !== null && moved !== undefined && pushesOverMovedRemote(moved)) {
-    moved = await sendStackBranch(root, report)
+    if (!isStillIn(request.repositoryPath, subject, report)) {
+      return false
+    }
+    moved = await sendStackBranch(request, root, report)
   }
   if (moved === undefined) {
     return false
@@ -509,7 +542,7 @@ async function sendWholeStack(root: string, joined: Promise<boolean> | null, opt
  * its remote status is updated from the result. What its remote has now when it moved, null when it was pushed,
  * undefined when the push failed (it said why).
  */
-async function sendStackBranch(root: string, report: PushReport): Promise<RemoteStatus | null | undefined> {
+async function sendStackBranch(request: VcsRequest, root: string, report: PushReport): Promise<RemoteStatus | null | undefined> {
   const subject = formatWholeStack(root)
   const stack = getStackBranch(root)
   const blocker = getStackBranchBlocker(root, stack)
@@ -518,12 +551,12 @@ async function sendStackBranch(root: string, report: PushReport): Promise<Remote
     return undefined
   }
   const key = stackReadinessKey(root)
-  const request = vcsRequestFactory.createRequest()
-  setBranchPushing(key, true)
+  const repositoryPath = request.repositoryPath
+  setBranchPushing(key, true, repositoryPath)
   try {
     const progress = new Channel<TransferProgress>()
     progress.onmessage = pushProgress => {
-      setBranchPushProgress(key, pushProgress)
+      setBranchPushProgress(key, pushProgress, repositoryPath)
     }
     const result = await commands.pushBranches(
       {
@@ -541,7 +574,7 @@ async function sendStackBranch(root: string, report: PushReport): Promise<Remote
     }
     const status = result.data.remoteStatuses[0] === undefined ? null : toRemoteStatus(result.data.remoteStatuses[0])
     if (status !== null) {
-      setStackBranchRemoteStatus(root, status)
+      setStackBranchRemoteStatus(root, status, repositoryPath)
     }
     recordPush(request.repositoryPath, formatWholeStackBranch(root), stack.remoteStatus, result.data.type === "remoteMoved" ? status : null)
     if (result.data.type === "remoteMoved") {
@@ -553,6 +586,6 @@ async function sendStackBranch(root: string, report: PushReport): Promise<Remote
     report(`Cannot push ${subject}`, error)
     return undefined
   } finally {
-    setBranchPushing(key, false)
+    setBranchPushing(key, false, repositoryPath)
   }
 }

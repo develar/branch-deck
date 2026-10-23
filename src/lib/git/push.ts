@@ -7,6 +7,7 @@ import { retargetBeforePush } from "@/lib/git/new-pull-request"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showPushToast } from "@/lib/git/push-toast"
 import { pushStack } from "@/lib/git/stack-push"
+import type { VcsRequest } from "@/lib/git/vcs-request"
 import { describeRobot, formatPushHoldReason, formatPushMode, openRobot } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush, dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
@@ -31,7 +32,7 @@ import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatr
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
 import { requestPushConfirm } from "@/stores/push-confirm"
-import { vcsRequestFactory } from "@/stores/repository"
+import { getRepositorySwitchReason, getSelectedRepositoryPath, vcsRequestFactory } from "@/stores/repository"
 
 export interface PushOptions {
   /** The remote commit the push replaces; by default the `remoteTip` of the branch's remote status, the row's view */
@@ -110,15 +111,20 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
     return null
   }
   const report = options.report ?? notifyError
+  const request = createPushRequest(`Cannot push ${branchName}`, report)
+  if (request === null) {
+    return null
+  }
+  const repositoryPath = request.repositoryPath
   // a push pressed while a sync rebuilds the branches waits for it, with the spinner of a push, and pushes the branch as
   // the sync left it: the row stays as it was during the sync (a quiet resync), so its button stays enabled; a branch the
   // sync brings is pushed too
   if (branchSyncStore.getState().isSyncing) {
-    setBranchPushing(branchName, true)
+    setBranchPushing(branchName, true, repositoryPath)
     await whenSynced()
-    setBranchPushing(branchName, false)
+    setBranchPushing(branchName, false, repositoryPath)
   }
-  if (findBranch(branchName, report) === undefined) {
+  if (!isStillIn(repositoryPath, branchName, report) || findBranch(branchName, report) === undefined) {
     return null
   }
 
@@ -127,21 +133,31 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
   }
   const restartRobot = options.restartRobot
 
-  // the check may have waited for Patronus while a sync changed the branch: push it as it is now
+  // the check may have waited for Patronus while a sync changed the branch, or the repository was switched: push it as
+  // it is now, only in the repository it started in
+  if (!isStillIn(repositoryPath, branchName, report)) {
+    return null
+  }
   const branch = findBranch(branchName, report)
   if (branch === undefined || isBranchPushing(branchName)) {
     return null
   }
   // a pull request into a virtual branch goes into the baseline first, with what it lands
   const retargeted = (await retargetBeforePush(branch)) ?? undefined
+  if (!isStillIn(repositoryPath, branchName, report)) {
+    return null
+  }
   let before = branch.remoteStatus
-  let pushed = await pushWithProgress(branch, options, report)
+  let pushed = await pushWithProgress(request, branch, options, report)
   // the remote moved since the row showed it, without commits the branch lacks: nobody's work is lost, so the push goes
   // over what the remote has now, once (a remote that moves again, or one with commits the branch lacks, is told)
   const moved = pushed?.moved ?? null
   if (moved !== null && pushesOverMovedRemote(moved)) {
+    if (!isStillIn(repositoryPath, branchName, report)) {
+      return null
+    }
     before = moved
-    pushed = await pushWithProgress({ ...branch, remoteStatus: moved }, { ...options, expectedRemote: moved.remoteTip }, report)
+    pushed = await pushWithProgress(request, { ...branch, remoteStatus: moved }, { ...options, expectedRemote: moved.remoteTip }, report)
   }
   if (pushed === null) {
     return null
@@ -153,6 +169,28 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
   // the restart takes the commit just pushed
   const restarted = restartRobot === undefined ? undefined : await restartAfterPush(restartRobot)
   return { name: branchName, before: sentPart(before, options.tip), restarted, retargeted }
+}
+
+/** The repository and branch prefix a push starts in, or null when none is configured (`report` said why) */
+export function createPushRequest(title: string, report: PushReport): VcsRequest | null {
+  try {
+    return vcsRequestFactory.createRequest()
+  } catch (error) {
+    report(title, error)
+    return null
+  }
+}
+
+/**
+ * Whether the main window still shows the repository the push of `subject` started in: a push never goes on with the
+ * branches of another repository, whose branch of the same name is another branch (`report` says it stopped)
+ */
+export function isStillIn(repositoryPath: string, subject: string, report: PushReport): boolean {
+  const reason = getRepositorySwitchReason(repositoryPath)
+  if (reason !== null) {
+    report(`Cannot push ${subject}`, reason)
+  }
+  return reason === null
 }
 
 /**
@@ -176,14 +214,15 @@ export function sentPart(before: RemoteStatus | null, tip: string | undefined): 
  * The push itself, while the row shows its progress: the remote status the remote moved to when nothing was pushed
  * (`moved`), null when it failed (an error toast said so)
  */
-async function pushWithProgress(branch: Branch, options: PushOptions, report: PushReport): Promise<{ moved: RemoteStatus | null } | null> {
+async function pushWithProgress(request: VcsRequest, branch: Branch, options: PushOptions, report: PushReport): Promise<{ moved: RemoteStatus | null } | null> {
   const branchName = branch.name
-  setBranchPushing(branchName, true)
+  // the repository the push started in: its result applies there, also after a switch of the repository
+  const repositoryPath = request.repositoryPath
+  setBranchPushing(branchName, true, repositoryPath)
   try {
-    const request = vcsRequestFactory.createRequest()
     const progress = new Channel<TransferProgress>()
     progress.onmessage = pushProgress => {
-      setBranchPushProgress(branchName, pushProgress)
+      setBranchPushProgress(branchName, pushProgress, repositoryPath)
     }
     const result = await commands.pushBranch(
       {
@@ -203,8 +242,8 @@ async function pushWithProgress(branch: Branch, options: PushOptions, report: Pu
 
     if (result.status === "ok") {
       const remoteStatus = toRemoteStatus(result.data.remoteStatus)
-      setBranchRemoteStatus(branchName, remoteStatus)
-      recordPush(request.repositoryPath, branchName, branch.remoteStatus, result.data.type === "remoteMoved" ? remoteStatus : null)
+      setBranchRemoteStatus(branchName, remoteStatus, repositoryPath)
+      recordPush(repositoryPath, branchName, branch.remoteStatus, result.data.type === "remoteMoved" ? remoteStatus : null)
       if (result.data.type === "remoteMoved") {
         return { moved: remoteStatus }
       }
@@ -215,7 +254,7 @@ async function pushWithProgress(branch: Branch, options: PushOptions, report: Pu
   } catch (error) {
     report(`Cannot push ${branchName}`, error)
   } finally {
-    setBranchPushing(branchName, false)
+    setBranchPushing(branchName, false, repositoryPath)
   }
   return null
 }
@@ -356,6 +395,11 @@ export type ActionPush = { readonly pushed: true } | { readonly pushed: false; r
 export interface ActionPushOptions {
   /** The running robot a Safe Push start replaces: canceled, never restarted (`PushOptions.replacesRobot`) */
   replacesRobot?: PatronusRobot
+  /**
+   * The repository the action started in (`VcsRequest.repositoryPath`); by default the selected one at the call. The push
+   * refuses once the main window shows another one: it pushes the branches of the table
+   */
+  repositoryPath?: string
 }
 
 /**
@@ -366,10 +410,16 @@ export interface ActionPushOptions {
  * remote commits of the branch or of an ancestor between it and the root refuses with the reason, as does a hold.
  */
 export async function pushForAction(branchName: string, options: ActionPushOptions = {}): Promise<ActionPush> {
+  const repositoryPath = options.repositoryPath ?? getSelectedRepositoryPath()
   await whenSynced()
   await whenBranchPushed(branchName)
   // the holds decide where the push starts: a parent a running robot's commit doesn't have is pushed too
   await whenRepositoryViewCurrent()
+  // the branches of the table are of the selected repository: another one's branch of the same name is another branch
+  const switched = getRepositorySwitchReason(repositoryPath)
+  if (switched !== null) {
+    return { pushed: false, reason: switched }
+  }
   const branch = getBranch(branchName)
   if (branch === undefined) {
     return { pushed: false, reason: `${branchName} is no longer in the branch list` }
