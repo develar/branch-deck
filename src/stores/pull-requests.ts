@@ -172,12 +172,13 @@ export function mergePullRequests(previous: RepositoryPullRequests["pullRequests
 }
 
 /**
- * Asks GitHub for the pull requests of the selected repository, if the reason allows it now (see the policy above).
+ * Asks GitHub for the pull requests of the selected repository, or of `repository` (the one a push went to, also after
+ * a switch), if the reason allows it now (see the policy above).
  * One request per repository at a time. Never fails: what went wrong is the availability. A repository that is not on
  * GitHub is asked again only by the refresh button.
  */
-export function refreshPullRequests(reason: RefreshReason): Promise<void> {
-  const key = currentKey()
+export function refreshPullRequests(reason: RefreshReason, repository?: VcsRequest): Promise<void> {
+  const key = repository === undefined ? currentKey() : repositoryKey(repository.repositoryPath, repository.branchPrefix)
   if (key === null) {
     return Promise.resolve()
   }
@@ -214,25 +215,26 @@ let recheckTimer: ReturnType<typeof setTimeout> | undefined
 
 /**
  * Right after a push: the pull request of the branch shows the pushed commit. If GitHub still reports the old head,
- * asks once more a little later.
+ * asks once more a little later. Both ask in the repository of the push (`repository`), also after a switch.
  */
-export async function refreshPullRequestsAfterPush(branchName: string, pushedTip: string | undefined): Promise<void> {
-  await refreshPullRequestsAfterPushes([[branchName, pushedTip]])
+export async function refreshPullRequestsAfterPush(branchName: string, pushedTip: string | undefined, repository: VcsRequest): Promise<void> {
+  await refreshPullRequestsAfterPushes([[branchName, pushedTip]], repository)
 }
 
 /**
  * `refreshPullRequestsAfterPush` of the branches of one push, `[branch, pushed tip]`: one refresh, and one more a
  * little later if GitHub still reports an old head of any of them
  */
-export async function refreshPullRequestsAfterPushes(pushed: readonly (readonly [string, string | undefined])[]): Promise<void> {
-  await refreshPullRequests("push")
+export async function refreshPullRequestsAfterPushes(pushed: readonly (readonly [string, string | undefined])[], repository: VcsRequest): Promise<void> {
+  await refreshPullRequests("push", repository)
+  const pullRequests = pullRequestsStore.getState().repositories[repositoryKey(repository.repositoryPath, repository.branchPrefix)]?.pullRequests ?? {}
   const stale = pushed.some(([branchName, pushedTip]) => {
-    const pullRequest = getPullRequest(branchName)
+    const pullRequest = pullRequests[branchName]
     return pullRequest !== undefined && pushedTip !== undefined && pullRequest.headRefOid !== pushedTip
   })
   if (stale) {
     clearTimeout(recheckTimer)
-    recheckTimer = setTimeout(() => void refreshPullRequests("push"), PUSH_RECHECK_DELAY_MS)
+    recheckTimer = setTimeout(() => void refreshPullRequests("push", repository), PUSH_RECHECK_DELAY_MS)
   }
 }
 

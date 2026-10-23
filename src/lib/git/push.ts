@@ -88,7 +88,7 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
       showRobotToast(`${formatPushMode(outcome.restarted.pushMode)} restarted`, outcome.restarted)
     }
   } else {
-    showPushToast(branchName, describePush(branchName, outcome.before), outcome.restarted, outcome.retargeted)
+    showPushToast(branchName, outcome.repositoryPath, describePush(branchName, outcome.before), outcome.restarted, outcome.retargeted)
   }
   return true
 }
@@ -102,11 +102,16 @@ function findBranch(branchName: string, report: PushReport): Branch | undefined 
   return branch
 }
 
+/** What `pushOne` did, in the repository it pushed to: its toast offers that repository's pull request only */
+interface OnePush extends PushOutcome {
+  readonly repositoryPath: string
+}
+
 /**
  * The push of `pushBranch`, without its success toast: what the push did and the robot it restarted (recorded in
  * Activity, the caller says it); null when nothing was pushed (it said why)
  */
-async function pushOne(branchName: string, options: PushOptions): Promise<PushOutcome | null> {
+async function pushOne(branchName: string, options: PushOptions): Promise<OnePush | null> {
   if (isBranchPushing(branchName)) {
     return null
   }
@@ -173,7 +178,7 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
   }
   // the restart takes the commit just pushed, in the repository of the push
   const restarted = restartRobot === undefined ? undefined : await restartAfterPush(restartRobot, request)
-  return { name: branchName, before: sentPart(before, options.tip), restarted, retargeted }
+  return { name: branchName, before: sentPart(before, options.tip), restarted, retargeted, repositoryPath }
 }
 
 /** The repository and branch prefix a push starts in, or null when none is configured (`report` said why) */
@@ -258,7 +263,7 @@ async function pushWithProgress(
       if (result.data.type === "remoteMoved") {
         return { moved: remoteStatus }
       }
-      void refreshPullRequestsAfterPush(branchName, options.tip ?? branch.commits[0]?.hash)
+      void refreshPullRequestsAfterPush(branchName, options.tip ?? branch.commits[0]?.hash, request)
       return { moved: null }
     }
     report(`Cannot push ${branchName}`, result.error)

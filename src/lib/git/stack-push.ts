@@ -37,6 +37,7 @@ import {
 } from "@/stores/branch-sync"
 import { getPushHold, getStackBranchHoldReason, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
 import { getStackPullRequest, refreshPullRequests, refreshPullRequestsAfterPushes } from "@/stores/pull-requests"
+import { isSelectedRepository } from "@/stores/repository"
 
 export interface StackPushOptions {
   /** The order of the push button: it starts above an ancestor whose push drops remote commits (`stackPushOrder`) */
@@ -162,9 +163,13 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
       return false
     }
     const tips = order.tips ?? new Map<string, string>()
-    // a pull request into a virtual branch goes into the baseline first, with what it lands
+    // a pull request into a virtual branch goes into the baseline first, with what it lands; each retarget reads the
+    // pull request of the selected repository, so none starts after a switch during the one before
     const retargeted = new Map<string, Retargeted>()
     for (const branch of branches) {
+      if (!stillIn()) {
+        return false
+      }
       const it = await retargetBeforePush(branch)
       if (it !== null) {
         retargeted.set(branch.name, it)
@@ -208,7 +213,9 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
         before: sentPart(branch.remoteStatus, tips.get(branch.name)),
         retargeted: retargeted.get(branch.name),
       }))
-      showStackPushToast(outcomes, startedFrom, stack === null ? null : { root: stack.root, before: stack.remoteStatus, pullRequest: getStackPullRequest(stack.root) })
+      // after a switch the pull requests of the table are of the other repository: the toast offers none
+      const pullRequest = stack === null || !isSelectedRepository(repositoryPath) ? undefined : getStackPullRequest(stack.root)
+      showStackPushToast(outcomes, startedFrom, repositoryPath, stack === null ? null : { root: stack.root, before: stack.remoteStatus, pullRequest })
     }
     return true
   } finally {
@@ -386,7 +393,10 @@ async function sendTogether(
       recordPush(request.repositoryPath, formatWholeStackBranch(stack.root), stack.remoteStatus, null)
     }
     // one refresh of the pull requests, the whole stack's too
-    void refreshPullRequestsAfterPushes(branches.map(branch => [branch.name, tips.get(branch.name) ?? branch.commits[0]?.hash] as const))
+    void refreshPullRequestsAfterPushes(
+      branches.map(branch => [branch.name, tips.get(branch.name) ?? branch.commits[0]?.hash] as const),
+      request,
+    )
     return null
   } catch (error) {
     report(`Cannot push ${joinNames(subjects)}`, error)
@@ -622,7 +632,7 @@ async function sendStackBranch(request: VcsRequest, sent: StackBranchToSend, rep
     if (result.data.type === "remoteMoved") {
       return status ?? undefined
     }
-    void refreshPullRequests("push")
+    void refreshPullRequests("push", request)
     return null
   } catch (error) {
     report(`Cannot push ${subject}`, error)

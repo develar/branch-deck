@@ -72,6 +72,10 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     pushError: null as string | null,
     /** Runs while git pushes: what the user does meanwhile */
     whilePushing: () => {},
+    /** Runs while GitHub retargets a pull request: what the user does meanwhile */
+    whileRetargeting: () => {},
+    /** The repository of each refresh of the pull requests after a push, in order */
+    refreshedIn: [] as string[],
     /** The repository the main window shows */
     selected: "/repo",
   },
@@ -244,13 +248,18 @@ vi.mock("@/stores/patronus", () => ({
 
 vi.mock("@/stores/pull-requests", () => ({
   refreshPullRequests: async () => {},
-  refreshPullRequestsAfterPush: async () => {},
-  refreshPullRequestsAfterPushes: async () => {},
+  refreshPullRequestsAfterPush: async (_name: string, _tip: string | undefined, repository: { repositoryPath: string }) => {
+    stores.refreshedIn.push(repository.repositoryPath)
+  },
+  refreshPullRequestsAfterPushes: async (_pushed: unknown, repository: { repositoryPath: string }) => {
+    stores.refreshedIn.push(repository.repositoryPath)
+  },
   getPullRequest: (name: string) => stores.pullRequests[name],
   getStackPullRequest: (root: string) => stores.stackPullRequests[root],
   getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }),
   retargetPullRequest: async (name: string, base: string) => {
     calls.push(`retarget ${name} ${base}`)
+    stores.whileRetargeting()
     if (stores.retargetError !== null) {
       throw new Error(stores.retargetError)
     }
@@ -273,6 +282,7 @@ vi.mock("@/stores/activity", async () => ({
 vi.mock("@/stores/repository", () => ({
   vcsRequestFactory: { createRequest: () => ({ repositoryPath: stores.selected, branchPrefix: "user" }) },
   getSelectedRepositoryPath: () => stores.selected,
+  isSelectedRepository: (path: string) => path === stores.selected,
   getRepositorySwitchReason: (path: string) => (path === stores.selected ? null : `${path} is no longer the open repository`),
   getFullBranchName: (name: string) => `user/virtual/${name}`,
 }))
@@ -334,6 +344,8 @@ beforeEach(() => {
   stores.pushError = null
   stores.selected = "/repo"
   stores.whilePushing = () => {}
+  stores.whileRetargeting = () => {}
+  stores.refreshedIn = []
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
 })
@@ -1051,6 +1063,54 @@ describe("a push that started in another repository", () => {
     moved!.actionProps!.onClick()
     expect(calls).toEqual(["push auth"])
     expect(toasts.at(-1)).toMatchObject({ title: "Cannot push auth", description: "/repo is no longer the open repository" })
+  })
+
+  it("retargets no pull request of the branch of the same name there after a switch during a retarget of the stack", async () => {
+    addBranch("login", "auth")
+    addBranch("ui", "login")
+    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "user/virtual/auth", url: "u8" } as PullRequest
+    stores.pullRequests.ui = { number: 9, state: "open", baseRefName: "user/virtual/login", url: "u9" } as PullRequest
+    // while GitHub retargets login, the user opens /other, whose ui has its own pull request into a virtual branch
+    stores.whileRetargeting = () => {
+      stores.whileRetargeting = () => {}
+      switchRepository()
+      stores.pullRequests.ui = { number: 42, state: "open", baseRefName: "user/virtual/core", url: "u42" } as PullRequest
+    }
+    expect(await pushStack("ui")).toBe(false)
+    expect(calls).toEqual(["retarget login master"])
+    expect(records).toEqual(["Retargeted #8 to master: login · it went into auth"])
+    expect(stores.pullRequests.ui?.baseRefName).toBe("user/virtual/core")
+    expect(toasts.at(-1)).toMatchObject({ title: "Cannot push ui", description: "/repo is no longer the open repository" })
+  })
+
+  /** During the push the user opens /other, whose branch of the same name has its own pull request #42 */
+  function switchToBranchWithPullRequest(name: string): void {
+    stores.whilePushing = () => {
+      switchRepository()
+      stores.pullRequests[name] = { number: 42, state: "open", baseRefName: "user/virtual/core", url: "https://github.com/JetBrains/ultimate/pull/42" } as PullRequest
+    }
+  }
+
+  it("offers no pull request of the branch of the same name there in the toast of a push that ends after a switch", async () => {
+    switchToBranchWithPullRequest("auth")
+    expect(await pushBranch("auth")).toBe(true)
+    const toast = toasts.at(-1)!
+    expect(toast.title).toBe("Pushed auth")
+    expect(text(toast.description)).toBe("1 commit · created the remote branch")
+    expect(toast.actionProps).toBeUndefined()
+    // the pull requests the push refreshes are of its repository
+    expect(stores.refreshedIn).toEqual(["/repo"])
+  })
+
+  it("offers no pull request of the branches of the same names there in the toast of a stack push that ends after a switch", async () => {
+    addBranch("login", "auth")
+    switchToBranchWithPullRequest("login")
+    expect(await pushStack("login")).toBe(true)
+    const toast = toasts.at(-1)!
+    expect(toast.title).toBe("Pushed auth and login")
+    expect(text(toast.description)).not.toContain("retarget")
+    expect(toast.actionProps).toBeUndefined()
+    expect(stores.refreshedIn).toEqual(["/repo"])
   })
 })
 

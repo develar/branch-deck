@@ -14,6 +14,7 @@ import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { formatWholeStackBranch } from "@/lib/whole-stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { getBranch } from "@/stores/branch-sync"
+import { isSelectedRepository } from "@/stores/repository"
 
 /**
  * A push of a branch, the robot it restarted on the pushed commit (a Safe Push the push had to cancel), and the pull
@@ -80,13 +81,22 @@ function addPushToast(title: string, clauses: readonly Clause[], action: ToastAc
 }
 
 /**
- * The toast of a push of a branch (`news`, as Activity says it), read after the push: the remote branch it created can
- * have a pull request now. It offers the pull request: open it, create it (into the baseline, as every pull request), or
- * copy the `gh` command that retargets one into a virtual branch (the push retargets it first, `retargeted`; the command
- * is for a retarget that failed). A push that restarted a robot says so and opens the robot.
+ * The branch of the table the toast of a push into `repositoryPath` reads after it: none once the main window shows
+ * another repository, whose branch of the same name is another branch with its own pull request
  */
-export function showPushToast(branchName: string, news: PushNews, restarted?: PatronusRobot, retargeted?: Retargeted): void {
-  const branch = getBranch(branchName)
+function pushedBranch(branchName: string, repositoryPath: string): Branch | undefined {
+  return isSelectedRepository(repositoryPath) ? getBranch(branchName) : undefined
+}
+
+/**
+ * The toast of a push of a branch into `repositoryPath` (`news`, as Activity says it), read after the push: the remote
+ * branch it created can have a pull request now. It offers the pull request: open it, create it (into the baseline, as
+ * every pull request), or copy the `gh` command that retargets one into a virtual branch (the push retargets it first,
+ * `retargeted`; the command is for a retarget that failed). A push that restarted a robot says so and opens the robot.
+ * A push that ends after a switch of the repository says what it pushed and offers no pull request.
+ */
+export function showPushToast(branchName: string, repositoryPath: string, news: PushNews, restarted?: PatronusRobot, retargeted?: Retargeted): void {
+  const branch = pushedBranch(branchName, repositoryPath)
   const retargetCommand = branch === undefined ? null : getRetargetCommand(branch)
   const retargetNeeded = branch === undefined ? null : describeRetargetNeeded(branch)
   const clauses: Clause[] = []
@@ -120,9 +130,10 @@ export interface StackBranchPushed {
  * branch): what the pushes did, a pull request of them that needs a retarget, the robots they restarted; the pull
  * request action is of `startedFrom`, the branch the user pushed the stack from, unless a retarget comes first. The
  * stack branch of the whole stack that went along (`wholeStack`) is "pushed the whole stack branch"; pushed alone, the
- * toast is its own ("Pushed the whole stack branch of auth"), with the pull request of the whole stack.
+ * toast is its own ("Pushed the whole stack branch of auth"), with the pull request of the whole stack. Pushed into
+ * `repositoryPath`: after a switch of the repository it offers no pull request (`pushedBranch`).
  */
-export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: string, wholeStack: StackBranchPushed | null = null): void {
+export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: string, repositoryPath: string, wholeStack: StackBranchPushed | null = null): void {
   const [first] = pushes
   if (first === undefined) {
     if (wholeStack !== null) {
@@ -134,7 +145,7 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
     return
   }
   if (pushes.length === 1 && wholeStack === null) {
-    showPushToast(first.name, describePush(first.name, first.before), first.restarted, first.retargeted)
+    showPushToast(first.name, repositoryPath, describePush(first.name, first.before), first.restarted, first.retargeted)
     return
   }
 
@@ -147,7 +158,7 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
   }
   let retargeted: { branch: Branch; command: string } | null = null
   for (const push of pushes) {
-    const branch = getBranch(push.name)
+    const branch = pushedBranch(push.name, repositoryPath)
     const command = branch === undefined ? null : getRetargetCommand(branch)
     if (branch !== undefined && command !== null) {
       retargeted = { branch, command }
@@ -160,7 +171,7 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
       clauses.push(restartClause(push.restarted, push.name))
     }
   }
-  const started = getBranch(startedFrom)
+  const started = pushedBranch(startedFrom, repositoryPath)
   const action = retargeted !== null ? getPushAction(retargeted.branch, retargeted.command) : started === undefined ? null : getPullRequestToastAction(started)
   addPushToast(news.title, clauses, action)
 }

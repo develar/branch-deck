@@ -258,7 +258,14 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   returns that reason to its action). A push already sent ends in its repository: its spinner, its progress and the
   remote status it brings stay off the rows of the other repository, whose branch of the same name pushes on its own;
   the progress it leaves is gone, so the next push of the branch, in either repository, starts at "Pushing…".
+  A stack push retargets its pull requests one after another, each only while its repository is shown: a switch during
+  the retarget of login retargets no pull request of the other repository's ui. A push that ends after a switch says
+  "Pushed auth" with what it pushed and the robot it restarted, but offers no pull request (no Open Pull Request, no
+  Create Pull Request, no retarget clause), since the branch of the same name there has its own; the pull requests it
+  refreshes are of its repository.
   [@test] ../../src/lib/git/push.test.ts (`pushes nothing of the branch of the same name there, and says why`, `pushes no stack of the same names there`, `refuses the push of an action in place`)
+  [@test] ../../src/lib/git/push.test.ts (`retargets no pull request of the branch of the same name there after a switch during a retarget of the stack`, `offers no pull request of the branch of the same name there in the toast of a push that ends after a switch`, `offers no pull request of the branches of the same names there in the toast of a stack push that ends after a switch`)
+  [@test] ../../src/stores/pull-requests.test.ts (`refreshes the repository the push went to, after a switch too, never the selected one`)
   [@test] ../../src/stores/branch-sync.test.ts (`keeps a push that ends after a switch of the repository out of the branch of the same name there`, `drops the progress of a push that ends after a switch: the next push of the branch starts without its percent`, `keeps a stack push that runs on after a switch off the row of the same name there`)
 - The robot a push cancels, to restart it (Restart Safe Push) or because a start replaces it, must be canceled after
   the last of those checks, right before the push is sent: a switch before it cancels nothing, and from the cancel on

@@ -24,13 +24,16 @@ const { gh } = vi.hoisted(() => ({
     hold: false,
     /** The writes that reached GitHub, with the repository each named */
     writes: [] as string[],
+    /** The repository of each list of the pull requests, in order */
+    listedIn: [] as string[],
   },
 }))
 
 vi.mock("@/lib/bindings", () => ({
   commands: {
-    getPullRequests: async () => {
+    getPullRequests: async (params: { repositoryPath: string }) => {
       gh.calls++
+      gh.listedIn.push(params.repositoryPath)
       if (gh.hold) {
         await new Promise<void>(resolve => {
           gh.pending = resolve
@@ -81,6 +84,7 @@ beforeEach(() => {
   gh.hold = false
   gh.pending = null
   gh.writes = []
+  gh.listedIn = []
 })
 
 afterEach(() => {
@@ -167,9 +171,11 @@ describe("refreshPullRequests", () => {
 })
 
 describe("refreshPullRequestsAfterPush", () => {
+  const selected = { repositoryPath: "/repo", branchPrefix: "user" }
+
   it("looks again a little later while GitHub still shows the old head", async () => {
     gh.result = answer("old")
-    await refreshPullRequestsAfterPush("auth", "new")
+    await refreshPullRequestsAfterPush("auth", "new", selected)
     expect(gh.calls).toBe(1)
 
     gh.result = answer("new")
@@ -179,9 +185,19 @@ describe("refreshPullRequestsAfterPush", () => {
   })
 
   it("does not look again when the pull request shows the pushed commit", async () => {
-    await refreshPullRequestsAfterPush("auth", "tip")
+    await refreshPullRequestsAfterPush("auth", "tip", selected)
     await vi.advanceTimersByTimeAsync(PUSH_RECHECK_DELAY_MS)
     expect(gh.calls).toBe(1)
+  })
+
+  it("refreshes the repository the push went to, after a switch too, never the selected one", async () => {
+    gh.result = answer("old")
+    await refreshPullRequestsAfterPush("auth", "new", { repositoryPath: "/other", branchPrefix: "them" })
+    await vi.advanceTimersByTimeAsync(PUSH_RECHECK_DELAY_MS)
+    // its pull request still showed the old head: the second look goes there too
+    expect(gh.listedIn).toEqual(["/other", "/other"])
+    expect(pullRequestsStore.getState().repositories["/other\nthem"]?.pullRequests.auth?.headRefOid).toBe("old")
+    expect(getPullRequest("auth")).toBeUndefined()
   })
 })
 
