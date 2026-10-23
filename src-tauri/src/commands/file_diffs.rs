@@ -104,7 +104,7 @@ pub async fn get_blob_texts(git_executor: State<'_, GitCommandExecutor>, file_di
 
 /// The tree-sitter highlighting of the lines a view asks for of one blob (`file_diffs::syntax`): raw bytes, which the
 /// typed bindings cannot say, so it has its own handler (`raw_invoke_handler` in `lib.rs`) and its own call in the view
-/// (`src/lib/diff/highlight/backend-port.ts`). From the blobs the diffs read, else one `cat-file --batch`
+/// (`src/lib/diff/highlight/backend-syntax.ts`). From the blobs the diffs read, else one `cat-file --batch`
 #[tauri::command]
 #[instrument(skip(git_executor, file_diffs, params), fields(id = %params.blob.id, path = %params.file_path))]
 pub async fn get_blob_syntax(
