@@ -91,7 +91,9 @@ export function SafePushButton({
         ? compact
           ? pushProgress === null
             ? null
-            : `${pushProgress.percent}%`
+            : pushProgress.waiting === true
+              ? "Waiting…"
+              : `${pushProgress.percent}%`
           : pushing
         : starting.step === "checking" || starting.step === "target"
           ? "Checking…"

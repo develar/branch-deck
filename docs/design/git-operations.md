@@ -2707,9 +2707,14 @@ lacks, and its pull request showing the parent's commits.
    another push of the app writes, the same branch twice or two whole stacks of one stack branch, waits for it without
    a bound, since both lease on the head the user saw and the second would find the lease broken; the pushes of other
    refs run side by side), then the repository lock
-   (`lock_repository_in` on the `$GIT_COMMON_DIR` the host knows, the app per repository from `RepositoryStateCache`:
-   no git process), bounded by `DEFAULT_LOCK_TIMEOUT` for another holder (`bd`, a rewrite: "Nothing was pushed: `bd
-   group` (…) holds the repository; try again when it is done"). The lock is held only while the push is decided:
+   (`lock_repository_while_held` on the `$GIT_COMMON_DIR` the host knows, the app per repository from
+   `RepositoryStateCache`: no git process). While another holder has it (`bd pick --follow` of an agent, a rewrite of
+   the app), the push waits as long as the holder record names a live process, and its progress says whom for
+   (`TransferProgress::waiting_for`, "Waiting for `bd pick` (pid 4242, for 12 s)", the label and the hover of the
+   push and of the Safe Push step), told again about once a second; a killed holder frees the lock with its process.
+   Only a lock no record names a live holder of refuses it after `DEFAULT_LOCK_TIMEOUT` ("Nothing was pushed: another
+   Branch Deck operation holds the repository; try again when it is done"); `bd` keeps its bounded wait (`locked`).
+   The lock is held only while the push is decided:
    under it the checks of `bd push` on the table of `RepositoryViews` and the Patronus
    view of the robots (`guard_facts`, through the memo of the views): a branch the table has no row of, a parked
    branch or one built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (its own, of a

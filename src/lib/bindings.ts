@@ -4227,8 +4227,13 @@ export type TransferProgress = {
 	transferred: string | null,
 	/**  The transfer rate, as git prints it, e.g. "32.57 MiB/s" */
 	speed: string | null,
-	/**  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)" */
+	/**
+	 *  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)"; while the
+	 *  push waits for another holder of the repository lock, who it is: "Waiting for `bd pick` (pid 4242, for 12 s)"
+	 */
 	line: string,
+	/**  The push has not started: it waits for another holder of the repository lock, whom `line` names */
+	waiting?: boolean,
 };
 
 /**  A branch an unapply kept: its commits are not in HEAD, it lands nothing until it is reapplied */

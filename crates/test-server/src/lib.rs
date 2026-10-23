@@ -111,6 +111,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}", axum::routing::delete(delete_repository))
     .route("/repositories/{id}/reword", post(reword_commit))
     .route("/repositories/{id}/commit", post(commit_on_head))
+    .route("/repositories/{id}/repository-lock", post(hold_repository_lock))
     .route(
       "/repositories/{id}/pull-requests",
       post(remote_fixtures::set_pull_requests).get(remote_fixtures::get_github_log),
@@ -653,6 +654,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     agent_cli_installed: std::sync::atomic::AtomicBool::new(false),
     available_update: std::sync::RwLock::default(),
     cli_tools: Arc::new(cli_tools_fixtures::CliToolsHost::new(&state.app_data_of(id))),
+    held_lock: std::sync::Mutex::default(),
   };
   state.repositories.insert(id.to_string(), repo);
 }
@@ -726,6 +728,33 @@ pub async fn commit_on_head(
       Err(StatusCode::INTERNAL_SERVER_ERROR)
     }
   }
+}
+
+/// `POST /repositories/{id}/repository-lock`: whether the server holds the repository lock
+#[derive(Deserialize)]
+pub struct RepositoryLockRequest {
+  held: bool,
+}
+
+/// Takes the repository lock of the repository (`$GIT_COMMON_DIR/branch-deck.lock`, with its holder record) or releases
+/// it, as another process holds it (`bd pick --follow` of an agent): the holder is the server, alive while it runs
+pub async fn hold_repository_lock(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(request): Json<RepositoryLockRequest>,
+) -> Result<StatusCode, StatusCode> {
+  let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let mut held = repo.held_lock.lock().expect("held lock");
+  *held = None;
+  if request.held {
+    let common_dir = std::path::Path::new(&repo.path).join(".git");
+    let lock = history_rewrite::repository_lock::lock_repository_in(&common_dir, std::time::Duration::ZERO, &|| {}).map_err(|e| {
+      tracing::error!("Cannot take the repository lock: {e:#}");
+      StatusCode::CONFLICT
+    })?;
+    *held = Some(lock);
+  }
+  Ok(StatusCode::OK)
 }
 
 /// Sets what `suggest_branch_names` answers for the repository, and how long it takes

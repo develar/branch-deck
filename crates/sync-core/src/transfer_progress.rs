@@ -18,8 +18,26 @@ pub struct TransferProgress {
   pub transferred: Option<String>,
   /// The transfer rate, as git prints it, e.g. "32.57 MiB/s"
   pub speed: Option<String>,
-  /// The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)"
+  /// The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)"; while the
+  /// push waits for another holder of the repository lock, who it is: "Waiting for `bd pick` (pid 4242, for 12 s)"
   pub line: String,
+  /// The push has not started: it waits for another holder of the repository lock, whom `line` names
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub waiting: bool,
+}
+
+impl TransferProgress {
+  /// A push that waits for `holder` of the repository lock ("`bd pick` (pid 4242, for 12 s)")
+  pub fn waiting_for(holder: impl std::fmt::Display) -> Self {
+    Self {
+      percent: 0,
+      transferred: None,
+      speed: None,
+      line: format!("Waiting for {holder}"),
+      waiting: true,
+    }
+  }
 }
 
 /// The stages of a transfer in their order, with the share of the whole (IDEA's numbers: not measured, just plausible).
@@ -117,6 +135,7 @@ impl TransferProgressAnalyzer {
       transferred: self.transferred.clone(),
       speed: self.speed.clone(),
       line: line.to_string(),
+      waiting: false,
     })
   }
 }

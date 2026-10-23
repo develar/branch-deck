@@ -35,6 +35,13 @@ pub struct RepositoryLocked {
   pub holder: Option<LockHolder>,
 }
 
+/// The wait for a live holder (`lock_repository_while_held`) ended without the lock: the user canceled it
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("The wait for {} was canceled", .path.display())]
+pub struct LockWaitCanceled {
+  pub path: PathBuf,
+}
+
 /// Who holds a lock: written next to the lock file (`<lock>.holder`) once the lock is taken, deleted before it is
 /// released. The lock file itself can't carry it: on Windows another process can't read a locked file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -159,29 +166,84 @@ pub fn lock_repository_in(git_common_dir: &Path, timeout: Duration, on_wait: &dy
   lock_file(git_common_dir.join(LOCK_FILE_NAME), timeout, on_wait)
 }
 
-/// An exclusive lock on the file `path`, created when missing, as `lock_repository_in` takes it: the lease pool has a
-/// lock of its own (`lease`), so a lease never waits for a long update
-pub fn lock_file(path: PathBuf, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
-  let file = OpenOptions::new()
+/// The lock of `$GIT_COMMON_DIR` for the app: it waits, without a bound, while the record of the holder names a live
+/// process (`LockHolder`: `bd pick --follow` of an agent, a rewrite of the app itself), calling `on_holder` when the
+/// holder changes and about once a second (its time grows), and refuses only when the user canceled (`canceled`,
+/// `LockWaitCanceled`) or when no record names a live holder for `unknown_timeout` (`RepositoryLocked`): a holder that
+/// writes none, or one whose record is not written yet. A killed holder frees the lock with its process. `bd` keeps the
+/// bounded wait (`lock_repository_in`)
+#[instrument(skip(on_holder, canceled))]
+pub fn lock_repository_while_held(git_common_dir: &Path, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
+  let path = git_common_dir.join(LOCK_FILE_NAME);
+  let file = open_lock_file(&path)?;
+  let started = Instant::now();
+  let mut known = Instant::now();
+  let mut told: Option<(u32, Instant)> = None;
+  loop {
+    match file.try_lock() {
+      Ok(()) => return Ok(locked(file, &path)),
+      Err(TryLockError::WouldBlock) => {
+        if canceled() {
+          return Err(anyhow::Error::new(LockWaitCanceled { path }));
+        }
+        match LockHolder::read(&path) {
+          Some(holder) => {
+            known = Instant::now();
+            if told.is_none_or(|(pid, at)| pid != holder.pid || at.elapsed() >= HOLDER_TICK) {
+              on_holder(&holder);
+              told = Some((holder.pid, Instant::now()));
+            }
+          }
+          None if known.elapsed() >= unknown_timeout => {
+            return Err(anyhow::Error::new(RepositoryLocked {
+              path,
+              waited: started.elapsed(),
+              holder: None,
+            }));
+          }
+          None => {}
+        }
+        std::thread::sleep(POLL_INTERVAL);
+      }
+      Err(TryLockError::Error(e)) => return Err(anyhow::Error::new(e).context(format!("Cannot lock {}", path.display()))),
+    }
+  }
+}
+
+/// How often the wait for a live holder tells it again: the time of its hold grows
+const HOLDER_TICK: Duration = Duration::from_secs(1);
+
+/// The lock file at `path`, created when missing
+fn open_lock_file(path: &Path) -> Result<File> {
+  OpenOptions::new()
     .create(true)
     .truncate(false)
     .write(true)
-    .open(&path)
-    .with_context(|| format!("Cannot open {}", path.display()))?;
+    .open(path)
+    .with_context(|| format!("Cannot open {}", path.display()))
+}
+
+/// The lock just taken on `file`, with the record of this process next to it
+fn locked(file: File, path: &Path) -> RepositoryLock {
+  debug!(path = %path.display(), "locked");
+  // a lock without its record still locks: the record only names the holder to the ones that wait
+  let holder = LockHolder::of_this_process()
+    .write(path)
+    .inspect_err(|e| warn!(error = %format!("{e:#}"), "cannot write the holder record of the lock"))
+    .ok();
+  RepositoryLock { _file: file, holder }
+}
+
+/// An exclusive lock on the file `path`, created when missing, as `lock_repository_in` takes it: the lease pool has a
+/// lock of its own (`lease`), so a lease never waits for a long update
+pub fn lock_file(path: PathBuf, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
+  let file = open_lock_file(&path)?;
 
   let started = Instant::now();
   let mut waiting = false;
   loop {
     match file.try_lock() {
-      Ok(()) => {
-        debug!(path = %path.display(), "locked");
-        // a lock without its record still locks: the record only names the holder to the ones that wait
-        let holder = LockHolder::of_this_process()
-          .write(&path)
-          .inspect_err(|e| warn!(error = %format!("{e:#}"), "cannot write the holder record of the lock"))
-          .ok();
-        return Ok(RepositoryLock { _file: file, holder });
-      }
+      Ok(()) => return Ok(locked(file, &path)),
       Err(TryLockError::WouldBlock) if started.elapsed() < timeout => {
         if !waiting {
           waiting = true;

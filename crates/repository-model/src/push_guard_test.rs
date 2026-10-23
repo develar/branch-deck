@@ -5,11 +5,12 @@ use crate::views::RepositoryViews;
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::repository_lock::lock_repository_in;
+use history_rewrite::repository_lock::{RepositoryLock, lock_repository_in};
 use pretty_assertions::assert_eq;
 use std::sync::mpsc;
 use std::time::Duration;
 use sync_core::push::{NOT_SYNCED_YET, PushBranchesOutcome, PushBranchesParams, StackPushBranch};
+use sync_core::transfer_progress::TransferProgress;
 use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
 
 fn branch(name: &str) -> StackPushBranch {
@@ -252,19 +253,53 @@ fn a_guarded_push_runs_the_processes_of_the_core_push() {
   );
 }
 
-/// Another holder of the repository lock (a rewrite, `bd sync`: the lock file, not a push of this process) refuses the
-/// push after the bounded wait, and nothing is pushed
-#[test]
-fn a_push_while_another_operation_holds_the_lock_is_refused() {
+/// `pushable` synced, with its common dir, its views and the repository lock, which the test holds as another holder
+fn pushable_while_locked() -> (TestRepo, PushBranchesParams, std::path::PathBuf, RepositoryViews, RepositoryLock) {
   let (repo, params) = pushable();
   let common_dir = repo.path().join(".git");
   let views = RepositoryViews::default();
   views.keep(repo.path_str(), "test", synced_alpha_beta());
   let held = lock_repository_in(&common_dir, Duration::ZERO, &|| {}).unwrap();
+  (repo, params, common_dir, views, held)
+}
+
+/// Another holder of the repository lock (`bd pick --follow` of an agent, a rewrite of the app) keeps the push waiting,
+/// without a bound, as long as it lives: the progress of the push names it ("Waiting for `…` (pid …, for 0 s)"), and
+/// once it releases the lock, the push goes. Here the holder is the test itself, alive; the bound for a holder no record
+/// names is zero, so a wait that counted it would refuse at once
+#[test]
+fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
+  let (repo, params, common_dir, views, held) = pushable_while_locked();
+  let git = GitCommandExecutor::new();
+  let (progress, told) = mpsc::channel();
+  std::thread::scope(|scope| {
+    let push = scope.spawn(|| {
+      let mut on_progress = |tick: TransferProgress| progress.send(tick).unwrap();
+      push_guarded_within(Duration::ZERO, &|| {}, &git, &common_dir, &views, Vec::new(), &params, &mut on_progress)
+    });
+    let waiting = told.recv_timeout(Duration::from_mins(1)).unwrap();
+    assert!(waiting.waiting, "{waiting:?}");
+    assert!(waiting.line.starts_with("Waiting for `"), "{waiting:?}");
+    assert!(waiting.line.contains(&format!("(pid {}, for ", std::process::id())), "{waiting:?}");
+    assert_eq!(remote_branches(&repo), "");
+    drop(held);
+    assert!(matches!(push.join().unwrap(), Ok(PushBranchesOutcome::Pushed { .. })));
+  });
+  assert_eq!(remote_branches(&repo), "refs/heads/test/virtual/alpha\nrefs/heads/test/virtual/beta");
+}
+
+/// A lock no record names a live holder of (a holder that writes none, an older Branch Deck) refuses the push after the
+/// bounded wait, and nothing is pushed
+#[test]
+fn a_push_while_a_holder_no_record_names_holds_the_lock_is_refused() {
+  let (repo, params, common_dir, views, held) = pushable_while_locked();
+  std::fs::remove_file(common_dir.join("branch-deck.lock.holder")).unwrap();
   let git = GitCommandExecutor::new();
   let refused = push_guarded_within(Duration::from_millis(100), &|| {}, &git, &common_dir, &views, Vec::new(), &params, &mut |_| {}).unwrap_err();
-  assert!(refused.to_string().starts_with("Nothing was pushed: "), "{refused}");
-  assert!(refused.to_string().ends_with(" holds the repository; try again when it is done"), "{refused}");
+  assert_eq!(
+    refused.to_string(),
+    "Nothing was pushed: another Branch Deck operation holds the repository; try again when it is done"
+  );
   drop(held);
   assert_eq!(remote_branches(&repo), "");
 }

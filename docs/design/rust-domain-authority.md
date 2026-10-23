@@ -161,7 +161,7 @@ D — одинаковый ввод даёт разный результат в 
   приложения — lock и отказы нет строки, parked, landed, hold, stack branch не built в Rust (`push_guard`); старт,
   restart и cancel — отказы parked, landed whole, not built и overlap по роботам, которых Rust читает сам (`start_guard`):
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
-  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_parked_branch_and_a_branch_built_on_parked_are_refused`, `a_branch_a_merged_safe_push_landed_whole_is_refused`, `a_branch_whose_own_safe_push_runs_is_refused_until_it_is_canceled`, `a_push_while_another_operation_holds_the_lock_is_refused`, `a_guarded_push_runs_the_processes_of_the_core_push`)
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_parked_branch_and_a_branch_built_on_parked_are_refused`, `a_branch_a_merged_safe_push_landed_whole_is_refused`, `a_branch_whose_own_safe_push_runs_is_refused_until_it_is_canceled`, `a_push_while_a_holder_no_record_names_holds_the_lock_is_refused`, `a_guarded_push_runs_the_processes_of_the_core_push`)
   [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_stack_branch_that_is_not_built_is_refused`, `a_branch_the_last_sync_has_no_row_of_is_refused`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes`)
   [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_parked_branch_a_branch_built_on_parked_and_a_whole_stack_with_a_parked_member_are_refused`, `a_branch_and_a_whole_stack_merged_safe_pushes_landed_whole_are_refused`, `a_branch_and_a_stack_branch_the_sync_did_not_build_are_refused`)

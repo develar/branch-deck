@@ -279,6 +279,26 @@ test.describe("Patronus actions", () => {
     await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
   })
 
+  test("should wait for another holder of the repository lock as long as it lives, and then start", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const pushes = await recordCommand(page, "push_branch")
+    // another process holds the lock (`bd pick --follow` of an agent): here the test server, whose record names it
+    await repo.holdRepositoryLock(true)
+    const button = slotSafePush(page, "JIRA-456")
+    await button.click()
+    // the push reached the backend and waits there, its step busy (no bound while the holder lives, and its progress
+    // names the holder: push_guard_test.rs, transfer-progress.test.ts; the E2E server sends no push progress); nothing
+    // starts meanwhile
+    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
+    await expect(button).toHaveAttribute("aria-busy", "true")
+    expect((await repo.getPatronusLog()).starts).toEqual([])
+    await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
+    // the holder is done: the push goes and the robot starts
+    await repo.holdRepositoryLock(false)
+    await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+    expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
+  })
+
   test("should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const { repo, pushes, starts } = await setupStart(page, setupRepo, syncAndWaitForBranches)
     // the target moved after the last sync with a change of the lines a commit of the branch changes

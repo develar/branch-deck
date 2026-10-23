@@ -42,7 +42,7 @@ import type { StackIsland } from "@/lib/stack-collapse"
 import type { StackStateChip } from "@/lib/stack-state"
 import { getStackStateChips } from "@/lib/stack-state"
 import { joinNames } from "@/lib/text"
-import { transferLabel } from "@/lib/transfer-progress"
+import { transferLabel, transferPercent } from "@/lib/transfer-progress"
 import { ghostButtonColorClass, textColorClassName } from "@/lib/ui-types"
 import {
   STACK_BRANCH_PUSHING,
@@ -488,7 +488,7 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
           />
         }
       >
-        <CompactPushLabel isPushing={busy} percent={progress?.percent ?? null} count={blocker === null ? pushCommits : 0} />
+        <CompactPushLabel isPushing={busy} percent={transferPercent(progress)} count={blocker === null ? pushCommits : 0} />
       </PopoverTrigger>
       <PopoverContent data-testid="stack-island-push-description" className="w-auto max-w-sm gap-2 p-3 text-sm leading-snug" onClick={event => event.stopPropagation()}>
         {busy && <PushProgressDescription subject={current ?? formatWholeStackBranch(root)} progress={progress} />}

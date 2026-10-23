@@ -338,7 +338,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   the move, also when it starts a resolve session; the landed report after the release), `bd pick` (after its check:
   the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
-  (bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch. A sync never takes it:
+  (bounded wait, then `locked`; the app's push waits as long as the holder record names a live process and says whom
+  for, `lock_repository_while_held`), because the app and `bd` processes rewrite the same branch. A sync never takes it:
   neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).

@@ -30,7 +30,7 @@ use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{Carried, HoldKind, PatronusView};
 use domain_types::stack::StackBranchState;
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository_in};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository_while_held};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -232,8 +232,10 @@ pub fn stack_hold_words(root: &str, robot: &PatronusRobot) -> String {
 /// The app's push of a stack: its refs claimed against the pushes of this process that write one of them
 /// (`PushingRefs`), then, under the repository lock (`$GIT_COMMON_DIR/branch-deck.lock`, no git process), the checks on
 /// the kept table with `robots` (`check_push`) and the commits of the push fixed (`prepare_push_branches`, which refuses
-/// a branch the last sync did not build), then, after the lock, the network push of those commits. A lock another
-/// holder keeps past `DEFAULT_LOCK_TIMEOUT` refuses the push; so does a repository not synced yet
+/// a branch the last sync did not build), then, after the lock, the network push of those commits. While another
+/// process (or a rewrite of this one) holds the lock, the push waits as long as the holder lives, its progress naming
+/// it ("Waiting for `bd pick` (pid 4242, for 12 s)", `TransferProgress::waiting_for`); a lock whose holder no record
+/// names refuses it after `DEFAULT_LOCK_TIMEOUT`, and so does a repository not synced yet
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
 pub fn push_guarded(
   git_executor: &GitCommandExecutor,
@@ -243,15 +245,16 @@ pub fn push_guarded(
   params: &PushBranchesParams,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<PushBranchesOutcome> {
-  let on_wait = || debug!(git_common_dir = %git_common_dir.display(), "the push waits for a push of its refs or another holder of the lock");
+  let on_wait = || debug!(git_common_dir = %git_common_dir.display(), "the push waits for a push of its refs");
   push_guarded_within(DEFAULT_LOCK_TIMEOUT, &on_wait, git_executor, git_common_dir, views, robots, params, on_progress)
 }
 
-/// `push_guarded`, waiting as long as it takes for the pushes of this process that write one of its refs, then at most
-/// `lock_timeout` for another holder of the lock; `on_wait` is called when either wait starts
+/// `push_guarded`, waiting as long as it takes for the pushes of this process that write one of its refs, then for a live
+/// holder of the lock, and at most `unknown_timeout` for one no record names; `on_wait` is called when the wait for
+/// the refs starts
 #[expect(clippy::too_many_arguments, reason = "push_guarded and the waits its tests control")]
 fn push_guarded_within(
-  lock_timeout: Duration,
+  unknown_timeout: Duration,
   on_wait: &dyn Fn(),
   git_executor: &GitCommandExecutor,
   git_common_dir: &Path,
@@ -263,7 +266,8 @@ fn push_guarded_within(
   let names: Vec<String> = push_ref_names(params)?.into_iter().map(|(name, _)| name).collect();
   let _claim = PUSHING_REFS.claim(git_common_dir, &names, on_wait);
   let prepared = {
-    let _lock = lock_repository_in(git_common_dir, lock_timeout, on_wait).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
+    let mut on_holder = |holder: &_| on_progress(TransferProgress::waiting_for(holder));
+    let _lock = lock_repository_while_held(git_common_dir, unknown_timeout, &mut on_holder, &|| false).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
       Some(locked) => anyhow!(locked_refusal(locked)),
       None => error,
     })?;

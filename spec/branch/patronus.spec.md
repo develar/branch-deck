@@ -1329,13 +1329,20 @@ explicit choice of the user, offered only where the approvals count in a pull re
   Pushes (or pushes) pressed on several branches one after another push side by side; none waits for another one's
   network push, and none is refused with the app itself as the holder ("`branch-deck` (pid …, for 10 s) holds the
   repository"). Only the pushes of one remote ref (the same branch twice, two whole stacks of one stack branch) wait
-  for each other, without a bound, and the second then finds the remote at its commit. Another holder of the lock
-  (`bd`, a rewrite of the app) refuses the push after the bounded wait of 10 s: "Nothing was pushed: `bd sync` (…)
-  holds the repository; try again when it is done".
+  for each other, without a bound, and the second then finds the remote at its commit.
   [@test] ../../crates/repository-model/src/push_guard_test.rs (`the_pushes_of_two_branches_run_side_by_side`, `the_pushes_of_one_ref_wait_for_each_other_and_both_push`)
-  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_push_while_another_operation_holds_the_lock_is_refused`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_prepared_push_sends_the_commit_it_was_prepared_for`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start the Safe Pushes of two branches pressed one after the other, side by side`)
+- While another holder has the repository lock (`bd pick --follow` of an agent for 48 s, a rewrite of the app), the
+  push must wait as long as the holder lives, never refused after 10 s, and say whom it waits for: the step of the
+  Safe Push and the push button show "Waiting…", their name and hover "Waiting for `bd pick` (pid 4242, for 12 s)",
+  updated about once a second; once the holder releases the lock, the push goes. Only a lock that no record names a
+  live holder of (a holder that writes none) refuses the push after 10 s: "Nothing was pushed: another Branch Deck
+  operation holds the repository; try again when it is done".
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_push_waits_while_the_holder_of_the_lock_lives_and_names_it`, `a_push_while_a_holder_no_record_names_holds_the_lock_is_refused`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed_one`)
+  [@test] ../../src/lib/transfer-progress.test.ts (`names the holder of the repository lock the push waits for, without a percent`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should wait for another holder of the repository lock as long as it lives, and then start`)
 - The one push into a held branch is a robot action: "Restart Safe Push" of a running robot whose branch
   changed since (the menu, the robot details, the landing overview; "Cancels the run on 1a2b3c4, pushes auth and starts
   it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit. The restart is the action: its

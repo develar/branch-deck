@@ -9,7 +9,7 @@ use domain_types::commit::CommitInfo;
 use git_ops::rewrite_guard::HeadMoved;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::regroup::RegroupOptions;
-use history_rewrite::repository_lock::{LockHolder, RepositoryLocked, RewriteOptions, lock_repository, lock_repository_in};
+use history_rewrite::repository_lock::{LockHolder, LockWaitCanceled, RepositoryLocked, RewriteOptions, lock_repository, lock_repository_in, lock_repository_while_held};
 use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use pretty_assertions::assert_eq;
@@ -330,4 +330,31 @@ fn the_record_of_a_gone_holder_names_nobody() {
 
   assert_eq!(error.downcast_ref::<RepositoryLocked>().unwrap().holder, None);
   assert!(error.to_string().starts_with("Another Branch Deck operation holds"), "{error}");
+}
+
+/// The app's wait for the lock (`lock_repository_while_held`) has no bound while the record names a live holder, which
+/// it tells (`on_holder`), and ends with the lock once the holder releases it; a canceled wait ends with
+/// `LockWaitCanceled`, and a lock no record names a live holder of refuses after the bound, as `lock_repository_in` does
+#[test]
+fn the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed_one() {
+  let dir = tempfile::tempdir().unwrap();
+  let held = lock_repository_in(dir.path(), Duration::ZERO, &|| {}).unwrap();
+  // a bound of zero for a holder no record names: the wait for the named one doesn't count it
+  let error = lock_repository_while_held(dir.path(), Duration::ZERO, &mut |_| {}, &|| true).unwrap_err();
+  assert!(error.downcast_ref::<LockWaitCanceled>().is_some(), "{error:#}");
+
+  let (told, holders) = std::sync::mpsc::channel();
+  std::thread::scope(|scope| {
+    let wait = scope.spawn(|| lock_repository_while_held(dir.path(), Duration::ZERO, &mut |holder| told.send(holder.clone()).unwrap(), &|| false));
+    let holder = holders.recv_timeout(Duration::from_mins(1)).unwrap();
+    assert_eq!(holder.pid, std::process::id());
+    drop(held);
+    drop(wait.join().unwrap().expect("the lock once its holder released it"));
+  });
+
+  let held = lock_repository_in(dir.path(), Duration::ZERO, &|| {}).unwrap();
+  std::fs::remove_file(dir.path().join("branch-deck.lock.holder")).unwrap();
+  let error = lock_repository_while_held(dir.path(), Duration::from_millis(100), &mut |_| panic!("no holder to name"), &|| false).unwrap_err();
+  assert_eq!(error.downcast_ref::<RepositoryLocked>().unwrap().holder, None);
+  drop(held);
 }

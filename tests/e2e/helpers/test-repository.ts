@@ -336,6 +336,14 @@ export class TestRepositoryBuilder {
     return (await this.getFixture<{ log: string[] }>("cli-tools")).log
   }
 
+  /**
+   * Takes the repository lock of the repository (`held`) or releases it, as another process holds it (`bd pick
+   * --follow` of an agent): its holder record names the test server, `test-server`, alive while it runs
+   */
+  async holdRepositoryLock(held: boolean): Promise<void> {
+    await this.setFixture("repository-lock", { held })
+  }
+
   private async setFixture(name: string, value: unknown): Promise<void> {
     const response = await fetch(`${this.baseUrl}/repositories/${this.id}/${name}`, {
       method: "POST",

@@ -14,7 +14,7 @@ import { usePushButton, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import type { TransferProgress } from "@/lib/bindings"
 import { pushBranch, pushFromButton } from "@/lib/git/push"
 import { blockingBranchOf, formatStackPushing, stackPushSubject } from "@/lib/stack"
-import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
+import { transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
@@ -169,7 +169,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
         }
       >
         {compact ? (
-          <CompactPushLabel isPushing={showsPush} percent={progress?.percent ?? null} count={push.count} />
+          <CompactPushLabel isPushing={showsPush} percent={transferPercent(progress)} count={push.count} />
         ) : (
           <>
             {isPushing ? <Spinner data-icon="inline-start" /> : (hint ?? <UploadIcon data-icon="inline-start" />)}

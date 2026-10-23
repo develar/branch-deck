@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { TransferProgress } from "@/lib/bindings"
-import { transferAmount, transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
+import { transferAmount, transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
 
 const writing: TransferProgress = { percent: 51, transferred: "2.61 MiB", speed: "5.20 MiB/s", line: "Writing objects:  45% (136/302), 2.61 MiB | 5.20 MiB/s" }
 
@@ -8,6 +8,14 @@ describe("transferLabel", () => {
   it("shows the percent once git reports a stage", () => {
     expect(transferLabel("Pushing", null)).toBe("Pushing…")
     expect(transferLabel("Pushing", writing)).toBe("Pushing 51%")
+  })
+
+  it("names the holder of the repository lock the push waits for, without a percent", () => {
+    const waiting: TransferProgress = { percent: 0, transferred: null, speed: null, line: "Waiting for `bd pick` (pid 4242, for 12 s)", waiting: true }
+    expect(transferLabel("Pushing", waiting)).toBe("Waiting for `bd pick` (pid 4242, for 12 s)")
+    expect(transferPercent(waiting)).toBeNull()
+    expect(transferPercent(writing)).toBe(51)
+    expect(transferPercent(null)).toBeNull()
   })
 })
 

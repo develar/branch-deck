@@ -1,8 +1,19 @@
 import type { TransferProgress } from "@/lib/bindings"
 
-/** The label of a running fetch or push, e.g. "Pushing 45%"; "Pushing…" until git reports a stage */
+/**
+ * The label of a running fetch or push, e.g. "Pushing 45%"; "Pushing…" until git reports a stage; while the push waits
+ * for another holder of the repository lock, who it is: "Waiting for `bd pick` (pid 4242, for 12 s)"
+ */
 export function transferLabel(verb: string, progress: TransferProgress | null): string {
+  if (progress?.waiting === true) {
+    return progress.line
+  }
   return progress === null ? `${verb}…` : `${verb} ${progress.percent}%`
+}
+
+/** The percent a compact label shows; null before git reports a stage and while the push waits for the lock */
+export function transferPercent(progress: TransferProgress | null): number | null {
+  return progress === null || progress.waiting === true ? null : progress.percent
 }
 
 /** What a fetch received or a push sent so far and how fast, as git prints it, e.g. "5.79 MiB · 32.57 MiB/s"; null before git says */
