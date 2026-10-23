@@ -162,6 +162,7 @@ dependencies = [
  "domain-types",
  "pretty_assertions",
  "serde_json",
+ "sync-utils",
  "tempfile",
  "thiserror 2.0.21",
  "tracing",

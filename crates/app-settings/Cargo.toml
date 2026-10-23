@@ -7,6 +7,8 @@ license.workspace = true
 [dependencies]
 domain-types = { path = "../domain-types" }
 serde_json.workspace = true
+# the writer thread carries the span of the service's opener (`span::in_current_span`)
+sync-utils = { path = "../sync-utils" }
 # the temporary file of an atomic save, renamed over the settings file
 tempfile.workspace = true
 thiserror.workspace = true

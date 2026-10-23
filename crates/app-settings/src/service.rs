@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use sync_utils::span::in_current_span;
 use tracing::warn;
 
 /// How long the writer waits after the first unsaved change before it saves, so a burst of changes is one write
@@ -121,10 +122,10 @@ impl SettingsService {
       saved: Condvar::new(),
       on_save_error: Mutex::new(None),
     });
-    let writer = std::thread::Builder::new().name("settings-writer".to_owned()).spawn({
-      let shared = Arc::clone(&shared);
-      move || write_loop(&shared)
-    })?;
+    let writer_shared = Arc::clone(&shared);
+    let writer = std::thread::Builder::new()
+      .name("settings-writer".to_owned())
+      .spawn(in_current_span(move || write_loop(&writer_shared)))?;
     Ok(Self { shared, writer: Some(writer) })
   }
 
