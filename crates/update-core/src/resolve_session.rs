@@ -374,7 +374,8 @@ fn explain_refusal(git_executor: &GitCommandExecutor, repo_path: &str, state: &S
 }
 
 /// The outcome of a step: the copies of a new round are written and those of the closed one removed, under `lock`. A
-/// finished session releases it first: the update is done, and what it landed is a report, read without the lock
+/// finished session removes its copies, then releases it: the update is done, and what it landed is a report, read
+/// without the lock
 fn outcome(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -409,10 +410,11 @@ fn outcome(
       resolution,
     }),
     Step::Applied { session, previous_head } => {
-      drop(lock);
       let state = session.state();
+      // the copies and the marker go under the lock: a session that starts once it is free writes its own there
       closed(state);
       remove_root(state);
+      drop(lock);
       let new_head = state.tip.clone();
       let check = UpdateCheck {
         branch: state.branch.clone(),

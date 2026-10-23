@@ -918,6 +918,32 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   assert_eq!(clone.head(), upstream.head());
 }
 
+/// A writer that holds the lock moves HEAD while the update waits for it (the user's Move, an agent's `bd rename`): once
+/// it is gone, the check runs again under the lock and the step says so, no longer the wait for another operation
+#[test]
+fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
+  let Setup { upstream, clone } = fetched_rebase();
+  let held = lock_repository(clone.git_executor(), path(&clone), Duration::from_millis(200)).unwrap();
+  let (sender, phases) = std::sync::mpsc::channel();
+  let options = UpdateOptions {
+    fetch: false,
+    lock_timeout: Duration::from_secs(60),
+  };
+  let result = std::thread::scope(|scope| {
+    let update = scope.spawn(|| update_project_with(clone.git_executor(), path(&clone), options, &|it| sender.send(it.phase).unwrap()));
+    while phases.recv().unwrap() != UpdatePhase::Waiting {}
+    clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
+    drop(held);
+    update.join().unwrap()
+  });
+  assert_eq!(result.unwrap().check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  let mut after_wait: Vec<UpdatePhase> = phases.try_iter().collect();
+  after_wait.dedup();
+  assert_eq!(after_wait, vec![UpdatePhase::Checking, UpdatePhase::Updating]);
+  assert_eq!(git(&clone, &["log", "-1", "--format=%s"]), "(auth) Add logout");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~2"]), upstream.head());
+}
+
 /// A check that moves nothing answers while another process holds the lock: up to date, or a conflict in the app,
 /// which starts no session. A mark of files that a crash left behind still waits for the lock
 #[test]
@@ -992,7 +1018,10 @@ fn a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused() {
 
   // on the checked branch the update applies; then the same for its undo
   git(&clone, &["switch", "-q", "master"]);
-  let applied = apply_update(clone.git_executor(), path(&clone), &plan).unwrap();
+  let applied = apply_update(clone.git_executor(), path(&clone), &plan)
+    .unwrap()
+    .report(clone.git_executor(), path(&clone))
+    .unwrap();
   assert_eq!(git(&clone, &["rev-parse", "other"]), head);
   let UndoCheck::Ready(undo) = check_update_undo(clone.git_executor(), path(&clone), &head, &applied.new_head).unwrap() else {
     panic!("the update is the last move")

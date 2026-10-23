@@ -8,7 +8,8 @@ use test_utils::process_budget::{assert_processes, counting};
 
 /// Update Project: the fetch, the check and the rebase of the local commit onto the upstream, the files following. The
 /// check runs before the lock; under it, its witness (the guards, one `rev-parse` of HEAD and the upstream) costs two
-/// `rev-parse` and one `symbolic-ref` more
+/// `rev-parse` and one `symbolic-ref` more. The record of what landed reads HEAD once more under the lock of the
+/// landed state (`record_update`), as it runs after the repository lock: one `rev-parse`
 #[test]
 fn an_update() {
   let fixture = setup();
@@ -38,7 +39,7 @@ fn an_update() {
       ("remote", 2),
       ("replay", 1),
       ("rev-list", 3),
-      ("rev-parse", 12),
+      ("rev-parse", 13),
       ("symbolic-ref", 6),
       ("update-index", 3),
       ("update-ref", 2),

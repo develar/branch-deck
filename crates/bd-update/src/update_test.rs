@@ -257,12 +257,34 @@ fn the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved() {
 }
 
 /// The check of an update (the replay, the resolution by words, the landed candidates) runs before the lock, and the
-/// landed report after it: under the lock only the witness, the local changes and the move
+/// report after it (the notes of the commits resolved by words, the counts, what landed): under the lock only the
+/// witness, the local changes and the move
 #[cfg(unix)]
 #[test_log::test]
 fn the_check_of_an_update_runs_before_the_lock() {
   let (_upstream, clone) = clone_with_a_fetched_change();
-  let wrapped = LockSpanGit::new(&clone, "");
+  let commands = assert_only_the_move_under_the_lock(&clone);
+  assert!(commands.iter().any(|(_, args)| subcommand(args) == "rev-list"), "the counts after the lock: {commands:#?}");
+
+  // an update that the words resolve writes the notes of its commits after the lock too
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("f.txt", "alpha beta gamma\n")]);
+  clone.create_commit("Change f", "f.txt", "ALPHA beta gamma\n");
+  upstream.create_commit("Change f upstream", "f.txt", "alpha beta GAMMA\n");
+  git(&clone, &["fetch", "-q", "origin"]);
+  git(&clone, &["config", "branchdeck.resolveByWords", "true"]);
+  let commands = assert_only_the_move_under_the_lock(&clone);
+  assert!(
+    commands.iter().any(|(_, args)| subcommand(args) == "fast-import"),
+    "the notes after the lock: {commands:#?}"
+  );
+  assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("resolved-by-words: 1 1"));
+}
+
+/// `bd update --no-fetch` in `clone`, a clean rebase: the replay runs before the lock, and under it only the witness, the
+/// local changes and the move. Returns every git it ran
+#[cfg(unix)]
+fn assert_only_the_move_under_the_lock(clone: &TestRepo) -> Vec<(bool, String)> {
+  let wrapped = LockSpanGit::new(clone, "");
   let (exit_code, output) = wrapped.run(&["update", "--no-fetch"]);
   assert_eq!((exit_code, &output["state"]), (0, &json!("rebase")), "{output}");
   let commands = wrapped.commands();
@@ -272,11 +294,8 @@ fn the_check_of_an_update_runs_before_the_lock() {
   let mut under_lock: Vec<String> = wrapped.under_lock().iter().map(|args| subcommand(args).to_string()).collect();
   under_lock.sort_unstable();
   under_lock.dedup();
-  assert_eq!(
-    under_lock,
-    ["read-tree", "rev-list", "rev-parse", "symbolic-ref", "update-index", "update-ref"],
-    "{commands:#?}"
-  );
+  assert_eq!(under_lock, ["read-tree", "rev-parse", "symbolic-ref", "update-index", "update-ref"], "{commands:#?}");
+  commands
 }
 
 /// `bd update --no-fetch` in `clone` with its first replay held until `during` returned: between the check and the lock

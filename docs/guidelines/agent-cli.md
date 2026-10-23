@@ -1128,8 +1128,10 @@ same conflict comes again does the next round join their units.
 ### `bd sync`
 
 Rebuilds the virtual branches with `sync_core::sync::sync_branches`, the app's sync: it includes the integration
-detection of archived branches and the update check of the checked out branch. It holds the repository lock. While a
-rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress`, on a detached HEAD `detached_head`
+detection of archived branches and the update check of the checked out branch. It takes no repository lock, as the
+app's sync takes none: every ref it moves is a compare-and-swap on the tip it listed, and a rewrite or an Update Project
+of the app or of another `bd` can land while it runs, so its output is the branches as they were when it read them;
+the next sync shows the change. While a rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress`, on a detached HEAD `detached_head`
 (exit 4), and changes nothing: a half-done history would archive the branches it lacks; finish the operation first.
 
 ```json

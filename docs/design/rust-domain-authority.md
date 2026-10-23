@@ -785,8 +785,13 @@ repository». Аудит всех функций в тот же день наш�
   unlock) — без lock (`a_rewrite_beside_a_running_sync_does_not_wait_for_it`,
   `the_sync_of_a_rewrite_runs_after_the_lock`), раньше s11; check Update Project (replay, resolve by words, landed
   candidates) — до lock на замороженных HEAD и upstream, под lock — witness (сдвиг — один re-prepare под lock),
-  `blocking_paths` и move, landed report — после unlock (C11; `the_check_of_an_update_runs_before_the_lock`,
-  `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`); toast `locked` Update Project
+  `blocking_paths` и move, notes resolve by words, счёт `rev-list` и landed report — после unlock (C11;
+  `the_check_of_an_update_runs_before_the_lock`,
+  `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`), re-prepare под lock — снова шаг
+  `Checking` (`the_check_again_after_the_wait_for_the_lock_is_the_check_step`); запись `landed.json` после unlock — под
+  своим `landed.lock`, и поздняя запись update, чей HEAD уже сдвинут, только добавляет отчёт
+  (`a_late_record_of_an_update_keeps_the_record_of_the_update_after_it`); законченная resolve session удаляет свои копии
+  до unlock; toast `locked` Update Project
   называет держателя из его записи (`locked_message`), до `Busy { holder }` s4.
 - **Очередь в TS до s11:** `runOperation` ставит rewrite в очередь вместо `onBlocked`; Undo помечается выполненным
   после `Ok`; слот Update Project — только apply (`fetch_baseline`, затем `update_project` без fetch); ⌘T во время
@@ -1662,7 +1667,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `refs/branch-deck/parked`. `UpdateProject`: фаза fetch — `FetchBaseline` (remote-вид, ресурс tracking ref), не
   rewrite; prepare (replay, resolve by words, landed candidates, поиск первого конфликта `bd update`) — до lock на
   замороженных HEAD и upstream, под lock — witness (сдвиг — один re-prepare), `blocking_paths`, apply или запись
-  session ref; `record_landed_update` — после unlock; ⌘T во время fetch присоединяется, во время rewrite — в очередь.
+  session ref; отчёт apply (`MovedUpdate::report`) и `record_landed_update` — после unlock; ⌘T во время fetch присоединяется, во время rewrite — в очередь.
   `bd sync` и sync после rewrite `bd` — без repository lock, CAS как у приложения (снимает исключение до s11 из п. 1
   [инвариантов](#инварианты), также для sync внутри `bd push`/`bd safe-push`); `bd pick` считает landing после unlock.
   Drop'ы store-line sync — `try_lock` без ожидания (занято — пропуск до следующего sync), regroup один раз перечитывает

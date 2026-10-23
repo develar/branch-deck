@@ -748,9 +748,10 @@ fn with_article(operation: &str) -> String {
 }
 
 /// Move the branch to the checked update, then let the index and the working tree follow. If the files can't follow
-/// (a file changed since the check), the branch moves back and nothing is changed.
+/// (a file changed since the check), the branch moves back and nothing is changed. The caller holds the repository
+/// lock for the move only: what the update did (`MovedUpdate::report`) is read after the release
 #[instrument(skip(git_executor, plan), fields(branch = %plan.check.branch))]
-pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &UpdatePlan) -> Result<AppliedUpdate> {
+pub fn apply_update<'a>(git_executor: &GitCommandExecutor, repo_path: &str, plan: &'a UpdatePlan) -> Result<MovedUpdate<'a>> {
   let (UpdateState::Clean { kind }, Some(new_head)) = (&plan.check.state, &plan.new_head) else {
     bail!("Nothing to apply: the update is not clean");
   };
@@ -770,25 +771,43 @@ pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
     plan.files_change,
     UPDATE_OPERATION,
   )?;
-  write_resolved_notes(git_executor, repo_path, &check.resolved_by_words);
+  info!(?kind, %new_head, "updated the branch");
+  Ok(MovedUpdate { plan, kind: *kind, new_head })
+}
 
-  let (replayed, dropped_already_upstream) = match kind {
-    UpdateKind::FastForward => (0, 0),
-    UpdateKind::Rebase => {
-      let replayed = count(git_executor, repo_path, &[new_head, &format!("^{}", check.upstream_head)])?;
-      let mut revs = vec![check.head.clone(), format!("^{}", check.upstream_head)];
-      revs.extend(plan.excluded.iter().map(|rev| format!("^{rev}")));
-      let local = count(git_executor, repo_path, &revs.iter().map(String::as_str).collect::<Vec<_>>())?;
-      (replayed, local.saturating_sub(replayed))
-    }
-  };
-  info!(?kind, replayed, dropped_already_upstream, %new_head, "updated the branch");
-  Ok(AppliedUpdate {
-    kind: *kind,
-    new_head: new_head.clone(),
-    replayed,
-    dropped_already_upstream,
-  })
+/// An update that `apply_update` moved: the branch and the files are at its new head
+#[derive(Debug)]
+#[must_use = "report what the update did"]
+pub struct MovedUpdate<'a> {
+  plan: &'a UpdatePlan,
+  kind: UpdateKind,
+  new_head: &'a str,
+}
+
+impl MovedUpdate<'_> {
+  /// What the update did, read on the ids the move froze, so it needs no repository lock: the notes of the commits it
+  /// resolved by words (an audit record) and how many commits it replayed and dropped as upstream already
+  pub fn report(self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<AppliedUpdate> {
+    let check = &self.plan.check;
+    write_resolved_notes(git_executor, repo_path, &check.resolved_by_words);
+    let (replayed, dropped_already_upstream) = match self.kind {
+      UpdateKind::FastForward => (0, 0),
+      UpdateKind::Rebase => {
+        let replayed = count(git_executor, repo_path, &[self.new_head, &format!("^{}", check.upstream_head)])?;
+        let mut revs = vec![check.head.clone(), format!("^{}", check.upstream_head)];
+        revs.extend(self.plan.excluded.iter().map(|rev| format!("^{rev}")));
+        let local = count(git_executor, repo_path, &revs.iter().map(String::as_str).collect::<Vec<_>>())?;
+        (replayed, local.saturating_sub(replayed))
+      }
+    };
+    debug!(replayed, dropped_already_upstream, "counted the update");
+    Ok(AppliedUpdate {
+      kind: self.kind,
+      new_head: self.new_head.to_string(),
+      replayed,
+      dropped_already_upstream,
+    })
+  }
 }
 
 /// The notes of the commits an applied update resolved by words (`RESOLVE_NOTES_REF`), as a resolve session writes

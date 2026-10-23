@@ -774,11 +774,16 @@ Details:
   meanwhile. Under the lock run only the witness (2d), the local changes on the paths the update writes (7, 8) and the
   move (9, 10), so the app's Update Project, `bd update` and every rewrite of the app or of bd never interleave with
   the move. A writer that moved the branch or the upstream during the check makes the update check once more, under
-  the lock, so an update never applies a check made before another writer moved the branch. A check that moves
+  the lock, so an update never applies a check made before another writer moved the branch; the progress says the
+  check again (`Checking`), no longer the wait. A check that moves
   nothing (up to date, blocked, or a conflict that starts no session: the app's) is the answer without the lock,
   unless the mark of an interrupted update (`pending_update`) asks for its files to follow under it. What the update
-  landed is recorded after the release (`record_landed_update`, a report), also when a resolve session finishes: its
-  `--continue`, or a start that resolves every round by words, releases the lock once the session refs moved. A
+  did and landed is read after the release on the ids the move froze (`MovedUpdate::report`: the notes of the commits
+  resolved by words, the counts; `record_landed_update`, a report), also when a resolve session finishes: its
+  `--continue`, or a start that resolves every round by words, releases the lock once the session refs moved and its
+  copies are gone. The record of `branch-deck/landed.json` is a read-modify-write under a lock of its own
+  (`landed.lock` beside it, also for the undo's restore and a dismiss): a record whose update another one already moved
+  past (HEAD is no longer at its new head) only adds what it landed, so the state keeps naming the later update. A
   conflict of `bd update` starts its resolve session under the lock, its search for the first conflict too. `bd update --dry-run` is the check inside sync
   (below): no fetch, no lock, no move.
 - **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay

@@ -152,8 +152,10 @@ The header shows whether an update would apply cleanly, from a check that every 
 - After the fetch, the update must check (the replay, the resolution by words, the landed candidates) without the
   repository lock, on the HEAD and the upstream it read once, then take the lock only for the witness, the local
   changes on the paths it writes and the move, so the app, `bd update` and the rewrites of either never interleave
-  with the move, while a regroup, a push or an agent's `bd` goes on during the check; the fetch and the record of what
-  landed never run under the lock. A check that moves nothing (up to date, or a conflict, which starts no session in
+  with the move, while a regroup, a push or an agent's `bd` goes on during the check; the fetch, the counts and notes
+  of what the update did and the record of what landed never run under the lock. A late record of an update that
+  another update already moved past only adds what it landed: the state keeps naming the later update, whose undo
+  restores the report from before it. A check that moves nothing (up to date, or a conflict, which starts no session in
   the app) is the answer at once, without waiting for the lock, unless an interrupted update left files to follow.
   A branch or an upstream moved during the check must be checked once more, under
   the lock, and a file the update writes, edited during the check, must block it. A lock held for the whole wait
@@ -162,6 +164,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   is done." ("Branch Deck or bd is changing this repository. …" once the record is gone; no lock file path), and
   keeps the time of the fetch.
   [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`, `an_update_that_moves_nothing_answers_without_waiting_for_the_lock`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`a_late_record_of_an_update_keeps_the_record_of_the_update_after_it`)
   [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`, `the_check_of_an_update_runs_before_the_lock`, `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`, `a_file_edited_during_the_replay_of_an_update_blocks_it`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - `bd update --no-fetch` must update onto the last fetched baseline ([bd update](../cli/update.spec.md)).
@@ -334,9 +337,11 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)
 - The backend tells the wait for the lock as a step of its own (`waiting`), once, when another operation holds the
-  lock as the update asks for it, after the check (`checking`), which runs before the lock. A progress message after the command answered
-  changes nothing: the steps after it are the frontend's.
-  [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
+  lock as the update asks for it, after the check (`checking`), which runs before the lock. When the branch or the
+  upstream moved meanwhile, the check once more under the lock is `checking` again, so the step no longer names
+  another operation. A progress message after the command answered changes nothing: the steps after it are the
+  frontend's.
+  [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`, `the_check_again_after_the_wait_for_the_lock_is_the_check_step`)
   [@test] ../../src/stores/update-project.test.ts (`ignores a progress message that arrives after the command answered`)
 - The step and the fetch progress belong to the repository the update (or the Fetch of a merge toast) runs in: after a
   switch, the buttons show the selected repository's, never another one's. One update or fetch runs at a time in a

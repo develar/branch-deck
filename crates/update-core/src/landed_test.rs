@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::check_baseline_update;
-use sync_core::landed::{STATE_FILE, dismiss_landed, read_report, record_sync};
+use sync_core::landed::{STATE_FILE, dismiss_landed, read_report, record_sync, record_update};
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -62,12 +62,18 @@ fn record(repo: &TestRepo) -> Vec<String> {
   describe(&record_sync(repo.git_executor(), path(repo), Path::new(&state), &check, &GroupingInputs::default()).unwrap())
 }
 
+/// `setup` with the local branches `auth` (login, logout) and `ui` (button); the ids of login and logout
+fn auth_and_ui() -> (Setup, String, String) {
+  let setup = setup();
+  let login = setup.clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  let logout = setup.clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
+  setup.clone.create_commit("(ui) Add button", "button.txt", "button\n");
+  (setup, login, logout)
+}
+
 #[test]
 fn whole_branch_landed_by_a_rebase_upstream() {
-  let Setup { upstream, clone } = setup();
-  let login = clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  let logout = clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
-  clone.create_commit("(ui) Add button", "button.txt", "button\n");
+  let (Setup { upstream, clone }, login, logout) = auth_and_ui();
   upstream.create_commit("Someone else", "shared.txt", "one\nTWO\nthree\n");
   let landed_login = land_as(&upstream, &clone, &login, "Add login", &[("login.txt", "login\n")]);
   let landed_logout = land_as(&upstream, &clone, &logout, "Add logout", &[("logout.txt", "logout\n")]);
@@ -110,6 +116,37 @@ fn undo_of_an_update_restores_the_report_from_before_it() {
   // the commits are local again, and they are incoming as before the update
   assert_eq!(landing(&clone), expected);
   assert_eq!(record(&clone), Vec::<String>::new(), "the next sync reports nothing that landed");
+}
+
+/// Two updates of a worktree record after the repository lock, and the first one's record can come last: it adds what
+/// it landed, and the state stays at the second one, so the undo of the second one still restores the report before it
+#[test]
+fn a_late_record_of_an_update_keeps_the_record_of_the_update_after_it() {
+  let (Setup { upstream, clone }, login, logout) = auth_and_ui();
+  let state = clone.git(&["rev-parse", "--path-format=absolute", "--git-path", STATE_FILE]);
+  let landed_login = land_as(&upstream, &clone, &login, "Add login", &[("login.txt", "login\n")]);
+  // update A, its record not written yet: the state is the one from before it
+  let first = update(&clone).unwrap();
+  fs::remove_file(&state).unwrap();
+  let landed_logout = land_as(&upstream, &clone, &logout, "Add logout", &[("logout.txt", "logout\n")]);
+  // update B moves the branch further and records first
+  let second = update(&clone).unwrap();
+  assert_eq!(describe(&second.landed), vec![format!("auth: Add logout -> {landed_logout} | 0 stay")]);
+  let second_head = second.applied.as_ref().unwrap().new_head.clone();
+
+  let first_head = &first.applied.as_ref().unwrap().new_head;
+  record_update(clone.git_executor(), path(&clone), &first.check, first_head, first.landed.clone()).unwrap();
+  assert_eq!(
+    describe(&read_report(clone.git_executor(), path(&clone)).unwrap()),
+    vec![format!("auth: Add logout -> {landed_logout}, Add login -> {landed_login} | 0 stay")]
+  );
+  assert_eq!(record(&clone).len(), 1, "the sync on B's head reports nothing more");
+  let token = UpdateUndoToken {
+    previous_head: second.check.head,
+    new_head: second_head,
+  };
+  let undone = undo_update_core(clone.git_executor(), path(&clone), &token, Duration::from_millis(200)).unwrap();
+  assert!(undone.landed_restored, "the state still names B's head");
 }
 
 #[test]

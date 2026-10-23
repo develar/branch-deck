@@ -21,14 +21,17 @@ use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::parse_single_commit;
 use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
+use git_ops::revs::read_head;
 use git_ops::update_branch::LandedScope;
 use history_rewrite::autosquash::plan_autosquash;
 use history_rewrite::commit_grouper::{GroupingInputs, parse_subject};
+use history_rewrite::repository_lock::{RepositoryLock, lock_file};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use sync_utils::timestamp::unix_now;
 use tracing::{debug, info, instrument, warn};
 
@@ -452,11 +455,49 @@ pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, path: &Pa
   Ok(state.landed)
 }
 
+/// The lock of a read-modify-write of the state file by an update, its undo and a dismiss, beside it: an update records
+/// after the repository lock (`record_landed_update`), so two of them, or an update and the undo of the next one, would
+/// write over each other. A lock of its own, so a record never waits for a rewrite. The sync's record takes none: it
+/// compares with the previous sync in between, which is slow
+const STATE_LOCK_FILE: &str = "landed.lock";
+
+/// How long a record waits for another: the other one only reads and writes the state file
+const STATE_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn lock_state(path: &Path) -> Result<RepositoryLock> {
+  let dir = path.parent().context("landed state path without a directory")?;
+  std::fs::create_dir_all(dir)?;
+  lock_file(dir.join(STATE_LOCK_FILE), STATE_LOCK_TIMEOUT, &|| debug!("waiting for the lock of the landed state"))
+}
+
 /// For Update Project: add what this update landed to the report and remember the branch after it, so the next sync
-/// doesn't report it again. The state before is kept as `previous` for the undo of the update
+/// doesn't report it again. The state before is kept as `previous` for the undo of the update. The update records
+/// after the repository lock: when HEAD is no longer at `new_head` (a later update moved the branch, and it records
+/// where the branch is and its undo), this one only adds what it landed to the report
 pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: &UpdateCheck, new_head: &str, found: Vec<LandedBranch>) -> Result<()> {
   let path = state_path(git_executor, repo_path)?;
+  let _lock = lock_state(&path)?;
   let mut state = load_state(&path).unwrap_or_default();
+  let head = read_head(git_executor, repo_path)?.map(|(id, _)| id);
+  if head.as_deref() != Some(new_head) {
+    if !state.branch.is_empty() && (state.branch != check.branch || state.upstream != check.upstream) {
+      info!(?head, new_head, "the branch moved on to another upstream since the update: its report is dropped");
+      return Ok(());
+    }
+    info!(?head, new_head, "the branch moved on since the update: only its report is recorded");
+    check.branch.clone_into(&mut state.branch);
+    check.upstream.clone_into(&mut state.upstream);
+    let mut found = found;
+    // a later update's count of the commits that stay is the current one
+    for branch in &mut found {
+      if let Some(known) = state.landed.iter().find(|known| known.name == branch.name) {
+        branch.remaining = known.remaining;
+      }
+    }
+    merge_report(&mut state.landed, found);
+    expire(&mut state.landed, unix_now());
+    return save_state(&path, &state);
+  }
   let mut before = state.clone();
   before.previous = None;
   state.previous = Some(Box::new(before));
@@ -480,6 +521,7 @@ pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: 
 #[instrument(skip(git_executor))]
 pub fn restore_before_update(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, new_head: &str) -> Result<bool> {
   let path = state_path(git_executor, repo_path)?;
+  let _lock = lock_state(&path)?;
   let Some(state) = load_state(&path) else { return Ok(false) };
   let Some(previous) = state.previous.filter(|_| state.branch == branch && state.head == new_head) else {
     return Ok(false);
@@ -499,6 +541,7 @@ pub fn read_report(git_executor: &GitCommandExecutor, repo_path: &str) -> Result
 #[instrument(skip(git_executor))]
 pub fn dismiss_landed(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
   let path = state_path(git_executor, repo_path)?;
+  let _lock = lock_state(&path)?;
   let Some(mut state) = load_state(&path) else { return Ok(()) };
   if state.landed.is_empty() {
     return Ok(());

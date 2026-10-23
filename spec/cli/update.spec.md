@@ -274,7 +274,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   `--continue` is `locked` while another process holds the lock.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one`, `a_dry_run_of_continue_answers_while_another_process_holds_the_lock`)
 - A `--continue` that finishes the session must release the repository lock once the branch, its files and the
-  session refs moved: what the update landed is a report, read and written to `landed.json` without the lock, as
+  session refs moved and the session's copies and marker are removed: what the update landed is a report, read and written to `landed.json` without the lock, as
   after an update that applies cleanly.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`the_landed_report_of_a_finished_session_runs_after_the_lock`)
 

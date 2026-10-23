@@ -295,7 +295,7 @@ fn an_update_whose_every_conflict_resolves_by_words_applies_without_a_session() 
   assert_eq!(resolved.iter().map(|commit| commit.commit.as_str()).collect::<Vec<_>>(), [local.as_str()]);
   // the preview wrote its commit with a fixed committer date
   assert_ne!(preview.check.resolved_by_words[0].new_id, resolved[0].new_id);
-  let applied = apply_update(git, path, &plan).unwrap();
+  let applied = apply_update(git, path, &plan).unwrap().report(git, path).unwrap();
   assert_eq!(applied.new_head, resolved[0].new_id);
   assert_eq!(clone.head(), resolved[0].new_id);
   assert_eq!(std::fs::read_to_string(clone.path().join("f.txt")).unwrap(), "ALPHA beta GAMMA\n");

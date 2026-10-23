@@ -233,8 +233,10 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // an update or undo that a crash stopped before its files followed: they follow first
   let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
   if recovered || !recheck_update(git_executor, repo_path, &mut prepared.plan, &upstream.tracking_ref)? {
-    // HEAD or the upstream moved during the check: once more, under the lock now, so it can't move again
+    // HEAD or the upstream moved during the check: once more, under the lock now, so it can't move again. The step is
+    // the check again, no longer the wait for another operation
     info!(recovered, "the update is checked again under the lock");
+    on_progress(UpdatePhase::Checking.into());
     prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::Held)?;
   }
   let Prepared {
@@ -250,7 +252,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, candidates, dir, resolve_mode, lock)?;
     return Ok(BdUpdate::Session(Box::new(outcome)));
   }
-  let applied = match &plan.check.state {
+  let moved = match &plan.check.state {
     UpdateState::Clean { .. } => {
       on_progress(UpdatePhase::Updating.into());
       Some(apply_update(git_executor, repo_path, &plan)?)
@@ -261,8 +263,9 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       None
     }
   };
-  // the update is done: what it landed is a report, read without the lock
+  // the update is done: what it did and what it landed are a report, read without the lock on the ids the move froze
   drop(lock);
+  let applied = moved.map(|moved| moved.report(git_executor, repo_path)).transpose()?;
   let landed = applied
     .as_ref()
     .map_or_default(|applied| record_landed_update(git_executor, repo_path, &plan.check, plan.excluded(), &applied.new_head, &grouping, &[]));

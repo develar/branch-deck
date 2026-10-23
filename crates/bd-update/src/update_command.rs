@@ -1,8 +1,10 @@
 //! `bd update` and `bd undo update:<id>..<id>`: the app's Update Project for agents (spec/cli/update.spec.md). The
-//! fetch runs first, without the repository lock; the check and a clean update run under it, through the guarded
-//! working-tree update of `git_ops::update_branch`. A conflict starts a resolve session (`--continue`, `--abort`,
-//! `--status`): the rounds are resolved outside the working tree, which only the finish writes. A block changes
-//! nothing; bd never stashes
+//! fetch and the check (the replay, the resolution by words, the landed candidates) run first, without the repository
+//! lock; under it run only the witness that HEAD and the upstream did not move (else the check once more, under the
+//! lock), the local changes on the paths the update writes and the move, through the guarded working-tree update of
+//! `git_ops::update_branch`; what the update did and landed is read after the release. A conflict starts a resolve
+//! session (`--continue`, `--abort`, `--status`) under the lock: the rounds are resolved outside the working tree,
+//! which only the finish writes. A block changes nothing; bd never stashes
 
 use bd_core::context::RepoContext;
 use bd_core::error::{CONFLICT_EXIT, CliError};
