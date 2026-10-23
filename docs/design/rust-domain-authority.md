@@ -787,10 +787,13 @@ repository». Аудит всех функций в тот же день наш�
 - **Захват репозитория:** Safe Push start, toast «Update Project», Create PR и Request Review, Close Landed, undo
   park и regroup, результаты push по (репозиторий, ветка).
 - **Старт:** comment-маршрут за guards; матч ответа бота с этим комментарием; cancel закончившегося заменяемого
-  робота.
+  робота. Сделано (`fix/patronus-start`): `check_start_from_pull_request` перед комментарием в обоих хостах;
+  `findCommentRobot` / `comment_robot` — mode, «не известный до POST», самый новый, принятый без робота — Started с
+  поиском в фоне (сверка по tip и `comment_id` остаётся s10); `CancelCheck::AlreadyFinished` для `replaced`.
 - **Sync:** точные oids, notes без отказа, отпечаток всех remote refs префикса, кэш issue config по stamp.
 - **Факты и сервисы:** `/problems` после ответа; single-flight токена GitHub и refresh YouTrack; scope `read:org`;
-  записи `.git/config`.
+  записи `.git/config`. `/problems` после ответа сделано (`fix/patronus-start`: `loadRobotFacts` в задаче списка и
+  опроса, `failingInFlight` по ключу); одна команда на пачку `loadReviewProblems` — s7.
 - **Окно review:** кэш списка range, prefetch после `complete`, блобы по одному запросу в полёте, текст подсветки
   один раз, поколение навигации, trailing refresh uncommitted с путём в ключе.
 - **Lease pool:** `Returning`/`cleaning`, `worktree add --lock`.
