@@ -10,6 +10,14 @@ import { holdCommandCalls, recordCommand } from "../helpers/wait-helpers"
 const ISSUE = "ABC-123"
 
 /** Names of the branch rows in display order */
+/** Moves "Add parser" of the issue branch to docs through Move to Existing of its context menu, and waits for the sync. */
+async function moveParserToDocs(page: Page): Promise<void> {
+  await expandBranch(page, findBranchRow(page, ISSUE))
+  await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
+  await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
+  await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
+}
+
 async function branchOrder(page: Page): Promise<string[]> {
   return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-branch-name") ?? ""))
 }
@@ -48,10 +56,7 @@ test.describe("Move commits", () => {
   })
 
   test("should move a commit to an existing branch from the context menu and undo it", async ({ page }) => {
-    await expandBranch(page, findBranchRow(page, ISSUE))
-    await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
-    await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
-    await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
+    await moveParserToDocs(page)
 
     await verifyCommitCount(findBranchRow(page, "docs"), "2 commits")
     await verifyCommitCount(findBranchRow(page, ISSUE), "2 commits")
@@ -100,10 +105,7 @@ test.describe("Move commits", () => {
   })
 
   test("should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid", async ({ page }) => {
-    await expandBranch(page, findBranchRow(page, ISSUE))
-    await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
-    await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
-    await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
+    await moveParserToDocs(page)
     const moved = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to docs" })
     await expect(moved).toBeVisible()
 
