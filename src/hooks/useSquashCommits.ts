@@ -2,7 +2,7 @@ import type { Commit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
-import { runRewrite } from "@/lib/rewrite"
+import { runRewrite, runUndo } from "@/lib/rewrite"
 import { getBranchesOfCommits } from "@/stores/branch-sync"
 import { branchSubject } from "@/stores/operations"
 import { getSelectedProject } from "@/stores/repository"
@@ -37,11 +37,8 @@ export async function squashCommits(commits: readonly Commit[], message: string,
  * Moves the branch back to the commit before the squash: the squash kept the files, so nothing else changes. A rewrite
  * of its own, then the sync.
  */
-export async function undoSquash(repositoryPath: string, expectedHead: string, previousHead: string, failureTitle: string): Promise<void> {
-  await runRewrite(
-    { id: "undo", subject: `undo:${expectedHead}`, objects: [], label: "Undoing the squash", repositoryPath },
-    failureTitle,
-    () => commands.restoreBranchHead({ repositoryPath, expectedHead, previousHead }),
-    () => ({ sync: true }),
+export async function undoSquash(repositoryPath: string, expectedHead: string, previousHead: string, failureTitle: string): Promise<boolean> {
+  return await runUndo({ id: "undo", subject: `undo:${expectedHead}`, objects: [], label: "Undoing the squash", repositoryPath }, failureTitle, () =>
+    commands.restoreBranchHead({ repositoryPath, expectedHead, previousHead }),
   )
 }

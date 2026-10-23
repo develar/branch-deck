@@ -146,21 +146,29 @@ export function clearActivity(repositoryPath: string): void {
 
 /**
  * A history rewrite with an Undo (squash, fixups, move, rename, stack, unstack, ungroup). Returns the undo to run from
- * the toast: whichever Undo comes first, the toast's or the one in Activity, runs `undo` once and marks the entry undone.
+ * the toast: whichever Undo comes first, the toast's or the one in Activity, runs `undo`, and a second one while it runs
+ * joins it. `undo` resolves to whether it undid the rewrite: only then is the entry marked undone and its Undo gone; an
+ * undo that failed (an error toast said why) is offered again, in its window.
  */
-export function recordRewrite(title: string, undo: () => Promise<void>, description?: string): () => void {
+export function recordRewrite(title: string, undo: () => Promise<boolean>, description?: string): () => void {
   const entry = recordActivity({ kind: "rewrite", title, description, undo: { until: Date.now() + UNDO_WINDOW_MS } })
-  let done = false
+  let state: "offered" | "running" | "done" = "offered"
   const run = () => {
-    if (done) {
+    if (state !== "offered") {
       return
     }
-    done = true
-    if (entry !== null) {
+    state = "running"
+    void undo().then(
+      undone => finish(undone),
+      () => finish(false),
+    )
+  }
+  const finish = (undone: boolean) => {
+    state = undone ? "done" : "offered"
+    if (undone && entry !== null) {
       undoActions.delete(entry.id)
       updateEntry(entry.id, it => (it.undo === undefined ? it : { ...it, undo: { ...it.undo, undone: true } }))
     }
-    void undo()
   }
   if (entry !== null) {
     undoActions.set(entry.id, run)

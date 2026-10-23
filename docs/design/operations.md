@@ -118,8 +118,10 @@ Every row the operation works on is busy (`useObjectBusy`): no right-click menu,
 `notifyError` on a failure, `applied` (reveal the moved commits, say whether anything changed), then the sync, then
 the toast `applied` returns, with Undo. The toast comes after the sync: the user sees the result beside its Undo, and
 an Undo clicked at once never meets its own running operation. An Undo is a rewrite of its own (`undoRegroup`,
-`undoSquash`). A start while another rewrite runs (an Undo clicked during an Unstack, a second drag during a move)
-waits for it in the queue: no info toast, its rows say "Waits for Unstacking tool-events".
+`undoSquash`, through `runUndo`, which resolves to whether it undid the rewrite). A start while another rewrite runs
+(an Undo clicked during an Unstack, a second drag during a move) waits for it in the queue: no info toast, its rows say
+"Waits for Unstacking tool-events". The toast of the rewrite closes and its Activity entry says "undone" only once the
+undo undid it (`recordRewrite`); after a failed one both keep their Undo.
 
 Through it: Stack On and Unstack, rename, move (and ungroup, remove prefix), squash, squash fixups and squash into,
 reword, the conflict fix, park and unpark, unapply, and their undos. The inline forms run theirs through

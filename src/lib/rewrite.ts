@@ -43,3 +43,17 @@ export async function runRewrite<T>(spec: RewriteSpec, failureTitle: string, com
   })
   return value ?? null
 }
+
+/**
+ * Runs the undo of a rewrite (`runRewrite`; a command whose result is nothing) and resolves to whether it undid it: the
+ * toast and the Activity entry of the rewrite offer their Undo again after a failure (`showUndoToast`)
+ */
+export async function runUndo<T>(spec: RewriteSpec, failureTitle: string, command: () => Promise<CommandResult<T>>, applied: () => void = () => {}): Promise<boolean> {
+  let undone = false
+  await runRewrite(spec, failureTitle, command, () => {
+    undone = true
+    applied()
+    return { sync: true }
+  })
+  return undone
+}

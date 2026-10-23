@@ -3,9 +3,9 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
-import { clickContextMenuItem, clickGroupIntoBranchButton, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
+import { clickContextMenuItem, clickGroupIntoBranchButton, dropAt, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
-import { holdCommandCalls } from "../helpers/wait-helpers"
+import { holdCommandCalls, recordCommand } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -97,6 +97,34 @@ test.describe("Move commits", () => {
     await verifyCommitCount(parserRow, "3 commits")
     await expect(parserRow.getByTestId("branch-issue-key")).toHaveText(ISSUE)
     await expect(findBranchRow(page, ISSUE)).toHaveCount(0)
+  })
+
+  test("should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid", async ({ page }) => {
+    await expandBranch(page, findBranchRow(page, ISSUE))
+    await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
+    await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
+    const moved = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to docs" })
+    await expect(moved).toBeVisible()
+
+    // a park of the issue branch runs, held
+    const parks = await holdCommandCalls(page, "park_branches")
+    const undos = await recordCommand(page, "undo_regroup")
+    await startDrag(page, findBranchRow(page, ISSUE))
+    await dropAt(page, page.getByTestId("drag-target-bar").getByTestId("park-drop-zone"))
+    await expect.poll(() => parks.calls.length).toBe(1)
+
+    // the Undo waits for the park: no refusal, the toast stays with its Undo until the undo ran
+    await moved.getByRole("button", { name: "Undo" }).click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot undo the move" })).toHaveCount(0)
+    await expect(moved).toBeVisible()
+    expect(undos).toHaveLength(0)
+
+    await runAndWaitForSync(page, async () => parks.release())
+    await expect.poll(() => undos.length).toBe(1)
+    await expect(moved).toHaveCount(0)
+    await verifyCommitCount(findBranchRow(page, "docs"), "1 commit")
+    await verifyCommitCount(findBranchRow(page, ISSUE), "3 commits")
   })
 
   test("should drag the selection onto a branch, but not onto its own branch", async ({ page }) => {

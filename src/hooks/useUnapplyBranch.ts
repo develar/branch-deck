@@ -2,7 +2,7 @@ import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
 import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
-import { runRewrite } from "@/lib/rewrite"
+import { runRewrite, runUndo } from "@/lib/rewrite"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSubject } from "@/stores/operations"
 import { vcsRequestFactory } from "@/stores/repository"
@@ -48,11 +48,10 @@ export async function unapplyBranch(branch: Branch, options: UnapplyOptions = {}
 }
 
 /** The undo of an unapply: HEAD, the files and the virtual branch back as they were; a rewrite of its own, then the sync */
-async function undoUnapply(repositoryPath: string, branchName: string, undoToken: string): Promise<void> {
-  await runRewrite(
+async function undoUnapply(repositoryPath: string, branchName: string, undoToken: string): Promise<boolean> {
+  return await runUndo(
     { id: "undo", subject: `undo:${undoToken}`, objects: [branchName], label: `Undoing the unapply of ${branchName}`, repositoryPath },
     `Cannot undo the unapply of ${branchName}`,
     () => commands.undoUnapplyBranch({ repositoryPath, undoToken }),
-    () => ({ sync: true }),
   )
 }

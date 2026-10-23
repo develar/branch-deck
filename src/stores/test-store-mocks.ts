@@ -24,7 +24,7 @@ export const activityMock = {
   recordPush: () => {},
   recordRetarget: () => {},
   recordReviewRequest: () => {},
-  recordRewrite: (_title: string, undo: () => Promise<void>) => () => void undo(),
+  recordRewrite: (_title: string, undo: () => Promise<boolean>) => () => void undo(),
   recordRobot: () => {},
   recordUpdate: () => {},
 }

@@ -149,17 +149,18 @@ describe("activity", () => {
 
   it("offers the Undo of a rewrite for the window of its toast, once", async () => {
     vi.useFakeTimers({ now: 1_000_000 })
-    const undo = vi.fn(async () => {})
+    const undo = vi.fn(async () => true)
     const runFromToast = recordRewrite("Squashed 2 commits", undo)
     const entry = entries()[0]!
     expect(entry.undo).toEqual({ until: 1_000_000 + UNDO_WINDOW_MS })
     expect(canUndoActivity(entry)).toBe(true)
 
     undoActivity(entry)
+    // the toast's Undo while the one of Activity runs undoes nothing more
+    runFromToast()
     expect(undo).toHaveBeenCalledTimes(1)
-    expect(entries()[0]!.undo?.undone).toBe(true)
+    await vi.waitFor(() => expect(entries()[0]!.undo?.undone).toBe(true))
     expect(canUndoActivity(entries()[0]!)).toBe(false)
-    // the toast's Undo after the one of Activity undoes nothing more
     runFromToast()
     expect(undo).toHaveBeenCalledTimes(1)
 
@@ -172,11 +173,30 @@ describe("activity", () => {
     expect(entries()[0]!.undo?.undone).toBeUndefined()
   })
 
-  it("marks a rewrite undone from its toast", () => {
-    const undo = vi.fn(async () => {})
+  it("marks a rewrite undone from its toast once its undo undid it", async () => {
+    let finish!: (undone: boolean) => void
+    const undo = vi.fn(() => new Promise<boolean>(resolve => (finish = resolve)))
     recordRewrite("Squashed 2 fixups", undo)()
     expect(undo).toHaveBeenCalledTimes(1)
-    expect(entries()[0]!.undo?.undone).toBe(true)
+    // the undo may wait for another rewrite in the queue: the entry is not undone before it ran
+    expect(entries()[0]!.undo?.undone).toBeUndefined()
+    finish(true)
+    await vi.waitFor(() => expect(entries()[0]!.undo?.undone).toBe(true))
+  })
+
+  it("keeps the Undo of a rewrite whose undo failed, in its toast and in Activity: a second press runs it again", async () => {
+    const undo = vi.fn(async () => false)
+    const runFromToast = recordRewrite("Moved 1 commit to search", undo)
+    runFromToast()
+    await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+    await Promise.resolve()
+    const entry = entries()[0]!
+    expect(entry.undo?.undone).toBeUndefined()
+    expect(canUndoActivity(entry)).toBe(true)
+    undo.mockResolvedValueOnce(true)
+    undoActivity(entry)
+    expect(undo).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(entries()[0]!.undo?.undone).toBe(true))
   })
 
   it("has no Undo for a rewrite of an earlier session", () => {

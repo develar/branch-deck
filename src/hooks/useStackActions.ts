@@ -5,7 +5,7 @@ import { invokeCommand, showUndoToast } from "@/lib/command"
 import type { CommandResult } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { countMoved } from "@/lib/move-summary"
-import { runRewrite } from "@/lib/rewrite"
+import { runRewrite, runUndo } from "@/lib/rewrite"
 import type { RewriteSpec } from "@/lib/rewrite"
 import { formatMoveUnstackAction } from "@/lib/stack"
 import { requestReveal } from "@/stores/commit-move"
@@ -106,18 +106,17 @@ export async function renameBranch(branchName: string, newName: string, options:
  * its own (`label`: "Undoing the move"). `applied` runs once the undo is written, before the sync (a preview follows
  * its commit back)
  */
-export async function undoRegroup(repositoryPath: string, token: string | null | undefined, failureTitle: string, label: string, applied?: () => void): Promise<void> {
+export async function undoRegroup(repositoryPath: string, token: string | null | undefined, failureTitle: string, label: string, applied?: () => void): Promise<boolean> {
   if (token == null) {
-    return
+    return false
   }
-  await runRewrite(
+  return await runUndo(
     { id: "undo", subject: `undo:${token}`, objects: [], label, repositoryPath },
     failureTitle,
     () => commands.undoRegroup({ repositoryPath, token }),
     () => {
       requestReveal(null)
       applied?.()
-      return { sync: true }
     },
   )
 }

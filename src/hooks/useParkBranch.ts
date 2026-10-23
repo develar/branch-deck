@@ -1,7 +1,7 @@
 import type { ParkedBranchChange } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { showUndoToast } from "@/lib/command"
-import { runRewrite } from "@/lib/rewrite"
+import { runRewrite, runUndo } from "@/lib/rewrite"
 import type { RewriteSpec } from "@/lib/rewrite"
 import { joinNames } from "@/lib/text"
 import { getParkedNotes } from "@/stores/branch-sync"
@@ -71,27 +71,25 @@ export async function unparkBranches(names: readonly string[], options: ParkOpti
  * that had none and still have one are unparked in one unpark (an unpark since took the line already; the lines are
  * known of the shown repository, so in another one each of them is unparked)
  */
-async function restoreQuietly(changes: readonly ParkedBranchChange[], repositoryPath: string): Promise<void> {
+async function restoreQuietly(changes: readonly ParkedBranchChange[], repositoryPath: string): Promise<boolean> {
   const parks = changes.filter(change => change.previousNote !== null)
   const lines = isSelectedRepository(repositoryPath) ? getParkedNotes() : null
   const unparks = changes.filter(change => change.previousNote === null && (lines === null || lines[change.branchName] !== undefined)).map(change => change.branchName)
   if (parks.length > 0) {
     const names = parks.map(change => change.branchName)
-    await runRewrite(
-      parkSpec("park", names, `Parking ${joinNames(names)}`, repositoryPath),
-      `Cannot park ${joinNames(names)}`,
-      () => commands.parkBranches({ repositoryPath, branches: parks.map(change => ({ branchName: change.branchName, note: change.previousNote ?? "" })) }),
-      () => ({ sync: true }),
+    const parked = await runUndo(parkSpec("park", names, `Parking ${joinNames(names)}`, repositoryPath), `Cannot park ${joinNames(names)}`, () =>
+      commands.parkBranches({ repositoryPath, branches: parks.map(change => ({ branchName: change.branchName, note: change.previousNote ?? "" })) }),
     )
+    if (!parked) {
+      return false
+    }
   }
   if (unparks.length > 0) {
-    await runRewrite(
-      parkSpec("unpark", unparks, `Unparking ${joinNames(unparks)}`, repositoryPath),
-      `Cannot unpark ${joinNames(unparks)}`,
-      () => commands.unparkBranches({ repositoryPath, branchNames: unparks }),
-      () => ({ sync: true }),
+    return await runUndo(parkSpec("unpark", unparks, `Unparking ${joinNames(unparks)}`, repositoryPath), `Cannot unpark ${joinNames(unparks)}`, () =>
+      commands.unparkBranches({ repositoryPath, branchNames: unparks }),
     )
   }
+  return true
 }
 
 function parkSpec(id: "park" | "unpark", names: readonly string[], label: string, repositoryPath: string, options: ParkOptions = {}): RewriteSpec {

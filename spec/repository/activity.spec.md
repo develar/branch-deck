@@ -139,9 +139,13 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 ### Undo
 
 - A rewrite entry shows "Undo" (`xs`) for the 10 s of its toast. Either Undo, the toast's or the entry's, reverts the
-  rewrite once, closes the toast, and the entry says "undone"; after the window the button goes, and the entry says
-  what was done, as its title.
-  [@test] ../../src/stores/activity.test.ts (`offers the Undo of a rewrite for the window of its toast, once`, `marks a rewrite undone from its toast`)
+  rewrite once (a second press while it runs does nothing), and once it reverted it the toast closes and the entry says
+  "undone"; after the window the button goes, and the entry says what was done, as its title. An Undo pressed while
+  another rewrite of the repository runs waits for it in the queue ([Running Operations](../../docs/design/operations.md)),
+  never refused; an undo that failed (its error toast says why) leaves the toast and the entry as they were, with their
+  Undo, which runs it again.
+  [@test] ../../src/stores/activity.test.ts (`offers the Undo of a rewrite for the window of its toast, once`, `marks a rewrite undone from its toast once its undo undid it`, `keeps the Undo of a rewrite whose undo failed, in its toast and in Activity: a second press runs it again`)
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should offer the Undo of a squash while the toast's lasts, in the window`, `should offer the Undo of a squash while the toast's lasts, in the panel`)
 - The undo itself is not persisted: after a restart no entry has an Undo.
   [@test] ../../src/stores/activity.test.ts (`has no Undo for a rewrite of an earlier session`)
