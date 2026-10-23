@@ -637,6 +637,7 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
+ "update-core",
 ]
 
 [[package]]
@@ -755,6 +756,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "update-core",
  "webkit2gtk",
  "windows",
  "youtrack",
@@ -6437,6 +6439,7 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
+ "update-core",
  "youtrack",
 ]
 
@@ -6448,6 +6451,7 @@ dependencies = [
  "axum",
  "domain-types",
  "git-executor",
+ "pretty_assertions",
  "tempfile",
  "test-log",
  "tokio",
@@ -7135,6 +7139,30 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+
+[[package]]
+name = "update-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "domain-types",
+ "file-diffs",
+ "git-executor",
+ "git-ops",
+ "history-rewrite",
+ "object-cache",
+ "pretty_assertions",
+ "serde",
+ "specta",
+ "sync-core",
+ "sync-utils",
+ "tempfile",
+ "test-log",
+ "test-utils",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "url"

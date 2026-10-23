@@ -35,6 +35,7 @@ github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils", features = ["http"] }
 sync-core = { path = "../sync-core" }
+update-core = { path = "../update-core" }
 history-rewrite = { path = "../history-rewrite" }
 domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }

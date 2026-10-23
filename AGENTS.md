@@ -379,16 +379,16 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 
 ### Adding a git operation
 Read [Adding a Git Operation](docs/guidelines/adding-git-operation.md) (the layers in detail, the helper table) before
-you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/bd-*/` or
-`src-tauri/src/commands/`.
+you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/update-core/`,
+`crates/bd-*/` or `src-tauri/src/commands/`.
 The checklist:
 - One name across the layers (`git_ops::move_hunk`, `sync_core::move_hunk`, `bd move-hunk`); the `//!` headers of
-  `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs` and `crates/sync-core/src/lib.rs` map the modules
-  by area.
+  `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs` and
+  `crates/update-core/src/lib.rs` map the modules by area.
 - **git-ops** has the git: one process per phase, `-z` output, full ids, `--end-of-options` before a revision from
   outside, `--literal-pathspecs` for paths after `--`; no lock and no policy.
-- **The core** `<op>_core` in `crates/history-rewrite/` (a rewrite that needs no sync, GitHub or Patronus) or
-  `crates/sync-core/` (the rest) is the one entry of every caller: a rewrite of the checked-out branch
+- **The core** `<op>_core` in `crates/history-rewrite/` (a rewrite that needs no sync, GitHub or Patronus),
+  `crates/update-core/` (Update Project, `bd pick`, the resolve sessions) or `crates/sync-core/` (the rest) is the one entry of every caller: a rewrite of the checked-out branch
   takes `&RewriteOptions` and the lock before it reads anything, then checks the expected HEAD.
 - **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
   JSON object with `schema`, errors as `CliError` with an `ErrorCode`; a Tauri command is `run_blocking` of the core,
@@ -496,8 +496,8 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | AI branch naming (`claude -p --model haiku`, after consent) | `branch/branch-name-suggestions` | `src/components/ai/` |
 | Squash and fixups (`bd fold`) | `commit/squash`, `commit/fixups` | `crates/history-rewrite/src/squash.rs`, `crates/history-rewrite/src/autosquash.rs` |
 | Message of a commit (`bd reword`; the app's edit of a message) | `cli/agent-cli`, `commit/commit-row` | `crates/history-rewrite/src/reword.rs`, `crates/history-rewrite/src/fixup_targets.rs`, `crates/bd-rewrite/src/reword_command.rs`, `src-tauri/src/commands/reword.rs`, `src/hooks/useRewordCommit.ts` |
-| Update Project (`bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `update-progress.ts` |
-| Pick between worktrees (`bd pick --from <worktree> --follow`) | `cli/pick` | `crates/sync-core/src/pick.rs`, `crates/git-ops/src/pick.rs` |
+| Update Project (`bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/update-core/src/update_project.rs`, `crates/update-core/src/resolve_session.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `update-progress.ts` |
+| Pick between worktrees (`bd pick --from <worktree> --follow`) | `cli/pick` | `crates/update-core/src/pick.rs`, `crates/git-ops/src/pick.rs` |
 | Agent workspace (`bd workspace`): a lease and the `(branch)` subject by `branchdeck.agentLease` and `branchdeck.agentSubjectBranch`, Settings → Agents | `cli/workspace`, `repository/settings`, `repository/onboarding` | `crates/sync-core/src/agent_workspace.rs`, `crates/bd-lease/src/workspace_command.rs`, `src/components/settings/AgentsPage.tsx` |
 | Lease pool (`bd lease`), its clean rules (`.branchdeck.toml`) | `cli/lease` | `crates/sync-core/src/lease.rs`, `crates/sync-core/src/lease_clean.rs`, `crates/bd-lease/src/lease_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
 | Landed commits | `repository/landed-commits` | `crates/sync-core/src/landed.rs` (report in `branch-deck/landed.json`) |
@@ -593,6 +593,7 @@ crates/
 ├── git-ops/         # Git operations library
 ├── history-rewrite/ # The rewrites of the checked out branch (regroup, reword, squash, fold), the grouping, the stores, the repository lock
 ├── sync-core/       # Branch sync and the cores of the other operations
+├── update-core/     # Update Project, `bd pick` and the resolve sessions of a conflicting `bd update`, and their undo
 ├── repository-view/ # What Rust derives of the branch table for the page and bd: the table of a sync, the Patronus section (one rule)
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)

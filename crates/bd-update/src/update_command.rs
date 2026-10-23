@@ -23,11 +23,11 @@ use serde::Serialize;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use sync_core::baseline::check_baseline_update;
-use sync_core::resolve_copies::Materialize;
-use sync_core::resolve_session::{ContinueOptions, NoSession, SessionOutcome, SessionView, abort_resolve, continue_resolve, session_status};
-use sync_core::update_project::{BdUpdate, FetchFailed, NoUpstream, UndoneUpdate, UpdateOptions, UpdateUndoToken, undo_update_core, update_and_resolve};
 use sync_utils::list_cut::kept;
 use sync_utils::paths::display_path;
+use update_core::resolve_copies::Materialize;
+use update_core::resolve_session::{ContinueOptions, NoSession, SessionOutcome, SessionView, abort_resolve, continue_resolve, session_status};
+use update_core::update_project::{BdUpdate, FetchFailed, NoUpstream, UndoneUpdate, UpdateOptions, UpdateUndoToken, undo_update_core, update_and_resolve};
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]

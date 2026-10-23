@@ -209,7 +209,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
   [@test] ../../crates/patronus/src/actions_test.rs (`the_failed_checks_of_a_robot_are_named_whole_when_only_one_is_past_the_limit`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_failed_checks_of_a_pull_request_are_named_whole_when_only_one_is_past_the_limit`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_list_of_the_full_failure_one_longer_than_its_limit_is_given_whole`)
 - Commit ids must be 8 characters, longer for the whole output when two of its ids share that prefix; `--full-ids`
   must print full ids.

@@ -3,9 +3,6 @@
 //! one read of how the branch groups tells the group of each picked commit, the branches whose stack parent a
 //! `(parent/leaf)` prefix changes, and the picked commits whose branch is not built on the branches they need.
 
-use crate::baseline::baseline_tracking_ref;
-use crate::dependencies::compute_dependencies;
-use crate::diff_scan::read_commit_diffs_cached;
 use anyhow::{Result, anyhow};
 use domain_types::commit::Commit;
 use file_diffs::service::FileDiffs;
@@ -23,6 +20,9 @@ use object_cache::cache::ObjectCache;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
+use sync_core::baseline::baseline_tracking_ref;
+use sync_core::dependencies::compute_dependencies;
+use sync_core::diff_scan::read_commit_diffs_cached;
 use tracing::{debug, info, instrument};
 
 /// Where `bd pick` takes the commits from

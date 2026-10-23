@@ -1069,6 +1069,10 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `pool_dir`): файл ищется по имени в `crates/*/src/`, поэтому одна правка измеряется до и после переноса; `before`
     снимается до первого выделения, `after` — в последнем шаге, `compare` попадает в строку «Сделано».
   - `.branchdeck.toml` не называет crate'ов и не меняется.
+  - `update-core` выделен в `s3-2`: `update_project`, `pick`, `resolve_session`, `resolve_copies` с их тестами;
+    `landed_test` едет с ними (он гоняет update через фикстуру `update_project_test`, `landed` остаётся в `sync-core`),
+    `an_update` — в `update-core/src/process_budget_test.rs`; счётчики процессов обоих тестов бюджета —
+    `test_utils::process_budget`.
 - **Удаляется:** `crates/repository-view`, `crates/integration-detection-tests`, `crates/bd-clustering` (как имя);
   записи allowlist `sync-core → github/patronus/youtrack/file-diffs/code-symbols`, `bd-remote → bd-rewrite`,
   `src-tauri → bd-lease`.

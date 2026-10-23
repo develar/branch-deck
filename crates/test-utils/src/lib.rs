@@ -5,6 +5,7 @@ pub mod fake_executable;
 #[cfg(feature = "http")]
 pub mod fake_server;
 pub mod git_test_utils;
+pub mod process_budget;
 pub mod repo_template;
 pub mod sync_fixtures;
 

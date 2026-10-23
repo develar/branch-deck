@@ -1,5 +1,5 @@
 //! `bd pick` and `bd undo pick:…`: the commits of another worktree landed on the branch checked out here, without
-//! `git cherry-pick` (spec/cli/pick.spec.md). The core (`sync_core::pick`) takes the repository lock, which every
+//! `git cherry-pick` (spec/cli/pick.spec.md). The core (`update_core::pick`) takes the repository lock, which every
 //! worktree shares, replays the commits in memory, and moves the branch (and, with --follow, the source worktree)
 //! through the guarded working-tree update; a conflict or local changes in the way change nothing
 
@@ -15,7 +15,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use sync_core::pick::{DependencyFix, GroupedBy, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, UndonePick, pick_core, undo_pick_core};
+use update_core::pick::{DependencyFix, GroupedBy, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, UndonePick, pick_core, undo_pick_core};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct PickArgs {

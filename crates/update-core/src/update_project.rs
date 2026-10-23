@@ -2,11 +2,8 @@
 //! local changes (docs/design/git-operations.md, "Update project"), and its undo. The upstream, the fetch and the
 //! check that every sync runs against the last fetched state are `baseline`.
 
-use crate::baseline::{fetch_baseline, last_fetch_time, read_check_inputs, resolve_baseline_upstream};
-use crate::landed::{LandedQuery, find_landed, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
 use crate::resolve_copies::{Materialize, prepare_dir};
 use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session};
-use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
@@ -22,6 +19,9 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::path::Path;
 use std::time::Duration;
+use sync_core::baseline::{fetch_baseline, last_fetch_time, read_check_inputs, resolve_baseline_upstream};
+use sync_core::landed::{LandedQuery, find_landed, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
+use sync_core::transfer_progress::TransferProgress;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument, warn};
 

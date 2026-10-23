@@ -9,7 +9,7 @@ targets:
   - ../../crates/bd-rewrite/src/rewrite.rs
   - ../../crates/bd-update/src/undo_command.rs
   - ../../crates/bd-cli/src/schema.rs
-  - ../../crates/sync-core/src/pick.rs
+  - ../../crates/update-core/src/pick.rs
   - ../../crates/history-rewrite/src/stack.rs
   - ../../crates/sync-core/src/dependencies.rs
   - ../../crates/git-ops/src/pick.rs
@@ -163,7 +163,7 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   `follow_undone` says whether the source moved back. Undoing again must be no error (`already_undone`), and the
   worktree's commits must be pickable again.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_lands_the_worktree_commits_with_their_groups_and_the_undo_moves_both_back`)
-  [@test] ../../crates/sync-core/src/pick_test.rs (`an_undo_token_prints_and_parses_the_target_and_the_worktree_that_followed`)
+  [@test] ../../crates/update-core/src/pick_test.rs (`an_undo_token_prints_and_parses_the_target_and_the_worktree_that_followed`)
 - The last entry of each reflog must be that pick, else the undo is refused; a branch that moved on is `undo_stale`.
   [@test] ../../crates/git-ops/src/pick_test.rs (`the_undo_moves_the_target_and_the_detached_source_back`)
 

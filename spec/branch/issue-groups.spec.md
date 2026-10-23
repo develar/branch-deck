@@ -14,7 +14,7 @@ targets:
   - ../../crates/sync-core/src/check.rs
   - ../../crates/history-rewrite/src/autosquash.rs
   - ../../crates/sync-core/src/landed.rs
-  - ../../crates/sync-core/src/update_project.rs
+  - ../../crates/update-core/src/update_project.rs
   - ../../crates/sync-core/src/stack_operations.rs
   - ../../crates/history-rewrite/src/move_commits.rs
   - ../../crates/history-rewrite/src/move_plan.rs

@@ -360,7 +360,7 @@ struct LandedState {
 
 /// The state file in the git directory of this worktree, as `rev-parse --git-path` names it: another worktree has its
 /// own HEAD. A sync reads its path with the other facts (`RepoFacts`)
-pub(crate) const STATE_FILE: &str = "branch-deck/landed.json";
+pub const STATE_FILE: &str = "branch-deck/landed.json";
 
 fn state_path(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<PathBuf> {
   let path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", STATE_FILE], repo_path)?;
@@ -506,7 +506,3 @@ pub fn dismiss_landed(git_executor: &GitCommandExecutor, repo_path: &str) -> Res
   state.landed.clear();
   save_state(&path, &state)
 }
-
-#[cfg(test)]
-#[path = "landed_test.rs"]
-mod landed_test;

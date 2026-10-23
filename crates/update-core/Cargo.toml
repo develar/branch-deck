@@ -1,0 +1,37 @@
+[package]
+name = "update-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Update Project, `bd pick` and the resolve sessions of a conflicting `bd update`: the moves of the checked out branch onto the baseline or another worktree's commits, and their undo"
+publish = false
+
+[dependencies]
+sync-core = { path = "../sync-core" }
+history-rewrite = { path = "../history-rewrite" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+domain-types = { path = "../domain-types" }
+sync-utils = { path = "../sync-utils" }
+object-cache = { path = "../object-cache" }
+# only the `FileDiffs` parameter of `pick`
+file-diffs = { path = "../file-diffs" }
+anyhow.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+specta = { workspace = true, optional = true }
+
+[features]
+default = []
+specta = ["dep:specta", "sync-core/specta", "history-rewrite/specta", "domain-types/specta", "git-ops/specta"]
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }
+pretty_assertions = { workspace = true }
+test-log = { workspace = true }
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

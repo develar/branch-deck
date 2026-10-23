@@ -13,6 +13,9 @@ tempfile.workspace = true
 # Git command executor
 git-executor = { path = "../git-executor" }
 
+# The diff of the counts of `process_budget`
+pretty_assertions.workspace = true
+
 # The types of the sync fixtures (`sync_fixtures`)
 domain-types = { path = "../domain-types" }
 

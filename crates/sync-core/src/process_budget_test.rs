@@ -18,7 +18,6 @@ use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubject
 use crate::sync::{SyncOptions, sync_branches};
 use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_target};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
-use crate::update_project::{UpdateProjectParams, update_project_core};
 use domain_types::robot_landing::RobotLandingRequest;
 use domain_types::{BranchError, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -32,31 +31,10 @@ use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
+use test_utils::process_budget::{assert_processes, counting, processes};
 use test_utils::sync_fixtures::TestReporter;
 
 const PREFIX: &str = "test";
-
-/// The processes `git` counted, by subcommand, sorted by name
-fn processes(git: &GitCommandExecutor) -> Vec<(String, u32)> {
-  git
-    .process_stats()
-    .expect("a counting executor")
-    .by_command()
-    .into_iter()
-    .map(|(subcommand, stats)| (subcommand, stats.count))
-    .collect()
-}
-
-/// `git` counted exactly `expected`: `(subcommand, processes)`, sorted by subcommand
-#[track_caller]
-fn assert_processes(git: &GitCommandExecutor, expected: &[(&str, u32)]) {
-  let expected: Vec<(String, u32)> = expected.iter().map(|(subcommand, count)| ((*subcommand).to_string(), *count)).collect();
-  assert_eq!(processes(git), expected);
-}
-
-fn counting() -> GitCommandExecutor {
-  GitCommandExecutor::new().with_process_stats("test")
-}
 
 fn path(repo: &TestRepo) -> String {
   repo.path().to_str().unwrap().to_string()
@@ -977,35 +955,6 @@ fn an_update_check() {
       ("rev-list", 1),
       ("rev-parse", 4),
       ("symbolic-ref", 2),
-    ],
-  );
-}
-
-/// Update Project: the fetch, the check and the rebase of the local commit onto the upstream, the files following
-#[test]
-fn an_update() {
-  let (_upstream, clone) = fetched_update();
-  let git = counting();
-  let result = update_project_core(&git, &UpdateProjectParams { repository_path: path(&clone) }, &|_| {}).unwrap();
-  assert!(result.applied.is_some(), "{result:?}");
-  assert_processes(
-    &git,
-    &[
-      ("cat-file", 1),
-      ("config", 1),
-      ("diff-tree", 1),
-      ("fetch", 1),
-      ("for-each-ref", 1),
-      ("log", 3),
-      ("merge-base", 2),
-      ("read-tree", 2),
-      ("remote", 2),
-      ("replay", 1),
-      ("rev-list", 3),
-      ("rev-parse", 10),
-      ("symbolic-ref", 5),
-      ("update-index", 3),
-      ("update-ref", 2),
     ],
   );
 }

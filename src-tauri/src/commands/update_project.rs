@@ -2,10 +2,10 @@ use crate::command_error::CommandError;
 use crate::operation::run_blocking;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::landed::dismiss_landed as dismiss_landed_core;
-use sync_core::update_project::{UpdateProgress, UpdateProjectParams, UpdateProjectResult, update_project_core};
 use tauri::State;
 use tauri::ipc::Channel;
 use tracing::{instrument, warn};
+use update_core::update_project::{UpdateProgress, UpdateProjectParams, UpdateProjectResult, update_project_core};
 
 /// Fetches the baseline and brings the current branch onto it, keeping unrelated local changes; a conflict or a block
 /// is a result with nothing changed. `progress` receives the step the update is at and how far the fetch is.

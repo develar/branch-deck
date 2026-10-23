@@ -1,5 +1,3 @@
-use crate::baseline::{check_baseline_update, previous_tip_of_forced_update};
-use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::{
   FetchFailed, LOCKED_MESSAGE, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error, undo_update_core,
   update_project_core, update_project_with,
@@ -20,6 +18,8 @@ use std::cell::RefCell;
 use std::fmt::Write;
 use std::fs;
 use std::time::Duration;
+use sync_core::baseline::{check_baseline_update, previous_tip_of_forced_update};
+use sync_core::sync::{SyncOptions, sync_branches};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
@@ -521,7 +521,7 @@ async fn sync_on_a_detached_head_is_deferred_before_the_update_check() -> anyhow
   let error = sync_branches(clone.git_executor(), path(&clone), "test", progress.clone(), SyncOptions::default())
     .await
     .unwrap_err();
-  assert_eq!(error.downcast_ref::<crate::sync::SyncDeferred>(), Some(&crate::sync::SyncDeferred::DetachedHead));
+  assert_eq!(error.downcast_ref::<sync_core::sync::SyncDeferred>(), Some(&sync_core::sync::SyncDeferred::DetachedHead));
   assert!(progress.get_events().is_empty());
   Ok(())
 }

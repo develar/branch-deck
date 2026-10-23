@@ -265,7 +265,8 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
   start, interactive ones included, by subcommand, with its wall time. The summary is logged at info level when the
   last clone is dropped (`git processes`, e.g. `merge-tree 2×40ms, log 5×31ms`). The sync and every `bd` command count
   theirs; `bd -v` prints the summary. Tests assert on `process_stats().by_command()`; the budget of every operation is
-  pinned, process by process, in `crates/sync-core/src/process_budget_test.rs` (the cores) and
+  pinned, process by process, in `crates/sync-core/src/process_budget_test.rs` and
+  `crates/update-core/src/process_budget_test.rs` (the cores) and
   `crates/bd-cli/src/process_budget_test.rs` (what a `bd` command adds), so a change that saves a process lowers a
   number there.
 
@@ -901,7 +902,7 @@ mark as `pending_update`.
 Code: `crates/git-ops/src/update_branch.rs` (check, apply, the undo check, and the moves of a resolve finish),
 `crates/git-ops/src/paths.rs` (the changed paths of two trees, the commits that change the likely conflicting files),
 `crates/git-ops/src/worktree_update.rs` (the exempt `read-tree -u`), `crates/sync-core/src/baseline.rs` (upstream, fetch, the check inside
-sync), `crates/sync-core/src/update_project.rs` (lock, update, undo), `crates/bd-update/src/update_command.rs` (`bd update`, `bd undo update:`).
+sync), `crates/update-core/src/update_project.rs` (lock, update, undo), `crates/bd-update/src/update_command.rs` (`bd update`, `bd undo update:`).
 
 #### Resolve session
 
@@ -911,7 +912,7 @@ conflicting commit. The agent resolves a round in copies of the files, and `bd u
 Only the finish moves the branch, and the files follow through the guarded update of "Update project". Code:
 `crates/git-ops/src/update_resolve.rs` (the state and the engine), `crates/git-ops/src/resolve_check.rs` (the checks),
 `crates/git-ops/src/merge_tree_output.rs` (the `-z` parser, shared with the sync's cherry-pick),
-`crates/sync-core/src/resolve_session.rs` (the lock and the output), `crates/sync-core/src/resolve_copies.rs` (the
+`crates/update-core/src/resolve_session.rs` (the lock and the output), `crates/update-core/src/resolve_copies.rs` (the
 copies), `crates/bd-update/src/update_command.rs`.
 
 **State in git.** All state of a session is in git; only the copies are files.
@@ -1141,7 +1142,7 @@ Code: `crates/git-ops/src/reapply.rs`, `crates/git-ops/src/pick.rs`, `crates/syn
 
 #### Pick
 
-`bd pick` (`pick_core` in `crates/sync-core/src/pick.rs`, `check_pick` and `apply_pick` in
+`bd pick` (`pick_core` in `crates/update-core/src/pick.rs`, `check_pick` and `apply_pick` in
 `crates/git-ops/src/pick.rs`) lands the commits of another worktree on the branch checked out here: the way agent
 sessions that commit in worktrees of their own (a `bd lease` worktree, detached HEAD, shared git dir) land their work on
 the shared branch without `git cherry-pick`, which writes the working tree, leaves `CHERRY_PICK_HEAD` behind on an empty
@@ -1181,7 +1182,7 @@ pick, and interleaves with a fold or an update of the owner.
    patch id, it drops as empty or conflicts.
 5. Both dry runs before either move: `blocking_paths` of the target (HEAD → new tip) and of the source (its HEAD →
    new tip), each on its own index copy and working tree.
-6. How the picked commits land, from one read before the move (`landing` in `crates/sync-core/src/pick.rs`): the
+6. How the picked commits land, from one read before the move (`landing` in `crates/update-core/src/pick.rs`): the
    grouping inputs (`git config`, one `cat-file --batch`) and the commits ahead of the baseline (one `log`), grouped
    without and with the copies on top, give the `group` of each copy and `reparented`, a branch the target had whose
    declared parent a `(parent/leaf)` prefix of a copy changed. Only when a prefix names a branch the target has, the
@@ -1203,7 +1204,7 @@ then both move back (`branch-deck: undo pick`). The source moves back too: other
 the range, since the fork point of N is N. The worktree path comes from `$GIT_COMMON_DIR/worktrees/<id>/gitdir`.
 
 Code: `crates/git-ops/src/pick.rs`, `crates/git-ops/src/update_branch.rs` (the moves, `HeadRef`, the undo check by
-operation), `crates/sync-core/src/pick.rs` (lock, baseline, grouping, dependencies, the undo token), `crates/bd-update/src/pick_command.rs`.
+operation), `crates/update-core/src/pick.rs` (lock, baseline, grouping, dependencies, the undo token), `crates/bd-update/src/pick_command.rs`.
 
 #### Lease
 
@@ -2964,7 +2965,8 @@ recovery hint (`git reset -q`).
 
 ### Process budgets
 
-Every git process of an operation is pinned, by subcommand, in `crates/sync-core/src/process_budget_test.rs` (a core)
+Every git process of an operation is pinned, by subcommand, in `crates/sync-core/src/process_budget_test.rs` (a core;
+`an_update` in `crates/update-core/src/process_budget_test.rs`, the counts of both from `test_utils::process_budget`)
 and `crates/bd-cli/src/process_budget_test.rs` (a whole `bd` command, its context and its config included), one test
 per operation on a small fixture (two branches of three commits, unless the test says otherwise). A change that saves a
 process lowers a number there, so the diff of the assert names the process that went away; a change that adds one must
@@ -3110,14 +3112,15 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/replay.rs`, `crates/git-ops/src/amend_operations.rs`,
   `crates/git-ops/src/squash_commits.rs`,
   `crates/history-rewrite/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
-  `crates/sync-core/src/baseline.rs`, `crates/sync-core/src/update_project.rs`, `crates/git-ops/src/update_resolve.rs`, `crates/git-ops/src/resolve_check.rs`,
-  `crates/git-ops/src/merge_tree_output.rs`, `crates/sync-core/src/resolve_session.rs`,
-  `crates/sync-core/src/resolve_copies.rs`, `crates/history-rewrite/src/regroup.rs`, `crates/history-rewrite/src/repository_lock.rs`,
+  `crates/sync-core/src/baseline.rs`, `crates/update-core/src/update_project.rs`, `crates/git-ops/src/update_resolve.rs`, `crates/git-ops/src/resolve_check.rs`,
+  `crates/git-ops/src/merge_tree_output.rs`, `crates/update-core/src/resolve_session.rs`,
+  `crates/update-core/src/resolve_copies.rs`, `crates/history-rewrite/src/regroup.rs`, `crates/history-rewrite/src/repository_lock.rs`,
   `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`; the module maps in
-  `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs`
+  `crates/git-ops/src/lib.rs`, `crates/sync-core/src/lib.rs` and `crates/update-core/src/lib.rs`
 - Tests: `crates/git-executor/src/worktree_safety_test.rs` and `git_usage_scan_test.rs` (the scans of the git argument
   lists),
-  `crates/sync-core/src/process_budget_test.rs` and `crates/bd-cli/src/process_budget_test.rs` (the process budgets)
+  `crates/sync-core/src/process_budget_test.rs`, `crates/update-core/src/process_budget_test.rs` and
+  `crates/bd-cli/src/process_budget_test.rs` (the process budgets)
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Commit Files](../../spec/commit/commit-files.spec.md),
   [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),

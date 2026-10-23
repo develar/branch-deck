@@ -8,7 +8,7 @@ targets:
   - ../../crates/git-ops/src/replay.rs
   - ../../crates/git-ops/src/revs.rs
   - ../../crates/git-ops/src/worktree_update.rs
-  - ../../crates/sync-core/src/update_project.rs
+  - ../../crates/update-core/src/update_project.rs
   - ../../crates/sync-core/src/baseline.rs
   - ../../crates/sync-core/src/transfer_progress.rs
   - ../../crates/sync-core/src/remote_command.rs
@@ -78,10 +78,10 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The check must not use the network: it compares the branch with the tracking ref of the last fetch.
 - It must refuse (an error, not a state) while a rebase, merge, cherry-pick or revert is in progress, on a detached HEAD,
   and when the local commits contain a merge.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`check_refuses_while_a_rebase_is_in_progress`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`merges_in_the_local_commits_are_refused`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`check_refuses_while_a_rebase_is_in_progress`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`merges_in_the_local_commits_are_refused`)
 - A local baseline has nothing to update from: no check, and an update says so.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`local_baseline_has_nothing_to_update`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`local_baseline_has_nothing_to_update`)
 - A branch and an upstream without a common history must be refused as such; a history that git can't read (an
   object that is not there, a tracking ref that is gone) must be an error with git's message, never "no common
   history" or "no fork point".
@@ -96,43 +96,43 @@ The header shows whether an update would apply cleanly, from a check that every 
   - blocked, with the local paths that overlap the update (the first 100, and the count of all): uncommitted or
     staged changes on a file the upstream changes, an untracked file where it adds one, an ignored file where it adds
     one.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`same_line_conflict_reports_files_and_commits_and_changes_nothing`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`dirty_touched_path_blocks_and_changes_nothing`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`staged_touched_path_blocks`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`untracked_file_that_upstream_adds_blocks`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`ignored_file_that_upstream_adds_blocks`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`wide_conflict_reports_the_first_files_with_their_commits_and_counts_all`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`many_blocking_paths_are_counted`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`same_line_conflict_reports_files_and_commits_and_changes_nothing`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`dirty_touched_path_blocks_and_changes_nothing`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`staged_touched_path_blocks`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`untracked_file_that_upstream_adds_blocks`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`ignored_file_that_upstream_adds_blocks`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`wide_conflict_reports_the_first_files_with_their_commits_and_counts_all`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`many_blocking_paths_are_counted`)
 - A file that was only touched (same content, new modification time) must not block.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`touched_only_file_passes_thanks_to_the_refresh`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`touched_only_file_passes_thanks_to_the_refresh`)
 - A path that is not UTF-8 must be checked by its bytes, its index entry and its file; the state shows it with U+FFFD
   for the bytes that are not UTF-8.
   [@test] ../../crates/git-ops/src/update_branch_test.rs (`a_path_that_is_not_utf8_names_its_index_entry`)
 - Commits that an upstream force-push removed must not be replayed: the old tip of a forced fetch and the fork point of
   the tracking ref's reflog are excluded, as `git pull --rebase` does.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`upstream_force_push_does_not_replay_the_removed_commits`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`check_after_a_forced_fetch_elsewhere_uses_the_fork_point`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`upstream_force_push_does_not_replay_the_removed_commits`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`check_after_a_forced_fetch_elsewhere_uses_the_fork_point`)
 - Every sync must run the check and report it once, beside the rest of the sync (the event can come at any point);
   a failed check is reported with its reason and must not fail the sync. A sync deferred for a detached HEAD or an
   operation in progress (`SyncDeferred`, [Onboarding](onboarding.spec.md)) runs no check and reports nothing.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_reports_the_baseline_status`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_on_a_detached_head_is_deferred_before_the_update_check`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`sync_reports_the_baseline_status`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`sync_on_a_detached_head_is_deferred_before_the_update_check`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`test_branches_grouped_precedes_per_branch_events`)
 - Repeated checks of the same state must not write new objects; a check made for a sync can't be applied.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_check_cannot_be_applied`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`preview_check_cannot_be_applied`)
 - The check inside a sync must cost in proportion to the paths the update changes, not the size of the index: it
   never copies, refreshes or writes the index, reuses the replay of an unchanged HEAD and upstream, and rereads only
   files whose stat data changed. It must still find dirty and staged touched paths, must not block on a file that was
   only touched, and must block on untracked and ignored files where the upstream adds one.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_blocks_dirty_and_staged_touched_paths_without_touching_the_index`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_does_not_block_a_touched_only_file`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_blocks_untracked_and_ignored_files_that_upstream_adds`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`preview_reuses_the_replay_of_an_unchanged_state`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`preview_blocks_dirty_and_staged_touched_paths_without_touching_the_index`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`preview_does_not_block_a_touched_only_file`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`preview_blocks_untracked_and_ignored_files_that_upstream_adds`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`preview_reuses_the_replay_of_an_unchanged_state`)
 - A conflict found once must not be replayed again for the same HEAD, upstream and previous tips: the update after the
   sync that found it, and the sync after a conflicting update, reuse it (a conflict doesn't depend on the committer
   date; a clean outcome is never shared).
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_after_the_sync_found_a_conflict_does_not_replay_again`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_after_a_conflicting_update_does_not_replay_again`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`update_after_the_sync_found_a_conflict_does_not_replay_again`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`sync_after_a_conflicting_update_does_not_replay_again`)
 - With `branchdeck.resolveByWords` on (the default), a replay that conflicts must be tried again commit by commit, each
   conflict of git resolved by words as the sync resolves it ([Git Operations](../../docs/design/git-operations.md),
   "Resolve by words"). All or nothing: the state is a clean rebase only when every conflicting commit resolves, and
@@ -141,31 +141,31 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/git-ops/src/update_resolve_test.rs (`an_update_whose_every_conflict_resolves_by_words_applies_without_a_session`)
   [@test] ../../crates/git-ops/src/word_replay_test.rs (`a_conflict_that_resolves_by_words_is_committed_and_the_rest_replays_onto_it`, `a_commit_whose_words_conflict_too_stops_the_replay`, `a_commit_that_the_words_leave_without_a_change_is_dropped`)
 - A file that the upstream replaces by a directory (or the reverse) must not block.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`file_replaced_by_a_directory_upstream_is_not_in_the_way`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`file_replaced_by_a_directory_upstream_is_not_in_the_way`)
 
 ### Update
 
 - The update must fetch only the baseline's remote branch, so the push lease of the virtual branches still compares
   against what the last push saw, then check again and apply a clean result. A failed fetch changes nothing.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`parses_the_forced_update_line_of_fetch`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_failed_fetch_is_fetch_failed`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`parses_the_forced_update_line_of_fetch`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`a_failed_fetch_is_fetch_failed`)
 - After the fetch, the update must take the repository lock and hold it through the check and the move, so the app,
   `bd update` and the rewrites of either never interleave; the fetch never runs under the lock. A lock held for the
   whole wait (10 s in the app) is an error with only the fetch done: the app shows "Cannot update the project" with
   "Branch Deck or bd is changing this repository. Try again when it is done." (no lock file path) and keeps the time
   of the fetch.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
   [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - `bd update --no-fetch` must update onto the last fetched baseline ([bd update](../cli/update.spec.md)).
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_without_a_fetch_goes_onto_the_last_fetched_state`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`update_without_a_fetch_goes_onto_the_last_fetched_state`)
 - A fast-forward must move the branch and update the files.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`fast_forward_updates_the_working_tree`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`fast_forward_updates_the_working_tree`)
 - A rebase must keep the author of every local commit; the committer is the current user.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`rebase_keeps_the_author_and_makes_the_current_user_the_committer`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`rebase_keeps_the_author_and_makes_the_current_user_the_committer`)
 - Uncommitted, staged and untracked changes on paths the update doesn't change must survive byte for byte, the staged
   version staged.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`dirty_and_staged_files_on_untouched_paths_survive_byte_identical`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`dirty_and_staged_files_on_untouched_paths_survive_byte_identical`)
 - A rebase that resolved conflicts of git by words must keep the author and the message of each resolved commit, and
   write a note per resolved commit on `refs/notes/branch-deck/resolve`. Its toast and its Activity entry must end with
   "Resolved 1 conflict by words in “<subject>”" (or "… in 2 commits"); the tooltip and the footer of the check say
@@ -177,18 +177,18 @@ The header shows whether an update would apply cleanly, from a check that every 
 - A local commit whose changes are already upstream is dropped and reported, not an error. When the replay conflicts
   because a robot folded fixups into their target, the landed commits are left out if nothing local is lost
   ([Landed Commits](landed-commits.spec.md)).
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`commit_already_upstream_is_dropped_and_reported`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`commit_already_upstream_is_dropped_and_reported`)
 - Conflict and blocked are results: the branch, the index, the working tree and the reflog stay as they were.
 - Up to date must write no reflog entry.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`up_to_date_writes_no_reflog_entry`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`up_to_date_writes_no_reflog_entry`)
 - The branch moves with a CAS ref transaction (`branch-deck: update project`) before the files; if the files can't
   follow (one changed since the check), the branch moves back (`branch-deck: update project rolled back`) and the update
   reports that nothing was changed. The transaction updates HEAD and commits only while git holds the lock of HEAD,
   after a check that HEAD is still on the checked branch.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`rolls_back_when_a_file_changes_between_the_check_and_the_update`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`rolls_back_when_a_file_changes_between_the_check_and_the_update`)
 - HEAD switched to another branch since the check, even one at the same commit, and also right before the move, must
   refuse the move (and its undo) with nothing changed.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused`)
   [@test] ../../crates/bd-update/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`)
 - A `git switch` while the move holds the lock of HEAD must fail on `HEAD.lock`; the move commits on the checked
   branch.
@@ -205,28 +205,28 @@ The header shows whether an update would apply cleanly, from a check that every 
 - `bd undo update:<previous head>..<new head>` must move the branch back and let the files follow through the same
   guarded two-way update with the trees swapped, under the repository lock (`branch-deck: undo update`); local changes
   on the other paths stay.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
 - It must refuse, changing nothing, when local changes sit on a path it writes, an ignored file where a file that the
   update deleted comes back included, and when the branch moved since the update.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_is_refused_when_local_changes_overlap`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_is_refused_after_the_branch_moved`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`undo_is_refused_when_local_changes_overlap`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`undo_is_refused_after_the_branch_moved`)
 - After a process was killed between the move and the files (HEAD at the new head, the files at the previous one),
   the undo must succeed and be the recovery.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`the_undo_recovers_an_update_killed_before_the_files_followed`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`the_undo_recovers_an_update_killed_before_the_files_followed`)
 - The move must create the mark `refs/branch-deck/update-pending/<worktree id>` in its ref transaction, and delete it
   once the files followed. With the mark left by a killed process, the next update or undo, the app's included, must
   let the files follow first, or change nothing with `finish_pending` when the branch moved since.
   [@test] ../../crates/bd-update/src/update_test.rs (`an_update_killed_before_its_files_followed_is_finished_by_the_next_update`, `an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo`, `an_interrupted_update_of_a_branch_that_moved_since_is_reported`)
 - An undo of an undone update is no error and changes nothing (`already_undone`).
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
 - Only the last update of the branch can be undone: the last reflog entry must be that update, so a token can't move
   the branch to another commit. A token takes full ids only. The update writes that reflog entry also with
   `core.logAllRefUpdates=false`.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`the_undo_works_without_reflogs_because_the_update_writes_one`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_tokens_are_strict`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`the_undo_works_without_reflogs_because_the_update_writes_one`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`undo_tokens_are_strict`)
 - The landed report must be the one from before the update again ([Landed Commits](landed-commits.spec.md)).
-  [@test] ../../crates/sync-core/src/landed_test.rs (`undo_of_an_update_restores_the_report_from_before_it`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`undo_of_an_update_restores_the_report_from_before_it`)
 
 ### Header
 
@@ -329,7 +329,7 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The backend tells the wait for the lock as a step of its own (`waiting`), once, when another operation holds the
   lock as the update asks for it; the check starts once it has the lock. A progress message after the command answered
   changes nothing: the steps after it are the frontend's.
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
   [@test] ../../src/stores/update-project.test.ts (`ignores a progress message that arrives after the command answered`)
 - The step and the fetch progress belong to the repository the update (or the Fetch of a merge toast) runs in: after a
   switch, the buttons show the selected repository's, never another one's. One update or fetch runs at a time in a
@@ -351,7 +351,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`small_fetch_unpacks_instead_of_receiving`)
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`percent_never_decreases`)
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`reporter_sends_the_first_progress_and_every_stage_end`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`fetch_reports_progress_until_the_last_stage_ends`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`fetch_reports_progress_until_the_last_stage_ends`)
 - The progress is read from `--progress` lines on stderr in the C locale (git has no machine-readable progress), best
   effort: a line it doesn't know changes nothing, and nothing but the progress depends on it. The error of a failed fetch
   keeps git's messages without the progress updates.
@@ -409,7 +409,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   `list_cut::kept`).
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should list the first files of a wide conflict and count the rest`)
   [@test] ../../src/lib/update-state.test.ts (`counts the files the backend left out of its list`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)
   [@test] ../../src/lib/text.test.ts (`keeps a list one longer than its limit whole and cuts a longer one at the limit, counting the rest of all`)
 - A block lists the overlapping paths and says to commit or stash them; changes to other files don't block. It says
   that the prompt asks about each file, then updates with bd, or, without a bd command, that you update again.
@@ -508,7 +508,7 @@ The header shows whether an update would apply cleanly, from a check that every 
 ## Testing / Local Run
 
 - `cargo nextest run --workspace` covers the check, the update and the scan
-  (`crates/sync-core/src/update_project_test.rs`, `crates/git-executor/src/worktree_safety_test.rs`).
+  (`crates/update-core/src/update_project_test.rs`, `crates/git-executor/src/worktree_safety_test.rs`).
 - `pnpm test:unit` covers the state words and the prompt.
 - `pnpm e2e` covers the header, the dialog and the update with the templates `behind_upstream`, `update_conflict`,
   `update_conflict_wide` (60 files, 7 upstream commits each) and `update_blocked`: a clone with a bare upstream at

@@ -3,8 +3,6 @@
 //! one round, `--abort` removes the session, `--status` reads it. The engine and the state are
 //! `git_ops::update_resolve`; this module adds the lock, the copies on disk and what the output shows.
 
-use crate::config_snapshot::ConfigSnapshot;
-use crate::landed::landed_candidates;
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
 use crate::update_project::record_landed_update;
 use anyhow::{Result, anyhow};
@@ -27,6 +25,8 @@ use history_rewrite::snapshot::read_grouping_inputs;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use sync_core::config_snapshot::ConfigSnapshot;
+use sync_core::landed::landed_candidates;
 use sync_utils::paths::display_path;
 use tracing::{instrument, warn};
 

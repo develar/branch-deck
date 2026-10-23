@@ -642,7 +642,7 @@ unapplied branch again.
 
 ### `bd update [--no-fetch] [--dry-run] [--dir <path>]`
 
-The app's Update Project (`sync_core::update_project::update_project_with`, "Update project" in
+The app's Update Project (`update_core::update_project::update_project_with`, "Update project" in
 [Git Operations](../design/git-operations.md)): it fetches the baseline's remote branch, then takes the repository
 lock, checks again and applies a clean update. The fetch runs before the lock, so a slow fetch blocks no other writer.
 
@@ -687,7 +687,7 @@ lock, checks again and applies a clean update. The fetch runs before the lock, s
 
 `bd help update` prints this workflow for an agent; the contract is [bd update](../../spec/cli/update.spec.md), the
 design "Resolve session" in [Git Operations](../design/git-operations.md). The session replays the local commits
-outside the working tree (`sync_core::resolve_session`, `git_ops::update_resolve`) and opens one round per
+outside the working tree (`update_core::resolve_session`, `git_ops::update_resolve`) and opens one round per
 conflicting commit. It belongs to the worktree and the branch, keeps the baseline it started with, and lives in the
 ref `refs/branch-deck/resolve/<worktree id>`. Peers' commits on top of HEAD join it as more rounds. `bd update` with a
 session open prints the open round again, fetches nothing and writes the missing copies.
@@ -724,7 +724,7 @@ the contract is the spec. The mechanics behind it:
 ### `bd pick (--from <dir> [--follow] | <rev> | <a>..<b>) [--expect-head <id>] [--dry-run]`
 
 Lands the commits of another worktree on the branch checked out at `-C`, without `git cherry-pick`
-(`sync_core::pick::pick_core`, "Pick" in [Git Operations](../design/git-operations.md), the contract
+(`update_core::pick::pick_core`, "Pick" in [Git Operations](../design/git-operations.md), the contract
 [bd pick](../../spec/cli/pick.spec.md)). Agent sessions that share a checkout commit in worktrees of their own (a
 `bd lease` worktree, detached HEAD) and land each commit on the shared branch this way: the commits are replayed in memory
 with `git replay`, and under the repository lock, which every worktree shares, the branch moves and the files follow

@@ -6,7 +6,7 @@ targets:
   - ../../crates/domain-types/src/landed.rs
   - ../../crates/domain-types/src/upstream_commit.rs
   - ../../crates/sync-core/src/landed.rs
-  - ../../crates/sync-core/src/update_project.rs
+  - ../../crates/update-core/src/update_project.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/git-ops/src/update_branch.rs
   - ../../crates/bd-core/src/sync_command.rs
@@ -60,19 +60,19 @@ by the next sync the same way.
 
 - A local commit landed when the baseline since the merge base has a commit with the same author email, author time and
   subject without the `(prefix)`; the landed commit names it with its author, committer and time.
-  [@test] ../../crates/sync-core/src/landed_test.rs (`whole_branch_landed_by_a_rebase_upstream`)
-  [@test] ../../crates/sync-core/src/landed_test.rs (`same_author_and_time_with_another_subject_is_not_landed`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`whole_branch_landed_by_a_rebase_upstream`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`same_author_and_time_with_another_subject_is_not_landed`)
 - The commits are grouped by branch, unassigned ones apart, each branch with the commits that stay local.
-  [@test] ../../crates/sync-core/src/landed_test.rs (`part_of_a_branch_landed`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`part_of_a_branch_landed`)
 - A fixup whose target landed landed with it once the replay drops it; without a replay (a conflict) only key matches
   count, so a fixup made after the push is never reported as landed.
-  [@test] ../../crates/sync-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
-  [@test] ../../crates/sync-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
 - Where the replay onto the upstream is known, a commit it drops landed even without a counterpart (squashed upstream,
   no baseline commit).
-  [@test] ../../crates/sync-core/src/landed_test.rs (`branch_squashed_upstream_landed_without_an_upstream_commit`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`branch_squashed_upstream_landed_without_an_upstream_commit`)
 - A conflicting update still reports the key matches.
-  [@test] ../../crates/sync-core/src/landed_test.rs (`landed_commits_are_reported_while_the_update_conflicts`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`landed_commits_are_reported_while_the_update_conflicts`)
 - Detection costs three read-only `log` processes; the check inside a sync reuses them for an unchanged state, and a
   failure never fails the check or the update.
 
@@ -83,23 +83,23 @@ by the next sync the same way.
   it keeps every local change: `merge-tree --merge-base=<merge base> <result> HEAD` gives the result's tree. So a robot
   that folded the fixups into their target no longer makes the update conflict, while a commit amended after the push,
   or a fixup made after it, is never left out; the update then conflicts as before.
-  [@test] ../../crates/sync-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
-  [@test] ../../crates/sync-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
-  [@test] ../../crates/sync-core/src/landed_test.rs (`commit_amended_after_the_push_is_never_left_out`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`commit_amended_after_the_push_is_never_left_out`)
 - The preview of every sync and the update make the same decision, so the header shows such an update as clean.
 
 ### Report
 
 - An applied update adds what it landed to the report in `branch-deck/landed.json` of the worktree's git directory and
   returns it; the next sync doesn't add it again.
-  [@test] ../../crates/sync-core/src/landed_test.rs (`whole_branch_landed_by_a_rebase_upstream`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`whole_branch_landed_by_a_rebase_upstream`)
 - Each sync remembers where the branch is; when the merge base moved since the previous sync, the commits that were local
   then and match the upstream now are added, once.
-  [@test] ../../crates/sync-core/src/landed_test.rs (`update_made_elsewhere_is_reported_by_the_next_sync_once`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`update_made_elsewhere_is_reported_by_the_next_sync_once`)
 - Amend, reword, squash and drop between two syncs report nothing.
-  [@test] ../../crates/sync-core/src/landed_test.rs (`reword_squash_or_amend_between_syncs_is_not_landed`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`reword_squash_or_amend_between_syncs_is_not_landed`)
 - The sync sends the landing (`BaselineStatus.landing`) and the undismissed report (`BaselineStatus.landed`).
-  [@test] ../../crates/sync-core/src/landed_test.rs (`sync_sends_the_landing_and_the_report`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`sync_sends_the_landing_and_the_report`)
 - Dismiss clears the report for every window and `bd`; a report is kept at most 7 days. A new report for a known branch
   adds its new commits and takes the new count of the ones that stay.
   [@test] ../../src/lib/landed.test.ts (`adds new commits to a known branch and takes its new count of local commits`)
@@ -182,7 +182,7 @@ by the next sync the same way.
 
 ## Testing / Local Run
 
-- `cargo nextest run --workspace`: `crates/sync-core/src/landed_test.rs`, the `landed_upstream` template
+- `cargo nextest run --workspace`: `crates/update-core/src/landed_test.rs`, the `landed_upstream` template
   in `update_project_test.rs`, `crates/bd-cli/src/sync_test.rs`.
 - `pnpm test:unit`: `src/lib/landed.test.ts`.
 - `pnpm e2e`: `tests/e2e/update-project/landed.spec.ts` with the template `landed_upstream`: a robot pushed `feature-auth`

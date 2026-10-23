@@ -1,11 +1,14 @@
 //! The operations of Branch Deck over git-ops: the sync of the virtual branches, one core per operation
 //! (`*_core(params, options)`: the repository lock, the expected HEAD and the order of the git steps), the trial syncs
-//! of `bd check`, Update Project, the pushes and what GitHub and Patronus know of the branches. The app and `bd` call
+//! of `bd check`, the pushes and what GitHub and Patronus know of the branches. The app and `bd` call
 //! these cores, git-ops directly only for reads that need no lock, and run no git of their own (AGENTS.md, "Adding a
 //! git operation").
 //!
 //! The grouping, the stores of the issue groups, the stack parents and the parked branches, the repository lock and the
 //! rewrites that need no sync (regroup, reword, squash, fold) are the crate `history-rewrite`.
+//! Update Project, `bd pick` and the resolve sessions of a conflicting `bd update` are the crate `update-core`; the
+//! baseline, its fetch and the update check every sync runs stay here (`baseline`, `baseline_fetch`), as does the
+//! landed report an update records (`landed`).
 //!
 //! The sync:
 //! - `sync`: `sync_branches`, the guards, the grouping, one build per branch and the detection of the archived ones
@@ -61,12 +64,6 @@
 //! - `symbol_scan`: the syntax summaries of the changed source files, by blob id
 //! - `symbol_dependencies`: the edges between commits by the names they declare and use
 //! - `module_roots`: where the modules of source files begin
-//!
-//! Update Project:
-//! - `update_project`: the update onto the baseline (after the fetch of `baseline`) and its undo
-//! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), and the undo
-//! - `resolve_session`: the resolve sessions of a conflicting `bd update`
-//! - `resolve_copies`: the copies of a round that the agent edits, the only files of a session
 //!
 //! Remotes:
 //! - `remote_command`: the policy of every git that talks to a remote (push, fetch)
@@ -155,7 +152,6 @@ pub mod patronus;
 pub mod patronus_command;
 pub mod patronus_review;
 pub mod patronus_start;
-pub mod pick;
 pub mod pull_request_create;
 pub mod pull_request_text;
 pub mod pull_request_writes;
@@ -169,8 +165,6 @@ pub mod remote_url;
 pub mod repo_facts;
 pub mod repository_config;
 pub mod repository_validation;
-pub mod resolve_copies;
-pub mod resolve_session;
 pub mod review_fetch;
 pub mod review_readiness;
 pub mod review_requests;
@@ -189,7 +183,6 @@ pub mod target_conflict;
 pub mod transfer_progress;
 pub mod unapply_branch;
 pub mod uncommitted_changes;
-pub mod update_project;
 
 #[cfg(test)]
 mod branch_name_suggestion_test;

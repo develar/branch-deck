@@ -59,6 +59,11 @@ const UNREACHABLE: &[Unreachable] = &[
     forbidden: &["github", "patronus", "youtrack", "file-diffs", "code-symbols"],
     why: "the sync reads no remote service, no file diff and no symbol",
   },
+  Unreachable {
+    from: "update-core",
+    forbidden: &["github", "patronus", "youtrack"],
+    why: "Update Project, the pick and the resolve sessions read no remote service: the fetch is git's",
+  },
 ];
 
 /// An edge that breaks a rule today, and the stage of the plan that removes it

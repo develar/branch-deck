@@ -598,12 +598,12 @@ pub async fn squash_fixup_commits(
 /// works offline
 pub async fn update_project(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::update_project::UpdateProjectParams>,
-) -> CommandResult<sync_core::update_project::UpdateProjectResult> {
+  Json(params): Json<update_core::update_project::UpdateProjectParams>,
+) -> CommandResult<update_core::update_project::UpdateProjectResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("update the project", move || {
-    sync_core::update_project::update_project_core(&git_executor, &params, &|_| {})
+    update_core::update_project::update_project_core(&git_executor, &params, &|_| {})
   })
   .await
 }

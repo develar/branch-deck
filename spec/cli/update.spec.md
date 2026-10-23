@@ -7,9 +7,9 @@ targets:
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/schema.rs
-  - ../../crates/sync-core/src/update_project.rs
-  - ../../crates/sync-core/src/resolve_session.rs
-  - ../../crates/sync-core/src/resolve_copies.rs
+  - ../../crates/update-core/src/update_project.rs
+  - ../../crates/update-core/src/resolve_session.rs
+  - ../../crates/update-core/src/resolve_copies.rs
   - ../../crates/sync-utils/src/paths.rs
   - ../../crates/git-ops/src/update_resolve.rs
   - ../../crates/git-ops/src/resolve_check.rs
@@ -107,7 +107,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   update again (`landed_restored`). An undo of an undone update must exit 0 with `already_undone: true`. The finish of
   a resolve session prints the same token, and the same undo takes it back.
   [@test] ../../crates/bd-update/src/update_test.rs (`the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved`, `update_outputs_match_the_schema`, `update_fast_forwards_and_the_undo_moves_the_files_back`)
-  [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`, `undo_tokens_are_strict`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`, `undo_tokens_are_strict`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`)
 
 ### Resolve session
