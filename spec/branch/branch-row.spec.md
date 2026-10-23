@@ -327,6 +327,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../src/stores/operations.test.ts (`lets a push wait for the rewrites of its repository and the syncs they end with, the queued ones too`)
   [@test] ../../src/stores/branch-sync.test.ts (`keeps what the row of an unchanged branch shows while the sync rebuilds it, and resets a changed or failed one`)
   [@test] ../../src/stores/branch-sync.test.ts (`applies the remote status of a sync that a push of the branch waits for: the push sends over it after the wait`)
+  [@test] ../../src/lib/git/push-during-sync.test.ts (`pushes once, over the remote tip that the fetch of the sync it waited for brought`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once the sync finished, the row as it was meanwhile`)
 - A push of a branch the last sync did not build (a merge conflict, an error, a blocked parent) must push nothing and
   say why ("Nothing was pushed: JIRA-456 is not synced (a merge conflict)"): its virtual branch is the build of a sync
