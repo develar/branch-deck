@@ -5,7 +5,7 @@ style: plain-1
 targets:
   - ../../crates/git-ops/src/commit_files.rs
   - ../../crates/object-cache/src/commit_files.rs
-  - ../../src-tauri/src/range_files.rs
+  - ../../crates/file-diffs/src/range_files.rs
   - ../../src-tauri/src/commands/commit_files.rs
   - ../../src-tauri/src/repository_state.rs
   - ../../src/stores/commit-files.ts
@@ -107,10 +107,11 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   [Review Requests](../repository/review-requests.spec.md#review-window), or of a branch) are one
   `diff-tree --raw --numstat -z` of the two commits (never `--stdin`, so a range never lands in the disk cache entry
   of its head), kept in memory only, at most 16 MiB by their paths, whatever the number of ranges: the reads of a
-  review and its prefetch run one process. Its id is `<base>..<head>`, both ids validated; the app keys it by that id
+  review, its prefetch and the diffs of the review (`get_file_diffs` of the range) run one process, also when they ask
+  at once. Its id is `<base>..<head>`, both ids validated; the app keys it by that id
   and drops it when the review closes.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`range_files_are_the_changes_of_all_its_commits`, `a_range_refuses_what_is_not_an_object_id`)
-  [@test] ../../src-tauri/src/range_files_test.rs (`the_files_of_a_range_stay_in_memory`)
+  [@test] ../../crates/file-diffs/src/range_files_test.rs (`the_files_of_a_range_stay_in_memory`, `the_list_and_the_diffs_of_a_range_run_one_diff_tree`)
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
 
 ### Reading the diffs
@@ -397,7 +398,7 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/git-ops/src/commit_files_test.rs`, `crates/object-cache/src/cache_test.rs`,
-  `src-tauri/src/repository_state_test.rs`, `src-tauri/src/range_files_test.rs`.
+  `src-tauri/src/repository_state_test.rs`, `crates/file-diffs/src/range_files_test.rs`.
 - `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/lib/file-tree.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/file-diffs.test.ts`, `src/stores/blob-texts.test.ts`, `src/lib/diff/*.test.ts`.
 - `pnpm e2e`: `tests/e2e/commit-files`, on the `issue_links` and `commit_tree` templates (nested directories, a Kotlin

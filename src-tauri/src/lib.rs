@@ -5,7 +5,6 @@ pub mod legacy_model_cache;
 pub mod menu;
 pub mod operation;
 pub mod progress;
-pub mod range_files;
 pub mod repository_state;
 pub mod title_bar;
 pub mod tracing_log;
@@ -19,8 +18,6 @@ mod command_scan_test;
 mod log_rotation_test;
 #[cfg(test)]
 mod menu_test;
-#[cfg(test)]
-mod range_files_test;
 #[cfg(test)]
 mod repository_state_test;
 #[cfg(test)]
@@ -80,7 +77,6 @@ use tauri_specta::{Builder, collect_commands};
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use menu::{configure_app_menu, handle_menu_event, set_auto_sync_menu_checked};
-use range_files::RangeFilesCache;
 use repository_state::RepositoryStateCache;
 use sync_core::branch_review::BranchReviewMemo;
 use tauri::Manager;
@@ -307,8 +303,10 @@ pub fn run() {
       app.manage(RepositoryStateCache::new());
       app.manage(repository_model::views::RepositoryViews::default());
       app.manage(BranchReviewMemo::new());
-      app.manage(RangeFilesCache::default());
-      app.manage(file_diffs::service::FileDiffs::default());
+      // one cache of the files of a range for the reviews' lists and their diffs (`get_range_files`, `get_file_diffs`)
+      let file_diffs = file_diffs::service::FileDiffs::default();
+      app.manage(file_diffs.range_files.clone());
+      app.manage(file_diffs);
       app.manage(BranchNameSuggestionState::default());
       app.manage(ReviewFetchState::default());
       app.manage(SubWindowState::default());

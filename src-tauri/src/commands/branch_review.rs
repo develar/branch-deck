@@ -1,6 +1,6 @@
 use crate::command_error::CommandError;
 use crate::operation::{operation, run_blocking};
-use crate::range_files::RangeFilesCache;
+use file_diffs::range_files::RangeFilesCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::DiffSubject;
 use git_ops::ownership::{FileOwner, GetFileOwnersParams, read_file_owners};

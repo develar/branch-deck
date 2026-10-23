@@ -20,6 +20,7 @@
 
 use crate::merge::{ConflictPath, MergeMemoryKey, merge_weight};
 use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, GetFileDiffsParams, MergeContent, MergeSource};
+use crate::range_files::RangeFilesCache;
 use crate::scopes::scopes_of_summary;
 use crate::syntax::{SYNTAX_CACHE_BYTES, syntax_weight};
 use crate::worktree::{read_worktree_blob, uncommitted_entries};
@@ -30,7 +31,7 @@ use code_symbols::language::{Language, language_of};
 use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, for_each_object};
-use git_ops::commit_files::{DiffSubject, MAX_BLOB_BYTES, read_commit_files_cached, read_diff_files};
+use git_ops::commit_files::{DiffSubject, MAX_BLOB_BYTES, read_commit_files_cached};
 use git_ops::object_texts::{into_text, is_binary};
 use git_ops::revs::is_object_id;
 use moka::sync::Cache;
@@ -90,6 +91,8 @@ pub struct FileDiffs {
   pub(crate) limits: DiffLimits,
   /// `blocks_of` keeps the blobs it reads in `blobs` (`for_scans`)
   pub(crate) keep_scan_blobs: bool,
+  /// The files of the ranges: the list of a review (`get_range_files`) and its diffs (`stream`) run one `diff-tree`
+  pub range_files: RangeFilesCache,
 }
 
 impl Default for FileDiffs {
@@ -211,6 +214,7 @@ impl FileDiffs {
         .build(),
       limits,
       keep_scan_blobs: false,
+      range_files: RangeFilesCache::default(),
     }
   }
 
@@ -269,7 +273,7 @@ impl FileDiffs {
   #[instrument(skip(self, git, cache, params, emit), fields(repository_path = %params.repository_path, source = ?params.source))]
   pub fn stream(&self, git: &GitCommandExecutor, cache: &ObjectCache, params: &GetFileDiffsParams, mut emit: impl FnMut(FileDiffEvent)) -> Result<()> {
     let (repository_path, policy) = (params.repository_path.as_str(), params.policy);
-    let entries = list_entries(git, repository_path, cache, &params.source)?;
+    let entries = list_entries(git, repository_path, cache, &self.range_files, &params.source)?;
     for blob in entries.iter().filter_map(|entry| entry.worktree.as_ref()) {
       self.blobs.insert(blob.id().to_string(), Arc::clone(blob));
     }
@@ -498,7 +502,7 @@ where
 }
 
 /// The changed files of a subject
-fn list_entries(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, source: &DiffSource) -> Result<Vec<Entry>> {
+fn list_entries(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, range_files: &RangeFilesCache, source: &DiffSource) -> Result<Vec<Entry>> {
   Ok(match source {
     DiffSource::Commit { id } => read_commit_files_cached(git, repository_path, cache, std::slice::from_ref(id))?
       .pop()
@@ -511,7 +515,7 @@ fn list_entries(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectC
         base: base.clone(),
         head: head.clone(),
       };
-      read_diff_files(git, repository_path, &subject)?.files.into_iter().map(Entry::from).collect()
+      range_files.read(git, repository_path, &subject)?.files.iter().cloned().map(Entry::from).collect()
     }
     DiffSource::Uncommitted => uncommitted_entries(git, repository_path)?,
   })

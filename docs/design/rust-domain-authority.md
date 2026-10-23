@@ -831,7 +831,8 @@ repository». Аудит всех функций в тот же день наш�
   один поиск без команд (C13, `a_token_without_read_org_is_asked_again_without_teams`). `/problems` после ответа сделано (`fix/patronus-start`: `loadRobotFacts` в задаче списка и
   опроса, `failingInFlight` по ключу); одна команда на пачку `loadReviewProblems` — s7.
 - **Окно review:** кэш списка range, prefetch после `complete`, блобы по одному запросу в полёте, текст подсветки
-  один раз, поколение навигации, trailing refresh uncommitted с путём в ключе.
+  один раз, поколение навигации, trailing refresh uncommitted с путём в ключе. Сделано (`fix/remote-perf`): один кэш
+  списка range у `get_range_files` и `FileDiffs::stream` (C7, `the_list_and_the_diffs_of_a_range_run_one_diff_tree`).
 - **Lease pool:** `Returning`/`cleaning`, `worktree add --lock`.
 
 ### Пути конкурентности

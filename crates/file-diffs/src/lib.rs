@@ -11,6 +11,7 @@ pub mod declarations;
 mod merge;
 pub mod model;
 pub mod patch;
+pub mod range_files;
 mod scopes;
 pub mod service;
 pub mod syntax;

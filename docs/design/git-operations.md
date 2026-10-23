@@ -1930,16 +1930,17 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   doesn't have; a second request for an id waits for the one in flight.
 - **A range** (`DiffSubject::Range`, the review of a pull request or of a branch, see "Review fetch"): its files come
   from one `diff-tree --raw --numstat -z --no-commit-id` with `-l1000` and `--end-of-options <base> <head>`, never
-  `--stdin` (`read_diff_files`). `get_range_files` keeps them in memory only (`RangeFilesCache`,
-  `src-tauri/src/range_files.rs`: 16 MiB weighed by the paths and 64 bytes a file), and the readers of one range at
-  the same time run one read. It passes `-c core.bigFileThreshold=8m` (= `MAX_BLOB_BYTES`): a range may change
+  `--stdin` (`read_diff_files`). `get_range_files` and the diffs of the range (`FileDiffs::stream`) keep them in
+  memory only, in one cache (`RangeFilesCache`, `crates/file-diffs/src/range_files.rs`, `FileDiffs::range_files`: 16
+  MiB weighed by the paths and 64 bytes a file), and the readers of one range at the same time run one read: opening
+  a range review runs one `diff-tree`, not one for the list and one for the diffs. It passes `-c core.bigFileThreshold=8m` (= `MAX_BLOB_BYTES`): a range may change
   thousands of files, and a file the diff view can't show is counted as binary instead of read. A commit keeps exactly its arguments. Both ids must be full object
   ids, as for a commit. The returned `commitId` is `"<base>..<head>"` (`DiffSubject::id`), which the frontend keys
   by. A range is never written to the object cache: a `commit_files` entry is keyed by one commit, and a range on the
   head's key would answer the commit's files with the range's.
 
 Code: `crates/git-ops/src/commit_files.rs`, `crates/git-ops/src/cat_file_batch.rs`,
-`crates/object-cache/src/commit_files.rs`, `src-tauri/src/commands/commit_files.rs`, `src-tauri/src/range_files.rs`,
+`crates/object-cache/src/commit_files.rs`, `src-tauri/src/commands/commit_files.rs`, `crates/file-diffs/src/range_files.rs`,
 `src-tauri/src/repository_state.rs`.
 
 #### File diffs
