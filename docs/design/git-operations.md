@@ -1387,7 +1387,14 @@ in the slot refuses the return before a server is. A get never reuses a slot und
 server can miss the events of a large checkout. Unlanded commits, local changes and a process in the slot refuse it; with
 `--confirm-preserved` the changes go with `reset --hard HEAD` and `clean -fd`, and the ignored build outputs stay
 for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
-no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it.
+no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it. The return acts on the
+slot only after it reserved it: once every check passed, under the pool lock and with CAS on the lease id, the lease
+becomes `returning`, of the return's process. A return retried beside a running one is `slot_busy` ("is being
+returned"), a get passes the slot over, and a return that another overtook (the slot freed, then leased again) finds
+another lease (`lease_mismatch`) and changes nothing of it; a failed return gives the lease back as `ready`, and one
+whose process died leaves an abandoned lease that the next get frees
+(`a_return_that_a_retry_overtook_leaves_the_next_lease_of_the_slot_alone`,
+`a_running_return_reserves_the_slot_against_a_get_and_a_second_return`).
 
 The clean rules (`crates/lease-pool/src/lease_clean.rs`). Cargo never deletes a unit whose hash went out of use, so the
 free slots of Branch Deck held 679 GB of stale units, which a prune script nobody ran left alone. The return now cleans
@@ -1399,7 +1406,8 @@ together; a dry run on the idea-1 checkout found 27.9 of the 33 GB of `community
 `delete` (a path); no command, as a return must not run arbitrary code. A path is normalized and relative, stays in the
 slot, names no `.git`, crosses no symlink, and git tracks nothing under it (one `ls-files -z` of all paths): a rule that
 breaks one is reported and skipped. A rule error never fails the return. `bd lease clean` applies the rules on
-demand, skipping a slot with a lease or a process. The rules are configured on purpose, so both delete by default (the
+demand, skipping a slot with a lease or a process; a free slot it cleans carries a `cleaning` marker under the pool
+lock meanwhile, so no get leases it (`a_slot_that_clean_cleans_is_reserved_against_a_get`). The rules are configured on purpose, so both delete by default (the
 user's decision): `--dry-run` only reports, `bd lease return --no-clean` applies none, and `--keep` and `--age` set the
 parameters of every cargo rule for one call.
 

@@ -158,6 +158,12 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   as `slot_busy` and is named. A get must not skip a free slot for them.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_return_waits_for_git_maintenance_and_a_get_ignores_it`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`git_maintenance_is_the_maintenance_and_the_gits_it_starts`)
+- Once its checks passed, the return must reserve the slot before it changes anything: under the pool lock, with CAS on
+  the lease id, the lease becomes `returning`. A second return of the lease meanwhile must be refused as `slot_busy`
+  ("is being returned by the process"), a get must pass the slot over, and a return that finds another lease or none
+  (another return freed the slot, a get leased it again) must change nothing (`lease_mismatch`, `no_lease`). A failed
+  return gives the lease back as `ready`; a `returning` lease whose process is gone is abandoned.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_that_a_retry_overtook_leaves_the_next_lease_of_the_slot_alone`, `a_running_return_reserves_the_slot_against_a_get_and_a_second_return`)
 - `--confirm-preserved` must give up the unlanded commits (`given_up`) and discard the local changes (`discarded`)
   with `reset --hard HEAD` and `clean -fd`: the ignored files stay.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
@@ -195,10 +201,12 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`the_return_applies_the_clean_rules_of_the_source`, `a_bad_file_does_not_fail_the_return`)
 - `bd lease clean [--free] [--dry-run] [--keep <n>] [--age <duration>] [<dir>...]` must apply the rules of the checkout
   it runs in, read once, to the free slots (`--free`), to the given worktrees, or to that checkout. A slot of the pool
-  with a lease or with a process in it is skipped (`skipped`); a checkout that is no slot is cleaned as asked.
+  with a lease or with a process in it is skipped (`skipped`); a checkout that is no slot is cleaned as asked. A free
+  slot it cleans must carry a `cleaning` marker under the pool lock until the clean of it ends, so no get leases it.
   `--dry-run` deletes nothing and says what the rules would free. A file that does not parse is `invalid_arguments`
   (exit 2).
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`, `a_bad_file_does_not_fail_the_return`)
+  [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_slot_that_clean_cleans_is_reserved_against_a_get`)
 - The rules are configured on purpose, so they apply by default: the return and `bd lease clean` delete what they
   name, as the user decided. `bd lease return --no-clean` applies none. `--keep <n>` and `--age <duration>`, on both
   commands, set `keep` and `age` of every cargo rule for that call without an edit of the file; a bad `--age` is
@@ -208,7 +216,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 ### Status
 
 - `bd lease status` must list every slot from the state alone, with its `path`, `state` (`free`, `preparing`,
-  `ready`, `templating`, `abandoned`), `dirty`, `missing` and `lease`; it must run no `git status`. `--processes` must add the
+  `ready`, `templating`, `returning`, `cleaning`, `abandoned`), `dirty`, `missing` and `lease`; it must run no `git status`. `--processes` must add the
   processes in each slot. It writes nothing.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_status_reads_the_state_without_a_git_status`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)

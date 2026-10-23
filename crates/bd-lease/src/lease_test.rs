@@ -69,7 +69,7 @@ impl Fixture {
 }
 
 /// `path` as the pool names a slot: canonical, with backslashes on Windows
-fn slot_path(path: &str) -> String {
+pub(crate) fn slot_path(path: &str) -> String {
   canonical(Path::new(path)).to_string_lossy().into_owned()
 }
 
@@ -85,7 +85,7 @@ pub(crate) fn path_of(output: &Value) -> String {
 }
 
 /// The `state` of each slot of `bd lease status`, by path
-fn states(status: &Value) -> Vec<(String, String)> {
+pub(crate) fn states(status: &Value) -> Vec<(String, String)> {
   status["slots"]
     .as_array()
     .unwrap()
@@ -1127,4 +1127,84 @@ fn lease_outputs_match_the_schema() {
   assert_covered(&outputs["lease_adopt"], &outputs["lease_adopt"], &adopt, "lease_adopt");
   let (_, error) = fixture.run(&["lease", "return"]);
   assert_covered(&outputs["error"], &outputs["error"], &error, "error");
+}
+
+/// bd of the fixture in `cwd` with a git that holds its first command whose arguments match `pattern` (a `case`
+/// pattern of `" $* "`) until the test writes `<dir>/go`; `<dir>/held` tells it is held. It waits outside the slot, so
+/// the process scan of another command finds no process in it
+#[cfg(unix)]
+pub(crate) fn held_environment(fixture: &Fixture, cwd: &Path, dir: &Path, pattern: &str) -> Environment {
+  let dir_text = test_utils::fake_executable::shell_path(dir);
+  let script = test_utils::fake_executable::fake_executable(
+    dir,
+    "git",
+    &format!(
+      "case \" $* \" in {pattern}) if [ ! -f '{dir_text}/held' ]; then here=$(pwd); cd /; touch '{dir_text}/held'; while [ ! -f '{dir_text}/go' ]; do sleep 0.01; done; cd \"$here\"; fi;; esac\nexec git \"$@\""
+    ),
+  );
+  let mut environment = fixture.environment(cwd);
+  environment.git = Some(script.to_str().unwrap().to_string());
+  environment
+}
+
+/// `bd lease return` in `path`, held as `held_environment` holds it, while `during` runs; its exit code and output
+#[cfg(unix)]
+fn return_held_while(fixture: &Fixture, path: &str, pattern: &str, during: impl FnOnce()) -> (i32, Value) {
+  let dir = tempfile::tempdir().unwrap();
+  let environment = held_environment(fixture, Path::new(path), dir.path(), pattern);
+  std::thread::scope(|scope| {
+    let held_return = scope.spawn(|| run_json(&environment, &["lease", "return"]));
+    while !dir.path().join("held").exists() && !held_return.is_finished() {
+      std::thread::yield_now();
+    }
+    assert!(dir.path().join("held").exists(), "the return reached the held command");
+    during();
+    std::fs::write(dir.path().join("go"), "").unwrap();
+    held_return.join().unwrap()
+  })
+}
+
+/// An agent returns its lease again while its first return still checks the slot, and the retry wins; another agent
+/// leases the freed slot at once. The first return finds the lease it checked gone and changes nothing of the slot of
+/// the next lease: no detach of its branch, no discard, no clean
+#[cfg(unix)]
+#[test_log::test]
+fn a_return_that_a_retry_overtook_leaves_the_next_lease_of_the_slot_alone() {
+  let fixture = Fixture::new();
+  let first = fixture.get(&["-b", "first"]);
+  let path = path_of(&first);
+  let (exit_code, output) = return_held_while(&fixture, &path, "*\" status \"*", || {
+    fixture.give_back(&path);
+    let next = fixture.get(&["-b", "second"]);
+    assert_eq!(path_of(&next), path, "the freed slot");
+  });
+  assert_error(&output, exit_code, (2, "lease_mismatch"));
+  assert_eq!(slot_git(&path, &["symbolic-ref", "HEAD"]), "refs/heads/second");
+  assert_eq!(states(&fixture.status()), [(slot_path(&path), "ready".to_string())]);
+}
+
+/// While a return acts on the slot (`returning`), a get passes the slot over and a second return of the lease is
+/// refused as `slot_busy`; the first return then frees the slot
+#[cfg(unix)]
+#[test_log::test]
+fn a_running_return_reserves_the_slot_against_a_get_and_a_second_return() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&["-b", "feature"]));
+  let mut other = String::new();
+  // the detach of HEAD, after the reservation
+  let (exit_code, output) = return_held_while(&fixture, &path, "*\" update-ref \"*", || {
+    assert_eq!(states(&fixture.status()), [(slot_path(&path), "returning".to_string())]);
+    let (exit_code, second) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+    assert_error(&second, exit_code, (4, "slot_busy"));
+    assert!(second["error"]["message"].as_str().unwrap().contains("is being returned by the process"), "{second}");
+    other = path_of(&fixture.get(&[]));
+    assert_ne!(other, path, "a get passes the returning slot over");
+  });
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["detached_branch"], json!("feature"));
+  let mut expected = vec![(slot_path(&path), "free".to_string()), (slot_path(&other), "ready".to_string())];
+  let mut actual = states(&fixture.status());
+  expected.sort();
+  actual.sort();
+  assert_eq!(actual, expected);
 }

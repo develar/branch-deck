@@ -208,3 +208,39 @@ fn clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing() {
   assert_covered(&outputs["lease_return"], &outputs["lease_return"], &returned, "lease_return with cleaned");
   assert_eq!(git(&fixture.repo, &["status", "--porcelain"]), "");
 }
+
+/// While `bd lease clean --free` cleans a free slot, the slot is `cleaning`: a get passes it over, so the clean never
+/// deletes in a slot that another agent leased meanwhile; after the clean it is free again
+#[cfg(unix)]
+#[test_log::test]
+fn a_slot_that_clean_cleans_is_reserved_against_a_get() {
+  use crate::lease_test::{held_environment, slot_path, states};
+  let fixture = Fixture::new();
+  commit_rules(&fixture, RULES);
+  let slot = path_of(&fixture.get(&[]));
+  fixture.give_back(&slot);
+  file(Path::new(&slot), "tests/results/trace.zip", 4096);
+  let dir = tempfile::tempdir().unwrap();
+  let environment = held_environment(&fixture, fixture.repo.path(), dir.path(), "*\" ls-files \"*");
+  let (other, (exit_code, output)) = std::thread::scope(|scope| {
+    let clean = scope.spawn(|| bd_cli::fixture_test::run_json(&environment, &["lease", "clean", "--free"]));
+    while !dir.path().join("held").exists() && !clean.is_finished() {
+      std::thread::yield_now();
+    }
+    assert!(dir.path().join("held").exists(), "the clean reached its rules");
+    assert_eq!(states(&fixture.status()), [(slot_path(&slot), "cleaning".to_string())]);
+    let other = path_of(&fixture.get(&[]));
+    std::fs::write(dir.path().join("go"), "").unwrap();
+    (other, clean.join().unwrap())
+  });
+  assert_eq!(exit_code, 0, "{output}");
+  assert_ne!(other, slot, "a get passes the slot that is cleaned over");
+  assert_eq!(output["targets"][0]["path"], json!(slot));
+  assert_eq!(output["targets"][0].get("skipped"), None, "{output}");
+  assert!(!Path::new(&slot).join("tests/results").exists());
+  let mut actual = states(&fixture.status());
+  actual.sort();
+  let mut expected = vec![(slot_path(&slot), "free".to_string()), (slot_path(&other), "ready".to_string())];
+  expected.sort();
+  assert_eq!(actual, expected);
+}

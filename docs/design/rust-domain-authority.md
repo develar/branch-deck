@@ -714,7 +714,7 @@ repository». Аудит всех функций в тот же день наш�
 | робот и его `lands` | Land, Restart, Cancel | резерв `lands` при допуске (в процессе с s9, между процессами с s10); cancel заменяемого робота идемпотентен | check-then-act без резерва |
 | `.git/config` | Settings → Repository, `bd describe` | mutex на common dir в процессе вокруг read-check-write; отказ `config.lock` — повтор с backoff ≈ 1 с | две записи гоняются за `config.lock` |
 | `settings.json` | `SettingsService` | один писатель, tmp + rename, патч по полю, версия | два писателя, `fs::write` без rename |
-| слот пула lease | `bd lease get`, `return`, `clean` | `Returning`/`cleaning` под pool lock с CAS по lease id | return и clean без резерва |
+| слот пула lease | `bd lease get`, `return`, `clean` | `Returning`/`cleaning` под pool lock с CAS по lease id | сделано (`fix/sync-lease`) |
 | токен GitHub, auth YouTrack | цепочка токена, refresh Hub | single-flight на источник и на refresh; состояние под коротким std mutex | async mutex поперёк процессов и HTTP |
 
 ### По областям
@@ -869,7 +869,10 @@ repository». Аудит всех функций в тот же день наш�
   before the answer, so one Back returns to the review`); prefetch соседей — после конца потока показанного
   (`whenFileDiffsEnded`, `tells the end of a subject's read only once its stream ended: the neighbours of a review are
   read after it`); join пары в Rust не нужен: соседи находят общие пары в кэше.
-- **Lease pool:** `Returning`/`cleaning`, `worktree add --lock`.
+- **Lease pool:** `Returning`/`cleaning`, `worktree add --lock`. Сделано (`fix/sync-lease`): return резервирует слот
+  (`returning` под pool lock с CAS по lease id) до первого действия, clean — маркер `cleaning`
+  (`a_return_that_a_retry_overtook_leaves_the_next_lease_of_the_slot_alone`,
+  `a_slot_that_clean_cleans_is_reserved_against_a_get`).
 
 ### Пути конкурентности
 

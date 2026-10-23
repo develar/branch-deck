@@ -68,7 +68,8 @@ pub struct Lease {
   /// Unix seconds
   pub leased_at: u64,
   pub state: LeaseState,
-  /// The process of the get, and when it started (`process_started`): a `preparing` lease whose process is gone is free
+  /// The process of the get, and when it started (`process_started`); of the return while `returning`, of the clean
+  /// while `cleaning`: a lease that is not `ready` and whose process is gone is free
   pub pid: u32,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub process_started: Option<u64>,
@@ -101,10 +102,15 @@ pub enum LeaseState {
   Ready,
   /// A free slot that a get clones into a new slot: no get takes it until the clone ends
   Templating,
+  /// The return of the lease runs (`lease_return_core`): no get takes the slot and no other return acts on it
+  Returning,
+  /// A free slot that `bd lease clean` cleans: no get takes it until the clean ends
+  Cleaning,
 }
 
 impl Lease {
-  /// Whether the lease is `preparing` or `templating` and its process is gone: the next get takes the slot as free
+  /// Whether the lease is not `ready` (`preparing`, `templating`, `returning`, `cleaning`) and its process is gone: the
+  /// next get takes the slot as free
   pub fn is_abandoned(&self) -> bool {
     self.state != LeaseState::Ready && !is_running(self.pid, self.process_started)
   }
@@ -117,6 +123,8 @@ pub enum LeaseRefusal {
   NoLease(String),
   #[error("The slot {path} is being prepared or cloned by the process {pid}")]
   Preparing { path: String, pid: u32 },
+  #[error("The lease of {path} is being returned by the process {pid}")]
+  Returning { path: String, pid: u32 },
   #[error("The lease of {path} is {actual}, not {expected}")]
   LeaseMismatch { path: String, expected: String, actual: String },
   #[error("Processes work in {path}: {}; stop them, or wait until they are done", describe_processes(.processes))]
@@ -1004,8 +1012,8 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
       actual: lease.id,
     });
   }
-  if lease.state != LeaseState::Ready && !lease.is_abandoned() {
-    bail!(LeaseRefusal::Preparing { path, pid: lease.pid });
+  if let Some(refusal) = refusal_to_return(&path, &lease) {
+    bail!(refusal);
   }
   let scan = wait_for_git_maintenance(Path::new(&path), params.maintenance_timeout);
   let inside = scan.inside(Path::new(&path));
@@ -1039,22 +1047,31 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
   if !running.is_empty() {
     bail!(LeaseRefusal::SlotBusy { path, processes: running });
   }
-  if !changes.is_empty() {
-    discard_slot_changes(git_executor, &path)?;
-  }
-  let removed = remove_seeded(Path::new(&path), &lease.seeded)?;
-  let detached_branch = read_head(git_executor, &path)?.and_then(|(_, branch)| branch);
-  if detached_branch.is_some() {
-    detach_slot_head(git_executor, &path)?;
-  }
-  // the rules of the source, as the seed is read; the slot's own when the source is gone. They never fail the return
-  let rules_from = Some(Path::new(&lease.source))
-    .filter(|source| !lease.source.is_empty() && source.is_dir())
-    .unwrap_or_else(|| Path::new(&path));
-  let (cleaned, clean_error) = match params.clean.map(|overrides| read_clean_rules(rules_from).map(|rules| overrides.apply(rules))) {
-    None => (Vec::new(), None),
-    Some(Ok(rules)) => (apply_clean_rules(git_executor, &path, &rules, true), None),
-    Some(Err(error)) => (Vec::new(), Some(format!("{error:#}"))),
+  // from here on the return acts on the slot: reserved under the pool lock, while the lease is still the one it
+  // checked, so a retried return beside it, or one that another return overtook and whose slot a get leased meanwhile,
+  // changes nothing
+  reserve_return(&pool, params.lock_timeout, &path, &lease.id)?;
+  let returned = finish_return(git_executor, &path, &lease, &changes, params.clean);
+  let FinishedReturn {
+    removed,
+    detached_branch,
+    cleaned,
+    clean_error,
+  } = match returned {
+    Ok(finished) => finished,
+    Err(error) => {
+      // the lease stays the holder's, `ready` again, for a return once the error is fixed
+      let restored = pool.update(params.lock_timeout, |store| {
+        if let Some(lease) = leased_slot(store, &path, &lease.id).and_then(|slot| slot.lease.as_mut()) {
+          lease.state = LeaseState::Ready;
+        }
+        Ok(())
+      });
+      if let Err(restore_error) = restored {
+        warn!(slot = %path, error = %format!("{restore_error:#}"), "cannot give the lease back after a failed return");
+      }
+      return Err(error);
+    }
   };
   pool.update(params.lock_timeout, |store| {
     let last_return = store.slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
@@ -1075,6 +1092,80 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
     cleaned,
     clean_error,
     process_scan: scan.is_available(),
+  })
+}
+
+/// Why `lease` of the slot `path` can't be returned now: its get or another return of it runs
+fn refusal_to_return(path: &str, lease: &Lease) -> Option<LeaseRefusal> {
+  if lease.state == LeaseState::Ready || lease.is_abandoned() {
+    return None;
+  }
+  let (path, pid) = (path.to_string(), lease.pid);
+  Some(match lease.state {
+    LeaseState::Returning => LeaseRefusal::Returning { path, pid },
+    _ => LeaseRefusal::Preparing { path, pid },
+  })
+}
+
+/// Under the pool lock, with CAS on the lease id: mark the lease of `path` `returning`, of this process. Refused when
+/// the slot has another lease or none (another return freed it, a get leased it), or another return of it runs
+fn reserve_return(pool: &Pool, timeout: Duration, path: &str, lease_id: &str) -> Result<()> {
+  let pid = std::process::id();
+  pool.update(timeout, |store| {
+    let current = store.slots.iter_mut().find(|slot| slot.path == path).and_then(|slot| slot.lease.as_mut());
+    let Some(current) = current else {
+      bail!(LeaseRefusal::NoLease(path.to_string()));
+    };
+    if current.id != lease_id {
+      bail!(LeaseRefusal::LeaseMismatch {
+        path: path.to_string(),
+        expected: lease_id.to_string(),
+        actual: current.id.clone(),
+      });
+    }
+    if let Some(refusal) = refusal_to_return(path, current) {
+      bail!(refusal);
+    }
+    current.state = LeaseState::Returning;
+    current.pid = pid;
+    current.process_started = process_started(pid);
+    Ok(())
+  })
+}
+
+/// What a reserved return did to the slot
+struct FinishedReturn {
+  removed: Vec<String>,
+  detached_branch: Option<String>,
+  cleaned: Vec<Cleaned>,
+  clean_error: Option<String>,
+}
+
+/// What a reserved return does to the slot: discard the `changes` it may give up, remove the seeded paths, detach HEAD
+/// and apply the clean rules
+fn finish_return(git_executor: &GitCommandExecutor, path: &str, lease: &Lease, changes: &[String], clean: Option<CleanOverrides>) -> Result<FinishedReturn> {
+  if !changes.is_empty() {
+    discard_slot_changes(git_executor, path)?;
+  }
+  let removed = remove_seeded(Path::new(path), &lease.seeded)?;
+  let detached_branch = read_head(git_executor, path)?.and_then(|(_, branch)| branch);
+  if detached_branch.is_some() {
+    detach_slot_head(git_executor, path)?;
+  }
+  // the rules of the source, as the seed is read; the slot's own when the source is gone. They never fail the return
+  let rules_from = Some(Path::new(&lease.source))
+    .filter(|source| !lease.source.is_empty() && source.is_dir())
+    .unwrap_or_else(|| Path::new(path));
+  let (cleaned, clean_error) = match clean.map(|overrides| read_clean_rules(rules_from).map(|rules| overrides.apply(rules))) {
+    None => (Vec::new(), None),
+    Some(Ok(rules)) => (apply_clean_rules(git_executor, path, &rules, true), None),
+    Some(Err(error)) => (Vec::new(), Some(format!("{error:#}"))),
+  };
+  Ok(FinishedReturn {
+    removed,
+    detached_branch,
+    cleaned,
+    clean_error,
   })
 }
 
@@ -1149,7 +1240,11 @@ pub enum SlotState {
   Ready,
   /// A free slot that a get clones into a new one
   Templating,
-  /// A `preparing` or `templating` lease whose get is gone: the next get takes the slot as free
+  /// Its return runs
+  Returning,
+  /// A free slot that `bd lease clean` cleans
+  Cleaning,
+  /// A lease that is not `ready` and whose process is gone: the next get takes the slot as free
   Abandoned,
 }
 
@@ -1177,6 +1272,8 @@ pub fn lease_status_core(git_common_dir: &Path, processes: bool) -> Result<(Vec<
         Some(lease) if lease.is_abandoned() => SlotState::Abandoned,
         Some(lease) if lease.state == LeaseState::Preparing => SlotState::Preparing,
         Some(lease) if lease.state == LeaseState::Templating => SlotState::Templating,
+        Some(lease) if lease.state == LeaseState::Returning => SlotState::Returning,
+        Some(lease) if lease.state == LeaseState::Cleaning => SlotState::Cleaning,
         Some(_) => SlotState::Ready,
       };
       let missing = !Path::new(&slot.path).is_dir();
@@ -1199,6 +1296,8 @@ pub struct LeaseCleanParams<'a> {
   pub apply: bool,
   /// The parameters of this call that change the rules of the file
   pub overrides: CleanOverrides,
+  /// The wait for the pool lock, for the `cleaning` marker of a slot
+  pub lock_timeout: Duration,
 }
 
 /// A checkout `bd lease clean` cleaned, or skipped
@@ -1234,34 +1333,75 @@ pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanPa
   let mut seen = HashSet::new();
   paths.retain(|path| seen.insert(path.clone()));
   let scan = ProcessScan::scan();
+  let marker = Lease {
+    id: format!("clean-{}", uuid::Uuid::new_v4()),
+    holder: "bd lease clean".to_string(),
+    leased_at: SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs()),
+    state: LeaseState::Cleaning,
+    pid: std::process::id(),
+    process_started: process_started(std::process::id()),
+    source_head: String::new(),
+    source: String::new(),
+    source_branch: None,
+    branch: None,
+    seeded: Vec::new(),
+    reused: false,
+  };
   let targets = paths
     .into_iter()
     .map(|path| {
-      let skipped = if store.slots.iter().any(|slot| slot.path == path) {
-        // the state again: a get may have leased the slot since the read
-        let leased = pool
-          .read()
-          .ok()
-          .and_then(|store| store.slots.into_iter().find(|slot| slot.path == path))
-          .and_then(|slot| slot.lease);
-        let processes = processes_of(&scan.inside(Path::new(&path)));
-        match leased {
-          Some(lease) => Some(format!("leased by {}", lease.holder)),
-          None if !processes.is_empty() => Some(format!("processes work in it: {}", describe_processes(&processes))),
-          None => None,
-        }
+      let is_slot = store.slots.iter().any(|slot| slot.path == path);
+      let processes = processes_of(&scan.inside(Path::new(&path)));
+      // a slot is cleaned only under the `cleaning` marker, set while it is free, so no get leases it meanwhile; a dry
+      // run deletes nothing and only reads the state again
+      let leased = if !is_slot {
+        Ok(None)
+      } else if params.apply && processes.is_empty() {
+        mark_for_clean(&pool, params.lock_timeout, &path, &marker)
       } else {
-        None
+        Ok(
+          pool
+            .read()
+            .ok()
+            .and_then(|store| store.slots.into_iter().find(|slot| slot.path == path))
+            .and_then(|slot| slot.lease)
+            .map(|lease| lease.holder),
+        )
+      };
+      let skipped = match leased {
+        Ok(Some(holder)) => Some(format!("leased by {holder}")),
+        Ok(None) if is_slot && !processes.is_empty() => Some(format!("processes work in it: {}", describe_processes(&processes))),
+        Ok(None) => None,
+        Err(error) => Some(format!("{error:#}")),
       };
       let cleaned = if skipped.is_some() {
         Vec::new()
       } else {
         apply_clean_rules(git_executor, &path, &rules, params.apply)
       };
+      if is_slot && params.apply && skipped.is_none() {
+        release_marker(&pool, params.lock_timeout, &path, &marker.id);
+      }
       CleanTarget { path, skipped, cleaned }
     })
     .collect();
   Ok((targets, scan.is_available()))
+}
+
+/// Under the pool lock: mark the slot `path` with the `cleaning` `marker` while it is free (a lease whose process is gone
+/// counts as free); the holder of its lease when it has one (a get leased it since the read, or a return runs)
+fn mark_for_clean(pool: &Pool, timeout: Duration, path: &str, marker: &Lease) -> Result<Option<String>> {
+  pool.update(timeout, |store| {
+    // a slot the pool dropped meanwhile (its directory was gone) is a checkout that is no slot
+    let Some(slot) = store.slots.iter_mut().find(|slot| slot.path == path) else {
+      return Ok(None);
+    };
+    if let Some(lease) = slot.lease.as_ref().filter(|lease| !lease.is_abandoned()) {
+      return Ok(Some(lease.holder.clone()));
+    }
+    slot.lease = Some(marker.clone());
+    Ok(None)
+  })
 }
 
 /// A directory `bd lease adopt` added, or refused

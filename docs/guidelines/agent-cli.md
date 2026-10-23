@@ -818,7 +818,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   (`landed_branch`). `--confirm-preserved` gives the commits up
   (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`.
 - `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
-  `templating` (a get clones it into a new slot) or `abandoned` (a get died while preparing or cloning it), `dirty`, `missing`, `lease`; no `git status`. `--processes` adds the
+  `templating` (a get clones it into a new slot), `returning` (its return runs), `cleaning` (`bd lease clean` cleans
+  it) or `abandoned` (the get, the return or the clean of it died), `dirty`, `missing`, `lease`; no `git status`. `--processes` adds the
   processes in each slot.
 - `bd lease adopt [--move] <dir>...` adds clean linked worktrees of this repository as free slots where they are
   (`adopted`), and lists the refused ones with their code (`refused`: `not_a_slot`, `slot_in_pool`, `slot_busy`,

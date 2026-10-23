@@ -480,8 +480,9 @@ pub struct SlotOutput {
   /// The worktree id; empty while a new slot is being added
   pub slot: String,
   pub path: String,
-  /// `free`, `preparing` (a get moves it), `ready` (leased), `templating` (a get clones it into a new slot), or
-  /// `abandoned` (a get died while preparing or cloning it: the next get takes it as free)
+  /// `free`, `preparing` (a get moves it), `ready` (leased), `templating` (a get clones it into a new slot),
+  /// `returning` (its return runs), `cleaning` (`bd lease clean` cleans it), or `abandoned` (the get, the return or the
+  /// clean died while it ran: the next get takes it as free)
   pub state: SlotStateOutput,
   /// A get found local changes in the free slot: later gets try it last
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -503,6 +504,8 @@ pub enum SlotStateOutput {
   Preparing,
   Ready,
   Templating,
+  Returning,
+  Cleaning,
   Abandoned,
 }
 
@@ -541,6 +544,8 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
           SlotState::Preparing => SlotStateOutput::Preparing,
           SlotState::Ready => SlotStateOutput::Ready,
           SlotState::Templating => SlotStateOutput::Templating,
+          SlotState::Returning => SlotStateOutput::Returning,
+          SlotState::Cleaning => SlotStateOutput::Cleaning,
           SlotState::Abandoned => SlotStateOutput::Abandoned,
         },
         dirty: status.slot.dirty,
@@ -682,6 +687,7 @@ pub fn lease_clean(context: &LeaseContext, environment: &Environment, args: &Lea
     dirs: &dirs,
     apply: !args.dry_run,
     overrides: args.overrides.overrides()?,
+    lock_timeout: context.lock_timeout,
   };
   let (targets, process_scan) = lease_clean_core(&context.git, &params).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
   let targets: Vec<CleanTargetOutput> = targets
@@ -721,7 +727,7 @@ fn refusal_error(refusal: &LeaseRefusal) -> CliError {
   let code = match refusal {
     LeaseRefusal::NoLease(_) | LeaseRefusal::Preparing { .. } => ErrorCode::NoLease,
     LeaseRefusal::LeaseMismatch { .. } => ErrorCode::LeaseMismatch,
-    LeaseRefusal::SlotBusy { .. } => ErrorCode::SlotBusy,
+    LeaseRefusal::SlotBusy { .. } | LeaseRefusal::Returning { .. } => ErrorCode::SlotBusy,
     LeaseRefusal::UnlandedCommits { .. } => ErrorCode::UnlandedCommits,
     LeaseRefusal::DirtyWorktree { .. } | LeaseRefusal::DirtyCandidate { .. } => ErrorCode::DirtyWorktree,
     LeaseRefusal::BranchExists(_) => ErrorCode::BranchExists,
