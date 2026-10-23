@@ -273,8 +273,8 @@ flowchart TD
   (`bd-lease`, `bd-remote`, `bd-rewrite`, `bd-update`) зависит от `bd-core` и библиотек ниже, но не от другого
   семейства; `bd-cli` собирает все семейства; dev-dependency семейства на `bd-cli` с feature `fixtures` разрешена (тестовый
   цикл, который cargo допускает). Вне слоя от `bd-*` зависит только `src-tauri`: от `bd-cli` (`bd`/`cli` и `install`)
-  и от `bd-core` (`bd_command`, `Environment`). Сегодняшнее `src-tauri → bd-lease` (`agent_defaults`,
-  `src-tauri/src/commands/agent_cli.rs:5`) уходит в `s3-crates`: `agent_defaults` — ядро `lease-pool`.
+  и от `bd-core` (`bd_command`, `Environment`). `agent_defaults` — ядро `lease-pool` (с `s3-4`), поэтому
+  `src-tauri` от `bd-lease` не зависит.
   `bd-clustering` — библиотека без CLI и в `s3-crates` переименовывается в `commit-clustering`.
 - `bd-*` не зависят от `tauri` (сегодня не зависят; `app-settings` поэтому не использует `tauri-plugin-store`).
 
@@ -570,7 +570,7 @@ GitHub на POST (для comment-маршрута, пока ответ не по
 - Lock: read-modify-write под `operations.lock` — flock с ограниченным ожиданием, только на время файловой операции,
   никогда поперёк git или HTTP. Это **отдельный** lock от repository lock, который `bd` держит поперёк sync и push
   (`push_command.rs:218-233`); иначе допуск приложения ждал бы за долгим sync `bd`. Запись атомарна (tmp + rename),
-  по образцу `leases.json` (`crates/sync-core/src/lease.rs`).
+  по образцу `leases.json` (`crates/lease-pool/src/lease.rs`).
 - Живость: heartbeat каждые 30 с. Запись осиротела, если heartbeat старше 5 мин **и** (тот же host: pid мёртв или
   его start time не совпадает — защита от переиспользования pid; другой host: всегда, живость непроверяема).
   Осиротевшая без `external.pending_*` отбрасывается при следующем допуске; с ним — становится `Unknown`, блокирует
@@ -1082,6 +1082,14 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `empty_cache`) — `test_utils::process_budget`, `baseline_repo` — `test_utils::git_test_utils`, планы
     перегруппировки (`plan`, `issue_group_plan`) — `history_rewrite::test_commit`. `cargo tree -p sync-core -e normal`
     больше не показывает `file-diffs`, `code-symbols` и tree-sitter (`text-diff` остаётся через `git-ops`).
+  - `lease-pool` выделен в `s3-4`: `lease`, `lease_clean`, `clone_dir`, `agent_workspace` с их тестами;
+    `AgentDefaults` и `agent_defaults(Option<&GitCommandExecutor>)` — из `bd-lease/src/workspace_command.rs` в
+    `agent_workspace` (`JsonSchema` за feature `schemars`, который включает `bd-cli` для схемы `bd install`);
+    `bd install` передаёт `counted_git(environment).ok().as_ref()`, приложение (`install_agent_cli`) — свой executor
+    из `State`. `toml` и `libc` уехали из `sync-core`, `uuid` остался (соль `robot_stats`). Allowlist
+    `src-tauri → bd-lease` удалён; `lease-pool` не достигает `github`, `patronus`, `youtrack`, `trial-check`,
+    `update-core`, `file-diffs`, `code-symbols` (пока `sync-core → github/patronus/youtrack` в allowlist, достижимость
+    через них не считается).
 - **Удаляется:** `crates/repository-view`, `crates/integration-detection-tests`, `crates/bd-clustering` (как имя);
   записи allowlist `sync-core → github/patronus/youtrack/file-diffs/code-symbols`, `bd-remote → bd-rewrite`,
   `src-tauri → bd-lease`.

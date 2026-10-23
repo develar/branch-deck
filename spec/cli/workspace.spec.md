@@ -4,7 +4,7 @@ description: Requirements for bd workspace, which a coding agent runs before its
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/workspace_command.rs
-  - ../../crates/sync-core/src/agent_workspace.rs
+  - ../../crates/lease-pool/src/agent_workspace.rs
   - ../../crates/sync-core/src/repository_config.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-cli/src/install.rs
@@ -67,7 +67,7 @@ in the session wins over both.
 - With the lease on in the main worktree, a pool directory (or its first existing parent) that can't be written, as in
   a sandbox, must turn the lease off with the reason; the probe file is removed at once.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`a_pool_that_cant_be_written_turns_the_lease_off`)
-  [@test] ../../crates/sync-core/src/agent_workspace_test.rs (`the_probe_of_the_pool_writes_its_first_existing_parent_and_removes_its_file`, `the_subdir_is_the_path_below_the_top_level`)
+  [@test] ../../crates/lease-pool/src/agent_workspace_test.rs (`the_probe_of_the_pool_writes_its_first_existing_parent_and_removes_its_file`, `the_subdir_is_the_path_below_the_top_level`)
 - It must write no ref, config, index or working tree, and run one `rev-parse`, one `git config` of the `branchdeck.*`
   keys, in the main worktree one more of the pool config, and in the main worktree or a lease one `status` of the
   shared checkout (`GIT_OPTIONAL_LOCKS=0`).

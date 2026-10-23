@@ -7,14 +7,14 @@
 ## Summary
 
 Read this before you add or change a git operation in `crates/git-ops`, `crates/history-rewrite`, `crates/sync-core`,
-`crates/update-core`, `crates/trial-check`, `crates/bd-*` or `src-tauri/src/commands`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
+`crates/update-core`, `crates/trial-check`, `crates/lease-pool`, `crates/bd-*` or `src-tauri/src/commands`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
 in its "Git Operations", the flows and the reasons in [Git Operations](../design/git-operations.md).
 
 ## Layers
 
 An operation keeps one name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`). The `//!`
 headers of `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
-`crates/update-core/src/lib.rs` and `crates/trial-check/src/lib.rs` map the
+`crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs` and `crates/lease-pool/src/lib.rs` map the
 modules by area; the layers are the
 [Architecture](../design/git-operations.md#architecture) of Git Operations.
 - **git-ops** (`crates/git-ops/src/<op>.rs`): the git, functions of `(git, repo_path, …)`, one process per phase (many
@@ -28,7 +28,8 @@ modules by area; the layers are the
 - **The core** (`crates/history-rewrite/src/<op>.rs` for a rewrite of the checked-out branch that needs no sync, GitHub
   or Patronus; `crates/update-core/src/<op>.rs` for a move of the checked-out branch onto commits from elsewhere: Update
   Project, `bd pick`, the resolve sessions; `crates/trial-check/src/<op>.rs` for a trial check, `bd move-hunk` and
-  whatever reads the diffs or the symbols of the commits; else `crates/sync-core/src/<op>.rs`): `<op>_core(git, params, …)`, the one entry of every caller. A rewrite
+  whatever reads the diffs or the symbols of the commits; `crates/lease-pool/src/<op>.rs` for the lease pool and the agent
+  workspace; else `crates/sync-core/src/<op>.rs`): `<op>_core(git, params, …)`, the one entry of every caller. A rewrite
   of the checked-out branch takes `&RewriteOptions`: `options.lock(..)` before it reads anything, then the expected
   HEAD (`ensure_head`, `expected_full_head`), then git-ops. A step of a sync, or of a `bd` command after its sync, takes
   the facts `RepoFacts`, `ConfigSnapshot`, `Snapshot` or the `SyncReport` hold instead of reading them again; a remote

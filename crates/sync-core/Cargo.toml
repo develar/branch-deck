@@ -27,14 +27,8 @@ specta = { workspace = true, optional = true }
 quick-xml = "0.42"
 regex = "1.13"
 tokio = { workspace = true, features = ["time"] }
-# the clean rules of `.branchdeck.toml` (`lease_clean`)
-toml = "1.1"
-# the ids and the default holders of the leases (`lease`)
+# the salt of the robot statistics (`robot_stats`)
 uuid = { version = "1.28", features = ["v4"] }
-
-# the APFS clone of a new lease slot (`clone_dir`)
-[target.'cfg(unix)'.dependencies]
-libc = "0.2.190"
 
 [features]
 default = []

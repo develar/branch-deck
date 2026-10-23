@@ -20,6 +20,8 @@ test = false
 test-utils = { path = "../test-utils", optional = true }
 bd-core = { path = "../bd-core" }
 bd-lease = { path = "../bd-lease" }
+# `AgentDefaults` of `bd install`, in its JSON schema
+lease-pool = { path = "../lease-pool", features = ["schemars"] }
 bd-remote = { path = "../bd-remote" }
 bd-rewrite = { path = "../bd-rewrite" }
 bd-update = { path = "../bd-update" }

@@ -3,15 +3,17 @@
 //! commit with `bd pick`, `branchdeck.agentSubjectBranch` (off by default) to start each subject with its `(branch)`.
 //! Read only: one `rev-parse`, one `git config`, and in the shared checkout or a lease one `status` of the shared
 //! checkout; in the shared checkout with the lease on, one more `git config` for the pool directory.
+//! `agent_defaults` reads the same two rules of the global git config, what `bd install` and the app's Install Agent CLI
+//! report.
 
 use crate::lease::{SlotState, canonical_path, lease_status_core, pool_dir};
-use crate::repository_config::{ConfigSetting, read_config_entries, repository_config_from_entries};
-use crate::uncommitted_changes::{GetUncommittedChangesParams, get_uncommitted_changes};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::repository_dirs;
 use std::path::{Path, PathBuf};
+use sync_core::repository_config::{ConfigSetting, read_config_entries, repository_config_from_entries};
+use sync_core::uncommitted_changes::{GetUncommittedChangesParams, get_uncommitted_changes};
 use tracing::instrument;
 
 /// Where the agent runs
@@ -173,5 +175,26 @@ pub(crate) fn unwritable_dir(dir: &Path) -> Option<String> {
     }
     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,
     Err(_) => Some(canonical_path(existing)),
+  }
+}
+
+/// The rules of `bd workspace` that the global git config gives every repository without its own value (`bd install`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct AgentDefaults {
+  /// `branchdeck.agentLease`: work in a lease of their own and land each commit with `bd pick` (on by default)
+  pub lease: bool,
+  /// `branchdeck.agentSubjectBranch`: start each subject with `(branch)` (off by default)
+  pub subject_branch: bool,
+}
+
+/// The agent rules of the global git config, one `git config --global`; the defaults without a git, or when it can't
+/// be run, as `bd workspace` would find none either
+pub fn agent_defaults(git: Option<&GitCommandExecutor>) -> AgentDefaults {
+  let entries = git.and_then(|git| read_config_entries(git, "").ok()).unwrap_or_default();
+  let config = repository_config_from_entries(&entries, None);
+  AgentDefaults {
+    lease: config.agent_lease.value,
+    subject_branch: config.agent_subject_branch.value,
   }
 }

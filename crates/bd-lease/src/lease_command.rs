@@ -1,5 +1,5 @@
 //! `bd lease get`, `return`, `status` and `adopt`: the worktrees of the lease pool, one agent session per slot
-//! (spec/cli/lease.spec.md). The core (`sync_core::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
+//! (spec/cli/lease.spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
 use bd_core::context::Environment;
@@ -11,16 +11,16 @@ use git_executor::git_info::GitInfo;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use history_rewrite::repository_lock::RepositoryLocked;
+use lease_pool::lease::{
+  Adopted, CreatedBy, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core,
+  lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
+};
+use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use sync_core::lease::{
-  Adopted, CreatedBy, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core,
-  lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
-};
-use sync_core::lease_clean::{CleanOverrides, Cleaned, parse_age};
 use sync_utils::list_cut::kept;
 
 /// How many local paths an error or a skipped slot names

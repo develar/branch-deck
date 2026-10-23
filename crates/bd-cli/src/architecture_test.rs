@@ -70,6 +70,11 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "a trial check builds and reads the commits of the repository, never a remote service",
   },
   Unreachable {
+    from: "lease-pool",
+    forbidden: &["github", "patronus", "youtrack", "trial-check", "update-core", "file-diffs", "code-symbols"],
+    why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check or a diff",
+  },
+  Unreachable {
     from: "repository-view",
     forbidden: &["trial-check"],
     why: "the model holds what the checks found, it runs no trial check",
@@ -107,11 +112,6 @@ const ALLOWED: &[Allowed] = &[
   Allowed {
     from: "bd-remote",
     to: "bd-rewrite",
-    removed_in: "s3-crates",
-  },
-  Allowed {
-    from: APP,
-    to: "bd-lease",
     removed_in: "s3-crates",
   },
 ];

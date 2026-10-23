@@ -9,8 +9,9 @@ use bd_core::bd_command::{LINK_DIR, links_to};
 use bd_core::context::Environment;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
-use bd_lease::workspace_command::{AgentDefaults, agent_defaults};
+use bd_lease::lease_command::counted_git;
 use domain_types::error::ErrorCode;
+use lease_pool::agent_workspace::{AgentDefaults, agent_defaults};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -94,7 +95,7 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     bd: display(&bd),
     skills: skill_files.iter().map(|file| display(file)).collect(),
     uninstalled: false,
-    agents: Some(agent_defaults(environment)),
+    agents: Some(agent_defaults(counted_git(environment).ok().as_ref())),
   })
 }
 

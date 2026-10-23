@@ -11,6 +11,8 @@
 //! landed report an update records (`landed`). The trial checks (`bd check`, the conflict fix, the landing gate),
 //! `bd move-hunk` and everything that reads the diffs and the symbols of the commits are the crate `trial-check`; it
 //! builds with `branch_processor` and `cache_memo` of this crate.
+//! The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`) are the crate
+//! `lease-pool`; it reads `repository_config`, `uncommitted_changes` and `baseline` of this crate.
 //!
 //! The sync:
 //! - `sync`: `sync_branches`, the guards, the grouping, one build per branch and the detection of the archived ones
@@ -77,12 +79,6 @@
 //! - `robot_stats_aggregate`: what the statistics count of them, pure (moves to `domain-policy` in s8)
 //! - `target_conflict`: the check that Patronus can rebase what a robot lands onto the newest target
 //!
-//! The lease pool:
-//! - `lease`: the slots agent sessions lease (`bd lease`), their state and lock in `$GIT_COMMON_DIR/branch-deck/`
-//! - `agent_workspace`: where a coding agent works and how it writes a subject (`bd workspace`), before its first edit
-//! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `bd lease clean` apply to a slot
-//! - `clone_dir`: a directory tree by one APFS clone, the new slot of a get on macOS
-//!
 //! The rest:
 //! - `branch_review`: the stack and the commits of a branch review
 //! - `branch_name_suggestion`: branch names for commits from the user's Claude Code
@@ -91,9 +87,6 @@
 //! - `uncommitted_changes`: the uncommitted files and the diff of one of them
 
 pub mod add_issue_reference;
-pub mod agent_workspace;
-#[cfg(test)]
-mod agent_workspace_test;
 pub mod amend_to_branch;
 pub mod baseline;
 pub mod baseline_fetch;
@@ -103,7 +96,6 @@ pub mod branch_processor;
 pub mod branch_review;
 pub mod branch_rules;
 pub mod cache_memo;
-pub mod clone_dir;
 pub mod commit_key;
 pub mod commit_owners;
 pub mod commit_walk;
@@ -115,8 +107,6 @@ pub mod github_repository;
 pub mod grouping;
 pub mod issue_navigation;
 pub mod landed;
-pub mod lease;
-pub mod lease_clean;
 pub mod parked;
 pub mod patronus;
 pub mod patronus_command;

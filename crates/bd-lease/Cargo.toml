@@ -12,6 +12,7 @@ domain-types = { path = "../domain-types" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 history-rewrite = { path = "../history-rewrite" }
+lease-pool = { path = "../lease-pool" }
 sync-core = { path = "../sync-core" }
 sync-utils = { path = "../sync-utils" }
 anyhow.workspace = true

@@ -4,7 +4,6 @@
 //! pool has a lock of its own (`leases.lock`), held only while the state is read and written, never across a git that
 //! writes a slot: two gets never wait for each other's checkouts, and no get waits for an update.
 
-use crate::baseline::baseline_tracking_ref;
 use crate::clone_dir::clone_directory;
 use crate::lease_clean::{CleanOverrides, Cleaned, apply_clean_rules, read_clean_rules};
 use anyhow::{Context, Result, anyhow, bail};
@@ -22,6 +21,7 @@ use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use sync_core::baseline::baseline_tracking_ref;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
 use tracing::{debug, instrument, warn};

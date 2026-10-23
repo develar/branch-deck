@@ -60,8 +60,8 @@ need no sync, GitHub or Patronus are the crate history-rewrite, the others sync-
 checks the HEAD the request was made for and orders the git steps. git-ops knows git and no policy: which arguments,
 which process, how to read its output, each module one operation or one primitive that operations share; a rewrite there
 runs the guards on the history it read and moves the branch with CAS. The `//!` headers of `crates/git-ops/src/lib.rs`,
-`crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`, `crates/update-core/src/lib.rs` and
-`crates/trial-check/src/lib.rs` map their modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
+`crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`, `crates/update-core/src/lib.rs`,
+`crates/trial-check/src/lib.rs` and `crates/lease-pool/src/lib.rs` map their modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
 of a new one, and [Adding a Git Operation](../guidelines/adding-git-operation.md) says where it goes and which helpers
 it reuses.
 
@@ -1209,7 +1209,7 @@ operation), `crates/update-core/src/pick.rs` (lock, baseline, grouping, dependen
 
 #### Lease
 
-`bd lease` (`crates/sync-core/src/lease.rs`, the git of a slot in `crates/git-ops/src/lease_slot.rs`) keeps a pool of
+`bd lease` (`crates/lease-pool/src/lease.rs`, the git of a slot in `crates/git-ops/src/lease_slot.rs`) keeps a pool of
 linked worktrees, one agent session per slot. It replaces the Treehouse pool for the IntelliJ monorepo (1.4M tracked
 files). There an acquire took 20 minutes or more, for two reasons measured on 2026-10-19:
 
@@ -1263,7 +1263,7 @@ an adopt (the process scan). git still leaves a directory changed in the second 
 5. Under the lock again the lease becomes `ready`, with the seeded paths. A failure after step 1 gives the slot back
    (free, or dropped when it was never added), and the error says so.
 
-A new slot by a clone (`add_cloned_slot`, `crates/sync-core/src/clone_dir.rs`). Measured on idea-1 (1,387,212 index
+A new slot by a clone (`add_cloned_slot`, `crates/lease-pool/src/clone_dir.rs`). Measured on idea-1 (1,387,212 index
 entries): one `clonefile(2)` of a whole slot took 40 s, the refresh of the copied index 14 s, and a checkout of the
 same tree takes several minutes.
 
@@ -1314,7 +1314,7 @@ server can miss the events of a large checkout. Unlanded commits, local changes 
 for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
 no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it.
 
-The clean rules (`crates/sync-core/src/lease_clean.rs`). Cargo never deletes a unit whose hash went out of use, so the
+The clean rules (`crates/lease-pool/src/lease_clean.rs`). Cargo never deletes a unit whose hash went out of use, so the
 free slots of Branch Deck held 679 GB of stale units, which a prune script nobody ran left alone. The return now cleans
 its slot by the `[lease] clean` rules of the committed `.branchdeck.toml`, read once from the source the lease
 recorded (the slot's own when the source is gone), after every check passed and before the slot is freed. A rule is
@@ -1340,7 +1340,7 @@ the user: on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PRO
 `sysctl(KERN_PROCARGS2)`, on Linux from `/proc/<pid>/cwd` and `/proc/<pid>/cmdline`. It leaves out `bd` and its ancestors, and compares canonical paths by components. Windows has no
 scan: the outputs say `processes_checked: false`, and a lease never waits for it.
 
-Code: `crates/git-ops/src/lease_slot.rs`, `crates/sync-core/src/lease.rs`, `crates/sync-utils/src/process_scan.rs`,
+Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `crates/sync-utils/src/process_scan.rs`,
 `crates/bd-lease/src/lease_command.rs`.
 
 #### Virtual branch sync
@@ -2480,7 +2480,9 @@ fifth, `branchdeck.resolveByWords`, and Settings → Agents the two rules of cod
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
 lands each commit with `bd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, off when unset: an agent starts
 each subject with its `(branch)`). `bd` reads the same keys, so the app keeps nothing of them in its own settings; the
-two agent keys only `bd workspace` reads ([bd workspace](../../spec/cli/workspace.spec.md)): no sync, no operation.
+two agent keys only `bd workspace` reads ([bd workspace](../../spec/cli/workspace.spec.md)), and their global values
+`agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `bd install` and the app's Install Agent CLI: no sync,
+no operation.
 
 - **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|agentlease|agentsubjectbranch)$'`
   (exit 1: none is set), `--global` in `.` without a repository. `-z` separates the entries with NUL, and the key from

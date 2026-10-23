@@ -1,0 +1,41 @@
+[package]
+name = "lease-pool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`)"
+publish = false
+
+[dependencies]
+sync-core = { path = "../sync-core" }
+history-rewrite = { path = "../history-rewrite" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+sync-utils = { path = "../sync-utils" }
+anyhow.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10.9"
+schemars = { workspace = true, optional = true }
+# the clean rules of `.branchdeck.toml` (`lease_clean`)
+toml = "1.1"
+# the ids and the default holders of the leases (`lease`)
+uuid = { version = "1.28", features = ["v4"] }
+
+# the APFS clone of a new lease slot (`clone_dir`)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
+[features]
+default = []
+# `AgentDefaults` in the JSON schema of `bd install`
+schemars = ["dep:schemars"]
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile.workspace = true
+
+[lints]
+workspace = true

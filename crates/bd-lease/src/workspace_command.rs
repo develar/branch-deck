@@ -1,5 +1,5 @@
 //! `bd workspace`: where a coding agent works and how it writes a commit subject, asked before its first edit
-//! (spec/cli/workspace.spec.md). The core is `sync_core::agent_workspace`; this module turns it into the rules and the
+//! (spec/cli/workspace.spec.md). The core is `lease_pool::agent_workspace`; this module turns it into the rules and the
 //! next commands of the agent
 
 use crate::lease_command::counted_git;
@@ -9,11 +9,11 @@ use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
+use lease_pool::agent_workspace::{ActiveLease, AgentWorkspace, WorkspaceKind, agent_workspace};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::Path;
-use sync_core::agent_workspace::{ActiveLease, AgentWorkspace, WorkspaceKind, agent_workspace};
-use sync_core::repository_config::{ConfigScope, ConfigSetting, read_config_entries, repository_config_from_entries};
+use sync_core::repository_config::{ConfigScope, ConfigSetting};
 
 /// `bd workspace`
 #[derive(Debug, Serialize, JsonSchema)]
@@ -178,25 +178,5 @@ fn active_lease(lease: ActiveLease) -> ActiveLeaseOutput {
     lease_id: lease.lease_id,
     holder: lease.holder,
     path: lease.path,
-  }
-}
-
-/// The rules of `bd workspace` that the global git config gives every repository without its own value (`bd install`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
-pub struct AgentDefaults {
-  /// `branchdeck.agentLease`: work in a lease of their own and land each commit with `bd pick` (on by default)
-  pub lease: bool,
-  /// `branchdeck.agentSubjectBranch`: start each subject with `(branch)` (off by default)
-  pub subject_branch: bool,
-}
-
-/// The agent rules of the global git config, one `git config --global`; the defaults when git can't be run, as
-/// `bd workspace` would find none either
-pub fn agent_defaults(environment: &Environment) -> AgentDefaults {
-  let entries = counted_git(environment).ok().and_then(|git| read_config_entries(&git, "").ok()).unwrap_or_default();
-  let config = repository_config_from_entries(&entries, None);
-  AgentDefaults {
-    lease: config.agent_lease.value,
-    subject_branch: config.agent_subject_branch.value,
   }
 }

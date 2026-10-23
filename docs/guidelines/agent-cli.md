@@ -787,7 +787,7 @@ through the guarded update. `--follow` moves the source worktree onto the new ti
 
 ### `bd lease get [--holder <label>] [-b <branch>]`, `return`, `status`, `adopt`
 
-The pool of worktrees that agent sessions work in, one session per slot (`sync_core::lease`, "Lease" in
+The pool of worktrees that agent sessions work in, one session per slot (`lease_pool::lease`, "Lease" in
 [Git Operations](../design/git-operations.md), the contract [bd lease](../../spec/cli/lease.spec.md)). A lease needs no
 branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the pool lock `leases.lock`.
 
@@ -1605,7 +1605,7 @@ outputs of `--brief`, `update_status` and `update_abort` those of `bd update --s
 ### `bd workspace`
 
 Run by an agent before its first edit or commit (the skill says so; the contract
-[bd workspace](../../spec/cli/workspace.spec.md)). Read only: `sync_core::agent_workspace`, one `rev-parse`, one
+[bd workspace](../../spec/cli/workspace.spec.md)). Read only: `lease_pool::agent_workspace`, one `rev-parse`, one
 `git config` of the `branchdeck.*` keys, in the main worktree one more of the pool config and in the main worktree or a
 lease one `status` of the shared checkout. Two rules of the git config, each `{on, source, invalid, reason}`:
 

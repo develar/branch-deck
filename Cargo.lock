@@ -469,6 +469,7 @@ dependencies = [
  "git-ops",
  "github",
  "history-rewrite",
+ "lease-pool",
  "object-cache",
  "patronus",
  "pretty_assertions",
@@ -544,6 +545,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "history-rewrite",
+ "lease-pool",
  "pretty_assertions",
  "schemars 1.2.3",
  "serde",
@@ -716,7 +718,6 @@ dependencies = [
  "anyhow",
  "bd-cli",
  "bd-core",
- "bd-lease",
  "branch-integration",
  "domain-types",
  "file-diffs",
@@ -726,6 +727,7 @@ dependencies = [
  "gtk",
  "history-rewrite",
  "jiff",
+ "lease-pool",
  "log",
  "moka",
  "objc2",
@@ -3313,6 +3315,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
+name = "lease-pool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "git-executor",
+ "git-ops",
+ "history-rewrite",
+ "libc",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sync-core",
+ "sync-utils",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5691,7 +5716,6 @@ dependencies = [
  "github",
  "history-rewrite",
  "indexmap 2.14.2",
- "libc",
  "moka",
  "object-cache",
  "patronus",
@@ -5708,7 +5732,6 @@ dependencies = [
  "test-utils",
  "thiserror 2.0.21",
  "tokio",
- "toml 1.1.8+spec-1.1.0",
  "tracing",
  "uuid",
  "youtrack",

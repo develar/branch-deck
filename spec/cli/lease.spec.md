@@ -7,8 +7,8 @@ targets:
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/schema.rs
-  - ../../crates/sync-core/src/lease.rs
-  - ../../crates/sync-core/src/lease_clean.rs
+  - ../../crates/lease-pool/src/lease.rs
+  - ../../crates/lease-pool/src/lease_clean.rs
   - ../../.branchdeck.toml
   - ../../crates/sync-utils/src/process_scan.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
@@ -96,7 +96,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   directory is `~/.branch-deck/pool/<repository name>-<8 hex digits of the SHA-256 of the canonical common dir>`, or
   `branchdeck.leasePool` of the git config.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
-  [@test] ../../crates/sync-core/src/lease_test.rs (`the_repository_name_is_the_directory_of_its_main_worktree`)
+  [@test] ../../crates/lease-pool/src/lease_test.rs (`the_repository_name_is_the_directory_of_its_main_worktree`)
 - Two gets at the same time must never lease the same slot: each records its lease as `preparing` under the pool lock
   (`leases.lock`, not the repository lock), then moves its slot without the lock.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
@@ -107,7 +107,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   names (`#` comments; a literal path, or a glob of `*`, `?` and `[…]` in its last component; always relative to the
   root), and record them in the lease (`seeded`). A tracked file or one that git does not ignore must not be seeded.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_seed_copies_the_included_ignored_files_and_the_return_removes_them`)
-  [@test] ../../crates/sync-core/src/lease_test.rs (`the_seed_candidates_are_literal_paths_and_globs_of_one_directory`, `a_glob_matches_by_stars_question_marks_and_classes`)
+  [@test] ../../crates/lease-pool/src/lease_test.rs (`the_seed_candidates_are_literal_paths_and_globs_of_one_directory`, `a_glob_matches_by_stars_question_marks_and_classes`)
 - A get that fails after it recorded the lease must give the slot back (free, or dropped when it was never added) and
   say so in the message; it must never leave the lease `preparing`. A `preparing` lease whose process (its pid and
   start time) is gone must be taken as free by the next get.
@@ -180,13 +180,13 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   - in both, `incremental/<crate>-<hash>/` is a unit of its own, grouped by crate.
   The uplifted artifacts at the top of the profile dir (`debug/libavl_vm.rlib`, `debug/<bin>`) and `.cargo-lock` are
   never touched. `{ delete = "<path>" }` removes a path.
-  [@test] ../../crates/sync-core/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`, `the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash`, `a_classic_unit_is_its_name_and_its_hash`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`, `the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash`, `a_classic_unit_is_its_name_and_its_hash`)
 - An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
-  [@test] ../../crates/sync-core/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
 - A rule must be skipped and reported (`error`), never applied, when its path is absolute, leaves the checkout with
   `..`, names `.git`, names the checkout itself, has a symlink on its way or is one, or holds a file that git tracks
   (one `ls-files -z` of the paths of all rules). The walk of a rule never follows a symlink.
-  [@test] ../../crates/sync-core/src/lease_clean_test.rs (`an_unsafe_path_is_a_rule_that_is_reported`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`an_unsafe_path_is_a_rule_that_is_reported`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`an_unsafe_rule_is_skipped_and_reported`)
 - The return must read the file once, from the source checkout that the lease recorded (the slot's own when the
   source is gone), and apply the rules after all its checks passed, before it frees the slot: `cleaned` [{`rule`,

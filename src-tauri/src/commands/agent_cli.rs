@@ -3,8 +3,10 @@ use crate::operation::{operation_now, run_blocking};
 use bd_cli::install::{InstallArgs, install, install_status};
 use bd_core::bd_command::bd_command;
 use bd_core::context::Environment;
-use bd_lease::workspace_command::agent_defaults;
+use git_executor::git_command_executor::GitCommandExecutor;
+use lease_pool::agent_workspace::agent_defaults;
 use sync_utils::child_process::login_shell_path;
+use tauri::State;
 use tracing::instrument;
 
 /// What the "Install Agent CLI…" menu item installed: `bd install` (docs/guidelines/agent-cli.md)
@@ -31,16 +33,17 @@ pub struct AgentRules {
 
 #[tauri::command]
 #[specta::specta]
-#[instrument]
-pub async fn install_agent_cli() -> Result<AgentCliInstall, CommandError> {
-  run_blocking(|| {
+#[instrument(skip_all)]
+pub async fn install_agent_cli(git_executor: State<'_, GitCommandExecutor>) -> Result<AgentCliInstall, CommandError> {
+  let git = (*git_executor).clone();
+  run_blocking(move || {
     let mut environment = Environment::from_process();
     // an app started from the Finder has a minimal PATH; the user's shell decides whether `bd` runs there
     if let Some(path) = login_shell_path() {
       environment.path = Some(path);
     }
     let output = install(&environment, &InstallArgs::default()).map_err(|e| CommandError::new(e.message))?;
-    let agents = output.agents.unwrap_or_else(|| agent_defaults(&environment));
+    let agents = output.agents.unwrap_or_else(|| agent_defaults(Some(&git)));
     Ok::<_, CommandError>(AgentCliInstall {
       bd: output.bd,
       on_path: output.on_path,
