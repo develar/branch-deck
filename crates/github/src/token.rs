@@ -13,7 +13,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
-use sync_utils::child_process::{find_executable, run_child};
+use sync_utils::child_process::{find_tool, run_child};
+use sync_utils::known_tools::GH;
 use sync_utils::span::in_current_span;
 use tracing::{debug, info, instrument, warn};
 
@@ -86,7 +87,7 @@ impl TokenSources {
 pub enum GhSource {
   #[default]
   None,
-  /// The installed one (`find_gh`), looked up each time: it may be installed while the app runs
+  /// The installed one (`known_tools::GH`), looked up each time: it may be installed while the app runs
   Find,
   /// This one, in the tests
   At(PathBuf),
@@ -164,7 +165,7 @@ impl TokenChain {
           GhSource::Find => None,
           GhSource::At(path) => Some(path.clone()),
         };
-        run_source(move || read_gh_token(gh.or_else(find_gh)?.as_path(), SOURCE_TIMEOUT)).await
+        run_source(move || read_gh_token(gh.or_else(|| find_tool(&GH))?.as_path(), SOURCE_TIMEOUT)).await
       }
       TokenSource::BranchDeck => {
         let path = self.sources.token_file.clone()?;
@@ -227,18 +228,6 @@ async fn run_source(read: impl FnOnce() -> Option<Token> + Send + 'static) -> Op
       None
     }
   }
-}
-
-/// The `gh` binary: Homebrew first, as for git (an app started from the Finder has no Homebrew in `PATH`), then `PATH`
-pub fn find_gh() -> Option<PathBuf> {
-  #[cfg(target_os = "macos")]
-  for path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"] {
-    if Path::new(path).is_file() {
-      return Some(PathBuf::from(path));
-    }
-  }
-
-  find_executable("gh", &std::env::var_os("PATH")?)
 }
 
 /// `gh auth token` of github.com; None when gh is not logged in (it exits with 1) or fails

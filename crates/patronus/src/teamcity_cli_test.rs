@@ -1,8 +1,10 @@
-use crate::teamcity_cli::{LogTail, TeamCityCli, find_teamcity_in};
+use crate::teamcity_cli::{LogTail, TeamCityCli};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use sync_utils::child_process::find_tool_in;
+use sync_utils::known_tools::TEAMCITY;
 use test_utils::fake_executable::fake_executable;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -108,13 +110,13 @@ async fn a_command_that_hangs_is_killed_after_the_timeout() {
 fn the_cli_on_path_comes_first() {
   let bin = tempfile::tempdir().unwrap();
   let expected = fake_executable(bin.path(), "teamcity", "true");
-  assert_eq!(find_teamcity_in(None, Some(bin.path().as_os_str())), Some(expected));
+  assert_eq!(find_tool_in(&TEAMCITY, None, Some(bin.path().as_os_str())), Some(expected));
   let home = tempfile::tempdir().unwrap();
   let local = home.path().join(".local/bin");
   std::fs::create_dir_all(&local).unwrap();
   let in_home = fake_executable(&local, "teamcity", "true");
   let empty = tempfile::tempdir().unwrap();
-  let found = find_teamcity_in(Some(home.path()), Some(empty.path().as_os_str()));
+  let found = find_tool_in(&TEAMCITY, Some(home.path()), Some(empty.path().as_os_str()));
   if cfg!(windows) {
     // Windows has no Homebrew and no ~/.local/bin convention: only PATH counts there
     assert_eq!(found, None);

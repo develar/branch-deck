@@ -1,4 +1,4 @@
-use crate::branch_name_suggestion::{MAX_BRANCH_NAME_LENGTH, cap_input, claude_command, clean_branch_name, clean_names, find_claude_in, suggest_branch_names_with};
+use crate::branch_name_suggestion::{MAX_BRANCH_NAME_LENGTH, cap_input, claude_command, clean_branch_name, clean_names, suggest_branch_names_with};
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::commit::CommitInfo;
 use pretty_assertions::assert_eq;
@@ -7,6 +7,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use sync_utils::child_process::find_tool_in;
+use sync_utils::known_tools::CLAUDE;
 use test_log::test;
 use test_utils::fake_executable::fake_executable;
 use test_utils::git_test_utils::TestRepo;
@@ -253,7 +255,7 @@ fn finds_claude_in_the_known_paths_before_path() {
   let other = tempfile::tempdir().unwrap();
   let on_path = fake_executable(other.path(), "claude", "true");
   let path = other.path().as_os_str();
-  let found = find_claude_in(Some(home.path()), Some(path));
+  let found = find_tool_in(&CLAUDE, Some(home.path()), Some(path));
   if cfg!(target_os = "macos") {
     // Homebrew's, where this machine has it, comes before PATH
     let found = found.unwrap();
@@ -264,11 +266,11 @@ fn finds_claude_in_the_known_paths_before_path() {
 
   std::fs::create_dir_all(home.path().join(".claude/local")).unwrap();
   let local = fake_executable(&home.path().join(".claude/local"), "claude", "true");
-  assert_eq!(find_claude_in(Some(home.path()), Some(path)), Some(local));
+  assert_eq!(find_tool_in(&CLAUDE, Some(home.path()), Some(path)), Some(local));
 
   std::fs::create_dir_all(home.path().join(".local/bin")).unwrap();
   let native = fake_executable(&home.path().join(".local/bin"), "claude", "true");
-  assert_eq!(find_claude_in(Some(home.path()), Some(path)), Some(native));
+  assert_eq!(find_tool_in(&CLAUDE, Some(home.path()), Some(path)), Some(native));
 }
 
 #[test]

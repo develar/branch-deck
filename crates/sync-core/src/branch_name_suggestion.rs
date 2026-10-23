@@ -6,11 +6,11 @@ use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestB
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use std::borrow::Cow;
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
-use sync_utils::child_process::{ChildOutput, ChildProcessError, cached_login_shell_path, find_executable, run_child};
+use sync_utils::child_process::{ChildOutput, ChildProcessError, find_tool, run_child};
+use sync_utils::known_tools::CLAUDE;
 use sync_utils::list_cut;
 use tracing::{info, instrument, warn};
 
@@ -63,7 +63,7 @@ const NOT_LOGGED_IN_MARKERS: &[&str] = &["/login", "Not logged in", "Invalid API
 /// kills the running `claude`
 #[instrument(skip_all, fields(repository_path = %params.repository_path, commits = params.commits.len()))]
 pub fn suggest_branch_names(git_executor: &GitCommandExecutor, params: &SuggestBranchNamesParams, is_superseded: &dyn Fn() -> bool) -> BranchNameSuggestionOutcome {
-  suggest_branch_names_with(git_executor, params, find_claude().as_deref(), CLAUDE_TIMEOUT, is_superseded)
+  suggest_branch_names_with(git_executor, params, find_tool(&CLAUDE).as_deref(), CLAUDE_TIMEOUT, is_superseded)
 }
 
 /// `suggest_branch_names` with the `claude` binary (None = not installed) and the timeout given
@@ -105,29 +105,6 @@ pub fn suggest_branch_names_with(
     Err(ChildProcessError::Spawn(e)) => error(format!("Cannot run claude: {e}")),
     Err(ChildProcessError::Wait(e)) => error(format!("Cannot wait for claude: {e}")),
   }
-}
-
-/// The `claude` binary: the native installer's `~/.local/bin` and the older `~/.claude/local`, Homebrew, `PATH`, then
-/// the `PATH` of the user's login shell (once per process), as an app started from the Finder has none of them. Looked
-/// up per request, so a `claude` installed while the app runs is found.
-pub fn find_claude() -> Option<PathBuf> {
-  let home = std::env::home_dir();
-  find_claude_in(home.as_deref(), std::env::var_os("PATH").as_deref()).or_else(|| find_executable("claude", cached_login_shell_path()?))
-}
-
-pub(crate) fn find_claude_in(home: Option<&Path>, path: Option<&OsStr>) -> Option<PathBuf> {
-  let name = if cfg!(windows) { "claude.exe" } else { "claude" };
-  let system: &[&str] = if cfg!(target_os = "macos") {
-    &["/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
-  } else {
-    &[]
-  };
-  home
-    .into_iter()
-    .flat_map(|home| [home.join(".local/bin").join(name), home.join(".claude/local").join(name)])
-    .chain(system.iter().map(PathBuf::from))
-    .find(|candidate| candidate.is_file())
-    .or_else(|| find_executable("claude", path?))
 }
 
 /// `claude -p` that only answers: no tools, no customizations (`--safe-mode`: MCP servers, plugins, hooks, skills,

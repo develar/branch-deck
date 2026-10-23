@@ -1,4 +1,4 @@
-use crate::child_process::{ChildProcessError, find_executable, run_child};
+use crate::child_process::{ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child};
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -76,4 +76,31 @@ fn finds_the_first_executable_in_path() {
   let path = std::env::join_paths([first.path(), second.path()]).unwrap();
   assert_eq!(find_executable("tool", &path), Some(expected));
   assert_eq!(find_executable("other", &path), None);
+}
+
+#[test]
+fn finds_a_tool_before_path_then_on_path_then_after_it() {
+  const LOOKUP: ToolLookup = ToolLookup {
+    name: "tool",
+    before_path: &[ToolDir::Home("first")],
+    after_path: &[ToolDir::Home("last")],
+    login_shell: false,
+  };
+  let home = tempfile::tempdir().unwrap();
+  let bin = tempfile::tempdir().unwrap();
+  let path = bin.path().as_os_str();
+  assert_eq!(find_tool_in(&LOOKUP, Some(home.path()), Some(path)), None);
+
+  std::fs::create_dir_all(home.path().join("last")).unwrap();
+  let last = fake_executable(&home.path().join("last"), "tool", "true");
+  assert_eq!(find_tool_in(&LOOKUP, Some(home.path()), Some(path)), Some(last));
+
+  let on_path = fake_executable(bin.path(), "tool", "true");
+  assert_eq!(find_tool_in(&LOOKUP, Some(home.path()), Some(path)), Some(on_path.clone()));
+  // without a home directory, the home dirs are skipped, not an error
+  assert_eq!(find_tool_in(&LOOKUP, None, Some(path)), Some(on_path));
+
+  std::fs::create_dir_all(home.path().join("first")).unwrap();
+  let first = fake_executable(&home.path().join("first"), "tool", "true");
+  assert_eq!(find_tool_in(&LOOKUP, Some(home.path()), Some(path)), Some(first));
 }

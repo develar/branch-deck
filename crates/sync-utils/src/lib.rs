@@ -1,6 +1,7 @@
 pub mod child_process;
 pub mod git_bool;
 pub mod issue_pattern;
+pub mod known_tools;
 pub mod list_cut;
 pub mod operation_id;
 pub mod paths;

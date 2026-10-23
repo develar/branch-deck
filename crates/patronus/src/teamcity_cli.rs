@@ -5,12 +5,12 @@
 use crate::ci_text::{cut_tail, strip_ansi};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
-use sync_utils::child_process::{ChildOutput, cached_login_shell_path, find_executable, run_child};
+use sync_utils::child_process::{ChildOutput, find_tool, run_child};
+use sync_utils::known_tools::TEAMCITY;
 use sync_utils::span::in_current_span;
 use tokio::sync::Semaphore;
 use tracing::{info, instrument, warn};
@@ -86,7 +86,7 @@ impl TeamCityCli {
   /// The installed CLI with the servers it is logged in to; None without the CLI, without a server, or when it fails
   pub async fn discover() -> Option<Self> {
     tokio::task::spawn_blocking(in_current_span(|| {
-      let Some(binary) = find_teamcity() else {
+      let Some(binary) = find_tool(&TEAMCITY) else {
         info!("no teamcity CLI");
         return None;
       };
@@ -222,23 +222,4 @@ fn parse_auth_status(stdout: &[u8]) -> Vec<String> {
 fn host_of(url: &str) -> Option<String> {
   let url = reqwest::Url::parse(url).ok()?;
   Some(format!("{}:{}", url.host_str()?, url.port_or_known_default()?))
-}
-
-/// The `teamcity` binary: `PATH`, Homebrew, `~/.local/bin`, then the `PATH` of the user's login shell, as an app started
-/// from the Finder has none of them. Looked up per call, so a CLI installed while the app runs is found.
-pub fn find_teamcity() -> Option<PathBuf> {
-  let home = std::env::home_dir();
-  find_teamcity_in(home.as_deref(), std::env::var_os("PATH").as_deref()).or_else(|| find_executable("teamcity", cached_login_shell_path()?))
-}
-
-pub(crate) fn find_teamcity_in(home: Option<&Path>, path: Option<&OsStr>) -> Option<PathBuf> {
-  if let Some(found) = path.and_then(|path| find_executable("teamcity", path)) {
-    return Some(found);
-  }
-  if cfg!(windows) {
-    return None;
-  }
-  let mut known = vec![PathBuf::from("/opt/homebrew/bin/teamcity"), PathBuf::from("/usr/local/bin/teamcity")];
-  known.extend(home.map(|home| home.join(".local/bin/teamcity")));
-  known.into_iter().find(|candidate| candidate.is_file())
 }

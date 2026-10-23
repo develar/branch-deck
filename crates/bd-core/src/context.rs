@@ -70,7 +70,7 @@ pub struct Environment {
   /// `YOUTRACK_TOKEN`, else the token of the app's sign-in (`youtrack_token_file`); only read, never renewed
   pub youtrack_environment: Option<EnvironmentToken>,
   pub youtrack_token_file: Option<PathBuf>,
-  /// The `teamcity` CLI of `bd robot --full`; `None` looks it up as the app does (`find_teamcity`), and only then
+  /// The `teamcity` CLI of `bd robot --full`; `None` looks it up as the app does (`known_tools::TEAMCITY`), and only then
   pub teamcity: Option<PathBuf>,
 }
 

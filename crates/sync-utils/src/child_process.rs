@@ -4,7 +4,7 @@
 use crate::span::in_current_span;
 use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::OnceLock;
 use std::thread::JoinHandle;
@@ -105,8 +105,64 @@ fn read_pipe(pipe: Option<impl Read + Send + 'static>) -> JoinHandle<Vec<u8>> {
 
 /// The first `name` (with `.exe` on Windows) that is a file in one of the directories of `path`
 pub fn find_executable(name: &str, path: &OsStr) -> Option<PathBuf> {
-  let file_name = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
+  let file_name = executable_file_name(name);
   std::env::split_paths(path).map(|dir| dir.join(&file_name)).find(|candidate| candidate.is_file())
+}
+
+fn executable_file_name(name: &str) -> String {
+  if cfg!(windows) { format!("{name}.exe") } else { name.to_string() }
+}
+
+/// A directory a CLI is installed into outside `PATH`
+#[derive(Clone, Copy, Debug)]
+pub enum ToolDir {
+  Absolute(&'static str),
+  /// Relative to the home directory, e.g. `.local/bin`
+  Home(&'static str),
+}
+
+/// The Homebrew directories of Apple silicon and Intel
+pub const HOMEBREW_DIRS: &[ToolDir] = &[ToolDir::Absolute("/opt/homebrew/bin"), ToolDir::Absolute("/usr/local/bin")];
+
+/// Where a CLI that is not git is looked for, in order: `before_path`, `PATH`, `after_path`, then the `PATH` of the user's
+/// login shell. An app started from the Finder has neither Homebrew nor `~/.local/bin` in its `PATH`; each tool keeps
+/// the order its installers need (Homebrew's `gh` wins over another one, `claude`'s native installer over Homebrew's).
+#[derive(Clone, Copy, Debug)]
+pub struct ToolLookup {
+  pub name: &'static str,
+  pub before_path: &'static [ToolDir],
+  pub after_path: &'static [ToolDir],
+  pub login_shell: bool,
+}
+
+/// `lookup` in the process: its `PATH`, the home directory and the login shell. Looked up per call, so a CLI installed
+/// while the app runs is found.
+pub fn find_tool(lookup: &ToolLookup) -> Option<PathBuf> {
+  let home = std::env::home_dir();
+  find_tool_in(lookup, home.as_deref(), std::env::var_os("PATH").as_deref()).or_else(|| {
+    if lookup.login_shell {
+      find_executable(lookup.name, cached_login_shell_path()?)
+    } else {
+      None
+    }
+  })
+}
+
+/// `lookup` without the login shell, with `home` and `path` given: what a test checks
+pub fn find_tool_in(lookup: &ToolLookup, home: Option<&Path>, path: Option<&OsStr>) -> Option<PathBuf> {
+  let file_name = executable_file_name(lookup.name);
+  let in_dirs = |dirs: &[ToolDir]| {
+    dirs
+      .iter()
+      .filter_map(|dir| match dir {
+        ToolDir::Absolute(dir) => Some(Path::new(dir).join(&file_name)),
+        ToolDir::Home(dir) => Some(home?.join(dir).join(&file_name)),
+      })
+      .find(|candidate| candidate.is_file())
+  };
+  in_dirs(lookup.before_path)
+    .or_else(|| find_executable(lookup.name, path?))
+    .or_else(|| in_dirs(lookup.after_path))
 }
 
 /// `PATH` of an interactive login shell of the user (`$SHELL`), where `~/.local/bin` is usually added; `None` on Windows
