@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { toast } from "@/components/ui/toast"
 import { internalError } from "@/lib/api-error"
 import type { FetchBaselineResult, TransferProgress, UpdateCheck, UpdateProjectResult } from "@/lib/bindings"
+import type { ToastActionProps } from "@/lib/toast-message"
 import { getOperationBlocker, getOperations, operationsStore, runOperation } from "@/stores/operations"
-import { runFetchBaseline, runUpdateProject, runUpdateProjectOf, selectRunningUpdate, updateProjectStore } from "@/stores/update-project"
+import { retryUpdateWithoutFetch, runFetchBaseline, runUpdateProject, runUpdateProjectOf, selectRunningUpdate, updateProjectStore } from "@/stores/update-project"
 
 /** A command of the backend that runs until the test finishes it */
 interface RunningCommand {
@@ -43,7 +45,7 @@ vi.mock("@/lib/bindings", () => {
 })
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
-vi.mock("@/components/ui/toast", () => ({ toast: { add: () => "toast", close: () => {} } }))
+vi.mock("@/components/ui/toast", () => ({ toast: { add: vi.fn(() => "toast"), close: () => {} } }))
 vi.mock("@/stores/branch-sync", () => ({
   // the last check found the selected repository up to date
   branchSyncStore: { getState: () => ({ baselineStatus: { repositoryPath: "/a", update: { state: { status: "upToDate" } } } }) },
@@ -94,6 +96,11 @@ const APPLIED: UpdateProjectResult = {
   landed: [],
 }
 
+/** The toast shown last */
+function lastToast() {
+  return vi.mocked(toast.add).mock.lastCall?.[0]
+}
+
 function runningIn(repositoryPath: string) {
   return selectRunningUpdate(updateProjectStore.getState(), repositoryPath)
 }
@@ -134,6 +141,7 @@ beforeEach(() => {
   syncs.requested = []
   fetchTimes.length = 0
   timings.length = 0
+  vi.mocked(toast.add).mockClear()
 })
 
 describe("the running update", () => {
@@ -229,6 +237,51 @@ describe("the running update", () => {
     expect(fetchTimes).toEqual(["/a"])
     // the baseline moved: the branches are built against it
     expect(syncs.count).toBe(1)
+  })
+
+  it("offers Retry Without Fetch for a held lock after the fetch, which checks and applies without a second fetch; a moved branch gets none", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const locked = runUpdateProject()
+    ;(await fetched("/a")).finish({
+      status: "error",
+      error: {
+        code: "locked",
+        message: "`bd push auth` (pid 4242) is changing this repository; try again when it is done",
+        details: { type: "locked", holder: { tool: "bd", command: "bd push auth", pid: 4242, held_for: 40 } },
+        retry: "same",
+        operation_id: null,
+      },
+    })
+    await locked
+    expect(lastToast()).toMatchObject({ title: "Cannot update the project", description: "`bd push auth` (pid 4242) has held the repository for 40 s" })
+    // the action as `notifyError` hands it over
+    const retry = lastToast()?.actionProps as ToastActionProps | undefined
+    expect(retry?.children).toBe("Retry Without Fetch")
+
+    backend.commands = []
+    retry!.onClick()
+    // a second retry joins the first
+    const retried = retryUpdateWithoutFetch("/a")
+    const command = await commandIn("/a", "update")
+    // the check and the apply only: the fetch of the refused update stands
+    expect(runningIn("/a")?.run.plan).toEqual(["check", "apply", "sync"])
+    command.finish({ status: "ok", data: UP_TO_DATE })
+    await retried
+    expect(kinds()).toEqual(["update /a"])
+
+    // the branch moved: the request is read again, not repeated
+    backend.commands = []
+    const moved = runUpdateProject()
+    ;(await fetched("/a")).finish({ status: "error", error: { ...internalError("The branch moved"), code: "head_moved", retry: "after_reread" } })
+    await moved
+    expect(lastToast()).toMatchObject({ title: "Cannot update the project", description: "The branch moved" })
+    expect(lastToast()?.actionProps).toBeUndefined()
+  })
+
+  it("retries without a fetch only the repository the main window shows", async () => {
+    selection.path = "/b"
+    await retryUpdateWithoutFetch("/a")
+    expect(kinds()).toEqual([])
   })
 
   it("syncs after every update, also an update that was up to date, conflicted or was blocked", async () => {

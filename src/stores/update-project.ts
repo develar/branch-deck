@@ -173,31 +173,43 @@ const fetches = new Map<string, Promise<boolean>>()
  */
 export function runUpdateProject(): Promise<void> {
   const repositoryPath = getSelectedProject()?.path
-  if (repositoryPath === undefined) {
-    return Promise.resolve()
-  }
+  return repositoryPath === undefined ? Promise.resolve() : startUpdate(repositoryPath, true)
+}
+
+/**
+ * "Retry Without Fetch" of an update refused after its fetch by an error the same request may pass (`retry: same`, a
+ * held repository lock): the check and the apply against the baseline that fetch got. Only while the main window shows
+ * the repository, as Update Project: a click after a switch never moves the HEAD of another one
+ */
+export function retryUpdateWithoutFetch(repositoryPath: string): Promise<void> {
+  return isSelectedRepository(repositoryPath) ? startUpdate(repositoryPath, false) : Promise.resolve()
+}
+
+/** The update of the repository, with a fetch first or not; a second start joins the running one */
+function startUpdate(repositoryPath: string, fetch: boolean): Promise<void> {
   const running = updates.get(repositoryPath)
   if (running !== undefined) {
     return running
   }
-  const update = updateProjectOf(repositoryPath).finally(() => updates.delete(repositoryPath))
+  const update = updateProjectOf(repositoryPath, fetch).finally(() => updates.delete(repositoryPath))
   updates.set(repositoryPath, update)
   return update
 }
 
-async function updateProjectOf(repositoryPath: string): Promise<void> {
+async function updateProjectOf(repositoryPath: string, fetch: boolean): Promise<void> {
   // ⌘T during the Fetch of a toast: the update goes on from that fetch, which says itself why it failed
   const joined = fetches.get(repositoryPath)
   if (joined !== undefined && !(await joined)) {
     return
   }
-  if (!startRunning(repositoryPath, "update", joined === undefined ? UPDATE_PLAN : APPLY_PLAN)) {
+  const fetchFirst = fetch && joined === undefined
+  if (!startRunning(repositoryPath, "update", fetchFirst ? UPDATE_PLAN : APPLY_PLAN)) {
     return
   }
   // the steps that ended; the one that failed says nothing about its usual time
   let done: readonly FinishedStep[] = []
   try {
-    if (joined === undefined && !(await fetchOf(repositoryPath, "Cannot update the project"))) {
+    if (fetchFirst && !(await fetchOf(repositoryPath, "Cannot update the project"))) {
       return
     }
     const spec = { ...UPDATE_OPERATION, label: "Updating the project", repositoryPath }
@@ -262,7 +274,9 @@ async function applyUpdate(repositoryPath: string): Promise<readonly FinishedSte
     if (isLockWaitCanceled(result.error)) {
       showToast(canceledBeforeStart("the update", "Nothing changed; the fetch stays"))
     } else {
-      notifyError("Cannot update the project", result.error)
+      // the fetch is done: a request that may pass as it is (a held lock) goes on from it, a moved branch is read again
+      const retry = result.error.retry === "same" ? { children: "Retry Without Fetch", onClick: () => void retryUpdateWithoutFetch(repositoryPath) } : undefined
+      notifyError("Cannot update the project", result.error, retry)
     }
     return done
   }

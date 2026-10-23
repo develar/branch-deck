@@ -5,7 +5,7 @@
 
 use crate::issue::fetch_me;
 use crate::service::{YouTrackService, expires_at};
-use crate::sign_in::{Hub, PendingSignIn, SignInPurpose, finish_sign_in, start_sign_in_for};
+use crate::sign_in::{Hub, PendingSignIn, SignInError, SignInPurpose, finish_sign_in, start_sign_in_for};
 use crate::token_store::{RefreshGrant, StoredToken};
 use crate::url::normalize_base_url;
 use domain_types::youtrack::{YouTrackSignIn, YouTrackUser};
@@ -82,9 +82,9 @@ impl YouTrackSignInSession {
   }
 
   /// Waits until the browser came back from the Hub page of `start`, then keeps the tokens in the token file and
-  /// forgets what the service knew; the user. A newer sign-in, `cancel` or `sign_out` ends it with "canceled".
+  /// forgets what the service knew; the user. A newer sign-in, `cancel` or `sign_out` ends it with `SignInError::Canceled`.
   #[instrument(skip(self, service))]
-  pub async fn wait(&self, service: &YouTrackService) -> Result<YouTrackUser, String> {
+  pub async fn wait(&self, service: &YouTrackService) -> Result<YouTrackUser, SignInError> {
     let (generation, base, pending) = self.take(SignInPurpose::App)?;
     let signed_in = self.finish(service, generation, base, pending).await;
     self.end(generation);
@@ -92,14 +92,12 @@ impl YouTrackSignInSession {
   }
 
   /// Waits until the browser came back from the Hub page of `start_for_cli`, then trades the code for one access token
-  /// that may ask Hub; nothing is kept. A newer sign-in or `cancel` ends it with "canceled"
+  /// that may ask Hub; nothing is kept. A newer sign-in or `cancel` ends it with `SignInError::Canceled`
   #[instrument(skip(self, service))]
-  pub async fn wait_for_cli(&self, service: &YouTrackService) -> Result<CliGrant, String> {
+  pub async fn wait_for_cli(&self, service: &YouTrackService) -> Result<CliGrant, SignInError> {
     let (generation, base, pending) = self.take(SignInPurpose::PermanentToken)?;
     let hub = pending.hub.clone();
-    let tokens = finish_sign_in(&service.client, pending, || self.state().generation != generation)
-      .await
-      .map_err(|e| e.to_string());
+    let tokens = finish_sign_in(&service.client, pending, || self.state().generation != generation).await;
     self.end(generation);
     Ok(CliGrant {
       base,
@@ -128,10 +126,10 @@ impl YouTrackSignInSession {
     }
   }
 
-  async fn finish(&self, service: &YouTrackService, generation: u64, base: String, pending: PendingSignIn) -> Result<YouTrackUser, String> {
+  async fn finish(&self, service: &YouTrackService, generation: u64, base: String, pending: PendingSignIn) -> Result<YouTrackUser, SignInError> {
     let hub = pending.hub.clone();
     let client = &service.client;
-    let tokens = finish_sign_in(client, pending, || self.state().generation != generation).await.map_err(|e| e.to_string())?;
+    let tokens = finish_sign_in(client, pending, || self.state().generation != generation).await?;
     let user = fetch_me(client, &base, &tokens.access_token).await.map_err(|e| e.message())?;
     let refresh = tokens.refresh_token.map(|refresh_token| RefreshGrant {
       hub_url: hub.url,

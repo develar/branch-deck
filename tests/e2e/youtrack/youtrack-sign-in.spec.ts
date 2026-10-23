@@ -68,7 +68,7 @@ test.describe("YouTrack sign-in", () => {
     const waitEnded = waitForApiResponse(settings, "/invoke/wait_youtrack_sign_in")
     await waiting.getByRole("button", { name: "Cancel" }).click()
     await expect(auth.getByRole("button", { name: "Sign In to YouTrack" })).toBeEnabled()
-    // the backend ended the wait with "canceled", which is no error
+    // the backend ended the wait with the code `canceled`, which is no error
     await waitEnded
     expect((await repo.getYouTrack()).pending).toBe(false)
     await expect(settings.locator("[data-slot=toast]")).toHaveCount(0)

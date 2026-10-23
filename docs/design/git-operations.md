@@ -529,7 +529,7 @@ Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWa
   ("Waiting for `bd pick` (pid 4242, for 12 s)": `LockWaitEvent.waitingFor`, `TransferProgress.waiting` with its
   `line`, `UpdateProgress.waitingFor`) and that the wait ended (`waitingFor: null`). `cancel_lock_wait` of the
   channel's id (Stop Waiting) ends a wait before the rewrite read or wrote anything: the wait sees the flag on its
-  next poll and returns `LockWaitCanceled`, and the command answers `CommandErrorKind::LockWaitCanceled` only when
+  next poll and returns `LockWaitCanceled`, and the command answers the code `canceled` (`canceled_code`) only when
   its own wait ended so (`WaitTicket::ended_by_cancel`), never for a Stop Waiting that came after the lock was taken.
   The page says "Canceled squashing 2 commits before it started" (an info toast, no error) and changes nothing. The
   E2E server keeps the same registry and streams the messages of the channel as SSE events before the answer

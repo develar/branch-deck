@@ -9,12 +9,16 @@ publish = false
 [dependencies]
 domain-types = { path = "../domain-types", features = ["specta"] }
 # the typed errors of the cores that reach a command of the app
+cli-tools = { path = "../cli-tools" }
 file-diffs = { path = "../file-diffs" }
+git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
+github = { path = "../github" }
 history-rewrite = { path = "../history-rewrite" }
 sync-core = { path = "../sync-core" }
 trial-check = { path = "../trial-check" }
 update-core = { path = "../update-core" }
+youtrack = { path = "../youtrack" }
 anyhow.workspace = true
 
 [dev-dependencies]

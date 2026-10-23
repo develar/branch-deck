@@ -1345,7 +1345,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should wait for another holder of the repository lock as long as it lives, and then start`)
 - Stop Waiting must end the wait of a push for another holder of the repository lock, before anything was pushed: in
   the hover of the push button and beside the step of a Safe Push while its push waits. The push answers
-  `lockWaitCanceled`, the info toast "Canceled the push of auth before it started" says "Nothing was pushed", and the
+  the code `canceled`, the info toast "Canceled the push of auth before it started" says "Nothing was pushed", and the
   action whose step the push is (the Safe Push start, a review request) starts nothing and shows no error; the same
   step pushes and starts once pressed again. Safe Pushes and a move pressed while the holder holds the lock all run
   once it released it.

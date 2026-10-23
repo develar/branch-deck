@@ -91,7 +91,7 @@ export function startReviewFetch(repositoryPath: string, request: ReviewRequest)
       setFetch(key, { status: "fetched", range: result.data })
     }
     // killed by the backend for a newer fetch: no failure of this one
-    else if (result.error.message === "canceled") {
+    else if (result.error.code === "canceled") {
       setFetch(key, null)
     } else {
       logError(`Cannot fetch pull request #${request.number}`, result.error)

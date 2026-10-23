@@ -1,4 +1,5 @@
 use crate::operation::{operation, tauri_error};
+use app_api::api_error::IntoApiError;
 use domain_types::error::ApiError;
 use domain_types::pull_request::{GitHubAuthStatus, GitHubDeviceCode};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -56,13 +57,13 @@ pub async fn start_github_sign_in(github: State<'_, GitHubState>) -> Result<GitH
 }
 
 /// Waits until the user entered the code of `start_github_sign_in` on GitHub, keeps the token and tells every window;
-/// the login. A newer sign-in or `cancel_github_sign_in` ends it with "canceled".
+/// the login. A newer sign-in or `cancel_github_sign_in` ends it with the code `canceled`.
 #[tauri::command]
 #[instrument(skip(app, github))]
 #[specta::specta]
 pub async fn wait_github_sign_in(app: AppHandle, github: State<'_, GitHubState>) -> Result<String, ApiError> {
   operation(async move {
-    let login = github.sign_in.wait(&github.service, GITHUB_OAUTH_CLIENT_ID).await.map_err(ApiError::internal)?;
+    let login = github.sign_in.wait(&github.service, GITHUB_OAUTH_CLIENT_ID).await.map_err(IntoApiError::into_api_error)?;
     app.emit(GITHUB_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(login)
   })

@@ -140,15 +140,19 @@ name = "app-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cli-tools",
  "domain-types",
  "file-diffs",
+ "git-executor",
  "git-ops",
+ "github",
  "history-rewrite",
  "pretty_assertions",
  "serde_json",
  "sync-core",
  "trial-check",
  "update-core",
+ "youtrack",
 ]
 
 [[package]]

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
 import type { YouTrackAuthStatus } from "@/lib/bindings"
 import { cancelYouTrackSignIn, saveYouTrackToken, startYouTrackSignIn, youTrackAuthStore } from "@/stores/youtrack"
 
@@ -18,7 +19,7 @@ vi.mock("@/lib/bindings", () => ({
         mocks.youtrack.finish = resolve
       }),
     cancelYoutrackSignIn: async () => {
-      mocks.youtrack.finish?.({ status: "error", error: { message: "canceled" } })
+      mocks.youtrack.finish?.({ status: "error", error: { ...internalError("The sign-in was canceled"), code: "canceled" } })
       return { status: "ok", data: null }
     },
     saveYoutrackToken: async () => mocks.youtrack.saved,
@@ -67,7 +68,7 @@ describe("startYouTrackSignIn", () => {
     expect(showToast).toHaveBeenCalledWith({ title: "Signed in to youtrack.example.com as Jane Doe" })
   })
 
-  it("says nothing when canceled, and why when the Hub refused", async () => {
+  it("says nothing when canceled, and why when the Hub refused, by the code of the error and not its words", async () => {
     const canceled = startYouTrackSignIn("https://youtrack.example.com")
     await settle()
     await cancelYouTrackSignIn()
@@ -77,9 +78,17 @@ describe("startYouTrackSignIn", () => {
 
     const denied = startYouTrackSignIn("https://youtrack.example.com")
     await settle()
-    youtrack.finish!({ status: "error", error: { message: "The sign-in was denied: access_denied" } })
+    youtrack.finish!({ status: "error", error: internalError("The sign-in was denied: access_denied") })
     await denied
-    expect(notifyError).toHaveBeenCalledWith("Cannot sign in to YouTrack", { message: "The sign-in was denied: access_denied" })
+    expect(notifyError).toHaveBeenCalledWith("Cannot sign in to YouTrack", internalError("The sign-in was denied: access_denied"))
+    notifyError.mockClear()
+
+    // a failure in the words of a cancel is still a failure: only the code tells a cancel
+    const failed = startYouTrackSignIn("https://youtrack.example.com")
+    await settle()
+    youtrack.finish!({ status: "error", error: internalError("canceled") })
+    await failed
+    expect(notifyError).toHaveBeenCalledWith("Cannot sign in to YouTrack", internalError("canceled"))
     expect(showToast).not.toHaveBeenCalled()
   })
 })

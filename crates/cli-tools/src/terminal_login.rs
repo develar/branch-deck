@@ -75,7 +75,8 @@ pub fn sign_in_teamcity(
       let last = stdout.lines().rev().map(strip_terminal).find(|line| !line.is_empty());
       Err(last.unwrap_or_else(|| output.failure_message("teamcity")))
     }
-    Err(ChildProcessError::Superseded) => Err("canceled".to_string()),
+    // `run_action` answers `ActionError::Canceled` for it
+    Err(ChildProcessError::Superseded) => Err("the sign-in was ended".to_string()),
     Err(ChildProcessError::TimedOut) => Err(format!("the sign-in was not approved within {} minutes", SIGN_IN_TIMEOUT.as_secs() / 60)),
     Err(ChildProcessError::NotFound) => Err("script is not installed: sign in in a terminal".to_string()),
     Err(ChildProcessError::Spawn(e) | ChildProcessError::Wait(e)) => Err(format!("Cannot run teamcity: {e}")),

@@ -26,7 +26,9 @@ fn sign_in(environment: &crate::environment::ToolEnvironment, server: &str) -> (
     server: Some(server),
     with_skill: false,
   };
-  let result = run_action(environment, CliTool::Teamcity, CliToolAction::SignIn, &input, &output, &|| false).map(|done| done.title);
+  let result = run_action(environment, CliTool::Teamcity, CliToolAction::SignIn, &input, &output, &|| false)
+    .map(|done| done.title)
+    .map_err(|error| error.to_string());
   (result, lines.into_inner(), urls.into_inner())
 }
 
@@ -89,5 +91,5 @@ fn a_sign_in_needs_the_url_of_the_server() {
     &output,
     &|| false,
   );
-  assert_eq!(result.unwrap_err(), "the URL of the TeamCity server starts with https://");
+  assert_eq!(result.unwrap_err().to_string(), "the URL of the TeamCity server starts with https://");
 }

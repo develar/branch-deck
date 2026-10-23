@@ -6,6 +6,7 @@ targets:
   - ../../crates/youtrack/src/url.rs
   - ../../crates/youtrack/src/client.rs
   - ../../crates/youtrack/src/sign_in.rs
+  - ../../crates/app-api/src/api_error.rs
   - ../../crates/youtrack/src/hub.rs
   - ../../crates/remote-facts/src/youtrack_cli.rs
   - ../../crates/cli-tools/src/youtrack_login.rs
@@ -103,13 +104,16 @@ client takes a pasted token.
   [@test] ../../crates/youtrack/src/sign_in_test.rs (`only_the_answer_of_this_sign_in_is_taken`, `the_browser_answer_is_traded_for_tokens_with_the_verifier_of_the_challenge`)
   [@test] ../../crates/youtrack/src/sign_in_session_test.rs (`the_browser_sign_in_keeps_the_tokens_of_the_hub_and_marks_an_issue_fixed_with_them`)
 - One sign-in at a time (`start_youtrack_sign_in`, then `wait_youtrack_sign_in`); a newer one, Cancel and a sign-out
-  end the wait of an older one with "canceled", which is no error (a generation counter, as for GitHub). The session
+  end the wait of an older one with the error code `canceled` (`SignInError::Canceled` through `app_api::api_error`),
+  which is no error: the page tells nothing of it, by the code, never by the words of the error (a generation
+  counter, as for GitHub). The session
   (`youtrack::sign_in_session`: start, wait, cancel, a pasted token, sign-out) is the core of the app's commands,
   which only tell the windows (`youtrack-auth-changed`), and of the E2E test server's routes.
   [@test] ../../crates/youtrack/src/sign_in_test.rs (`a_canceled_sign_in_stops_waiting`)
   [@test] ../../crates/youtrack/src/sign_in_session_test.rs (`a_canceled_sign_in_ends_its_wait_and_a_pasted_token_is_kept_once_youtrack_accepts_it`)
+  [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_of_each_contract_case_is_its_json_in_the_fixture`)
   [@test] ../../crates/test-server/src/youtrack_host_test.rs (`the_youtrack_commands_run_the_real_session_and_service_against_the_fake`)
-  [@test] ../../src/stores/youtrack.test.ts (`says nothing when canceled, and why when the Hub refused`)
+  [@test] ../../src/stores/youtrack.test.ts (`says nothing when canceled, and why when the Hub refused, by the code of the error and not its words`)
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should cancel the browser sign-in, and paste a token instead`)
 
 ### A pasted token, the environment

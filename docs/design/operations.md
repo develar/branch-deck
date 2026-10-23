@@ -139,7 +139,7 @@ the move form, the squash of the fixups, Apply Fix).
 Stop Waiting is one builder, `stopWaitingItem(operation)` (null while it waits for nobody), and every surface that
 shows the waiting operation renders it: the "⋯" opens a menu of it, a `MenuItemButton` and an inline form show it
 beside themselves, `LockWaitNotice` beside the text. It calls `cancel_lock_wait` of the channel's id: the command
-answers `lockWaitCanceled`, nothing changed, and the rewrite says so in an info toast ("Canceled squashing 2 commits
+answers the code `canceled`, nothing changed, and the rewrite says so in an info toast ("Canceled squashing 2 commits
 before it started"), never an error; the surface that started it stays (the squash dialog keeps its message). A push
 says it on its progress (`TransferProgress.waiting`), its Stop Waiting is `stopWaitingPushItem` in the hover of the
 push button and beside the Safe Push step; the push of an unapplied branch, an operation itself, takes

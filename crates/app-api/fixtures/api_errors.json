@@ -73,5 +73,10 @@
     "retry": "no",
     "operation_id": null
   },
+  "youtrack_sign_in_canceled": { "code": "canceled", "message": "The sign-in was canceled", "details": null, "retry": "no", "operation_id": null },
+  "github_sign_in_canceled": { "code": "canceled", "message": "the sign-in was canceled", "details": null, "retry": "no", "operation_id": null },
+  "cli_tool_action_canceled": { "code": "canceled", "message": "the action was canceled", "details": null, "retry": "no", "operation_id": null },
+  "review_fetch_canceled": { "code": "canceled", "message": "Cannot fetch pull request #42: canceled", "details": null, "retry": "no", "operation_id": null },
+  "sign_in_failed": { "code": "internal", "message": "The sign-in was denied: access_denied", "details": null, "retry": "no", "operation_id": null },
   "passed_through": { "code": "canceled", "message": "The sign-in was canceled", "details": null, "retry": "no", "operation_id": null }
 }

@@ -35,6 +35,8 @@ Hard rules in one place; the linked section says why and what to do instead.
   ([Git Operations](#git-operations)).
 - Never a `gh` process for GitHub (HTTP through `crates/github`; the one `gh` is `gh auth token` of the token chain),
   never `-c credential.helper=`.
+- Never a branch on `error.message` or on an error's `kind`: the page acts on `ApiError.code` (`getErrorCode`,
+  `describeError` in `src/lib/errors.ts`), `pnpm lint:arch` fails on the words ([Code Style](#code-style)).
 - Never `#[allow]` (`#[expect(lint, reason = "…")]`), never `pub use`, never a `../` import in the frontend (`@/`)
   ([Code Style](#code-style)).
 - Never a `dark:` variant, a colour outside the semantic tokens, or a radius class in `src/components/ui/*`
@@ -104,6 +106,7 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 | a Tauri command or a type it passes | `src/lib/bindings.ts`: `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` writes it, headless; without the variable the test fails on a stale one |
 | frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code |
 | code anywhere | `pnpm lint:cpd`: fix a clone with a helper, constant or fixture; `// jscpd:ignore-start` / `// jscpd:ignore-end` only for an intentional duplication, with the reason in the comment |
+| code anywhere | `pnpm lint:arch` (`scripts/lint-arch.mjs`): no branch on the words of an error, no `kind` of an error, a code in every `routeCommandError`; an exception is an `ALLOWLIST` entry with its reason |
 | the next step, the Safe Push decision or `plan()` of `bd safe-push`; the sync, `patronus_view`, the robot list or the review scan | `cargo nextest run -p bd-remote -E 'test(/scenario/)'` and `pnpm test:unit scenario-cases`; the cases in `crates/domain-policy/cases/` updated in the same commit, their facts with `UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/scenario/)'`, the diff reviewed like code ([Scenario table](docs/design/rust-domain-authority.md#таблица-сценариев)) |
 | a spec, a doc or a test title | `pnpm lint:specs`: every `[@test]` link a line of its own, naming tests that exist |
 | `#[cfg]` or `cfg!` code | Linux and Windows too: [Platform Checks](docs/guidelines/platform-checks.md) (a check on the Mac compiles only its side) |
@@ -141,6 +144,7 @@ pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + lint:t
 pnpm lint:typecheck       # tsc of tsconfig.app.json, tsconfig.node.json and tsconfig.e2e.json
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
 pnpm lint:specs           # the [@test] links of spec/ and docs/ name test files and tests that exist
+pnpm lint:arch            # the page acts on the code of an error, never on its words (scripts/lint-arch.mjs)
 bd lease clean --free     # the clean rules of .branchdeck.toml on the free lease slots (`--dry-run` only reports)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
@@ -437,7 +441,9 @@ The checklist:
   and no size classes; the button sizes them. Elsewhere use `size-*` classes (e.g. `size-3`).
 - **Components**: `Tooltip` for simple text tooltips, `Popover` for rich content, `Kbd` for keyboard shortcuts,
   `showToast({ title, description, action })` from `@/lib/toast-message` for notifications. Every user-facing error
-  goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity).
+  goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity),
+  which words it by its code (`describeError`: a held lock names its holder); a store decides by `error.code`
+  (`canceled` toasts nothing), never by `error.message`.
 - **Wording** ([UX Writing](docs/guidelines/ux-writing.md)): a toast title says what happened ("Pushed feature-ui"),
   never "Success"/"Error"; errors are "Cannot <verb> <object>" with the reason; a toast about an object opens it
   ("Open in Patronus"); Title Case for buttons, menu items and toast actions, sentence case for the rest; "…", "·",

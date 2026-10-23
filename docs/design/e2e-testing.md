@@ -168,8 +168,11 @@ Mock implementation:
   `tauri_command_bridge.rs`, a type of the server only because axum's `IntoResponse` can't be implemented for
   `ApiError` there; logged at debug: it is the expected answer of an error-path test). The mock rejects with the whole
   error, marked `name: "ApiError"`; the bindings return it as `{ status: "error", error }` (an `Error` instance they
-  would throw), and the page branches on `code`, never on `message`. A test fails a command with
-  `routeCommandError(page, command, { code, message, details?, retry? })`, the code the real command would answer.
+  would throw), and the page branches on `code`, never on `message` (`pnpm lint:arch`). A test fails a command with
+  `routeCommandError(page, command, { code, message, details?, retry? }, { times? })`, the code the real command would
+  answer (`lint:arch` refuses a call without one); `times: 1` fails only the first call, so a retry reaches the server.
+  A cancel answers `canceled` from the real session (a sign-in, an action of a CLI tool), which the page tells nothing
+  of.
   Any other answer is a bug of the mock, thrown and logged: 405 a command the server does not implement, 500 a command
   that panicked, 410 a page that outlived its repository. The adapters' contract: both answer the JSON of
   `crates/app-api/fixtures/api_errors.json` for each case of `app_api::api_error::contract_cases`, the app with the id

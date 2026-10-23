@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
 import type { GitHubAuthStatus } from "@/lib/bindings"
 import { cancelGitHubSignIn, gitHubAuthStore, loadGitHubAuthStatus, startGitHubSignIn } from "@/stores/github-auth"
 
@@ -27,7 +28,7 @@ vi.mock("@/lib/bindings", () => ({
       }),
     cancelGithubSignIn: async () => {
       github.canceled++
-      github.finish?.({ status: "error", error: { message: "canceled" } })
+      github.finish?.({ status: "error", error: { ...internalError("the sign-in was canceled"), code: "canceled" } })
       return { status: "ok", data: null }
     },
   },
@@ -69,7 +70,7 @@ describe("startGitHubSignIn", () => {
     expect(notifyError).not.toHaveBeenCalled()
   })
 
-  it("says nothing when canceled, and why when GitHub refused", async () => {
+  it("says nothing when canceled, and why when GitHub refused, by the code of the error and not its words", async () => {
     const canceled = startGitHubSignIn()
     await settle()
     await cancelGitHubSignIn()
@@ -80,9 +81,17 @@ describe("startGitHubSignIn", () => {
 
     const denied = startGitHubSignIn()
     await settle()
-    github.finish!({ status: "error", error: { message: "the access was denied on GitHub" } })
+    github.finish!({ status: "error", error: internalError("the access was denied on GitHub") })
     await denied
-    expect(notifyError).toHaveBeenCalledWith("Cannot sign in to GitHub", { message: "the access was denied on GitHub" })
+    expect(notifyError).toHaveBeenCalledWith("Cannot sign in to GitHub", internalError("the access was denied on GitHub"))
+    notifyError.mockClear()
+
+    // a failure in the words of a cancel is still a failure: only the code tells a cancel
+    const failed = startGitHubSignIn()
+    await settle()
+    github.finish!({ status: "error", error: internalError("canceled") })
+    await failed
+    expect(notifyError).toHaveBeenCalledWith("Cannot sign in to GitHub", internalError("canceled"))
     expect(showToast).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,7 @@
 use crate::client::YouTrackClient;
 use crate::fake_youtrack::{FakeCommand, FakeIssue, FakeYouTrack, start_fake};
 use crate::service::YouTrackService;
+use crate::sign_in::SignInError;
 use crate::sign_in_session::YouTrackSignInSession;
 use crate::token_store::{RefreshGrant, StoredToken, read_token, token_file};
 use domain_types::youtrack::{YouTrackAuthProblem, YouTrackIssueAnswer, YouTrackStateChange, YouTrackTokenSource, YouTrackUser};
@@ -89,13 +90,13 @@ async fn a_canceled_sign_in_ends_its_wait_and_a_pasted_token_is_kept_once_youtra
     session.cancel();
   };
   let (waited, ()) = tokio::join!(session.wait(&service), cancel);
-  assert_eq!(waited, Err("canceled".to_string()));
+  assert_eq!(waited, Err(SignInError::Canceled));
   assert!(!session.is_pending());
   // a cancel before the wait: nothing stays pending that no wait could end
   session.start(&service, &url).await.unwrap();
   session.cancel();
   assert!(!session.is_pending());
-  assert_eq!(session.wait(&service).await, Err("No YouTrack sign-in is in progress".to_string()));
+  assert_eq!(session.wait(&service).await, Err(SignInError::Failed("No YouTrack sign-in is in progress".to_string())));
 
   assert_eq!(session.save_token(&service, &url, "perm-wrong").await, Err("YouTrack rejected the token".to_string()));
   assert!(read_token(&token_file(dir.path())).is_none());
@@ -172,5 +173,5 @@ async fn the_sign_in_for_the_cli_asks_hub_once_keeps_nothing_and_its_token_makes
     .unwrap();
   assert!(fake.permanent_tokens()[0].revoked);
   // an app sign-in waits for nothing of the CLI's
-  assert_eq!(session.wait(&service).await, Err("No YouTrack sign-in is in progress".to_string()));
+  assert_eq!(session.wait(&service).await, Err(SignInError::Failed("No YouTrack sign-in is in progress".to_string())));
 }

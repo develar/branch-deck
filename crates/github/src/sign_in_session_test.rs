@@ -1,4 +1,5 @@
 use crate::client::GitHubClient;
+use crate::device_flow::DeviceFlowError;
 use crate::fake_github::{DEVICE_VERIFICATION_URI, FAKE_USER_CODE, FakeGitHub, serve};
 use crate::fake_repository::{FakeGitHubRepository, RepositoryState};
 use crate::service::GitHubService;
@@ -82,9 +83,12 @@ async fn a_cancel_ends_the_wait_and_a_build_without_the_oauth_app_signs_in_nowhe
     session.cancel();
   };
   let (waited, ()) = tokio::join!(wait, cancel);
-  assert_eq!(waited, Err("canceled".to_string()));
+  assert_eq!(waited, Err(DeviceFlowError::Canceled));
   assert!(!session.is_pending());
-  assert_eq!(session.wait(&service, Some("client-1")).await, Err("No GitHub sign-in is in progress".to_string()));
+  assert_eq!(
+    session.wait(&service, Some("client-1")).await,
+    Err(DeviceFlowError::Failed("No GitHub sign-in is in progress".to_string()))
+  );
 
   let asked = fake.requests().len();
   assert_eq!(session.start(&service, None).await, Err(NO_CLIENT_ID_MESSAGE.to_string()));
@@ -106,8 +110,11 @@ async fn a_denied_code_ends_the_sign_in_and_is_pending_is_false() {
     fake.deny_device_codes();
   };
   let (waited, ()) = tokio::join!(wait, deny);
-  assert_eq!(waited, Err("the access was denied on GitHub".to_string()));
+  assert_eq!(waited, Err(DeviceFlowError::Denied));
   assert!(!session.is_pending(), "a sign-in that ended with its error is no longer pending");
-  assert_eq!(session.wait(&service, Some("client-1")).await, Err("No GitHub sign-in is in progress".to_string()));
+  assert_eq!(
+    session.wait(&service, Some("client-1")).await,
+    Err(DeviceFlowError::Failed("No GitHub sign-in is in progress".to_string()))
+  );
   assert!(read_token(&token_file(dir.path())).is_none());
 }

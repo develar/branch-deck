@@ -1,6 +1,7 @@
 use crate::commands::cli_tools::CliToolActionDone;
 use crate::commands::github::app_user_agent;
 use crate::operation::{operation, tauri_error};
+use app_api::api_error::IntoApiError;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::error::ApiError;
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
@@ -56,13 +57,13 @@ pub async fn start_youtrack_sign_in(youtrack: State<'_, YouTrackState>, url: Str
 }
 
 /// Waits until the browser came back from the Hub page of `start_youtrack_sign_in`, then keeps the tokens and tells
-/// every window; the user. A newer sign-in or `cancel_youtrack_sign_in` ends it with "canceled".
+/// every window; the user. A newer sign-in or `cancel_youtrack_sign_in` ends it with the code `canceled`.
 #[tauri::command]
 #[instrument(skip(app, youtrack))]
 #[specta::specta]
 pub async fn wait_youtrack_sign_in(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<YouTrackUser, ApiError> {
   operation(async move {
-    let user = youtrack.sign_in.wait(&youtrack.service).await.map_err(ApiError::internal)?;
+    let user = youtrack.sign_in.wait(&youtrack.service).await.map_err(IntoApiError::into_api_error)?;
     app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(user)
   })
@@ -85,7 +86,7 @@ pub async fn start_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>, url:
 #[specta::specta]
 pub async fn wait_youtrack_cli_sign_in(youtrack: State<'_, YouTrackState>) -> Result<CliToolActionDone, ApiError> {
   operation(async move {
-    let grant = youtrack.sign_in.wait_for_cli(&youtrack.service).await.map_err(ApiError::internal)?;
+    let grant = youtrack.sign_in.wait_for_cli(&youtrack.service).await.map_err(IntoApiError::into_api_error)?;
     let title = hand_token_to_cli(&youtrack.service, grant, ToolEnvironment::from_process(), youtrack.handed_token.as_deref())
       .await
       .map_err(ApiError::internal)?;

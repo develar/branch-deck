@@ -100,7 +100,7 @@ export async function startYouTrackSignIn(url: string): Promise<void> {
   }
   youTrackAuthStore.setState({ signIn: { phase: "idle" } })
   if (waited.status === "error") {
-    if (waited.error.message !== "canceled") {
+    if (waited.error.code !== "canceled") {
       notifyError("Cannot sign in to YouTrack", waited.error)
     }
     return
@@ -117,7 +117,7 @@ export async function openYouTrackSignInPage(): Promise<void> {
   }
 }
 
-/** Ends the wait; the backend answers the waiting call with "canceled" */
+/** Ends the wait; the backend answers the waiting call with the code `canceled`, which toasts nothing */
 export async function cancelYouTrackSignIn(): Promise<void> {
   youTrackAuthStore.setState({ signIn: { phase: "idle" } })
   await commands.cancelYoutrackSignIn()

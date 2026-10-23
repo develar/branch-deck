@@ -1,5 +1,5 @@
 use crate::environment::ToolEnvironment;
-use crate::install::{ActionInput, ActionOutput, ToolTaskDone, run_action};
+use crate::install::{ActionError, ActionInput, ActionOutput, ToolTaskDone, run_action};
 use crate::status::{KnownFacts, read_status};
 use crate::test_support::fakes;
 #[cfg(unix)]
@@ -8,7 +8,7 @@ use domain_types::cli_tools::{CliTool, CliToolAction};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 
-fn run(environment: &ToolEnvironment, tool: CliTool, action: CliToolAction, latest: Option<&str>) -> (Result<ToolTaskDone, String>, Vec<String>) {
+fn run(environment: &ToolEnvironment, tool: CliTool, action: CliToolAction, latest: Option<&str>) -> (Result<ToolTaskDone, ActionError>, Vec<String>) {
   let lines = RefCell::new(Vec::new());
   let on_line = |line: &str| lines.borrow_mut().push(line.to_string());
   let output = ActionOutput {
@@ -51,7 +51,10 @@ fn an_update_that_installs_nothing_new_says_the_tap_has_none_yet() {
   fakes.add_brew();
   fakes.install("teamcity", "1.6.0");
   let (result, _) = run(&environment, CliTool::Teamcity, CliToolAction::Update, Some("1.7.0"));
-  assert_eq!(result.unwrap_err(), "Homebrew has no teamcity 1.7.0 yet: teamcity stays at 1.6.0");
+  assert_eq!(
+    result.unwrap_err(),
+    ActionError::Failed("Homebrew has no teamcity 1.7.0 yet: teamcity stays at 1.6.0".to_string())
+  );
 }
 
 #[cfg(unix)]
@@ -61,14 +64,17 @@ fn a_failed_brew_names_its_reason() {
   fakes.add_brew();
   fakes.set("brew.fail", "Error: A `brew install` process has already locked /opt/homebrew/Cellar");
   let (result, _) = run(&environment, CliTool::Teamcity, CliToolAction::Install, None);
-  assert_eq!(result.unwrap_err(), "another brew holds its lock: wait for it to finish");
+  assert_eq!(result.unwrap_err(), ActionError::Failed("another brew holds its lock: wait for it to finish".to_string()));
 }
 
 #[test]
 fn without_a_package_manager_the_install_is_the_users() {
   let (_root, _fakes, environment) = fakes();
   let (result, _) = run(&environment, CliTool::Teamcity, CliToolAction::Install, None);
-  assert_eq!(result.unwrap_err(), "no package manager Branch Deck runs is installed: install teamcity in a terminal");
+  assert_eq!(
+    result.unwrap_err(),
+    ActionError::Failed("no package manager Branch Deck runs is installed: install teamcity in a terminal".to_string())
+  );
 }
 
 #[test]
@@ -143,4 +149,18 @@ fn the_package_manager_of_the_machine_installs_teamcity() {
   println!("{after:?}");
   assert!(done.title.starts_with("Installed teamcity "), "{}", done.title);
   assert_eq!((after.binary.is_some(), after.manager), (true, before.manager));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_canceled_action_ends_its_brew_and_is_canceled_not_a_failure() {
+  let (_root, fakes, environment) = fakes();
+  fakes.add_brew();
+  fakes.set("brew.hang", "");
+  let output = ActionOutput {
+    on_line: &|_| {},
+    on_url: &|_| {},
+  };
+  let result = run_action(&environment, CliTool::Teamcity, CliToolAction::Install, &ActionInput::default(), &output, &|| true);
+  assert_eq!(result, Err(ActionError::Canceled));
 }

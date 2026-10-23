@@ -60,10 +60,21 @@ impl std::fmt::Display for DeviceFlowError {
     match self {
       Self::Expired => f.write_str("the code expired: sign in again"),
       Self::Denied => f.write_str("the access was denied on GitHub"),
-      Self::Canceled => f.write_str("canceled"),
+      Self::Canceled => f.write_str("the sign-in was canceled"),
       Self::Disabled => f.write_str("the Branch Deck OAuth app does not allow the device flow"),
       Self::Failed(message) => f.write_str(message),
     }
+  }
+}
+
+/// A canceled sign-in is the code `canceled` of the app (`app_api::api_error`), which tells nothing; the others are
+/// told in their words
+impl std::error::Error for DeviceFlowError {}
+
+/// A step of a sign-in that failed in its own words
+impl From<String> for DeviceFlowError {
+  fn from(message: String) -> Self {
+    Self::Failed(message)
   }
 }
 

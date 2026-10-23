@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - ../../crates/github/src/device_flow.rs
   - ../../crates/github/src/sign_in_session.rs
+  - ../../crates/app-api/src/api_error.rs
   - ../../crates/github/src/token_store.rs
   - ../../crates/sync-utils/src/private_file.rs
   - ../../crates/sync-utils/src/secret_store.rs
@@ -72,11 +73,13 @@ redirect and without a client secret.
   `expires_in`. A network failure is asked again at the next interval.
   [@test] ../../crates/github/src/device_flow_test.rs (`the_wait_polls_while_pending_slows_down_when_told_and_takes_the_token`, `a_denied_or_expired_code_and_a_cancel_end_the_wait`)
 - One sign-in at a time (`start_github_sign_in`, then `wait_github_sign_in`). A newer one, `cancel_github_sign_in` and
-  a sign-out end the wait of an older one with "canceled", which is no error: Tauri does not cancel a command whose
-  promise the page dropped, so a generation counter does (`GitHubSignInSession`, shared by the app's commands and the
-  test server).
+  a sign-out end the wait of an older one with the error code `canceled` (`DeviceFlowError::Canceled` through
+  `app_api::api_error`, the same in the app and the test server), which is no error: the page tells nothing of it, by
+  the code, never by the words of the error. Tauri does not cancel a command whose promise the page dropped, so a
+  generation counter does (`GitHubSignInSession`, shared by the app's commands and the test server).
   [@test] ../../crates/github/src/sign_in_session_test.rs (`a_cancel_ends_the_wait_and_a_build_without_the_oauth_app_signs_in_nowhere`)
-  [@test] ../../src/stores/github-auth.test.ts (`says nothing when canceled, and why when GitHub refused`)
+  [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_of_each_contract_case_is_its_json_in_the_fixture`)
+  [@test] ../../src/stores/github-auth.test.ts (`says nothing when canceled, and why when GitHub refused, by the code of the error and not its words`)
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`)
 - With the token, the app asks `GET /user` for the login, keeps the token, forgets what GitHub accepted and denied
   (`TokenChain::forget`), and emits `github-auth-changed` to every window, which asks for the pull requests, the review

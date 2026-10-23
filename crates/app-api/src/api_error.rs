@@ -3,13 +3,16 @@
 //! comes from the type (`RegroupError::code`, `SyncDeferred::code`), the others answer the code `bd` gives them. A code
 //! is never picked by reading a message; an error without a code of its own is `internal` with its whole context chain.
 
+use cli_tools::install::ActionError;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHolderInfo};
 use domain_types::landing::LandingRefusal;
 use file_diffs::accio::SearchCanceled;
+use git_executor::git_command_executor::StoppedCommand;
 use git_ops::revs::DetachedHead;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::{DropRefused, MoveBlocked};
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, NotAnUpdate, PendingUpdate, RefLocked, UndoBlocked};
+use github::device_flow::DeviceFlowError;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::parked::ParkError;
 use history_rewrite::regroup::RegroupError;
@@ -20,6 +23,7 @@ use sync_core::sync::SyncDeferred;
 use sync_core::unapply_branch::UnapplyRefusal;
 use trial_check::landing_gate::LandingRefused;
 use update_core::update_project::{FetchFailed, NoUpstream};
+use youtrack::sign_in::SignInError;
 
 /// The error a command answers for `error`: its code, the data of the code (`details`) and the retry of its class; by
 /// value, for `map_err`
@@ -58,6 +62,27 @@ impl IntoApiError for String {
 impl IntoApiError for &str {
   fn into_api_error(self) -> ApiError {
     ApiError::internal(self)
+  }
+}
+
+/// A sign-in to YouTrack: `canceled` when a newer sign-in or a cancel ended it
+impl IntoApiError for SignInError {
+  fn into_api_error(self) -> ApiError {
+    api_error(self.into())
+  }
+}
+
+/// A sign-in to GitHub: `canceled` when a newer sign-in or a cancel ended it
+impl IntoApiError for DeviceFlowError {
+  fn into_api_error(self) -> ApiError {
+    api_error(self.into())
+  }
+}
+
+/// An action of a CLI tool: `canceled` when the user ended it
+impl IntoApiError for ActionError {
+  fn into_api_error(self) -> ApiError {
+    api_error(self.into())
   }
 }
 
@@ -146,8 +171,7 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   if error.downcast_ref::<NoBaseline>().is_some() || error.downcast_ref::<NoUpstream>().is_some() {
     return code(ErrorCode::NoBaseline);
   }
-  // the user stopped the wait for the lock, or a newer symbol search of the window or the user stopped the search
-  if error.downcast_ref::<LockWaitCanceled>().is_some() || error.is::<SearchCanceled>() {
+  if is_canceled(error) {
     return code(ErrorCode::Canceled);
   }
   if error.downcast_ref::<RefLocked>().is_some() {
@@ -175,6 +199,18 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
     return code(ErrorCode::FinishPending);
   }
   classify_branch_moves(error).or_else(|| classify_landing(error))
+}
+
+/// The user ended what `error` stopped: the wait for the repository lock, a sign-in, an action of a CLI tool, a symbol
+/// search (or a newer search of its window did), or a git that was killed for it (a review fetch the window no longer
+/// wants)
+fn is_canceled(error: &anyhow::Error) -> bool {
+  error.downcast_ref::<LockWaitCanceled>().is_some()
+    || matches!(error.downcast_ref::<SignInError>(), Some(SignInError::Canceled))
+    || matches!(error.downcast_ref::<DeviceFlowError>(), Some(DeviceFlowError::Canceled))
+    || matches!(error.downcast_ref::<ActionError>(), Some(ActionError::Canceled))
+    || matches!(error.downcast_ref::<StoppedCommand>(), Some(StoppedCommand::Cancelled))
+    || error.is::<SearchCanceled>()
 }
 
 /// An unapply, a reapply or the move of the files under them: a refusal of the core, local changes in the way, a drop
@@ -342,6 +378,14 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
       }
       .into(),
     ),
+    ("youtrack_sign_in_canceled", SignInError::Canceled.into()),
+    ("github_sign_in_canceled", DeviceFlowError::Canceled.into()),
+    ("cli_tool_action_canceled", ActionError::Canceled.into()),
+    (
+      "review_fetch_canceled",
+      anyhow::Error::new(StoppedCommand::Cancelled).context("Cannot fetch pull request #42"),
+    ),
+    ("sign_in_failed", SignInError::Denied("access_denied".to_string()).into()),
     ("passed_through", ApiError::new(ErrorCode::Canceled, "The sign-in was canceled").into()),
   ]
 }

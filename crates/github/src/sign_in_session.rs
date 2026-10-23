@@ -5,7 +5,7 @@
 //! behind a fake GitHub.
 
 use crate::client::GITHUB_URL;
-use crate::device_flow::{DeviceCode, request_device_code, wait_for_token};
+use crate::device_flow::{DeviceCode, DeviceFlowError, request_device_code, wait_for_token};
 use crate::service::GitHubService;
 use crate::token_store::{StoredToken, read_token, remove_token, write_token};
 use domain_types::pull_request::{GitHubAuthStatus, GitHubDeviceCode};
@@ -77,12 +77,17 @@ impl GitHubSignInSession {
   }
 
   /// Waits until the user entered the code of `start` on GitHub, then keeps the token in the token file and forgets
-  /// what the token chain knew; the login. A newer sign-in, `cancel` or `sign_out` ends it with "canceled". The sign-in
+  /// what the token chain knew; the login. A newer sign-in, `cancel` or `sign_out` ends it with `DeviceFlowError::Canceled`. The sign-in
   /// ends with its token or with its error (a denied or expired code, a GitHub that does not answer): nothing is
   /// pending after either, unless a newer sign-in started meanwhile.
   #[instrument(skip(self, service))]
-  pub async fn wait(&self, service: &GitHubService, client_id: Option<&str>) -> Result<String, String> {
-    let (generation, code) = self.pending.lock().unwrap().clone().ok_or("No GitHub sign-in is in progress")?;
+  pub async fn wait(&self, service: &GitHubService, client_id: Option<&str>) -> Result<String, DeviceFlowError> {
+    let (generation, code) = self
+      .pending
+      .lock()
+      .unwrap()
+      .clone()
+      .ok_or_else(|| DeviceFlowError::Failed("No GitHub sign-in is in progress".to_string()))?;
     let signed_in = self.finish(service, client_id, &code, generation).await;
     self.pending.lock().unwrap().take_if(|(pending, _)| *pending == generation);
     if signed_in.is_ok() {
@@ -91,12 +96,11 @@ impl GitHubSignInSession {
     signed_in
   }
 
-  async fn finish(&self, service: &GitHubService, client_id: Option<&str>, code: &DeviceCode, generation: u64) -> Result<String, String> {
+  async fn finish(&self, service: &GitHubService, client_id: Option<&str>, code: &DeviceCode, generation: u64) -> Result<String, DeviceFlowError> {
     let client = &service.client;
     let is_canceled = || self.generation.load(Ordering::SeqCst) != generation;
-    let access = wait_for_token(client, client_id.ok_or(NO_CLIENT_ID_MESSAGE)?, code, is_canceled)
-      .await
-      .map_err(|e| e.to_string())?;
+    let client_id = client_id.ok_or_else(|| DeviceFlowError::Failed(NO_CLIENT_ID_MESSAGE.to_string()))?;
+    let access = wait_for_token(client, client_id, code, is_canceled).await?;
     let login = client.viewer_login(&access.token).await.map_err(|e| e.message())?;
     let stored = StoredToken {
       token: access.token,

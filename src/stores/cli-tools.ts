@@ -107,7 +107,7 @@ export async function runCliToolAction(tool: CliTool, action: CliToolAction, lat
       if (result.data.skill_problem !== null) {
         notifyError(`Cannot install the ${tool} agent skill`, result.data.skill_problem)
       }
-    } else if (result.error.message !== "canceled") {
+    } else if (result.error.code !== "canceled") {
       notifyError(failedTitle(action, tool), result.error)
     }
   } catch (error) {
@@ -140,7 +140,7 @@ export async function signInYoutrackWithApp(url: string): Promise<void> {
     const result = await commands.waitYoutrackCliSignIn()
     if (result.status === "ok") {
       showToast({ title: result.data.title })
-    } else if (result.error.message !== "canceled") {
+    } else if (result.error.code !== "canceled") {
       notifyError(failedTitle("signIn", tool), result.error)
     }
   } finally {
@@ -149,7 +149,7 @@ export async function signInYoutrackWithApp(url: string): Promise<void> {
   await refreshCliTools()
 }
 
-/** Ends the action running for `tool`; its command answers "canceled", which toasts nothing */
+/** Ends the action running for `tool`; its command answers the code `canceled`, which toasts nothing */
 export function cancelCliToolAction(tool: CliTool): void {
   if (tool === "youtrack" && cliToolsStore.getState().running[tool]?.action === "signIn") {
     void commands.cancelYoutrackSignIn()

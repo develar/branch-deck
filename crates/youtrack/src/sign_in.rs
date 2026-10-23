@@ -41,10 +41,20 @@ impl std::fmt::Display for SignInError {
       Self::ClientRejected => f.write_str("This YouTrack does not allow the browser sign-in of apps: use a token instead"),
       Self::Denied(message) => write!(f, "The sign-in was denied: {message}"),
       Self::Expired => f.write_str("The sign-in took too long: try again"),
-      // the frontend ignores a canceled sign-in
-      Self::Canceled => f.write_str("canceled"),
+      Self::Canceled => f.write_str("The sign-in was canceled"),
       Self::Failed(message) => f.write_str(message),
     }
+  }
+}
+
+/// A canceled sign-in is the code `canceled` of the app (`app_api::api_error`), which tells nothing; the others are
+/// told in their words
+impl std::error::Error for SignInError {}
+
+/// A step of a sign-in that failed in its own words
+impl From<String> for SignInError {
+  fn from(message: String) -> Self {
+    Self::Failed(message)
   }
 }
 

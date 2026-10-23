@@ -73,7 +73,7 @@ test.describe("GitHub sign-in", () => {
     await github.getByTestId("github-sign-in-code").getByRole("button", { name: "Cancel" }).click()
     await expect(github.getByRole("button", { name: "Sign In to GitHub" })).toBeVisible()
     await expect.poll(async () => (await repo.getGitHubSignIn()).pending).toBe(false)
-    // the wait ended with "canceled", which is no error
+    // the wait ended with the code `canceled`, which is no error
     await expect.poll(() => pendingCommands(settings)).toBe(0)
     await expect(settings.locator("[data-slot=toast]")).toHaveCount(0)
 

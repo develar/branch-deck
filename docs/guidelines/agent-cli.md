@@ -116,7 +116,9 @@ for `bd` and the app: a command of the app fails with `ApiError` of the same fil
 the error object of `bd`, is in `crates/bd-core/src/error.rs`. A typed error of a core names its code itself
 (`RegroupError::code`, `SyncDeferred::code`), so `bd` and the app read one mapping; the app and the e2e server convert a
 core's error with one function, `app_api::api_error` (`crates/app-api`), which gives the other typed errors the code
-`bd` gives them. `canceled` is an action the user stopped (the wait for a lock, a sign-in, a review fetch); `internal` is a
+`bd` gives them. `canceled` is an action the user stopped (the wait for a lock, a sign-in, an action of a CLI tool, a review
+fetch: `LockWaitCanceled`, `SignInError::Canceled`, `DeviceFlowError::Canceled`, `ActionError::Canceled`,
+`StoppedCommand::Cancelled`); `internal` is a
 failure without a code of its own, which the app answers, while `bd` prints a failure of git or IO as `git_error`.
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.

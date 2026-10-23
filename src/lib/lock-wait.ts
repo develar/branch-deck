@@ -1,4 +1,5 @@
 import { commands } from "@/lib/bindings"
+import { getErrorCode } from "@/lib/errors"
 import type { ToastMessage } from "@/lib/toast-message"
 
 /**
@@ -12,7 +13,7 @@ export function stopLockWait(channel: { readonly id: number }): void {
 
 /** Whether a command failed because the user stopped its wait for the repository lock (`stopLockWait`): nothing changed */
 export function isLockWaitCanceled(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "canceled"
+  return getErrorCode(error) === "canceled"
 }
 
 /**

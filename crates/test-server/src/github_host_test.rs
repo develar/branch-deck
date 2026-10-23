@@ -267,6 +267,6 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
   assert!(started.elapsed() < std::time::Duration::from_secs(5), "the deletion waited {:?}", started.elapsed());
   assert_eq!(
     wait.await.unwrap(),
-    json!({"status": "error", "error": {"code": "internal", "message": "canceled", "details": null, "retry": "no", "operation_id": null}})
+    json!({"status": "error", "error": {"code": "canceled", "message": "the sign-in was canceled", "details": null, "retry": "no", "operation_id": null}})
   );
 }

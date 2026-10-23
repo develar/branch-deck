@@ -47,9 +47,41 @@ pub struct ActionOutput<'a> {
   pub on_url: &'a dyn Fn(&str),
 }
 
-/// Runs `action` for `tool`; the reason in a sentence when it fails
+/// Why an action did not finish: the user ended it, or the reason in a sentence
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActionError {
+  /// `is_canceled` turned true: its process group was ended, which says nothing to the user (the code `canceled` of
+  /// the app, `app_api::api_error`)
+  Canceled,
+  Failed(String),
+}
+
+impl std::fmt::Display for ActionError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Canceled => f.write_str("the action was canceled"),
+      Self::Failed(reason) => f.write_str(reason),
+    }
+  }
+}
+
+impl std::error::Error for ActionError {}
+
+/// Runs `action` for `tool`; the reason in a sentence when it fails, `Canceled` when the user ended it: whatever a
+/// step that it ended answers, the action was canceled
 #[instrument(skip(environment, output, is_canceled))]
 pub fn run_action(
+  environment: &ToolEnvironment,
+  tool: CliTool,
+  action: CliToolAction,
+  input: &ActionInput<'_>,
+  output: &ActionOutput<'_>,
+  is_canceled: &dyn Fn() -> bool,
+) -> Result<ToolTaskDone, ActionError> {
+  run_steps(environment, tool, action, input, output, is_canceled).map_err(|reason| if is_canceled() { ActionError::Canceled } else { ActionError::Failed(reason) })
+}
+
+fn run_steps(
   environment: &ToolEnvironment,
   tool: CliTool,
   action: CliToolAction,
@@ -164,7 +196,8 @@ fn run_manager(environment: &ToolEnvironment, found: &FoundManager, tool: CliToo
   let name = manager_name(found.manager);
   for (mut command, must_succeed) in manager_commands(environment, found, tool, upgrade) {
     let result = finish(name, run_child_lines(&mut command, TASK_TIMEOUT, on_line, is_canceled));
-    if must_succeed || result.as_ref().is_err_and(|error| error == "canceled") {
+    // a canceled step ends the action: the next one would run on
+    if must_succeed || (result.is_err() && is_canceled()) {
       result?;
     }
   }
@@ -182,7 +215,8 @@ fn finish(tool: &str, result: Result<sync_utils::child_process::ChildOutput, Chi
   match result {
     Ok(output) if output.status.success() => Ok(()),
     Ok(output) => Err(brew_reason(&output.stderr).unwrap_or_else(|| output.failure_message(tool))),
-    Err(ChildProcessError::Superseded) => Err("canceled".to_string()),
+    // `run_action` answers `ActionError::Canceled` for it
+    Err(ChildProcessError::Superseded) => Err(format!("{tool} was ended")),
     Err(ChildProcessError::TimedOut) => Err(format!("{tool} did not finish within {} minutes", TASK_TIMEOUT.as_secs() / 60)),
     Err(ChildProcessError::NotFound) => Err(format!("{tool} is gone")),
     Err(ChildProcessError::Spawn(e) | ChildProcessError::Wait(e)) => Err(format!("Cannot run {tool}: {e}")),

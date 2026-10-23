@@ -87,7 +87,7 @@ export const commands = {
 	startGithubSignIn: () => typedError<GitHubDeviceCode, ApiError>(__TAURI_INVOKE("start_github_sign_in")),
 	/**
 	 *  Waits until the user entered the code of `start_github_sign_in` on GitHub, keeps the token and tells every window;
-	 *  the login. A newer sign-in or `cancel_github_sign_in` ends it with "canceled".
+	 *  the login. A newer sign-in or `cancel_github_sign_in` ends it with the code `canceled`.
 	 */
 	waitGithubSignIn: () => typedError<string, ApiError>(__TAURI_INVOKE("wait_github_sign_in")),
 	/**  Ends the wait of the sign-in in progress, if any */
@@ -106,7 +106,7 @@ export const commands = {
 	startYoutrackSignIn: (url: string) => typedError<YouTrackSignIn, ApiError>(__TAURI_INVOKE("start_youtrack_sign_in", { url })),
 	/**
 	 *  Waits until the browser came back from the Hub page of `start_youtrack_sign_in`, then keeps the tokens and tells
-	 *  every window; the user. A newer sign-in or `cancel_youtrack_sign_in` ends it with "canceled".
+	 *  every window; the user. A newer sign-in or `cancel_youtrack_sign_in` ends it with the code `canceled`.
 	 */
 	waitYoutrackSignIn: () => typedError<YouTrackUser, ApiError>(__TAURI_INVOKE("wait_youtrack_sign_in")),
 	/**  Ends the wait of the sign-in in progress, if any */

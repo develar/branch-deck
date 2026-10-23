@@ -6,7 +6,7 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
 import { emitTauriEvent, runAndWaitForSync } from "../helpers/sync-helpers"
-import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand } from "../helpers/wait-helpers"
+import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
 // at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored 2024-01-01, landed 2024-01-02) and
@@ -204,6 +204,49 @@ test.describe("Update Project", () => {
 
     await line.getByTestId("update-state-line-button").click()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+  })
+
+  test("should name the holder of the repository lock and retry the update without a fetch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    // `bd push auth` holds the repository for the whole wait of the update, after its fetch; then it is done
+    await routeCommandError(
+      page,
+      "update_project",
+      {
+        code: "locked",
+        message: "`bd push auth` (pid 4242) is changing this repository; try again when it is done",
+        details: { type: "locked", holder: { tool: "bd", command: "bd push auth", pid: 4242, held_for: 40 } },
+        retry: "same",
+      },
+      { times: 1 },
+    )
+    const fetches = await recordCommand(page, "fetch_baseline")
+    const updates = await recordCommand(page, "update_project")
+
+    await updateButton(page).click()
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot update the project" })
+    await expect(toast).toContainText("`bd push auth` (pid 4242) has held the repository for 40 s")
+    await expect(toast).not.toContainText("branch-deck.lock")
+    expect(fetches).toHaveLength(1)
+
+    await toast.getByRole("button", { name: "Retry Without Fetch" }).click()
+    await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    // the update checks and applies against the fetch it already did
+    expect(updates.map(call => call.fetch)).toEqual([false, false])
+    expect(fetches).toHaveLength(1)
+  })
+
+  test("should offer no retry when the branch moved under the update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await routeCommandError(page, "update_project", { code: "head_moved", message: "master moved during the update: nothing was changed", retry: "after_reread" })
+
+    await updateButton(page).click()
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot update the project" })
+    await expect(toast).toContainText("master moved during the update: nothing was changed")
+    // the toast is there, without a retry: the request is read again, not repeated
+    await expect(toast.getByRole("button", { name: "Retry Without Fetch" })).toHaveCount(0)
   })
 
   test("should run from the Update Project menu item", async ({ page, setupRepo, syncAndWaitForBranches }) => {

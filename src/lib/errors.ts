@@ -1,7 +1,20 @@
 import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
-import type { ApiError } from "@/lib/bindings"
+import type { ApiError, ErrorCode, LockHolderInfo } from "@/lib/bindings"
 import type { ToastActionProps } from "@/lib/toast-message"
+
+/** Whether `error` is the `ApiError` a command answers (`code`, `message`, …), not an `Error` of the page */
+export function isApiError(error: unknown): error is ApiError {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" && "message" in error && typeof error.message === "string"
+}
+
+/**
+ * The code of the `ApiError` a command answered; undefined for any other error. The page acts on the code, never on the
+ * words of an error (`pnpm lint:arch`)
+ */
+export function getErrorCode(error: unknown): ErrorCode | undefined {
+  return isApiError(error) ? error.code : undefined
+}
 
 /** The message of an error for the user: the `message` of an `Error` (no "Error:" prefix) or of an `ApiError` */
 export function getErrorDetails(error: unknown): string {
@@ -13,6 +26,29 @@ export function getErrorDetails(error: unknown): string {
     return error.message
   }
   return String(error)
+}
+
+/** How long a holder has held the lock, as `LockHolder` of `repository_lock.rs` says it: "40 s", "12 min 3 s" */
+function formatHeldFor(seconds: number): string {
+  return seconds >= 60 ? `${Math.floor(seconds / 60)} min ${seconds % 60} s` : `${seconds} s`
+}
+
+/** Who holds the repository: `bd` by its command line, the app by its name; the pid tells two of them apart */
+function describeHolder(holder: LockHolderInfo): string {
+  const who = holder.tool === "bd" ? `\`${holder.command}\`` : "Branch Deck"
+  return `${who} (pid ${holder.pid}) has held the repository for ${formatHeldFor(holder.held_for)}`
+}
+
+/**
+ * The error in the words of the page, by its code: a held repository lock names its holder from `details`
+ * ("`bd push auth` (pid 4242) has held the repository for 40 s"), never the lock file; any other error is its message
+ * (`getErrorDetails`)
+ */
+export function describeError(error: unknown): string {
+  if (isApiError(error) && error.code === "locked" && error.details?.type === "locked") {
+    return error.details.holder === null ? "Another Branch Deck operation holds the repository" : describeHolder(error.details.holder)
+  }
+  return getErrorDetails(error)
 }
 
 /**
@@ -48,11 +84,12 @@ export function setErrorRecorder(recorder: ErrorRecorder): void {
 
 /**
  * Logs the error and records it in Activity, without a toast: another window tells the user (the review window asked
- * for what failed). Returns the message for the user.
+ * for what failed). Returns the words for the user (`describeError`).
  */
 export function recordError(title: string, error: unknown): string {
-  const description = getErrorDetails(error)
-  logError(title, error, description)
+  const description = describeError(error)
+  // the log keeps the backend's own words
+  logError(title, error)
   errorRecorder?.(title, description, getErrorOperationId(error))
   return description
 }
@@ -65,7 +102,8 @@ export function recordError(title: string, error: unknown): string {
  */
 export function notifyError(title: string, error: unknown, action?: ToastActionProps, secondary?: { readonly label: string; readonly onClick: () => void }): void {
   const description = recordError(title, error)
-  const id = `error:${title}\n${description}`
+  // by the backend's words, which say no time: a retry refused by the same holder updates its toast
+  const id = `error:${title}\n${getErrorDetails(error)}`
 
   toast.add({
     // Base UI updates the open toast of the same id in place
@@ -90,10 +128,10 @@ export function notifyError(title: string, error: unknown, action?: ToastActionP
   })
 }
 
-export function logError(title: string, error: unknown, description: string | null = null): void {
+export function logError(title: string, error: unknown): void {
   console.error(title, error)
   // the operation's id leads from this line to the lines the command logged
-  const keyValues = { error: description ?? getErrorDetails(error), operation_id: getErrorOperationId(error) }
+  const keyValues = { error: getErrorDetails(error), operation_id: getErrorOperationId(error) }
   logErrorToBackend(title, { keyValues }).catch((logFailure: unknown) => {
     console.error("Failed to forward error to backend log", logFailure)
   })

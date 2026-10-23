@@ -81,7 +81,7 @@ export async function startGitHubSignIn(): Promise<void> {
   }
   gitHubAuthStore.setState({ signIn: { phase: "idle" } })
   if (waited.status === "error") {
-    if (waited.error.message !== "canceled") {
+    if (waited.error.code !== "canceled") {
       notifyError("Cannot sign in to GitHub", waited.error)
     }
     return
@@ -100,7 +100,7 @@ export async function copyCodeAndOpenGitHub(): Promise<void> {
   await openUrl(signIn.verificationUri).catch((error: unknown) => notifyError("Cannot open GitHub", error))
 }
 
-/** Ends the wait; the backend answers the waiting call with "canceled" */
+/** Ends the wait; the backend answers the waiting call with the code `canceled`, which toasts nothing */
 export async function cancelGitHubSignIn(): Promise<void> {
   gitHubAuthStore.setState({ signIn: { phase: "idle" } })
   await commands.cancelGithubSignIn()

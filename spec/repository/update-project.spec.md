@@ -9,6 +9,7 @@ targets:
   - ../../crates/git-ops/src/revs.rs
   - ../../crates/git-ops/src/worktree_update.rs
   - ../../crates/update-core/src/update_project.rs
+  - ../../crates/app-api/src/api_error.rs
   - ../../crates/sync-core/src/baseline.rs
   - ../../crates/sync-core/src/transfer_progress.rs
   - ../../crates/sync-core/src/remote_command.rs
@@ -26,6 +27,7 @@ targets:
   - ../../src/components/shared/RelativeTime.tsx
   - ../../src/hooks/useNow.ts
   - ../../src/stores/update-project.ts
+  - ../../src/lib/errors.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/update-state.ts
   - ../../src/lib/update-progress.ts
@@ -163,14 +165,26 @@ The header shows whether an update would apply cleanly, from a check that every 
   the app) is the answer at once, without waiting for the lock, unless an interrupted update left files to follow.
   A branch or an upstream moved during the check must be checked once more, under
   the lock, and a file the update writes, edited during the check, must block it. A lock held for the whole wait
-  (10 s in the app) is an error with only the fetch and the check done: the app shows "Cannot update the project"
-  with the holder its record names, "`bd push` (pid 4242, for 12 s) is changing this repository. Try again when it
-  is done." ("Branch Deck or bd is changing this repository. …" once the record is gone; no lock file path), and
-  keeps the time of the fetch.
+  (10 s in the app) is an error with only the fetch and the check done, `locked` with the holder its record names
+  (`details.holder`: `bd` or the app, its command, pid and how long it has held the lock; none once the record is
+  gone): the app shows "Cannot update the project" with "`bd push auth` (pid 4242) has held the repository for 40 s"
+  (the app's own holder as "Branch Deck (pid 7) …"; "Another Branch Deck operation holds the repository" without a
+  record; never the lock file path), worded by the page from the code and its data, and keeps the time of the fetch.
   [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`, `an_update_that_moves_nothing_answers_without_waiting_for_the_lock`)
+  [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_names_the_holder_of_a_lock_with_how_long_it_has_held_it`)
+  [@test] ../../src/lib/errors.test.ts (`names the holder of a held repository lock and how long it has held it, as the lock record says it`, `says another operation holds the repository when the holder left no record, never the lock file`)
+  [@test] ../../src/lib/errors.test.ts (`toasts a held repository lock with its holder, without the holder the other operation, and a plain Error with its message`)
   [@test] ../../crates/update-core/src/landed_test.rs (`a_late_record_of_an_update_keeps_the_record_of_the_update_after_it`)
   [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`, `the_check_of_an_update_runs_before_the_lock`, `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`, `a_file_edited_during_the_replay_of_an_update_blocks_it`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
+- An update refused after its fetch by an error that the same request may pass (`retry: same`, a held lock) offers
+  "Retry Without Fetch" on its toast: the check and the apply against the baseline that fetch got (`update_project`
+  with `fetch: false`, no second `fetch_baseline`), as an update joined by a second start, and only while the main
+  window shows the repository. The retry refused by the same holder updates that toast in place (an error toast is
+  one per title and backend message, which says no time). An error to read again
+  (`retry: after_reread`, the branch moved) offers no retry: a new Update reads it again.
+  [@test] ../../src/stores/update-project.test.ts (`offers Retry Without Fetch for a held lock after the fetch, which checks and applies without a second fetch; a moved branch gets none`, `retries without a fetch only the repository the main window shows`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should name the holder of the repository lock and retry the update without a fetch`, `should offer no retry when the branch moved under the update`)
 - `bd update --no-fetch` must update onto the last fetched baseline ([bd update](../cli/update.spec.md)).
   [@test] ../../crates/update-core/src/update_project_test.rs (`update_without_a_fetch_goes_onto_the_last_fetched_state`)
 - A fast-forward must move the branch and update the files.

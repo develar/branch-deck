@@ -206,7 +206,7 @@ pub async fn run_cli_tool_action(
         on_line: &on_line,
         on_url: &on_url,
       };
-      run_action(&ToolEnvironment::from_process(), tool, action, &input, &output, &|| canceled.load(Ordering::SeqCst)).map_err(ApiError::internal)
+      run_action(&ToolEnvironment::from_process(), tool, action, &input, &output, &|| canceled.load(Ordering::SeqCst))
     })
     .await;
     state.running.lock().expect("the running actions").remove(&tool);

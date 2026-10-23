@@ -1,6 +1,6 @@
 use crate::update_project::{
-  FetchFailed, LOCKED_MESSAGE, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error, locked_message,
-  undo_update_core, update_project_core, update_project_with,
+  FetchFailed, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, undo_update_core, update_project_core,
+  update_project_with,
 };
 use domain_types::SyncEvent;
 use domain_types::update_project::{UpdateCommit, UpdateKind, UpdateState};
@@ -910,15 +910,11 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
 
   let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
   let error = result.unwrap_err();
-  assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
+  // the holder of its record (here the test itself), which the app names (`app_api::api_error`, `describeError` of errors.ts)
+  let holder = error.downcast_ref::<RepositoryLocked>().and_then(|locked| locked.holder.clone());
+  assert_eq!(holder.map(|holder| holder.pid), Some(std::process::id()), "{error:#}");
   // the check runs before the lock; the wait is a step of its own, told once
   assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Checking, UpdatePhase::Waiting]);
-  // the app says who holds it (here the test itself), without the lock file
-  let message = format!("{:#}", app_error(error));
-  assert!(message.contains(&format!("(pid {}, for ", std::process::id())), "{message}");
-  assert!(message.ends_with(" is changing this repository. Try again when it is done."), "{message}");
-  assert!(!message.contains("branch-deck.lock"), "{message}");
-  assert_eq!(locked_message(None), LOCKED_MESSAGE, "a holder whose record is gone names nobody");
   // the fetch ran before the lock; nothing else changed
   assert_eq!(git(&clone, &["rev-parse", "origin/master"]), upstream.head());
   assert_eq!(clone.head(), head);
