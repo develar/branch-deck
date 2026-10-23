@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.29.1](https://github.com/develar/branch-deck/compare/v0.29.0...v0.29.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **bd:** bd reads the app's branch prefix while the app rewrites settings.json, and a cut file starts the app with its defaults ([b22a9b7](https://github.com/develar/branch-deck/commit/b22a9b7d4c41c34857a879aaea735324c079e6b6))
+* **bd:** bd sync and the --sync of a bd rewrite take no repository lock ([8f5b42f](https://github.com/develar/branch-deck/commit/8f5b42f70edd19825f1d4031deb6cbc08ef72e89))
+* **diff:** the highlighting sends the text of a merge result once, not with every page ([4b9b8e5](https://github.com/develar/branch-deck/commit/4b9b8e52013311bccd1ceea4790f739c55bed4a4))
+* **e2e:** each test starts with an empty clipboard, so a poll of it never reads the prompt the test before copied ([01d18e5](https://github.com/develar/branch-deck/commit/01d18e54bc1dd938f0ba9269d24a9c34b0ff84ff))
+* **e2e:** the doc comment of tokenColor sits on tokenColor again, not on AppSettings ([60090e3](https://github.com/develar/branch-deck/commit/60090e3485c693cccbb94fd08579349b082cc420))
+* **e2e:** the switch of the repository during a Safe Push's checks waits until the target check is held ([1f1d5ca](https://github.com/develar/branch-deck/commit/1f1d5ca691841e24a55a093137a73de98c950015))
+* **e2e:** the test of the Activity panel beside a review's sidebar runs on the issue_links repository, outside the describe whose beforeEach replaces it with commit_tree ([230882e](https://github.com/develar/branch-deck/commit/230882e3546663cd6573216073e14aee86dac506))
+* **github:** a token without read:org asks one search per pull request refresh ([3e1f431](https://github.com/develar/branch-deck/commit/3e1f4319beab9c8b5fa4458bfc135a4cf324a561))
+* **github:** no listing asks GitHub with a rate-limited token before its reset ([23e6768](https://github.com/develar/branch-deck/commit/23e676897c13ce316f4ef66b9370334b46e813ba))
+* **github:** the token chain runs a source once for every caller and holds no lock across it ([a268a82](https://github.com/develar/branch-deck/commit/a268a820d0f949c3fa9952e52743e3381f60e972))
+* **operations:** a queued Amend and Add Issue Reference run in the repository of their start, a queued rewrite takes the ids the rewrite before it gave the commits ([f88c166](https://github.com/develar/branch-deck/commit/f88c166e5aa7aca011735a73dab2ba98e0800d55))
+* **operations:** a rewrite started while another one runs waits for it in the queue, a retarget and a review request of one pull request run side by side ([84bb504](https://github.com/develar/branch-deck/commit/84bb504f07f43814ee4bd02c8e95e482cfeea459))
+* **operations:** a start joins only the same commits and message, and a queued rewrite finds a commit whose subject the rewrite before it changed ([671fcef](https://github.com/develar/branch-deck/commit/671fcef9110a8a2172aac4ba31acce28d325149c))
+* **patronus:** get_robot_stats opens the object cache off the async workers ([3de6c91](https://github.com/develar/branch-deck/commit/3de6c91a5f5c1c1bb877872685ecc436030b18b0))
+* **pick:** bd pick reads how its commits land after the lock ([6d8a92d](https://github.com/develar/branch-deck/commit/6d8a92db2144a5c8c975d465bdfae6ab2d68b62e))
+* **pick:** the check of a pick runs before the repository lock, under it only the witness and the moves of both worktrees ([661cde9](https://github.com/develar/branch-deck/commit/661cde9979dd70bd71d2a199093d87235c439929))
+* **pull-requests:** a refresh in flight does not overwrite the app's retarget, close or reviewers ([9597eb7](https://github.com/develar/branch-deck/commit/9597eb762a3e5a915d4bd62677165b14d62a4675))
+* **pull-requests:** creating a pull request that already exists finds it by its head ([09ad947](https://github.com/develar/branch-deck/commit/09ad947d80ada42f603ef655a940ad9486aee955))
+* **push:** a push waits for the running rewrite and its sync, and a repeated push joins the running one instead of failing silently ([3a4b42c](https://github.com/develar/branch-deck/commit/3a4b42c9224e0bc07d9648601a5766ce2481dfc5))
+* **push:** the pushes hold the repository lock only while they decide, pushes of different branches run side by side ([8b6ea18](https://github.com/develar/branch-deck/commit/8b6ea1899d9704f250681ca2e5864ee7a3ea95f1))
+* **readiness:** a demanded branch is asked at once beside the batch in flight, one batch per repository ([866898b](https://github.com/develar/branch-deck/commit/866898b533fd35ce86c752fa759754de4b18451c))
+* **readiness:** Check Approvals Again keeps its answer when the batch asked before it answers later ([7daf004](https://github.com/develar/branch-deck/commit/7daf00479f21974ef018ff7ef227749941ef847b))
+* **review:** Find reads the blob texts with one get_blob_texts in flight ([b94dff2](https://github.com/develar/branch-deck/commit/b94dff234c6ff358c7d969a41a9354cb27e1224a))
+* **review:** one Go to Declaration or Find Usages in flight per view, a late answer for another commit does nothing ([06a38f0](https://github.com/develar/branch-deck/commit/06a38f012430aa6ef34ff664947f3ba61d9df11b))
+* **review:** the list and the diffs of a range review run one diff-tree ([aba87f0](https://github.com/develar/branch-deck/commit/aba87f09b5da090988e548294f89293f226c616d))
+* **review:** the neighbours of a review are read after the shown commit's diffs, not at its first headers ([03c09d2](https://github.com/develar/branch-deck/commit/03c09d2c03fdd124f551fbecd5abbe8d19330727))
+* **review:** the texts on screen are read at once, beside the queue of a Find ([78fea46](https://github.com/develar/branch-deck/commit/78fea463b8198dd817d1f89a7922739c9f16a4ac))
+* **settings:** a sub-window records no echo of an object store's write, so a later change of the main window equal to that write is applied ([094a68e](https://github.com/develar/branch-deck/commit/094a68ebde74f9fc4c1fe8f12fa345fa4faa4e16))
+* **settings:** a sub-window's write takes only the fields it changed, and a sub-window that loads takes the changes made meanwhile ([d02b294](https://github.com/develar/branch-deck/commit/d02b294186b14d84748b170c41b16176340e5313))
+* **settings:** two writes of Settings at once both land, and an older answer never takes a newer write back ([f6d4cab](https://github.com/develar/branch-deck/commit/f6d4cab55476b378fc077d5613d26c1e4bd9af1d))
+* **sync:** a sync waits for the load of the branch prefix as long as it takes, not 5 s ([d0d7618](https://github.com/develar/branch-deck/commit/d0d76183e491a7949754b750f01bf01570093d50))
+* **sync:** the app keeps the issue links of .idea/vcs.xml by the file's stamp, so the sync an edit of the links starts reads the new ones ([d667e01](https://github.com/develar/branch-deck/commit/d667e017610cb4b737186bdc40ee59dfdcb8a847))
+* **undo:** an Undo closes its toast and marks its Activity entry undone only once it undid the rewrite ([cf242cc](https://github.com/develar/branch-deck/commit/cf242cc9dc4b9288ed5570c00e0298337585f773))
+* **update:** a baseline fetch beside another fetch of the tracking ref runs once more ([8c2f522](https://github.com/develar/branch-deck/commit/8c2f522a2e7d561445011478b3ac9d68d9fa167c))
+* **update:** an update that moves nothing answers without the repository lock, and a finished session reports what landed after it ([2de2cda](https://github.com/develar/branch-deck/commit/2de2cda164e0c8df96cdf314fba00d43853899ff))
+* **update:** bd update --continue --dry-run takes no repository lock ([45e9d7f](https://github.com/develar/branch-deck/commit/45e9d7fa78fa9fc161fadb2c1077a1a8d9690f7b))
+* **update:** the fetch of Update Project runs outside the slot of the page's rewrites, and ⌘T during a Fetch goes on from it ([8c13492](https://github.com/develar/branch-deck/commit/8c134925951313134f4a956d17aa87fcb2519a29))
+* **update:** the locked error of Update Project names the holder of the lock ([4e93901](https://github.com/develar/branch-deck/commit/4e93901b5fcf5e0d5c10a1fef3e933b18c015216))
+* **update:** the report of an update runs after the lock, its landed record in order, and the check again says so ([a3c2ec0](https://github.com/develar/branch-deck/commit/a3c2ec0f59d294f7b930c7b3a9d4b096fa4d020d))
+* **update:** Update Project checks before the repository lock and records what landed after it ([78437ad](https://github.com/develar/branch-deck/commit/78437ad07213dd7135b9f0acc5f18e86ab324ac9))
+
 ## [0.29.0](https://github.com/develar/branch-deck/compare/v0.28.1...v0.29.0) (2026-10-23)
 
 
