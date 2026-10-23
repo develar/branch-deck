@@ -1,6 +1,6 @@
 //! Which robot belongs to a virtual branch, or to the whole stack of a root (its stack branch `{prefix}/stack/<root>`),
 //! as the app matches them (`src/lib/patronus.ts`), the words of a mode and of what a robot lands. Pure functions over
-//! the robots of the user; what they land, landed and hold is the repository view (`repository_view::patronus_view`).
+//! the robots of the user; what they land, landed and hold is the repository view (`repository_model::patronus_view`).
 
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};

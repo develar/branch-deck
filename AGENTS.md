@@ -329,7 +329,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   through `RewriteOptions` (`held_lock`,
   `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd sync`, `bd push`,
   `bd safe-push` (the sync, the checks and the push; the robot start after it), the app's `push_branch` and
-  `push_branches` (`repository_view::push_guard`: the user's robots before the lock, the lock, then the refusals of
+  `push_branches` (`repository_model::push_guard`: the user's robots before the lock, the lock, then the refusals of
   unknown, parked, landed, held and not built branches in Rust, then the push), `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), `bd pick` (both
   worktrees under one hold), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` and `--abort` hold
@@ -507,7 +507,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Lease pool (`bd lease`), its clean rules (`.branchdeck.toml`) | `cli/lease` | `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/lease_clean.rs`, `crates/bd-lease/src/lease_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
 | Landed commits | `repository/landed-commits` | `crates/sync-core/src/landed.rs` (report in `branch-deck/landed.json`) |
 | Landing overview, PR status, Create Pull Request, Request Review | `repository/landing-overview`, `repository/outgoing`, `branch/pull-requests` | `crates/github/`, `remote_facts::pull_requests`, `remote_facts::pull_request_create`, `remote_facts::pull_request_text` |
-| Patronus: robots, Safe Push and Dry Run, the next step, the failure prompt (`bd safe-push`, `bd robot`) | `branch/patronus`, `branch/next-step`, `branch/safe-push-failure-prompt`, `branch/whole-stack`, `cli/agent-cli` | `crates/patronus/`, `crates/trial-check/src/landing_gate.rs` (the landing gate of a start), `crates/repository-view/` (the app's guards of push and of start, restart and cancel: `push_guard.rs`, `start_guard.rs`), `remote_facts::review_readiness` (the code-owner pre-check), `remote_facts::patronus_command`, `src/lib/branch-next-step.ts`, `src/stores/review-readiness.ts` |
+| Patronus: robots, Safe Push and Dry Run, the next step, the failure prompt (`bd safe-push`, `bd robot`) | `branch/patronus`, `branch/next-step`, `branch/safe-push-failure-prompt`, `branch/whole-stack`, `cli/agent-cli` | `crates/patronus/`, `crates/trial-check/src/landing_gate.rs` (the landing gate of a start), `crates/repository-model/` (the app's guards of push and of start, restart and cancel: `push_guard.rs`, `start_guard.rs`), `remote_facts::review_readiness` (the code-owner pre-check), `remote_facts::patronus_command`, `src/lib/branch-next-step.ts`, `src/stores/review-readiness.ts` |
 | Safe Push statistics, the Landing view of the main window (Branches · Landing, ⌘1/⌘2): the user's robots of 70 days against everyone else's, time lost, failure causes, start hours (`bd robot-stats`) | `repository/safe-push-statistics`, `repository/main-views` | `crates/remote-facts/src/robot_stats.rs`, `crates/remote-facts/src/robot_stats_aggregate.rs`, `crates/patronus/src/stats.rs`, `crates/bd-remote/src/robot_stats_command.rs`, `src/components/landing/LandingView.tsx` |
 | GitHub sign-in (OAuth device flow) | `repository/github-sign-in` | `crates/github/src/token.rs` |
 | YouTrack sign-in (Hub OAuth in the browser, refresh token), the issue popover, Mark Fixed | `repository/youtrack` | `crates/youtrack/`, `src/stores/youtrack.ts` |
@@ -602,7 +602,7 @@ crates/
 ├── update-core/     # Update Project, `bd pick` and the resolve sessions of a conflicting `bd update`, and their undo
 ├── lease-pool/      # The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`)
 ├── remote-facts/    # What GitHub and Patronus know of the branches, over HTTP: pull requests, review requests, branch rules, review readiness, the Patronus command, the Safe Push statistics
-├── repository-view/ # What Rust derives of the branch table for the page and bd: the table of a sync, the Patronus section (one rule)
+├── repository-model/ # The model of a repository for the page and bd: the table of the last sync, the Patronus section (one rule), the guards of the app's push and robot actions
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies

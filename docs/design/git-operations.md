@@ -218,7 +218,7 @@ written, except by Update Project and the finish of its resolve session (their o
 7. **Git 2.54 or newer**, checked when the executor discovers git, on every platform, so that every command fails
    early with an install or upgrade hint.
 8. **Every push of virtual branches holds the repository lock and decides in Rust what may go**: `bd push` and `bd
-   safe-push` after their sync, the app's `push_branch` and `push_branches` through `repository_view::push_guard`. A
+   safe-push` after their sync, the app's `push_branch` and `push_branches` through `repository_model::push_guard`. A
    parked branch, one built on parked, one a merged Safe Push landed whole and one a running Safe Push holds are
    refused by the same view of the robots (`patronus_view`) on both sides, whatever the page checked before ("App
    stack push").
@@ -2395,15 +2395,15 @@ the tips of the table and the landed commits; while they stay, nothing is comput
 
 Code: `crates/trial-check/src/landing_gate.rs`, `crates/domain-types/src/landing.rs`,
 `crates/trial-check/src/missing_declarations.rs`, `crates/bd-remote/src/safe_push_command.rs`,
-`src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`; the landing needs `crates/repository-view/src/views.rs`, `crates/bd-remote/src/status.rs`.
+`src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`; the landing needs `crates/repository-model/src/views.rs`, `crates/bd-remote/src/status.rs`.
 
 #### Robot start guard
 
 The page decides a start, a restart and a cancel of a robot before it asks, but the IPC of each is a command anyone can
 call (another window, a start raced by the IDE or `bd`). So each command checks in Rust before it asks Patronus, by the
 rules of `bd safe-push`, on the table of the last sync the app keeps ([Repository view](#repository-view)) and the
-user's robots it lists itself, never the page's (`repository_view::start_guard`; both hosts run the same sequence, the
-methods of `repository_view::actions::RemoteActions`: `start_robot`, `restart_robot`, `cancel_robot`, and the landing
+user's robots it lists itself, never the page's (`repository_model::start_guard`; both hosts run the same sequence, the
+methods of `repository_model::actions::RemoteActions`: `start_robot`, `restart_robot`, `cancel_robot`, and the landing
 check of the popover, `check_landing`):
 
 1. One full list of the user's robots (`PatronusService::robots_for_action`: one request now, never the list kept for
@@ -2429,7 +2429,7 @@ check of the popover, `check_landing`):
 
 No lock: the start changes no ref of the repository, and `bd safe-push` starts after its lock too.
 
-Code: `crates/repository-view/src/start_guard.rs` (the checks and `prepare_robot_start`), `crates/patronus/src/service.rs` (`robots_for_action`),
+Code: `crates/repository-model/src/start_guard.rs` (the checks and `prepare_robot_start`), `crates/patronus/src/service.rs` (`robots_for_action`),
 `src-tauri/src/commands/patronus.rs`,
 `crates/test-server/src/tauri_command_bridge.rs`.
 
@@ -2602,7 +2602,7 @@ lacks, and its pull request showing the parent's commits.
    are checked per branch (`checkPushHold`; a held one refuses the whole push, the robot a Safe Push start replaces is
    canceled once), and an open pull request that needs a retarget is retargeted, as before a push of one branch.
 2. The Tauri commands (`push_branch`, `push_branches`) and the E2E server's routes of them go through one sequence,
-   `repository_view::actions::RemoteActions` (`push_branches`, `push_branch`, the flow in `push_guard`): first the
+   `repository_model::actions::RemoteActions` (`push_branches`, `push_branch`, the flow in `push_guard`): first the
    user's robots (one full list of Patronus asked now, `robots_for_checks`, never the list kept for the page's windows
    (`FULL_LIST_REUSE`): a robot the IDE or `bd` started since that list holds too; a background request: none off
    Space, without a token, without an answer or while the requests back off after a failure, logged: best effort, as
@@ -2646,7 +2646,7 @@ lacks, and its pull request showing the parent's commits.
    of it runs at a time: a second request while one runs joins it (`runningStackBranchPushes`) and then pushes only
    what the remote still lacks, so no `push_branches` goes for a stack branch its remote already has.
 
-Code: `crates/sync-core/src/push.rs`, `crates/repository-view/src/push_guard.rs`, `src-tauri/src/commands/push.rs`,
+Code: `crates/sync-core/src/push.rs`, `crates/repository-model/src/push_guard.rs`, `src-tauri/src/commands/push.rs`,
 `src/lib/git/stack-push.ts`.
 
 #### Patronus review pre-check
@@ -2793,7 +2793,10 @@ robot's branch into a branch that is no ancestor of it, as the robot landing doe
 ### Repository view
 
 What Rust derives of the branch table for the page and for `bd`, so both read one rule, and the checks of the app's
-actions on it: the crate `repository-view`. Its views are read-only; its guards (`push_guard`, the app's push, and
+actions on it: the crate `repository-model`, which grows into the model of a repository
+([Rust as the Domain Authority](rust-domain-authority.md)). It reaches no remote reader, no Update Project and no lease pool
+(`crates/bd-cli/src/architecture_test.rs`); its edges to `trial-check` (the landing needs, `prepare_robot_start`) and to
+`patronus` (the client `RemoteActions` carries) are allowed until the stages that remove them. Its views are read-only; its guards (`push_guard`, the app's push, and
 `start_guard`, the start, restart and cancel of a robot and the landing check of the popover) are the whole sequence of
 the Tauri command and of the E2E server's route, the robots read by `PatronusService` and the git work in a blocking
 step. `BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the

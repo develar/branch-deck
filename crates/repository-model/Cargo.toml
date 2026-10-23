@@ -1,11 +1,12 @@
 [package]
-name = "repository-view"
+name = "repository-model"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# What Rust derives of the branch table for the page and for `bd` (docs/design/git-operations.md, "Repository view"):
-# the table of a sync and the Patronus section, one rule over the content walks of sync-core
+# The model of a repository, grown from what Rust derives of the branch table for the page and for `bd`
+# (docs/design/git-operations.md, "Repository view"): the table of a sync, the Patronus section and the guards of the
+# app's actions, one rule over the content walks of sync-core
 [dependencies]
 sync-core = { path = "../sync-core" }
 trial-check = { path = "../trial-check" }

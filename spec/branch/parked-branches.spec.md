@@ -15,7 +15,7 @@ targets:
   - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-remote/src/push_command.rs
   - ../../crates/bd-remote/src/safe_push_command.rs
-  - ../../crates/repository-view/src/push_guard.rs
+  - ../../crates/repository-model/src/push_guard.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../src-tauri/src/commands/parked_branches.rs
@@ -165,12 +165,12 @@ branch built on it carries its commits, so it is parked with it.
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
-- The app's push must refuse it in Rust too, as `bd push` does (`repository_view::push_guard`, under the repository
+- The app's push must refuse it in Rust too, as `bd push` does (`repository_model::push_guard`, under the repository
   lock): a push of a parked branch, of a branch built on one, or of the stack branch of a stack that holds one pushes
   nothing ("Nothing was pushed: login is parked: IJPL-1; it stays local until the user unparks it", "… holds parked
   login; land the stack in pieces"), so a push the page did not check (a race, IPC) never sends it; an unapplied branch
   under the name of a parked one is no branch of the table and pushes.
-  [@test] ../../crates/repository-view/src/push_guard_test.rs (`a_parked_branch_and_a_branch_built_on_parked_are_refused`, `an_unapplied_branch_is_checked_by_nothing_but_the_lock`)
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_parked_branch_and_a_branch_built_on_parked_are_refused`, `an_unapplied_branch_is_checked_by_nothing_but_the_lock`)
 - The row must say it: the Status cell "Parked" or "Parked with auth" (the note in its hover) instead of the push
   state, its error or conflict still shown; the name cell of the parked branch shows its note instead of the summary,
   issue keys as links.

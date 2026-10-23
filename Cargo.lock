@@ -575,7 +575,7 @@ dependencies = [
  "patronus",
  "pretty_assertions",
  "remote-facts",
- "repository-view",
+ "repository-model",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -737,7 +737,7 @@ dependencies = [
  "object-cache",
  "patronus",
  "remote-facts",
- "repository-view",
+ "repository-model",
  "serde",
  "serde_json",
  "specta",
@@ -4875,7 +4875,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "repository-view"
+name = "repository-model"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -6476,7 +6476,7 @@ dependencies = [
  "patronus",
  "pretty_assertions",
  "remote-facts",
- "repository-view",
+ "repository-model",
  "reqwest",
  "serde",
  "serde_json",

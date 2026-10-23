@@ -298,7 +298,7 @@ pub fn run() {
 
       app.manage(GitCommandExecutor::new());
       app.manage(RepositoryStateCache::new());
-      app.manage(repository_view::views::RepositoryViews::default());
+      app.manage(repository_model::views::RepositoryViews::default());
       app.manage(BranchReviewMemo::new());
       app.manage(RangeFilesCache::default());
       app.manage(file_diffs::service::FileDiffs::default());

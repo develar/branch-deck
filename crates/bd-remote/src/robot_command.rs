@@ -18,7 +18,7 @@ use domain_types::patronus::{PatronusRobot, PatronusRobotDetails, PatronusRobotS
 use domain_types::robot_failure::{FailedBuild, FailedCheck, OmittedFailures, RobotCommit, RobotCommitState, RobotFailure, RobotFailureKind, RobotFailureProblem};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
-use repository_view::branch_table::stack_ancestors;
+use repository_model::branch_table::stack_ancestors;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;

@@ -1,6 +1,6 @@
 //! What GitHub and Patronus know of the virtual branches, read and written over HTTP: the readers and the writers of the
 //! remote facts. Each function returns a typed value or a typed refusal and decides no policy; the app and `bd` call
-//! them, the crate `repository-view` derives the table's marks from what they read. The git they need (the commits of a
+//! them, the crate `repository-model` derives the table's marks from what they read. The git they need (the commits of a
 //! new pull request, the commits of the code-owner pre-check) runs through `sync-core` and `git-ops`, never a git of
 //! their own; the sync, the pushes, the robots' content (`patronus_start`, `robot_commits`, `robot_landing`,
 //! `target_conflict`) and the review fetch stay in `sync-core`, which talks to no remote service.

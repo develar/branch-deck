@@ -95,7 +95,7 @@ pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
     test_root_dir,
     templates_dir,
     // every repository of a run: a view of an evicted table would be empty
-    repository_views: repository_view::views::RepositoryViews::with_capacity(100_000),
+    repository_views: repository_model::views::RepositoryViews::with_capacity(100_000),
   });
 
   let app = create_app(Arc::clone(&state));

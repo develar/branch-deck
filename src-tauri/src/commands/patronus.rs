@@ -19,8 +19,8 @@ use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
 use remote_facts::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
-use repository_view::actions::{NOT_ON_SPACE, RemoteActions};
-use repository_view::views::RepositoryViews;
+use repository_model::actions::{NOT_ON_SPACE, RemoteActions};
+use repository_model::views::RepositoryViews;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, required_target_branch};
@@ -296,7 +296,7 @@ pub async fn start_patronus_robot(
   .await
 }
 
-/// What the app's actions on the remote run on (`repository_view::actions`): the one service of the app and the Space
+/// What the app's actions on the remote run on (`repository_model::actions`): the one service of the app and the Space
 /// repository of the repository (none off Space: a robot action is refused, a push holds nothing)
 pub(crate) fn remote_actions<'a>(
   patronus: &'a PatronusState,

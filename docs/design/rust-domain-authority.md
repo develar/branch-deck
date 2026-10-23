@@ -27,7 +27,7 @@ master, можно ли её запустить, что нужно подтве�
 ### Что уже есть
 
 Нижние слои разделены и остаются: `GitCommandExecutor` запускает git, `git-ops` реализует операции, `history-rewrite`
-и `sync-core` держат инварианты, блокировки и последовательности git-шагов, `repository-view` хранит таблицу последнего
+и `sync-core` держат инварианты, блокировки и последовательности git-шагов, `repository-model` хранит таблицу последнего
 sync на `(repository, prefix)` и выводит одно правило для обоих клиентов (`patronus_view`). Приложение и `bd` — один
 бинарник: `src-tauri/src/main.rs` передаёт `bd`/`cli` в `bd_cli::run`. Фальшивые сервисы существуют:
 `crates/github/src/fake_github.rs`, `crates/patronus/src/fake_patronus.rs` (feature `fake`). Landing gate
@@ -47,10 +47,10 @@ sync на `(repository, prefix)` и выводит одно правило дл�
 | Push оркестрируется дважды, с разным порядком retarget | приложение retarget **до** push (`src/lib/git/push.ts:136`, `new-pull-request.ts:128`); `bd push` **после** push и lock (`push_command.rs:235-248`); `bd safe-push` до (`:507-523`) |
 | Push в приложении идёт без repository lock | `src-tauri/src/commands/push.rs:21-47` проверяет только `not_built`; `bd push` держит lock |
 | `start_patronus_robot` без проверок parked, landed, approvals, overlap | `src-tauri/src/commands/patronus.rs:208-249`; после `f3bea2b9` проверяет только landing gate |
-| Hold ветки решается один раз, в Rust; продублированы адаптеры и hold stack branch | решение — `hold` в `repository-view/src/patronus_view.rs`; `push_holds()` (`crates/bd-remote/src/push_hold.rs:147-166`) и `getPushHold` (`src/stores/patronus.ts:677`, из `factsOf` `:264-283`) только читают его. Дважды: проверка статуса и cancel/restart держащего робота перед push (`checkPushHold`/`cancelHoldingRobot`, `src/lib/git/push.ts:249-290`; `push_locked`/`--restart-running` в `push_command.rs`) и hold stack branch (`stackBranchHoldReasonIn`, `stores/patronus.ts:468`: parked member, landed, робот стека; `push_command.rs:692`, `safe_push_command.rs:893`) |
+| Hold ветки решается один раз, в Rust; продублированы адаптеры и hold stack branch | решение — `hold` в `repository-model/src/patronus_view.rs`; `push_holds()` (`crates/bd-remote/src/push_hold.rs:147-166`) и `getPushHold` (`src/stores/patronus.ts:677`, из `factsOf` `:264-283`) только читают его. Дважды: проверка статуса и cancel/restart держащего робота перед push (`checkPushHold`/`cancelHoldingRobot`, `src/lib/git/push.ts:249-290`; `push_locked`/`--restart-running` в `push_command.rs`) и hold stack branch (`stackBranchHoldReasonIn`, `stores/patronus.ts:468`: parked member, landed, робот стека; `push_command.rs:692`, `safe_push_command.rs:893`) |
 | Таблица, факты и опросы принадлежат странице | `src/stores/branch-sync.ts` (1814 строк, per-commit `SyncEvent`, flush 16 мс); опрос — `setTimeout` в `review-requests.ts:345`, `pull-requests.ts:234`, `patronus.ts:1189,1403`, `review-readiness.ts:319`, единственный `setInterval` — `usePatronusRobotDetails.ts:60` |
 | Страница отправляет выводы обратно в Rust | `RemoteFact.up_to_date` из `remoteFactsIn` (`stores/patronus.ts:511`), `GetRepositoryViewParams.matched` из `robotMatchIn` (`:491`) |
-| `table_generation` — один глобальный `AtomicU32`, страница его игнорирует | `repository-view/src/views.rs:30,53`; приём по `revision` в `stores/patronus.ts:583-584` |
+| `table_generation` — один глобальный `AtomicU32`, страница его игнорирует | `repository-model/src/views.rs:30,53`; приём по `revision` в `stores/patronus.ts:583-584` |
 | `git-ops` владеет UI DTO | `Commit`, `BranchError`, `BranchSyncStatus`, `CommitSyncStatus`, `WordResolutionSummary`, `UpdateCheck`, `CommitInfo` — импорт в `sync-types/src/lib.rs:2-4`, `branch_name_suggestion.rs:3` |
 | `patronus → git-ops` ради чистых имён веток | `BranchKind` и `strip_branch_namespace`, `crates/patronus/src/service.rs:7` |
 | У `settings.json` уже два писателя и ручные читатели со своими defaults | `LazyStore` (`src/stores/settings/app-store.ts:65`); `restart_app` (`src-tauri/src/title_bar.rs:250-262`); `zoom.rs:35-40` (1.0), `menu.rs:156-161` (`autoSyncOnFocus` = true), `title_bar.rs:237`, `bd-core/src/context.rs:293-318` |
@@ -161,11 +161,11 @@ D — одинаковый ввод даёт разный результат в 
   приложения — lock и отказы нет строки, parked, landed, hold, stack branch не built в Rust (`push_guard`); старт,
   restart и cancel — отказы parked, landed whole, not built и overlap по роботам, которых Rust читает сам (`start_guard`):
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
-  [@test] ../../crates/repository-view/src/push_guard_test.rs (`a_parked_branch_and_a_branch_built_on_parked_are_refused`, `a_branch_a_merged_safe_push_landed_whole_is_refused`, `a_branch_whose_own_safe_push_runs_is_refused_until_it_is_canceled`, `a_push_while_another_operation_holds_the_lock_is_refused`, `a_guarded_push_runs_the_processes_of_the_core_push`)
-  [@test] ../../crates/repository-view/src/push_guard_test.rs (`a_stack_branch_that_is_not_built_is_refused`, `a_branch_the_last_sync_has_no_row_of_is_refused`)
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_parked_branch_and_a_branch_built_on_parked_are_refused`, `a_branch_a_merged_safe_push_landed_whole_is_refused`, `a_branch_whose_own_safe_push_runs_is_refused_until_it_is_canceled`, `a_push_while_another_operation_holds_the_lock_is_refused`, `a_guarded_push_runs_the_processes_of_the_core_push`)
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_stack_branch_that_is_not_built_is_refused`, `a_branch_the_last_sync_has_no_row_of_is_refused`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes`)
-  [@test] ../../crates/repository-view/src/start_guard_test.rs (`a_parked_branch_a_branch_built_on_parked_and_a_whole_stack_with_a_parked_member_are_refused`, `a_branch_and_a_whole_stack_merged_safe_pushes_landed_whole_are_refused`, `a_branch_and_a_stack_branch_the_sync_did_not_build_are_refused`)
-  [@test] ../../crates/repository-view/src/start_guard_test.rs (`a_robot_on_the_last_commit_or_one_that_lands_a_part_of_the_subject_is_refused`, `a_restart_is_a_start_its_own_robot_does_not_refuse_never_of_a_temporary_ref`, `a_cancel_of_a_robot_not_in_the_list_or_finished_is_refused`)
+  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_parked_branch_a_branch_built_on_parked_and_a_whole_stack_with_a_parked_member_are_refused`, `a_branch_and_a_whole_stack_merged_safe_pushes_landed_whole_are_refused`, `a_branch_and_a_stack_branch_the_sync_did_not_build_are_refused`)
+  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_robot_on_the_last_commit_or_one_that_lands_a_part_of_the_subject_is_refused`, `a_restart_is_a_start_its_own_robot_does_not_refuse_never_of_a_temporary_ref`, `a_cancel_of_a_robot_not_in_the_list_or_finished_is_refused`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_of_a_parked_branch_is_refused_before_patronus_is_asked`)
 - **D11.** Сегодняшнее поведение закреплено (три случая строки 5):
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
@@ -933,12 +933,12 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `rules`); профиль, пропускающий review, на API-маршруте — `ApprovalsSkippedBy::of` и `review.skipped_by`.
   - Приложение: `useDismissesStaleReviews` отвечает `keep` | `dismiss` | `unknown` и не кеширует неудачу
     (`forgetUnknownRules` перед каждым стартом); `getSafePushDecision` подтверждает `rulesUnknown`.
-  - Таблица: `BranchTable.remote` (`remote_facts` в `crates/repository-view/src/branch_table.rs`) из статусов, которые
+  - Таблица: `BranchTable.remote` (`remote_facts` в `crates/repository-model/src/branch_table.rs`) из статусов, которые
     собирает `RemoteStatusCollector` (`crates/sync-core/src/remote_status.rs`), — одни remote-факты обеих сторон.
-  - Guard'ы приложения в Rust: `crates/repository-view/src/actions.rs` (`RemoteActions`: на чём работают push, landing
-    check и действия с роботом обеих сторон), `crates/repository-view/src/push_guard.rs` (роботы, lock, затем нет строки,
+  - Guard'ы приложения в Rust: `crates/repository-model/src/actions.rs` (`RemoteActions`: на чём работают push, landing
+    check и действия с роботом обеих сторон), `crates/repository-model/src/push_guard.rs` (роботы, lock, затем нет строки,
     parked, landed whole, hold и stack branch не built — `push_branch(es)` и маршруты test-server) и
-    `crates/repository-view/src/start_guard.rs` (`check_start`,
+    `crates/repository-model/src/start_guard.rs` (`check_start`,
     `check_restart`, `check_cancel` и последовательности `start_robot`, `restart_robot`, `cancel_robot` по таблице
     `RepositoryViews` и роботам, которых читает `PatronusService::robots_for_action`; `check_landing` поповера читает
     их тем же `robots_for_action`: список, которого Patronus не дал, — ошибка проверки («Not checked whether …»), а не
@@ -1101,6 +1101,12 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `robot_commits`, `robot_landing`, `target_conflict`, `review_fetch`, push, `remote_status`, `issue_navigation`,
     `github_repository` (без HTTP); `github`, `patronus`, `youtrack` и `uuid` ушли из его манифеста, записи allowlist
     `sync-core → github/patronus/youtrack` удалены, и правило `sync-core` действует без исключений.
+  - `repository-view` переименован в `repository-model` в `s3-6` (`git mv`, внутренности те же; `//!` crate'а говорит,
+    что он вырастает в модель). Правило `repository-model` в `architecture_test.rs` запрещает `trial-check`,
+    `remote-facts`, `update-core`, `lease-pool`, `patronus`, `github`, `youtrack`; разрешены `→ trial-check` до
+    `s7-session-facts` и `→ patronus` (`PatronusService` в `RemoteActions`) до `s9-engine-remote`; `github` и `youtrack`
+    он не достигает. Ссылки спецификаций, документов и реестра расхождений (`discrepancies.json`) идут на
+    `crates/repository-model/`; имя view в API (`get_repository_view`, `domain_types::repository_view`) осталось.
 - **Удаляется:** `crates/repository-view`, `crates/integration-detection-tests`, `crates/bd-clustering` (как имя);
   записи allowlist `sync-core → github/patronus/youtrack/file-diffs/code-symbols`, `bd-remote → bd-rewrite`,
   `src-tauri → bd-lease`.
@@ -1606,7 +1612,7 @@ B3 (перерисованные строки) не измеряется: в pro
 
 - Обзоры и критика первой редакции: `/Users/develar/.claude/jobs/ce8e63f9/tmp/reviews.md` (вне репозитория).
 - Сегодняшние правила: `src/lib/safe-push-decision.ts`, `src/lib/branch-next-step.ts`,
-  `crates/bd-remote/src/safe_push_command.rs`, `crates/repository-view/src/patronus_view.rs`,
+  `crates/bd-remote/src/safe_push_command.rs`, `crates/repository-model/src/patronus_view.rs`,
   `crates/trial-check/src/landing_gate.rs`.
 - Связанные документы: [Landing Work into Master](landing.md), [Running Operations](operations.md),
   [Git Operations](git-operations.md), [Rendering Performance](rendering-performance.md),

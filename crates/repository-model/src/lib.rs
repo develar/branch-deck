@@ -2,6 +2,12 @@
 //! "Repository view"). The app keeps the table of its last sync and answers `get_repository_view` from it; `bd` builds
 //! the table from the report of its own sync or from a grouping, and reads the same view.
 //!
+//! The crate grows into the model of a repository (docs/design/rust-domain-authority.md): the session of a repository
+//! and the facts it holds come in later stages. Today it is the table of the last sync (`branch_table`, `views`), the
+//! rule of what the robots land (`patronus_view`) and the guards of the app's actions on the remote (`push_guard`,
+//! `start_guard`, run through `actions`). It holds what the checks and the remote services found and asks no remote
+//! service itself, except the Patronus client `RemoteActions` carries until the engine of the remote takes it.
+//!
 //! - `actions`: what the app's actions on the remote run on, the same for the app's commands and the E2E server's routes
 //!   (`RemoteActions`: the Patronus service with the Space repository, git, the tables); the flows are its methods
 //! - `branch_table`: the branch table a sync left: the branches in the order of the table, their tips and copies, the

@@ -47,7 +47,7 @@ use remote_facts::pull_request_writes::{
 use remote_facts::pull_requests::{GetPullRequestsParams, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
 use remote_facts::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
-use repository_view::actions::{NOT_ON_SPACE, RemoteActions};
+use repository_model::actions::{NOT_ON_SPACE, RemoteActions};
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -338,7 +338,7 @@ pub async fn sync_branches(
   };
   let synced = sync_core::sync::sync_branches(git_executor, repository_path, branch_prefix, progress, options).await;
   if let Ok(report) = &synced {
-    let table = repository_view::branch_table::BranchTable::from_report(branch_prefix, report, &reporter.take_statuses());
+    let table = repository_model::branch_table::BranchTable::from_report(branch_prefix, report, &reporter.take_statuses());
     state.repository_views.keep(repository_path, branch_prefix, table);
   }
   if let Err(e) = synced {
@@ -684,7 +684,7 @@ async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> R
   Ok((common_dir, space_of(state, path)?))
 }
 
-/// What the app's actions on the remote run on (`repository_view::actions`), as the app's commands have it: the fake's
+/// What the app's actions on the remote run on (`repository_model::actions`), as the app's commands have it: the fake's
 /// service with the Space repository (none while no Patronus fixture put the repository on Space), the views of the server
 fn remote_actions<'a>(state: &'a AppState, service: Option<&'a PatronusService>, space: Option<&'a SpaceRepository>) -> RemoteActions<'a> {
   RemoteActions::new(service.zip(space), &state.git_executor, &state.repository_views)

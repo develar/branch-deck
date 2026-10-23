@@ -198,7 +198,7 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
 - **The robots wait for each other.** A robot of the stack branch (`PatronusRobot::stack_root`) belongs to no
   branch, not even by its revision. It lands every branch of the stack, so a branch's Safe Push and push wait for it;
   a robot of a branch lands a part of the stack, so the whole stack's Safe Push waits for it (the `landingMember` of
-  the repository view, `repository_view::patronus_view`). A robot started elsewhere on a temporary ref is matched by its tip, as a branch's is.
+  the repository view, `repository_model::patronus_view`). A robot started elsewhere on a temporary ref is matched by its tip, as a branch's is.
 
 ### The whole stack in the app
 
@@ -240,7 +240,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
   piece, every branch of the whole stack) are closed, but only those that hold nothing the branch lacks: the head is the
   branch's tip, or the remote branch has no commit the branch lacks. A head compared by hash alone left a pull request
   of a branch the sync had only rebuilt on a newer baseline open, though all of it landed. Which branches it landed is
-  one rule, in Rust for the app and `bd` (`repository_view::patronus_view`, `landedByRobot` of the repository view): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
+  one rule, in Rust for the app and `bd` (`repository_model::patronus_view`, `landedByRobot` of the repository view): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
   same commits rebuilt, or one the branch built new commits on since: the copies below are the same objects, so the
   ancestors are as it took them), the whole stack's branches while it ran on the stack branch as it is; after a change
   below its commit, by content (below): the merge toast waits for that answer (the sync that runs, one

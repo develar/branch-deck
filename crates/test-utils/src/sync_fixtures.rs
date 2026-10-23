@@ -1,4 +1,4 @@
-//! Fixtures of the sync tests (sync-core, repository-view, integration-detection-tests): a progress reporter that
+//! Fixtures of the sync tests (sync-core, repository-model, integration-detection-tests): a progress reporter that
 //! records the sync events, and a grouped branch placed in a stack.
 
 use anyhow::Result;

@@ -311,7 +311,7 @@ pub struct LandingRefused {
 }
 
 /// The check of the start `params` asks, in a session of the current grouping; `landed` are the commits (original ids)
-/// merged Safe Pushes landed as the repository view names them (`repository_view::patronus_view::landed_commits`, on the
+/// merged Safe Pushes landed as the repository view names them (`repository_model::patronus_view::landed_commits`, on the
 /// robots Rust reads), whose names the target has
 #[instrument(skip(git_executor, cache, landed), fields(landed = landed.len()))]
 pub fn landing_check(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &LandingGateParams, landed: &HashSet<String>) -> anyhow::Result<LandingCheck> {

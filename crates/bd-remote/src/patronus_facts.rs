@@ -1,4 +1,4 @@
-//! The Patronus section of the repository view for `bd` (`repository_view::patronus_view`, the rule the app reads too):
+//! The Patronus section of the repository view for `bd` (`repository_model::patronus_view`, the rule the app reads too):
 //! the user's robots, matched to the branches of the table as the rows match them, and what they land, landed and hold.
 //! `bd push`, `bd safe-push` and `bd status` read it; the words stay theirs.
 
@@ -6,8 +6,8 @@ use bd_core::context::RepoContext;
 use bd_core::sync_command::SyncOutput;
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{BranchPatronus, PatronusView, RobotMatch, StackPatronus};
-use repository_view::branch_table::BranchTable;
-use repository_view::patronus_view::{ContentMemo, match_robots, patronus_view};
+use repository_model::branch_table::BranchTable;
+use repository_model::patronus_view::{ContentMemo, match_robots, patronus_view};
 
 /// The robots and the Patronus view of a table
 pub struct PatronusFacts {

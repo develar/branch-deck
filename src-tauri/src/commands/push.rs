@@ -3,7 +3,7 @@ use crate::commands::patronus::{PatronusState, remote_actions};
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use repository_view::views::RepositoryViews;
+use repository_model::views::RepositoryViews;
 use std::path::PathBuf;
 use sync_core::patronus::SpaceRepository;
 use sync_core::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome};

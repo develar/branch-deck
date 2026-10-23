@@ -219,10 +219,10 @@
     "closed": "s1-holes",
     "today": {
       "app": [
-        "crates/repository-view/src/start_guard.rs#if let Err(refusal) = check_start(facts, &subject, start.mode) {",
-        "crates/repository-view/src/start_guard.rs#check_restart(facts, &robot_id)",
-        "crates/repository-view/src/start_guard.rs#check_cancel(&robots, &params.robot_id)",
-        "crates/repository-view/src/push_guard.rs#pub fn push_guarded("
+        "crates/repository-model/src/start_guard.rs#if let Err(refusal) = check_start(facts, &subject, start.mode) {",
+        "crates/repository-model/src/start_guard.rs#check_restart(facts, &robot_id)",
+        "crates/repository-model/src/start_guard.rs#check_cancel(&robots, &params.robot_id)",
+        "crates/repository-model/src/push_guard.rs#pub fn push_guarded("
       ],
       "bd": [
         "crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;",
@@ -305,7 +305,7 @@
     "twins": ["dry-run-while-a-safe-push-of-a-child-lands-the-branch"],
     "today": {
       "app": ["src/hooks/useSafePush.ts#pushHeld: needsPush && hold !== null && replaces === null ? formatPushHoldReason(branchName, hold) : null"],
-      "bd": ["crates/repository-view/src/patronus_view.rs#dry_run: last_commit,"]
+      "bd": ["crates/repository-model/src/patronus_view.rs#dry_run: last_commit,"]
     }
   }
 ]

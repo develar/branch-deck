@@ -80,9 +80,9 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "the remote facts are what GitHub and Patronus answer, never a trial check, an update, a lease or a diff",
   },
   Unreachable {
-    from: "repository-view",
-    forbidden: &["trial-check"],
-    why: "the model holds what the checks found, it runs no trial check",
+    from: "repository-model",
+    forbidden: &["trial-check", "remote-facts", "update-core", "lease-pool", "patronus", "github", "youtrack"],
+    why: "the model holds what the checks and the remote services found: it runs no check, asks no service, updates and leases nothing",
   },
 ];
 
@@ -95,9 +95,14 @@ struct Allowed {
 
 const ALLOWED: &[Allowed] = &[
   Allowed {
-    from: "repository-view",
+    from: "repository-model",
     to: "trial-check",
     removed_in: "s7-session-facts",
+  },
+  Allowed {
+    from: "repository-model",
+    to: "patronus",
+    removed_in: "s9-engine-remote",
   },
   Allowed {
     from: "bd-remote",

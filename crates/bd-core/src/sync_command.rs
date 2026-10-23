@@ -50,7 +50,7 @@ pub struct SyncOutput {
   #[schemars(skip)]
   pub report: SyncReport,
   /// The remote statuses the sync emitted, one per branch, for the remote facts of its table
-  /// (`repository_view::branch_table::remote_facts`)
+  /// (`repository_model::branch_table::remote_facts`)
   #[serde(skip)]
   #[schemars(skip)]
   pub remote_statuses: Vec<RemoteStatusUpdate>,

@@ -14,7 +14,7 @@ name = "test-server"
 path = "src/main.rs"
 
 [dependencies]
-repository-view = { path = "../repository-view" }
+repository-model = { path = "../repository-model" }
 axum = { workspace = true, features = ["ws"] }
 tokio.workspace = true
 tower-http = { version = "0.7.1", features = ["cors", "trace", "fs"] }

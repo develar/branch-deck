@@ -185,7 +185,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   (`findBranchRobot`); `find_stack_robot` finds the robot of the whole stack.
   [@test] ../../crates/patronus/src/service_test.rs (`a_robot_of_the_stack_branch_names_the_root_of_its_stack_and_no_branch`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`)
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
   [@test] ../../src/lib/patronus.test.ts (`never takes the robot of the whole stack, which runs on its stack branch, for a branch's`)
 - The pull request of a stack branch must be the stack's, by its root (`PullRequestsResult::stack_pull_requests`),
   never a branch's; one that GitHub says exists must be found by its head.
@@ -287,9 +287,9 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   only work left of it ("Landed with the whole air stack · 1 commit after it").
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`the_robot_of_the_whole_stack_landed_every_branch_of_it`)
   [@test] ../../src/lib/patronus.test.ts (`names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left`)
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
   [@test] ../../src/lib/patronus.test.ts (`says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
 - One builder must list the actions of the whole stack (`getWholeStackMenuItems`), which the "⋯" of the stack island
   renders, the menu of every branch of the stack under "Whole Stack ›", the root's whole stack (so their previews

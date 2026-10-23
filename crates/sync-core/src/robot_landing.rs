@@ -1,6 +1,6 @@
 //! What a merged Patronus robot landed of the branches as the table has them, by content (docs/design/landing.md,
 //! "Landed by content"; "Robot landing" in docs/design/git-operations.md). The repository view asks it
-//! (`repository_view::patronus_view`, for the app and `bd`) when the hashes no longer tell: a change below the robot's
+//! (`repository_model::patronus_view`, for the app and `bd`) when the hashes no longer tell: a change below the robot's
 //! commit (an amend, a new commit of a branch it is built on, any change of the whole stack) gave the branches new
 //! copies.
 //!

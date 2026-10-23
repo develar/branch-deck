@@ -37,7 +37,7 @@ targets:
   - ../../crates/sync-core/src/robot_landing.rs
   - ../../crates/trial-check/src/landing_gate.rs
   - ../../crates/domain-types/src/landing.rs
-  - ../../crates/repository-view/src/views.rs
+  - ../../crates/repository-model/src/views.rs
   - ../../src/lib/landing-gate.ts
 ---
 
@@ -122,7 +122,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   without it: "Safe Push" where it said "Safe Push · 2" (`getLandingBranchCount`), its popover not naming it.
   [@test] ../../src/lib/branch-next-step.test.ts (`row 1: a branch a merged Safe Push of a branch built on it or of the whole stack landed offers nothing, its Safe Push and Dry Run say who landed it`)
   [@test] ../../src/lib/patronus.test.ts (`names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left`)
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `a_dry_run_lands_nothing`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `a_dry_run_lands_nothing`)
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_missing_source_lands_nothing`, `a_commit_added_below_the_robots_commit_is_the_only_work_left`)
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`, `asks the repository view with the robots that land, their matches and the remote facts, once per change of them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
@@ -219,7 +219,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/branch-next-step.test.ts (`row 1′: a branch whose Safe Push needs a branch outside what it lands says so and restacks; unknown needs change nothing`)
   [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should say on the row which branch its Safe Push needs before any press, and stack it on that branch from the slot`, `should stack the branch on the branch its Safe Push needs from the menu of a branch built on it`)
   [@test] ../../src/stores/patronus.test.ts (`waits for the landing needs Rust computes in the background, unknown until then, and asks the view again once`)
-  [@test] ../../crates/repository-view/src/views_test.rs (`the_landing_needs_are_unknown_until_computed_then_kept_while_the_inputs_stay`, `a_running_safe_push_of_the_branch_the_start_needs_is_named`)
+  [@test] ../../crates/repository-model/src/views_test.rs (`the_landing_needs_are_unknown_until_computed_then_kept_while_the_inputs_stay`, `a_running_safe_push_of_the_branch_the_start_needs_is_named`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_branch_that_uses_a_name_of_a_branch_outside_it_needs_that_branch_and_so_does_a_branch_built_on_it`, `the_needs_of_a_branch_are_the_refusals_of_its_start`, `a_landed_declaration_is_needed_by_nobody`, `a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
   [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_landing_needs_of_every_branch`)
   [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)

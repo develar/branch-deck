@@ -55,8 +55,8 @@ targets:
   - ../../crates/sync-core/src/target_conflict.rs
   - ../../crates/git-ops/src/trial_rebase.rs
   - ../../src/stores/safe-push.ts
-  - ../../crates/repository-view/src/push_guard.rs
-  - ../../crates/repository-view/src/start_guard.rs
+  - ../../crates/repository-model/src/push_guard.rs
+  - ../../crates/repository-model/src/start_guard.rs
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/hooks/useDismissesStaleReviews.ts
   - ../../crates/remote-facts/src/branch_rules.rs
@@ -475,7 +475,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   pushes runs on a branch built on it (`getLandingSpan`, the `span` of the view) whose commit has commits of the branch, which lands
   them ("A Safe Push of oauth is running: it lands 1 commit of login with it", the reason before the ancestor's; what
   a robot lands, [below](#pushing-into-a-branch-whose-safe-push-runs)); a dry run waits for neither. `bd safe-push` asks
-  the same rule (`repository_view::patronus_view`, its `start` refusal; `is_start_blocked` with the remote head of an
+  the same rule (`repository_model::patronus_view`, its `start` refusal; `is_start_blocked` with the remote head of an
   up-to-date remote status).
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_of_a_parent_restacked_below_a_running_safe_push_goes_on`)
   Then the button and the menu items are disabled, and their hover says the reason. The row button is disabled while
@@ -490,8 +490,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/lib/patronus.test.ts (`blocks a start while a robot runs on the remote branch that has the same commits, rebuilt on a newer baseline`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`)
   [@test] ../../src/lib/patronus.test.ts (`starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why`)
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`a_branch_waits_for_a_robot_that_lands_an_ancestor_not_for_a_dry_run`, `a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`)
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `the_robot_of_the_whole_stack_lands_every_branch_of_it`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_branch_waits_for_a_robot_that_lands_an_ancestor_not_for_a_dry_run`, `a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `the_robot_of_the_whole_stack_lands_every_branch_of_it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should wait for the Safe Push of an ancestor, which lands its commits`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
@@ -641,7 +641,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should say in the Safe Push popover why the build fails before the start, and stack the branch from it`, `should start anyway from the Safe Push popover with the override of what refuses it`)
   [@test] ../../src/lib/safe-push-decision.test.ts (`opens the popover when the build of what it lands needs a branch outside it: the reason, the fix and Start Anyway before the start`)
   [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
-  [@test] ../../crates/repository-view/src/views_test.rs (`a_running_safe_push_of_the_branch_the_start_needs_is_named`)
+  [@test] ../../crates/repository-model/src/views_test.rs (`a_running_safe_push_of_the_branch_the_start_needs_is_named`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
   [@test] ../../src/lib/landing-gate.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`, `counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`, `starts when nothing refuses it`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`)
@@ -673,7 +673,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   (`REBASE_AUTOSQUASH`, `DRY_RUN`) and the Space merge request whose approvals count (`spaceReview`). The robot shows
   at once and is polled.
 - The start command checks the start in Rust before it asks Patronus, by the rules of `bd safe-push`
-  (`repository_view::start_guard`), on the table of the last sync and the user's robots it lists itself (one request; a
+  (`repository_model::start_guard`), on the table of the last sync and the user's robots it lists itself (one request; a
   list Patronus doesn't give fails the start, never the robots the page knows): a parked branch, one built on parked
   and a whole stack with a parked member ("Nothing was started: login is parked: IJPL-1; it stays local until the user
   unparks it"), a branch or a whole stack merged Safe Pushes landed whole ("…: nothing of it is left to land"), a branch
@@ -683,8 +683,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   commits the view names landed (`landedBy`, the page sends none), and the target (`prepare_robot_start`). The page
   checks the same before it asks; the command refuses a start that raced with another one (the IDE, `bd`) or came by
   IPC, and the E2E server runs the same sequence (`start_robot`).
-  [@test] ../../crates/repository-view/src/start_guard_test.rs (`a_parked_branch_a_branch_built_on_parked_and_a_whole_stack_with_a_parked_member_are_refused`, `a_branch_and_a_whole_stack_merged_safe_pushes_landed_whole_are_refused`)
-  [@test] ../../crates/repository-view/src/start_guard_test.rs (`a_branch_and_a_stack_branch_the_sync_did_not_build_are_refused`, `a_robot_on_the_last_commit_or_one_that_lands_a_part_of_the_subject_is_refused`)
+  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_parked_branch_a_branch_built_on_parked_and_a_whole_stack_with_a_parked_member_are_refused`, `a_branch_and_a_whole_stack_merged_safe_pushes_landed_whole_are_refused`)
+  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_branch_and_a_stack_branch_the_sync_did_not_build_are_refused`, `a_robot_on_the_last_commit_or_one_that_lands_a_part_of_the_subject_is_refused`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_of_a_parked_branch_is_refused_before_patronus_is_asked`)
   [@test] ../../crates/patronus/src/actions_test.rs (`an_action_without_a_token_tells_how_to_log_in`)
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
@@ -860,7 +860,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   Patronus") and no push ([below](#pushing-into-a-branch-whose-safe-push-runs)); the "to push" counts leave them out.
   Once the fetched baseline has their commits, the Landed chip takes its place.
   [@test] ../../src/lib/patronus.test.ts (`names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left`)
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `a_dry_run_lands_nothing`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `a_dry_run_lands_nothing`)
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_missing_source_lands_nothing`)
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
@@ -877,7 +877,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   once per state of the branches (`ContentMemo`, keyed by the robot's commit and the commits of the branches), on the
   table the last sync left; of several robots that landed a branch, the one that left the fewest commits after it counts.
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`)
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
   [@test] ../../src/stores/patronus.test.ts (`asks the repository view with the robots that land, their matches and the remote facts, once per change of them`)
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_robot_at_the_tip_landed_the_branch_and_what_it_is_built_on`, `a_commit_added_below_the_robots_commit_is_the_only_work_left`, `a_reworded_commit_below_keeps_the_branches_landed`, `an_amended_commit_leaves_its_branch_not_landed`, `a_commit_not_synced_yet_is_after_the_landed_ones`, `the_robot_of_the_whole_stack_landed_every_branch_of_it`, `a_missing_source_lands_nothing`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_landing_of_a_merged_robot_after_a_change_below_its_commit`)
@@ -1135,12 +1135,12 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
 - The restart and the cancel command check in Rust too, on the user's robots they list themselves
-  (`repository_view::start_guard`): a restart is a start of the robot's subject in its mode that the robot itself does
+  (`repository_model::start_guard`): a restart is a start of the robot's subject in its mode that the robot itself does
   not refuse (its own robot on the last commit restarts); a robot the list lacks and one of a temporary ref are
   refused ("Nothing was restarted: the Safe Push is of a temporary ref (the IDE, the CLI): a restart would test its old
   commit"), a branch without a row restarts on its remote branch. A cancel of a robot the list lacks or one that
   finished is refused ("Nothing was canceled: the Safe Push is not running"); a canceling one is canceled again.
-  [@test] ../../crates/repository-view/src/start_guard_test.rs (`a_restart_is_a_start_its_own_robot_does_not_refuse_never_of_a_temporary_ref`, `a_cancel_of_a_robot_not_in_the_list_or_finished_is_refused`)
+  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_restart_is_a_start_its_own_robot_does_not_refuse_never_of_a_temporary_ref`, `a_cancel_of_a_robot_not_in_the_list_or_finished_is_refused`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_restart_and_cancel_run_the_real_service_against_the_fake`)
 - A restart or a cancel runs once per robot (an operation of the robot, [Running Operations](../../docs/design/operations.md)):
   while it runs, it is running on every surface of the robot (the slot, the details, the landing overview: disabled,
@@ -1203,7 +1203,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   `formatLandedWholeReason`). Push with Children leaves it then, and its push alone (`pushWholeStack`: the restart of its
   robot, Request Review… and the creation of its pull request) is refused with that reason.
 - The app and `bd` decide what the robots land, landed and hold with one rule over the branch table of the last sync
-  (`repository_view::patronus_view`, [Repository view](../../docs/design/git-operations.md#repository-view)):
+  (`repository_model::patronus_view`, [Repository view](../../docs/design/git-operations.md#repository-view)):
   - the robot of a branch is the one the rows match: running over canceling over finished, then the newest, then the
     first of the list; both sides pass the same cases (`src/test-support/robot-match-cases.json`);
   - of the robots of branches built on a branch, the first of the table lands it ("lands with"), and of those that run
@@ -1214,8 +1214,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   - the hashes tell, without git, when the robot took its branch as it is (its tip, or its remote branch that has the
     same commits) or a commit of it the branch built new ones on: the copies a sync wrote say which copy is a commit of
     the branch now, so an amend below the robot's commit in the same sync is told by content.
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`, `the_robot_of_the_whole_stack_lands_every_branch_of_it`, `the_merged_robot_that_left_the_least_work_names_the_landing`, `a_dry_run_lands_nothing`)
-  [@test] ../../crates/repository-view/src/patronus_view_content_test.rs (`the_hashes_answer_a_robot_at_its_tip_and_one_under_new_commits_without_git`, `a_root_restacked_below_a_running_robot_is_told_by_content_once`, `an_amend_below_the_robot_is_told_by_the_copies_the_sync_wrote`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`, `the_robot_of_the_whole_stack_lands_every_branch_of_it`, `the_merged_robot_that_left_the_least_work_names_the_landing`, `a_dry_run_lands_nothing`)
+  [@test] ../../crates/repository-model/src/patronus_view_content_test.rs (`the_hashes_answer_a_robot_at_its_tip_and_one_under_new_commits_without_git`, `a_root_restacked_below_a_running_robot_is_told_by_content_once`, `an_amend_below_the_robot_is_told_by_the_copies_the_sync_wrote`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robots_match_their_branches_as_the_page_matches_them`)
   [@test] ../../src/lib/patronus.test.ts (`matches the robots as the Rust side does: the cases of robot-match-cases.json`)
 - What a running robot lands is what its commit has, not the stack as it is now: while it took the branches as they
@@ -1230,7 +1230,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   pruned), the stack as it is now holds, the number of commits not named. A push decides on its holds after the answer
   for the branches as the sync leaves them (`whenRepositoryViewCurrent`). Not looked for: a commit moved out of the robot's
   branch into a branch that is no ancestor of it, as the landing of a merged robot doesn't.
-  [@test] ../../crates/repository-view/src/patronus_view_content_test.rs (`a_root_restacked_below_a_running_robot_is_told_by_content_once`)
+  [@test] ../../crates/repository-model/src/patronus_view_content_test.rs (`a_root_restacked_below_a_running_robot_is_told_by_content_once`)
   [@test] ../../src/stores/patronus.test.ts (`holds only the ancestors the view says the commit of a running Safe Push has, and counts their commits`)
   [@test] ../../src/lib/git/push.test.ts (`pushes a parent a restack placed below a running Safe Push once the repository view of the robots as they are now says the robot has none of it`)
   [@test] ../../src/lib/stack-lanes.test.ts (`starts below a root the robot's commit doesn't have: a restack placed it there after the start`)
@@ -1238,7 +1238,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_span_of_a_running_robot_after_a_restack`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has`)
   [@test] ../../src/lib/patronus.test.ts (`says why a held branch offers no push: its own Safe Push, one that lands it with the commits it counts; a dry run or a cancel holds nothing`, `says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`, `says why a group of branches has nothing left once every one of them landed whole: who landed them, in the order they merged`)
-  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `a_dry_run_lands_nothing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `a_dry_run_lands_nothing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`)
   [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not once the robot no longer runs`, `holds every branch the whole-stack Safe Push lands`, `holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`, `holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them`)
   [@test] ../../src/lib/git/push.test.ts (`is held once merged Safe Pushes landed every branch of the stack: Push with Children leaves it, its push alone says why`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
@@ -1261,7 +1261,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   target. Nothing asks: no dialog.
   [@test] ../../src/lib/git/push.test.ts (`refuses the push: it won't land, and the Safe Push would fail at the end`, `pushes when the Safe Push finished meanwhile: the status is read fresh`, `refuses a branch a Safe Push of a branch built on it lands`, `refuses a branch a merged Safe Push of a branch built on it landed, without reading its status`)
 - The app's push itself (`push_branch`, `push_branches`, the E2E server's routes of them) checks the same in Rust
-  before it pushes, by the rules of `bd push` (`repository_view::push_guard`, one sequence of both hosts,
+  before it pushes, by the rules of `bd push` (`repository_model::push_guard`, one sequence of both hosts,
   `RemoteActions::push_branches`): it reads the user's robots first (one full list asked now, never one kept for the
   page, a background request: none off Space, without a token, while Patronus fails or its requests back off, as `bd
   push` reads its holds; no network request runs under the repository lock), then under the lock refuses a branch the last sync has no row of ("… is no branch of the last
@@ -1273,8 +1273,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   list kept before it: a robot the page canceled before its restart is canceling and holds nothing, a robot that
   finished holds nothing, and a robot the IDE or `bd` started since the page's list holds. A push raced with a start,
   or one that came by IPC without the page's checks, pushes nothing then.
-  [@test] ../../crates/repository-view/src/push_guard_test.rs (`a_branch_a_merged_safe_push_landed_whole_is_refused`, `a_branch_whose_own_safe_push_runs_is_refused_until_it_is_canceled`, `a_branch_a_running_safe_push_lands_and_a_stack_branch_its_robot_runs_on_are_refused`)
-  [@test] ../../crates/repository-view/src/push_guard_test.rs (`a_stack_branch_that_is_not_built_is_refused`, `a_branch_the_last_sync_has_no_row_of_is_refused`)
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_branch_a_merged_safe_push_landed_whole_is_refused`, `a_branch_whose_own_safe_push_runs_is_refused_until_it_is_canceled`, `a_branch_a_running_safe_push_lands_and_a_stack_branch_its_robot_runs_on_are_refused`)
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_stack_branch_that_is_not_built_is_refused`, `a_branch_the_last_sync_has_no_row_of_is_refused`)
   [@test] ../../crates/patronus/src/service_test.rs (`the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere`, `the_checks_send_nothing_while_the_requests_back_off`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push nothing into a branch whose Safe Push started after the page's list: Rust refuses it, and the toast says why`)

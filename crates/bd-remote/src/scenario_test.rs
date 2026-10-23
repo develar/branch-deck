@@ -25,7 +25,7 @@ use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::stack::place_branches;
 use history_rewrite::store_lines::StoreLines;
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
-use repository_view::patronus_view::{landed_commits, with_landing_needs};
+use repository_model::patronus_view::{landed_commits, with_landing_needs};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json::{Map, Value, json};

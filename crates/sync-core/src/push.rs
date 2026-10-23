@@ -1,5 +1,5 @@
 //! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the app's push of
-//! one branch and of a stack (`push_branches`, `repository_view::push_guard`), and `bd push`, all through one leased push
+//! one branch and of a stack (`push_branches`, `repository_model::push_guard`), and `bd push`, all through one leased push
 //! (`push_leased`). A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched
 //! and reported, never overwritten. The stack branch of a whole stack (`{prefix}/stack/<root>`, `whole_stack`) goes the
 //! same way.

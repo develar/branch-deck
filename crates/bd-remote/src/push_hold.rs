@@ -1,5 +1,5 @@
 //! What holds the push of a virtual branch in `bd push`, as the repository view decides it for the app too (`hold` of
-//! `repository_view::patronus_view`): a Safe Push that runs on the branch, or one of a branch built on it or of the
+//! `repository_model::patronus_view`): a Safe Push that runs on the branch, or one of a branch built on it or of the
 //! whole stack it is a branch of whose commit has commits of it. A push now won't land (the robot merges the commit
 //! it took), and a push into the robot's own branch makes it fail at the end ("branch was modified"). Before any of
 //! them, a merged Safe Push that landed all of the branch (`landed`): its commits are in the target, a push sends
@@ -18,7 +18,7 @@ use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{Carried, HoldKind};
 use patronus::service::PatronusService;
-use repository_view::push_guard::{own_hold_words, span_hold_words, stack_hold_words};
+use repository_model::push_guard::{own_hold_words, span_hold_words, stack_hold_words};
 use std::collections::HashMap;
 
 /// The robot that holds the push of a branch

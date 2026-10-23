@@ -59,8 +59,8 @@ use remote_facts::patronus_command::{post_patronus_command, read_patronus_comman
 use remote_facts::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request};
 use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
-use repository_view::branch_table::BranchTable;
-use repository_view::start_guard::{stack_conflict_words, stack_not_built_words, start_refusal_text};
+use repository_model::branch_table::BranchTable;
+use repository_model::start_guard::{stack_conflict_words, stack_not_built_words, start_refusal_text};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
