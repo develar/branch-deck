@@ -65,17 +65,6 @@ pub fn is_push_into_robot_risky(robot: &PatronusRobot, subject: &Subject) -> boo
   is_robot_active(robot) && is_pushing_robot(robot) && is_started_on(robot, subject)
 }
 
-/// A start waits while a robot runs on the commit the branch is at (Patronus refuses it), or on `pushed_tip`: the remote
-/// branch while it has the commits of the branch by content, only rebuilt on an older baseline, as the app's remote
-/// status compares (`isStartBlocked`): a start would test and land the same commits again
-pub fn is_start_blocked(robot: &PatronusRobot, local_tip: Option<&str>, pushed_tip: Option<&str>) -> bool {
-  is_robot_active(robot)
-    && robot
-      .source_revision
-      .as_deref()
-      .is_some_and(|revision| Some(revision) == local_tip || Some(revision) == pushed_tip)
-}
-
 /// "auth", "auth and login", "auth, login and oauth"
 pub fn join_names(names: &[String]) -> String {
   match names {

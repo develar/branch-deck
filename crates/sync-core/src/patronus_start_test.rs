@@ -1,4 +1,4 @@
-use crate::patronus_start::{allows_push_mode, carried_ids, carried_words, find_branch_robot, find_stack_robot, is_push_into_robot_risky, is_start_blocked};
+use crate::patronus_start::{allows_push_mode, carried_ids, carried_words, find_branch_robot, find_stack_robot, is_push_into_robot_risky};
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::Carried;
@@ -69,14 +69,8 @@ fn the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_
 }
 
 #[test]
-fn a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push() {
+fn a_push_into_the_branch_of_a_running_safe_push_is_risky_a_dry_run_or_another_branch_is_not() {
   let running = robot("r", Some("IJPL-1"), PatronusRobotStatus::Running, 1);
-  assert!(is_start_blocked(&running, Some("tip"), None));
-  assert!(!is_start_blocked(&running, Some("fixed"), None));
-  assert!(!is_start_blocked(&robot("r", Some("IJPL-1"), PatronusRobotStatus::Failure, 1), Some("tip"), None));
-  // the robot took the remote branch, which has the same commits, rebuilt since on a newer baseline
-  assert!(is_start_blocked(&running, Some("rebuilt"), Some("tip")));
-
   assert!(is_push_into_robot_risky(&running, &branch("IJPL-1")));
   assert!(!is_push_into_robot_risky(&dry_run(running.clone()), &branch("IJPL-1")));
   assert!(!is_push_into_robot_risky(&robot("r", None, PatronusRobotStatus::Running, 1), &branch("IJPL-1")));

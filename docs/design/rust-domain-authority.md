@@ -92,7 +92,7 @@ D — одинаковый ввод даёт разный результат в 
 | R1 | Needs push, порядок push стека | `isRemoteUpToDate`, `getPushAction` (`push-summary.ts:24-62`), `needsPush`, `stackPushOrder` (`stack.ts:156-188`); `has_work_for_remote` (`push_command.rs:727`), `stack_branches_to_push` (`:674`) | `domain-policy::push::plan` |
 | R2 | Hold stack branch и порядок перед push держащего робота | решение hold ветки одно (`patronus_view`); hold stack branch — TS `stackBranchHoldReasonIn` и проверки parked в `push_command.rs:692`, `safe_push_command.rs:914`; статус, cancel и restart держащего робота — `checkPushHold`/`cancelHoldingRobot` (`push.ts:249-290`) и `push_locked`/`--restart-running` | `domain-policy::holds` получает hold ветки из `patronus_view` и hold stack branch (s8); порядок «статус → cancel → push» — `operations::push` (s9); `push_hold.rs` (чтение представления для `bd push`) удаляется в s9 |
 | R3 | Parked | `src/lib/parked.ts:21-63`; `sync_core::parked::parked_state` (`parked.rs:126`) | `domain-policy::parked` |
-| R4 | Отказ в старте | `canStartRobot`, `isStartBlocked`, `allowsPushMode` (`src/lib/patronus.ts:520-625,823`); `BranchPatronus.start`, `is_start_blocked` (`repository_view.rs:131-158`, `patronus_start.rs:88,134`) — Rust-поля читает только `bd` | `domain-policy::land` |
+| R4 | Отказ в старте | `canStartRobot`, `isStartBlocked`, `allowsPushMode` (`src/lib/patronus.ts:520-625,823`); `BranchPatronus.start` (`repository_view.rs:131-158`, `start_blocked` в `repository_model::patronus_view`) — Rust-поля читает только `bd` | `domain-policy::land` |
 | R5 | Matching роботов | `findBranchRobot` (`patronus.ts:78`); `find_branch_robot` (`patronus_start.rs:50`) | только Rust; `RobotMatch` перестаёт быть входом |
 | R6 | Next step, landing node, решение Safe Push | `branch-next-step.ts` (657), `landing-node.ts` (234), `safe-push-decision.ts` (211), `useStackNextStep.ts`, `whole-stack.ts`; `plan()` в `bd` | `domain-policy::{next_step, landing_node, land}` |
 | R7 | Restart, Push and Restart | `getRobotRestartAction` (`patronus.ts:425`), `runPushAndRestart` (`patronus-actions.ts:77-120`); `bd push --restart-running` | intent `RestartRobot` |
@@ -238,7 +238,7 @@ flowchart TD
   C["trial-check<br/>check, conflict fix, dangling, symbols, landing gate"] --> S
   U["update-core<br/>update project, pick, resolve session"] --> S & C
   L["lease-pool<br/>lease, lease clean, agent workspace"] --> S
-  CL["commit-clustering<br/>кластеры bd suggest, области, сгенерированные файлы; без CLI"] --> G
+  CL["commit-clustering<br/>кластеры bd suggest, области, сгенерированные файлы; без CLI"] --> G & H
   GH["github · patronus · youtrack<br/>HTTP-клиенты и их fakes"] --> T
   RF["remote-facts<br/>читатели и писатели remote-фактов, планировщик опроса; без policy"] --> GH & S & M & P
   M["repository-model<br/>Session (actor), Fact store, derive, ViewPatch"] --> P & S

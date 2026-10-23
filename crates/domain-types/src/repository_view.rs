@@ -1,6 +1,6 @@
 //! What Rust derives of the branch table for the page and for `bd`, so both read one rule (docs/design/git-operations.md,
 //! "Repository view"): the Patronus section, what the robots land, landed and hold of the branches as they are now
-//! (`sync_core::patronus_view`). The page asks it with `get_repository_view` and reads it by branch.
+//! (`repository_model::patronus_view`). The page asks it with `get_repository_view` and reads it by branch.
 
 use crate::landing::{LandingRefusal, Subject};
 use crate::patronus::PatronusRobot;
