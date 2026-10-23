@@ -972,7 +972,13 @@ repository». Аудит всех функций в тот же день наш�
   каждой записи `version`. Каждое окно, главное тоже, вызывает `set_setting`; Rust валидирует Rust-ключи, сохраняет и
   рассылает `settings_changed{version, key, value, origin}`; окно применяет версию больше последней применённой, своё
   эхо узнаёт по `origin`. Это заменяет `EchoTracker`, роль главного окна (`MainStoreSync`, `SubWindowStoreSync`,
-  `store-set-request`/`store-response`).
+  `store-set-request`/`store-response`). Патч — `SettingsPatch::Fields{key, fields}` (поля ключа, `null` удаляет поле)
+  или `Value{key, value}` (весь ключ, `null` удаляет ключ); `SettingsChange.value` — весь ключ после патча, а
+  `appSettings` в окна идёт в полной форме (`AppSettings::to_full`: каждое поле Rust с его default), так что defaults
+  этих полей страница берёт из Rust; на диск — только не-default. `set` отвечает сразу; диск пишет один поток не позже
+  500 мс после первой несохранённой правки; неудачная запись оставляет значение в памяти, повторяется следующей
+  правкой или `flush` и сообщается `on_save_error` раз на серию неудач. `changes_since(version)` даёт последнее
+  изменение каждого ключа после версии снимка (для `sub_window_loaded`).
 - Первый рендер остаётся синхронным: in-memory копия внедряется как `window.__TAURI_STORE__` в каждое окно при
   создании, под-окна тоже; `getStoreSnapshot` открывающего окна не передаётся. `__TAURI_STORE__` остаётся объектом
   значений по ключам (его читают шесть помощников e2e), версия копии ложится рядом — `window.__TAURI_STORE_VERSION__`.
@@ -2120,7 +2126,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s2-types | приземлён |
 | s3-crates | приземлён |
 | s4-errors | приземлён |
-| s5-settings | в работе: s5-1 приземлён (`domain-types::settings`, crate `app-settings`: `SettingsFile`, defaults, `resolve_branch_prefix` с источником) |
+| s5-settings | в работе: s5-1 приземлён (`domain-types::settings`, crate `app-settings`: `SettingsFile`, defaults, `resolve_branch_prefix` с источником); s5-2 приземлён (`SettingsService`: патчи, версии, debounce диска, `flush`; потребителей ещё нет) |
 | s6-session-table | не начат |
 | s7-session-facts | не начат |
 | s8-policy | не начат |

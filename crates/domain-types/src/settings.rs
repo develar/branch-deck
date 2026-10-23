@@ -1,6 +1,7 @@
 //! The settings of the app that Rust reads or must agree on with the page (`appSettings` of `settings.json`), and the
 //! branch prefix: what git config sets (`GitBranchPrefix`) and the prefix a command names its branches with, with where
-//! it came from (`ResolvedBranchPrefix`). The file, its writer and the order of the prefixes are `app-settings`'.
+//! it came from (`ResolvedBranchPrefix`); a change a window asks for (`SettingsPatch`) and the change every window
+//! gets (`SettingsChange`). The file, its writer and the order of the prefixes are `app-settings`'.
 
 use crate::branch_names::normalize_branch_prefix;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -102,6 +103,25 @@ impl AppSettings {
   }
 }
 
+impl AppSettings {
+  /// The form the windows get (`app_settings::service`): every field Rust knows, the defaults too, numbers as
+  /// JavaScript writes them, and `other` as it was read; the page takes the defaults of these fields from here
+  #[must_use]
+  pub fn to_full(&self) -> Map<String, Value> {
+    let mut full = self.other.clone();
+    if let Some(prefix) = &self.global_user_branch_prefix {
+      full.insert("globalUserBranchPrefix".to_owned(), Value::String(prefix.clone()));
+    }
+    full.insert("patronusNewApi".to_owned(), Value::Bool(self.patronus_new_api));
+    full.insert("autoSyncOnFocus".to_owned(), Value::Bool(self.auto_sync_on_focus));
+    full.insert("systemTitleBar".to_owned(), Value::Bool(self.system_title_bar));
+    if let Some(zoom) = json_number(self.zoom) {
+      full.insert("zoom".to_owned(), Value::Number(zoom));
+    }
+    full
+  }
+}
+
 /// `value` as JavaScript writes it: a whole number without a fraction (`2`, not `2.0`), so a stored zoom reads back as
 /// the page wrote it
 fn json_number(value: f64) -> Option<serde_json::Number> {
@@ -183,5 +203,51 @@ impl ResolvedBranchPrefix {
         source,
       }
     }
+  }
+}
+
+/// A change a window or Rust asks the writer of the settings (`app_settings::service::SettingsService::set`) for
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SettingsPatch {
+  /// Set these fields of the object of `key` and keep its other fields, so that two windows that change two fields of
+  /// one key at once keep both; a `null` field is removed (its default). A missing key starts as an empty object
+  Fields { key: String, fields: Map<String, Value> },
+  /// Replace the whole value of `key`; `null` removes the key
+  Value { key: String, value: Value },
+}
+
+impl SettingsPatch {
+  /// The key the patch changes
+  #[must_use]
+  pub fn key(&self) -> &str {
+    match self {
+      Self::Fields { key, .. } | Self::Value { key, .. } => key,
+    }
+  }
+}
+
+/// A change the writer applied, which every window gets (`settings_changed`): `value` is the whole key after the patch
+/// (`null` when the key is gone), `version` its place in the order of the writer, `origin` who asked for it (a window
+/// label, `rust`), so a window knows its own echo
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsChange {
+  /// Grows by one with each applied patch; the snapshot of a window carries the version it was taken at
+  pub version: u64,
+  pub key: String,
+  pub value: Value,
+  pub origin: String,
+}
+
+impl SettingsChange {
+  /// Whether a window that has applied `applied` (the version of its snapshot or of the last change it applied) applies
+  /// this change: only a newer one; an older or the same version is a late echo of what it already has, and applying
+  /// it would roll the key back
+  #[must_use]
+  pub const fn is_newer_than(&self, applied: u64) -> bool {
+    self.version > applied
   }
 }

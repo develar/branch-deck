@@ -3,14 +3,19 @@
 //!
 //! - `file`: the settings file (`SettingsFile`): a tolerant load, the stored form of a save, the atomic write
 //! - `resolve`: the order of the branch prefixes, with where the prefix came from (`resolve_branch_prefix`)
+//! - `service`: the one writer of the file (`SettingsService`): patches in the order they arrive, versions, a debounced
+//!   save on one thread, `flush`
 //!
-//! The types that cross a window or a process (`AppSettings`, `GitBranchPrefix`, `ResolvedBranchPrefix`) are
-//! `domain_types::settings`.
+//! The types that cross a window or a process (`AppSettings`, `GitBranchPrefix`, `ResolvedBranchPrefix`,
+//! `SettingsPatch`, `SettingsChange`) are `domain_types::settings`.
 
 pub mod file;
 pub mod resolve;
+pub mod service;
 
 #[cfg(test)]
 mod file_test;
 #[cfg(test)]
 mod resolve_test;
+#[cfg(test)]
+mod service_test;

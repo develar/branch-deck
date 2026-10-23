@@ -20,7 +20,7 @@ pretty_assertions.workspace = true
 [features]
 default = []
 schemars = ["dep:schemars"]
-specta = ["dep:specta"]
+specta = ["dep:specta", "specta/serde_json"]
 
 [lints]
 workspace = true

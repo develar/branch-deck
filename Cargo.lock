@@ -5650,6 +5650,7 @@ checksum = "ed155e448f42fc4be7a5cbc12bd43f6c549981f7c32fcba429ff6bc57cc4f30c"
 dependencies = [
  "paste",
  "rustc_version",
+ "serde_json",
  "specta-macros",
 ]
 
