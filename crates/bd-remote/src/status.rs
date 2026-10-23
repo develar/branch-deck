@@ -19,10 +19,10 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use sync_core::grouping::BranchGrouping;
-use sync_core::landing_gate::landing_needs_of;
 use sync_core::parked::parked_state;
 use sync_core::stack_branch::read_stack_branches;
 use tracing::debug;
+use trial_check::landing_gate::landing_needs_of;
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]

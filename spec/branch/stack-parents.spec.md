@@ -11,8 +11,8 @@ targets:
   - ../../crates/history-rewrite/src/regroup.rs
   - ../../crates/history-rewrite/src/move_plan.rs
   - ../../crates/sync-core/src/sync.rs
-  - ../../crates/sync-core/src/check.rs
-  - ../../crates/sync-core/src/dependencies.rs
+  - ../../crates/trial-check/src/check.rs
+  - ../../crates/trial-check/src/dependencies.rs
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/git-ops/src/commit_writer.rs
   - ../../crates/git-ops/src/reword_commits.rs
@@ -201,19 +201,19 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
   objects only: no ref, note or lock. A clean build is `builds` with the declared parent. With `branchdeck.symbols on`
   it must name in `uses` each name a commit of the branch uses that a commit of a declared ancestor adds (the edges by
   symbols), once per name, and say `symbols: true`, also when none is used.
-  [@test] ../../crates/sync-core/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`, `a_stacked_branch_that_uses_a_name_its_parent_adds_names_the_use`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`, `a_stacked_branch_that_uses_a_name_its_parent_adds_names_the_use`)
 - A conflict must be `needs`, with the first conflicting commit of the branch and its files. `parent_commits` must be
   the commits of the declared ancestors that the commits of the branch need by the line dependencies, and the commits
   of the ancestors that those need, oldest first. A root is `invalid_plan`.
-  [@test] ../../crates/sync-core/src/check_test.rs (`a_stacked_branch_that_conflicts_alone_names_the_commit_of_its_parent_it_needs`, `a_root_is_not_stacked`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`a_stacked_branch_that_conflicts_alone_names_the_commit_of_its_parent_it_needs`, `a_root_is_not_stacked`)
 - `parent_commits` must hold whole fixup units, because a move takes them whole: a needed target brings its fixups,
   and a needed fixup brings its target and the other fixups of it.
-  [@test] ../../crates/sync-core/src/check_test.rs (`a_needed_commit_brings_its_fixups_and_a_needed_fixup_its_target`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`a_needed_commit_brings_its_fixups_and_a_needed_fixup_its_target`)
 - `movable` must be false when a commit left in a branch whose build holds a needed commit depends on one of
   `parent_commits`: an ancestor that owns a needed commit, or a branch built on such an ancestor, but not this branch
   or a branch built on it. After a move, that branch would need this one. A branch of another stack never holds a
   needed commit, so its dependencies don't count.
-  [@test] ../../crates/sync-core/src/check_test.rs (`a_needed_commit_is_not_movable_when_a_commit_left_in_the_parent_depends_on_it`, `a_commit_of_another_stack_that_depends_on_a_needed_commit_keeps_it_movable`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`a_needed_commit_is_not_movable_when_a_commit_left_in_the_parent_depends_on_it`, `a_commit_of_another_stack_that_depends_on_a_needed_commit_keeps_it_movable`)
 - The trial build is on the base the sync builds on, not on the newest target: the words say "the baseline".
 - The line dependencies do not see a compile dependency; the edges by symbols see the uses of names, not what a
   compiler sees. A clean trial build proves only that the lines apply, and a Dry Run stays the proof.
@@ -261,7 +261,7 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/sync-core/src/stack_parents_test.rs`, `crates/sync-core/src/stack_operations_test.rs`,
-  `crates/sync-core/src/check_test.rs`, `crates/bd-remote/src/safe_push_test.rs`,
+  `crates/trial-check/src/check_test.rs`, `crates/bd-remote/src/safe_push_test.rs`,
   `crates/sync-core/src/move_commits_test.rs`, `crates/bd-remote/src/status_test.rs`, `crates/bd-rewrite/src/suggest_test.rs`,
   `crates/bd-rewrite/src/rewrite_test.rs`.
 - `pnpm test:unit`: `src/lib/commit.test.ts`, `src/lib/stack.test.ts`.

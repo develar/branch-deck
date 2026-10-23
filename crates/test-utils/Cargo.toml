@@ -16,6 +16,9 @@ git-executor = { path = "../git-executor" }
 # The diff of the counts of `process_budget`
 pretty_assertions.workspace = true
 
+# The empty object cache of the process budgets (`process_budget::empty_cache`)
+object-cache = { path = "../object-cache" }
+
 # The types of the sync fixtures (`sync_fixtures`)
 domain-types = { path = "../domain-types" }
 

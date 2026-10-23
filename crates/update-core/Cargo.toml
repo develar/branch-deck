@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 sync-core = { path = "../sync-core" }
+trial-check = { path = "../trial-check" }
 history-rewrite = { path = "../history-rewrite" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
@@ -24,7 +25,7 @@ specta = { workspace = true, optional = true }
 
 [features]
 default = []
-specta = ["dep:specta", "sync-core/specta", "history-rewrite/specta", "domain-types/specta", "git-ops/specta"]
+specta = ["dep:specta", "sync-core/specta", "trial-check/specta", "history-rewrite/specta", "domain-types/specta", "git-ops/specta"]
 
 [dev-dependencies]
 test-utils = { path = "../test-utils" }

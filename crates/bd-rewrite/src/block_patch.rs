@@ -9,8 +9,8 @@ use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::FileChange;
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::diff_scan::{CommitDiff, blob_pair};
 use text_diff::model::BlockKind;
+use trial_check::diff_scan::{CommitDiff, blob_pair};
 
 /// A changed file of a commit with its blocks
 #[derive(Debug, Serialize, JsonSchema)]

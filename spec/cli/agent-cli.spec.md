@@ -19,9 +19,9 @@ targets:
   - ../../crates/bd-remote/src/branch_stats.rs
   - ../../crates/bd-rewrite/src/commits.rs
   - ../../crates/bd-clustering/src/areas.rs
-  - ../../crates/sync-core/src/diff_scan.rs
+  - ../../crates/trial-check/src/diff_scan.rs
   - ../../crates/bd-remote/src/numstat.rs
-  - ../../crates/sync-core/src/dependencies.rs
+  - ../../crates/trial-check/src/dependencies.rs
   - ../../crates/bd-clustering/src/generated.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/bd-core/src/version.rs
@@ -40,7 +40,7 @@ targets:
   - ../../crates/bd-remote/src/request_review_command.rs
   - ../../crates/bd-rewrite/src/fold_command.rs
   - ../../crates/bd-rewrite/src/move_hunk_command.rs
-  - ../../crates/sync-core/src/move_hunk.rs
+  - ../../crates/trial-check/src/move_hunk.rs
   - ../../crates/git-ops/src/move_hunk.rs
   - ../../crates/git-ops/src/merge_tree_output.rs
   - ../../crates/history-rewrite/src/autosquash.rs
@@ -61,7 +61,7 @@ targets:
   - ../../crates/sync-core/src/patronus_review.rs
   - ../../crates/sync-core/src/review_readiness.rs
   - ../../crates/sync-core/src/patronus_start.rs
-  - ../../crates/sync-core/src/check.rs
+  - ../../crates/trial-check/src/check.rs
   - ../../crates/git-ops/src/merge_memo.rs
   - ../../crates/git-ops/src/cherry_pick.rs
   - ../../crates/sync-core/src/cache_memo.rs
@@ -87,12 +87,12 @@ targets:
   - ../../crates/object-cache/src/commit_diff.rs
   - ../../crates/git-ops/src/notes.rs
   - ../../crates/git-ops/src/copy_commit.rs
-  - ../../crates/sync-core/src/dangling_references.rs
-  - ../../crates/sync-core/src/declaration_checks.rs
-  - ../../crates/sync-core/src/dangling_fix.rs
-  - ../../crates/sync-core/src/inverted_stack.rs
-  - ../../crates/sync-core/src/missing_declarations.rs
-  - ../../crates/sync-core/src/landing_gate.rs
+  - ../../crates/trial-check/src/dangling_references.rs
+  - ../../crates/trial-check/src/declaration_checks.rs
+  - ../../crates/trial-check/src/dangling_fix.rs
+  - ../../crates/trial-check/src/inverted_stack.rs
+  - ../../crates/trial-check/src/missing_declarations.rs
+  - ../../crates/trial-check/src/landing_gate.rs
   - ../../crates/domain-types/src/landing.rs
   - ../../crates/git-ops/src/object_texts.rs
   - ../../crates/object-cache/src/commit_lines.rs
@@ -245,7 +245,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/robot_list_test.rs (`status_asks_patronus_once_while_the_kept_robots_hold`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
 - On Space (the push URL of `origin`), each branch must show `landing_needs`: what its Safe Push needs of a commit
-  outside what it lands, the refusals `bd safe-push` would give its start (`sync_core::landing_gate::landing_needs`,
+  outside what it lands, the refusals `bd safe-push` would give its start (`trial_check::landing_gate::landing_needs`,
   one trial check of every branch, less what merged Safe Pushes landed), so an agent sees them without `bd check`: per
   need the `code` (`missing_declaration`, `dangling_reference`), the `identifier`, `at` (`file:line` of the use), the
   commit it `needs` and its `needs_branch`, the `fix` (`bd restack <root> <branch>`, which the user approves first, or
@@ -253,7 +253,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   nothing is needed. A branch built on one that needs a branch needs it too. Omitted off Space, with `--brief` or
   `--unassigned`, and when the check can't run: unknown, not empty.
   [@test] ../../crates/bd-remote/src/landed_test.rs (`status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it`)
-  [@test] ../../crates/sync-core/src/landing_gate_test.rs (`the_needs_of_a_branch_are_the_refusals_of_its_start`)
+  [@test] ../../crates/trial-check/src/landing_gate_test.rs (`the_needs_of_a_branch_are_the_refusals_of_its_start`)
 - Each branch must show its `origin` (`prefix`, `issue_group` or `issue`) and, for an issue group, its `issue_keys`;
   the output must list `idle_issue_groups`, the keys of the issue groups that group no commit on this HEAD, and
   `issue_group_problems`, the lines of the issue groups that are not used.
@@ -295,7 +295,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--files` must list each changed file with its status (`A`, `M`, `D`, `R` with the old path, `T`) and the counts of
   the changed lines of the diff views; a binary file must have `"binary": true` and no counts.
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`files_with_renames_binaries_and_deletions`)
-  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_the_raw_part`, `read_commit_diffs_takes_the_blocks_of_the_views`)
+  [@test] ../../crates/trial-check/src/diff_scan_test.rs (`parses_the_raw_part`, `read_commit_diffs_takes_the_blocks_of_the_views`)
 - `--patch` must add per changed file the blocks of the diff views under `Default`, each with its id for
   `bd move-hunk --block` (the lines as in a git hunk header and a hash of them), its kind, a header with the label of
   its scope, and its lines between up to three lines of context that stop at the next block; `--branch` must keep the
@@ -305,8 +305,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `dependencies` must list `{from, to, files}` where `from` touches lines `to` added, adjacent lines included, plus the
   file-level rules for created, deleted, renamed and binary files; the lines are the blocks of the diff views, so the
   user's `diff.algorithm`, `diff.interHunkContext` or `diff.indentHeuristic` changes no edge.
-  [@test] ../../crates/sync-core/src/dependencies_test.rs (`overlapping_and_separate_hunks`, `lines_move_with_earlier_insertions`, `several_hunks_in_one_change`, `adjacent_changes_depend`, `created_renamed_deleted_and_binary_files`)
-  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`the_diff_config_of_the_user_changes_neither_the_hunks_nor_the_edges`)
+  [@test] ../../crates/trial-check/src/dependencies_test.rs (`overlapping_and_separate_hunks`, `lines_move_with_earlier_insertions`, `several_hunks_in_one_change`, `adjacent_changes_depend`, `created_renamed_deleted_and_binary_files`)
+  [@test] ../../crates/trial-check/src/diff_scan_test.rs (`the_diff_config_of_the_user_changes_neither_the_hunks_nor_the_edges`)
 - Unless `branchdeck.symbols` is `off`, `dependencies` must also list the edges by symbols
   ([Symbol Dependencies](../commit/symbol-dependencies.spec.md)): `via` `symbols` for an edge by symbols only (its
   `files` the files of the uses) and `lines_and_symbols` for both, with `symbols` `{name, file}`; `via` must be absent
@@ -547,7 +547,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd check` must apply a plan (`--plan`, `-` for stdin; the current grouping without one) in memory, validate it like a
   regroup (exit 2 when invalid, `descriptions` included), place the branches as a stacked sync does and build each
   one, parents first, writing git objects and the cache only: refs, notes, config and HEAD must not change.
-  [@test] ../../crates/sync-core/src/check_test.rs (`a_commit_moved_away_from_its_dependency_conflicts`, `stacking_resolves_the_conflict`, `the_current_grouping_and_a_clean_plan_build`, `an_invalid_plan_is_refused`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`a_commit_moved_away_from_its_dependency_conflicts`, `stacking_resolves_the_conflict`, `the_current_grouping_and_a_clean_plan_build`, `an_invalid_plan_is_refused`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`the_current_grouping_and_invalid_plans`)
 - Without `--plan`, `bd check` must check the current grouping and never read stdin, so the stdin of an agent, a CI
   or an IDE, an open pipe that sends nothing, does not hold it. `--plan -` must read the plan from stdin, with the
@@ -556,13 +556,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The branches must build at the same time as a sync builds them: a branch as soon as the one it is built on has its
   head, the others at once, with the outcomes of a build one by one (a child on its parent's head, blocked by a failed
   parent) and no more git processes.
-  [@test] ../../crates/sync-core/src/check_test.rs (`independent_branches_build_at_the_same_time`, `a_branch_waits_for_its_parent_and_is_blocked_by_its_failure`)
-  [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_check`, `a_check_of_synced_branches`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`independent_branches_build_at_the_same_time`, `a_branch_waits_for_its_parent_and_is_blocked_by_its_failure`)
+  [@test] ../../crates/trial-check/src/process_budget_test.rs (`a_check`, `a_check_of_synced_branches`)
 - Per branch it must print `ok`, a light conflict (commit, subject, files and the older commits outside the branch
   and its ancestors that change those files), `blocked_by`, `problems` or `error`, and the branch it would be built
   on; the exit code must be 1 unless every branch is `ok`.
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_conflicting_plan_names_the_commit_and_what_it_needs`, `stacking_resolves_the_conflict`)
-  [@test] ../../crates/sync-core/src/check_test.rs (`children_of_a_conflicting_branch_are_blocked`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`children_of_a_conflicting_branch_are_blocked`)
 - With `--fix` it must add `fix`, the regroup after which the conflicting branches apply cleanly as the trial builds of
   [Conflict Fix](../branch/conflict-fix.spec.md) find it, each component's `plan` the whole plan for `bd group`;
   nothing is applied. `--max-trials N` (12) and `--time-budget SECONDS` (180, the whole command) bound the search,
@@ -596,7 +596,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   a single `.`, nor the uses the Rust crates rule out ([Symbol Dependencies](../commit/symbol-dependencies.spec.md)); `via` must say
   whether the trees confirmed the uses (`syntax_tree`) or the lines alone found them (`lines`). Only the paths where the
   trees differ may be read.
-  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`, `a_use_changed_by_the_branch_itself_is_not_dangling`, `a_declaration_changed_in_place_is_not_dangling`, `a_reformatted_use_is_not_dangling`, `a_private_declaration_is_not_searched_outside_its_file`, `a_removed_top_level_function_is_searched_by_its_name`, `a_use_landed_on_the_baseline_is_a_possible_reference`, `a_member_moved_with_its_class_is_not_dangling`, `a_top_level_function_moved_within_its_package_is_not_dangling`, `a_private_declaration_moved_elsewhere_is_not_dangling`, `a_name_re_exported_by_a_use_is_not_removed`, `a_word_in_kdoc_is_no_use`, `an_override_line_is_no_use`, `a_local_val_shadows_a_private_member_of_another_class`)
+  [@test] ../../crates/trial-check/src/dangling_references_test.rs (`the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`, `a_use_changed_by_the_branch_itself_is_not_dangling`, `a_declaration_changed_in_place_is_not_dangling`, `a_reformatted_use_is_not_dangling`, `a_private_declaration_is_not_searched_outside_its_file`, `a_removed_top_level_function_is_searched_by_its_name`, `a_use_landed_on_the_baseline_is_a_possible_reference`, `a_member_moved_with_its_class_is_not_dangling`, `a_top_level_function_moved_within_its_package_is_not_dangling`, `a_private_declaration_moved_elsewhere_is_not_dangling`, `a_name_re_exported_by_a_use_is_not_removed`, `a_word_in_kdoc_is_no_use`, `an_override_line_is_no_use`, `a_local_val_shadows_a_private_member_of_another_class`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_branch_that_removes_a_used_declaration_is_dangling_reference`, `a_possible_dangling_reference_is_a_warning_and_exit_0`)
 - With `branchdeck.symbols on`, a dangling reference must also be found by the syntax summaries alone, with its `kind`
   (`removed_declaration` for the line search above): `removed_declaration` for an instance or static member of a JVM
@@ -616,9 +616,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   hunks, not the text), a member that moves with its type, a change of a Rust or TypeScript signature, a declaration of
   another package and a single declaration in a file another branch deletes must not count. A possible one is a
   warning of the kind `possible_changed_declaration` or `possible_duplicate_declaration`.
-  [@test] ../../crates/sync-core/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_function_made_suspend_fits_a_coroutine`, `a_header_change_the_summary_cannot_judge_is_only_possible`, `a_changed_parameter_type_rejects_a_literal`, `a_removed_overload_dangles_where_the_one_left_rejects_the_call`, `a_changed_extension_receiver_breaks_its_call`, `a_changed_form_is_judged_in_the_jvm_languages_only`, `a_removed_member_is_kept_only_by_its_own_key`, `a_use_the_branch_writes_is_told_by_its_line_not_its_text`, `a_change_of_the_body_alone_changes_no_form`, `a_new_parameter_dangles_only_where_the_call_does_not_fit_it`, `a_call_on_a_receiver_of_another_type_is_no_use`, `a_use_the_branch_writes_fits_its_form`, `a_removed_instance_member_dangles_where_its_receiver_calls_it`, `a_type_declared_again_in_the_same_package_is_a_duplicate`, `a_type_of_the_same_name_in_another_package_is_no_duplicate`, `a_declaration_another_branch_deletes_is_no_duplicate`)
+  [@test] ../../crates/trial-check/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_function_made_suspend_fits_a_coroutine`, `a_header_change_the_summary_cannot_judge_is_only_possible`, `a_changed_parameter_type_rejects_a_literal`, `a_removed_overload_dangles_where_the_one_left_rejects_the_call`, `a_changed_extension_receiver_breaks_its_call`, `a_changed_form_is_judged_in_the_jvm_languages_only`, `a_removed_member_is_kept_only_by_its_own_key`, `a_use_the_branch_writes_is_told_by_its_line_not_its_text`, `a_change_of_the_body_alone_changes_no_form`, `a_new_parameter_dangles_only_where_the_call_does_not_fit_it`, `a_call_on_a_receiver_of_another_type_is_no_use`, `a_use_the_branch_writes_fits_its_form`, `a_removed_instance_member_dangles_where_its_receiver_calls_it`, `a_type_declared_again_in_the_same_package_is_a_duplicate`, `a_type_of_the_same_name_in_another_package_is_no_duplicate`, `a_declaration_another_branch_deletes_is_no_duplicate`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_branch_that_changes_a_used_declaration_is_dangling_reference`, `a_changed_return_type_is_a_possible_changed_declaration`)
-  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_checks_of_a_session_on_sources`)
+  [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_checks_of_a_session_on_sources`)
 - A branch whose conflict or dangling reference needs a commit of a branch stacked on it, at any depth, must have
   `inverted_stack {branch, child, fixes}` and keep its `result`; the fixes (`move_to_child`, `swap`) must be plan
   parts for `bd group` that a trial build of the plan with them passes for both branches, and no `swap` for a mutual
@@ -640,11 +640,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/object-cache/src/cache_test.rs (`passed_builds_are_read_by_their_version`)
   [@test] ../../crates/git-ops/src/cat_file_batch_test.rs (`the_ids_of_a_path_with_a_space_a_tree_a_gitlink_and_missing_names`)
 - Merges must be memoized by their trees in the object cache, and a cached check must equal an uncached one.
-  [@test] ../../crates/sync-core/src/check_test.rs (`the_cache_gives_the_same_report`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`the_cache_gives_the_same_report`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`cached_check_equals_uncached`)
 - A `CheckSession` must read the commits, the baseline and the branch tips once, and check any number of plans as
   `check_plan` does.
-  [@test] ../../crates/sync-core/src/check_test.rs (`a_session_checks_many_plans_as_check_plan_does`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`a_session_checks_many_plans_as_check_plan_does`)
 
 ### `bd suggest`
 
@@ -771,19 +771,19 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   or one file that does not resolve, the commit must stay a conflict of git; a copy that resolved must be copied again
   and conflict once the setting is off. The same commits must give the same copy in every repository.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_that_its_words_resolve_builds_and_says_so`)
-  [@test] ../../crates/sync-core/src/word_resolve_sync_test.rs (`a_conflict_that_its_words_resolve_is_copied_with_the_author_and_the_message_of_the_commit`, `the_next_sync_reuses_the_resolved_copy_and_says_so_from_its_note`, `the_setting_off_gives_the_conflict_of_git_and_on_again_the_resolved_copy`, `a_file_with_a_conflict_that_its_words_leave_keeps_the_commit_a_conflict`, `crlf_lines_keep_their_ends`, `a_stack_of_commits_builds_on_the_resolved_copy`, `the_same_commits_give_the_same_copy_in_another_repository`, `a_check_resolves_as_the_sync_does`)
+  [@test] ../../crates/trial-check/src/word_resolve_sync_test.rs (`a_conflict_that_its_words_resolve_is_copied_with_the_author_and_the_message_of_the_commit`, `the_next_sync_reuses_the_resolved_copy_and_says_so_from_its_note`, `the_setting_off_gives_the_conflict_of_git_and_on_again_the_resolved_copy`, `a_file_with_a_conflict_that_its_words_leave_keeps_the_commit_a_conflict`, `crlf_lines_keep_their_ends`, `a_stack_of_commits_builds_on_the_resolved_copy`, `the_same_commits_give_the_same_copy_in_another_repository`, `a_check_resolves_as_the_sync_does`)
   [@test] ../../crates/git-ops/src/word_resolve_test.rs (`a_modify_delete_beside_a_resolvable_file_keeps_the_commit_a_conflict`, `an_add_add_and_a_binary_file_stay_conflicts`, `a_merge_driver_keeps_the_conflict_of_git`, `text_that_is_not_utf8_stays_a_conflict`)
 - The `conflict` of a branch in `conflict` must list in `missing_commits` the older commits that change a conflicting file
   and are neither in the branch nor in the branches it is built on, never the copies of its own or its ancestors'
   commits.
-  [@test] ../../crates/sync-core/src/missing_commits_test.rs (`the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch`)
+  [@test] ../../crates/trial-check/src/missing_commits_test.rs (`the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch`)
 - A virtual commit must be reused only while its mapping note fits the commit: the trees the note records as its
   source, and the message and the author of the copy. A note carried to a changed commit (`git notes copy`,
   `notes.rewriteRef`) must make the sync and the check copy the commit again. A note without a source must be checked
   against the tree of its copy, keep a copy that fits and get its source; `--no-cache` must check every note that way.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_stale_note_rebuilds_the_branch`, `no_cache_verifies_each_note`)
   [@test] ../../crates/sync-core/src/branch_processor_test.rs (`a_note_copied_to_a_commit_with_another_tree_is_stale`, `an_amend_with_notes_rewrite_ref_rebuilds_the_copy`, `a_note_without_a_source_keeps_an_older_copy_and_gets_one`, `a_verifying_sync_checks_the_tree_of_each_copy`)
-  [@test] ../../crates/sync-core/src/check_test.rs (`check_does_not_reuse_a_stale_copy`)
+  [@test] ../../crates/trial-check/src/check_test.rs (`check_does_not_reuse_a_stale_copy`)
   [@test] ../../crates/git-ops/src/notes_test.rs (`the_lines_are_found_by_their_prefix`)
 - The remote state must count the remote commits a push drops (`behind`, `dropped_commits`) apart from the older
   versions of commits it has ([Outgoing Commits](../repository/outgoing.spec.md#what-is-outgoing)): `amended` (of
@@ -1042,7 +1042,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - With `branchdeck.symbols on`, a use by a commit of what lands of a name that a commit outside it adds (a missing
   declaration of `bd check`), which no merged Safe Push landed, must refuse the start with `missing_declaration`
-  (exit 4), nothing pushed, in the same trial session (`sync_core::landing_gate`, the rule of the app's start too). A
+  (exit 4), nothing pushed, in the same trial session (`trial_check::landing_gate`, the rule of the app's start too). A
   name a branch of the landing stack adds is none, a sibling's of a whole stack that forks too. The message must name
   the use, the commit that adds the name with its branch, and the fix: `bd restack <root> <branch>`, which lands that
   branch too, or, with stacked branches off, a commit unassigned or a restack that would close a cycle, the move of the

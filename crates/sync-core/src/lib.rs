@@ -1,6 +1,6 @@
 //! The operations of Branch Deck over git-ops: the sync of the virtual branches, one core per operation
-//! (`*_core(params, options)`: the repository lock, the expected HEAD and the order of the git steps), the trial syncs
-//! of `bd check`, the pushes and what GitHub and Patronus know of the branches. The app and `bd` call
+//! (`*_core(params, options)`: the repository lock, the expected HEAD and the order of the git steps), the pushes and
+//! what GitHub and Patronus know of the branches. The app and `bd` call
 //! these cores, git-ops directly only for reads that need no lock, and run no git of their own (AGENTS.md, "Adding a
 //! git operation").
 //!
@@ -8,7 +8,9 @@
 //! rewrites that need no sync (regroup, reword, squash, fold) are the crate `history-rewrite`.
 //! Update Project, `bd pick` and the resolve sessions of a conflicting `bd update` are the crate `update-core`; the
 //! baseline, its fetch and the update check every sync runs stay here (`baseline`, `baseline_fetch`), as does the
-//! landed report an update records (`landed`).
+//! landed report an update records (`landed`). The trial checks (`bd check`, the conflict fix, the landing gate),
+//! `bd move-hunk` and everything that reads the diffs and the symbols of the commits are the crate `trial-check`; it
+//! builds with `branch_processor` and `cache_memo` of this crate.
 //!
 //! The sync:
 //! - `sync`: `sync_branches`, the guards, the grouping, one build per branch and the detection of the archived ones
@@ -35,7 +37,6 @@
 //! - `amend_to_branch`: uncommitted changes into a commit of a branch
 //! - `unapply_branch`: the commits of a virtual branch out of HEAD with their files, the branch kept as an unapplied one
 //! - `reapply_branch`: the commits of an unapplied branch back on top of HEAD with their prefixes and files
-//! - `move_hunk`: the checks of `bd move-hunk` against the commits ahead of the baseline
 //! - `delete_archived_branch`: the delete of an archived branch, with compare-and-swap on its tip
 //! - `parked`: park and unpark a branch (no rewrite: the store `refs/branch-deck/parked`), and whether a branch is parked
 //!
@@ -45,25 +46,6 @@
 //! - `github_repository`: the GitHub repository of the branches, from the config, `origin` and the Space mirror, no HTTP
 //! - `repository_config`: the `branchdeck.*` config that Settings shows and writes
 //! - `branch_prefix`: the branch prefix by git config and the app setting
-//!
-//! The check, trial syncs that write objects only:
-//! - `check`: `CheckSession`, the trial sync of a regroup plan, and whether a stacked branch builds without its parent
-//!   (`get_stack_independence`); it builds with `branch_processor` and `cache_memo`
-//! - `missing_commits`: the commits a conflicting commit of a trial build likely needs, by the changed files
-//! - `conflict_fix`: the regroup after which the conflicting branches apply cleanly, found by trial builds
-//! - `dangling_references`: the declarations a branch removes while its tree still uses them, and by the summaries
-//!   (`symbol_dependencies::declaration_checks`) those it changes or declares again
-//! - `dangling_fix`: the fix of a mutual dangling reference, offered when a trial build proves it
-//! - `inverted_stack`: a branch that needs a commit of a branch stacked on it, and its fixes
-//! - `missing_declarations`: the names a built branch uses that a commit outside it adds
-//! - `landing_gate`: what refuses the start of a Safe Push or a Dry Run of a `domain_types::landing::Subject`, for
-//!   `bd safe-push` and the app: a name what lands uses and a branch outside it adds, a dangling reference a commit
-//!   proves
-//! - `dependencies`: which commits depend on which, from the hunks of `diff_scan`
-//! - `diff_scan`: the changes of many commits from one `log --raw -z` and the blocks of the diff views
-//! - `symbol_scan`: the syntax summaries of the changed source files, by blob id
-//! - `symbol_dependencies`: the edges between commits by the names they declare and use
-//! - `module_roots`: where the modules of source files begin
 //!
 //! Remotes:
 //! - `remote_command`: the policy of every git that talks to a remote (push, fetch)
@@ -121,32 +103,20 @@ pub mod branch_processor;
 pub mod branch_review;
 pub mod branch_rules;
 pub mod cache_memo;
-pub mod check;
 pub mod clone_dir;
 pub mod commit_key;
 pub mod commit_owners;
 pub mod commit_walk;
 pub mod config_snapshot;
 pub mod conflict_chain;
-pub mod conflict_fix;
-pub mod dangling_fix;
-pub mod dangling_references;
 pub mod delete_archived_branch;
-pub mod dependencies;
-pub mod diff_scan;
 pub mod git_setup;
 pub mod github_repository;
 pub mod grouping;
-pub mod inverted_stack;
 pub mod issue_navigation;
 pub mod landed;
-pub mod landing_gate;
 pub mod lease;
 pub mod lease_clean;
-pub mod missing_commits;
-pub mod missing_declarations;
-pub mod module_roots;
-pub mod move_hunk;
 pub mod parked;
 pub mod patronus;
 pub mod patronus_command;
@@ -175,8 +145,6 @@ pub mod robot_stats_aggregate;
 pub mod stack_branch;
 pub mod stack_operations;
 pub mod stack_pull_request;
-pub mod symbol_dependencies;
-pub mod symbol_scan;
 pub mod sync;
 pub mod sync_inputs;
 pub mod target_conflict;
@@ -194,10 +162,6 @@ mod branch_review_test;
 mod branch_rules_test;
 #[cfg(test)]
 mod conflict_report_test;
-#[cfg(test)]
-mod dependencies_test;
-#[cfg(test)]
-mod diff_scan_test;
 #[cfg(test)]
 mod git_setup_test;
 #[cfg(test)]
@@ -248,14 +212,3 @@ mod sync_test;
 mod unapply_branch_test;
 #[cfg(test)]
 mod uncommitted_changes_test;
-
-#[cfg(test)]
-mod module_roots_test;
-
-#[cfg(test)]
-mod symbol_dependencies_test;
-
-#[cfg(test)]
-mod symbol_scan_test;
-#[cfg(test)]
-mod word_resolve_sync_test;

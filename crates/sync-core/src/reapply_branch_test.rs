@@ -1,5 +1,5 @@
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyRefusal, ReapplyUndoToken, UndoneReapply, reapply_branch_core, undo_reapply_core};
-use crate::regroup_test::{commits, path, repo, sync};
+use crate::regroup_test::{commits, path, sync};
 use crate::unapply_branch_test::{PREFIX, unapply};
 use anyhow::Result;
 use git_ops::rewrite_guard::HeadMoved;
@@ -7,13 +7,13 @@ use git_ops::unapply::MoveBlocked;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, lock_repository};
 use pretty_assertions::assert_eq;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, baseline_repo};
 
 const UNAPPLIED: &str = "test-prefix/unapplied/feature";
 
 /// `(feature) Add file0`, `(other) Add file1`, `(feature) Add file2`, synced, then `feature` unapplied
 fn unapplied_repo() -> TestRepo {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(feature) Add file0", "(other) Add file1", "(feature) Add file2"]);
   sync(&repo);
   unapply(&repo, "feature", None).unwrap();
@@ -83,7 +83,7 @@ fn reapply_puts_the_commits_back_on_top_with_their_prefix_and_files_and_the_sync
 
 #[test]
 fn an_issue_branch_comes_back_without_a_prefix() -> Result<()> {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["ABC-1 Fix the parser", "(other) Add file1"]);
   sync(&repo);
   unapply(&repo, "ABC-1", None)?;

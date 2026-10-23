@@ -42,7 +42,7 @@ targets:
   - ../../src/components/conflict/ConflictFixPanel.tsx
   - ../../src/components/conflict/MissingCommitsDetails.tsx
   - ../../src/hooks/useMissingCommitOwners.ts
-  - ../../crates/sync-core/src/missing_commits.rs
+  - ../../crates/trial-check/src/missing_commits.rs
   - ../../crates/sync-core/src/commit_owners.rs
   - ../../src/components/conflict/ConflictingFilesSection.tsx
   - ../../src/components/diff/DiffView.tsx
@@ -320,7 +320,7 @@ The commit hash popover shows the same header and body.
 - The missing commits are the older commits that change a conflicting file and are neither in the branch nor in the
   branches it is built on, each with the branch it is in (`MissingCommit.branch`, none for an unassigned commit). The copies of the branch's
   own commits and of its stack ancestors are not missing.
-  [@test] ../../crates/sync-core/src/missing_commits_test.rs (`the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch`)
+  [@test] ../../crates/trial-check/src/missing_commits_test.rs (`the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch`)
 - The explanation must be one callout in the row and in the missing-commits window. Its title says where the missing
   commits are: "18 commits of IJAI-4047 changed these files first", "42 commits of IJAI-4047 and 11 branches it is
   built on …" when one branch is built on all the others, "… of 12 branches …" otherwise, ", as did 2 unassigned

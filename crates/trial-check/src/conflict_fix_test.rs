@@ -1,6 +1,5 @@
 use crate::check::{CheckOutcome, CheckSession};
 use crate::conflict_fix::{ConflictFix, FixBudget, FixRun, FixStep, FixStepKind, SearchState};
-use crate::regroup_test::repo;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::regroup::RegroupPlan;
 use object_cache::cache::ObjectCache;
@@ -8,14 +7,14 @@ use pretty_assertions::assert_eq;
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, baseline_repo};
 
 const PREFIX: &str = "test-prefix";
 
 /// Stacked branches on: `base` adds a file and `feature`, stacked on it, changes its second line, which `other` (a
 /// root) changes again in its last commit `(other) Change lib again`
 fn other_needs_feature(other_commits: &[(&str, &str, &str)]) -> (TestRepo, String) {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   repo.create_commit("(base) Add lib", "lib.txt", "a\nb\nc\n");
   repo.create_commit("(base/feature) Change lib", "lib.txt", "a\nB\nc\n");
   for (subject, file, content) in other_commits {
@@ -87,7 +86,7 @@ fn a_single_commit_branch_is_restacked_on_the_branch_it_needs() {
 
 #[test]
 fn an_unassigned_commit_the_branch_needs_is_pulled_in() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   let add = repo.create_commit("Add lib", "lib.txt", "a\nb\nc\n");
   repo.create_commit("(x) Change lib", "lib.txt", "a\nB\nc\n");
 
@@ -99,7 +98,7 @@ fn an_unassigned_commit_the_branch_needs_is_pulled_in() {
 
 #[test]
 fn a_parent_that_needs_a_commit_of_its_child_gives_its_own_commit_to_the_child() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   repo.create_commit("(a) Add lib", "lib.txt", "1\n2\n3\n");
   repo.create_commit("(a/b) Change lib", "lib.txt", "one\n2\n3\n");
   let more = repo.create_commit("(a) Change lib more", "lib.txt", "ONE\n2\n3\n");
@@ -131,7 +130,7 @@ fn assert_the_removal_goes_to_c(fix: &ConflictFix, remove: &String) {
 
 #[test]
 fn a_dangling_reference_moves_the_removal_to_the_branch_that_fixes_the_use() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   let remove = helper_removed_after_its_use(&repo);
 
   let fix = find_fix(&repo, FixBudget::default());
@@ -144,7 +143,7 @@ fn a_dangling_reference_moves_the_removal_to_the_branch_that_fixes_the_use() {
 
 #[test]
 fn a_commit_that_needs_two_long_branches_without_stacks_has_no_fix() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   // each branch changes its file in 4 commits: pulling 8 commits in is no fix, and no branch holds both
   for (branch, file) in [("y", "left.txt"), ("z", "right.txt")] {
     for version in 1..=4 {
@@ -179,7 +178,7 @@ fn a_search_out_of_trials_says_so() {
 
 #[test]
 fn nothing_to_fix_is_a_complete_search_without_components() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   repo.create_commit("(a) Add lib", "lib.txt", "1\n");
 
   let fix = find_fix(&repo, FixBudget::default());
@@ -197,7 +196,7 @@ fn the_fixes_are_the_same_with_the_symbols_off() {
   assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&again], &["other"], "feature", "other")]);
   assert_applies(&stacked, &fix);
 
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   repo.set_config("branchdeck.symbols", "off").unwrap();
   let remove = helper_removed_after_its_use(&repo);
   let fix = find_fix(&repo, FixBudget::default());
@@ -240,7 +239,7 @@ fn the_trials_of_a_search_detect_a_parent_without_commits_once() {
 
 #[test]
 fn a_leaf_whose_commit_needs_two_other_leaves_is_restacked_on_their_chain_in_one_trial() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   repo.create_commit("(root) Add lib", "lib.txt", "1\n2\n3\n4\n5\n");
   repo.create_commit("(root/a) Change the first line", "lib.txt", "one\n2\n3\n4\n5\n");
   repo.create_commit("(root/b) Change the last line", "lib.txt", "one\n2\n3\n4\nfive\n");
@@ -326,7 +325,7 @@ fn each_trial_is_a_line_of_progress() {
 
 #[test]
 fn a_leaf_on_a_parent_of_its_own_keeps_it_and_the_parent_is_restacked_on_what_the_leaf_needs() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   repo.create_commit("(root) Add lib", "lib.txt", "1\n2\n3\n4\n5\n");
   repo.create_commit("(root/a) Change the first line", "lib.txt", "one\n2\n3\n4\n5\n");
   repo.create_commit("(root/p) Change the last line", "lib.txt", "one\n2\n3\n4\nfive\n");
@@ -343,7 +342,7 @@ fn a_leaf_on_a_parent_of_its_own_keeps_it_and_the_parent_is_restacked_on_what_th
 
 #[test]
 fn a_restack_on_top_of_a_plan_keeps_the_parent_the_plan_gives() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   repo.create_commit("(root) Add lib", "lib.txt", "1\n2\n3\n4\n5\n");
   repo.create_commit("(root/a) Change the first line", "lib.txt", "one\n2\n3\n4\n5\n");
   repo.create_commit("(root/p) Change the last line", "lib.txt", "one\n2\n3\n4\nfive\n");

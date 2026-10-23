@@ -1,4 +1,4 @@
-//! `bd check`: would the branches build with this plan? A trial sync (`sync_core::check`) that writes git objects and
+//! `bd check`: would the branches build with this plan? A trial sync (`trial_check::check`) that writes git objects and
 //! the cache only
 
 use crate::group_plan::{GroupPlan, check_descriptions, parse_group_plan};
@@ -23,15 +23,15 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
-use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
-use sync_core::conflict_fix::{ConflictFix, FixBudget, FixRun, FixStepKind, SearchState};
-use sync_core::dangling_fix::{DanglingFixProver, ProvenFix};
-use sync_core::dangling_references::{DanglingKind, DanglingReference, DeclaredIn};
-use sync_core::inverted_stack::{InvertedStackFixKind, inverted_stack};
-use sync_core::missing_commits::{changed_files, missing_commits};
-use sync_core::missing_declarations::missing_declarations;
 use sync_core::sync::SyncReport;
 use sync_utils::list_cut::kept;
+use trial_check::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
+use trial_check::conflict_fix::{ConflictFix, FixBudget, FixRun, FixStepKind, SearchState};
+use trial_check::dangling_fix::{DanglingFixProver, ProvenFix};
+use trial_check::dangling_references::{DanglingKind, DanglingReference, DeclaredIn};
+use trial_check::inverted_stack::{InvertedStackFixKind, inverted_stack};
+use trial_check::missing_commits::{changed_files, missing_commits};
+use trial_check::missing_declarations::missing_declarations;
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]
@@ -767,7 +767,7 @@ pub fn session_of_sync(context: &RepoContext, report: &SyncReport) -> Result<Che
 }
 
 /// The dangling references of `branches` in `report`, a check of the grouping of `session` (`session_of_sync`) of what a
-/// start lands (`sync_core::landing_gate`): the ones a commit proves, by branch, and the possible ones as warnings
+/// start lands (`trial_check::landing_gate`): the ones a commit proves, by branch, and the possible ones as warnings
 pub fn dangling_references_in(context: &RepoContext, session: &CheckSession, report: &CheckReport, branches: &[&str]) -> Result<BranchDangling, CliError> {
   let short = context.short_ids(report.regroup.commits.iter().map(|commit| commit.id.as_str()));
   let files_of = if has_mutual_reference(report) {
@@ -970,8 +970,8 @@ fn shell(command: &str) -> std::process::Command {
   shell
 }
 
-/// The output of an inverted stack (`sync_core::inverted_stack`): short ids, the kinds of the fixes, and without one why
-fn inverted_stack_output(found: sync_core::inverted_stack::InvertedStack, short: &ShortIds) -> InvertedStack {
+/// The output of an inverted stack (`trial_check::inverted_stack`): short ids, the kinds of the fixes, and without one why
+fn inverted_stack_output(found: trial_check::inverted_stack::InvertedStack, short: &ShortIds) -> InvertedStack {
   let reason = found.fixes.is_empty().then(|| {
     let tried = if found.mutual {
       "moving its commits into the child doesn't build both, and the child's change uses what it adds, so no swap"

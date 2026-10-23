@@ -1,0 +1,41 @@
+[package]
+name = "trial-check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The trial checks of a grouping (`bd check`, the conflict fix, the landing gate): builds that write objects only, and everything that reads the diffs and the symbols of the commits"
+publish = false
+
+[dependencies]
+sync-core = { path = "../sync-core" }
+history-rewrite = { path = "../history-rewrite" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+domain-types = { path = "../domain-types" }
+sync-utils = { path = "../sync-utils" }
+object-cache = { path = "../object-cache" }
+file-diffs = { path = "../file-diffs" }
+code-symbols = { path = "../code-symbols" }
+text-diff = { path = "../text-diff" }
+anyhow.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+specta = { workspace = true, optional = true }
+regex = "1.13"
+
+[features]
+default = []
+specta = ["dep:specta", "sync-core/specta", "history-rewrite/specta", "domain-types/specta", "git-ops/specta"]
+
+[dev-dependencies]
+history-rewrite = { path = "../history-rewrite", features = ["test-commit"] }
+test-utils = { path = "../test-utils" }
+pretty_assertions = { workspace = true }
+test-log = { workspace = true }
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

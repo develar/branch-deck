@@ -32,9 +32,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use sync_core::landing_gate::landing_needs_of;
 use sync_core::patronus::target_branch_of;
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
+use trial_check::landing_gate::landing_needs_of;
 
 /// The groups of the cases and their test functions here; the Vitest has the same groups
 const GROUPS: [&str; 7] = [

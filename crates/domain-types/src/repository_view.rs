@@ -137,7 +137,7 @@ pub enum StartRefusal {
   Ancestor { landing: RobotOf },
 }
 
-/// What the Safe Push of a branch needs before it starts (`sync_core::landing_gate::landing_needs`): the refusals its
+/// What the Safe Push of a branch needs before it starts (`trial_check::landing_gate::landing_needs`): the refusals its
 /// start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. Computed
 /// in the background after a sync: unknown until then, never an empty list it did not compute
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

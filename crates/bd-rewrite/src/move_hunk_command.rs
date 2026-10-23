@@ -1,5 +1,5 @@
 //! `bd move-hunk`: move the changes of one file, or some of its blocks, from one commit ahead of the baseline into
-//! another (`sync_core::move_hunk`), under the repository lock. One rewrite that keeps HEAD's tree, so the index and the
+//! another (`trial_check::move_hunk`), under the repository lock. One rewrite that keeps HEAD's tree, so the index and the
 //! working tree stay as they are; `bd undo` takes it back, --sync rebuilds the virtual branches under the same lock
 
 use crate::block_patch::PatchBlock;
@@ -14,7 +14,7 @@ use git_ops::move_hunk::MoveHunkMode;
 use history_rewrite::regroup::UndoToken;
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::move_hunk::{MoveHunkError, MoveHunkOptions, MoveHunkParams, MoveHunkResult, move_hunk_core};
+use trial_check::move_hunk::{MoveHunkError, MoveHunkOptions, MoveHunkParams, MoveHunkResult, move_hunk_core};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct MoveHunkArgs {

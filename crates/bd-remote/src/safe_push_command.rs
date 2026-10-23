@@ -61,9 +61,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::branch_rules::{BranchRules, read_branch_rules};
-use sync_core::check::{CheckSession, StackIndependence};
 use sync_core::github_repository::GitHubRepository;
-use sync_core::landing_gate::check_landing_gate;
 use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
@@ -76,6 +74,8 @@ use sync_core::remote_status::has_work_for_remote;
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
 use tokio::runtime::Runtime;
+use trial_check::check::{CheckSession, StackIndependence};
+use trial_check::landing_gate::check_landing_gate;
 use youtrack::client::YouTrackClient;
 use youtrack::service::YouTrackService;
 
@@ -255,7 +255,7 @@ pub struct TargetCheckSummary {
   pub message: Option<String>,
 }
 
-/// The trial build of a stacked branch alone (`stack_independence` in `crates/sync-core/src/check.rs`): the branch as a
+/// The trial build of a stacked branch alone (`stack_independence` in `crates/trial-check/src/check.rs`): the branch as a
 /// root on the base the sync builds on, not on the newest target; it writes git objects only and unstacks nothing
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct AloneBuild {

@@ -1,27 +1,24 @@
-use crate::cache_memo::CacheMemo;
 use crate::check::{CheckOutcome, CheckReport, CheckSession, Planned, StackIndependence, StackUse, check_plan, run_builds, stack_independence};
-use crate::regroup_test;
 use domain_types::landing::StackCommit;
 use domain_types::stack::BlockReason;
 use git_ops::merge_memo::{MergeMemo, MergeOutcome, MergeTrees};
+use history_rewrite::issue_groups::ISSUE_GROUPS;
 use history_rewrite::regroup::{RegroupError, RegroupPlan};
+use history_rewrite::test_commit;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::merge_result::{MergeKey, MergeResult};
 use pretty_assertions::assert_eq;
 use std::sync::{Mutex, mpsc};
 use std::time::Duration;
+use sync_core::cache_memo::CacheMemo;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, baseline_repo};
 
 const PREFIX: &str = "test-prefix";
 
 /// `(a)` creates a file and changes it again; `(c)` is unrelated. Returns the commits
 fn repo(stacks: bool) -> (TestRepo, Vec<String>) {
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  if stacks {
-    repo.set_config("branchdeck.stacks", "true").unwrap();
-  }
+  let repo = baseline_repo(stacks);
   let ids = vec![
     repo.create_commit("(a) Add shared", "shared.txt", "one\n"),
     repo.create_commit("(a) Change shared", "shared.txt", "two\n"),
@@ -31,7 +28,7 @@ fn repo(stacks: bool) -> (TestRepo, Vec<String>) {
 }
 
 fn plan(branches: &[(&str, &[&String])]) -> RegroupPlan {
-  regroup_test::plan(branches, &[])
+  test_commit::plan(branches, &[])
 }
 
 fn cache(dir: &tempfile::TempDir) -> ObjectCache {
@@ -249,7 +246,7 @@ fn a_session_checks_many_plans_as_check_plan_does() {
     session.check(Some(&plan(&[("b", &[&ids[1]])]))).unwrap().branches[1].outcome,
     CheckOutcome::Conflict { .. }
   ));
-  session.check(Some(&regroup_test::plan(&[], &[&ids[0]]))).unwrap();
+  session.check(Some(&test_commit::plan(&[], &[&ids[0]]))).unwrap();
   assert_eq!(repository_state(&repo), before, "a session writes objects only");
 }
 
@@ -535,4 +532,21 @@ fn a_branch_waits_for_its_parent_and_is_blocked_by_its_failure() {
     matches!(&without_base[0], CheckOutcome::Error { message } if message.contains("no parent")),
     "{without_base:?}"
   );
+}
+
+#[test]
+fn a_check_groups_with_the_issue_groups_of_the_plan() {
+  let repo = baseline_repo(false);
+  repo.create_commit("ABC-1 One", "file0.txt", "ABC-1 One");
+  repo.create_commit("ABC-2 Two", "file1.txt", "ABC-2 Two");
+  let dir = tempfile::tempdir().unwrap();
+  let report = check(&repo, Some(&test_commit::issue_group_plan("parser", &["ABC-1", "ABC-2"])), &cache(&dir)).unwrap();
+  let built: Vec<(&str, usize, bool)> = report
+    .branches
+    .iter()
+    .map(|branch| (branch.name.as_str(), branch.commits.len(), matches!(branch.outcome, CheckOutcome::Ok { .. })))
+    .collect();
+  assert_eq!(built, [("parser", 2, true)]);
+  assert_eq!(report.regroup.changed_count(), 0);
+  assert_eq!(ISSUE_GROUPS.read(repo.git_executor(), repo.path().to_str().unwrap()).unwrap().commit, None);
 }

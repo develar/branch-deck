@@ -64,6 +64,16 @@ const UNREACHABLE: &[Unreachable] = &[
     forbidden: &["github", "patronus", "youtrack"],
     why: "Update Project, the pick and the resolve sessions read no remote service: the fetch is git's",
   },
+  Unreachable {
+    from: "trial-check",
+    forbidden: &["github", "patronus", "youtrack"],
+    why: "a trial check builds and reads the commits of the repository, never a remote service",
+  },
+  Unreachable {
+    from: "repository-view",
+    forbidden: &["trial-check"],
+    why: "the model holds what the checks found, it runs no trial check",
+  },
 ];
 
 /// An edge that breaks a rule today, and the stage of the plan that removes it
@@ -90,14 +100,9 @@ const ALLOWED: &[Allowed] = &[
     removed_in: "s3-crates",
   },
   Allowed {
-    from: "sync-core",
-    to: "file-diffs",
-    removed_in: "s3-crates",
-  },
-  Allowed {
-    from: "sync-core",
-    to: "code-symbols",
-    removed_in: "s3-crates",
+    from: "repository-view",
+    to: "trial-check",
+    removed_in: "s7-session-facts",
   },
   Allowed {
     from: "bd-remote",

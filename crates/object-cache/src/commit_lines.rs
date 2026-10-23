@@ -1,5 +1,5 @@
 //! `commit_lines`: commit id -> the changed lines of the commit against its first parent in the source files whose
-//! declarations the dangling-reference check reads (`sync_core::dangling_references`), with `-U0 --no-renames`
+//! declarations the dangling-reference check reads (`trial_check::dangling_references`), with `-U0 --no-renames`
 
 use crate::cache::{ObjectCache, Store};
 use serde::{Deserialize, Serialize};

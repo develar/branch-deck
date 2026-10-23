@@ -1,7 +1,5 @@
-use crate::check::{CheckOutcome, check_plan};
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::regroup_test;
-use crate::regroup_test::{commits, entries, groups, other_worktree, path, plant_store, regroup, repo, sync};
+use crate::regroup_test::{commits, entries, groups, other_worktree, path, plant_store, regroup, sync};
 use domain_types::BranchOrigin;
 use git_ops::commit_writer::write_store_updates;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
@@ -10,10 +8,10 @@ use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupPlan, UndoTo
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use history_rewrite::store_lines::{StoreLineProblem, StoreLines, format_store_lines};
 use history_rewrite::test_commit::commit;
-use object_cache::cache::{CacheConfig, ObjectCache};
+use history_rewrite::test_commit::plan;
 use pretty_assertions::assert_eq;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, baseline_repo};
 
 #[test]
 fn bad_lines_are_problems_and_never_used() {
@@ -128,7 +126,7 @@ fn the_rule_is_prefix_then_issue_group_then_issue_key() {
 
 #[test]
 fn a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two", "XYZ-3 Three"]);
   let head = repo.head();
   let plan = group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[]);
@@ -183,7 +181,7 @@ fn a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store() {
 
 #[test]
 fn a_mixed_plan_moves_head_and_the_store_in_one_transaction() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two", "Plain three"]);
   let mut plan = group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[]);
   plan.branches.insert("lexer".to_string(), vec![ids[2].clone()]);
@@ -221,7 +219,7 @@ fn a_mixed_plan_moves_head_and_the_store_in_one_transaction() {
 
 #[test]
 fn unassign_and_ungroup_fall_back_and_a_write_keeps_idle_keys_and_unused_lines() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["ABC-1 One", "(lexer) ABC-2 Two"]);
   plant(&repo, "ABC-1\tparser\nABC-2\tparser\nABC-9\tparser\nbad line\n");
   let before = store(&repo);
@@ -229,7 +227,7 @@ fn unassign_and_ungroup_fall_back_and_a_write_keeps_idle_keys_and_unused_lines()
   assert_eq!(before.problems.len(), 1);
 
   // unassign drops the prefix: the commit falls back to the issue group of its key
-  let outcome = regroup(&repo, &regroup_test::plan(&[], &[&ids[1]])).unwrap();
+  let outcome = regroup(&repo, &plan(&[], &[&ids[1]])).unwrap();
   assert_eq!(groups(&outcome), [Some("parser"), Some("parser")]);
   assert_eq!(outcome.issue_groups, None);
   assert_eq!(store(&repo), before);
@@ -252,7 +250,7 @@ fn unassign_and_ungroup_fall_back_and_a_write_keeps_idle_keys_and_unused_lines()
 
 #[test]
 fn invalid_issue_group_plans_are_refused() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
   let target = &ids[0][..10];
   repo.create_commit(&format!("fixup! {target}"), "file0.txt", "fixed");
@@ -282,7 +280,7 @@ fn invalid_issue_group_plans_are_refused() {
 
 #[test]
 fn rename_changes_the_entries_of_an_issue_group_and_of_a_prefix_branch() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
   regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap();
   let head = repo.head();
@@ -304,7 +302,7 @@ fn rename_changes_the_entries_of_an_issue_group_and_of_a_prefix_branch() {
 
 #[test]
 fn an_issue_group_is_restacked_and_can_be_a_parent() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   commits(&repo, &["ABC-1 One", "ABC-2 Two", "(auth) Three"]);
   regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap();
 
@@ -320,32 +318,8 @@ fn an_issue_group_is_restacked_and_can_be_a_parent() {
 }
 
 #[test]
-fn a_check_groups_with_the_issue_groups_of_the_plan() {
-  let repo = repo(false);
-  commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
-  let dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
-  let report = check_plan(
-    repo.git_executor(),
-    path(&repo),
-    "test-prefix",
-    Some(&group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])),
-    &cache,
-  )
-  .unwrap();
-  let built: Vec<(&str, usize, bool)> = report
-    .branches
-    .iter()
-    .map(|branch| (branch.name.as_str(), branch.commits.len(), matches!(branch.outcome, CheckOutcome::Ok { .. })))
-    .collect();
-  assert_eq!(built, [("parser", 2, true)]);
-  assert_eq!(report.regroup.changed_count(), 0);
-  assert_eq!(store(&repo).commit, None);
-}
-
-#[test]
 fn a_write_on_one_worktree_keeps_the_groups_of_another() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let base = repo.head();
   commits(&repo, &["XA-1 One", "YB-2 Two"]);
   // a second worktree on another branch, with commits of other keys
@@ -367,7 +341,7 @@ fn a_write_on_one_worktree_keeps_the_groups_of_another() {
 
 #[test]
 fn an_issue_branch_with_a_fixup_is_an_issue_branch() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["XA-1: add XA-1", "fixup! XA-1: add XA-1"]);
   let grouping = group_commits_ahead_of_baseline(repo.git_executor(), path(&repo), "test-prefix").unwrap();
   let origins: Vec<(&str, BranchOrigin)> = grouping.branches.iter().map(|branch| (branch.name.as_str(), branch.origin)).collect();
@@ -376,7 +350,7 @@ fn an_issue_branch_with_a_fixup_is_an_issue_branch() {
 
 #[test]
 fn a_sync_reads_the_map_and_never_writes_it() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
   regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap();
   let before = (store(&repo), history(&repo));
@@ -425,7 +399,7 @@ fn an_undo_token_is_read_strictly() {
 
 #[test]
 fn an_undo_of_the_map_needs_the_written_commit_on_its_previous_one() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
   let first = UndoToken::of(&regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap()).unwrap();
   let second = UndoToken::of(&regroup(&repo, &group_plan(&[], &["ABC-2"])).unwrap()).unwrap();
@@ -448,10 +422,10 @@ fn an_undo_of_the_map_needs_the_written_commit_on_its_previous_one() {
 
 #[test]
 fn a_plan_stacks_an_issue_group_without_a_prefix() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two", "(auth) Three"]);
   regroup(&repo, &group_plan(&[("pair", &["ABC-1", "ABC-2"])], &[])).unwrap();
-  let outcome = regroup(&repo, &regroup_test::plan(&[("auth/pair", &[&ids[0]])], &[])).unwrap();
+  let outcome = regroup(&repo, &plan(&[("auth/pair", &[&ids[0]])], &[])).unwrap();
   // the commit is in the group already: only the stack parents move
   assert_eq!(outcome.changed_count(), 0);
   assert_eq!(outcome.stack_parents.unwrap().entries, entries(&[("pair", "auth")]));

@@ -191,7 +191,7 @@ tip and is never pushed. See "Stack branch" in [Git Operations](git-operations.m
 ### Line Dependencies
 
 `bd commits` (its `units`) and `bd suggest` keep together the commits that `compute_dependencies`
-(`crates/sync-core/src/dependencies.rs`, the rules in its header) links by lines: a newer commit depends on an older
+(`crates/trial-check/src/dependencies.rs`, the rules in its header) links by lines: a newer commit depends on an older
 one when one of its blocks replaces or deletes a line the older one added, or lies next to one. The blocks are those of
 the diff views under `Default` (`file_diffs::blocks`). The adjacency
 rule stays, by a measurement of 2026-10-18 on the last 200 commits of this repository and on 217 commits of an

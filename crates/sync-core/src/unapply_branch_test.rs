@@ -1,4 +1,4 @@
-use crate::regroup_test::{commits, path, repo, sync};
+use crate::regroup_test::{commits, path, sync};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyRefusal, UnapplyUndoToken, UndoneUnapply, unapply_branch_core, undo_unapply_core};
 use anyhow::Result;
@@ -9,7 +9,7 @@ use git_ops::update_branch::UndoBlocked;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use pretty_assertions::assert_eq;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, baseline_repo};
 use test_utils::sync_fixtures::TestReporter;
 
 pub(crate) const PREFIX: &str = "test-prefix";
@@ -33,7 +33,7 @@ fn refusal(repo: &TestRepo, branch: &str, expected: Option<Vec<String>>) -> Unap
 
 /// `(feature) Add file0`, `(other) Add file1`, `(feature) Add file2`, `(different) Add file3`, synced; returns them
 fn synced_repo() -> (TestRepo, Vec<String>) {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["(feature) Add file0", "(other) Add file1", "(feature) Add file2", "(different) Add file3"]);
   sync(&repo);
   (repo, ids)
@@ -167,7 +167,7 @@ fn test_unapply_avoids_a_ref_below_the_name() -> Result<()> {
 
 #[test]
 fn test_unapply_avoids_a_ref_above_the_name() -> Result<()> {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   // a flat name with a slash, as without stacked branches
   commits(&repo, &["(feature/x) Add file1"]);
   sync(&repo);

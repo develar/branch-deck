@@ -8,6 +8,7 @@ license.workspace = true
 # the table of a sync and the Patronus section, one rule over the content walks of sync-core
 [dependencies]
 sync-core = { path = "../sync-core" }
+trial-check = { path = "../trial-check" }
 history-rewrite = { path = "../history-rewrite" }
 domain-types = { path = "../domain-types" }
 git-ops = { path = "../git-ops" }

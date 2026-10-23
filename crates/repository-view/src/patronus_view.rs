@@ -23,10 +23,10 @@ use domain_types::repository_view::{
 use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use sync_core::landing_gate::name_landing_robots;
 use sync_core::patronus_start::{find_branch_robot, find_stack_robot, is_pushing_robot, is_robot_active};
 use sync_core::robot_landing::{robot_landings_of_grouped, robot_spans_of_grouped};
 use tracing::{debug, instrument};
+use trial_check::landing_gate::name_landing_robots;
 
 /// How many answers a memo keeps of each kind before it starts again
 const MEMO_LIMIT: usize = 512;

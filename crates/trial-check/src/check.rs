@@ -7,19 +7,12 @@
 //! `stack_independence` asks one question of the check: does a stacked branch build on the baseline without its
 //! parent? It builds that branch alone, as Unstack would make it, and names the commits of its ancestors it needs.
 
-use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, ExistingCommits, build_branch};
-use crate::cache_memo::CacheMemo;
-use crate::commit_owners::CommitOwners;
-use crate::config_snapshot::ConfigSnapshot;
-use crate::config_snapshot::SymbolMode;
 use crate::dangling_references::{DanglingInput, DanglingReference, SyntaxMemo, find_dangling_references, read_commit_lines};
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
-use crate::grouping::branch_tips;
 use crate::symbol_dependencies::declaration_checks::{AddedKeys, DeclarationFacts};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolInput, read_symbol_input};
-use crate::sync::{SyncReport, seeded_tree_cache};
 use code_symbols::language::language_of as symbols_language_of;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::commit::Commit;
@@ -46,6 +39,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use sync_core::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, ExistingCommits, build_branch};
+use sync_core::cache_memo::CacheMemo;
+use sync_core::commit_owners::CommitOwners;
+use sync_core::config_snapshot::ConfigSnapshot;
+use sync_core::config_snapshot::SymbolMode;
+use sync_core::grouping::branch_tips;
+use sync_core::sync::{SyncReport, seeded_tree_cache};
 use sync_utils::span::in_current_span;
 use tracing::instrument;
 

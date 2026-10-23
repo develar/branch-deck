@@ -15,7 +15,7 @@ targets:
   - ../../crates/branch-integration/src/merge.rs
   - ../../crates/branch-integration/src/squash.rs
   - ../../crates/sync-core/src/grouping.rs
-  - ../../crates/sync-core/src/check.rs
+  - ../../crates/trial-check/src/check.rs
   - ../../crates/domain-types/src/stack.rs
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/stores/branch-sync.ts

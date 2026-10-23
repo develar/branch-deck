@@ -21,9 +21,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::baseline_tracking_ref;
-use sync_core::dependencies::compute_dependencies;
-use sync_core::diff_scan::read_commit_diffs_cached;
 use tracing::{debug, info, instrument};
+use trial_check::dependencies::compute_dependencies;
+use trial_check::diff_scan::read_commit_diffs_cached;
 
 /// Where `bd pick` takes the commits from
 #[derive(Debug, Clone, PartialEq, Eq)]

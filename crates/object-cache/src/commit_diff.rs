@@ -1,5 +1,5 @@
 //! `commit_diff`: commit id -> the changes of the commit against its first parent, as `bd commits` reads them with
-//! `git log -z --raw --no-abbrev -M` and the blocks of the diff views (`sync_core::diff_scan`)
+//! `git log -z --raw --no-abbrev -M` and the blocks of the diff views (`trial_check::diff_scan`)
 
 use crate::cache::{ObjectCache, Store};
 use serde::{Deserialize, Serialize};

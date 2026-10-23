@@ -334,13 +334,13 @@ pub struct StartPatronusRobotParams {
   pub profile_id: Option<String>,
   /// The merge request whose approvals the review check of the robot counts; null without one
   pub merge_request: Option<PatronusMergeRequest>,
-  /// What the user started anyway (Start Anyway); without it the refusals of `sync_core::landing_gate` fail the start
+  /// What the user started anyway (Start Anyway); without it the refusals of `trial_check::landing_gate` fail the start
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub allow: LandingAllowances,
 }
 
-/// The overrides of a refusal of `sync_core::landing_gate`, each by the user: `--allow-dangling` and `--allow-missing`
+/// The overrides of a refusal of `trial_check::landing_gate`, each by the user: `--allow-dangling` and `--allow-missing`
 /// of `bd safe-push`, Start Anyway of the app
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

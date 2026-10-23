@@ -57,6 +57,20 @@ pub fn disable_background_maintenance(repo_path: &Path) {
   }
 }
 
+/// A repository whose initial commit is the baseline; `stacks` turns on stacked branches
+///
+/// # Panics
+/// When git cannot write the config
+#[must_use]
+pub fn baseline_repo(stacks: bool) -> TestRepo {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  if stacks {
+    repo.set_config("branchdeck.stacks", "true").unwrap();
+  }
+  repo
+}
+
 /// A repository on a bare `origin` (`.git/origin.git`, no background maintenance) that has only its `master`, with
 /// `alpha` and `beta` built on it committed ahead and their virtual branches (`test/virtual/…`) at their commits: what
 /// the tests of the app's stack push push

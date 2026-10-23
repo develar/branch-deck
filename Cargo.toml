@@ -8,6 +8,7 @@ members = [
   "crates/test-server",
   "crates/sync-core",
   "crates/update-core",
+  "crates/trial-check",
   "crates/repository-view",
   "crates/history-rewrite",
   "crates/domain-types",

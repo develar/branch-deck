@@ -574,11 +574,11 @@ flowchart TD
   (`macro_items`, `macro_item`, `enum_variants`; `Walk::add_token_declaration` with a `TokenItem`, `Walk::tokens_header`,
   decision 17), and a field of a struct expression or pattern as a reference qualified by the struct (`field`, the
   shorthand by `emit_text` beside its local).
-- `crates/sync-core/src/symbol_scan.rs`: the summaries through the cache, the crate names and the TypeScript aliases;
+- `crates/trial-check/src/symbol_scan.rs`: the summaries through the cache, the crate names and the TypeScript aliases;
   the mode (`branchdeck.symbols`, `SymbolMode`) is `crates/sync-core/src/config_snapshot.rs`.
-- `crates/sync-core/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
+- `crates/trial-check/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
   TypeScript packages).
-- `crates/sync-core/src/symbol_dependencies.rs`: the `Order` edges with their evidence, what a use needs
+- `crates/trial-check/src/symbol_dependencies.rs`: the `Order` edges with their evidence, what a use needs
   (`resolve_use`; a Rust member, static or instance, through its owner type in `resolve_rust`, decision 18), the entries of a member key and their origins (`member_entries` by `same_entry` and `same_form`,
   `steps_of` and `lineage`, the older forms judged by `older_form` with `Site.older`, those of a function only for a use
   that tells its overloads apart), the keys only present or absent (`KeyState::present`, which follow their files by
@@ -596,21 +596,21 @@ flowchart TD
   (`names_another_type`, `on_unknown_receiver`, `private_scope`, and `of_baseline` with `means_its_type` for a key of
   the baseline; `receivers` and `imports_of_function` with `is_default_function` for both), the removals that need the
   removal of the uses, the entities each commit changes.
-- `crates/sync-core/src/dangling_references.rs`: `SyntaxMemo` and the subtraction; the name of an `override` member
+- `crates/trial-check/src/dangling_references.rs`: `SyntaxMemo` and the subtraction; the name of an `override` member
   and a call on an expression of a function without a receiver are no use (`on_syntax`); the Rust scope of decision 16
   (`Search::names_it`, `Search::reached`, `RustScope`, `rust_scope`, `path_head`) and `DeclaredIn`; `DanglingKind`, and `TreeSearch`, which runs the declaration searches on the same
   `diff-tree` and `cat-file` (`branch_file`, the summaries of the commits' blobs before `SyntaxMemo`, `fixed_by`).
-- `crates/sync-core/src/declaration_checks.rs`, a child module of `symbol_dependencies` (decision 15):
+- `crates/trial-check/src/declaration_checks.rs`, a child module of `symbol_dependencies` (decision 15):
   `searches_of` (the declarations on the changed lines of a branch's commits, `changed_form`, `constructor_forms`,
   `push_duplicates`), `DeclarationSearch::in_tree`, `uses` (`resolved`, `fit` with `header_fit`, `calls`),
   `removes_use` and `needs_new_form` for `fixed_by` and `mutual`; `TreeSearch::written_lines` of
   `dangling_references.rs` for the uses the branch wrote; `crates/code-symbols/src/extract.rs`: `Walk::header` by
   `Spec::header`, and `Reference::coroutine` by `Spec::coroutine` (`coroutine` and `COROUTINE_BUILDERS` of
   `kotlin.rs`).
-- `crates/sync-core/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
+- `crates/trial-check/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
   `symbols`) for `bd commits`.
-- `crates/sync-core/src/check.rs`: `CheckSession::symbol_graph`, read once per session with `on`, for the conflict fix
-  (`dependents_in`, `movable`), `missing_declarations` (`crates/sync-core/src/missing_declarations.rs`) and
+- `crates/trial-check/src/check.rs`: `CheckSession::symbol_graph`, read once per session with `on`, for the conflict fix
+  (`dependents_in`, `movable`), `missing_declarations` (`crates/trial-check/src/missing_declarations.rs`) and
   `stack_independence` (`Builds.uses`).
 - `crates/bd-clustering/src/clustering.rs`: `ClusterInput.symbol_dependencies`, an order of the clusters, never a join;
   `crates/bd-rewrite/src/suggest.rs`: the `symbol_dependency` warning.

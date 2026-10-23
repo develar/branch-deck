@@ -22,7 +22,7 @@ targets:
   - ../../src/lib/git/new-pull-request.ts
   - ../../crates/sync-core/src/remote_status.rs
   - ../../src-tauri/src/commands/patronus.rs
-  - ../../crates/sync-core/src/landing_gate.rs
+  - ../../crates/trial-check/src/landing_gate.rs
   - ../../crates/domain-types/src/landing.rs
   - ../../src/lib/landing-gate.ts
   - ../../crates/sync-core/src/patronus_review.rs
@@ -608,7 +608,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
 - git merges a branch that uses a name only another branch adds, and the robot's build fails (the robots of
   2026-10-17 and 2026-10-21). So a start first asks the landing gate, the rule of `bd safe-push` in Rust
-  (`checkLandingBeforeStart`, `check_landing_gate`, `sync_core::landing_gate`): a trial check of what lands, with the
+  (`checkLandingBeforeStart`, `check_landing_gate`, `trial_check::landing_gate`): a trial check of what lands, with the
   proven dangling references and, with `branchdeck.symbols on`, the missing declarations, the uses by a commit of what
   lands of a name that a commit outside it adds, which no merged Safe Push landed (the commits the repository view
   names landed, on the robots Rust reads for the check, one full list asked now as for the start itself: the same
@@ -642,7 +642,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/lib/safe-push-decision.test.ts (`opens the popover when the build of what it lands needs a branch outside it: the reason, the fix and Start Anyway before the start`)
   [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
   [@test] ../../crates/repository-view/src/views_test.rs (`a_running_safe_push_of_the_branch_the_start_needs_is_named`)
-  [@test] ../../crates/sync-core/src/landing_gate_test.rs (`a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
+  [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
   [@test] ../../src/lib/landing-gate.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`, `counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`, `starts when nothing refuses it`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once

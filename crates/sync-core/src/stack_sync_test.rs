@@ -1,4 +1,4 @@
-use crate::process_budget_test::{empty_cache, sync_events};
+use crate::process_budget_test::sync_events;
 use crate::remote_status::forget_statuses;
 use crate::stack_branch::forget_builds;
 use crate::sync::{SyncOptions, sync_branches};
@@ -9,6 +9,7 @@ use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::process_budget::empty_cache;
 use test_utils::sync_fixtures::TestReporter;
 
 fn repo_path(test_repo: &TestRepo) -> &str {

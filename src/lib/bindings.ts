@@ -180,7 +180,7 @@ export const commands = {
 	 */
 	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("start_patronus_robot", { params })),
 	/**
-	 *  What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`sync_core::landing_gate`): the
+	 *  What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`trial_check::landing_gate`): the
 	 *  refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository, with
 	 *  the commits merged Safe Pushes landed as the repository view names them on the robots Rust reads
 	 *  (`RemoteActions::check_landing`; none off Space, or when the Space repository can't be read)
@@ -1815,7 +1815,7 @@ export type LandedRemoteCommit = {
 };
 
 /**
- *  The overrides of a refusal of `sync_core::landing_gate`, each by the user: `--allow-dangling` and `--allow-missing`
+ *  The overrides of a refusal of `trial_check::landing_gate`, each by the user: `--allow-dangling` and `--allow-missing`
  *  of `bd safe-push`, Start Anyway of the app
  */
 export type LandingAllowances = {
@@ -1852,7 +1852,7 @@ export type LandingGateParams = {
 };
 
 /**
- *  What the Safe Push of a branch needs before it starts (`sync_core::landing_gate::landing_needs`): the refusals its
+ *  What the Safe Push of a branch needs before it starts (`trial_check::landing_gate::landing_needs`): the refusals its
  *  start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. Computed
  *  in the background after a sync: unknown until then, never an empty list it did not compute
  */
@@ -3670,7 +3670,7 @@ export type StartPatronusRobotParams = {
 	profileId: string | null,
 	/**  The merge request whose approvals the review check of the robot counts; null without one */
 	mergeRequest: PatronusMergeRequest | null,
-	/**  What the user started anyway (Start Anyway); without it the refusals of `sync_core::landing_gate` fail the start */
+	/**  What the user started anyway (Start Anyway); without it the refusals of `trial_check::landing_gate` fail the start */
 	allow?: LandingAllowances,
 };
 

@@ -455,8 +455,8 @@ pub async fn undo_reapply_branch(
 /// without the object cache
 pub async fn check_landing_gate(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::landing_gate::LandingGateParams>,
-) -> CommandResult<sync_core::landing_gate::LandingCheck> {
+  Json(params): Json<trial_check::landing_gate::LandingGateParams>,
+) -> CommandResult<trial_check::landing_gate::LandingCheck> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let space = space_of(&state, &params.repository_path)?;
   let service = space.as_ref().map(|(host, _)| host.patronus_service());
@@ -468,12 +468,12 @@ pub async fn check_landing_gate(
 /// Without the object cache, as every command of the mock server
 pub async fn get_stack_independence(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::check::StackIndependenceParams>,
-) -> CommandResult<sync_core::check::StackIndependence> {
+  Json(params): Json<trial_check::check::StackIndependenceParams>,
+) -> CommandResult<trial_check::check::StackIndependence> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("check the stack independence", move || {
-    sync_core::check::get_stack_independence(&git_executor, &ObjectCache::disabled(), &params)
+    trial_check::check::get_stack_independence(&git_executor, &ObjectCache::disabled(), &params)
   })
   .await
 }
@@ -528,12 +528,12 @@ pub async fn wait_landing_needs(State(state): State<Arc<AppState>>, Json(params)
 /// Without the object cache, as every command of the mock server; nothing cancels it
 pub async fn find_conflict_fix(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::conflict_fix::FindConflictFixParams>,
-) -> CommandResult<sync_core::conflict_fix::ConflictFix> {
+  Json(params): Json<trial_check::conflict_fix::FindConflictFixParams>,
+) -> CommandResult<trial_check::conflict_fix::ConflictFix> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("find the conflict fix", move || {
-    sync_core::conflict_fix::find_conflict_fix_core(&git_executor, &ObjectCache::disabled(), &params, &std::sync::atomic::AtomicBool::new(false))
+    trial_check::conflict_fix::find_conflict_fix_core(&git_executor, &ObjectCache::disabled(), &params, &std::sync::atomic::AtomicBool::new(false))
   })
   .await
 }
@@ -545,11 +545,11 @@ pub async fn cancel_conflict_fix() -> Json<()> {
 
 pub async fn apply_conflict_fix(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::conflict_fix::ApplyConflictFixParams>,
-) -> CommandResult<sync_core::conflict_fix::AppliedConflictFix> {
+  Json(params): Json<trial_check::conflict_fix::ApplyConflictFixParams>,
+) -> CommandResult<trial_check::conflict_fix::AppliedConflictFix> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("apply the conflict fix", move || sync_core::conflict_fix::apply_conflict_fix_core(&git_executor, &params)).await
+  run_command("apply the conflict fix", move || trial_check::conflict_fix::apply_conflict_fix_core(&git_executor, &params)).await
 }
 
 pub async fn squash_commits(

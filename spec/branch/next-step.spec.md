@@ -35,7 +35,7 @@ targets:
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/branch/LandedChip.tsx
   - ../../crates/sync-core/src/robot_landing.rs
-  - ../../crates/sync-core/src/landing_gate.rs
+  - ../../crates/trial-check/src/landing_gate.rs
   - ../../crates/domain-types/src/landing.rs
   - ../../crates/repository-view/src/views.rs
   - ../../src/lib/landing-gate.ts
@@ -199,7 +199,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   robot of `stills-codec` ran beside it. The landing gate refuses such a start only after the press
   ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)); the row says it before any press. After a sync
   Rust computes in the background, for every branch, the refusals the gate of its start would give (`landingNeeds` of
-  `BranchPatronus` in the repository view, `sync_core::landing_gate::landing_needs`, the same rule as the gate): one
+  `BranchPatronus` in the repository view, `trial_check::landing_gate::landing_needs`, the same rule as the gate): one
   trial check of every branch, its dangling references and missing declarations, less what merged Safe Pushes landed.
   A branch built on one that needs a branch needs it too: its Safe Push lands that one. The needs are a fact with its
   inputs (the baseline, the tips of the table, the landed commits): unknown until computed, never "nothing", and not
@@ -220,8 +220,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should say on the row which branch its Safe Push needs before any press, and stack it on that branch from the slot`, `should stack the branch on the branch its Safe Push needs from the menu of a branch built on it`)
   [@test] ../../src/stores/patronus.test.ts (`waits for the landing needs Rust computes in the background, unknown until then, and asks the view again once`)
   [@test] ../../crates/repository-view/src/views_test.rs (`the_landing_needs_are_unknown_until_computed_then_kept_while_the_inputs_stay`, `a_running_safe_push_of_the_branch_the_start_needs_is_named`)
-  [@test] ../../crates/sync-core/src/landing_gate_test.rs (`a_branch_that_uses_a_name_of_a_branch_outside_it_needs_that_branch_and_so_does_a_branch_built_on_it`, `the_needs_of_a_branch_are_the_refusals_of_its_start`, `a_landed_declaration_is_needed_by_nobody`, `a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
-  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_landing_needs_of_every_branch`)
+  [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_branch_that_uses_a_name_of_a_branch_outside_it_needs_that_branch_and_so_does_a_branch_built_on_it`, `the_needs_of_a_branch_are_the_refusals_of_its_start`, `a_landed_declaration_is_needed_by_nobody`, `a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
+  [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_landing_needs_of_every_branch`)
   [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
 
 ### The whole stack

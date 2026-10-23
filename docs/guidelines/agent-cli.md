@@ -216,7 +216,7 @@ what they listed.
   ```
 - `landing_needs` (on Space) lists what the Safe Push of the branch needs of a commit outside what it lands: the
   refusals `bd safe-push` would give its start, from one trial check of every branch in one session
-  (`sync_core::landing_gate::landing_needs`, the rule of the gate; about the processes of a `bd check`), less what
+  (`trial_check::landing_gate::landing_needs`, the rule of the gate; about the processes of a `bd check`), less what
   merged Safe Pushes landed. Each need has its `code` (`missing_declaration`: a commit uses a name only that commit
   adds; `dangling_reference`: a commit removes or changes a declaration a use still has, which only that commit
   changes), the `identifier`, `at` (`file:line`), the commit it `needs` and its `needs_branch`, the `fix` and
@@ -384,7 +384,7 @@ Other generated files, such as bindings or snapshots, count until `.gitattribute
 
 #### How dependencies are approximated
 
-This is in `crates/sync-core/src/dependencies.rs`.
+This is in `crates/trial-check/src/dependencies.rs`.
 
 - Every line a commit adds is owned by that commit. The owned line ranges of each file are carried forward through
   the later commits.
@@ -403,7 +403,7 @@ not conflict on: the blocks come from the diff engine of the app, git's merge us
 the two can disagree about which commit added a line. Treat an edge as
 "these can't be cherry-picked apart without a conflict", not as a proof.
 
-The edges by symbols (`crates/sync-core/src/symbol_dependencies.rs`, unless `branchdeck.symbols` is `off`) add those: a
+The edges by symbols (`crates/trial-check/src/symbol_dependencies.rs`, unless `branchdeck.symbols` is `off`) add those: a
 commit uses a name another commit of the range adds, with evidence that the use means that declaration (an import, a
 qualified name, the same file or Rust module, a type of the same package and module, an override in a subtype whose
 supertype resolves, a call in a subclass of a member its one supertype has, a use on a receiver of the member's type, a
@@ -886,7 +886,7 @@ HEAD's tree, so the index and the working tree stay as they are
 
 ### `bd check [--plan <file | ->] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]] [--allow-dangling] [--allow-missing]`
 
-A trial sync of a plan (`sync_core::check`), or of the current grouping without `--plan`: stdin is read only for
+A trial sync of a plan (`trial_check::check`), or of the current grouping without `--plan`: stdin is read only for
 `--plan -`, so the open stdin of an agent or a CI never holds it. The plan is applied in memory
 and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
 placed as a stacked sync places them, and each one is built with the sync's `build_branch`, parents first. It writes
@@ -949,7 +949,7 @@ repository lock.
 - `inverted_stack` `{branch, child, fixes}`: the branch conflicts, or has a dangling reference, because it needs a
   commit (`missing_commits`, `fixed_by`) of `child`, a branch stacked on it: no order of the stack builds both. Each
   fix is `{kind, branches, unstack}` to add to the plan, kept only when a trial build of the plan with it builds both
-  branches (`sync_core::inverted_stack`; bd only shortens the ids and words the `reason`): `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
+  branches (`trial_check::inverted_stack`; bd only shortens the ids and words the `reason`): `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
   child (`unstack` the child, `"child/branch": []`); no `swap` when the child's change uses what the branch adds
   (`mutual`). With no fix that builds, `fixes` is empty and `reason` says why. The `result` stays.
 - `--build COMMAND` runs a shell command (`sh -c`, on Windows `cmd /D /S /C "COMMAND"`, the command line as written)
@@ -973,7 +973,7 @@ repository lock.
   as it refuses `bd safe-push`; names, not a compiler, so `--allow-missing` counts it as building for a name the user
   says is a false alarm.
 - `--fix` adds `fix`, the regroup after which the branches that conflict (or have a proven dangling reference) apply
-  cleanly, found by trial builds on top of the plan (`sync_core::conflict_fix`, the search of the app's Fix): nothing is
+  cleanly, found by trial builds on top of the plan (`trial_check::conflict_fix`, the search of the app's Fix): nothing is
   applied. `fix.components` are independent parts, each `{steps, plan, fixed, unblocked, emptied, orphaned_children,
   rewritten}`; `plan` is the whole plan (the `--plan` included) for `bd group --plan … --expect-head <head> --sync`.
   A step is `move` (`commits` leave `from` for `to`, the branch whose stack has what they need), `pull_in` (what `to`
@@ -1005,7 +1005,7 @@ Suggests a grouping of the commits ahead of the baseline into branches, as a pla
 with the trial sync of `bd check`. It writes git objects and the cache only: no ref, config, index or working tree
 changes, and no repository lock.
 
-It reads the commits once with a `CheckSession` (`sync_core::check`: the snapshot of a regroup, the baseline and the
+It reads the commits once with a `CheckSession` (`trial_check::check`: the snapshot of a regroup, the baseline and the
 branch tips), their changes from the object cache without lock files, generated files and hub files
 (`read_linked_diffs`), the dependencies of `bd commits` and the fixup targets. The clustering
 (`crates/bd-clustering/src/clustering.rs`) runs no git:
@@ -1398,7 +1398,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   `--create-pull-request` its pull request holds them. There is no refusal and no flag for it: the obsolete
   `--land-stack` of an older bd is accepted, hidden, and changes nothing.
 - `alone` (only with `--check`, only for a stacked branch) is the trial build of the branch as a root, on the base the
-  sync builds on, not on the newest target (`stack_independence` in `crates/sync-core/src/check.rs`): the second way,
+  sync builds on, not on the newest target (`stack_independence` in `crates/trial-check/src/check.rs`): the second way,
   landing the branch without what it is built on, for the user to choose; bd never unstacks or moves anything for it.
   `result` is `builds` (it applies alone: `bd unstack <branch>` makes it a root; `uses` lists the names of its stack
   that its commits use, `{identifier, used_by, declared_by, declared_in}`, so it applies but would not compile;
@@ -1480,7 +1480,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   the user says it is a false alarm. A possible one (`bd check` `warnings`) is in `warnings` and refuses nothing.
 - `missing_declaration` (exit 4, nothing pushed, `branchdeck.symbols on`): a commit of what lands uses a name that a
   commit outside it adds, which no merged Safe Push landed (`missing_declarations` of `bd check`; a name of a branch of
-  the landing stack is none). The landing gate (`sync_core::landing_gate`, the same rule as the app's start) checks it
+  the landing stack is none). The landing gate (`trial_check::landing_gate`, the same rule as the app's start) checks it
   in the trial session of the dangling references. The message names the use, the commit that adds the name with its
   branch, and the fix: `bd restack <root> <branch>` lands that branch too (after the user approves); with stacked
   branches off, an unassigned commit or a restack that would close a cycle, the commit to move. `--check` lists it in

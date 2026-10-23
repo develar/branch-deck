@@ -5,9 +5,6 @@
 
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::baseline::check_baseline_update;
-use crate::check::{CheckSession, check_plan};
-use crate::landing_gate::landing_gate_test;
-use crate::landing_gate::landing_needs_of;
 use crate::pull_request_create::read_new_pull_request;
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
@@ -27,11 +24,11 @@ use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
-use test_utils::process_budget::{assert_processes, counting, processes};
+use test_utils::process_budget::{alpha_and_beta_on_origin, assert_processes, counting, empty_cache, repo_on_origin};
 use test_utils::sync_fixtures::TestReporter;
 
 const PREFIX: &str = "test";
@@ -40,47 +37,13 @@ fn path(repo: &TestRepo) -> String {
   repo.path().to_str().unwrap().to_string()
 }
 
-/// A repository whose `origin/master` is its initial commit
-pub(crate) fn repo_on_origin() -> TestRepo {
-  let repo = TestRepo::new();
-  let initial = repo.create_commit("Initial commit", "README.md", "# Test Project\n");
-  repo.git(&["remote", "add", "origin", "."]);
-  repo.git(&["update-ref", "refs/remotes/origin/master", &initial]);
-  repo
-}
-
-/// `origin/master` at the initial commit, then three commits of `alpha` and three of `beta` in turns; returns them
-fn repo() -> (TestRepo, Vec<String>) {
-  let repo = repo_on_origin();
-  let mut commits = Vec::new();
-  for index in 1..=3 {
-    commits.push(repo.create_commit(&format!("(alpha) Alpha {index}"), &format!("alpha-{index}.txt"), "alpha\n"));
-    commits.push(repo.create_commit(&format!("(beta) Beta {index}"), &format!("beta-{index}.txt"), "beta\n"));
-  }
-  (repo, commits)
-}
-
 async fn sync(git: &GitCommandExecutor, repo: &TestRepo) {
   sync_branches(git, &path(repo), PREFIX, TestReporter::new(), SyncOptions::default()).await.unwrap();
 }
 
-/// An empty object cache in a temporary directory, which the cache needs while it is open
-pub(crate) fn empty_cache() -> (tempfile::TempDir, ObjectCache) {
-  let dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
-  (dir, cache)
-}
-
-/// `bd check` of the current grouping of `repo` on a counting executor, which it returns
-fn counted_check(repo: &TestRepo, cache: &ObjectCache) -> GitCommandExecutor {
-  let git = counting();
-  check_plan(&git, &path(repo), PREFIX, None, cache).unwrap();
-  git
-}
-
 #[tokio::test]
 async fn a_first_sync() {
-  let (repo, _) = repo();
+  let (repo, _) = alpha_and_beta_on_origin();
   let git = counting();
   sync(&git, &repo).await;
   assert_processes(
@@ -107,7 +70,7 @@ async fn a_first_sync() {
 
 #[tokio::test]
 async fn an_unchanged_sync() {
-  let (repo, _) = repo();
+  let (repo, _) = alpha_and_beta_on_origin();
   sync(&GitCommandExecutor::new(), &repo).await;
   let git = counting();
   sync(&git, &repo).await;
@@ -129,7 +92,7 @@ const UNCHANGED_SYNC: [(&str, u32); 8] = [
 
 /// `repo` with a branch whose commit changes a file another branch adds: `delta` conflicts at every sync
 fn repo_with_a_conflict() -> TestRepo {
-  let (repo, _) = repo();
+  let (repo, _) = alpha_and_beta_on_origin();
   repo.create_commit("(gamma) Add file", "file.txt", "1\n");
   repo.create_commit("(delta) Change file", "file.txt", "2\n");
   repo
@@ -254,7 +217,7 @@ const PUSH_TIME: u32 = 1_700_000_000;
 /// `repo` synced, `alpha` pushed at `PUSH_TIME` (its remote branch at its tip) and `beta` fetched one commit behind
 /// its tip; the statuses of that sync are forgotten, as by a new process
 async fn pushed_repo(cache: &ObjectCache) -> TestRepo {
-  let (repo, _) = repo();
+  let (repo, _) = alpha_and_beta_on_origin();
   sync_with_cache(&GitCommandExecutor::new(), &repo, cache).await;
   let alpha = repo.rev_parse("test/virtual/alpha").unwrap();
   GitCommandExecutor::new()
@@ -347,7 +310,7 @@ async fn the_status_of_a_child_whose_parent_got_a_new_commit_outside_the_sync() 
 /// `repo` with a branch whose clean first commit is copied with a merge (its parent tree is not the base's) before its
 /// second commit conflicts: `delta` conflicts at every sync onto the copy of its first commit
 pub(crate) fn repo_with_a_conflict_after_a_clean_commit() -> TestRepo {
-  let (repo, _) = repo();
+  let (repo, _) = alpha_and_beta_on_origin();
   repo.create_commit("(gamma) Add file", "file.txt", "1\n");
   repo.create_commit("(delta) Add notes", "notes.txt", "notes\n");
   repo.create_commit("(delta) Change file", "file.txt", "2\n");
@@ -431,205 +394,10 @@ async fn the_target_of_a_conflict_survives_gc() {
   repo.git(&["cat-file", "-e", &format!("{target}^{{commit}}")]);
 }
 
-/// `bd check` without a plan before the first sync, with an empty object cache and then with the one it filled
-#[test]
-fn a_check() {
-  let (repo, _) = repo();
-  let (_dir, cache) = empty_cache();
-  assert_processes(
-    &counted_check(&repo, &cache),
-    &[
-      ("cat-file", 1),
-      ("config", 2),
-      ("fast-import", 2),
-      ("for-each-ref", 2),
-      ("log", 3),
-      ("merge-tree", 2),
-      ("remote", 1),
-      ("rev-parse", 4),
-    ],
-  );
-
-  assert_processes(
-    &counted_check(&repo, &cache),
-    &[
-      ("cat-file", 2),
-      ("config", 2),
-      ("fast-import", 2),
-      ("for-each-ref", 2),
-      ("log", 2),
-      ("remote", 1),
-      ("rev-parse", 4),
-    ],
-  );
-}
-
-/// `bd check` after a sync, with the object cache that sync left empty: the copies of alpha and beta exist, and their
-/// commits are read for reuse
-#[tokio::test]
-async fn a_check_of_synced_branches() {
-  let (repo, _) = repo();
-  sync(&GitCommandExecutor::new(), &repo).await;
-  let (_dir, cache) = empty_cache();
-  assert_processes(
-    &counted_check(&repo, &cache),
-    &[("cat-file", 1), ("config", 2), ("for-each-ref", 2), ("log", 4), ("remote", 1), ("rev-parse", 4)],
-  );
-}
-
-/// The landing needs of every branch after a sync, the background computation of the repository view: one session (the
-/// snapshot, the config and the tips, as `bd check` reads them), one trial check of all branches, which reuses the copies
-/// the sync wrote (no `fast-import`, no `merge-tree`), and the names the commits use and add, read once with the changed
-/// lines; with the object cache the first filled, the second reads the changes and the summaries from it
-#[tokio::test]
-async fn the_landing_needs_of_every_branch() {
-  let (repo, _) = landing_gate_test::repo();
-  sync(&GitCommandExecutor::new(), &repo).await;
-  let (_dir, cache) = empty_cache();
-  let landing = |git: &GitCommandExecutor| {
-    let needs = landing_needs_of(git, &cache, &path(&repo), PREFIX, &HashSet::new()).unwrap();
-    assert_eq!(needs.keys().collect::<Vec<_>>(), ["flow", "ui"]);
-  };
-  let git = counting();
-  landing(&git);
-  assert_processes(&git, &[("cat-file", 4), ("config", 2), ("for-each-ref", 2), ("log", 5), ("remote", 1), ("rev-parse", 4)]);
-  let git = counting();
-  landing(&git);
-  assert_processes(&git, &[("cat-file", 2), ("config", 2), ("for-each-ref", 2), ("log", 3), ("remote", 1), ("rev-parse", 4)]);
-}
-
-/// A check session of `repo` on a counting executor
-fn counted_session(repo: &TestRepo, cache: &ObjectCache) -> (GitCommandExecutor, CheckSession) {
-  let git = counting();
-  let session = CheckSession::open(&git, &path(repo), PREFIX, cache).unwrap();
-  (git, session)
-}
-
-/// The processes of `run` on `git`, which may have counted others before
-fn processes_of(git: &GitCommandExecutor, run: impl FnOnce()) -> Vec<(String, u32)> {
-  let before: HashMap<String, u32> = processes(git).into_iter().collect();
-  run();
-  processes(git)
-    .into_iter()
-    .map(|(command, count)| (command.clone(), count - before.get(&command).copied().unwrap_or(0)))
-    .filter(|(_, count)| *count > 0)
-    .collect()
-}
-
-/// The checks of one session after a sync (the conflict fix tries many plans): the first reads the commits of the
-/// existing copies, the next reuses them and the merges the first remembered
-#[tokio::test]
-async fn the_second_check_of_a_session() {
-  let (repo, _) = repo();
-  sync(&GitCommandExecutor::new(), &repo).await;
-  let (_dir, cache) = empty_cache();
-  let (git, session) = counted_session(&repo, &cache);
-  let first = processes_of(&git, || {
-    session.check(None).unwrap();
-  });
-  assert_eq!(first, [("log".to_string(), 3), ("rev-parse".to_string(), 1)]);
-  let second = processes_of(&git, || {
-    session.check(None).unwrap();
-  });
-  assert_eq!(second, []);
-  // a session of a rewrite (`bd check --fix` tries one) shares them, and the baseline commit
-  let rewritten = session.with_rewrite(&[], &[]);
-  let third = processes_of(&git, || {
-    rewritten.check(None).unwrap();
-  });
-  assert_eq!(third, []);
-}
-
-/// The checks of a session on Kotlin sources, whose declaration searches read the summaries of the commits' files: the
-/// first reads them once (the commits' changes with the blobs of their blocks, the trees above them, the blobs) with the
-/// changed lines, which take the blobs of their blocks from the session's memory; the next
-/// checks of the session, and of a session of a rewrite, which shares them, read none of them again: only the builds
-/// (the copies, which no sync wrote) and the trees' differences and blobs of the search (`diff-tree`, `cat-file`)
-#[test]
-fn the_checks_of_a_session_on_sources() {
-  let repo = repo_on_origin();
-  let ledger = |modifier: &str| format!("package bridge\n\nclass Ledger {{\n  {modifier}fun cleanup() {{\n  }}\n}}\n");
-  repo.create_commit_with_files(
-    "Add the ledger",
-    &[
-      ("bridge/Ledger.kt", &ledger("")),
-      (
-        "contract/LedgerTest.kt",
-        "package contract\n\nimport bridge.Ledger\n\nfun cleans(ledger: Ledger) {\n  ledger.cleanup()\n}\n",
-      ),
-    ],
-  );
-  repo.git(&["update-ref", "refs/remotes/origin/master", "HEAD"]);
-  repo.git(&["rm", "-q", "--", "contract/LedgerTest.kt"]);
-  repo.git(&["commit", "-q", "-m", "(journey) The test goes"]);
-  repo.create_commit_with_files("(suspend) The cleanup suspends", &[("bridge/Ledger.kt", &ledger("suspend "))]);
-  let (_dir, cache) = empty_cache();
-  let (git, session) = counted_session(&repo, &cache);
-  let first = processes_of(&git, || {
-    let report = session.check(None).unwrap();
-    assert!(!report.builds_cleanly("suspend"), "{:?}", report.dangling);
-  });
-  assert_eq!(first, counts(&FIRST_SOURCES_CHECK));
-  let second = processes_of(&git, || {
-    session.check(None).unwrap();
-  });
-  let again = [("cat-file".to_string(), 2), ("diff-tree".to_string(), 1), ("fast-import".to_string(), 2)];
-  assert_eq!(second, again);
-  let rewritten = session.with_rewrite(&[], &[]);
-  let third = processes_of(&git, || {
-    rewritten.check(None).unwrap();
-  });
-  assert_eq!(third, again);
-}
-
-/// The processes of the first check of a branch that removes a declaration of a source file: the blobs of the search
-/// and the summaries
-const FIRST_SOURCES_CHECK: [(&str, u32); 6] = [("cat-file", 4), ("diff-tree", 1), ("fast-import", 2), ("log", 3), ("merge-tree", 1), ("rev-parse", 1)];
-
-/// `expected` as `processes_of` gives it
-fn counts(expected: &[(&str, u32)]) -> Vec<(String, u32)> {
-  expected.iter().map(|(command, count)| ((*command).to_string(), *count)).collect()
-}
-
-/// The check of a Rust item a branch removes, with the crates known: the line search reads the file it was removed from
-/// for the line of the declaration (`declared_in`) in the same `cat-file` as the blobs of the search, and the crates
-/// come with the summaries
-#[test]
-fn the_check_of_a_removed_rust_item() {
-  let repo = repo_on_origin();
-  repo.create_commit_with_files(
-    "Add the crates",
-    &[
-      ("guest/Cargo.toml", "[package]\nname = \"guest\"\n"),
-      ("guest/src/lib.rs", "pub fn collect() -> u32 {\n  1\n}\n"),
-      ("guest/src/sum.rs", "pub fn total() -> u32 {\n  crate::collect()\n}\n"),
-      ("vm/Cargo.toml", "[package]\nname = \"vm\"\n"),
-      ("vm/src/lib.rs", "pub fn names() -> Vec<u32> {\n  (0..2).collect()\n}\n"),
-    ],
-  );
-  repo.git(&["update-ref", "refs/remotes/origin/master", "HEAD"]);
-  repo.create_commit_with_files("(cleanup) Drop collect", &[("guest/src/lib.rs", "pub fn other() {}\n")]);
-  repo.create_commit_with_files(
-    "(vm) Count plainly",
-    &[
-      ("guest/src/sum.rs", "pub fn total() -> u32 {\n  1\n}\n"),
-      ("vm/src/lib.rs", "pub fn names() -> Vec<u32> {\n  vec![0, 1]\n}\n"),
-    ],
-  );
-  let (_dir, cache) = empty_cache();
-  let (git, session) = counted_session(&repo, &cache);
-  let processes = processes_of(&git, || {
-    let report = session.check(None).unwrap();
-    let found: Vec<(&str, Option<u32>)> = report.dangling["cleanup"].iter().map(|it| (it.file.as_str(), it.declared_in.line)).collect();
-    assert_eq!(found, [("guest/src/sum.rs", Some(1))]);
-  });
-  assert_eq!(processes, counts(&FIRST_SOURCES_CHECK));
-}
-
 /// A change of the working tree amended into the oldest commit of alpha
 #[test]
 fn an_amend() {
-  let (repo, commits) = repo();
+  let (repo, commits) = alpha_and_beta_on_origin();
   std::fs::write(repo.path().join("alpha-1.txt"), "amended\n").unwrap();
   let git = counting();
   let result = amend_uncommitted_to_branch_core(
@@ -684,7 +452,7 @@ fn unapply_beta(git: &GitCommandExecutor, repo: &TestRepo, commits: &[String]) -
 /// name, and the move with its mark (`update-ref`, `read-tree`)
 #[tokio::test]
 async fn a_drop() {
-  let (repo, commits) = repo();
+  let (repo, commits) = alpha_and_beta_on_origin();
   sync(&GitCommandExecutor::new(), &repo).await;
   let git = counting();
   unapply_beta(&git, &repo, &commits);
@@ -725,7 +493,7 @@ const UNDO_OF_A_MOVE: &[(&str, u32)] = &[
 /// its reflog, the dry run of the files, and the move back with its mark, the virtual branch created again in it
 #[tokio::test]
 async fn an_undo_of_an_unapply() {
-  let (repo, commits) = repo();
+  let (repo, commits) = alpha_and_beta_on_origin();
   sync(&GitCommandExecutor::new(), &repo).await;
   let unapplied = unapply_beta(&GitCommandExecutor::new(), &repo, &commits);
   let git = counting();
@@ -739,7 +507,7 @@ async fn an_undo_of_an_unapply() {
 /// (the range with the patch id marks, one `replay`, the copies, the dry run of the files) and the move with its mark
 #[tokio::test]
 async fn a_reapply() {
-  let (repo, commits) = repo();
+  let (repo, commits) = alpha_and_beta_on_origin();
   sync(&GitCommandExecutor::new(), &repo).await;
   unapply_beta(&GitCommandExecutor::new(), &repo, &commits);
   let git = counting();
@@ -769,7 +537,7 @@ async fn a_reapply() {
 /// The undo of a reapply: as the undo of an unapply, the unapplied branch created again in the move back
 #[tokio::test]
 async fn an_undo_of_a_reapply() {
-  let (repo, commits) = repo();
+  let (repo, commits) = alpha_and_beta_on_origin();
   sync(&GitCommandExecutor::new(), &repo).await;
   unapply_beta(&GitCommandExecutor::new(), &repo, &commits);
   let reapplied = reapply_beta(&GitCommandExecutor::new(), &repo);
@@ -792,7 +560,7 @@ fn reapply_beta(git: &GitCommandExecutor, repo: &TestRepo) -> ReapplyBranchResul
 /// Two commits of alpha squashed into the older one
 #[test]
 fn a_squash() {
-  let (repo, commits) = repo();
+  let (repo, commits) = alpha_and_beta_on_origin();
   let git = counting();
   squash_commits_core(
     &git,
@@ -825,7 +593,7 @@ fn a_squash() {
 /// repository lock, then one `fast-import` of the recreated commits and one ref transaction
 #[test]
 fn the_app_reword() {
-  let (repo, commits) = repo();
+  let (repo, commits) = alpha_and_beta_on_origin();
   let git = counting();
   let request = RewordRequest {
     repository_path: path(&repo),
@@ -858,7 +626,7 @@ fn the_app_reword() {
 /// A park of alpha and beta, then their unpark: no rewrite, one store write each, whatever the number of branches
 #[test]
 fn a_park_and_an_unpark() {
-  let (repo, _) = repo();
+  let (repo, _) = alpha_and_beta_on_origin();
   let git = counting();
   park_core(
     &git,
@@ -891,7 +659,7 @@ fn a_park_and_an_unpark() {
 /// A `fixup!` of alpha and a `squash!` of beta folded into their targets
 #[test]
 fn a_squash_of_fixups() {
-  let (repo, _) = repo();
+  let (repo, _) = alpha_and_beta_on_origin();
   repo.create_commit("fixup! (alpha) Alpha 1", "alpha-1.txt", "alpha fixed\n");
   let head = repo.create_commit("squash! (beta) Beta 2\n\nAlso this", "beta-2.txt", "beta squashed\n");
   let git = counting();
@@ -963,7 +731,7 @@ fn an_update_check() {
 /// a stacked branch's split from those of the branches it is built on by the decorations of the same `log`
 #[test]
 fn the_text_of_a_new_pull_request() {
-  let (repo, _) = repo();
+  let (repo, _) = alpha_and_beta_on_origin();
   repo.git(&["branch", "test/virtual/alpha"]);
   repo.git(&["branch", "test/virtual/root", "HEAD~1"]);
   let git = counting();
@@ -976,7 +744,7 @@ fn the_text_of_a_new_pull_request() {
 /// its members from one `config`, the subjects as the rows show them
 #[test]
 fn the_text_of_a_new_pull_request_of_the_whole_stack() {
-  let (repo, _) = repo();
+  let (repo, _) = alpha_and_beta_on_origin();
   repo.git(&["config", "branch.test/virtual/beta.description", "IJPL-2 Beta\n\nThe beta part."]);
   let member = |name: &str, parent: Option<&str>, subjects: &[&str]| StackMemberSubjects {
     name: name.to_string(),

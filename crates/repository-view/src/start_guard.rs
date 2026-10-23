@@ -28,13 +28,13 @@ use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use std::collections::HashSet;
-use sync_core::landing_gate::{LandingCheck, LandingGateParams, ensure_landing_starts, landing_check};
 use sync_core::parked::parked_state;
 use sync_core::patronus::required_target_branch;
 use sync_core::patronus_start::{carried_ids, carried_words, is_robot_active, join_names, push_mode_name};
 use sync_core::push::not_synced_refusal;
 use sync_utils::span::in_current_span;
 use tracing::instrument;
+use trial_check::landing_gate::{LandingCheck, LandingGateParams, ensure_landing_starts, landing_check};
 
 /// The branches of a start Patronus is asked for
 #[derive(Debug, Clone, PartialEq, Eq)]

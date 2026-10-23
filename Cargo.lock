@@ -584,6 +584,7 @@ dependencies = [
  "test-utils",
  "tokio",
  "tracing",
+ "trial-check",
  "youtrack",
 ]
 
@@ -615,6 +616,7 @@ dependencies = [
  "test-log",
  "test-utils",
  "text-diff",
+ "trial-check",
 ]
 
 [[package]]
@@ -756,6 +758,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "trial-check",
  "update-core",
  "webkit2gtk",
  "windows",
@@ -4837,6 +4840,7 @@ dependencies = [
  "test-utils",
  "tokio",
  "tracing",
+ "trial-check",
 ]
 
 [[package]]
@@ -5680,10 +5684,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "branch-integration",
- "code-symbols",
  "criterion",
  "domain-types",
- "file-diffs",
  "git-executor",
  "git-ops",
  "github",
@@ -5704,7 +5706,6 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
- "text-diff",
  "thiserror 2.0.21",
  "tokio",
  "toml 1.1.8+spec-1.1.0",
@@ -6439,6 +6440,7 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
+ "trial-check",
  "update-core",
  "youtrack",
 ]
@@ -6451,6 +6453,7 @@ dependencies = [
  "axum",
  "domain-types",
  "git-executor",
+ "object-cache",
  "pretty_assertions",
  "tempfile",
  "test-log",
@@ -7066,6 +7069,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "trial-check"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "code-symbols",
+ "domain-types",
+ "file-diffs",
+ "git-executor",
+ "git-ops",
+ "history-rewrite",
+ "object-cache",
+ "pretty_assertions",
+ "regex",
+ "serde",
+ "serde_json",
+ "specta",
+ "sync-core",
+ "sync-utils",
+ "tempfile",
+ "test-log",
+ "test-utils",
+ "text-diff",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7162,6 +7193,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "trial-check",
 ]
 
 [[package]]

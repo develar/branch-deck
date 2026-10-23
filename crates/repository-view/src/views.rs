@@ -4,7 +4,7 @@
 //! The checks of the app's push and of its robot actions (`push_guard`, `start_guard`) read the same table and memo with
 //! the robots Rust read itself (`guard_facts`).
 //!
-//! The landing needs (`sync_core::landing_gate::landing_needs`) are a fact with its inputs: the baseline, the tips of
+//! The landing needs (`trial_check::landing_gate::landing_needs`) are a fact with its inputs: the baseline, the tips of
 //! the table and the commits merged Safe Pushes landed. A view whose inputs have no answer yet says `unknown` and starts
 //! the computation in the background, one trial session for every branch; while the inputs stay, nothing is computed
 //! again. `wait_landing_needs` resolves once it finished, and the page asks the view again.
@@ -24,9 +24,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
-use sync_core::landing_gate::landing_needs_of;
 use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
+use trial_check::landing_gate::landing_needs_of;
 
 /// How many repositories and branch prefixes the app keeps the views of
 const KEPT: u64 = 32;

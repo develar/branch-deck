@@ -3,7 +3,6 @@
 
 use crate::check::CheckSession;
 use crate::landing_gate::{check_landing_gate, landing_needs, landing_needs_of, name_landing_robots};
-use crate::process_budget_test::repo_on_origin;
 use domain_types::landing::{LandingFix, LandingRefusal, Subject};
 use domain_types::repository_view::RobotOf;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -11,6 +10,7 @@ use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashSet};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::process_budget::repo_on_origin;
 
 const PREFIX: &str = "test";
 

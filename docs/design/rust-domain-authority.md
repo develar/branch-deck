@@ -31,7 +31,7 @@ master, можно ли её запустить, что нужно подтве�
 sync на `(repository, prefix)` и выводит одно правило для обоих клиентов (`patronus_view`). Приложение и `bd` — один
 бинарник: `src-tauri/src/main.rs` передаёт `bd`/`cli` в `bd_cli::run`. Фальшивые сервисы существуют:
 `crates/github/src/fake_github.rs`, `crates/patronus/src/fake_patronus.rs` (feature `fake`). Landing gate
-(`sync_core::landing_gate`: `check_landing_gate` над `Subject`, `LandingRefusal` и `LandingFix` из
+(`trial_check::landing_gate`: `check_landing_gate` над `Subject`, `LandingRefusal` и `LandingFix` из
 `domain_types::landing`, `LandingAllowances` в `domain_types::patronus`) уже решается в Rust и показывается поповером —
 это образец того, как должно быть устроено всё остальное.
 
@@ -264,9 +264,9 @@ flowchart TD
 
 - `domain-types` и `domain-policy` не достигают ничего с IO, в том числе транзитивно: ни `git-ops`, ни executor, ни
   reqwest, tokio, tauri, clap.
-- `sync-core` не достигает `github`, `patronus`, `youtrack`, `file-diffs`, `code-symbols` (сегодня достигает:
-  `sync-core/Cargo.toml`; `file-diffs` сам зависит от `code-symbols` без feature, `file-diffs/Cargo.toml:9`, поэтому
-  уходит каждый модуль `sync-core`, который читает `file_diffs`, см. `s3-crates`).
+- `sync-core` не достигает `github`, `patronus`, `youtrack`, `file-diffs`, `code-symbols` (`file-diffs` сам зависит от
+  `code-symbols` без feature, `file-diffs/Cargo.toml:9`, поэтому каждый модуль, который читает `file_diffs`, ушёл в
+  `trial-check` в `s3-3`; `github`, `patronus`, `youtrack` сегодня ещё достигает, до выделения `remote-facts`).
 - `patronus` не достигает `git-ops`.
 - `repository-model` не достигает `remote-facts`: модель хранит значения, а не добывает их.
 - Никто не зависит от `app-api` и `src-tauri`. `bd-*` — слой CLI: `bd-core` — его основа; каждый `bd-<семейство>`
@@ -1073,6 +1073,15 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `landed_test` едет с ними (он гоняет update через фикстуру `update_project_test`, `landed` остаётся в `sync-core`),
     `an_update` — в `update-core/src/process_budget_test.rs`; счётчики процессов обоих тестов бюджета —
     `test_utils::process_budget`.
+  - `trial-check` выделен в `s3-3`: `check`, `conflict_fix`, `dangling_*`, `declaration_checks` (дочерний модуль
+    `symbol_dependencies`), `dependencies`, `diff_scan`, `inverted_stack`, `landing_gate`, `missing_commits`,
+    `missing_declarations`, `module_roots`, `move_hunk`, `symbol_scan`, `symbol_dependencies` с их тестами и
+    `word_resolve_sync_test`; `accio impact` не нашёл модуля, который нужен sync и читает `file_diffs`
+    (`uncommitted_changes` называет `file_diffs` только в комментарии). Тесты бюджета проверок — в
+    `trial-check/src/process_budget_test.rs`; общие фикстуры (`repo_on_origin`, `alpha_and_beta_on_origin`,
+    `empty_cache`) — `test_utils::process_budget`, `baseline_repo` — `test_utils::git_test_utils`, планы
+    перегруппировки (`plan`, `issue_group_plan`) — `history_rewrite::test_commit`. `cargo tree -p sync-core -e normal`
+    больше не показывает `file-diffs`, `code-symbols` и tree-sitter (`text-diff` остаётся через `git-ops`).
 - **Удаляется:** `crates/repository-view`, `crates/integration-detection-tests`, `crates/bd-clustering` (как имя);
   записи allowlist `sync-core → github/patronus/youtrack/file-diffs/code-symbols`, `bd-remote → bd-rewrite`,
   `src-tauri → bd-lease`.
@@ -1579,7 +1588,7 @@ B3 (перерисованные строки) не измеряется: в pro
 - Обзоры и критика первой редакции: `/Users/develar/.claude/jobs/ce8e63f9/tmp/reviews.md` (вне репозитория).
 - Сегодняшние правила: `src/lib/safe-push-decision.ts`, `src/lib/branch-next-step.ts`,
   `crates/bd-remote/src/safe_push_command.rs`, `crates/repository-view/src/patronus_view.rs`,
-  `crates/sync-core/src/landing_gate.rs`.
+  `crates/trial-check/src/landing_gate.rs`.
 - Связанные документы: [Landing Work into Master](landing.md), [Running Operations](operations.md),
   [Git Operations](git-operations.md), [Rendering Performance](rendering-performance.md),
   [Distributed Settings](distributed-settings.md), [E2E Testing](e2e-testing.md),

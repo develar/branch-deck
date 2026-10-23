@@ -1,5 +1,5 @@
 use crate::parked::{ParkBranchLine, ParkBranchesParams, UnparkBranchesParams, park_branches, parked_state, unpark_branches};
-use crate::regroup_test::{commits, entries, path, plant_store, repo, sync};
+use crate::regroup_test::{commits, entries, path, plant_store, sync};
 use domain_types::GroupedBranchInfo;
 use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkLine, ParkOutcome, ParkedChange, drop_integrated_parked, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
@@ -7,10 +7,9 @@ use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, loc
 use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::store_lines::StoreLines;
 use pretty_assertions::assert_eq;
-use std::collections::BTreeMap;
 use std::time::Duration;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, baseline_repo};
 use test_utils::sync_fixtures::placed_branch;
 
 fn parked(repo: &TestRepo) -> StoreLines {
@@ -38,7 +37,7 @@ fn only(outcome: &ParkOutcome) -> &ParkedChange {
 
 #[test]
 fn park_writes_a_line_without_a_rewrite_and_unpark_drops_it() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   let head = repo.head();
   let outcome = park(&repo, "auth", "  waits for the fix of IJPL-1 ").unwrap();
@@ -67,7 +66,7 @@ fn park_writes_a_line_without_a_rewrite_and_unpark_drops_it() {
 
 #[test]
 fn park_refuses_an_unknown_branch_and_a_note_of_two_lines_unpark_one_not_parked() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth"]);
   assert!(matches!(park(&repo, "ghost", ""), Err(ParkError::UnknownBranch(name)) if name == "ghost"));
   assert!(matches!(park(&repo, "auth", "one\ntwo"), Err(ParkError::InvalidNote(_))));
@@ -78,7 +77,7 @@ fn park_refuses_an_unknown_branch_and_a_note_of_two_lines_unpark_one_not_parked(
 
 #[test]
 fn unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_they_are() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth"]);
   plant_store(&repo, &PARKED, "ghost\tof another worktree\nauth\t\nnot a line\n");
   let before = parked(&repo);
@@ -90,7 +89,7 @@ fn unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_th
 
 #[test]
 fn park_waits_for_the_repository_lock() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth"]);
   let _held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
   let options = RewriteOptions {
@@ -104,7 +103,7 @@ fn park_waits_for_the_repository_lock() {
 
 #[test]
 fn the_app_wrapper_reports_the_notes() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   let parked_result = park_branches(
     repo.git_executor(),
@@ -132,7 +131,7 @@ fn the_app_wrapper_reports_the_notes() {
 
 #[test]
 fn several_branches_park_and_unpark_in_one_store_commit_or_not_at_all() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth", "(login) Add login", "(docs) Write"]);
   let lines = |names: &[&'static str]| names.iter().map(|branch| ParkLine { branch, note: "" }).collect::<Vec<_>>();
   // an unknown branch parks none
@@ -168,7 +167,7 @@ fn several_branches_park_and_unpark_in_one_store_commit_or_not_at_all() {
 
 #[test]
 fn a_rename_carries_the_line_and_its_undo_moves_it_back() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   park(&repo, "auth", "IJPL-1").unwrap();
   let outcome = rename_branch_core(repo.git_executor(), path(&repo), "auth", "sign-in", &RegroupOptions::default()).unwrap();
@@ -191,7 +190,7 @@ fn a_rename_carries_the_line_and_its_undo_moves_it_back() {
 
 #[test]
 fn an_undo_of_a_rename_passes_over_the_drops_of_a_sync() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth"]);
   park(&repo, "auth", "").unwrap();
   plant_store(&repo, &PARKED, "auth\t\nghost\t\n");
@@ -211,7 +210,7 @@ fn an_undo_of_a_rename_passes_over_the_drops_of_a_sync() {
 
 #[test]
 fn a_sync_keeps_every_line_it_can_not_prove_dead() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth"]);
   park(&repo, "auth", "").unwrap();
   plant_store(&repo, &PARKED, "auth\t\nghost\tof another worktree\n");
@@ -242,7 +241,7 @@ fn a_branch_built_on_a_parked_one_is_parked_with_it() {
     branch("sso", None, Some("oauth")),
     branch("docs", None, None),
   ];
-  let parked: BTreeMap<String, String> = entries(&[("auth", "IJPL-1")]);
+  let parked = entries(&[("auth", "IJPL-1")]);
   let state = |name: &str| parked_state(&branches, &parked, name).map(|parked| (parked.note, parked.with));
   assert_eq!(state("auth"), Some(("IJPL-1".to_string(), None)));
   assert_eq!(state("oauth"), Some(("IJPL-1".to_string(), Some("auth".to_string()))));

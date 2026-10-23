@@ -14,8 +14,8 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use sync_core::diff_scan::read_commit_diffs_cached;
 use sync_utils::issue_pattern::find_issue_number;
+use trial_check::diff_scan::read_commit_diffs_cached;
 
 /// The number of directories in `top_dirs`
 const TOP_DIRS: usize = 3;

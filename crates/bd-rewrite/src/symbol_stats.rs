@@ -9,9 +9,9 @@ use bd_core::error::CliError;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Instant;
-use sync_core::dependencies::compute_dependencies;
-use sync_core::symbol_dependencies::{SymbolEdge, compute_symbol_dependencies};
-use sync_core::symbol_scan::read_symbol_input;
+use trial_check::dependencies::compute_dependencies;
+use trial_check::symbol_dependencies::{SymbolEdge, compute_symbol_dependencies};
+use trial_check::symbol_scan::read_symbol_input;
 
 #[derive(Debug, Serialize)]
 pub struct SymbolStatsOutput {

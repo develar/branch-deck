@@ -1,4 +1,4 @@
-//! What refuses a Safe Push or a Dry Run before anything is pushed, as the landing gate (`sync_core::landing_gate`)
+//! What refuses a Safe Push or a Dry Run before anything is pushed, as the landing gate (`trial_check::landing_gate`)
 //! builds it for `bd safe-push`, the start of the app and the landing needs of the repository view: typed, so the CLI
 //! and the app each name it in their own words, and each refusal carries the fix the user can run (`LandingFix`).
 

@@ -21,7 +21,6 @@ use repository_view::actions::{NOT_ON_SPACE, RemoteActions};
 use repository_view::views::RepositoryViews;
 use std::sync::Arc;
 use std::time::Duration;
-use sync_core::landing_gate::{LandingCheck, LandingGateParams};
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, required_target_branch};
 use sync_core::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
@@ -31,6 +30,7 @@ use sync_utils::timestamp::unix_now;
 use tauri::State;
 use tauri::ipc::Channel;
 use tracing::{instrument, warn};
+use trial_check::landing_gate::{LandingCheck, LandingGateParams};
 
 /// The Patronus client of the app: one HTTP client (kept-alive connection), the token and backoff state, and the
 /// Space repository of each repository, so a poll starts no git process
@@ -307,7 +307,7 @@ pub(crate) fn remote_actions<'a>(
   RemoteActions::new(space.map(|space| (&patronus.service, space)), git_executor, views)
 }
 
-/// What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`sync_core::landing_gate`): the
+/// What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`trial_check::landing_gate`): the
 /// refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository, with
 /// the commits merged Safe Pushes landed as the repository view names them on the robots Rust reads
 /// (`RemoteActions::check_landing`; none off Space, or when the Space repository can't be read)

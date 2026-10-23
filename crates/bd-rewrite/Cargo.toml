@@ -16,6 +16,7 @@ git-ops = { path = "../git-ops", features = ["schemars"] }
 history-rewrite = { path = "../history-rewrite" }
 object-cache = { path = "../object-cache" }
 sync-core = { path = "../sync-core" }
+trial-check = { path = "../trial-check" }
 domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 text-diff = { path = "../text-diff" }

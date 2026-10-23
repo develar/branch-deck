@@ -1,6 +1,6 @@
-use crate::sync::{SyncOptions, sync_branches};
 use domain_types::{BranchError, SyncEvent};
 use pretty_assertions::assert_eq;
+use sync_core::sync::{SyncOptions, sync_branches};
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
 

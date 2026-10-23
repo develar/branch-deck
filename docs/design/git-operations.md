@@ -60,7 +60,8 @@ need no sync, GitHub or Patronus are the crate history-rewrite, the others sync-
 checks the HEAD the request was made for and orders the git steps. git-ops knows git and no policy: which arguments,
 which process, how to read its output, each module one operation or one primitive that operations share; a rewrite there
 runs the guards on the history it read and moves the branch with CAS. The `//!` headers of `crates/git-ops/src/lib.rs`,
-`crates/history-rewrite/src/lib.rs` and `crates/sync-core/src/lib.rs` map their modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
+`crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`, `crates/update-core/src/lib.rs` and
+`crates/trial-check/src/lib.rs` map their modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
 of a new one, and [Adding a Git Operation](../guidelines/adding-git-operation.md) says where it goes and which helpers
 it reuses.
 
@@ -182,7 +183,7 @@ written, except by Update Project and the finish of its resolve session (their o
    lock files. Then it sends SIGTERM, whose handler in git removes them too, and SIGKILL only as the last resort, which
    would leave `HEAD.lock` and the branch lock behind (on Windows the kill of its job, as for every git). The same interactive git drives the chains of a sync
    (`commit_chain.rs`: one `merge-tree --write-tree --stdin -z` and one `fast-import` per branch, each step waiting for
-   the reply of the one before) and the tree check of a trial sync (`crates/sync-core/src/check.rs`:
+   the reply of the one before) and the tree check of a trial sync (`crates/trial-check/src/check.rs`:
    `cat-file --batch-check` of the trees the object cache remembers).
 4. **Guards before any rewrite of the checked-out branch** (`crates/git-ops/src/rewrite_guard.rs`):
    - no rebase, merge, cherry-pick or revert is in progress;
@@ -265,8 +266,8 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
   start, interactive ones included, by subcommand, with its wall time. The summary is logged at info level when the
   last clone is dropped (`git processes`, e.g. `merge-tree 2×40ms, log 5×31ms`). The sync and every `bd` command count
   theirs; `bd -v` prints the summary. Tests assert on `process_stats().by_command()`; the budget of every operation is
-  pinned, process by process, in `crates/sync-core/src/process_budget_test.rs` and
-  `crates/update-core/src/process_budget_test.rs` (the cores) and
+  pinned, process by process, in `crates/sync-core/src/process_budget_test.rs`,
+  `crates/update-core/src/process_budget_test.rs` and `crates/trial-check/src/process_budget_test.rs` (the cores) and
   `crates/bd-cli/src/process_budget_test.rs` (what a `bd` command adds), so a change that saves a process lowers a
   number there.
 
@@ -714,7 +715,7 @@ of step 8: the rewritten commits exist as objects only, for a trial build of the
 mapping notes, so their branches are built anew) and `rewritten_plan` renames the plan's ids; `bd check` proves a
 `move_hunk` fix that way before it prints the command (see "Dangling references (check)").
 
-Code: `crates/git-ops/src/move_hunk.rs`, `crates/sync-core/src/move_hunk.rs`, `crates/bd-rewrite/src/move_hunk_command.rs`.
+Code: `crates/git-ops/src/move_hunk.rs`, `crates/trial-check/src/move_hunk.rs`, `crates/bd-rewrite/src/move_hunk_command.rs`.
 
 #### Update project
 
@@ -1803,7 +1804,7 @@ under `Default` (`file_diffs::blocks`).
   whole cache, the merges included. `BUILD_KEY_VERSION` (`check_command.rs`) is part of the key: a change of what the
   build sees bumps it, and its first write clears the store.
 
-Code: `crates/object-cache/src/cache.rs`, `crates/object-cache/src/build_result.rs`, `crates/sync-core/src/diff_scan.rs`.
+Code: `crates/object-cache/src/cache.rs`, `crates/object-cache/src/build_result.rs`, `crates/trial-check/src/diff_scan.rs`.
 
 #### Symbol summaries
 
@@ -1822,8 +1823,8 @@ before and after each commit, by blob id; nothing reads the working tree or an i
 - **The index is the range.** Only the declarations the commits ahead of the baseline add or change are looked up (a
   changed member brings the overloads its file had before along); a use of anything else is no edge.
 
-Code: `crates/sync-core/src/symbol_scan.rs`, `crates/sync-core/src/module_roots.rs`,
-`crates/sync-core/src/symbol_dependencies.rs`, `crates/object-cache/src/blob_summary.rs`, `crates/code-symbols`.
+Code: `crates/trial-check/src/symbol_scan.rs`, `crates/trial-check/src/module_roots.rs`,
+`crates/trial-check/src/symbol_dependencies.rs`, `crates/object-cache/src/blob_summary.rs`, `crates/code-symbols`.
 
 #### Commit files
 
@@ -2035,7 +2036,7 @@ their object ids (`git_ops::cat_file_batch::object_ids_and_types`), the key of t
 (`build_result`, see "Object cache"): a build that passed runs no `archive` and no command again.
 bd itself runs no git process: every one goes through a git-ops or sync-core function.
 
-Code: `crates/sync-core/src/check.rs`, `crates/sync-core/src/cache_memo.rs`, `crates/git-ops/src/cherry_pick.rs`,
+Code: `crates/trial-check/src/check.rs`, `crates/sync-core/src/cache_memo.rs`, `crates/git-ops/src/cherry_pick.rs`,
 `crates/git-ops/src/tree_id_cache.rs`, `crates/git-ops/src/tree_archive.rs`, `crates/bd-rewrite/src/check_command.rs`.
 
 #### Dangling references (check)
@@ -2106,13 +2107,13 @@ needs `fixed_by`) unless it is mutual, and `bd safe-push` refuses it (`--allow-d
 
 The fix of a mutual one moves the change of the use into the branch: `fixed_by` itself when it changes only that file,
 else its change of the file into the removing commit (`bd move-hunk`). `bd check` and the refusal of `bd safe-push`
-offer it only when a trial build proves it (`DanglingFixProver` in `crates/sync-core/src/dangling_fix.rs`): the plan
+offer it only when a trial build proves it (`DanglingFixProver` in `crates/trial-check/src/dangling_fix.rs`): the plan
 with the commit moved, or the history after a trial move of the hunk (see "Move a hunk"), builds the branch without a
 proven dangling reference and breaks no branch that built. A hunk move costs the rewrite of the commits above the older of the
 two plus a check of every branch, so at most two are tried per check; `bd suggest` only names the move.
 
-Code: `crates/sync-core/src/dangling_references.rs`, `crates/sync-core/src/declaration_checks.rs`,
-`crates/sync-core/src/dangling_fix.rs`, `crates/git-ops/src/object_texts.rs`, `crates/object-cache/src/commit_lines.rs`.
+Code: `crates/trial-check/src/dangling_references.rs`, `crates/trial-check/src/declaration_checks.rs`,
+`crates/trial-check/src/dangling_fix.rs`, `crates/git-ops/src/object_texts.rs`, `crates/object-cache/src/commit_lines.rs`.
 
 #### File merges (the conflict view)
 
@@ -2182,7 +2183,7 @@ repository lock the snapshot's fingerprint (HEAD, the issue groups and stack par
 of the baseline) must be the one the fix was found for, else the fix is stale and is looked for again; then one
 message-only rewrite and the ref transaction of a move, with its undo token.
 
-Code: `crates/sync-core/src/conflict_fix.rs`, `src-tauri/src/commands/conflict_fix.rs`.
+Code: `crates/trial-check/src/conflict_fix.rs`, `src-tauri/src/commands/conflict_fix.rs`.
 
 #### Agent push (`bd push`)
 
@@ -2346,7 +2347,7 @@ Code: `crates/sync-core/src/target_conflict.rs`, `crates/git-ops/src/trial_rebas
 git merges a branch that uses a name only another branch adds, and the robot's build fails, as the robots of
 2026-10-17 (an override of an overload of another branch) and 2026-10-21 (`StillEncoding`, `Stills` and
 `Manifest.stills` of `stills-codec`, used by `lane-run`) failed. So every start of a Safe Push or a Dry Run, of
-`bd safe-push` and of the app, asks one core first (`sync_core::landing_gate`, `check_landing_gate` of a
+`bd safe-push` and of the app, asks one core first (`trial_check::landing_gate`, `check_landing_gate` of a
 `domain_types::landing::Subject`: a branch, or the whole stack of a root): a trial check of what lands, the branch and
 the branches it is built on (`CheckSession::check_landing`), every branch for a whole stack, then
 
@@ -2384,8 +2385,8 @@ the tips of the table and the landed commits; while they stay, nothing is comput
 `rev-parse` 4; with the object cache it filled `cat-file` 2 and `log` 3 (`the_landing_needs_of_every_branch`).
 `bd status` runs it on Space in its own session.
 
-Code: `crates/sync-core/src/landing_gate.rs`, `crates/domain-types/src/landing.rs`,
-`crates/sync-core/src/missing_declarations.rs`, `crates/bd-remote/src/safe_push_command.rs`,
+Code: `crates/trial-check/src/landing_gate.rs`, `crates/domain-types/src/landing.rs`,
+`crates/trial-check/src/missing_declarations.rs`, `crates/bd-remote/src/safe_push_command.rs`,
 `src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`; the landing needs `crates/repository-view/src/views.rs`, `crates/bd-remote/src/status.rs`.
 
 #### Robot start guard
@@ -2966,7 +2967,8 @@ recovery hint (`git reset -q`).
 ### Process budgets
 
 Every git process of an operation is pinned, by subcommand, in `crates/sync-core/src/process_budget_test.rs` (a core;
-`an_update` in `crates/update-core/src/process_budget_test.rs`, the counts of both from `test_utils::process_budget`)
+`an_update` in `crates/update-core/src/process_budget_test.rs`, the checks in `crates/trial-check/src/process_budget_test.rs`,
+the counts and the fixtures of all three from `test_utils::process_budget`)
 and `crates/bd-cli/src/process_budget_test.rs` (a whole `bd` command, its context and its config included), one test
 per operation on a small fixture (two branches of three commits, unless the test says otherwise). A change that saves a
 process lowers a number there, so the diff of the assert names the process that went away; a change that adds one must
@@ -3116,11 +3118,12 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   `crates/git-ops/src/merge_tree_output.rs`, `crates/update-core/src/resolve_session.rs`,
   `crates/update-core/src/resolve_copies.rs`, `crates/history-rewrite/src/regroup.rs`, `crates/history-rewrite/src/repository_lock.rs`,
   `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`; the module maps in
-  `crates/git-ops/src/lib.rs`, `crates/sync-core/src/lib.rs` and `crates/update-core/src/lib.rs`
+  `crates/git-ops/src/lib.rs`, `crates/sync-core/src/lib.rs`, `crates/update-core/src/lib.rs` and
+  `crates/trial-check/src/lib.rs`
 - Tests: `crates/git-executor/src/worktree_safety_test.rs` and `git_usage_scan_test.rs` (the scans of the git argument
   lists),
-  `crates/sync-core/src/process_budget_test.rs`, `crates/update-core/src/process_budget_test.rs` and
-  `crates/bd-cli/src/process_budget_test.rs` (the process budgets)
+  `crates/sync-core/src/process_budget_test.rs`, `crates/update-core/src/process_budget_test.rs`,
+  `crates/trial-check/src/process_budget_test.rs` and `crates/bd-cli/src/process_budget_test.rs` (the process budgets)
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Commit Files](../../spec/commit/commit-files.spec.md),
   [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),

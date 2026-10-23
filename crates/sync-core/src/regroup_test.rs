@@ -5,22 +5,13 @@ use history_rewrite::regroup::{
 };
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
 use history_rewrite::store_lines::LineStore;
+use history_rewrite::test_commit::plan;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::time::Duration;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, baseline_repo};
 use test_utils::sync_fixtures::TestReporter;
-
-/// A repository whose initial commit is the baseline; `stacks` turns on stacked branches
-pub(crate) fn repo(stacks: bool) -> TestRepo {
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  if stacks {
-    repo.set_config("branchdeck.stacks", "true").unwrap();
-  }
-  repo
-}
 
 /// Commits with these subjects, each changing its own file; returns their ids
 pub(crate) fn commits(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
@@ -44,18 +35,6 @@ pub(crate) fn plant_store(repo: &TestRepo, store: &LineStore, text: &str) {
   git.execute_command(&["update-ref", store.store_ref, &commit], path).unwrap();
 }
 
-/// A plan of `branches` (path, commits) and `unassign`
-pub(crate) fn plan(branches: &[(&str, &[&String])], unassign: &[&String]) -> RegroupPlan {
-  RegroupPlan {
-    branches: branches
-      .iter()
-      .map(|(name, ids)| ((*name).to_string(), ids.iter().map(|id| (*id).clone()).collect()))
-      .collect::<BTreeMap<_, _>>(),
-    unassign: unassign.iter().map(|id| (*id).clone()).collect(),
-    ..RegroupPlan::default()
-  }
-}
-
 pub(crate) fn regroup(repo: &TestRepo, plan: &RegroupPlan) -> Result<RegroupOutcome, RegroupError> {
   regroup_commits_core(repo.git_executor(), path(repo), plan, &RegroupOptions::default())
 }
@@ -63,14 +42,6 @@ pub(crate) fn regroup(repo: &TestRepo, plan: &RegroupPlan) -> Result<RegroupOutc
 /// A map of `(key, value)` pairs, as the issue groups and the stack parents hold them
 pub(crate) fn entries(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
   pairs.iter().map(|(key, value)| ((*key).to_string(), (*value).to_string())).collect()
-}
-
-/// A plan that puts the commits of `keys` into the issue group `name`
-pub(crate) fn issue_group_plan(name: &str, keys: &[&str]) -> RegroupPlan {
-  RegroupPlan {
-    issue_groups: BTreeMap::from([(name.to_string(), keys.iter().map(|key| (*key).to_string()).collect())]),
-    ..RegroupPlan::default()
-  }
 }
 
 /// A second worktree at `base` on the branch `other`, with one commit per subject; keep the directory while it is used
@@ -114,7 +85,7 @@ fn reflog_entries(repo: &TestRepo) -> usize {
 
 #[test]
 fn applies_a_plan_in_one_rewrite() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["Add login", "(old) Fix crash", "ABC-1 Add parser", "Tidy up"]);
   let head = repo.head();
   let reflog_before = reflog_entries(&repo);
@@ -135,7 +106,7 @@ fn applies_a_plan_in_one_rewrite() {
 
 #[test]
 fn unassign_falls_back_to_the_issue_key() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["(lexer) ABC-1: Add lexer", "(lexer) Add tokens"]);
   let outcome = regroup(&repo, &plan(&[], &[&ids[0], &ids[1]])).unwrap();
   assert_eq!(subjects(&repo, 2), ["ABC-1: Add lexer", "Add tokens"]);
@@ -145,7 +116,7 @@ fn unassign_falls_back_to_the_issue_key() {
 #[test]
 fn the_current_grouping_as_a_plan_rewrites_nothing() {
   for stacks in [false, true] {
-    let repo = repo(stacks);
+    let repo = baseline_repo(stacks);
     let ids = commits(
       &repo,
       &[
@@ -185,7 +156,7 @@ fn the_current_grouping_as_a_plan_rewrites_nothing() {
 
 #[test]
 fn validates_the_plan_before_writing() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let initial = repo.rev_parse("HEAD").unwrap();
   let ids = commits(&repo, &["One", "Two"]);
   let head = repo.head();
@@ -213,7 +184,7 @@ fn validates_the_plan_before_writing() {
 
 #[test]
 fn expect_head_is_a_compare_and_swap() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["One", "Two"]);
   let head = repo.head();
   let one = plan(&[("a", &[&ids[0]])], &[]);
@@ -236,7 +207,7 @@ fn expect_head_is_a_compare_and_swap() {
 
 #[test]
 fn allow_append_accepts_commits_on_top_and_refuses_a_rewritten_head() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["One", "Two"]);
   let expected = repo.head();
   // a peer adds a commit on top after the plan was made
@@ -265,7 +236,7 @@ fn allow_append_accepts_commits_on_top_and_refuses_a_rewritten_head() {
 
 #[test]
 fn dry_run_writes_nothing() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["One"]);
   let head = repo.head();
   let options = RegroupOptions {
@@ -281,7 +252,7 @@ fn dry_run_writes_nothing() {
 
 #[test]
 fn fixups_follow_their_targets() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["(a) Fix login", "Other", "fixup! (a) Fix login", "squash! Other"]);
 
   let outcome = regroup(&repo, &plan(&[("b", &[&ids[0]])], &[])).unwrap();
@@ -308,7 +279,7 @@ fn fixups_follow_their_targets() {
 
 #[test]
 fn refuses_problems_the_plan_introduces_and_keeps_existing_ones() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   let ids = commits(&repo, &["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "Loose"]);
 
   // `login/auth` makes auth a child of login, whose parent is auth: a cycle
@@ -334,7 +305,7 @@ fn refuses_problems_the_plan_introduces_and_keeps_existing_ones() {
 
 #[test]
 fn renames_a_branch_with_its_children() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   commits(
     &repo,
     &[
@@ -370,7 +341,7 @@ fn renames_a_branch_with_its_children() {
 
 #[test]
 fn renames_flat_and_issue_branches() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(feat) Add feature", "ABC-1 Fix parser", "(feat/sub) Flat name with a slash"]);
   rename_branch_core(repo.git_executor(), path(&repo), "feat", "feature", &RegroupOptions::default()).unwrap();
   let head = repo.head();
@@ -390,7 +361,7 @@ fn renames_flat_and_issue_branches() {
 
 #[test]
 fn an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   commits(&repo, &["(auth) Add auth", "(auth/login) Add form", "ABC-1 Fix login"]);
   let head = repo.head();
   let outcome = rename_branch_core(repo.git_executor(), path(&repo), "ABC-1", "login", &RegroupOptions::default()).unwrap();
@@ -403,7 +374,7 @@ fn an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups() 
 
 #[test]
 fn restacks_and_unstacks_a_branch() {
-  let repo = repo(true);
+  let repo = baseline_repo(true);
   commits(&repo, &["(auth) Add auth", "(login) Add form", "(other/login) Add button"]);
   let outcome = restack_branch_core(repo.git_executor(), path(&repo), "login", Some("auth"), &RegroupOptions::default()).unwrap();
   // the stack parents stack it; only the prefix that declares another parent loses its parent level
@@ -424,7 +395,7 @@ fn restacks_and_unstacks_a_branch() {
 
 #[test]
 fn restack_needs_stacked_branches() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   commits(&repo, &["(login) Add form"]);
   let error = restack_branch_core(repo.git_executor(), path(&repo), "login", Some("auth"), &RegroupOptions::default()).unwrap_err();
   assert!(
@@ -435,7 +406,7 @@ fn restack_needs_stacked_branches() {
 
 #[test]
 fn waits_for_the_repository_lock() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["One"]);
   let held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
   let options = RegroupOptions {
@@ -458,7 +429,7 @@ fn waits_for_the_repository_lock() {
 
 #[test]
 fn a_held_lock_is_not_taken_again() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["One"]);
   let held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
   let one = plan(&[("a", &[&ids[0]])], &[]);
@@ -480,7 +451,7 @@ fn a_held_lock_is_not_taken_again() {
 
 #[test]
 fn undo_restores_the_previous_head() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["One", "Two"]);
   let outcome = regroup(&repo, &plan(&[("a", &[&ids[0], &ids[1]])], &[])).unwrap();
 
@@ -497,7 +468,7 @@ fn undo_restores_the_previous_head() {
 
 #[test]
 fn refuses_while_a_rebase_is_in_progress() {
-  let repo = repo(false);
+  let repo = baseline_repo(false);
   let ids = commits(&repo, &["One"]);
   let git_dir = repo.path().join(".git");
   std::fs::create_dir_all(git_dir.join("rebase-merge")).unwrap();
