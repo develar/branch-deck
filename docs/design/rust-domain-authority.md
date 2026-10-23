@@ -447,14 +447,24 @@ confirmations }` для Safe Push и Dry Run — результат того ж�
 - `execute(intent, fingerprint, accepted)` готовит план заново из текущих фактов. Расходиться может только
   `observed_at`-подобное поле; **любое** изменение readiness, состояния PR, leases, профиля или вовлечённых роботов
   ведёт к новому решению, и если решение (эффекты, `lands`, подтверждения) отличается — `PlanChanged { plan }` без
-  единого эффекта. Принятое подтверждение никогда не разрешает больший landing.
+  единого эффекта (дешёвый witness или полный под lock; поздний witness перед стартом — ниже). Принятое подтверждение
+  никогда не разрешает больший landing.
 - Witness читается **дважды**: дешёвый — в начале `execute`, без lock (один `for-each-ref` вовлечённых refs, PR
   number/head/base/draft, пересекающиеся роботы), он отсекает устаревший план без ожидания lock; полный — под lock,
   **до первого внешнего эффекта**; под lock — только он и заморозка tips и leases, которые пушит план
   ([Конкурентность, повторы и скорость](#конкурентность-повторы-и-скорость), п. 1–2). `locked` или `PlanChanged`
-  ничего не отменяет и не retarget'ит, потому что эффекты идут только после полного witness. `Retarget`,
-  `CancelRobot` и push идут после unlock: push несёт замороженные oids и leases, rewrite между unlock и push не меняет
-  того, что пушится. Чтения фактов — до lock.
+  первого дешёвого или полного witness ничего не отменяет и не retarget'ит, потому что эффекты идут только после
+  полного witness. `Retarget`, `CancelRobot` и push идут после unlock: push несёт замороженные oids и leases, rewrite
+  между unlock и push не меняет того, что пушится. Чтения фактов — до lock.
+- **Поздний witness** (дешёвый, после push, до старта) ловит rewrite между unlock и стартом: virtual ветка ушла с
+  запушенного oid. Его `PlanChanged` приходит, когда `Retarget`, `CancelRobot` и push уже сделаны, и их не
+  откатывает: cancel должен идти до push (push hold отказывает ветке под работающим роботом,
+  [App stack push](git-operations.md#app-stack-push)). `Outcome` честно перечисляет `Retarget Done`,
+  `CancelRobot Done { robot }`, `Push Done`, `StartRobot Skipped(PlanChanged)`; toast «Cannot start Safe Push of
+  auth» с причиной «auth changed after the push; Safe Push #812 was canceled» предлагает «Start Safe Push» — новый
+  intent из новой таблицы, чей план уже без cancel и push, — и Open in Patronus отменённого робота. Окно — от unlock
+  до второго `for-each-ref`, сетевой push включительно; робот не теряется молча. Тест — rewrite на барьере
+  pre-receive fifo в `crates/operations/src/land_test.rs` (s9).
 - Порядок фаз: факты и fetch (без lock, параллельно) → дешёвый witness → lock → полный witness и заморозка → unlock →
   `Retarget` → `CancelRobot` (робот, уже закончившийся, — `AlreadyFinished`, не ошибка) → leased atomic push
   замороженных oids (`over_moved_remote` один раз) → дешёвый witness → перечитать роботов и PR, проверить overlap и
@@ -538,7 +548,8 @@ Activity) подписывается на ту же сессию по пути �
   бюджет процессов не меняется (14 на неизменённом sync монорепозитория).
 - На диске: repository lock `$GIT_COMMON_DIR/branch-deck.lock` (git-записи; только критические секции,
   [Конкурентность, повторы и скорость](#конкурентность-повторы-и-скорость)); реестр
-  `$GIT_COMMON_DIR/branch-deck/operations.json` с собственным `operations.lock`; CAS на refs; LMDB object cache;
+  `$GIT_COMMON_DIR/branch-deck/operations.json` с собственным `operations.lock`; `fetch.lock` с pid держателя в
+  `$GIT_COMMON_DIR/branch-deck/` (fetch baseline, s10); CAS на refs; LMDB object cache;
   mapping notes; stamp-файл `$GIT_COMMON_DIR/branch-deck/stamp`, который `bd` касается после любой мутации
   (rewrites тоже).
 - Приложение видит `bd`: `operations::registry::watch` (его запускает хост) наблюдает `operations.json` и
@@ -553,13 +564,14 @@ Activity) подписывается на ту же сессию по пути �
 
 **Допуск** — одно правило, `domain-policy::admission`, для окон приложения, процессов `bd` и каждого семейства
 intent'ов. Ресурсы операции: имена веток (subject, то, что она пушит или переносит, stack branch), id роботов,
-номера PR. `Land` резервирует своё `lands`, поэтому второй Safe Push, который перенёс бы предка, получает `Busy` —
-межпроцессная форма сегодняшнего правила overlap в `canStartRobot`.
+номера PR. `Land` резервирует своё `lands`, поэтому второй Safe Push, который перенёс бы предка, в том же процессе
+встаёт в очередь (`WaitingFor{op}`) и перерешается после первого, а из другого процесса получает `Busy { holder }`
+(п. 5 [инвариантов](#инварианты)) — межпроцессная форма сегодняшнего правила overlap в `canStartRobot`.
 
 | Идёт → новая | Тот же intent и subject | Rewrite | Remote-действие с пересечением ресурсов | Remote-действие без пересечения | Sync |
 | --- | --- | --- | --- | --- | --- |
 | Rewrite | join | **wait**: допущена, ждёт в FIFO окончания; в процессе без границы и без `Busy`; между процессами — пока держатель жив ([Ожидание lock](#конкурентность-повторы-и-скорость)) | run | run | допускается сразу с `TableWitness` (sync приложения не пишет HEAD); Undo из toast допускается и ждёт в очереди за идущим rewrite, никогда не `Busy` |
-| Remote-действие | join | run | wait в очереди по ресурсу (PR — по полю) | run | push и land допускаются со step `WaitingForSync` и **держат свои ресурсы**, пока ждут tip своего subject'а в зафиксированной таблице, не конца цепочки sync |
+| Remote-действие | join в процессе; из другого процесса — `Busy { holder }` | run | wait в очереди по ресурсу (PR — по полю); ресурс другого процесса — `Busy { holder }` | run | push и land допускаются со step `WaitingForSync` и **держат свои ресурсы**, пока ждут tip своего subject'а в зафиксированной таблице, не конца цепочки sync |
 
 In-process реестр: его **данные** — раздел `operations` сессии (`RunningOperation { op, intent, resources, step,
 origin }`, тип в `repository-model`), из которого `derive` выводит `Running{op}`/`Waits{op}`; его **писатель** —
@@ -587,9 +599,9 @@ GitHub на POST (для comment-маршрута, пока ответ не по
   запись и пишет в журнал `StartUnknown → Forgotten`. `bd safe-push` на занятых ресурсах получает `busy` с id
   держателя и подсказкой этой команды.
 - Не хранит токенов и секретов; записи уходят по завершении, история — в журнале.
-- Писатель только `operations::registry` (scan-тест по образцу исключений `update-ref` с точным числом); файл и
-  lock — в clean-правилах `.branchdeck.toml`; раздел «Operations registry» в `git-operations.md` и жёсткое правило в
-  AGENTS.md «Git Operations» (`s10-registry-journal`).
+- Писатель только `operations::registry` (scan-тест по образцу исключений `update-ref` с точным числом); файл, его lock
+  и `fetch.lock` — в clean-правилах `.branchdeck.toml`; раздел «Operations registry» в `git-operations.md` и жёсткое
+  правило в AGENTS.md «Git Operations» (`s10-registry-journal`).
 
 **Частичные эффекты.** Эффекты идут в порядке плана; первый отказ останавливает операцию, `Outcome` перечисляет Done,
 Failed и Skipped. Неявного отката нет. Push без старта говорит так: `Push Done`, `StartRobot Failed(code)`; toast
@@ -615,9 +627,12 @@ Push started» с Open in Patronus.
 Регрессия 2026-10-23: после `s1-holes` push приложения держал repository lock поперёк сетевого push
 (`push_guard.rs:250`), и второй Safe Push того же приложения ждал 10 с и падал с «`branch-deck` (pid …) holds the
 repository». Аудит всех функций в тот же день нашёл тот же класс ошибок в `bd`, Update Project, допуске страницы,
-фактах о remote, настройках и окне review. Правила владельца ниже — инварианты каждого этапа; там, где
-[Инварианты планов](#инварианты-планов) и [Конкурентность](#конкурентность) говорят иное, действует этот раздел.
-Приоритет — скорость: операция не ждёт того, от чего не зависит её результат.
+фактах о remote, настройках и окне review. Правила владельца ниже — инварианты каждого этапа;
+[Инварианты планов](#инварианты-планов) и [Конкурентность](#конкурентность) приведены с ними в согласие, а
+исключение до этапа названо там, где оно действует (п. 1). Раздел меняет `operations.md` (решение 3, ожидание и
+блокировка rewrites во время sync) и AGENTS.md «Repository lock» (кто и что держит под lock): что и в каком этапе —
+в [Карте документации](#карта-документации). Приоритет — скорость: операция не ждёт того, от чего не зависит её
+результат.
 
 ### Инварианты
 
@@ -625,7 +640,11 @@ repository». Аудит всех функций в тот же день наш�
    проверки, полный witness, заморозку точных oids и remote leases и CAS-запись (ref transaction, `read-tree -m -u`,
    запись store-ref). Всё, что считается на замороженных oids — merge-tree, `replay`, resolve by words, trial session
    landing gate, поиск первого конфликта, landing report `bd pick`, отчёт landed, — идёт до lock или после него. Тест
-   «lock span» каждого ядра утверждает подкоманды, которые стартуют между lock и unlock.
+   «lock span» каждого ядра утверждает подкоманды, которые стартуют между lock и unlock. **Исключение до s11:** ядра
+   rewrites и Update Project считают под lock, как сегодня, и sync `bd` (`bd sync`, sync после rewrite `bd` и sync
+   внутри remote-intent'а `bd push`/`bd safe-push` в s9) идёт под lock со своим merge-tree; s11 снимает и то и другое.
+   До s11 lock span этих путей утверждает исключение как есть, и ни один этап до s11 не добавляет под lock новых
+   вычислений.
 2. **Ничего поперёк сети или ожидания пользователя.** Ни repository lock, ни слот операции, ни async mutex
    (`TokenChain.state`, auth YouTrack) не держится поперёк `git push`/`fetch`, HTTP GitHub, Patronus и YouTrack,
    процесса-источника токена или диалога. Push безопасен без lock: refspec несёт замороженный oid
@@ -637,11 +656,16 @@ repository». Аудит всех функций в тот же день наш�
 4. **Операции одного процесса не отказывают друг другу.** Перед файловым lock стоит in-process FIFO: процесс ждёт
    свою же короткую секцию в очереди; `locked`/`Busy` называет только другой процесс, с держателем (tool, команда,
    pid, сколько держит). Ни одна операция не падает из-за предыдущей операции своего процесса или её sync.
-5. **Повтор объединяется или встаёт в очередь, никогда не ошибка.** Тот же intent с тем же subject и параметрами —
-   join: оба вызывающих получают один `Outcome`. Пересекающийся intent — очередь со step `WaitingFor{op}`, видимым на
-   поверхности («Waits for Moving 1 commit to auth»), без toast-отказа; в свою очередь он перерешается (re-resolve по
-   `CommitKey` и `TableWitness`) и исполняется, если subject и эффект те же, иначе `PlanChanged`. Undo всегда встаёт в
-   очередь; запись Activity помечается undone, а toast закрывается только после `Ok` undo.
+5. **Повтор объединяется или встаёт в очередь, никогда не ошибка** — внутри одного процесса, из любого его окна. Тот
+   же intent с тем же subject и параметрами — join: оба вызывающих получают один `Outcome`. Пересекающийся intent —
+   очередь со step `WaitingFor{op}`, видимым на поверхности («Waits for Moving 1 commit to auth»), без toast-отказа;
+   в свою очередь он перерешается (re-resolve по `CommitKey` и `TableWitness`) и исполняется, если subject и эффект те
+   же, иначе `PlanChanged`. Undo всегда встаёт в очередь; запись Activity помечается undone, а toast закрывается
+   только после `Ok` undo. **Между процессами** (s10) join невозможен — `Outcome` другого процесса не доходит до
+   вызывающего: ресурс реестра, который держит другой процесс (робот и его `lands`, PR, remote ref — держатся на время
+   сети), отвечает `Busy { holder }` с id, tool и pid держателя (`bd` — `busy`, приложение — «Cannot start Safe Push of
+   auth» с держателем «bd: Safe Push of auth…»); это не ошибка своего процесса по п. 4. Короткую секцию
+   repository lock другого процесса операция ждёт ([Ожидание lock](#конкурентность-повторы-и-скорость)).
 6. **Поздний ответ не применяется к другому репозиторию, ветке или subject.** Intent фиксирует `SessionKey` (путь и
    префикс), baseline и subject при допуске и передаёт их каждому шагу; ни один шаг не читает выбранный проект после
    `await`. Ответ, чей ключ или поколение уже не текущие, применяется к своей сессии или отбрасывается. Факты
@@ -698,7 +722,7 @@ repository». Аудит всех функций в тот же день наш�
 | Push и sync | push ждёт всю цепочку sync с detection, update check и follow-ups (`push.ts:116`, `stack-push.ts:212`, `patronus.ts:670`); не ждёт идущего rewrite (`getRunningRewrite` читает только `useCommitDrag.ts`); ветка помечена pushing до ожидания, и новый remote status sync теряется (`branch-sync.ts:1468`) | push ждёт только свой ресурс: tip subject'а в зафиксированной таблице (фиксация до detection и update check); идущий rewrite — `WaitingForSync`, порядок из новой таблицы; ожидание — не pushing; outcome и статусы sync по `seq` | s6, s9; ожидание rewrite — live |
 | Safe Push приложения | 4 шага читают репозиторий заново (`safe-push-start.ts:67-88`): смена проекта шлёт старт в другой; 3–4 полных списка роботов и две trial session на старт; landing и target check друг за другом; замена закончившегося робота падает на cancel (`start_guard.rs:136`) | `Land` замораживает `SessionKey`, baseline и subject; `prepare` читает факты параллельно по `needs(intent)`: один список, одна trial session (из `landing_needs` при равных inputs); cancel заменяемого — `AlreadyFinished`, не ошибка | live (ключ, cancel), s9 |
 | Comment-маршрут старта | `post_patronus_command` без guards parked, landed, not built, overlap, gate (`src-tauri/src/commands/patronus.rs:471`); ответ бота матчится на прежнего робота того же PR, принятый старт без робота за минуту — ошибка (`patronus.ts:1460`), `bd` — то же (`safe_push_command.rs:1840`) | `RemoteActions::start_from_pull_request` за теми же guards; матч по mode, tip и «не известный до POST», самый новый; принятый без робота — Started, поиск в опросе | live, s9, s10 (`comment_id`) |
-| Пересекающиеся старты | ветка и родитель, ветка и весь стек, приложение и `bd`: check-then-act (`start_guard.rs:283`), два робота | резерв `lands`: тот же subject — join, пересечение — очередь | s9 (в процессе), s10 |
+| Пересекающиеся старты | ветка и родитель, ветка и весь стек, приложение и `bd`: check-then-act (`start_guard.rs:283`), два робота | резерв `lands`: в процессе тот же subject — join, пересечение — очередь; между процессами — `Busy { holder }` | s9 (в процессе), s10 (между процессами) |
 | `bd push`, `bd safe-push` | lock поперёк sync, HTTP (роботы, PR, правила, readiness, start options, YouTrack), trial, retarget, cancel, push, restart (`safe_push_command.rs:501-590`, `push_command.rs:221-236`); target fetch до sync на том же потоке | под lock — sync, проверки, заморозка; HTTP до lock и параллельно с sync; trial и target на замороженных oids; retarget, cancel, push, restart после unlock; перед стартом дешёвый witness | push-часть — live вместе с push приложения; s9 |
 | `bd sync`, sync после rewrite `bd` | lock на весь sync (`sync_command.rs:378`, `rewrite.rs:159-164`), хотя sync приложения того же lock не берёт | sync без repository lock, CAS как у приложения; rewrite отпускает lock после транзакции | s11 (можно раньше) |
 | Sync приложения | обход `baseline..HEAD` по имени (`commit_list.rs:35`); проигранный CAS notes роняет sync (`sync.rs:828`, `detector.rs:171`); проигранный CAS ветки — `Error` без повтора (`branch_processor.rs:435`); отпечаток без remote `stack/` и `unapplied/` (`sync_inputs.rs:31`); `.idea/vcs.xml` запускает sync, а issue config из кэша на час (`repository_state.rs:71`); таймаут префикса 5 с (`branch-sync.ts:1313`); один `syncChain` на окно: смена репозитория ждёт старый sync (`useSyncOnOpen.ts:25`) | oids `RepoFacts`; notes — повтор и предупреждение; `SyncReport.retry` — один тихий повтор; отпечаток — все `refs/remotes/*/{prefix}/`; кэш issue config по stamp файла; префикс в Rust; планировщик на сессию, поздние события по epoch | live (oids, notes, отпечаток, vcs.xml), s5, s6 |
@@ -747,10 +771,15 @@ repository». Аудит всех функций в тот же день наш�
 
 - **Lock:** push приложения отпускает lock до сети (`fix/app-push-queue`; `git-operations.md` инвариант 8, «App stack
   push» и AGENTS.md «Repository lock» в том же коммите), с ним push-часть `bd push` и `bd safe-push`; landing
-  `bd pick` после unlock; `bd update --continue --dry-run` без lock; повтор fetch на `cannot lock ref`.
+  `bd pick` после unlock; `bd update --continue --dry-run` без lock (AGENTS.md «Repository lock»: `--continue` и
+  `--abort` держат lock, dry run — нет; `bd pick` держит его на move обоих worktree, не на отчёт); повтор fetch на
+  `cannot lock ref`.
 - **Очередь в TS до s11:** `runOperation` ставит rewrite в очередь вместо `onBlocked`; Undo помечается выполненным
   после `Ok`; слот Update Project — только apply (`fetch_baseline`, затем `update_project` без fetch); ⌘T во время
-  Fetch присоединяется; push ждёт идущий rewrite.
+  Fetch присоединяется; push ждёт идущий rewrite. `operations.md` в том же коммите: «Conflicts», «Items» и
+  «Rewrites» — rewrite, который должен ждать, встаёт в очередь со step на поверхности, его пункт не отключается и info
+  toast «Cannot undo the move» не приходит; Undo помечается выполненным после `Ok`. Решение 3 и блокировка rewrites
+  во время sync (`getRewriteBlocker`) остаются до s11.
 - **Захват репозитория:** Safe Push start, toast «Update Project», Create PR и Request Review, Close Landed, undo
   park и regroup, результаты push по (репозиторий, ветка).
 - **Старт:** comment-маршрут за guards; матч ответа бота с этим комментарием; cancel закончившегося заменяемого
@@ -1498,20 +1527,22 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `push_branch`, `push_branches`, `push_hold.rs`, `bd push`; (5) `SetIssueState`.
   `bd safe-push`, `push`, `robot`, `request-review` — адаптеры с прежними флагами плюс `--push` у request-review.
   **Конкурентность** ([раздел](#конкурентность-повторы-и-скорость)): lock каждого remote-intent'а — sync, проверки,
-  полный witness и заморозка oids и leases, затем unlock; HTTP-чтения `prepare` (роботы, PR, правила, readiness,
-  start options, тексты YouTrack) идут до lock и параллельно с sync, target fetch — на своём потоке; trial session и
-  target check — на замороженных oids вне lock; `Retarget`, `CancelRobot`, push и restart — после unlock; перед
-  стартом дешёвый witness (virtual ветка ушла с запушенного oid — `PlanChanged`, старта нет). Один старт читает
-  каждый факт один раз (C2): список роботов, замороженный при допуске, служит landing check, push guard, старту и
-  cancel; результат gate ключуется `landing_inputs` и переиспользует фоновые `landing_needs`. In-process допуск
-  резервирует ресурсы до первого `await`: push одной ветки — join по ref, разных — параллельно; `Land` резервирует
-  `lands`; повтор Push, Safe Push, Request Review или Create PR присоединяется к идущему push и пушит только то, чего
-  remote ещё нет, — без выдуманной причины «The remote branch … changed». Push ждёт идущий rewrite репозитория
-  (`WaitingForSync`) и tip subject'а, не конец цепочки sync. Cancel заменяемого робота, уже закончившегося, —
-  `AlreadyFinished`. Push только unapplied не читает роботов (C3); re-push над сдвинувшимся remote без коммитов,
-  которых ветке нет (`pushesOverMovedRemote`), — шаг плана, не второй IPC. Каждый intent несёт `SessionKey`;
-  `CloseLandedPullRequests` планируется из сессии репозитория робота. `CreatePullRequest` на 422 «already exists»
-  находит PR через REST `pulls?head=` и отвечает `created: false`. Ресурсы PR — по полю.
+  полный witness и заморозка oids и leases, затем unlock (sync `bd` с его merge-tree остаётся под lock — названное
+  исключение из п. 1 [инвариантов](#инварианты) до s11, его lock span утверждает это явно); HTTP-чтения `prepare`
+  (роботы, PR, правила, readiness, start options, тексты YouTrack) идут до lock и параллельно с sync, target fetch — на
+  своём потоке; trial session и target check — на замороженных oids вне lock; `Retarget`, `CancelRobot`, push и
+  restart — после unlock; перед стартом дешёвый witness (virtual ветка ушла с запушенного oid — `PlanChanged`, старта
+  нет; `Outcome` и toast называют отменённого робота и предлагают «Start Safe Push»,
+  [Инварианты планов](#инварианты-планов)). Один старт читает каждый факт один раз (C2): список роботов, замороженный
+  при допуске, служит landing check, push guard, старту и cancel; результат gate ключуется `landing_inputs` и
+  переиспользует фоновые `landing_needs`. In-process допуск резервирует ресурсы до первого `await`: push одной ветки —
+  join по ref, разных — параллельно; `Land` резервирует `lands`; повтор Push, Safe Push, Request Review или Create PR
+  присоединяется к идущему push и пушит только то, чего remote ещё нет, — без выдуманной причины «The remote branch …
+  changed». Push ждёт идущий rewrite репозитория (`WaitingForSync`) и tip subject'а, не конец цепочки sync. Cancel
+  заменяемого робота, уже закончившегося, — `AlreadyFinished`. Push только unapplied не читает роботов (C3); re-push над
+  сдвинувшимся remote без коммитов, которых ветке нет (`pushesOverMovedRemote`), — шаг плана, не второй IPC. Каждый
+  intent несёт `SessionKey`; `CloseLandedPullRequests` планируется из сессии репозитория робота. `CreatePullRequest` на
+  422 «already exists» находит PR через REST `pulls?head=` и отвечает `created: false`. Ресурсы PR — по полю.
   **Документированные изменения `bd`** в том же коммите: retarget до push (`spec/cli/agent-cli.spec.md` «bd push»,
   `git-operations.md` «Agent push»); HTTP-чтения, trial, retarget, cancel, сетевой push и restart вне repository lock
   («Agent Safe Push», «Agent push»; AGENTS.md «Repository lock»: `bd push` и `bd safe-push` держат lock только на
@@ -1547,7 +1578,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
   push и старт; Move из A во время target check Safe Push ребёнка — запушенная A без перенесённого коммита; смена
   репозитория посреди Safe Push, Create PR, Request Review и Close Landed — эффекты только в исходном репозитории
   (журналы fakes); заменяемый робот закончился до cancel — «Safe Push started»; повтор Create PR при отстающем поиске
-  — `created: false`; Retarget во время Request Review того же PR — PATCH base до POST reviewers, без отказа; C2, C3.
+  — `created: false`; Retarget во время Request Review того же PR — PATCH base до POST reviewers, без отказа; rewrite
+  на барьере push заменяющего Safe Push — поздний `PlanChanged`: `CancelRobot Done`, `Push Done`,
+  `StartRobot Skipped`, toast с «Start Safe Push», и этот старт запускает одного робота; C2, C3.
 - **Проверки:** каждый шаг оставляет suite зелёным (e2e каждой поверхности его семейства); эталонные трассы эффектов на intent; инъекция отказа после каждого эффекта (неудачный push ничего не
   стартует, отменённый робот виден в outcome, lease rejection без слепого повтора); `PlanChanged` при расширении
   landing и при сдвиге witness, и `bd` отвечает `plan_changed`; `locked` и `PlanChanged` под lock ничего не отменили и не
@@ -1564,7 +1597,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `reconcile`, `StartUnknown`, `comment_id` в `pending_start`, `ForgetStart` и `bd operation forget`); stamp-файл; `notify` с fallback; сессия
   наблюдает файл, чужие операции в представлении; span через `run_blocking`; `bd` печатает `operation_id`;
   `operations::journal`; Activity из журналов recent projects плюс журнал app data для записей страницы
-  (`record_activity`). `git-operations.md` «Operations registry», правило в AGENTS.md «Git Operations», `.branchdeck.toml`,
+  (`record_activity`). `git-operations.md` «Operations registry», правило в AGENTS.md «Git Operations»,
+  `.branchdeck.toml` (`operations.json`, `operations.lock`, `fetch.lock` с мёртвым pid),
   scan-исключение писателя, `activity.spec` (фильтр «Agents», недоступный журнал), `agent-cli.spec` (`operation_id`, `busy` с держателем,
   `bd operation forget`). **Конкурентность:** in-process FIFO перед файловым repository lock (операции процесса ждут
   друг друга в очереди, `locked` называет только другой процесс); ожидание lock между процессами — пока держатель жив,
@@ -1595,7 +1629,13 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `bd` регистрируются — закрывает пробел решения 4 `operations.md`); `preview_group` (R8), тело PR (R9), валидация
   имени (R10, debounce IPC; при заметной задержке — TS-проверка против оракула `src/test-support/branch-names.cases.json`,
   который пишет Rust-тест); `SignIn`/`SignOut` с `Channel<SignInEvent>` (`crates/github/src/device_flow.rs` уже есть).
-  `operations.md`, `commit-row`/`branch-row` (`targets:`), `update-project.spec`, `github-sign-in.spec`, `youtrack.spec`.
+  `operations.md`: решение 3 «a rewrite lasts until its sync ends» заменяется «операция кончается с запуском sync,
+  который её обслуживает», «Conflicts» — rewrite во время sync допускается сразу (`getRewriteBlocker` и «Wait for
+  the sync to finish» уходят, C14), решение 4. AGENTS.md «Repository lock»: rewrite и Update Project берут lock после
+  prepare на замороженных oids, под lock — только witness, CAS-запись и move («before it reads anything» уходит);
+  `bd sync` и sync после rewrite `bd` уходят из списка держателей; «The app's sync never takes it» становится «a
+  sync never waits for it» — drop'ы store-line только `try_lock` (и «Who writes the refs of Branch Deck» для
+  store refs). `commit-row`/`branch-row` (`targets:`), `update-project.spec`, `github-sign-in.spec`, `youtrack.spec`.
   **Конкурентность:** rewrite во время sync допускается сразу (sync приложения не пишет HEAD; `expect_head` — из
   `TableWitness`); rewrite за rewrite — FIFO с re-resolve по `CommitKey`, `PlanChanged` только при другом эффекте;
   операция кончается с запуском sync, который её обслуживает, и её resync складывается в идущую цепочку одним
@@ -1604,9 +1644,10 @@ rewrites между процессами через файл `s10`; `s12` ждё
   rewrite; prepare (replay, resolve by words, landed candidates, поиск первого конфликта `bd update`) — до lock на
   замороженных HEAD и upstream, под lock — witness (сдвиг — один re-prepare), `blocking_paths`, apply или запись
   session ref; `record_landed_update` — после unlock; ⌘T во время fetch присоединяется, во время rewrite — в очередь.
-  `bd sync` и sync после rewrite `bd` — без repository lock, CAS как у приложения; `bd pick` считает landing после
-  unlock. Drop'ы store-line sync — `try_lock` без ожидания (занято — пропуск до следующего sync), regroup один раз
-  перечитывает снимок поверх drop-коммита. `RewriteOptions { git_common_dir }` — `lock_repository_in` без процесса;
+  `bd sync` и sync после rewrite `bd` — без repository lock, CAS как у приложения (снимает исключение до s11 из п. 1
+  [инвариантов](#инварианты), также для sync внутри `bd push`/`bd safe-push`); `bd pick` считает landing после unlock.
+  Drop'ы store-line sync — `try_lock` без ожидания (занято — пропуск до следующего sync), regroup один раз перечитывает
+  снимок поверх drop-коммита. `RewriteOptions { git_common_dir }` — `lock_repository_in` без процесса;
   повторные `rev-parse`/`symbolic-ref` одной фазы — один `rev-parse --verify` всех ревизий. Lock на worktree плюс CAS
   на общих refs — последний шаг этапа, если замер lock span после остальных шагов показывает ожидание leases.
 - **Удаляется:** допуск `src/stores/operations.ts` (остаются claims как `src/stores/indicators.ts`), `src/lib/rewrite.ts`,
@@ -1814,9 +1855,9 @@ B3 (перерисованные строки) не измеряется: в pro
 
 | Документ | Что меняется и когда |
 | --- | --- |
-| `operations.md` | s9: реестр в Rust, «Outside the registry» удалён (push и старт — операции, процент в своём канале), индикатор — только TS; s11: решение 4 (`bd` регистрируется), допуск rewrite между процессами; s10: `busy` с держателем |
+| `operations.md` | live («Очередь в TS до s11»): «Conflicts», «Items», «Rewrites» — ожидающий rewrite встаёт в очередь со step на поверхности вместо отключённого пункта и info toast, Undo выполнен после `Ok`; s9: реестр в Rust, «Outside the registry» удалён (push и старт — операции, процент в своём канале), индикатор — только TS; s10: `busy` с держателем между процессами; s11: решение 3 (операция кончается с запуском своего sync), rewrite во время sync допускается сразу (`getRewriteBlocker` уходит, C14), решение 4 (`bd` регистрируется), допуск rewrite между процессами |
 | `landing.md` | s8: D8 правило родителя, D3b другая база, D11 retarget как шаг плана, D13 слитый PR — приземление; s9: `bd` и приложение идентичны по порядку эффектов, retarget до push, request review пушит с `--push`, закрытие PR (`bd` перечисляет `closes`, не закрывает); s10: реестр landing между процессами |
-| `git-operations.md` | s1: push приложения под lock; live: push приложения отпускает lock до сети (инвариант 8); s9 и s11: lock только на критическую секцию, `fetch.lock`; s6: «Repository view» → сессия; s9: «Agent push»/«Agent Safe Push»/«App stack push» → «Push and land», HTTP вне lock; s10: «Operations registry», stamp, журнал; s11: rewrites через движок |
+| `git-operations.md` | s1: push приложения под lock; live: push приложения отпускает lock до сети (инвариант 8); s9 и s11: lock только на критическую секцию; s6: «Repository view» → сессия; s9: «Agent push»/«Agent Safe Push»/«App stack push» → «Push and land», HTTP вне lock; s10: «Operations registry», stamp, журнал, `fetch.lock` (join fetch baseline между процессами); s11: rewrites через движок |
 | `rendering-performance.md` | s6: поток патчей вместо `SyncEvent`; s8: части строки и презентеры, числа B3–B5 |
 | `distributed-settings.md` | s5: переписан — один писатель в Rust, версии, `origin` |
 | `e2e-testing.md` | s0a: счётчики IPC (`__ipcStats`); s0b: fakes за реальными сервисами, lint `routeCommand`; s4: `ApiError`; s6/s7: сессии, `data-view-version`, `advanceBackendClock`; s12: реестр |
@@ -1825,7 +1866,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | `agent-cli.md`, `spec/cli/agent-cli.spec.md` | s1: код D1; s9: retarget до push, `pushed_over`, `needs_push`/`--push`, `pull_request_other_base`, HTTP вне lock, `operation_id`, `plan_changed`; s10: `busy`, `bd operation forget` |
 | `spec/branch/{next-step, patronus, whole-stack, stacked-branches, safe-push-failure-prompt}.spec.md` | s8: `targets:` и test-ссылки на Rust-таблицы и презентеры; s1: неизвестные правила |
 | `spec/repository/{settings, onboarding, activity, update-project, github-sign-in, youtrack}.spec.md` | s5, s10, s11 |
-| AGENTS.md | s0a: Verification (bindings); s1: «Repository lock» (push приложения); s2/s3: File Structure, Feature Index; s8: индекс правил; s10: правило реестра; s14: «Never» |
+| AGENTS.md | s0a: Verification (bindings); s1: «Repository lock» (push приложения); live: «Repository lock» — push приложения отпускает lock до сети, `bd pick` считает landing после unlock, `bd update --continue --dry-run` без lock; s2/s3: File Structure, Feature Index; s8: индекс правил; s9: «Repository lock» — `bd push` и `bd safe-push` держат lock только на sync и заморозку; s10: правило реестра; s11: «Repository lock» — prepare rewrites и Update Project до lock, `bd sync` и sync после rewrite `bd` без lock, drop'ы store-line sync — `try_lock` («The app's sync never takes it» → «a sync never waits for it»); s14: «Never» |
 | `adding-git-operation.md` | s3: новые crates; s9: слой `operations` в чеклисте |
 
 ## Альтернативы
