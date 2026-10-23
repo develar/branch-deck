@@ -18,6 +18,7 @@ import type {
   RobotOf,
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import type { VcsRequest } from "@/lib/git/vcs-request"
 import { closeLandedPullRequests } from "@/lib/landed-stack"
 import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
@@ -1318,9 +1319,11 @@ export function watchRobot(robot: PatronusRobot, label: string): void {
   schedulePoll(false)
 }
 
-/** Adds or replaces a robot the user just started, restarted or canceled; it is polled while it runs */
-export function upsertPatronusRobot(robot: PatronusRobot): void {
-  const key = currentKey()
+/**
+ * Adds or replaces a robot the user just started, restarted or canceled, in the repository of `key` (by default the
+ * selected one: a start that ran on after a switch stores its robot where it started); it is polled while it runs
+ */
+export function upsertPatronusRobot(robot: PatronusRobot, key: string | null = currentKey()): void {
   if (key === null) {
     return
   }
@@ -1355,10 +1358,12 @@ export async function startPatronusRobot(
   profileName: string | null = null,
   stack = false,
   allow: LandingAllowances = {},
+  repository: StartRepository | null = null,
 ): Promise<PatronusRobot> {
+  const request = repository?.request ?? patronusRequest()
   const result = await commands.startPatronusRobot({
-    ...patronusRequest(),
-    baselineBranch: branchSyncStore.getState().baselineBranch ?? "",
+    ...request,
+    baselineBranch: repository?.baselineBranch ?? branchSyncStore.getState().baselineBranch ?? "",
     branchName,
     ...(stack && { stack: true }),
     mode,
@@ -1374,8 +1379,14 @@ export async function startPatronusRobot(
     result.data.profile?.name == null && profileId !== null
       ? { ...result.data, profile: { id: profileId, name: profileName, skipsReview: result.data.profile?.skipsReview ?? null } }
       : result.data
-  upsertPatronusRobot(robot)
+  upsertPatronusRobot(robot, repositoryKey(request.repositoryPath, request.branchPrefix))
   return robot
+}
+
+/** The repository a start runs in, as it was when the start was asked, and its baseline then */
+export interface StartRepository {
+  readonly request: VcsRequest
+  readonly baselineBranch: string
 }
 
 /**
@@ -1384,8 +1395,8 @@ export async function startPatronusRobot(
  * count and Patronus closes it once merged. Posts the comment, then waits up to a minute for the bot: 👎 throws its
  * reason; after 👍, the new robot of the pull request is listed, stored and returned (polled while it runs).
  */
-export async function startPatronusFromPullRequest(pullRequestNumber: number, mode: PatronusPushMode): Promise<PatronusRobot> {
-  const robot = await askPatronusOnPullRequest(pullRequestNumber, mode, "ownBranch", null, Number.POSITIVE_INFINITY)
+export async function startPatronusFromPullRequest(pullRequestNumber: number, mode: PatronusPushMode, request: VcsRequest | null = null): Promise<PatronusRobot> {
+  const robot = await askPatronusOnPullRequest(pullRequestNumber, mode, "ownBranch", null, Number.POSITIVE_INFINITY, request)
   if (robot === null) {
     throw new Error(noRobotWithinAMinute(pullRequestNumber))
   }
@@ -1419,12 +1430,11 @@ async function askPatronusOnPullRequest(
   subject: PatronusCommandSubject,
   githubRepository: string | null,
   robotWait: number,
+  request: VcsRequest | null = null,
 ): Promise<PatronusRobot | null> {
-  const key = currentKey()
-  if (key === null) {
-    throw new Error("No repository is selected")
-  }
-  const { repositoryPath, branchPrefix } = patronusRequest()
+  // the repository the start was asked in: the answer of the bot applies there, also after a switch
+  const { repositoryPath, branchPrefix } = request ?? patronusRequest()
+  const key = repositoryKey(repositoryPath, branchPrefix)
   const postedAt = Date.now()
   const posted = await commands.postPatronusCommand({ repositoryPath, pullRequestNumber, mode, subject, githubRepository })
   if (posted.status === "error") {
@@ -1481,12 +1491,13 @@ export async function readPatronusTargetBranch(): Promise<string | null> {
   return result.status === "ok" ? result.data : null
 }
 
-async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot): Promise<PatronusRobot> {
-  const result = await command({ ...patronusRequest(), robotId: robot.id })
+async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot, request: VcsRequest | null = null): Promise<PatronusRobot> {
+  const { repositoryPath, branchPrefix } = request ?? patronusRequest()
+  const result = await command({ repositoryPath, branchPrefix, robotId: robot.id })
   if (result.status === "error") {
     throw new Error(result.error.message)
   }
-  upsertPatronusRobot(result.data)
+  upsertPatronusRobot(result.data, repositoryKey(repositoryPath, branchPrefix))
   return result.data
 }
 
@@ -1495,9 +1506,12 @@ export function restartPatronusRobot(robot: PatronusRobot): Promise<PatronusRobo
   return robotAction(commands.restartPatronusRobot, robot)
 }
 
-/** Asks Patronus to cancel the robot; resolves to it canceling, throws what Patronus said */
-export function cancelPatronusRobot(robot: PatronusRobot): Promise<PatronusRobot> {
-  return robotAction(commands.cancelPatronusRobot, robot)
+/**
+ * Asks Patronus to cancel the robot of the repository (by default the selected one); resolves to it canceling, throws
+ * what Patronus said
+ */
+export function cancelPatronusRobot(robot: PatronusRobot, request: VcsRequest | null = null): Promise<PatronusRobot> {
+  return robotAction(commands.cancelPatronusRobot, robot, request)
 }
 
 /** The current status of the robot (one row read), stored; null when Patronus can't answer */

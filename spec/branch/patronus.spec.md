@@ -580,6 +580,15 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   the push into the target is left out.
   [@test] ../../src/lib/patronus.test.ts (`pushes before a start only what the remote lacks by content, and waits for the remote status`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a branch whose remote branch has its commits under other hashes without a push`, `should wait to start until the remote status of the branch is loaded`)
+- A start belongs to the repository it was asked in: the click freezes the repository, its branch prefix and its
+  baseline, and every step names them (the landing gate, the target conflict check, the cancel of the robot it
+  replaces, the start or the comment on the pull request, Activity), so a switch of the repository during the start
+  starts nothing in the other one, and its robot lands in the store of its own repository, which shows it on return.
+  The step of a start shows only in its repository: the branch of the same name in the other one shows no step and
+  starts on its own. The push reads the branches of the table: a switch before it starts nothing, "Cannot start the
+  Safe Push" says "idea-1 is no longer the open repository"; a push already sent ends there and the robot starts.
+  [@test] ../../src/lib/safe-push-start.test.ts (`starts the robot in the repository it was asked in when the switch comes during its push`, `pushes nothing of the other repository when the switch comes before its push, and says why`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start the Safe Push in its repository when another repository opens during its checks`)
 - A push before the start of a branch with an open pull request into the target that someone approved, in a
   repository whose GitHub rules dismiss stale reviews on push (a `pull_request` rule with `dismiss_stale_reviews_on_push`
   of `GET repos/<owner>/<name>/rules/branches/<target>`, readable with read access; `get_branch_rules`,

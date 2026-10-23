@@ -4,6 +4,7 @@ import { getErrorDetails } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import { joinNames } from "@/lib/text"
 import { branchSyncStore } from "@/stores/branch-sync"
+import type { StartRepository } from "@/stores/patronus"
 import { patronusRequest } from "@/stores/patronus"
 
 /**
@@ -17,12 +18,12 @@ export type TargetDecision = { readonly kind: "refuse"; readonly reason: string 
  * target, then the replay of the branch onto its tip, as `bd safe-push` checks it): the branch `branchName`, or the
  * stack branch of the whole stack of the root `wholeStack`. A failed command holds nothing back: the note says so.
  */
-export async function checkTargetBeforeStart(branchName: string, wholeStack: string | null): Promise<TargetDecision> {
-  const baseline = branchSyncStore.getState().baselineBranch ?? ""
+export async function checkTargetBeforeStart(branchName: string, wholeStack: string | null, repository: StartRepository | null = null): Promise<TargetDecision> {
+  const baseline = repository?.baselineBranch ?? branchSyncStore.getState().baselineBranch ?? ""
   const subject = wholeStack === null ? branchName : `the whole ${wholeStack} stack`
   try {
     const result = await commands.checkTargetConflict({
-      ...patronusRequest(),
+      ...(repository?.request ?? patronusRequest()),
       baselineBranch: baseline,
       branchName: wholeStack ?? branchName,
       ...(wholeStack !== null && { stack: true }),

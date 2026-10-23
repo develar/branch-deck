@@ -2,6 +2,7 @@ import type { LandingAllowances, LandingCheck, LandingFix, LandingRefusal, Robot
 import { commands } from "@/lib/bindings"
 import { getErrorDetails } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
+import type { StartRepository } from "@/stores/patronus"
 import { patronusRequest } from "@/stores/patronus"
 
 /**
@@ -19,11 +20,16 @@ export type LandingDecision =
  * merged Safe Pushes landed count as in the target, as Rust names them on the robots it reads. `allow` holds what the user
  * started anyway. A failed check holds nothing back: the note says so, and the start command checks again.
  */
-export async function checkLandingBeforeStart(branchName: string, wholeStack: string | null, allow: LandingAllowances): Promise<LandingDecision> {
+export async function checkLandingBeforeStart(
+  branchName: string,
+  wholeStack: string | null,
+  allow: LandingAllowances,
+  repository: StartRepository | null = null,
+): Promise<LandingDecision> {
   const subject = wholeStack === null ? branchName : `the whole ${wholeStack} stack`
   try {
     const result = await commands.checkLandingGate({
-      ...patronusRequest(),
+      ...(repository?.request ?? patronusRequest()),
       branchName: wholeStack ?? branchName,
       ...(wholeStack !== null && { stack: true }),
       allow,

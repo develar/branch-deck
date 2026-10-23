@@ -308,10 +308,10 @@ export async function checkPushHold(branchName: string, options: PushOptions, re
  * Cancels the robot of a hold before the push that restarts or replaces it, or before a Safe Push start that replaces it
  * without a push; false when Patronus refused (it said so)
  */
-export async function cancelHoldingRobot(robot: PatronusRobot, report: PushReport = notifyError): Promise<boolean> {
+export async function cancelHoldingRobot(robot: PatronusRobot, report: PushReport = notifyError, request: VcsRequest | null = null): Promise<boolean> {
   const mode = formatPushMode(robot.pushMode)
   try {
-    await cancelPatronusRobot(robot)
+    await cancelPatronusRobot(robot, request)
     return true
   } catch (error) {
     report(`Cannot cancel the ${mode}`, error)

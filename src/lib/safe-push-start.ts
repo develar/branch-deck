@@ -12,8 +12,11 @@ import { runRobotAction } from "@/lib/patronus-actions"
 import { checkTargetBeforeStart } from "@/lib/target-conflict"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
+import { branchSyncStore } from "@/stores/branch-sync"
+import type { StartRepository } from "@/stores/patronus"
 import { startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patronus"
-import type { SafePushMode } from "@/stores/safe-push"
+import { getRepositorySwitchReason, vcsRequestFactory } from "@/stores/repository"
+import type { SafePushMode, SafePushStarting } from "@/stores/safe-push"
 import { getSafePushStarting, setSafePushStarting } from "@/stores/safe-push"
 import { runUpdateProject } from "@/stores/update-project"
 
@@ -52,49 +55,77 @@ export interface SafePushStart {
  * check did not run or used the last fetched target), the push has none (Activity records it). A failure is "Cannot
  * start the Safe Push" with the reason; a failed push starts nothing. Resolves to whether the robot started.
  */
-export async function startSafePush(start: SafePushStart): Promise<boolean> {
+export async function startSafePush(start: SafePushStart, repository: StartRepository | null = null): Promise<boolean> {
   const { branchName, mode } = start
   const modeName = formatPushMode(mode)
-  const current = getSafePushStarting(branchName)
+  const errorTitle = `Cannot start the ${modeName}`
+  // the repository the start was asked in, frozen at admission: every step names it, so a switch of the repository
+  // meanwhile starts nothing in the other one
+  const admitted = repository ?? admitStart(errorTitle)
+  if (admitted === null) {
+    return false
+  }
+  const { request } = admitted
+  const repositoryPath = request.repositoryPath
+  const current = getSafePushStarting(branchName, repositoryPath)
   if (current !== null && current.step !== "checking") {
     return false
   }
-  const errorTitle = `Cannot start the ${modeName}`
   const root = start.wholeStack
+  const setStep = (step: SafePushStarting["step"] | null) => setSafePushStarting(branchName, step === null ? null : { mode, step }, repositoryPath)
   try {
-    setSafePushStarting(branchName, { mode, step: "target" })
+    setStep("target")
     const allow = start.allow ?? {}
-    const landing = await checkLandingBeforeStart(branchName, root, allow)
+    const landing = await checkLandingBeforeStart(branchName, root, allow, admitted)
     if (landing.kind === "refuse") {
-      refuseLanding(start, errorTitle, landing)
+      refuseLanding(start, errorTitle, landing, admitted)
       return false
     }
-    const target = await checkTargetBeforeStart(branchName, root)
+    const target = await checkTargetBeforeStart(branchName, root, admitted)
     if (target.kind === "refuse") {
       notifyError(errorTitle, target.reason, { children: "Update Project", onClick: () => void runUpdateProject() })
       return false
     }
     if (start.needsPush) {
-      setSafePushStarting(branchName, { mode, step: "pushing" })
-      if (!(await pushFirst(start, errorTitle))) {
+      // the push reads the branches of the table, which are of the selected repository
+      const switched = getRepositorySwitchReason(repositoryPath)
+      if (switched !== null) {
+        notifyError(errorTitle, switched)
         return false
       }
-    } else if (start.replaces !== null && !(await cancelHoldingRobot(start.replaces))) {
+      setStep("pushing")
+      if (!(await pushFirst(start, errorTitle, repositoryPath))) {
+        return false
+      }
+    } else if (start.replaces !== null && !(await cancelHoldingRobot(start.replaces, notifyError, request))) {
       return false
     }
-    setSafePushStarting(branchName, { mode, step: "starting" })
+    setStep("starting")
     const robot =
       start.fromPullRequest === null
-        ? await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null, allow)
-        : await startPatronusFromPullRequest(start.fromPullRequest.number, mode)
+        ? await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null, allow, admitted)
+        : await startPatronusFromPullRequest(start.fromPullRequest.number, mode, request)
     const note = [landing.note, target.note].filter(line => line !== null).join(" ")
-    announceStart(`${modeName} started`, robot, start.fromPullRequest === null ? (start.profile?.name ?? null) : null, note === "" ? null : note)
+    announceStart(`${modeName} started`, robot, start.fromPullRequest === null ? (start.profile?.name ?? null) : null, note === "" ? null : note, repositoryPath)
     return true
   } catch (error) {
     notifyError(errorTitle, error)
     return false
   } finally {
-    setSafePushStarting(branchName, null)
+    setStep(null)
+  }
+}
+
+/**
+ * The repository a start is asked in, as the main window shows it now, and its baseline; null when none is configured
+ * (the error toast said so under `errorTitle`)
+ */
+export function admitStart(errorTitle: string): StartRepository | null {
+  try {
+    return { request: vcsRequestFactory.createRequest(), baselineBranch: branchSyncStore.getState().baselineBranch ?? "" }
+  } catch (error) {
+    notifyError(errorTitle, error)
+    return null
   }
 }
 
@@ -103,8 +134,8 @@ export async function startSafePush(start: SafePushStart): Promise<boolean> {
  * first refusal as the action ("Stack lane-run on stills-codec", a restack the start then lands too), and Start Anyway,
  * the same start with the overrides of what refused it (a name the user knows is a false alarm)
  */
-function refuseLanding(start: SafePushStart, errorTitle: string, landing: Extract<LandingDecision, { kind: "refuse" }>): void {
-  const anyway = { label: "Start Anyway", onClick: () => void startSafePush({ ...start, allow: landing.anyway }) }
+function refuseLanding(start: SafePushStart, errorTitle: string, landing: Extract<LandingDecision, { kind: "refuse" }>, repository: StartRepository): void {
+  const anyway = { label: "Start Anyway", onClick: () => void startSafePush({ ...start, allow: landing.anyway }, repository) }
   const fix = landing.fix
   const fixLabel = formatLandingFix(fix)
   if (fix?.kind === "restack" && fixLabel !== null) {
@@ -118,12 +149,12 @@ function refuseLanding(start: SafePushStart, errorTitle: string, landing: Extrac
  * The push of what the remote lacks before the start: the branch and its stack (`pushForAction`), or only the stack
  * branch of the whole stack (`pushWholeStack`); a failure said under `errorTitle`. Resolves to whether it was pushed.
  */
-function pushFirst(start: SafePushStart, errorTitle: string): Promise<boolean> {
+function pushFirst(start: SafePushStart, errorTitle: string, repositoryPath: string): Promise<boolean> {
   const replacesRobot = start.replaces ?? undefined
   if (start.wholeStack !== null) {
     return pushWholeStack(start.wholeStack, { replacesRobot, report: (_title, reason) => notifyError(errorTitle, reason) })
   }
-  return pushForAction(start.branchName, { replacesRobot }).then(pushed => {
+  return pushForAction(start.branchName, { replacesRobot, repositoryPath }).then(pushed => {
     if (!pushed.pushed) {
       notifyError(errorTitle, pushed.reason)
     }
@@ -136,9 +167,9 @@ function pushFirst(start: SafePushStart, errorTitle: string): Promise<boolean> {
  * mistake costs only the robot (the push and the comment stay); Activity records it. `note` follows the description:
  * the target conflict check did not run, or used the last fetched target
  */
-function announceStart(title: string, robot: PatronusRobot, profileName: string | null, note: string | null): void {
+function announceStart(title: string, robot: PatronusRobot, profileName: string | null, note: string | null, repositoryPath: string): void {
   const description = note === null ? describeRobot(robot, profileName) : `${describeRobot(robot, profileName)}. ${note}`
-  recordRobot(title, description, robot)
+  recordRobot(title, description, robot, repositoryPath)
   const mode = formatPushMode(robot.pushMode)
   const id = toast.add({
     type: "success",

@@ -186,3 +186,5 @@ operation.
 6. **Decision**: the push and the start of a Safe Push keep their own record.
    **Rationale**: what they hold (the branches a stack push sends, its percent, a start's step across a popover) is not
    an operation's; their surfaces already read one record each, join a second click and show one indicator.
+   Both records are keyed by the repository the action started in and the branch: a push or a start that runs on after
+   a switch of the repository shows nothing on the branch of the same name there, nor holds its push or start back.

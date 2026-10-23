@@ -40,6 +40,7 @@ import {
 } from "../helpers/pull-request-helpers"
 import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
+import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { hoverStatusChip, openBranchPreview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { closeMenus, openSubmenu } from "../helpers/selection-helpers"
@@ -514,6 +515,32 @@ test.describe("Patronus actions", () => {
     // no push: the start cancels the robot itself, and never restarts it
     await expect.poll(() => patronusActions(repo)).toEqual(REPLACED)
     expect(pushes).toEqual([])
+  })
+
+  test("should start the Safe Push in its repository when another repository opens during its checks", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links", { patronus: availableRobots() })
+    await addRecentProject(page)
+    // the remote branch has the commits of JIRA-456: the start pushes nothing
+    await rewriteNextRemoteStatus(page, status =>
+      status.branchName === "JIRA-456" ? { ...status, remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } : status,
+    )
+    await syncAndWaitForBranches()
+    await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
+    const releaseCheck = await holdCommand(page, "check_target_conflict")
+
+    await safePushFromMenu(page, "JIRA-456")
+    await expect(slotSafePush(page, "JIRA-456")).toHaveText("Checking…")
+    // the user opens another repository while the start checks the target
+    await switchRepository(page, OTHER_REPOSITORY)
+    releaseCheck()
+
+    // the start goes on in the repository it was asked in: Patronus got it, and the toast says it
+    await expect(toastWith(page, "Safe Push started")).toBeVisible()
+    await expect.poll(async () => (await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
+    await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
+    // back in it, the branch is landing
+    await switchRepository(page, repo.path)
+    await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
   })
 
   test("should wait to start until the remote status of the branch is loaded", async ({ page, setupRepo, syncAndWaitForBranches }) => {

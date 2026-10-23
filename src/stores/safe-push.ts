@@ -1,6 +1,7 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { PatronusPushMode } from "@/lib/bindings"
+import { getSelectedRepositoryPath, useSelectedProjectPath } from "@/stores/repository"
 
 /** The two starts of a robot the app offers: a Safe Push and a Dry Run */
 export type SafePushMode = Extract<PatronusPushMode, "rebaseAutosquash" | "dryRun">
@@ -37,6 +38,10 @@ export interface SafePushStarting {
 
 export interface SafePushState {
   readonly ask: SafePushAsk | null
+  /**
+   * By `startingKey` of the repository the start runs in and the branch: a start that runs on after a switch of the
+   * repository shows nothing on the branch of the same name there, nor holds its start back
+   */
   readonly starting: Readonly<Record<string, SafePushStarting>>
 }
 
@@ -47,12 +52,25 @@ export function useSafePushAsk(branchName: string, placement: SafePushPlacement)
   return useStore(safePushStore, state => (state.ask?.branchName === branchName && state.ask.placement === placement ? state.ask : null))
 }
 
-export function useSafePushStarting(branchName: string): SafePushStarting | null {
-  return useStore(safePushStore, state => state.starting[branchName] ?? null)
+function startingKey(repositoryPath: string, branchName: string): string {
+  return `${repositoryPath}\n${branchName}`
 }
 
-export function getSafePushStarting(branchName: string): SafePushStarting | null {
-  return safePushStore.getState().starting[branchName] ?? null
+/** The start running for the branch of the selected repository */
+export function useSafePushStarting(branchName: string): SafePushStarting | null {
+  const key = startingKey(useSelectedProjectPath() ?? "", branchName)
+  return useStore(safePushStore, state => state.starting[key] ?? null)
+}
+
+/** The start running for the branch of the repository, by default the selected one */
+export function getSafePushStarting(branchName: string, repositoryPath: string = getSelectedRepositoryPath()): SafePushStarting | null {
+  return safePushStore.getState().starting[startingKey(repositoryPath, branchName)] ?? null
+}
+
+/** The starts running in the repository, by default the selected one, by branch */
+export function getSafePushStarts(repositoryPath: string = getSelectedRepositoryPath()): Readonly<Record<string, SafePushStarting>> {
+  const prefix = startingKey(repositoryPath, "")
+  return Object.fromEntries(Object.entries(safePushStore.getState().starting).flatMap(([key, start]) => (key.startsWith(prefix) ? [[key.slice(prefix.length), start]] : [])))
 }
 
 /** Opens the popover of the start; replaces the popover of another start */
@@ -68,14 +86,15 @@ export function closeSafePushPopover(branchName?: string): void {
   }
 }
 
-/** Marks the step of the running start of `branchName`; null when it ended */
-export function setSafePushStarting(branchName: string, starting: SafePushStarting | null): void {
+/** Marks the step of the running start of `branchName` in the repository it runs in; null when it ended */
+export function setSafePushStarting(branchName: string, starting: SafePushStarting | null, repositoryPath: string = getSelectedRepositoryPath()): void {
+  const key = startingKey(repositoryPath, branchName)
   safePushStore.setState(state => {
-    const { [branchName]: current, ...rest } = state.starting
+    const { [key]: current, ...rest } = state.starting
     if (starting === null) {
       return current === undefined ? state : { starting: rest }
     }
-    return current?.mode === starting.mode && current.step === starting.step ? state : { starting: { ...rest, [branchName]: starting } }
+    return current?.mode === starting.mode && current.step === starting.step ? state : { starting: { ...rest, [key]: starting } }
   })
 }
 

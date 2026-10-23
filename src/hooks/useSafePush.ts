@@ -28,7 +28,7 @@ import { getPushAction } from "@/lib/push-summary"
 import type { DismissFact, ReviewFact, SafePushDecision, SafePushFacts, StartOptionsFact } from "@/lib/safe-push-decision"
 import { getSafePushDecision } from "@/lib/safe-push-decision"
 import type { SafePushStart } from "@/lib/safe-push-start"
-import { startSafePush } from "@/lib/safe-push-start"
+import { admitStart, startSafePush } from "@/lib/safe-push-start"
 import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { showToast } from "@/lib/toast-message"
@@ -49,6 +49,7 @@ import {
   patronusStore,
 } from "@/stores/patronus"
 import { getPullRequest, getPullRequestAvailability, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
+import { getRepositorySwitchReason } from "@/stores/repository"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { demandReviewReadiness, freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useDemandReviewReadiness } from "@/stores/review-readiness"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
@@ -624,24 +625,36 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     openSafePushPopover(ask)
     return
   }
-  setSafePushStarting(branchName, { mode, step: "checking" })
+  // the start is admitted in the repository of the click: what it reads meanwhile decides on it, and it starts there
+  const admitted = admitStart(`Cannot start the ${formatPushMode(mode)}`)
+  if (admitted === null) {
+    return
+  }
+  const repositoryPath = admitted.request.repositoryPath
+  setSafePushStarting(branchName, { mode, step: "checking" }, repositoryPath)
   const release = mode === "rebaseAutosquash" ? demandReviewReadiness(branchName) : () => {}
   let read: SafePushRead | null
   try {
     read = await settleSafePush(branchName, request)
   } finally {
     release()
-    if (getSafePushStarting(branchName)?.step === "checking") {
-      setSafePushStarting(branchName, null)
+    if (getSafePushStarting(branchName, repositoryPath)?.step === "checking") {
+      setSafePushStarting(branchName, null, repositoryPath)
     }
   }
   if (read === null) {
     return
   }
+  // the decision read the stores of the selected repository: those of another one decide nothing here
+  const switched = getRepositorySwitchReason(repositoryPath)
+  if (switched !== null) {
+    notifyError(`Cannot start the ${formatPushMode(mode)}`, switched)
+    return
+  }
   const { decision } = read
   switch (decision.kind) {
     case "start":
-      await startSafePush(read.start)
+      await startSafePush(read.start, admitted)
       return
     case "refuse": {
       // the answer the click waited for may be the step's own reason (the approvals): its notice says it, with its action

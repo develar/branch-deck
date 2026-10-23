@@ -13,7 +13,7 @@ import { branchSyncStore, getBranch, getParkedState, getStackBranch, isBranchPus
 import { getOperationMoves } from "@/stores/operations"
 import { getBranchRobot, getLandingSpan, getStackRobot, isPatronusKnown } from "@/stores/patronus"
 import { useShowReviewReadiness } from "@/stores/review-readiness"
-import { safePushStore } from "@/stores/safe-push"
+import { getSafePushStarts } from "@/stores/safe-push"
 
 /** What decides the node of a branch now, from the stores */
 function landingFactsOf(branch: Branch): LandingNodeFacts {
@@ -39,7 +39,7 @@ function runningMoveOf(key: string): FoundMove | null {
 
 /** The moves that run: of the operations that declare one, and of the starts of a Safe Push or a Dry Run */
 function runningMoves(): readonly RunningMove[] {
-  return [...getOperationMoves(), ...safePushStartMoves(safePushStore.getState().starting)]
+  return [...getOperationMoves(), ...safePushStartMoves(getSafePushStarts())]
 }
 
 /** The branches a Safe Push of `key` lands beside it: the members of a whole stack, the ancestors of a branch */
