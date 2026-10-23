@@ -1,6 +1,6 @@
 use crate::update_project::{
-  FetchFailed, LOCKED_MESSAGE, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error, undo_update_core,
-  update_project_core, update_project_with,
+  FetchFailed, LOCKED_MESSAGE, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error, locked_message,
+  undo_update_core, update_project_core, update_project_with,
 };
 use domain_types::SyncEvent;
 use domain_types::update_project::{UpdateCommit, UpdateKind, UpdateState};
@@ -891,8 +891,12 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   let mut phases = progress.into_inner();
   phases.dedup();
   assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Checking, UpdatePhase::Waiting]);
-  // the app says who holds it, without the lock file
-  assert_eq!(format!("{:#}", app_error(error)), LOCKED_MESSAGE);
+  // the app says who holds it (here the test itself), without the lock file
+  let message = format!("{:#}", app_error(error));
+  assert!(message.contains(&format!("(pid {}, for ", std::process::id())), "{message}");
+  assert!(message.ends_with(" is changing this repository. Try again when it is done."), "{message}");
+  assert!(!message.contains("branch-deck.lock"), "{message}");
+  assert_eq!(locked_message(None), LOCKED_MESSAGE, "a holder whose record is gone names nobody");
   // the fetch ran before the lock; nothing else changed
   assert_eq!(git(&clone, &["rev-parse", "origin/master"]), upstream.head());
   assert_eq!(clone.head(), head);

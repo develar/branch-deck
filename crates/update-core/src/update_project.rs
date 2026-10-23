@@ -16,7 +16,7 @@ use git_ops::update_branch::{
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::commit_grouper::GroupingInputs;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository, lock_repository_with};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, RepositoryLocked, lock_repository, lock_repository_with};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::path::Path;
@@ -99,8 +99,18 @@ pub struct NoUpstream {
   pub baseline: String,
 }
 
-/// The app's words for a held repository lock: the lock file is an internal detail
+/// The app's words for a held repository lock whose holder is unknown: the lock file is an internal detail
 pub const LOCKED_MESSAGE: &str = "Branch Deck or bd is changing this repository. Try again when it is done.";
+
+/// The app's words for a held repository lock, with its holder when the holder's record names it: "`bd push` (pid
+/// 4242, for 12 s) is changing this repository. Try again when it is done.", so the user tells an agent's `bd` from the
+/// app's own operation
+pub fn locked_message(holder: Option<&LockHolder>) -> String {
+  holder.map_or_else(
+    || LOCKED_MESSAGE.to_string(),
+    |holder| format!("{holder} is changing this repository. Try again when it is done."),
+  )
+}
 
 /// Fetch the baseline, check the update and apply it if it is clean. A conflict or a block is a result, not an error:
 /// nothing is changed, and the check says why.
@@ -113,12 +123,11 @@ pub fn update_project_core(git_executor: &GitCommandExecutor, params: &UpdatePro
   update_project_with(git_executor, &params.repository_path, options, on_progress).map_err(app_error)
 }
 
-/// An error of `update_project_with` in the words of the app: a held lock is `LOCKED_MESSAGE`
+/// An error of `update_project_with` in the words of the app: a held lock is `locked_message` of its holder
 pub fn app_error(error: anyhow::Error) -> anyhow::Error {
-  if error.downcast_ref::<RepositoryLocked>().is_some() {
-    anyhow!(LOCKED_MESSAGE)
-  } else {
-    error
+  match error.downcast_ref::<RepositoryLocked>() {
+    Some(locked) => anyhow!(locked_message(locked.holder.as_ref())),
+    None => error,
   }
 }
 

@@ -156,8 +156,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   landed never run under the lock. A branch or an upstream moved during the check must be checked once more, under
   the lock, and a file the update writes, edited during the check, must block it. A lock held for the whole wait
   (10 s in the app) is an error with only the fetch and the check done: the app shows "Cannot update the project"
-  with "Branch Deck or bd is changing this repository. Try again when it is done." (no lock file path) and keeps the
-  time of the fetch.
+  with the holder its record names, "`bd push` (pid 4242, for 12 s) is changing this repository. Try again when it
+  is done." ("Branch Deck or bd is changing this repository. …" once the record is gone; no lock file path), and
+  keeps the time of the fetch.
   [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
   [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`, `the_check_of_an_update_runs_before_the_lock`, `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`, `a_file_edited_during_the_replay_of_an_update_blocks_it`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)

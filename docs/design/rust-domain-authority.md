@@ -786,7 +786,8 @@ repository». Аудит всех функций в тот же день наш�
   `the_sync_of_a_rewrite_runs_after_the_lock`), раньше s11; check Update Project (replay, resolve by words, landed
   candidates) — до lock на замороженных HEAD и upstream, под lock — witness (сдвиг — один re-prepare под lock),
   `blocking_paths` и move, landed report — после unlock (C11; `the_check_of_an_update_runs_before_the_lock`,
-  `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`).
+  `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`); toast `locked` Update Project
+  называет держателя из его записи (`locked_message`), до `Busy { holder }` s4.
 - **Очередь в TS до s11:** `runOperation` ставит rewrite в очередь вместо `onBlocked`; Undo помечается выполненным
   после `Ok`; слот Update Project — только apply (`fetch_baseline`, затем `update_project` без fetch); ⌘T во время
   Fetch присоединяется; push ждёт идущий rewrite. `operations.md` в том же коммите: «Conflicts», «Items» и
