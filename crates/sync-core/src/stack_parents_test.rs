@@ -493,3 +493,23 @@ fn an_undo_passes_over_the_drops_of_a_sync() {
   let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap_err();
   assert!(matches!(error, RegroupError::StacksMoved(_)), "{error}");
 }
+
+/// A regroup (Unstack, Park, Rename) holds the repository lock from its read of the stores to its transaction, which
+/// moves them with CAS: the drop of a sync in that time would fail it as "the stack parents moved". The drop takes the
+/// lock only while it is free, else the next sync drops the line
+#[test]
+fn a_sync_leaves_the_stack_parents_to_a_regroup_that_holds_the_lock() {
+  let repo = baseline_repo(true);
+  plant(&repo, "login\tauth\n");
+  let held = history_rewrite::repository_lock::lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
+  drop_integrated_stack_parents(repo.git_executor(), path(&repo), &["login"]);
+  assert_eq!(
+    (stack_parents(&repo).entries, history(&repo)),
+    (entries(&[("login", "auth")]), 1),
+    "the store is the regroup's"
+  );
+  drop(held);
+  drop_integrated_stack_parents(repo.git_executor(), path(&repo), &["login"]);
+  let after = stack_parents(&repo);
+  assert!(after.entries.is_empty() && history(&repo) == 2, "{after:?}");
+}

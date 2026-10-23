@@ -471,8 +471,12 @@ messages back.
   refs that moved, with `+`, in this order; `S2` must be a write on `S1`.
 - The one write outside a regroup: after the detection of the archived branches, a sync drops the lines of the
   children whose newest archived branch is integrated (`drop_integrated_stack_parents`), with CAS on the commit it
-  read and only when a line goes, with a message of its own. It holds no repository lock (the app's sync never does, see "Repository lock"); a
-  write that loses the race is skipped and tried at the next sync. A newer archive that is not integrated, such as a
+  read and only when a line goes, with a message of its own. It takes the repository lock only while it is free, never
+  waiting (`drop_store_lines`): a regroup holds the lock from its read of the stores to its transaction, so a drop in
+  that time would fail it with `stacks_moved` or `parked_moved`; a held lock, also one of the same process (the sync of
+  `bd push` under its lock), leaves the drop to the next sync
+  (`a_sync_leaves_the_stack_parents_to_a_regroup_that_holds_the_lock`). A write that loses the race to another writer
+  is skipped and tried at the next sync. A newer archive that is not integrated, such as a
   branch of another worktree that this sync archived, keeps the line. So that such a drop does not break the undo of
   a regroup whose toast is still open, an undo whose `S2` is followed only by drops (one `log`) writes the map of `S1`
   without the dropped children on top of them (`undo_over_drops`, for any `LineStore` with its drop message), in the
@@ -498,7 +502,7 @@ built on it, which carries its commits.
   stack parents, parked branches (`parked_moved`). A merge into another branch by a move keeps the line of the
   branch moved from: it may park the branch of another worktree.
 - A sync drops the line of a parked branch without commits here whose newest archived branch is integrated, as the
-  stack parents (`drop_integrated_parked`, its own drop message, best effort, no lock), and an undo of a rename passes
+  stack parents (`drop_integrated_parked`, its own drop message, best effort, only while the lock is free), and an undo of a rename passes
   over those drops. Every other idle line stays (`idle_parked` of `bd status`): an issue key that groups again is
   parked again.
 
@@ -524,8 +528,9 @@ releases it, so the error of a wait names the holder; the lock file itself can't
 locked file. A record whose process is gone (`process_scan::is_running`) names nobody. A core finds the file with one
 `rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
 directory its context resolved, and a wait for it makes `bd` read the config again (`RepoContext::forget_config`). A sync
-never takes it, the app's, `bd sync` and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large
-repository would make every writer fail with `locked`. Within a window one sync
+never waits for it, the app's, `bd sync` and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large
+repository would make every writer fail with `locked`; only its drop of store lines takes it, while it is free (see
+"Regroup"). Within a window one sync
 runs at a time (`syncBranches`): a request while one runs asks for one follow-up after it, the events of a superseded
 run are dropped, and a focus during a sync checks the inputs once after it. A `bd` write during an app sync changes
 the inputs (the fingerprint is taken when the sync starts), so the next focus syncs again and corrects what the sync

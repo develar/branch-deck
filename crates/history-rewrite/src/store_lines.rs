@@ -3,6 +3,7 @@
 //! sorted `key<TAB>value` lines, and every write is a new commit on the previous one. A ref of its own, because a store commit replaces its whole tree
 //! (`deleteall`): a second file next to another map would be lost by every write of a version that does not know it.
 
+use crate::repository_lock::{RepositoryLocked, lock_repository};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
@@ -11,7 +12,8 @@ use git_ops::object_texts::into_text;
 use git_ops::revs::short_id;
 use std::collections::BTreeMap;
 use std::fmt::Write;
-use tracing::{info, instrument, warn};
+use std::time::Duration;
+use tracing::{debug, info, instrument, warn};
 
 /// A line map: the ref of its store, the file of the store's tree, the message of its commits and what its lines are
 #[derive(Debug, Clone, Copy)]
@@ -259,12 +261,26 @@ pub(crate) fn undo_over_drops(
 
 /// Drop the lines of `keys` from `store` in a commit with `drop_message`, which an undo of a regroup passes over
 /// (`undo_over_drops`). Reads the store again (one `cat-file --batch`) and writes only when a line goes, with
-/// compare-and-swap; best effort, because the next sync tries again: a failure is only logged
+/// compare-and-swap; best effort, because the next sync tries again: a failure is only logged. Only while the
+/// repository lock is free, which it takes without waiting: a regroup holds it from its read of the stores to its
+/// transaction, and a drop between them would fail the regroup (`StacksMoved`, `ParkedMoved`); a held lock (another
+/// operation of this process too) leaves the drop to the next sync
 #[instrument(skip(git_executor, store, keys), fields(store = store.name, count = keys.len()))]
 pub fn drop_store_lines(git_executor: &GitCommandExecutor, repository_path: &str, store: &LineStore, drop_message: &str, keys: &[&str]) {
   if keys.is_empty() {
     return;
   }
+  let _lock = match lock_repository(git_executor, repository_path, Duration::ZERO) {
+    Ok(lock) => lock,
+    Err(e) if e.downcast_ref::<RepositoryLocked>().is_some() => {
+      debug!(store = store.name, "the repository lock is held: the next sync drops the lines");
+      return;
+    }
+    Err(e) => {
+      warn!(store = store.name, error = %format!("{e:#}"), "Failed to drop the lines of integrated branches");
+      return;
+    }
+  };
   let result = (|| -> Result<Vec<String>> {
     let read = store.read(git_executor, repository_path)?;
     let (Some(commit), mut entries) = (read.commit, read.entries) else {

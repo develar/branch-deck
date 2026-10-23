@@ -706,7 +706,7 @@ repository». Аудит всех функций в тот же день наш�
 | --- | --- | --- | --- |
 | `{prefix}/virtual/<b>`, `stack/<root>`, conflict refs | sync приложения и `bd` | CAS в одной транзакции; проигрыш — тихий повтор sync | приложение без lock; `bd sync` под lock всего sync |
 | HEAD, индекс и файлы worktree | rewrites, apply Update Project, `bd pick`, unapply/reapply и их undo | repository lock на witness, транзакцию и move (`commit_while`) | lock common dir на всю операцию |
-| store refs (`issue-groups`, `stack-parents`, `parked`) | regroup под lock; drop'ы sync | CAS; drop sync — `try_lock` без ожидания, занято — пропуск; regroup перечитывает снимок один раз, если новый коммит store — только drop | drop sync без lock роняет regroup `StacksMoved`/`ParkedMoved` |
+| store refs (`issue-groups`, `stack-parents`, `parked`) | regroup под lock; drop'ы sync | CAS; drop sync — `try_lock` без ожидания, занято — пропуск; regroup перечитывает снимок один раз, если новый коммит store — только drop | drop sync — `try_lock` (`fix/sync-lease`); перечитывание regroup — нет |
 | remote ref ветки, stack, unapplied | push приложения и `bd` | lease на замороженный remote tip; в процессе — join по ref | repository lock поперёк push |
 | tracking ref baseline | fetch Update Project и Fetch, `bd update` | `fetch.lock` с pid в `$GIT_COMMON_DIR/branch-deck/`: второй fetch ждёт первый и берёт его результат | два transfer; второй может упасть на `cannot lock ref` |
 | notes refs | sync, detection, resolve | `from <ref>^0` и один повтор; sync не падает | отказ всего sync |
@@ -829,7 +829,9 @@ repository». Аудит всех функций в тот же день наш�
   (`a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups`); проигранный CAS notes ref sync и detection —
   один повтор от нового tip, затем предупреждение (`write_cache_notes`,
   `a_sync_that_loses_the_notes_ref_to_another_writer_writes_again_and_finishes`); отпечаток — все
-  `refs/remotes/*/{prefix}/**`, с `stack/` и `unapplied/` (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`).
+  `refs/remotes/*/{prefix}/**`, с `stack/` и `unapplied/` (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`);
+  drop store-line sync — `try_lock` без ожидания, занято — пропуск до следующего sync
+  (`a_sync_leaves_the_stack_parents_to_a_regroup_that_holds_the_lock`).
 - **Настройки до s5:** `bd` перечитывает непарсимый `settings.json` до 200 мс (запись плагина на месте), так что чтение
   рядом с записью приложения берёт префикс приложения (`the_prefix_of_the_app_is_read_while_the_app_rewrites_its_settings_file`);
   `lib.rs` внедряет `{}` вместо непарсимого файла (`stored_settings`); sync ждёт загрузку префикса без 5-секундного

@@ -293,11 +293,12 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   - `refs/branch-deck/issue-groups` and `refs/branch-deck/stack-parents`: two refs, never one tree (a store commit
     replaces its whole tree). Only a regroup writes them, under the repository lock, in the ref transaction that moves
     HEAD, with CAS on every ref it moves; a sync only reads them, except that it drops the stack parent of a branch whose
-    archived branch is integrated (one CAS write, best effort, `drop_integrated_stack_parents`)
+    archived branch is integrated (one CAS write, best effort, only while the repository lock is free,
+    `drop_integrated_stack_parents`)
     ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
   - `refs/branch-deck/parked` (`parked.rs`, a ref of its own too): park and unpark under the repository lock with CAS,
     a rename in its regroup transaction; a sync only drops the line of a branch whose archived branch is integrated
-    (`drop_integrated_parked`). It decides no group: only the pushes leave a parked branch out
+    (`drop_integrated_parked`, as the stack parents). It decides no group: only the pushes leave a parked branch out
     ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
   - `{prefix}/unapplied/<name>` (`unapply.rs`, `reapply.rs`): only the unapply, the reapply and their undo, in the
     transaction that moves HEAD, and its delete (`delete_unapplied_branch_core`, CAS); a sync only lists it, and a push
@@ -340,8 +341,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
   (bounded wait, then `locked`; the app's push waits as long as the holder record names a live process and says whom
-  for, `lock_repository_while_held`), because the app and `bd` processes rewrite the same branch. A sync never takes it:
-  neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
+  for, `lock_repository_while_held`), because the app and `bd` processes rewrite the same branch. A sync never waits for it:
+  neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release; only its drop of
+  store lines takes it, while it is free (`drop_store_lines`), and skips the drop when it is held. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
   A sync (the app's and `bd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done
