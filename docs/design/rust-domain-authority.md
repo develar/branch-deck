@@ -330,7 +330,7 @@ flowchart TD
 | Новости (approvals пришли, робот слился или упал, запрошен review) | `domain-policy/src/news.rs` | `findApprovalNews`, новости роботов в stores |
 | Порядок эффектов каждого действия | `operations/src/<family>.rs` | `safe-push-start.ts`, `git/push.ts`, `git/stack-push.ts`, `landed-stack.ts`, `create-pull-request-context.ts`, `patronus-actions.ts`; `safe_push()`, `push_locked` |
 | Коды ошибок | `domain-types/src/error.rs` | `command_error.rs`, `bd-core/src/error.rs` |
-| Настройки, которые читает Rust: схема и defaults | `domain-types/src/settings.rs` | `appSettings.ts` (для этих ключей), ручные читатели |
+| Настройки, которые читает Rust: схема и defaults | `domain-types/src/settings.rs` (создаёт s5) | `appSettings.ts` (для этих ключей), ручные читатели |
 | Формулировка, иконка, цвет кода | `src/presenters/<area>.ts` | форматирующие половины TS-модулей (остаются в TS) |
 
 ## Снимки и факты
@@ -958,8 +958,11 @@ repository». Аудит всех функций в тот же день наш�
 
 ### Настройки
 
-- `app-settings` владеет `AppSettings` для ключей, которые Rust читает или на которых должен сойтись с UI:
-  `globalUserBranchPrefix`, `patronusNewApi`, `zoom`, `autoSyncOnFocus`, `systemTitleBar`. Настройки агентов
+- Схема `AppSettings` для ключей, которые Rust читает или на которых должен сойтись с UI (`globalUserBranchPrefix`,
+  `patronusNewApi`, `zoom`, `autoSyncOnFocus`, `systemTitleBar`; serde, specta, defaults в `impl Default`), и типы
+  префикса `GitBranchPrefix` (из `sync-core/src/branch_prefix.rs`) и `ResolvedBranchPrefix { prefix, source }` лежат в
+  `domain-types::settings` — wire-типы, которые пересекают окно и процесс; `s2-types` этот модуль не создал, его
+  создаёт `s5-settings`. `app-settings` владеет файлом (`SettingsFile`), писателем и `resolve`. Настройки агентов
   (`branchdeck.agentLease`, `branchdeck.agentSubjectBranch`, Settings → Agents) — не ключи `settings.json`, а git
   config: ими владеет `sync-core/src/repository_config.rs` (`:32,36`; scope, отказ при worktree config и `git -c`,
   правило «Git config writes» AGENTS.md), и `app-settings` их не касается. Неизвестные и UI-only ключи (diff view, тема, recent projects, свёрнутые стеки) ходят raw JSON в
@@ -971,13 +974,22 @@ repository». Аудит всех функций в тот же день наш�
   эхо узнаёт по `origin`. Это заменяет `EchoTracker`, роль главного окна (`MainStoreSync`, `SubWindowStoreSync`,
   `store-set-request`/`store-response`).
 - Первый рендер остаётся синхронным: in-memory копия внедряется как `window.__TAURI_STORE__` в каждое окно при
-  создании, под-окна тоже; `getStoreSnapshot` открывающего окна не передаётся.
+  создании, под-окна тоже; `getStoreSnapshot` открывающего окна не передаётся. `__TAURI_STORE__` остаётся объектом
+  значений по ключам (его читают шесть помощников e2e), версия копии ложится рядом — `window.__TAURI_STORE_VERSION__`.
+  Летучие поля sync (`lastSyncTime`, `lastBranchCount`, `updateTimings`) живут в `repository-state.json` того же app
+  data dir, который пишет тот же `SettingsService` (вторая `SettingsFile`, ключ → файл по таблице), так что
+  `settings.json` переписывает только пользователь.
 - `restart_app` вызывает `set_setting`, потом перезапускается. `bd` читает через `app-settings` с теми же defaults и
   не пишет.
 - `resolve_branch_prefix` живёт в `app-settings::resolve` с `source` (флаг CLI, конфиг репозитория, настройка
   приложения, глобальный конфиг). В `s5-settings` он вызывается в Rust на каждую команду (по ключу
-  `RepositoryViews`), команды теряют параметр `branch_prefix`, `computeEffectiveBranchPrefix` удаляется; ключевание
-  сессии разрешённым префиксом приходит с `s6-session-table`.
+  `RepositoryViews`), команды теряют параметр `branch_prefix` (и Patronus-команды — `new_api`: `patronusNewApi` Rust
+  читает сам), `computeEffectiveBranchPrefix` удаляется; ключевание сессии разрешённым префиксом приходит с
+  `s6-session-table`. Команда не платит git-процессом за префикс: `BranchPrefixes` (state `src-tauri`, в test-server
+  тот же тип) держит `GitBranchPrefix` по пути репозитория и обновляется каждым чтением git config — командой
+  `resolve_branch_prefix` (бывшая `get_branch_prefix_from_git_config`, страница зовёт её при открытии и на фокус),
+  `ConfigSnapshot` каждого sync — и записью Settings → Repository; страница получает `ResolvedBranchPrefix` и
+  показывает им имена веток, не решая ничего.
 
 ## Наблюдаемость
 
@@ -1508,8 +1520,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
 ### s5-settings
 
 - **Цель:** один писатель `settings.json`, одни defaults в Rust и `bd`, префикс разрешается в Rust.
-- **Зависит от:** s2-types (схема `domain-types::settings`), s3-crates (`RepositoryViews` живёт в `repository-model`,
-  импорты команд). Бок о бок с s4-errors: общие только 9 файлов команд с `branch_prefix`, строки разные.
+- **Зависит от:** s2-types (`domain-types` как дом wire-типов; модуль `settings` в нём создаёт сам s5), s3-crates
+  (`RepositoryViews` живёт в `repository-model`, импорты команд). Бок о бок с s4-errors: общие только 9 файлов команд с
+  `branch_prefix`, строки разные.
 - **Объём и файлы:** `app-settings` (схема, `SettingsFile`, defaults, `resolve_branch_prefix` с источником,
   `SettingsService`); окна вызывают `set_setting` и применяют версии; снимок внедряется из Rust в каждое окно;
   `restart_app` через писателя; `bd` читает через `app-settings`; команды теряют `branch_prefix` — Rust разрешает его
