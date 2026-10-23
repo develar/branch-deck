@@ -298,7 +298,7 @@ flowchart TD
 | `repository-model` | вырастает из `repository-view` | `Session` на `SessionKey` — один actor; `Fact<T>`; инкрементальная модель таблицы на `SyncEvent`; `derive()` → `RepositoryView`; диффинг `ViewPatch` по частям; `ContentMemo`; demand | глобальный `AtomicU32`; `GetRepositoryViewParams.{matched, remote, robots, revision}` |
 | `operations` | новый | `Intent`, `Plan`, `Effect`, `Outcome`; `admit`; `prepare`/`execute` по семействам (`land`, `push`, `robot`, `pull_request`, `review`, `rewrite`, `update`, `sign_in`); witness; `reconcile`; реестр `operations.json`; журнал; оборачивает существующие `*_core`, git не добавляет | оркестрация `bd-remote/src/{safe_push_command, push_command, robot_command, request_review_command, landed, status}.rs`; TS-оркестрация |
 | `app-settings` | новый | типизированный `AppSettings`; `SettingsFile { known, other }` с сохранением неизвестных и UI-only ключей; defaults; `resolve_branch_prefix` с источником; единственный писатель (атомарная запись, порядок, версия) | ручные читатели; файловая половина `restart_app` |
-| `app-api` | новый, в `s12-app-api`; тела `src-tauri/src/commands/*` (2,9 тыс. строк) | `AppContext` (executor, cache, sessions, services, settings, clock); реестр `api_commands!` из `async fn(ctx, params) -> Result<T, ApiError>`; транспортные traits `EventSink<T>` (Tauri `Channel`, SSE); планировщики сессий | тела команд; ручные маршруты `test-server/src/lib.rs` |
+| `app-api` | новый: в `s4-errors` только `api_error` (одна цепочка downcast типизированных ошибок ядер в `ApiError`, общая для Tauri и test-server); в `s12-app-api` тела `src-tauri/src/commands/*` (2,9 тыс. строк) | `AppContext` (executor, cache, sessions, services, settings, clock); реестр `api_commands!` из `async fn(ctx, params) -> Result<T, ApiError>`; транспортные traits `EventSink<T>` (Tauri `Channel`, SSE); планировщики сессий | тела команд; ручные маршруты `test-server/src/lib.rs` |
 | `bd-*` | сжимаются | clap → `Intent`; `Outcome` → JSON-схема и exit codes; сводки check уезжают в `bd-core` | ребро `bd-remote → bd-rewrite` (`check_command`, `safe_push_command.rs:39`); `bd-clustering` → `commit-clustering` (библиотека; `bd-remote/src/branch_stats.rs` читает `areas`, `generated`); `safe_push_command.rs` с 1943 строк до нескольких сотен отображения |
 | `test-server` | тонкий | размещает `app-api` с `FakeGitHub`/`FakePatronus`/фальшивым YouTrack за **реальными** сервисами, `TestClock`; fixture-эндпоинты пишут состояние fakes, эндпоинты счётчиков читают их журналы запросов | ручные маршруты `test-server/src/lib.rs` (109: 108 команд и `get_blob_syntax`) |
 | `integration-detection-tests` | сворачивается | 4,3 тыс. строк тестов: те, что гоняют `sync_branches` (7 файлов из 10 и `test_helpers`), становятся `crates/sync-core/src/detection_*_test.rs`; три без sync (`archive_cleanup`, `detection_notes`, `process_budget`) — `crates/branch-integration/src/*_test.rs` (dev-dependency `branch-integration → sync-core` собрала бы `branch-integration` дважды: `DetectionStrategy` теста и `SyncOptions` — два типа) | crate |
@@ -909,13 +909,29 @@ repository». Аудит всех функций в тот же день наш�
 
 - `ErrorCode` переезжает в `domain-types::error` с прежними serde snake_case и JsonSchema, получает specta, так что TS
   имеет тот же union.
-- `ApiError { code, message, details: ErrorDetails (типизированы по коду: LeaseRejected{branches},
-  TargetConflict{commits, paths}, Busy{op}, Refused{reasons}, LandingRefused{refusals}…), effects, retry }`.
+- `ApiError { code, message, details: Option<ErrorDetails>, retry, operation_id }` в `domain-types::error`
+  (`operation_id` — ключ записи Activity к строкам лога, как у `CommandError` сегодня). `ErrorDetails` — enum с
+  `tag = "type"`, типизирован по данным кода: `Conflict { commits, paths }` (target/hunk/stack/reapply/drop),
+  `Paths { paths }` (`uncommitted_overlap`), `Branches { branches }` (`lease_rejected`), `Blocks { blocks }`,
+  `Locked { holder: Option<LockHolderInfo { tool: Bd | App, command, pid, held_for }> }`; код без данных — `details:
+  null`. Позже: `Refused{reasons}` и `LandingRefused{refusals}` с `Plan` (s9), `Busy { op, holder }` с реестром
+  (s10) — код `busy` появляется вместе со своим производителем. `effects` (`EffectRecord`) — с s9.
+- `retry: No | Same | AfterReread` — один `ErrorCode::retry()`; `retryable` bd (`retry != No`) и его wire не меняются.
+  `locked` — `Same`, `head_moved`/`*_moved` — `AfterReread`, остальное `No`.
+- Новые коды реестра: `internal` (ошибка без кода: `{err:#}` в `message`, exit 5; `bd` для нетипизированной ошибки
+  печатает `git_error`, как сегодня) и `canceled` (пользователь прервал: sign-in, review fetch, действие CLI tool,
+  ожидание lock; сегодня пять мест читают `message === "canceled"`; exit 4, `retry: No`).
+- Одна цепочка downcast: `app_api::api_error(anyhow::Error) -> ApiError` в новом crate `app-api` (в s4 только этот
+  модуль; s12 наполняет его телами команд), от которого зависят только `branch-deck` и `test-server`
+  (`architecture_test.rs`). Код типизированной ошибки живёт у её типа (`RegroupError::code()`,
+  `SyncDeferred::code()`, `RepositoryLocked` → `locked`, `NoBaseline` → `no_baseline`): `bd-core` и `app-api`
+  вызывают его, второй таблицы соответствий нет.
 - `CommandError`/`CommandErrorKind` (`src-tauri/src/command_error.rs`) удаляются; `OperationInProgress` и
-  `DetachedHead` становятся кодами; `From<anyhow::Error>` даёт `internal` с `{err:#}` в `message`. Test-server
-  отвечает тем же JSON (`CommandFailure` уходит).
+  `DetachedHead` становятся кодами. Test-server отвечает тем же JSON (`CommandFailure` уходит: `impl IntoResponse for
+  ApiError`, 500 только для паники команды).
 - `bd-core` сохраняет исчерпывающее по `ErrorCode` отображение в exit codes и свой schema-тест. `notifyError`
-  (`src/lib/errors.ts`) ветвится по `code`, никогда по `message` (правило `lint:arch` с `s4-errors`).
+  (`src/lib/errors.ts`) ветвится по `code`, никогда по `message` (правило `lint:arch` с `s4-errors`:
+  `scripts/lint-arch.mjs`, `pnpm lint:arch`).
 - Предметные отказы до эффектов — `Reason` в `Plan.blockers`, не ошибки; `execute` заблокированного плана —
   `ApiError{code: refused}`.
 
@@ -1447,19 +1463,25 @@ rewrites между процессами через файл `s10`; `s12` ждё
   каждой команды `src-tauri/src/commands/*` и test-server, чьи импорты s3 переписывает). Бок о бок с s5-settings.
 - **Объём и файлы:** `ApiError` в `domain-types`; команды Tauri возвращают его; `errors.ts` и каждая проверка `kind`
   ветвятся по `code`; test-server отвечает тем же JSON; `e2e-testing.md` (ошибки команд), `agent-cli.md` (один реестр
-  кодов). `bd` на wire не меняется. **Конкурентность:** `Busy { holder: { tool, command, pid, held_for } }` и
-  `Locked` несут держателя из `RepositoryLocked.holder` (`repository_lock.rs:24-50`) на IPC; toast говорит «Cannot
-  update the project · `bd push` of auth (pid 4242) has held the repository for 40 s» без пути lock-файла; `retry`
-  отличает повторяемый `locked` от окончательного `head_moved`; у Update Project после завершённого fetch — действие
-  «Retry Without Fetch».
-- **Удаляется:** `src-tauri/src/command_error.rs`, `CommandFailure` в `tauri_command_bridge.rs`; `LOCKED_MESSAGE` и
-  подмена держателя в `app_error` (`update_project.rs:101,115-121`).
+  кодов). `bd` на wire не меняется. **Конкурентность:** `locked` несёт держателя из `RepositoryLocked.holder`
+  (`repository_lock.rs`, `LockHolder`) на IPC как `ErrorDetails::Locked { holder }` (`Busy { holder }` — с реестром
+  s10); toast говорит «Cannot update the project · `bd push` of auth (pid 4242) has held the repository for 40 s» без
+  пути lock-файла; `retry` отличает повторяемый `locked` (`Same`) от `head_moved` (`AfterReread`); у Update Project
+  после завершённого fetch (шаг fetch в `UpdateProgress` пройден) — действие «Retry Without Fetch». Ожидание lock с
+  отменой (`LockWaitCanceled`) приземляется отдельно (`fix/lock-wait-everywhere`); s4 даёт ему код `canceled` и
+  перебазируется на него.
+- **Удаляется:** `src-tauri/src/command_error.rs`, `CommandFailure` в `tauri_command_bridge.rs`; `LOCKED_MESSAGE`,
+  `locked_message` и `app_error` в `crates/update-core/src/update_project.rs` (слова о держателе — у `errors.ts` по
+  `details.holder`); чтения `message === "canceled"` в `review-fetch.ts`, `youtrack.ts`, `cli-tools.ts`,
+  `github-auth.ts`.
 - **Проверки:** контрактный тест адаптеров (одинаковый JSON `ApiError` из Tauri и test-server для набора кодов);
   e2e путей ошибок; `lint:arch` стартует с правилом «нет чтения `error.message` для управления»; `bindings.ts`
   меняется только в типе ошибки; `update_takes_the_repository_lock_after_the_fetch_and_says_it_waits` утверждает и
   держателя; unit-тест `errors.ts` на toast с держателем; путь «`bd` рядом»: `bd push` держит lock, Update Project
   показывает его команду и pid.
-- **Критерий выхода:** `grep "kind ==" src/` пуст.
+- **Критерий выхода:** ни `CommandErrorKind`, ни чтения `kind` у ошибки: `accio references CommandErrorKind` пуст,
+  `accio locate 'error\.kind' --mode regex --scope src/ --scope tests/` пуст (`kind ==` у размеченных union —
+  `NextStep`, строки diff — остаётся); `pnpm lint:arch` зелёный.
 
 ### s5-settings
 
