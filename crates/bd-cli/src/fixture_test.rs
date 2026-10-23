@@ -192,6 +192,27 @@ impl LockSpanGit {
   pub fn under_lock(&self) -> Vec<String> {
     self.commands().into_iter().filter(|(locked, _)| *locked).map(|(_, args)| args).collect()
   }
+
+  /// Per run of `subcommand` in the last run, in order: whether it started under the repository lock
+  pub fn locked_runs(&self, subcommand_name: &str) -> Vec<bool> {
+    self
+      .commands()
+      .into_iter()
+      .filter(|(_, args)| subcommand(args) == subcommand_name)
+      .map(|(locked, _)| locked)
+      .collect()
+  }
+
+  /// The first `subcommand` of the last run started before the first command under the lock
+  pub fn assert_before_the_lock(&self, subcommand_name: &str) {
+    let commands = self.commands();
+    let at = commands
+      .iter()
+      .position(|(_, args)| subcommand(args) == subcommand_name)
+      .unwrap_or_else(|| panic!("no {subcommand_name}: {commands:#?}"));
+    let locked = commands.iter().position(|(locked, _)| *locked).expect("a command runs under the lock");
+    assert!(at < locked, "{subcommand_name} before the lock: {commands:#?}");
+  }
 }
 
 /// The subcommand of git arguments as the wrapper logs them: the first word that is neither an option nor the value of

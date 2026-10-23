@@ -29,8 +29,8 @@ Several agent sessions share one checkout. Each one commits in a worktree of its
 HEAD that shares the git dir), and its work counts once it is on the branch of the shared checkout, which one owner
 rewrites with `bd update`, `bd fold` and `bd group`. `bd pick --from <worktree>` lands the commits of that worktree on
 the branch checked out at `-C`. It replays them in memory with `git replay` and leaves out a commit whose change the
-branch has already. Under the repository lock, which every worktree shares, it moves the branch, and the files follow
-through the guarded working-tree update. `--follow` moves the source worktree onto the new tip the same way. A conflict
+branch has already. It checks before the repository lock, which every worktree shares, and under it only reads again
+what the check read; then it moves the branch, and the files follow through the guarded working-tree update. `--follow` moves the source worktree onto the new tip the same way. A conflict
 or local changes in the way change nothing; `bd undo` takes the pick back, the worktree too. How it works: "Pick" in
 [Git Operations](../../docs/design/git-operations.md). Working beside other sessions: `bd help worktrees`
 ([Agent CLI](agent-cli.spec.md)).
@@ -132,8 +132,8 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   the `paths`, the message naming the worktree; local changes on other paths must stay.
   [@test] ../../crates/git-ops/src/pick_test.rs (`local_changes_on_a_path_the_pick_writes_block_it_in_either_worktree`)
   [@test] ../../crates/bd-update/src/pick_test.rs (`local_changes_in_the_way_and_a_wrong_source_are_refused`)
-- A branch that moved since the check must be `head_moved` (exit 3), nothing moved; so must a HEAD other than
-  `--expect-head`.
+- The move of a check whose branch moved since must be `head_moved`, nothing moved; a HEAD other than `--expect-head`
+  must be `head_moved` (exit 3).
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_target_that_moved_since_the_check_is_head_moved_with_nothing_changed`)
   [@test] ../../crates/bd-update/src/pick_test.rs (`expect_head_refuses_a_pick_onto_another_head`)
 - The source must be another worktree of the same repository; the target worktree itself, a directory outside the
@@ -143,6 +143,23 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
 - A pick while a `bd update` resolve session is open on the branch must land, and the finish of the session must carry
   the picked commits as a peer's.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_during_an_open_update_session_is_carried_by_its_finish`)
+
+### The lock
+
+- The check (the range, the replay, the dry runs of both worktrees on copies of their index) must run before the
+  repository lock, and another writer must get the lock meanwhile. Under it only the marks of interrupted moves, the
+  witness (the target's branch, both HEADs, the upstream), the local changes on the paths the moves write (by their
+  index entries and content, the exact dry run only where that finds one) and the two moves. A check that moves nothing
+  (a conflict, local changes in the way, every commit present) must answer without the lock.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`the_check_of_a_pick_runs_before_the_lock`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`another_writer_takes_the_lock_while_a_pick_replays`)
+- A target or a source that moved between the check and the lock must make the pick check again without the lock and
+  land on the new tip, the source following there; after two such checks the third must run under the lock.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_commit_on_the_target_during_the_replay_of_a_pick_is_kept_and_the_pick_checks_again`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_target_that_moves_during_every_check_is_checked_under_the_lock_at_last`)
+- A file a move writes, changed between the check and the lock, must refuse the pick as `uncommitted_overlap`, nothing
+  moved.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_file_edited_during_the_replay_of_a_pick_blocks_it`)
 
 ### `--follow`
 
@@ -183,8 +200,8 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
 - The outputs must match `bd schema` (`pick`, `undo`).
   [@test] ../../crates/bd-update/src/pick_test.rs (`pick_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
-- A pick must run a fixed number of git processes: one `replay`, one read of the grouping before the move (the
-  inputs and one `log` of the commits ahead), the two moves with their marks; the diffs of the dependency check only
+- A pick must run a fixed number of git processes: one `replay`, the witness, the two moves with their marks, one read
+  of the grouping after them (the inputs and one `log` of the commits ahead); the diffs of the dependency check only
   for a prefix that names a branch the branch has.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_pick`)
 

@@ -506,7 +506,7 @@ was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`,
 shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
 Branch Deck operation holds … ; retry when it is done". `bd push`, `bd safe-push` (until its push; with
 `--check` only its sync),
-`bd move-hunk`, `bd pick` (the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
+`bd move-hunk`, `bd pick` (after its check, the witness and the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
 (`push_branch`, `push_branches`: `push_guard`, on the `$GIT_COMMON_DIR` the app keeps, so the push and its checks see
 the branches no other writer moves meanwhile; "App stack push"), and so does Update Project (the app's and `bd update`, which also starts a
 resolve session under it) after its fetch and its check, for the witness, the local changes and the move, and `bd update --continue` and `--abort`; `bd update --status` and
@@ -1190,10 +1190,14 @@ Code: `crates/git-ops/src/reapply.rs`, `crates/git-ops/src/pick.rs`, `crates/syn
 `crates/git-ops/src/pick.rs`) lands the commits of another worktree on the branch checked out here: the way agent
 sessions that commit in worktrees of their own (a `bd lease` worktree, detached HEAD, shared git dir) land their work on
 the shared branch without `git cherry-pick`, which writes the working tree, leaves `CHERRY_PICK_HEAD` behind on an empty
-pick, and interleaves with a fold or an update of the owner.
+pick, and interleaves with a fold or an update of the owner. The repository lock covers only the witness and the
+moves (steps 6 and 7): the files of both worktrees, the index and the refs change only under it.
 
-1. The lock (one hold for both worktrees), then the interrupted moves: `finish_pending_update` in the target and, with
-   `--follow`, in the source (a detached HEAD by the reflog of `HEAD`).
+1. No lock for the check (steps 2 to 5): on the IntelliJ monorepo the fork point in a long reflog, the replay and the
+   dry runs on index copies of 1.4M entries took about 90 s of a 115 s hold on a copy of it (2026-10-23), and every
+   other writer waited (the app's Safe Push failed with `locked`). Only a mark of an interrupted move (`pending_update`, in the target and,
+   with `--follow`, in the source) takes the lock first: `finish_pending_update` lets its files follow (a detached HEAD
+   by the reflog of `HEAD`), then the check runs under the lock, as its dry run would read the files behind HEAD.
 2. Guards: `check_update_guards` in the target; with `--follow`, no rebase, merge, cherry-pick or revert in progress
    in the source (the state files are per worktree). The source must be another worktree of the same repository
    (`repository_dirs`: the same common dir, another git dir).
@@ -1225,13 +1229,26 @@ pick, and interleaves with a fold or an update of the owner.
    nothing moves. The upstream bounds both sides: a commit that reached the upstream in another form is not found by
    patch id, it drops as empty or conflicts.
 5. Both dry runs before either move: `blocking_paths` of the target (HEAD → new tip) and of the source (its HEAD →
-   new tip), each on its own index copy and working tree.
-6. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
+   new tip), each on its own index copy and working tree. A check that moves nothing (a conflict, a blocked one, every
+   commit present and the source at the tip) is the answer, the lock never taken.
+6. The lock (one hold for both worktrees, `recheck_pick`): the marks again (`finish_pending_update`), then the witness,
+   the guards and HEAD of the target, the upstream's tip, the guards, HEAD and what HEAD is on of the source, one
+   `rev-parse` or `symbolic-ref` each. A witness that moved (another session's pick, a regroup, a fetch, a commit in
+   the source) sends the pick back to step 2 without the lock; after two such checks the third runs under the lock,
+   where nothing moves the branch, so a busy branch never starves a pick. Then the local changes on the paths each move
+   writes, read again now that nobody else moves a HEAD (`recheck_blocking_paths`): `preview_blocking_paths` of those
+   paths (the index entries by one `cat-file --batch-check`, the files hashed by one `hash-object`, an added path by
+   `lstat`), at a cost that grows with the paths, not with the index; only when that finds a path, the exact dry run
+   of step 5 decides under the lock. A file edited during the check is `Blocked` as one edited before it; the move
+   itself checks every path again before it writes one. What stays under the lock on that copy: the two
+   `read-tree -m -u` of step 7, about 7 s of CPU each, and some 3 s for the rest (a hold of 15 to 59 s at a load
+   average of 50, against 115 s).
+7. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
    through the same move, a detached HEAD with `option no-deref` and a check under the locks that HEAD is still
    detached (`HeadAttached` otherwise), so a `git switch` to a branch at the same commit can't move that branch. A
    source that moved or switched after the check stays where it is while the target moved: the outcome says so, and
    the same pick again finds every commit present and moves only the source.
-7. How the picked commits land (`landing` in `crates/update-core/src/pick.rs`), after the moves and the release of
+8. How the picked commits land (`landing` in `crates/update-core/src/pick.rs`), after the moves and the release of
    the lock: a report that decides nothing, so its reads never make another writer wait. The grouping inputs (`git
    config`, one `cat-file --batch`) and the commits ahead of the baseline up to the HEAD the check froze (one `log`
    `<baseline>..<head>`: HEAD has the copies already), grouped without and with the copies on top, give the `group` of
@@ -3074,7 +3091,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | `bd safe-push --check` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 43 |
 | `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 47 |
 | `bd fold` | `a_fold` | 36 | 30 |
-| `bd pick --from --follow` (2026-10-18; the grouping before the move, 2026-10-19) | `a_pick` | 54 | 55 |
+| `bd pick --from --follow` (2026-10-18; the grouping before the move, 2026-10-19; the check before the lock, its witness under it, 2026-10-23) | `a_pick` | 54 | 66 |
 | `bd pick --dry-run` of a fast-forward into a branch the target has: the dependency check (2026-10-19) | `a_pick_into_a_branch_the_target_has` | 28 | 28 |
 | `bd lease get` of a free slot, then `bd lease return` (2026-10-19) | `a_lease_get_and_return` | 5, 4 | 5, 4 |
 | `bd status` (the push URL of `origin` for `landed_by` since 2026-10-18) | `a_status` * | 10 | 8 |

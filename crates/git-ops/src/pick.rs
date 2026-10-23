@@ -4,16 +4,17 @@
 //! the left out ones, where a commit whose change the target has already becomes empty and drops; a dry run on a copy of
 //! the index of each worktree proves its files can follow, and only then does the branch move, through the guarded
 //! update of `update_branch`. With `follow`, the source worktree moves onto the new tip the same way, a detached HEAD
-//! with `option no-deref`.
+//! with `option no-deref`. The check needs no lock: its caller checks before the repository lock and, under it, only
+//! the witness (`recheck_pick`) before the moves.
 
-use crate::paths::{COMMIT_FORMAT, changed_paths, parse_commits};
+use crate::paths::{COMMIT_FORMAT, ChangedPath, changed_paths, parse_commits};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
 use crate::revs::{RepositoryDirs, fork_point, is_ancestor, merge_base, repository_dirs, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges};
 use crate::update_branch::{
   BranchSwitched, FileMove, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, check_move_undo, check_update_guards, move_branch_and_files,
-  move_branch_and_files_carrying,
+  move_branch_and_files_carrying, recheck_blocking_paths,
 };
 use crate::update_resolve::pair_by_patch_id;
 use anyhow::{Result, anyhow, bail};
@@ -138,14 +139,27 @@ pub struct PickCheck {
 #[derive(Debug)]
 pub struct PickPlan {
   pub check: PickCheck,
-  files_change: bool,
+  /// The upstream the range excludes, and its commit as the check read it: part of the witness (`recheck_pick`)
+  upstream: Option<String>,
+  upstream_head: Option<String>,
+  /// The paths the move of the target changes; empty when its files stay
+  changed: Vec<ChangedPath>,
   follow: Option<Follow>,
 }
 
 #[derive(Debug)]
 struct Follow {
   head_ref: HeadRef,
-  files_change: bool,
+  /// The paths the move of the source changes
+  changed: Vec<ChangedPath>,
+}
+
+impl PickPlan {
+  /// Whether applying the plan moves a HEAD: the target's, or the source's that follows onto another commit. One that
+  /// moves nothing applies without git, so it needs no lock
+  pub fn moves_anything(&self) -> bool {
+    self.check.new_head != self.check.head || (self.follow.is_some() && self.check.follow.as_ref().is_some_and(|follow| follow.head != self.check.new_head))
+  }
 }
 
 /// A pick refused before anything was written but git objects
@@ -267,7 +281,9 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
         check.present = present_on(git_executor, target, &head, &source_head, by_patch_id, &[])?;
         return Ok(PickPlan {
           check,
-          files_change: false,
+          upstream: request.upstream.map(str::to_string),
+          upstream_head,
+          changed: Vec::new(),
           follow: None,
         });
       };
@@ -306,10 +322,7 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
       if blocked.is_empty() && !follow_blocked.is_empty() {
         check.state = blocked_state(&follow_check.worktree, follow_blocked);
       }
-      Some(Follow {
-        head_ref,
-        files_change: !changed.is_empty(),
-      })
+      Some(Follow { head_ref, changed })
     }
     None => None,
   };
@@ -319,9 +332,52 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
   debug!(picked = check.picked.len(), present = check.present.len(), state = ?check.state, "checked the pick");
   Ok(PickPlan {
     check,
-    files_change: !changed.is_empty(),
+    upstream: request.upstream.map(str::to_string),
+    upstream_head,
+    changed,
     follow,
   })
+}
+
+/// The witness of a clean pick that `check_pick` checked before the repository lock, for its caller under the lock
+/// before `apply_pick`: `false` when the target's branch, its HEAD or the upstream moved since, or, with `follow`, the
+/// source's HEAD or what it is on, so the caller checks again. Else the local changes on the paths each move writes,
+/// read again now that nobody else moves a HEAD (`recheck_blocking_paths`: by the content of those paths, the exact
+/// dry run only where that finds one), which can make the plan `Blocked`. The guards and HEAD of each worktree, the
+/// upstream, then the local changes only when files change
+#[instrument(skip(git_executor, plan), fields(branch = %plan.check.branch))]
+pub fn recheck_pick(git_executor: &GitCommandExecutor, target: &str, plan: &mut PickPlan) -> Result<bool> {
+  let branch = check_update_guards(git_executor, target)?;
+  let head = resolve_commit(git_executor, target, "HEAD")?;
+  let upstream_head = match &plan.upstream {
+    Some(upstream) => resolve_commit(git_executor, target, upstream)?,
+    None => None,
+  };
+  if branch != plan.check.branch || head.as_deref() != Some(plan.check.head.as_str()) || upstream_head != plan.upstream_head {
+    debug!(%branch, ?head, ?upstream_head, "the target moved during the check");
+    return Ok(false);
+  }
+  if let (Some(follow), Some(follow_check)) = (&plan.follow, &plan.check.follow) {
+    let head_ref = HeadRef::read(git_executor, &follow_check.worktree)?;
+    let head = resolve_commit(git_executor, &follow_check.worktree, "HEAD")?;
+    if head_ref != follow.head_ref || head.as_deref() != Some(follow_check.head.as_str()) {
+      debug!(worktree = %follow_check.worktree, ?head, "the source moved during the check");
+      return Ok(false);
+    }
+  }
+  let check = &plan.check;
+  let blocked = recheck_blocking_paths(git_executor, target, &check.head, &check.new_head, &plan.changed)?;
+  if !blocked.is_empty() {
+    plan.check.state = blocked_state(target, blocked);
+    return Ok(true);
+  }
+  if let (Some(follow), Some(follow_check)) = (&plan.follow, &check.follow) {
+    let blocked = recheck_blocking_paths(git_executor, &follow_check.worktree, &follow_check.head, &check.new_head, &follow.changed)?;
+    if !blocked.is_empty() {
+      plan.check.state = blocked_state(&follow_check.worktree, blocked);
+    }
+  }
+  Ok(true)
 }
 
 /// The source worktree that holds `dir`: another worktree of the target's repository
@@ -683,7 +739,7 @@ pub(crate) fn apply_pick_carrying(
         head_ref: &HeadRef::Branch(check.branch.clone()),
         head: &check.head,
         new_head: &check.new_head,
-        files_change: plan.files_change,
+        files_change: !plan.changed.is_empty(),
         operation,
         with,
         rollback_with,
@@ -700,7 +756,7 @@ pub(crate) fn apply_pick_carrying(
       &follow.head_ref,
       &follow_check.head,
       &check.new_head,
-      follow.files_change,
+      !follow.changed.is_empty(),
       PICK.done,
     );
     match moved {

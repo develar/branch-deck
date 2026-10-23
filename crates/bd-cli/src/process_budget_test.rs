@@ -427,10 +427,12 @@ fn pick_from(repo: &TestRepo, lane: TestWorktree, options: impl FnOnce(&mut Pick
   (context, output)
 }
 
-/// `bd pick --from <worktree> --follow`: the lock, the marks of both worktrees, the baseline, the check (HEAD with its
-/// committer date, the range with the patch id marks, one `replay`, the copies, both dry runs), the grouping of the
-/// picked commits before the move (the inputs and one `log` of the commits ahead: a new prefix needs no diffs), and the
-/// two moves with their marks (`update-ref`, `read-tree`)
+/// `bd pick --from <worktree> --follow`: before the lock the baseline, the marks of both worktrees and the check (HEAD
+/// with its committer date, the range with the patch id marks, one `replay`, the copies, both dry runs); under it the
+/// marks again, the witness (the guards and HEAD of both worktrees, the upstream; the local changes of added paths need
+/// no git) and the two moves with their marks (`update-ref`, `read-tree`); after it the grouping of the picked commits
+/// (the inputs and one `log` of the commits ahead: a new prefix needs no diffs). `the_check_of_a_pick_runs_before_the_lock`
+/// pins which of them run under the lock
 #[test]
 fn a_pick() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -456,8 +458,8 @@ fn a_pick() {
       ("remote", 2),
       ("replay", 1),
       ("rev-list", 1),
-      ("rev-parse", 17),
-      ("symbolic-ref", 7),
+      ("rev-parse", 26),
+      ("symbolic-ref", 9),
       ("update-index", 6),
       ("update-ref", 4),
     ],

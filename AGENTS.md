@@ -332,8 +332,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `push_branches` (`repository_model::push_guard`: the user's robots before the lock, the lock, then the refusals of
   unknown, parked, landed, held and not built branches in Rust, then the push), `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`: after the fetch and the check, for the witness, the local changes and
-  the move, also when it starts a resolve session; the landed report after the release), `bd pick` (the moves of both
-  worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
+  the move, also when it starts a resolve session; the landed report after the release), `bd pick` (after its check:
+  the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
   (bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch. A sync never takes it:
   neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).

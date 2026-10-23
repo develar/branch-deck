@@ -288,9 +288,7 @@ fn assert_only_the_move_under_the_lock(clone: &TestRepo) -> Vec<(bool, String)> 
   let (exit_code, output) = wrapped.run(&["update", "--no-fetch"]);
   assert_eq!((exit_code, &output["state"]), (0, &json!("rebase")), "{output}");
   let commands = wrapped.commands();
-  let replay = commands.iter().position(|(_, args)| subcommand(args) == "replay").expect("the check replays");
-  let locked = commands.iter().position(|(locked, _)| *locked).expect("the move runs under the lock");
-  assert!(replay < locked, "the replay before the lock: {commands:#?}");
+  wrapped.assert_before_the_lock("replay");
   let mut under_lock: Vec<String> = wrapped.under_lock().iter().map(|args| subcommand(args).to_string()).collect();
   under_lock.sort_unstable();
   under_lock.dedup();
@@ -330,8 +328,7 @@ fn a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again(
     assert_eq!(exit_code, 0, "the regroup does not wait for the update: {renamed}");
   });
   assert_eq!((exit_code, &output["state"]), (0, &json!("rebase")), "{output}");
-  let replays_under_lock = wrapped.under_lock().iter().filter(|args| subcommand(args) == "replay").count();
-  assert_eq!(replays_under_lock, 1, "one check again, under the lock");
+  assert_eq!(wrapped.locked_runs("replay"), [false, true], "one check again, under the lock");
   assert_eq!(git(&clone, &["log", "-1", "--format=%s"]), "(login) Add login");
   assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
 }

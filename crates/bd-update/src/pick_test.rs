@@ -1,6 +1,6 @@
-#[cfg(unix)]
-use bd_cli::fixture_test::LockSpanGit;
 use bd_cli::fixture_test::assert_covered;
+#[cfg(unix)]
+use bd_cli::fixture_test::{LockSpanGit, hold_the_lock, subcommand};
 use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, run_in, run_json};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -351,6 +351,161 @@ fn the_landing_of_a_pick_is_read_after_the_lock() {
       .unwrap_or_else(|| panic!("no{read}: {commands:#?}"));
     assert!(at > moved, "{read} after the lock: {commands:#?}");
   }
+}
+
+/// A worktree with two commits that change `a.txt` and add `b.txt`, onto a target that moved on: the pick replays
+fn lane_onto_a_moved_target(repo: &TestRepo) -> TestWorktree {
+  let lane = TestWorktree::detached(repo);
+  lane.commit("(lane) Change a", "a.txt", "lane\n");
+  lane.commit("(lane) Add b", "b.txt", "b\n");
+  repo.create_commit("(own) Other", "own.txt", "own\n");
+  lane
+}
+
+/// The subcommands of `commands` with how often each ran, sorted
+#[cfg(unix)]
+fn counted(commands: &[String]) -> Vec<(String, usize)> {
+  let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+  for args in commands {
+    *counts.entry(subcommand(args).to_string()).or_default() += 1;
+  }
+  counts.into_iter().collect()
+}
+
+/// `bd pick --from <lane> --follow` with its replays held, one per round, until `during` returned for that round;
+/// `during` gets the number of the round
+#[cfg(unix)]
+fn pick_held_in_its_replays(repo: &TestRepo, lane: &TestWorktree, rounds: usize, mut during: impl FnMut(usize)) -> (LockSpanGit, i32, Value) {
+  let wrapped = LockSpanGit::new(
+    repo,
+    "*\" replay \"*) if [ -f '{dir}/hold' ]; then rm '{dir}/hold'; touch '{dir}/held'; while [ ! -f '{dir}/go' ]; do sleep 0.01; done; rm '{dir}/go'; fi;;",
+  );
+  let (hold, held, go) = (wrapped.dir().join("hold"), wrapped.dir().join("held"), wrapped.dir().join("go"));
+  std::fs::write(&hold, "").unwrap();
+  let (exit_code, output) = std::thread::scope(|scope| {
+    let pick = scope.spawn(|| wrapped.run(&["--full-ids", "pick", "--from", &lane.path, "--follow"]));
+    for round in 0..rounds {
+      while !held.exists() && !pick.is_finished() {
+        std::thread::yield_now();
+      }
+      assert!(held.exists(), "the pick reached its replay of round {round}");
+      std::fs::remove_file(&held).unwrap();
+      during(round);
+      if round + 1 < rounds {
+        std::fs::write(&hold, "").unwrap();
+      }
+      std::fs::write(&go, "").unwrap();
+    }
+    pick.join().unwrap()
+  });
+  (wrapped, exit_code, output)
+}
+
+/// The check of a pick (the range, the replay, the dry runs of both worktrees on index copies) runs before the lock:
+/// under it only the witness of both worktrees, the local changes on the paths the moves write, and the two moves with
+/// their marks
+#[cfg(unix)]
+#[test_log::test]
+fn the_check_of_a_pick_runs_before_the_lock() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let lane = lane_onto_a_moved_target(&repo);
+  let wrapped = LockSpanGit::new(&repo, "");
+  let (exit_code, output) = wrapped.run(&["pick", "--from", &lane.path, "--follow"]);
+  assert_eq!(
+    (exit_code, &output["state"], &output["followed"]["state"]),
+    (0, &json!("picked"), &json!("moved")),
+    "{output}"
+  );
+
+  wrapped.assert_before_the_lock("replay");
+  let commands = wrapped.commands();
+  let dry_runs = commands.iter().filter(|(locked, args)| !locked && args.contains(" read-tree -m -u -n ")).count();
+  assert_eq!(dry_runs, 2, "both dry runs before the lock: {commands:#?}");
+  // the marks of interrupted moves, the witness (the target's guards, HEAD and upstream; the source's guards and HEAD),
+  // the local changes on `a.txt`, the one path a move changes that the old tree has (its index entry, its content), and
+  // each move: the check of the symref, the transaction with its mark, the files, the mark deleted
+  assert_eq!(
+    counted(&wrapped.under_lock()),
+    [
+      ("cat-file".to_string(), 1),
+      ("hash-object".to_string(), 1),
+      ("read-tree".to_string(), 2),
+      ("rev-parse".to_string(), 12),
+      ("symbolic-ref".to_string(), 6),
+      ("update-index".to_string(), 4),
+      ("update-ref".to_string(), 4),
+    ],
+    "{commands:#?}"
+  );
+}
+
+/// While a pick checks, the repository lock is free: another writer (the app's Safe Push, a regroup) takes it at once
+#[cfg(unix)]
+#[test_log::test]
+fn another_writer_takes_the_lock_while_a_pick_replays() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let lane = lane_onto_a_moved_target(&repo);
+  let (_wrapped, exit_code, output) = pick_held_in_its_replays(&repo, &lane, 1, |_| drop(hold_the_lock(&repo)));
+  assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+  assert_eq!(read(&repo, "b.txt"), "b\n");
+}
+
+/// A writer that moves the target while the pick replays (another session's pick, a regroup) is kept: under the lock the
+/// witness finds the branch moved, the pick checks again without the lock and lands on the new tip, the worktree too
+#[cfg(unix)]
+#[test_log::test]
+fn a_commit_on_the_target_during_the_replay_of_a_pick_is_kept_and_the_pick_checks_again() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let lane = lane_onto_a_moved_target(&repo);
+  let (wrapped, exit_code, output) = pick_held_in_its_replays(&repo, &lane, 1, |_| {
+    repo.create_commit("(own) Meanwhile", "meanwhile.txt", "meanwhile\n");
+  });
+  assert_eq!(
+    (exit_code, &output["state"], &output["followed"]["state"]),
+    (0, &json!("picked"), &json!("moved")),
+    "{output}"
+  );
+  assert_eq!(wrapped.locked_runs("replay"), [false, false], "the check again, without the lock");
+  assert_eq!(
+    git(&repo, &["log", "--format=%s", "origin/master..HEAD"]),
+    "(lane) Add b\n(lane) Change a\n(own) Meanwhile\n(own) Other"
+  );
+  assert_eq!(lane.git(&["rev-parse", "HEAD"]), repo.head());
+  assert_eq!(output["previous_head"], json!(git(&repo, &["rev-parse", "HEAD~2"])));
+}
+
+/// A target moved during every check without the lock: the retries are bounded, the last check runs under the lock,
+/// where nobody else moves the branch, and the pick lands
+#[cfg(unix)]
+#[test_log::test]
+fn a_target_that_moves_during_every_check_is_checked_under_the_lock_at_last() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let lane = lane_onto_a_moved_target(&repo);
+  let (wrapped, exit_code, output) = pick_held_in_its_replays(&repo, &lane, 2, |round| {
+    repo.create_commit(&format!("(own) Meanwhile {round}"), &format!("meanwhile{round}.txt"), "meanwhile\n");
+  });
+  assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+  assert_eq!(wrapped.locked_runs("replay"), [false, false, true], "two checks without the lock, then one under it");
+  assert_eq!(
+    git(&repo, &["log", "--format=%s", "-4"]),
+    "(lane) Add b\n(lane) Change a\n(own) Meanwhile 1\n(own) Meanwhile 0"
+  );
+}
+
+/// A file the pick writes, edited while the pick replays: the local changes are read again under the lock, so the pick
+/// is refused with the path, as if the edit had come before it, and nothing moves
+#[cfg(unix)]
+#[test_log::test]
+fn a_file_edited_during_the_replay_of_a_pick_blocks_it() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let lane = lane_onto_a_moved_target(&repo);
+  let (head, lane_head) = (repo.head(), lane.git(&["rev-parse", "HEAD"]));
+  let (wrapped, exit_code, output) = pick_held_in_its_replays(&repo, &lane, 1, |_| std::fs::write(repo.path().join("a.txt"), "draft\n").unwrap());
+  assert_error(&output, exit_code, (4, "uncommitted_overlap"));
+  assert_eq!(output["error"]["paths"], json!(["a.txt"]));
+  assert_eq!(wrapped.locked_runs("replay"), [false], "no check again");
+  assert_eq!((repo.head(), lane.git(&["rev-parse", "HEAD"])), (head, lane_head));
+  assert_eq!(read(&repo, "a.txt"), "draft\n");
 }
 
 #[test_log::test]

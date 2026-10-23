@@ -1482,6 +1482,17 @@ pub(crate) fn blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str,
   blocking_paths_against(git_executor, repo_path, old, new, changed, None)
 }
 
+/// `blocking_paths` once more, under the repository lock, of a move whose exact check ran before the lock (`bd pick`):
+/// `preview_blocking_paths` of the changed paths, at a cost that grows with them, not with the index, and the exact dry
+/// run only when the preview finds a path, as it leans to blocked where the two differ. The move itself checks every
+/// path again before it writes one
+pub(crate) fn recheck_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath]) -> Result<Vec<String>> {
+  if changed.is_empty() || preview_blocking_paths(git_executor, repo_path, changed, &mut LocalProbe::default())?.is_empty() {
+    return Ok(Vec::new());
+  }
+  blocking_paths(git_executor, repo_path, old, new, changed)
+}
+
 /// `blocking_paths`; with `local_base`, the local changes are those against that commit, not against HEAD: after HEAD
 /// moved without the files, the index and the files of the old HEAD are not local changes
 fn blocking_paths_against(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath], local_base: Option<&str>) -> Result<Vec<String>> {

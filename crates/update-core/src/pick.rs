@@ -1,17 +1,18 @@
-//! `bd pick`: the commits of another worktree landed on the checked out branch under the repository lock, the source
-//! worktree following with `follow` (`git_ops::pick`, spec/cli/pick.spec.md), and the undo of both. Before the move,
-//! one read of how the branch groups tells the group of each picked commit, the branches whose stack parent a
-//! `(parent/leaf)` prefix changes, and the picked commits whose branch is not built on the branches they need.
+//! `bd pick`: the commits of another worktree landed on the checked out branch, the source worktree following with
+//! `follow` (`git_ops::pick`, spec/cli/pick.spec.md), and the undo of both. The check runs before the repository lock,
+//! the witness and the moves under it. After the moves, one read of how the branch groups tells the group of each
+//! picked commit, the branches whose stack parent a `(parent/leaf)` prefix changes, and the picked commits whose branch
+//! is not built on the branches they need.
 
 use anyhow::{Result, anyhow};
 use domain_types::commit::Commit;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list_at;
-use git_ops::pick::{AppliedPick, PickCheck, PickRequest, PickSource, PickState, PickedCommit, apply_pick, check_pick, check_pick_undo};
+use git_ops::pick::{AppliedPick, PickCheck, PickPlan, PickRequest, PickSource, PickState, PickedCommit, apply_pick, check_pick, check_pick_undo, recheck_pick};
 use git_ops::revs::is_object_id;
 use git_ops::update_branch::UndoBlocked;
-use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update};
+use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update, pending_update};
 use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
 use history_rewrite::repository_lock::{RewriteOptions, lock_repository};
 use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
@@ -126,43 +127,42 @@ impl PickResult {
   }
 }
 
-/// Pick the commits of `params.from` onto the branch checked out at `params.repository_path`. Under the repository lock
-/// (shared by every worktree), after an interrupted move of the target (and of the source with `follow`) is finished:
-/// the check, then, when it is clean, the move of the target and of the source. A conflict or local changes in the way
-/// change nothing (`check.state`). After the lock, how the branch groups with the picked commits (`landing`), from the
-/// head and the commits the check froze: a report that decides nothing, so its `log` and the diffs of its dependency
-/// check never make another writer wait. `cache` and `file_diffs` give those diffs
+/// How many times a pick checks without the repository lock: a writer that moves the target or the source between the
+/// check and the lock sends it back to check again, and after these the check runs under the lock, where neither moves
+const CHECKS_WITHOUT_THE_LOCK: usize = 2;
+
+/// Pick the commits of `params.from` onto the branch checked out at `params.repository_path`. The check (the range, the
+/// replay, the dry runs of both worktrees on copies of their index) runs before the repository lock, which every
+/// worktree shares, and a check that moves nothing (a conflict, local changes in the way, every commit present) is the
+/// answer without it. Under the lock only the witness (`recheck_pick`: the branch, both HEADs, the upstream, the local
+/// changes on the paths the moves write), then the move of the target and of the source (`land`). After the lock, how
+/// the branch groups with the picked commits (`landing`), from the head and the commits the check froze: a report that
+/// decides nothing, so its `log` and the diffs of its dependency check never make another writer wait. `cache` and
+/// `file_diffs` give those diffs
 #[instrument(skip(git_executor, options, cache, file_diffs))]
 pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options: &RewriteOptions<'_>, cache: &ObjectCache, file_diffs: &FileDiffs) -> Result<PickResult> {
   let target = params.repository_path.as_str();
-  let lock = if params.dry_run { None } else { options.lock(git_executor, target)? };
-  if !params.dry_run {
-    finish_pending_update(git_executor, target)?;
-    if let (true, PickFrom::Worktree(source)) = (params.follow, &params.from) {
-      finish_pending_update(git_executor, source)?;
-    }
-  }
   let (baseline, upstream) = baseline_tracking_ref(git_executor, target)?;
   let source = match &params.from {
     PickFrom::Worktree(dir) => PickSource::Worktree(dir),
     PickFrom::Revisions(text) => PickSource::Revisions(text),
   };
-  let plan = check_pick(
-    git_executor,
-    target,
-    &PickRequest {
-      source,
-      upstream: upstream.as_deref(),
-      follow: params.follow,
-    },
-  )?;
-  options.ensure_head(git_executor, target, &plan.check.head)?;
-  let applied = if !params.dry_run && plan.check.state == PickState::Clean {
-    Some(apply_pick(git_executor, target, &plan)?)
-  } else {
-    None
+  let request = PickRequest {
+    source,
+    upstream: upstream.as_deref(),
+    follow: params.follow,
   };
-  drop(lock);
+  let (plan, applied) = if params.dry_run {
+    let plan = check_pick(git_executor, target, &request)?;
+    options.ensure_head(git_executor, target, &plan.check.head)?;
+    (plan, None)
+  } else {
+    let mut worktrees = vec![target];
+    if let (true, PickFrom::Worktree(source)) = (params.follow, &params.from) {
+      worktrees.push(source);
+    }
+    land(git_executor, &worktrees, &request, options)?
+  };
   let landing = if plan.check.picked.is_empty() {
     Landing::default()
   } else {
@@ -184,6 +184,60 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     reparented: landing.reparented,
     applied,
   })
+}
+
+/// The check and the moves of a pick into `worktrees[0]`, the source following when it is `worktrees[1]`. The check runs
+/// without the lock, and under it the witness: a target or a source that moved in between (another session's pick, a
+/// regroup, a fetch) sends the pick back to check again, `CHECKS_WITHOUT_THE_LOCK` times, then once under the lock. An
+/// interrupted move of either worktree (its mark, `pending_update`) has its files follow under the lock before a check
+/// reads them. `apply_pick` of a check that moves nothing runs no git, so it needs no lock
+fn land(git_executor: &GitCommandExecutor, worktrees: &[&str], request: &PickRequest<'_>, options: &RewriteOptions<'_>) -> Result<(PickPlan, Option<AppliedPick>)> {
+  let target = worktrees[0];
+  let apply = |plan: &PickPlan| (plan.check.state == PickState::Clean).then(|| apply_pick(git_executor, target, plan)).transpose();
+  for _ in 0..CHECKS_WITHOUT_THE_LOCK {
+    if options.held_lock.is_some() || any_pending(git_executor, worktrees)? {
+      break;
+    }
+    let mut plan = check_pick(git_executor, target, request)?;
+    options.ensure_head(git_executor, target, &plan.check.head)?;
+    if plan.check.state != PickState::Clean || !plan.moves_anything() {
+      let applied = apply(&plan)?;
+      return Ok((plan, applied));
+    }
+    let lock = options.lock(git_executor, target)?;
+    if finish_pending(git_executor, worktrees)? || !recheck_pick(git_executor, target, &mut plan)? {
+      info!("the target or the source moved during the check of the pick: it checks again");
+      drop(lock);
+      continue;
+    }
+    let applied = apply(&plan)?;
+    return Ok((plan, applied));
+  }
+  let _lock = options.lock(git_executor, target)?;
+  finish_pending(git_executor, worktrees)?;
+  let plan = check_pick(git_executor, target, request)?;
+  options.ensure_head(git_executor, target, &plan.check.head)?;
+  let applied = apply(&plan)?;
+  Ok((plan, applied))
+}
+
+/// Whether a move of one of `worktrees` was interrupted before its files followed: reads only
+fn any_pending(git_executor: &GitCommandExecutor, worktrees: &[&str]) -> Result<bool> {
+  for worktree in worktrees {
+    if pending_update(git_executor, worktree)?.is_some() {
+      return Ok(true);
+    }
+  }
+  Ok(false)
+}
+
+/// Let the files of an interrupted move of each of `worktrees` follow, under the lock; whether one was
+fn finish_pending(git_executor: &GitCommandExecutor, worktrees: &[&str]) -> Result<bool> {
+  let mut finished = false;
+  for worktree in worktrees {
+    finished |= finish_pending_update(git_executor, worktree)?.is_some();
+  }
+  Ok(finished)
 }
 
 /// Where the diffs of the dependency check come from
