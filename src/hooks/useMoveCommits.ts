@@ -9,7 +9,7 @@ import { runRewrite } from "@/lib/rewrite"
 import { branchSyncStore, getBranchesOfCommits } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { branchSubject } from "@/stores/operations"
-import { getSelectedProject } from "@/stores/repository"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 
 export interface MoveOptions {
   /** The action, as the id of its item: "move-to" by default, "ungroup", "remove-prefix" */
@@ -33,8 +33,11 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
   const stacked = stackedBranchesOfMove(sources, targetBranch)
   const objects = [...new Set([...sources, ...(targetBranch === null ? [] : [targetBranch])])]
   const commitCount = formatCommitCount(commits.length)
+  // the repository of the move: the move and its Undo go there, whichever the main window shows when they run
+  const repositoryPath = getSelectedRepositoryPath()
   const result = await runRewrite(
     {
+      repositoryPath,
       id: options.id ?? "move-to",
       subject: branchSubject(sources[0] ?? targetBranch ?? ""),
       objects,
@@ -44,7 +47,7 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
     targetBranch === null ? "Cannot move the commits back" : `Cannot move the commits to ${targetBranch}`,
     () =>
       commands.moveCommitsToBranch({
-        repositoryPath: getSelectedProject()?.path ?? "",
+        repositoryPath,
         commitIds: commits.map(commit => commit.originalHash),
         targetBranch,
       }),
@@ -61,7 +64,7 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
         after: () => {
           const toastId = showUndoToast(
             moveTitle(moved, target, count),
-            () => undoRegroup(moved.undoToken, "Cannot undo the move", "Undoing the move"),
+            () => undoRegroup(repositoryPath, moved.undoToken, "Cannot undo the move", "Undoing the move"),
             description === undefined ? undefined : capitalize(description),
           )
           void offerUnstackAfterMove(toastId, stacked, target)

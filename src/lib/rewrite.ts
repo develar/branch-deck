@@ -5,6 +5,7 @@ import { notifyError } from "@/lib/errors"
 import { syncBranches } from "@/stores/branch-sync"
 import type { OperationSpec } from "@/stores/operations"
 import { runOperation } from "@/stores/operations"
+import { isSelectedRepository } from "@/stores/repository"
 
 /** A rewrite: its operation, without the kind */
 export type RewriteSpec = Omit<OperationSpec, "kind">
@@ -34,7 +35,9 @@ export async function runRewrite<T>(spec: RewriteSpec, failureTitle: string, com
         return null
       }
       const outcome = applied(result.data)
-      if (outcome.sync) {
+      // the sync shows the selected repository: a rewrite of another one (an Undo clicked after a switch) is synced
+      // when it opens
+      if (outcome.sync && (spec.repositoryPath === undefined || isSelectedRepository(spec.repositoryPath))) {
         await syncBranches({ autoScroll: false, autoExpand: false })
       }
       outcome.after?.()

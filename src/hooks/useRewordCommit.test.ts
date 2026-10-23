@@ -6,9 +6,13 @@ import { commands } from "@/lib/bindings"
 import type { CommitUnion } from "@/lib/commit"
 import { activityStore, canUndoActivity, clearActivity, selectActivity, undoActivity, UNDO_WINDOW_MS } from "@/stores/activity"
 
-const { toasts } = vi.hoisted(() => ({
+const { toasts, selection, syncs } = vi.hoisted(() => ({
   // what each `toast.add` showed, its action included
   toasts: [] as { title?: string; description?: string; timeout?: number; actionProps?: { onClick?: () => void } }[],
+  /** The repository the main window shows */
+  selection: { path: "/repo" },
+  /** The syncs the rewrites asked for */
+  syncs: { count: 0 },
 }))
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
@@ -23,14 +27,18 @@ vi.mock("@/components/ui/toast", () => ({
 }))
 vi.mock("@/stores/settings/app-store", () => ({ isMainWindow: true, getRawStoreValue: () => undefined, registerStore: () => {} }))
 vi.mock("@/stores/repository", () => ({
-  getSelectedProject: () => ({ path: "/repo" }),
-  useSelectedProject: () => ({ path: "/repo" }),
+  getSelectedProject: () => ({ path: selection.path }),
+  getSelectedRepositoryPath: () => selection.path,
+  isSelectedRepository: (path: string) => path === selection.path,
+  useSelectedProject: () => ({ path: selection.path }),
   getEffectiveBranchPrefix: () => "user",
 }))
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ isSyncing: false }) },
   getBranchesOfCommits: () => ["auth"],
-  syncBranches: async () => {},
+  syncBranches: async () => {
+    syncs.count++
+  },
 }))
 vi.mock("@/stores/commit-move", () => ({ requestReveal: () => {} }))
 vi.mock("@/stores/stack-collapse", () => ({ forgetCollapsedStack: () => {}, renameCollapsedStack: () => {} }))
@@ -56,6 +64,8 @@ describe("rewordCommit", () => {
   beforeEach(() => {
     vi.useFakeTimers({ now: 1_000_000 })
     toasts.length = 0
+    selection.path = "/repo"
+    syncs.count = 0
     clearActivity("/repo")
     vi.mocked(commands.undoRegroup).mockResolvedValue({ status: "ok", data: null })
   })
@@ -92,6 +102,19 @@ describe("rewordCommit", () => {
     toasts[0]!.actionProps!.onClick!()
     await vi.advanceTimersByTimeAsync(0)
     expect(vi.mocked(commands.undoRegroup)).toHaveBeenCalledOnce()
+  })
+
+  it("undoes the reword in its repository when the toast's Undo comes after a switch of the repository", async () => {
+    answer({ newCommitIds: { [OLD_ID]: NEW_ID }, previousHead: OLD_ID, newHead: NEW_ID, undoToken: TOKEN })
+    await rewordCommit(commit, "(auth) Add the login form", () => {})
+    expect(syncs.count).toBe(1)
+    selection.path = "/other"
+
+    toasts[0]!.actionProps!.onClick!()
+    await vi.waitFor(() => expect(vi.mocked(commands.undoRegroup)).toHaveBeenCalledExactlyOnceWith({ repositoryPath: "/repo", token: TOKEN }))
+    // the table shows /other: nothing of it is synced for the undo of /repo
+    await vi.advanceTimersByTimeAsync(0)
+    expect(syncs.count).toBe(1)
   })
 
   it("offers no Undo past the window of the toast", async () => {

@@ -177,6 +177,9 @@ operation.
 3. **Decision**: a rewrite lasts until its sync ends, and its toast comes then.
    **Rationale**: the row shows the state before the rewrite until the sync; offering the action again then is what
    ran it three times.
+   A rewrite names the repository of its click (`RewriteSpec.repositoryPath`), and so does its Undo: one of a
+   repository the main window no longer shows (an Undo clicked after a switch) ends with its command, and that
+   repository syncs when it opens.
 4. **Decision**: no `expect_head` for the regroups.
    **Rationale**: an unstack writes only `refs/branch-deck/stack-parents`, HEAD may stay; the registry closes the
    double start in the app, and a `bd` process meanwhile gets the exact error under the lock.

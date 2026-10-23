@@ -261,7 +261,10 @@ Renaming and ungrouping a branch are moves of all its commits.
 - A move must show a toast "Moved N commits to X" (N counts the commits that moved, not those already there) with what
   it did as the description ("IJPL-2 goes to docs by the issue key from now on, without a rewrite") and an Undo button.
 - Undo of a move, a rename and a restack must move HEAD and the issue groups back in one ref transaction with
-  compare-and-swap, under the repository lock (`undo_regroup` with the `undo_token` of the result).
+  compare-and-swap, under the repository lock (`undo_regroup` with the `undo_token` of the result), in the repository
+  the move was made in: a move, a rename, a restack, a reword and a conflict fix name the repository of the click, and
+  their Undo clicked after a switch of the repository undoes there, without a sync of the repository shown.
+  [@test] ../../src/hooks/useRewordCommit.test.ts (`undoes the reword in its repository when the toast's Undo comes after a switch of the repository`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`renaming_a_parent_renames_it_in_its_children`, `undo_refuses_a_bad_token_and_a_moved_head`)
 - After the toast shows, the trial build of the stacked branches of the move runs, the target first, then the source

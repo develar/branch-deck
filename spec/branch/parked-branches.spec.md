@@ -179,8 +179,11 @@ branch built on it carries its commits, so it is parked with it.
   parks) beside "Unapply…", the other way to set a branch aside, and of a parked branch "Edit Park Note…" and "Unpark Branch"; of a branch parked with its parent "Unpark
   ‹parent›". "Park Branch…" is disabled while a robot lands the branch, and says that an open pull request stays open.
   A park or an unpark is a write of the repository (it waits for a rewrite), followed by a sync, then a toast "Parked
-  auth" or "Unparked auth" whose Undo puts the line back as it was.
+  auth" or "Unparked auth" whose Undo puts the line back as it was. The park, the unpark and their Undo belong to the
+  repository of the click: an Undo clicked after a switch of the repository puts the line back there (synced when it
+  opens), never in the repository shown.
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should take the park back in its repository with the Undo of its toast clicked after a switch of the repository`)
 - Branches dragged from the table onto the park zone of the drag bar, or onto the Parked card, also collapsed (its
   header, its rows), must be parked at once, without a note, in one write of the store and one toast "Parked core and
   docs", whose Undo takes back every line; parked branches dragged onto the unpark zone of the drag bar must be

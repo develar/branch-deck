@@ -10,7 +10,7 @@ import { runRewrite } from "@/lib/rewrite"
 import { branchSyncStore, getBranchesOfCommits } from "@/stores/branch-sync"
 import type { OperationKey } from "@/stores/operations"
 import { branchSubject, getOperations, operationItem } from "@/stores/operations"
-import { getSelectedProject } from "@/stores/repository"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /** The surface of a reword: the editor of the commit message, which shows its progress */
 export const REWORD_SURFACE = "commit-message"
@@ -37,10 +37,12 @@ function rewordOperation(commitId: string): OperationKey & { readonly branchName
 export async function rewordCommit(commit: CommitUnion, message: string, onFollow: (from: string, to: string) => void, surface: string | null = null): Promise<boolean> {
   const commitId = getCommitHash(commit)
   const { id, subject, objects } = rewordOperation(commitId)
+  // the repository of the save: the reword and its Undo go there, whichever the main window shows when they run
+  const repositoryPath = getSelectedRepositoryPath()
   const result = await runRewrite(
-    { id, subject, objects, label: "Editing the commit message", surface },
+    { id, subject, objects, label: "Editing the commit message", surface, repositoryPath },
     "Cannot edit the commit message",
-    () => commands.reword({ repositoryPath: getSelectedProject()?.path ?? "", rewords: [{ commit: commitId, text: { message } }] }),
+    () => commands.reword({ repositoryPath, rewords: [{ commit: commitId, text: { message } }] }),
     data => {
       const newCommitId = data.newCommitIds[commitId] ?? commitId
       const token = data.undoToken
@@ -53,7 +55,7 @@ export async function rewordCommit(commit: CommitUnion, message: string, onFollo
         after: () =>
           showUndoToast(
             `Reworded ${formatShortHash(commitId)}`,
-            () => undoRegroup(token, "Cannot undo the reword", "Undoing the reword", () => onFollow(newCommitId, commitId)),
+            () => undoRegroup(repositoryPath, token, "Cannot undo the reword", "Undoing the reword", () => onFollow(newCommitId, commitId)),
             getSubjectLine(message).trim(),
           ),
       }

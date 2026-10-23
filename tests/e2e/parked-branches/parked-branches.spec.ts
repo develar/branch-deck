@@ -2,8 +2,10 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton } from "../helpers/branch-helpers"
+import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { dropAt, dropOn, startDrag } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
+import { recordCommand } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own;
 // neither Patronus nor GitHub, so every branch the remote lacks is the user's move, its push
@@ -147,6 +149,28 @@ test.describe("Parked branches", () => {
     await expect(parkedCard(page)).toHaveAttribute("data-state", "closed")
     await expect(findBranchRow(page, "lint")).toHaveCount(0)
     await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT - 1)
+  })
+
+  test("should take the park back in its repository with the Undo of its toast clicked after a switch of the repository", async ({ page, syncAndWaitForBranches }) => {
+    await addRecentProject(page)
+    await syncAndWaitForBranches()
+    await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
+    const parks = await recordCommand(page, "park_branches")
+    const unparks = await recordCommand(page, "unpark_branches")
+    await parkWithForm(page, () => findBranchRow(page, "docs").click({ button: "right" }), "")
+    expect(await parkedRows(page)).toEqual(["docs"])
+    const repositoryPath = parks[0]!.repositoryPath as string
+
+    // another repository opens; the Undo of the toast is still the park of the first one
+    await switchRepository(page, OTHER_REPOSITORY)
+    await toast(page, "Parked docs").getByRole("button", { name: "Undo" }).click()
+    await expect.poll(() => unparks).toEqual([{ repositoryPath, branchNames: ["docs"] }])
+    await expect(toast(page, "Cannot unpark docs")).toHaveCount(0)
+
+    // back in it, docs is a branch to land again
+    await switchRepository(page, repositoryPath)
+    await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
+    await expect(parkedCard(page)).toHaveCount(0)
   })
 
   test("should park a branch dragged onto the park zone of the drag bar, unpark it dragged onto the unpark zone, take both back with Undo, and drag the commits of a parked row onto a branch", async ({
