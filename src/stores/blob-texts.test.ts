@@ -61,14 +61,37 @@ describe("requestBlobTexts", () => {
       return answer(params)
     })
     const ids = Array.from({ length: 200 }, (_, index) => `id${index}`)
-    requestBlobTexts(ids)
+    requestBlobTexts(ids, "background")
     // a second task while the first reads: its batch waits in the queue too
     await new Promise(resolve => setTimeout(resolve, 0))
-    requestBlobTexts(["late"])
+    requestBlobTexts(["late"], "background")
     await settle()
     expect(most).toBe(1)
     expect(calls().flat()).toEqual([...ids, "late"])
     expect(calls().map(batch => batch.length)).toEqual([BLOB_TEXT_BATCH, BLOB_TEXT_BATCH, BLOB_TEXT_BATCH, 200 - 3 * BLOB_TEXT_BATCH, 1])
+  })
+
+  it("reads the shown texts at once, also the ones a Find still queues, while a background call hangs", async () => {
+    let hang!: () => void
+    getBlobTexts.mockImplementationOnce(async (params: { blobs: BlobRequest[] }) => {
+      await new Promise<void>(resolve => (hang = resolve))
+      return answer(params)
+    })
+    const find = Array.from({ length: 3 * BLOB_TEXT_BATCH }, (_, index) => `id${index}`)
+    requestBlobTexts(find, "background")
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // the Find's first batch hangs; the user scrolls to a file of its last batch and to a file outside it
+    const shown = `id${2 * BLOB_TEXT_BATCH + 5}`
+    requestBlobTexts([shown, "outside"])
+    await vi.waitFor(() => {
+      expect(blobTextsStore.getState().byId.get(shown)?.kind).toBe("loaded")
+      expect(blobTextsStore.getState().byId.get("outside")?.kind).toBe("loaded")
+    })
+    expect(calls()).toEqual([find.slice(0, BLOB_TEXT_BATCH), [shown, "outside"]])
+    hang()
+    await settle()
+    // the queued batches go on one after another, without the text the shown read took
+    expect(calls().slice(2)).toEqual([find.slice(BLOB_TEXT_BATCH, 2 * BLOB_TEXT_BATCH), find.slice(2 * BLOB_TEXT_BATCH).filter(id => id !== shown)])
   })
 
   it("keeps a failed read as an error and reads it again on the next request", async () => {

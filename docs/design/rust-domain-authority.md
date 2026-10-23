@@ -838,8 +838,9 @@ repository». Аудит всех функций в тот же день наш�
 - **Окно review:** кэш списка range, prefetch после `complete`, блобы по одному запросу в полёте, текст подсветки
   один раз, поколение навигации, trailing refresh uncommitted с путём в ключе. Сделано (`fix/remote-perf`): один кэш
   списка range у `get_range_files` и `FileDiffs::stream` (C7, `the_list_and_the_diffs_of_a_range_run_one_diff_tree`);
-  блобы — один `get_blob_texts` в полёте (C8, `reads the batches of a large Find one after another, at most one call in
-  flight`); текст подсветки — один раз (`sends the text of a blob once: later pages go without it, and a Missing
+  блобы — один фоновый `get_blob_texts` в полёте (Find, read-ahead), тексты на экране — сразу, мимо этой очереди (C8,
+  `reads the batches of a large Find one after another, at most one call in flight`, `reads the shown texts at once,
+  also the ones a Find still queues, while a background call hangs`); текст подсветки — один раз (`sends the text of a blob once: later pages go without it, and a Missing
   answer brings it back once`); поколение навигации (`NavigationGate`, `should open one file for a name clicked twice
   before the answer, so one Back returns to the review`); prefetch соседей — после конца потока показанного
   (`whenFileDiffsEnded`, `tells the end of a subject's read only once its stream ended: the neighbours of a review are

@@ -124,12 +124,13 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   again, shows the loaded uncommitted changes until their new read ends, and drops the ranges of a closed review.
   [@test] ../../src/stores/file-diffs.test.ts (`reads a subject once per policy, the files in view first`, `shows each file as its content arrives, and the late scopes of a text keep the lines it expanded`, `reads the uncommitted changes again on a refresh, and keeps the loaded ones until the new read ends`, `keeps the last subjects only, and forgets the subjects of a closed review under every policy`)
 - The texts of a diff must be read by git blob id (`get_blob_texts`), shared by every commit, range and window, the new
-  side of an uncommitted change by its path too: the ids of one task in one call (64 at most), one call in flight at a time (Find over a review of a thousand files
-  starts no 16 `cat-file` processes at once), each id once, a failed read tried again, the least recently used texts
+  side of an uncommitted change by its path too: the ids of one task in one call (64 at most), the texts on screen at once, also the ones a background read
+  still queues, the background reads (Find, the files after the window) one call in flight at a time (Find over a
+  review of a thousand files starts no 16 `cat-file` processes at once, and a shown text never waits for it), each id once, a failed read tried again, the least recently used texts
   dropped over 64 Mi UTF-16 units, never the ones just read. A file's diff is built from its blocks and both texts,
   complete: the unchanged lines between hunks expand without a request. The same diff gives the same model, so the
   lines it expanded stay expanded.
-  [@test] ../../src/stores/blob-texts.test.ts (`reads the ids of one task in one call, and each id once`, `reads many ids in batches`, `reads the batches of a large Find one after another, at most one call in flight`, `keeps a failed read as an error and reads it again on the next request`, `drops the least recently requested texts over the length, never the ones just read`)
+  [@test] ../../src/stores/blob-texts.test.ts (`reads the ids of one task in one call, and each id once`, `reads many ids in batches`, `reads the batches of a large Find one after another, at most one call in flight`, `reads the shown texts at once, also the ones a Find still queues, while a background call hangs`, `keeps a failed read as an error and reads it again on the next request`, `drops the least recently requested texts over the length, never the ones just read`)
   [@test] ../../src/lib/diff/rows.test.ts (`finds each row from its segment, and keeps the fold levels of a diff object`)
   [@test] ../../src/lib/diff/view-files.test.ts (`says why a file shows no lines: binary, too large, a submodule, a blob git cannot read, a text that cannot be read, no changed lines`)
   [@test] ../../crates/git-ops/src/cat_file_batch_test.rs (`the_content_of_an_object_over_the_limit_is_not_buffered`)

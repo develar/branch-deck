@@ -430,10 +430,13 @@ export function DiffView({
     painter.scrollTo(Math.max(top, layout.fileTop(hit.file)))
   }, [find.current, hits, layout, painter, headerHeight])
 
-  // the find reads the texts of every file it searches
+  // the find reads the texts of every file it searches, behind the texts on screen
   useEffect(() => {
     if (find.open) {
-      requestBlobTexts(prepared.flatMap(file => readsOf(file)))
+      requestBlobTexts(
+        prepared.flatMap(file => readsOf(file)),
+        "background",
+      )
     }
   }, [find.open, prepared])
 
@@ -597,10 +600,17 @@ export function DiffView({
     return () => painter.detach()
   }, [painter, scroll])
 
-  // the texts of the files in the window, then of the files after it
+  // the texts of the files in the window at once (also the ones a Find still queues), then of the files after it
   useEffect(() => {
     requestBlobTexts(prepared.slice(first, last + 1).flatMap(file => readsOf(file)))
-    const ahead = setTimeout(() => requestBlobTexts(prepared.slice(last + 1, last + 1 + READ_AHEAD_FILES).flatMap(file => readsOf(file))), 50)
+    const ahead = setTimeout(
+      () =>
+        requestBlobTexts(
+          prepared.slice(last + 1, last + 1 + READ_AHEAD_FILES).flatMap(file => readsOf(file)),
+          "background",
+        ),
+      50,
+    )
     return () => clearTimeout(ahead)
   }, [prepared, first, last])
 
