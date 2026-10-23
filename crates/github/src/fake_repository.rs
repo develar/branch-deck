@@ -1,6 +1,6 @@
 //! One GitHub repository with state, behind `FakeGitHub` (`FakeGitHub::with_repository`): its pull requests, the
 //! user of its token, the users a review can be asked from, the branches GitHub has and the rules of a branch. It
-//! answers the REST and GraphQL requests of `remote_facts` as GitHub does (`GET /user`, `POST pulls`, `GET`/`PATCH
+//! answers the REST and GraphQL requests of `remote_facts` as GitHub does (`GET /user`, `GET`/`POST pulls`, `GET`/`PATCH
 //! pulls/<n>`, `POST pulls/<n>/requested_reviewers` and `reviews`, `POST issues/<n>/comments` and `assignees`, `GET
 //! issues/comments/<id>`, `GET issues/<n>/comments`, `GET branches/<b>`, `GET rules/branches/<b>`, the GraphQL search of
 //! the user's pull requests and of the assignable users), and a write changes what the next read answers. The Patronus
@@ -163,6 +163,7 @@ impl FakeGitHubRepository {
     }
     match (method, rest) {
       ("POST", ["pulls"]) => Some(self.create_pull(&mut state, &body)),
+      ("GET", ["pulls"]) => Some(self.list_pulls(&state, request.query.as_deref().unwrap_or_default())),
       ("GET", ["pulls", number]) => Some(self.with_pull(&mut state, number, |this, state, index| Ok(this.rest_pull(state, index)))),
       ("PATCH", ["pulls", number]) => Some(self.with_pull(&mut state, number, |this, state, index| {
         let pull = &mut state.pulls[index].pull_request;
@@ -299,6 +300,35 @@ impl FakeGitHubRepository {
     let mut answer = self.rest_pull(state, state.pulls.len() - 1);
     answer.status = 201;
     answer
+  }
+
+  /// `GET pulls?head=<owner>:<branch>&state=open|closed|all`: the pull requests of the head, newest first; the
+  /// pull requests themselves, which a search lists only a while later
+  fn list_pulls(&self, state: &RepositoryState, query: &str) -> FakeAnswer {
+    let parameter = |name: &str| {
+      query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(key, _)| *key == name)
+        .map(|(_, value)| percent_decoded(&value.replace('+', " ")))
+    };
+    let head = parameter("head");
+    let wanted = parameter("state").unwrap_or_else(|| "open".to_string());
+    let pulls: Vec<Value> = (0..state.pulls.len())
+      .rev()
+      .filter(|&index| {
+        let pull_request = &state.pulls[index].pull_request;
+        let open = pull_request.state == PullRequestState::Open;
+        let state_matches = match wanted.as_str() {
+          "all" => true,
+          "closed" => !open,
+          _ => open,
+        };
+        state_matches && head.as_ref().is_none_or(|head| *head == format!("{}:{}", state.owner, pull_request.head_ref_name))
+      })
+      .map(|index| self.rest_pull(state, index).body)
+      .collect();
+    FakeAnswer::ok(json!(pulls))
   }
 
   /// A pull request of the REST API (`GET pulls/<n>`)

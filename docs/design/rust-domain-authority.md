@@ -811,7 +811,9 @@ repository». Аудит всех функций в тот же день наш�
   toast «Cannot undo the move» не приходит; Undo помечается выполненным после `Ok`. Решение 3 и блокировка rewrites
   во время sync (`getRewriteBlocker`) остаются до s11.
 - **Захват репозитория:** Safe Push start, toast «Update Project», Create PR и Request Review, Close Landed, undo
-  park и regroup, результаты push по (репозиторий, ветка).
+  park и regroup, результаты push по (репозиторий, ветка). Сделано (`fix/remote-perf`): повтор Create при отставании
+  поиска находит PR через REST `pulls?head=<owner>:<branch>&state=open` и отвечает `created: false`
+  (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`).
 - **Старт:** comment-маршрут за guards; матч ответа бота с этим комментарием; cancel закончившегося заменяемого
   робота. Сделано (`fix/patronus-start`): `check_start_from_pull_request` перед комментарием в обоих хостах;
   `findCommentRobot` / `comment_robot` — mode, «не известный до POST», самый новый, принятый без робота — Started с

@@ -62,6 +62,14 @@ async fn a_created_pull_request_is_read_changed_and_listed_as_github_answers() {
 
   let again = post(&client, &pulls(&["pulls"]), json!({"title": "Add auth", "head": "user/virtual/auth", "base": "master"})).await;
   assert_eq!(again.unwrap_err().message(), "Validation Failed: A pull request already exists for acme:user/virtual/auth.");
+  // the REST list of the head finds it at once, as GitHub's does
+  let open = get(&client, &pulls(&["pulls"]), &[("head", "acme:user/virtual/auth"), ("state", "open")]).await.unwrap();
+  assert_eq!(
+    open.as_array().map(|pulls| pulls.iter().map(|pull| pull["number"].clone()).collect::<Vec<_>>()),
+    Some(vec![json!(7)])
+  );
+  let other = get(&client, &pulls(&["pulls"]), &[("head", "acme:user/virtual/ui"), ("state", "open")]).await.unwrap();
+  assert_eq!(other, json!([]));
   let missing = post(&client, &pulls(&["pulls"]), json!({"title": "x", "head": "user/virtual/ui", "base": "master"})).await;
   assert_eq!(missing.unwrap_err().message(), "Validation Failed: head invalid");
 

@@ -170,6 +170,8 @@ async fn an_assignee_github_leaves_out_or_refuses_is_a_warning_of_the_created_pu
   assert_eq!(result.warnings, ["cannot assign the pull request to me: Server Error"]);
 }
 
+/// A retry after a timeout, or the app and `bd --create-pull-request` at once: the pull request exists, and GitHub's
+/// search does not list it yet. The REST list of the head finds it.
 #[test(tokio::test)]
 async fn a_pull_request_that_already_exists_is_found_and_left_as_it_is() {
   let (fake, github) = start_fake_service("t").await;
@@ -178,18 +180,41 @@ async fn a_pull_request_that_already_exists_is_found_and_left_as_it_is() {
     &fake,
     &json!({"resource": "PullRequest", "code": "custom", "message": "A pull request already exists for acme:me/virtual/auth."}),
   );
-  let existing = json!({"number": 7, "title": "Add auth", "url": "https://github.com/acme/monorepo/pull/7", "state": "OPEN", "isDraft": false,
-    "headRefName": "me/virtual/auth", "headRefOid": "1111", "baseRefName": "master", "headRepositoryOwner": {"login": "acme"},
-    "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z"});
+  // the search lags: it lists nothing
   fake.answer(
     "POST",
     "/graphql",
-    FakeAnswer::ok(json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": [existing]}}})),
+    FakeAnswer::ok(json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": []}}})),
   );
+  let existing = json!({"number": 7, "title": "Add auth", "html_url": "https://github.com/acme/monorepo/pull/7", "state": "open",
+    "draft": false, "head": {"ref": "me/virtual/auth", "sha": "1111"}, "base": {"ref": "master"}, "updated_at": "2026-10-14T09:30:00Z",
+    "user": {"login": "me"}, "requested_reviewers": [{"login": "alice"}]});
+  fake.answer("GET", PULLS, FakeAnswer::ok(json!([existing])));
   let result = create_pull_request(&github, &repository(), &params(&["alice"], true)).await.unwrap();
   assert!(!result.created);
-  assert_eq!(result.pull_request.number, 7);
+  assert_eq!(
+    (result.pull_request.number, result.pull_request.head_ref_oid.as_str(), result.pull_request.reviewers.len()),
+    (7, "1111", 1)
+  );
+  let lists = fake.requests_to("GET", PULLS);
+  assert_eq!(lists.len(), 1);
+  let query = lists[0].query.clone().unwrap_or_default();
+  assert!(query.contains("head=acme%3Ame%2Fvirtual%2Fauth") && query.contains("state=open"), "{query}");
+  assert!(fake.requests_to("POST", "/graphql").is_empty());
   assert!(fake.requests_to("POST", ASSIGNEES).is_empty() && fake.requests_to("POST", REVIEWERS).is_empty());
+}
+
+#[test(tokio::test)]
+async fn a_pull_request_that_exists_but_is_not_found_says_so() {
+  let (fake, github) = start_fake_service("t").await;
+  answer_user(&fake);
+  refuse_creation(
+    &fake,
+    &json!({"resource": "PullRequest", "code": "custom", "message": "A pull request already exists for acme:me/virtual/auth."}),
+  );
+  fake.answer("GET", PULLS, FakeAnswer::ok(json!([])));
+  let error = create_pull_request(&github, &repository(), &params(&[], false)).await.unwrap_err().to_string();
+  assert_eq!(error, "auth already has a pull request, but GitHub does not find it");
 }
 
 #[test(tokio::test)]

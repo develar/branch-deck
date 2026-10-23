@@ -9,7 +9,7 @@
 
 use crate::pull_request_text::{AncestorText, CommitText, PullRequestTextInput, issue_texts, pull_request_text};
 use crate::pull_request_writes::{request_reviews, unique_logins};
-use crate::pull_requests::{GitHubWriteError, list_pull_requests, visible_data};
+use crate::pull_requests::{GitHubWriteError, visible_data};
 use anyhow::{Result, anyhow, bail};
 use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequest, PullRequestState, Reviewer, ReviewerState};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -282,15 +282,10 @@ pub(crate) async fn create_pull_request_waiting(
       warnings,
     }),
     Creation::Exists => {
-      let listed = list_pull_requests(github, &params.repository_path, repository, &params.branch_prefix).await;
-      // by its head: the pull request of a stack branch is listed by its root, which a branch may be named too
-      let existing = listed
-        .pull_requests
-        .values()
-        .chain(listed.stack_pull_requests.values())
-        .find(|pull_request| pull_request.head_ref_name == params.head && pull_request.state == PullRequestState::Open)
-        .cloned()
-        .ok_or_else(|| GitHubWriteError::Refused(format!("{} already has a pull request, but GitHub does not list it yet", params.branch_name)))?;
+      let existing = open_pull_request_of_head(github, repository, params)
+        .await
+        .map_err(|failure| creation_error(failure, params))?
+        .ok_or_else(|| GitHubWriteError::Refused(format!("{} already has a pull request, but GitHub does not find it", params.branch_name)))?;
       Ok(CreatedPullRequest {
         pull_request: existing,
         created: false,
@@ -299,6 +294,27 @@ pub(crate) async fn create_pull_request_waiting(
       })
     }
   }
+}
+
+/// The open pull request of `params.head` in `repository`, from `GET pulls?head=<owner>:<head>&state=open`: the REST
+/// list reads the pull requests themselves, so one created a moment ago (a retry after a timeout, the app and `bd
+/// --create-pull-request` at once) is found while GitHub's search does not list it yet
+async fn open_pull_request_of_head(github: &GitHubService, repository: &GitHubRepository, params: &CreatePullRequestParams) -> Result<Option<PullRequest>, GitHubFailure> {
+  let head = format!("{}:{}", repository.owner, params.head);
+  let (owner, name, head) = (repository.owner.as_str(), repository.name.as_str(), head.as_str());
+  let found = github
+    .ask(&params.repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      client
+        .get::<Vec<GhCreatedPullRequest>>(&token, &["repos", owner, name, "pulls"], &[("head", head), ("state", "open")])
+        .await
+    })
+    .await?;
+  Ok(
+    found
+      .into_iter()
+      .find(|pull_request| pull_request.head.git_ref == params.head)
+      .map(|pull_request| to_pull_request(pull_request, Vec::new())),
+  )
 }
 
 /// `GET /user`, `POST pulls`, then the assignee and the reviewers of the pull request it created (`create_pull_request`)

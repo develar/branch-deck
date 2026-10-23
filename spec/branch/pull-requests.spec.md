@@ -409,7 +409,10 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   dialog is open (open or merged) turns it into "feature-auth already has pull request #7." with "Open Pull Request";
   Create and "Continue on GitHub" are disabled, and their hover says why ("feature-auth already has pull request #7",
   "Pull request #7 of feature-auth is merged"): GitHub's form would open nothing. A disabled Create always says why on
-  hover: "Enter a title", "The title must be one line", "Reading the commits of the branch…".
+  hover: "Enter a title", "The title must be one line", "Reading the commits of the branch…". The existing one is
+  looked up by its head (`GET pulls?head=<owner>:<branch>&state=open`), not by the search, which lists a new pull
+  request only a while later: a retry after a timeout, or the app and `bd safe-push --create-pull-request` at once,
+  find the one just created.
   [@test] ../../src/lib/git/push.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say why it can't create, and offer only Open Pull Request once the branch has one`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)

@@ -755,8 +755,14 @@ fn a_pull_request_that_already_exists_is_found_instead() {
       json!({"message": "Validation Failed", "errors": [{"resource": "PullRequest", "code": "custom", "message": format!("A pull request already exists for acme:{AUTH}.")}]}),
     ),
   );
-  // GitHub lists it once the search sees it, e.g. after the plan of this run
-  github.answer_in_turn("POST", "/graphql", vec![search_answer(&[]), search_answer(&[pull_request_json(&[])])]);
+  // the search does not list it yet (a retry after a timeout, the app at the same time): the REST list of the head does
+  github.answer("POST", "/graphql", search_answer(&[]));
+  github.answer(
+    "GET",
+    "/repos/acme/monorepo/pulls",
+    FakeAnswer::ok(json!([{"number": 7, "html_url": "https://github.com/acme/monorepo/pull/7", "title": "Add auth",
+      "head": {"ref": AUTH, "sha": "1111"}, "base": {"ref": "master"}}])),
+  );
   let output = create_pull_request(&environment);
   assert_eq!(
     output["pull_request"],
