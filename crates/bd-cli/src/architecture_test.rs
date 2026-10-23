@@ -52,6 +52,11 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "the Patronus client runs no git",
   },
   Unreachable {
+    from: "cli-tools",
+    forbidden: &["git-ops", "git-executor", "patronus", "youtrack", "github", TAURI],
+    why: "the CLIs of Settings → Tools run only themselves: no git, no remote service of the app's own",
+  },
+  Unreachable {
     from: "sync-core",
     forbidden: &["github", "patronus", "youtrack", "file-diffs", "code-symbols"],
     why: "the sync reads no remote service, no file diff and no symbol",

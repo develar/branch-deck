@@ -1,6 +1,6 @@
 ---
 name: Settings
-description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Patronus, Agents, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
+description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Patronus, Agents, Tools, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
 style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs
@@ -25,6 +25,7 @@ targets:
   - ../../src/components/settings/AppearancePage.tsx
   - ../../src/components/settings/DiffsPage.tsx
   - ../../src/components/settings/AgentsPage.tsx
+  - ../../src/components/settings/ToolsPage.tsx
   - ../../src/hooks/useConfigWrite.ts
   - ../../src/components/shared/DiffViewToggle.tsx
   - ../../src/components/settings/NotificationsPage.tsx
@@ -146,7 +147,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ### Pages
 
 - The sidebar is a vertical Base UI `Tabs` list on the canvas (`TabsList variant="list"`): General, Appearance,
-  Diffs & Merge, Notifications, GitHub, YouTrack, Patronus, Agents, a separator, then Repository with the name of the selected repository muted beside it (the
+  Diffs & Merge, Notifications, GitHub, YouTrack, Patronus, Agents, Tools, a separator, then Repository with the name of the selected repository muted beside it (the
   name of the tab stays "Repository"), the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓
   switch the page (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it
   no room; the page left is hidden at once (`data-ending-style`), so two never stack.
@@ -199,10 +200,13 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should sign in in the browser to the YouTrack the issue links name, and sign out`, `should ask to sign in again once the sign-in expired`)
 - Patronus: how Branch Deck and bd read the robots ([Patronus](#patronus)).
 - Agents: how coding agents work ([Agents](#agents)).
+- Tools: the `teamcity` and `youtrack` CLIs, their version, sign-ins and the action each needs
+  ([Command-Line Tools](cli-tools.spec.md)).
 - Repository: the settings of the selected repository ([Repository](#repository)).
 - Every page fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
   OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux, every line a row
-  of Repository can show, on Agents the installed skill, a value of the worktree config and an invalid one.
+  of Repository can show, on Agents the installed skill, a value of the worktree config and an invalid one, on Tools a
+  CLI on two servers and the install command of the other.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`, `should fit every page at 720 × 540 without scrolling, the Dock badge too`)
 
 ### The page an open shows
@@ -349,6 +353,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   change how agents write commit subjects in every repository", or for the repository "Cannot change where agents work
   in <repository>", "Cannot change how agents write commit subjects in <repository>". No write syncs: only agents read
   the rules.
+- The last line, "Agents also run teamcity and youtrack" with Open Tools, opens Tools ([Command-Line
+  Tools](cli-tools.spec.md#where-it-is)).
   [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should disable the buttons of the repository while its worktree config sets the rule, and say so`)
   [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
 

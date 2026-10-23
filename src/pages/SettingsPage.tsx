@@ -12,6 +12,7 @@ import { GitHubPage } from "@/components/settings/GitHubPage"
 import { NotificationsPage } from "@/components/settings/NotificationsPage"
 import { PatronusPage } from "@/components/settings/PatronusPage"
 import { RepositoryPage } from "@/components/settings/RepositoryPage"
+import { ToolsPage } from "@/components/settings/ToolsPage"
 import { YouTrackPage } from "@/components/settings/YouTrackPage"
 import { KeyHint, PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
@@ -33,6 +34,7 @@ const PAGE_LABELS: Record<SettingsPageId, string> = {
   youtrack: "YouTrack",
   patronus: "Patronus",
   agents: "Agents",
+  tools: "Tools",
   repository: "Repository",
 }
 
@@ -129,6 +131,9 @@ export function SettingsPage() {
           </SettingsPanel>
           <SettingsPanel id="agents">
             <AgentsPage openCount={openCount} />
+          </SettingsPanel>
+          <SettingsPanel id="tools">
+            <ToolsPage openCount={openCount} />
           </SettingsPanel>
           <SettingsPanel id="repository">
             <RepositoryPage />

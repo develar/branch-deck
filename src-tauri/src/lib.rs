@@ -37,6 +37,7 @@ use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, delete_unapplied_branch, get_archived_branch_commits, get_unapplied_branch_commits};
 use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config};
 use commands::branch_review::{get_branch_review, get_file_owners, prefetch_branch_review};
+use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, run_cli_tool_action};
 use commands::commit_files::{get_commit_files, get_commits_files};
 use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
 use commands::fetch_baseline::fetch_baseline;
@@ -209,6 +210,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
     install_agent_cli,
     agent_cli_command,
     agent_cli_status,
+    cli_tools_status,
+    run_cli_tool_action,
+    cancel_cli_tool_action,
   ])
 }
 
@@ -305,6 +309,7 @@ pub fn run() {
       app.manage(BranchNameSuggestionState::default());
       app.manage(ReviewFetchState::default());
       app.manage(SubWindowState::default());
+      app.manage(CliToolsState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(in_current_span(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir)));
       }

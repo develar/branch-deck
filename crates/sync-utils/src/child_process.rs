@@ -53,11 +53,7 @@ pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duratio
     .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
-  let mut child = match command.spawn() {
-    Ok(child) => child,
-    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(ChildProcessError::NotFound),
-    Err(e) => return Err(ChildProcessError::Spawn(e)),
-  };
+  let mut child = start_child(command)?;
   // a writer thread: a child that answers before it reads all of its input must not deadlock us
   if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
     std::thread::spawn(in_current_span(move || {
@@ -90,6 +86,121 @@ pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duratio
     status,
     stdout: stdout.join().unwrap_or_default(),
     stderr: String::from_utf8_lossy(&stderr.join().unwrap_or_default()).trim().to_string(),
+  })
+}
+
+/// How long a process group has after SIGTERM before SIGKILL
+const TERMINATE_GRACE: Duration = Duration::from_secs(3);
+
+/// Runs `command` without input, handing each line of stdout and stderr to `on_line` as it comes, on the calling thread.
+/// On Unix the child leads a process group of its own, which a timeout or `is_canceled` ends with SIGTERM and, after 3 s,
+/// SIGKILL: the processes it started (the Ruby of `brew`) end with it instead of holding its locks. The output is also
+/// returned whole, as by `run_child`.
+pub fn run_child_lines(command: &mut Command, timeout: Duration, on_line: &dyn Fn(&str), is_canceled: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
+  command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+  #[cfg(unix)]
+  std::os::unix::process::CommandExt::process_group(command, 0);
+  let mut child = start_child(command)?;
+  let (sender, lines) = std::sync::mpsc::channel::<(bool, String)>();
+  let stdout = read_lines(child.stdout.take(), true, sender.clone());
+  let stderr = read_lines(child.stderr.take(), false, sender);
+
+  let mut stdout_text = Vec::new();
+  let mut stderr_text = String::new();
+  let mut take_line = |(is_stdout, line): (bool, String)| {
+    on_line(&line);
+    if is_stdout {
+      stdout_text.extend_from_slice(line.as_bytes());
+      stdout_text.push(b'\n');
+    } else {
+      stderr_text.push_str(&line);
+      stderr_text.push('\n');
+    }
+  };
+  let deadline = Instant::now() + timeout;
+  let status = loop {
+    while let Ok(line) = lines.try_recv() {
+      take_line(line);
+    }
+    let stop = match child.try_wait() {
+      Ok(Some(status)) => break status,
+      Ok(None) if is_canceled() => ChildProcessError::Superseded,
+      Ok(None) if Instant::now() >= deadline => ChildProcessError::TimedOut,
+      Ok(None) => {
+        if let Ok(line) = lines.recv_timeout(POLL_INTERVAL) {
+          take_line(line);
+        }
+        continue;
+      }
+      Err(e) => ChildProcessError::Wait(e),
+    };
+    terminate_group(&mut child);
+    return Err(stop);
+  };
+  // the pipes close once every process of the group that held them is gone
+  let _ = (stdout.join(), stderr.join());
+  while let Ok(line) = lines.try_recv() {
+    take_line(line);
+  }
+  Ok(ChildOutput {
+    status,
+    stdout: stdout_text,
+    stderr: stderr_text.trim().to_string(),
+  })
+}
+
+fn read_lines(pipe: Option<impl Read + Send + 'static>, is_stdout: bool, sender: std::sync::mpsc::Sender<(bool, String)>) -> JoinHandle<()> {
+  std::thread::spawn(in_current_span(move || {
+    let Some(pipe) = pipe else { return };
+    // `\r` ends a line too: a progress bar rewrites its line
+    let mut reader = std::io::BufReader::new(pipe);
+    let mut buffer = Vec::new();
+    loop {
+      buffer.clear();
+      match std::io::BufRead::read_until(&mut reader, b'\n', &mut buffer) {
+        Ok(0) | Err(_) => break,
+        Ok(_) => {
+          for line in String::from_utf8_lossy(&buffer).split(['\n', '\r']).filter(|line| !line.trim().is_empty()) {
+            if sender.send((is_stdout, line.to_string())).is_err() {
+              return;
+            }
+          }
+        }
+      }
+    }
+  }))
+}
+
+/// SIGTERM to the child's process group, SIGKILL after the grace; elsewhere the child alone is killed
+fn terminate_group(child: &mut std::process::Child) {
+  #[cfg(unix)]
+  if let Ok(pid) = libc::pid_t::try_from(child.id()) {
+    signal_group(pid, libc::SIGTERM);
+    let deadline = Instant::now() + TERMINATE_GRACE;
+    // the leader may exit first: the rest of its group gets the same end then
+    while Instant::now() < deadline && !matches!(child.try_wait(), Ok(Some(_))) {
+      std::thread::sleep(POLL_INTERVAL);
+    }
+    signal_group(pid, libc::SIGKILL);
+  }
+  let _ = child.kill();
+  let _ = child.wait();
+}
+
+#[cfg(unix)]
+#[expect(unsafe_code, reason = "kill(2) of a process group, which std does not offer")]
+fn signal_group(leader: libc::pid_t, signal: libc::c_int) {
+  // SAFETY: kill(2) of the group the child leads (`process_group(0)`): it sends a signal and touches no memory
+  unsafe { libc::kill(-leader, signal) };
+}
+
+fn start_child(command: &mut Command) -> Result<std::process::Child, ChildProcessError> {
+  command.spawn().map_err(|e| {
+    if e.kind() == std::io::ErrorKind::NotFound {
+      ChildProcessError::NotFound
+    } else {
+      ChildProcessError::Spawn(e)
+    }
   })
 }
 

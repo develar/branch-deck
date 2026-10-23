@@ -445,6 +445,15 @@ export const commands = {
 	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, CommandError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
 	/**  The skill files of `bd install` that exist, without writing anything */
 	agentCliStatus: () => __TAURI_INVOKE<AgentCliStatus>("agent_cli_status"),
+	/**  The status of every tool, each read in its own threads */
+	cliToolsStatus: () => typedError<CliToolStatus[], CommandError>(__TAURI_INVOKE("cli_tools_status")),
+	/**
+	 *  Runs `action` of `tool` (install, update, the skill), each line of its output to `progress`; a second action of the
+	 *  same tool while one runs is refused
+	 */
+	runCliToolAction: (tool: CliTool, action: CliToolAction, latest: string | null, progress: Channel<CliToolProgress>) => typedError<CliToolActionDone, CommandError>(__TAURI_INVOKE("run_cli_tool_action", { tool, action, latest, progress })),
+	/**  Ends the action of `tool` that runs, with its whole process group */
+	cancelCliToolAction: (tool: CliTool) => __TAURI_INVOKE<void>("cancel_cli_tool_action", { tool }),
 };
 
 /* Types */
@@ -785,6 +794,84 @@ export type ChecksSummary = {
 	pending: number,
 	/**  The names of the failed checks, at most a few */
 	failedNames: string[],
+};
+
+/**  A CLI that agents and the app use */
+export type CliTool = 
+/**  JetBrains/teamcity-cli: the logs and tests of the builds of a robot */
+"teamcity" | 
+/**  JetBrains/youtrack-cli: the issues of the commits */
+"youtrack";
+
+/**  The one thing a row offers next, decided in Rust */
+export type CliToolAction = "install" | 
+/**  The CLI is signed in to no server */
+"signIn" | 
+/**  A newer release than the installed one */
+"update" | 
+/**  The skill is not installed, or older than the one the CLI bundles */
+"updateSkill";
+
+/**  What an action did, in the words of its toast */
+export type CliToolActionDone = {
+	title: string,
+};
+
+/**  A line of the output of a running action */
+export type CliToolProgress = {
+	line: string,
+};
+
+/**  A server the CLI is configured for */
+export type CliToolServer = {
+	/**  e.g. `https://buildserver.labs.intellij.net`, without a trailing `/` */
+	url: string,
+	/**  The login the token belongs to */
+	user: string | null,
+	state: CliToolSignInState,
+	/**  Why `state` is `Failed`, in the CLI's words */
+	error: string | null,
+	/**  Unix seconds when the token expires; None for a token without an expiry (a permanent one) */
+	expiresAt: number | null,
+};
+
+/**  How a CLI is signed in to one server */
+export type CliToolSignInState = "authenticated" | 
+/**  TeamCity's guest access: read-only, no token */
+"guest" | 
+/**  The CLI has the server but its token is missing, rejected or unreadable */
+"failed";
+
+/**  The agent skill a CLI bundles (`teamcity skill`) */
+export type CliToolSkill = {
+	/**  The `version:` of the installed `SKILL.md`; None while it is not installed */
+	installed: string | null,
+	/**  The version this release of the CLI installs */
+	bundled: string | null,
+};
+
+/**  A CLI as Settings → Tools shows it */
+export type CliToolStatus = {
+	tool: CliTool,
+	/**  The binary found, e.g. `/opt/homebrew/bin/teamcity`; None while it is not installed */
+	binary: string | null,
+	/**  e.g. `1.6.0`; None when it is not installed or does not tell */
+	version: string | null,
+	servers: CliToolServer[],
+	/**  Only for a CLI that bundles a skill the app installs (`teamcity`) */
+	skill: CliToolSkill | null,
+	/**  The newest release, once known; None before the first check or offline */
+	latest: string | null,
+	/**  The manager the app installs and updates it with; None when the machine has none the CLI is packaged for */
+	manager: PackageManager | null,
+	action: CliToolAction | null,
+	/**
+	 *  The command of `action` for a terminal, while the app can't run it itself (no package manager, a sign-in it
+	 *  doesn't start); None when the app runs it
+	 */
+	command: string | null,
+	/**  Why a part could not be read (the CLI timed out, answered what the app can't parse), in a sentence */
+	problem: string | null,
 };
 
 export type ClosePullRequestParams = {
@@ -2134,6 +2221,9 @@ export type OutsideFile = {
 	/**  The lines of its text, as the view counts them */
 	lineCount: number,
 };
+
+/**  A package manager that installs and updates a CLI */
+export type PackageManager = "homebrew" | "winget" | "scoop";
 
 /**  Where the declared parent of a branch comes from */
 export type ParentSource = 

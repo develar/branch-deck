@@ -240,6 +240,7 @@ flowchart TD
   L["lease-pool<br/>lease, lease clean, agent workspace"] --> S
   CL["commit-clustering<br/>кластеры bd suggest, области, сгенерированные файлы; без CLI"] --> G & H
   GH["github · patronus · youtrack<br/>HTTP-клиенты и их fakes"] --> T
+  CT["cli-tools<br/>CLI команды: teamcity, youtrack, brew; без git и без сервисов"] --> T
   RF["remote-facts<br/>читатели и писатели remote-фактов, планировщик опроса; без policy"] --> GH & S & M & P
   M["repository-model<br/>Session (actor), Fact store, derive, ViewPatch"] --> P & S
   ST["app-settings<br/>схема, defaults, resolve, один писатель"] --> T
@@ -270,6 +271,8 @@ flowchart TD
 - `remote-facts` не достигает `trial-check`, `update-core`, `lease-pool`, `file-diffs`, `code-symbols`: он добывает
   ответы GitHub и Patronus, а не проверяет и не обновляет.
 - `patronus` не достигает `git-ops`.
+- `cli-tools` не достигает `git-ops`, executor, `patronus`, `youtrack`, `github` и tauri: он запускает только сами CLI
+  (Settings → Tools), а то, что о них знает сервис (последний релиз, токен для `youtrack`), приносит вызывающий.
 - `repository-model` не достигает `remote-facts`: модель хранит значения, а не добывает их.
 - Никто не зависит от `app-api` и `src-tauri`. `bd-*` — слой CLI: `bd-core` — его основа; каждый `bd-<семейство>`
   (`bd-lease`, `bd-remote`, `bd-rewrite`, `bd-update`) зависит от `bd-core` и библиотек ниже, но не от другого
@@ -291,6 +294,7 @@ flowchart TD
 | `update-core` | из `sync-core` | `update_project`, `pick`, `resolve_session`, `resolve_copies` | — |
 | `lease-pool` | из `sync-core` | `lease`, `lease_clean`, `clone_dir`, `agent_workspace` и `agent_defaults` (из `bd-lease/src/workspace_command.rs`); `git_ops::lease_slot` остаётся в `git-ops` (его считает scan). Зависит от `sync-core` (`repository_config`, `uncommitted_changes`, `agent_workspace.rs:8-9`) и через него от `history-rewrite` (`repository_lock`, `lease.rs:16`); две ссылки в `update-core` (`pick::baseline_tracking_ref`, `resolve_copies::display_path`, `lease.rs:9-10`) уезжают вниз: в `sync_core::baseline` (рядом с `resolve_baseline_upstream`, который он зовёт; `git-ops` не знает `detect_baseline_branch` из `history-rewrite`) и `sync-utils` | — |
 | `remote-facts` | из `sync-core` | читатели: `pull_requests`, `review_requests`, `branch_rules`, `review_readiness`, `patronus_review` (`PreMergeCommitDto`, `patronus_review.rs:10`), `patronus` (список, детали, проблемы, профили), `robot_stats` (история роботов статистики Safe Push, без git и без других модулей `sync-core`); писатели: `pull_request_create`, `pull_request_writes`, `patronus_command`, start/restart/cancel; текст: `pull_request_text`, `stack_pull_request`; каждая функция возвращает типизированное значение или типизированный отказ, ни одна не решает policy; `scheduler` опроса (с s7) спрашивает `domain-policy::refresh`, когда и что читать | `bd-remote/src/patronus_facts.rs`, `robot_list.rs` (половина fetch), `pull_request_retarget.rs` |
+| `cli-tools` | новый (2026-10-23) | CLI команды в Settings → Tools: поиск, версия, `auth status`, скил `teamcity`, действие строки, установка и обновление через Homebrew в `ToolEnvironment` (процесс или fakes `test_utils::fake_cli_tools`) | — |
 | `repository-model` | вырастает из `repository-view` | `Session` на `SessionKey` — один actor; `Fact<T>`; инкрементальная модель таблицы на `SyncEvent`; `derive()` → `RepositoryView`; диффинг `ViewPatch` по частям; `ContentMemo`; demand | глобальный `AtomicU32`; `GetRepositoryViewParams.{matched, remote, robots, revision}` |
 | `operations` | новый | `Intent`, `Plan`, `Effect`, `Outcome`; `admit`; `prepare`/`execute` по семействам (`land`, `push`, `robot`, `pull_request`, `review`, `rewrite`, `update`, `sign_in`); witness; `reconcile`; реестр `operations.json`; журнал; оборачивает существующие `*_core`, git не добавляет | оркестрация `bd-remote/src/{safe_push_command, push_command, robot_command, request_review_command, landed, status}.rs`; TS-оркестрация |
 | `app-settings` | новый | типизированный `AppSettings`; `SettingsFile { known, other }` с сохранением неизвестных и UI-only ключей; defaults; `resolve_branch_prefix` с источником; единственный писатель (атомарная запись, порядок, версия) | ручные читатели; файловая половина `restart_app` |

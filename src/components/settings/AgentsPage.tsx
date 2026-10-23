@@ -14,6 +14,7 @@ import type { AgentCliStatus } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { resolveHomeDir, tildePath } from "@/lib/home-path"
 import { CONFIG_KEYS, describeGlobalSource, overriddenReason, repositoryName, writeErrorTitle } from "@/lib/repository-config"
+import { openSettings } from "@/lib/settings-window"
 import { useSelectedProjectPath } from "@/stores/repository"
 
 /** The two rules of `bd workspace`: their key, what they do, their default and the title of a failed global write */
@@ -51,6 +52,12 @@ export function AgentsPage({ openCount }: { openCount: number }) {
           // one read per repository; without one, the global config alone
           <AgentRuleSetting key={`${rule.configKey}:${path}`} path={path} {...rule} />
         ))}
+        <p className="text-xs text-muted-foreground" data-testid="agent-tools">
+          Agents also run teamcity and youtrack
+          <Button variant="link" size="xs" className="px-1" onClick={() => openSettings({ page: "tools" })}>
+            Open Tools
+          </Button>
+        </p>
       </SettingsSection>
     </>
   )

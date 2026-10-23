@@ -15,6 +15,7 @@ members = [
   "crates/history-rewrite",
   "crates/domain-types",
   "crates/sync-utils",
+  "crates/cli-tools",
   "crates/branch-integration",
   "crates/git-executor",
   "crates/bd-cli",

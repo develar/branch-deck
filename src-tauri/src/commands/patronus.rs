@@ -66,6 +66,11 @@ impl PatronusState {
     teamcity.clone()
   }
 
+  /// The CLI is looked for again on the next full failure: it was installed, updated or signed in to other servers
+  pub async fn reset_teamcity(&self) {
+    *self.teamcity.lock().await = None;
+  }
+
   /// The Space repository `origin` pushes to: one `remote get-url --push` (`find_space_repository`) on a miss. The GitHub
   /// repository of its branches (a mirror of the Space one) is the app's, kept while the config stays as it is
   /// (`RepositoryStateCache::github_repository`)

@@ -1,4 +1,4 @@
-use crate::child_process::{ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child};
+use crate::child_process::{ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child, run_child_lines};
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -103,4 +103,42 @@ fn finds_a_tool_before_path_then_on_path_then_after_it() {
   std::fs::create_dir_all(home.path().join("first")).unwrap();
   let first = fake_executable(&home.path().join("first"), "tool", "true");
   assert_eq!(find_tool_in(&LOOKUP, Some(home.path()), Some(path)), Some(first));
+}
+
+#[test]
+fn hands_over_each_line_as_it_comes_and_returns_the_output() {
+  let dir = tempfile::tempdir().unwrap();
+  let child = fake(&dir, "echo one; echo two >&2; printf 'three\\rfour\\n'");
+  let lines = std::cell::RefCell::new(Vec::new());
+  let output = run_child_lines(&mut Command::new(child), TIMEOUT, &|line| lines.borrow_mut().push(line.to_string()), &|| false).unwrap();
+  let mut lines = lines.into_inner();
+  // the order of stdout and stderr between their readers is not fixed
+  lines.sort();
+  assert_eq!(lines, ["four", "one", "three", "two"]);
+  assert_eq!((String::from_utf8_lossy(&output.stdout).as_ref(), output.stderr.as_str()), ("one\nthree\nfour\n", "two"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_cancel_ends_the_whole_process_group() {
+  let dir = tempfile::tempdir().unwrap();
+  let marker = dir.path().join("grandchild-lived");
+  // the grandchild outlives a kill of the child alone and would write the marker
+  let child = fake(&dir, &format!("(sleep 2; touch {}) & echo started; sleep 30", marker.display()));
+  let canceled = AtomicBool::new(false);
+  let started = Instant::now();
+  let result = run_child_lines(
+    &mut Command::new(child),
+    TIMEOUT,
+    &|line| {
+      if line == "started" {
+        canceled.store(true, Ordering::SeqCst);
+      }
+    },
+    &|| canceled.load(Ordering::SeqCst),
+  );
+  assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
+  assert!(started.elapsed() < Duration::from_secs(10));
+  std::thread::sleep(Duration::from_secs(3));
+  assert!(!marker.exists(), "the grandchild survived the cancel");
 }

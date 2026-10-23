@@ -58,6 +58,17 @@ function webviewZoom(page: Page): Promise<number | undefined> {
  */
 async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Promise<Page> {
   await repo.setGitHubSignIn({ clientId: "client-1", signedIn: false })
+  // teamcity by its install script on two servers, one of them refused; youtrack missing, no Homebrew: its command
+  await repo.setCliTools({
+    installed: [{ tool: "teamcity", version: "1.6.0", unmanaged: true }],
+    latest: { teamcity: "1.7.0" },
+    files: {
+      "teamcity.auth": JSON.stringify([
+        { server: "https://buildserver.example", status: "authenticated", user: { username: "jane.doe" }, token_expiry: "2026-11-21T16:58:19Z" },
+        { server: "https://ci.example", status: "error", error: "token missing or could not be retrieved" },
+      ]),
+    },
+  })
   const window = await openSettingsWindow(
     page,
     {},
@@ -98,6 +109,10 @@ async function expectEveryPageFits(window: Page, pages: string[]): Promise<void>
       await expect(window.getByTestId("setting-agentLease-reason")).toBeVisible()
       await expect(window.getByTestId("agent-skill")).toContainText("Installed")
     }
+    if (name === "Tools") {
+      await expect(window.getByTestId("cli-tool-teamcity").getByTestId("cli-tool-server")).toHaveCount(2)
+      await expect(window.getByTestId("cli-tool-youtrack").locator("pre")).toBeVisible()
+    }
     if (name === "Repository") {
       // the reason that stacked branches can't be turned off, a value from the global config with its button
       await expect(window.getByTestId("repository-setting-reason")).toHaveCount(2)
@@ -119,7 +134,18 @@ test.describe("Settings window", () => {
     const tabs = window.getByRole("tablist", { name: "Settings pages" })
     await expect(tabs).toHaveAttribute("aria-orientation", "vertical")
     // the page of the selected repository last, its name beside it
-    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Patronus", "Agents", /^Repositoryrepo-\d+$/])
+    await expect(tabs.getByRole("tab")).toHaveText([
+      "General",
+      "Appearance",
+      "Diffs & Merge",
+      "Notifications",
+      "GitHub",
+      "YouTrack",
+      "Patronus",
+      "Agents",
+      "Tools",
+      /^Repositoryrepo-\d+$/,
+    ])
     await expect(settingsTab(window, "General")).toBeFocused()
     await expect(window.getByTestId("settings-page-general")).toBeVisible()
 
@@ -246,8 +272,8 @@ test.describe("Settings window", () => {
   test("should fit every page at 720 × 540 without scrolling", async ({ page }) => {
     const window = await openTallestSettings(page, repo)
     // Windows: the title bar on Appearance, no Dock badge
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Patronus", "Agents", "Repository"])
-    for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "patronus", "agents", "repository"]) {
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Patronus", "Agents", "Tools", "Repository"])
+    for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "patronus", "agents", "tools", "repository"]) {
       await window.getByTestId(`settings-tab-${id}`).click()
       await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}`)
     }
@@ -263,7 +289,7 @@ test.describe("Settings window on macOS", () => {
     await expect(window.getByTestId("settings-page-github")).toBeVisible()
     await settingsTab(window, "Notifications").click()
     await expect(window.getByTestId("setting-reviewBadge")).toBeVisible()
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Patronus", "Agents", "Repository"])
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Patronus", "Agents", "Tools", "Repository"])
     // no title bar setting on macOS
     await settingsTab(window, "Appearance").click()
     await expect(window.getByTestId("setting-zoom")).toBeVisible()

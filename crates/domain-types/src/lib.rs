@@ -12,6 +12,7 @@
 //! - `branch_names`: the names of the branches under the prefix (`{prefix}/virtual/<name>`, `BranchKind`), the prefix,
 //!   a group name valid in a ref
 //! - `branch_name_suggestion`: branch names suggested by the user's Claude Code
+//! - `cli_tools`: the `teamcity` and `youtrack` CLIs of Settings → Tools
 //! - `commit`: a commit of the branch as `git-ops` reads it (`Commit`, its mapping note), and as the page names it
 //! - `conflict`: the merge conflict of a sync, its analysis, and the conflicts a copy resolved by words
 //! - `error`: the stable error codes of `bd` (`ErrorCode`), their exit codes and retries
@@ -42,6 +43,7 @@ pub mod branch_integration;
 pub mod branch_name_suggestion;
 pub mod branch_names;
 pub mod calendar;
+pub mod cli_tools;
 pub mod commit;
 pub mod conflict;
 pub mod error;

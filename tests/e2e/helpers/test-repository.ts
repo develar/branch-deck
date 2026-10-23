@@ -65,6 +65,14 @@ export type PatronusLog = {
   statusReads: string[]
 }
 
+/** `POST /repositories/{id}/cli-tools` */
+export interface CliToolsFixture {
+  installed?: { tool: "teamcity" | "youtrack"; version: string; unmanaged?: boolean }[]
+  brew?: boolean
+  latest?: Partial<Record<"teamcity" | "youtrack", string>>
+  files?: Record<string, string>
+}
+
 export class TestRepositoryBuilder {
   private baseUrl = TEST_SERVER_URL
   public id: string = ""
@@ -312,6 +320,20 @@ export class TestRepositoryBuilder {
    */
   async setAvailableUpdate(availableVersion: string | null): Promise<void> {
     await this.setFixture("update", { availableVersion })
+  }
+
+  /**
+   * The fake `teamcity` and `youtrack` CLIs and `brew` of the repository (`cli_tools_fixtures.rs`): the tools installed,
+   * whether the machine has Homebrew, the newest release of each, and state files of the fakes (`teamcity.auth`,
+   * `youtrack.auth`: their `auth status --json`; `teamcity.skill`: the bundled skill; `brew.fail`: brew's error)
+   */
+  async setCliTools(fixture: CliToolsFixture): Promise<void> {
+    await this.setFixture("cli-tools", fixture)
+  }
+
+  /** What the fakes of the CLIs were asked, in order: `brew install jetbrains/utils/youtrack`, `teamcity --version` */
+  async getCliToolsLog(): Promise<string[]> {
+    return (await this.getFixture<{ log: string[] }>("cli-tools")).log
   }
 
   private async setFixture(name: string, value: unknown): Promise<void> {

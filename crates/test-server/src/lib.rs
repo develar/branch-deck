@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+pub mod cli_tools_fixtures;
 pub mod remote_fixtures;
 pub mod remote_host;
 pub mod review_fixtures;
@@ -140,6 +141,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/patronus-replies", post(review_fixtures::set_patronus_replies))
     .route("/repositories/{id}/github-answer", post(review_fixtures::set_github_answer))
     .route("/repositories/{id}/update", post(updater::set_update))
+    .route(
+      "/repositories/{id}/cli-tools",
+      post(cli_tools_fixtures::set_cli_tools).get(cli_tools_fixtures::get_cli_tools),
+    )
     // Store endpoints
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
@@ -252,6 +257,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
     .route("/invoke/install_agent_cli", post(tauri_command_bridge::install_agent_cli))
     .route("/invoke/agent_cli_status", post(tauri_command_bridge::agent_cli_status))
+    .route("/invoke/cli_tools_status", post(cli_tools_fixtures::cli_tools_status))
+    .route("/invoke/run_cli_tool_action", post(cli_tools_fixtures::run_cli_tool_action))
+    .route("/invoke/cancel_cli_tool_action", post(cli_tools_fixtures::cancel_cli_tool_action))
     // the updater, by the update of the fixture; the install and the restart of the app fail
     .route("/invoke/check_for_updates", post(updater::check_for_updates))
     .route("/invoke/get_update_status", post(updater::get_update_status))
@@ -641,6 +649,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
     agent_cli_installed: std::sync::atomic::AtomicBool::new(false),
     available_update: std::sync::RwLock::default(),
+    cli_tools: cli_tools_fixtures::CliToolsHost::default(),
   };
   state.repositories.insert(id.to_string(), repo);
 }

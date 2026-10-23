@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 113;
+const COMMAND_COUNT: usize = 116;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -96,6 +96,9 @@ const MUTATING: &[&str] = &[
   "set_repository_config",
   "set_auto_sync_menu_checked",
   "install_agent_cli",
+  // the CLIs of Settings → Tools, on the fakes of the repository
+  "run_cli_tool_action",
+  "cancel_cli_tool_action",
   "install_update",
   "restart_app",
 ];

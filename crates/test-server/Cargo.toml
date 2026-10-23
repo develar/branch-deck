@@ -40,6 +40,7 @@ trial-check = { path = "../trial-check" }
 update-core = { path = "../update-core" }
 history-rewrite = { path = "../history-rewrite" }
 domain-types = { path = "../domain-types" }
+cli-tools = { path = "../cli-tools" }
 sync-utils = { path = "../sync-utils" }
 youtrack = { path = "../youtrack", features = ["fake"] }
 tempfile.workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "cli-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+domain-types = { path = "../domain-types" }
+jiff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sync-utils = { path = "../sync-utils" }
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+test-utils = { path = "../test-utils" }
+
+[lints]
+workspace = true
