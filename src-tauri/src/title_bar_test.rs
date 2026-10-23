@@ -35,7 +35,7 @@ fn every_window_gets_the_permissions_of_the_title_bar() {
 mod decision {
   use crate::title_bar::{
     ButtonStyle, DoubleClick, NativeReason, TitleBarEnvironment, WindowButton, decoration_layout_or_default, gtk_double_click, linux_button_style, macos_double_click,
-    native_reason, parse_decoration_layout, stored_system_title_bar,
+    native_reason, parse_decoration_layout,
   };
   use WindowButton::{Close, Maximize, Minimize};
 
@@ -138,6 +138,8 @@ mod decision {
 
   #[test]
   fn reads_the_stored_setting() {
+    // the settings as the writer loads the file (`SettingsFile`), the defaults for one that does not parse
+    let stored_system_title_bar = |text: &str| app_settings::file::SettingsFile::parse(text).map_or_default(|file| file.app).system_title_bar;
     assert!(stored_system_title_bar(r#"{"appSettings":{"systemTitleBar":true}}"#));
     assert!(!stored_system_title_bar(r#"{"appSettings":{}}"#));
     assert!(!stored_system_title_bar("not json"));

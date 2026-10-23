@@ -6,7 +6,7 @@ pub mod menu;
 pub mod operation;
 pub mod progress;
 pub mod repository_state;
-pub mod stored_settings;
+pub mod settings;
 pub mod title_bar;
 pub mod tracing_log;
 pub mod window_requests;
@@ -24,8 +24,6 @@ mod log_rotation_test;
 mod menu_test;
 #[cfg(test)]
 mod repository_state_test;
-#[cfg(test)]
-mod stored_settings_test;
 #[cfg(test)]
 mod title_bar_test;
 #[cfg(test)]
@@ -63,6 +61,7 @@ use commands::repository_config::{get_repository_config, set_repository_config};
 use commands::repository_view::{get_repository_view, wait_landing_needs};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_review_requests, prune_review_refs};
 use commands::reword::reword;
+use commands::settings::{get_settings_changes, set_setting};
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
 use commands::stack_operations::{get_stack_independence, rename_branch, restack_branch, undo_regroup};
@@ -79,7 +78,6 @@ use commands::youtrack::{
   start_youtrack_cli_sign_in, start_youtrack_sign_in, wait_youtrack_cli_sign_in, wait_youtrack_sign_in,
 };
 use lock_wait::cancel_lock_wait;
-use stored_settings::stored_settings;
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
 
@@ -90,7 +88,7 @@ use sync_core::branch_review::BranchReviewMemo;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 use title_bar::{finish_title_bar, init_title_bar, restart_app, title_bar_script, with_title_bar};
-use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width, stored_zoom};
+use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width};
 // The log plugin is replaced by the devtools plugin in devtools builds; keep the dependency referenced.
 #[cfg(feature = "devtools")]
 use tauri_plugin_log as _;
@@ -174,6 +172,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     sub_window_ready,
     show_window_menu,
     restart_app,
+    set_setting,
+    get_settings_changes,
     move_commits_to_branch,
     find_conflict_fix,
     cancel_conflict_fix,
@@ -286,7 +286,6 @@ pub fn run() {
     // one back on Windows; not the visibility: a window shows once its title bar is set (`finish_title_bar`, GTK takes
     // the titlebar of a custom one only before it is shown) and a sub-window once its page painted (`sub_window_ready`)
     .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(window_state_flags()).build())
-    .plugin(tauri_plugin_store::Builder::new().build())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_clipboard_manager::init());
@@ -339,22 +338,25 @@ pub fn run() {
       // Initialize update state
       app.manage(SharedUpdateState::new(UpdateState::new(current_version)));
 
-      // Read settings.json for preloading
+      // the one writer of settings.json: every window starts from its copy and changes it through `set_setting`
       let app_data_dir = app.path().app_data_dir().unwrap_or_default();
-      let store_data = stored_settings(&app_data_dir.join("settings.json"));
+      let settings_service = settings::open_settings(&app_data_dir)?;
+      settings::report_save_errors(&settings_service, app.handle().clone());
+      let app_settings = settings_service.app();
 
       // the title bar of every window, before the menu: a custom one has no native menu bar on Windows and Linux
-      init_title_bar(&store_data);
-      configure_app_menu(app, &store_data)?;
+      init_title_bar(&app_settings);
+      configure_app_menu(app, &app_settings)?;
 
-      // Create main window with initialization script
-      let init_script = format!("window.__TAURI_STORE__ = {store_data}; {}", title_bar_script());
+      // the settings and the title bar, before the page's own scripts
+      let init_script = format!("{} {}", settings::init_script(&settings_service, app_settings::windows::MAIN_WINDOW), title_bar_script());
+      app.manage(settings_service);
 
-      let zoom = stored_zoom(&store_data);
+      let zoom = app_settings.zoom;
       let min_width = min_window_width(zoom);
       // the toolbar of the page is the title bar (`with_title_bar`)
       let builder = with_title_bar(
-        tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+        tauri::WebviewWindowBuilder::new(app, app_settings::windows::MAIN_WINDOW, tauri::WebviewUrl::App("index.html".into()))
           .title("BranchDeck")
           .inner_size(min_width.max(1024.0), 900.0)
           .min_inner_size(min_width, MIN_WINDOW_HEIGHT)
@@ -371,6 +373,15 @@ pub fn run() {
     .build(tauri::generate_context!())
     .expect("error while running tauri application")
     .run(|app_handle, event| {
+      // the app quits: the settings changed within the debounce of the writer reach the file first
+      if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+        if let Some(service) = app_handle.try_state::<app_settings::service::SettingsService>()
+          && let Err(e) = service.flush()
+        {
+          tracing::error!(error = %e, "the settings changed last are lost");
+        }
+        return;
+      }
       // a closed window: its review fetch is killed, its page state forgotten
       if let tauri::RunEvent::WindowEvent {
         label,
@@ -382,16 +393,15 @@ pub fn run() {
         app_handle.state::<SymbolSearchState>().0.forget(&label);
         app_handle.state::<SubWindowState>().forget(&label);
         title_bar::forget_window(&label);
-        if label == "main" {
+        if label == app_settings::windows::MAIN_WINDOW {
           close_sub_windows(app_handle);
         }
       }
     });
 }
 
-/// The main window closed: its sub-windows go with it, and the app quits with the last window. The main window owns
-/// `settings.json` and runs what a sub-window asks for (`sub-window-link.ts`), so a sub-window without it would lose
-/// every setting it changes and wait for answers that never come.
+/// The main window closed: its sub-windows go with it, and the app quits with the last window. The main window runs what
+/// a sub-window asks for (`sub-window-link.ts`), so a sub-window without it would wait for answers that never come.
 fn close_sub_windows(app_handle: &tauri::AppHandle) {
   for (label, window) in app_handle.webview_windows() {
     if let Err(e) = window.destroy() {

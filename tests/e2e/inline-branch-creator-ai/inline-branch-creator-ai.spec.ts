@@ -18,6 +18,7 @@ import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { selectCommit, clickGroupIntoBranchButton } from "../helpers/selection-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
+import { waitForStorePersistence } from "../helpers/wait-helpers"
 
 const test = testWithUnassigned
 
@@ -238,6 +239,8 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await expect(row.getByRole("switch")).not.toBeChecked()
     await row.getByRole("switch").click()
     await expect.poll(() => testStore.get("ai")).toMatchObject({ aiMode: "claude" })
+    // the window heard the writer's answer, which the page mock sends on to the main window
+    await waitForStorePersistence(settings, "ai", value => (value as { aiMode?: string } | null)?.aiMode === "claude")
     await settings.close()
 
     // the main window follows the window's write

@@ -1,4 +1,11 @@
-use crate::zoom::{min_window_width, stored_zoom, sub_window_min_size};
+use crate::zoom::{min_window_width, sub_window_min_size};
+use app_settings::file::SettingsFile;
+
+/// The zoom a window is built with: the settings as the writer loads the file (`SettingsFile`), the defaults for one
+/// that does not parse
+fn stored_zoom(text: &str) -> f64 {
+  SettingsFile::parse(text).map_or_default(|file| file.app).zoom
+}
 
 #[test]
 fn the_stored_zoom_is_the_app_settings_zoom() {

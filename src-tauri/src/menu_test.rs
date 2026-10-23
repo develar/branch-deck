@@ -1,4 +1,10 @@
-use crate::menu::stored_auto_sync_on_focus;
+use app_settings::file::SettingsFile;
+
+/// The check of Auto-sync on Focus in the native menu: the settings as the writer loads the file (`SettingsFile`), the
+/// defaults for one that does not parse (`configure_app_menu` reads `auto_sync_on_focus`)
+fn stored_auto_sync_on_focus(text: &str) -> bool {
+  SettingsFile::parse(text).map_or_default(|file| file.app).auto_sync_on_focus
+}
 
 #[test]
 fn auto_sync_on_focus_is_checked_as_the_stored_setting() {

@@ -159,6 +159,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       post(cli_tools_fixtures::set_cli_tools).get(cli_tools_fixtures::get_cli_tools),
     )
     // Store endpoints
+    .route("/store/{repo_id}", get(get_store_snapshot))
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
     .route("/store/{repo_id}/{key}", axum::routing::delete(delete_store_value))
@@ -269,6 +270,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/suggest_branch_names", post(tauri_command_bridge::suggest_branch_names))
     // the native menu: a test counts the requests of the page
     .route("/invoke/set_auto_sync_menu_checked", post(tauri_command_bridge::set_auto_sync_menu_checked))
+    .route("/invoke/set_setting", post(tauri_command_bridge::set_setting))
+    .route("/invoke/get_settings_changes", post(tauri_command_bridge::get_settings_changes))
     .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
     .route("/invoke/install_agent_cli", post(tauri_command_bridge::install_agent_cli))
     .route("/invoke/agent_cli_status", post(tauri_command_bridge::agent_cli_status))
@@ -596,21 +599,14 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
     // Use a special path that doesn't exist
     let path = format!("NO_REPO_{id}");
 
-    // Create store and populate it if requested
-    let store = DashMap::new();
+    let mut store = Vec::new();
     if request.prepopulate_store {
-      // Populate store with the invalid path so frontend tries to load it
-      // Omit cachedBranchPrefix to avoid Zod validation issues (it's optional)
-      store.insert(
-        "recentProjects".to_string(),
-        serde_json::json!([{
-          "path": path
-        }]),
-      );
+      // the invalid path, so the page tries to load it; no cachedBranchPrefix (it's optional)
+      store.push(("recentProjects", serde_json::json!([{ "path": path }])));
       tracing::info!("Populated NO_REPO store with invalid path: {}", path);
     }
 
-    insert_repository(&state, &id, &path, store);
+    insert_repository(&state, &id, &path, &store)?;
     // Don't insert into path_to_id for NO_REPO
 
     tracing::info!("Created NO_REPO repository with id: {}", id);
@@ -644,25 +640,18 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
   })?;
 
   // Pre-populate store with default values if requested and not empty-non-git template
-  let store = DashMap::new();
+  let mut store = Vec::new();
   if request.prepopulate_store && !matches!(request.template, RepositoryTemplate::EmptyNonGit | RepositoryTemplate::Bare) {
-    store.insert(
-      "selectedProjectData".to_string(),
-      serde_json::json!({
-        "path": path,
-        "cachedBranchPrefix": { "prefix": "user-name", "repositoryScoped": true }
-      }),
-    );
-    store.insert(
-      "recentProjects".to_string(),
+    store.push((
+      "recentProjects",
       serde_json::json!([{
         "path": path,
         "cachedBranchPrefix": { "prefix": "user-name", "repositoryScoped": true }
       }]),
-    );
+    ));
   }
 
-  insert_repository(&state, &id, &path, store);
+  insert_repository(&state, &id, &path, &store)?;
   state.path_to_id.insert(path.clone(), id.clone());
 
   tracing::info!("Created repository with id: {} at path: {}", id, path);
@@ -670,11 +659,31 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
   Ok(Json(CreateRepositoryResponse { id, path }))
 }
 
-fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<String, serde_json::Value>) {
+/// The origin of the changes of the settings the test server makes (`/store` routes, the prepopulated values)
+const FIXTURE_ORIGIN: &str = "test";
+
+/// A change of the settings by the fixture of a test: the whole value of `key`, `null` removes it
+fn set_fixture_value(store: &app_settings::service::SettingsService, key: &str, value: serde_json::Value) -> Result<(), StatusCode> {
+  let patch = domain_types::settings::SettingsPatch::Value { key: key.to_owned(), value };
+  store.set(patch, FIXTURE_ORIGIN).map(drop).map_err(|e| {
+    tracing::error!(key, error = %e, "the fixture cannot change the settings");
+    StatusCode::UNPROCESSABLE_ENTITY
+  })
+}
+
+fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, serde_json::Value)]) -> Result<(), StatusCode> {
+  let app_data = state.app_data_of(id);
+  let store = app_settings::service::SettingsService::open(app_data.join("settings.json")).map_err(|e| {
+    tracing::error!(error = %e, "cannot start the writer of the settings");
+    StatusCode::INTERNAL_SERVER_ERROR
+  })?;
+  for (key, value) in values {
+    set_fixture_value(&store, key, value.clone())?;
+  }
   let repo = TestRepository {
     id: id.to_string(),
     path: path.to_string(),
-    app_data: state.app_data_of(id),
+    app_data,
     in_flight: Arc::default(),
     store,
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
@@ -695,6 +704,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     held_lock: std::sync::Mutex::default(),
   };
   state.repositories.insert(id.to_string(), repo);
+  Ok(())
 }
 
 pub async fn get_repository(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -879,6 +889,10 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
     tracing::warn!(id, "The landing needs of the test repository are still computed; deleting it anyway");
   }
 
+  // the writer saves what is pending now, not when the repository is dropped after its app data is gone
+  if let Err(e) = repo.store.flush() {
+    tracing::warn!("Failed to save the settings of {id}: {e}");
+  }
   if repo.app_data.exists()
     && let Err(e) = std::fs::remove_dir_all(&repo.app_data)
   {
@@ -904,17 +918,23 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
   tracing::info!("Deleted repository: {}", id);
 }
 
-// Store API endpoints
+// Store API endpoints: the fixture of a test reads and writes the settings through the writer of the app
+
+/// The settings a window of the app starts from, with their version (`__TAURI_STORE__`, `__TAURI_STORE_VERSION__`)
+pub async fn get_store_snapshot(axum::extract::Path(repo_id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+  let repo = state.repositories.get(&repo_id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let (version, values) = app_settings::windows::window_snapshot(&repo.store, app_settings::windows::MAIN_WINDOW);
+  Ok(Json(serde_json::json!({ "version": version, "values": values })))
+}
+
 pub async fn get_store_value(
   axum::extract::Path((repo_id, key)): axum::extract::Path<(String, String)>,
   State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
   if let Some(repo) = state.repositories.get(&repo_id) {
-    if let Some(value) = repo.store.get(&key) {
-      return Ok(Json(value.clone()));
-    }
-    // Key not found in valid repo - return null (not an error)
-    return Ok(Json(serde_json::json!(null)));
+    // a key the settings lack is null, not an error
+    let (_, values) = repo.store.snapshot();
+    return Ok(Json(values.get(&key).cloned().unwrap_or(serde_json::Value::Null)));
   }
 
   // Repository not found - this is an error
@@ -927,7 +947,7 @@ pub async fn set_store_value(
   Json(value): Json<serde_json::Value>,
 ) -> Result<StatusCode, StatusCode> {
   if let Some(repo) = state.repositories.get(&repo_id) {
-    repo.store.insert(key, value);
+    set_fixture_value(&repo.store, &key, value)?;
     return Ok(StatusCode::OK);
   }
 
@@ -936,7 +956,7 @@ pub async fn set_store_value(
 
 pub async fn delete_store_value(axum::extract::Path((repo_id, key)): axum::extract::Path<(String, String)>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
   if let Some(repo) = state.repositories.get(&repo_id) {
-    repo.store.remove(&key);
+    set_fixture_value(&repo.store, &key, serde_json::Value::Null)?;
     return Ok(StatusCode::NO_CONTENT);
   }
 

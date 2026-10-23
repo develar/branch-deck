@@ -286,7 +286,7 @@ export const commands = {
 	/**
 	 *  Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
 	 *  on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
-	 *  settled its content (`sub_window_ready`).
+	 *  settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.
 	 */
 	openSubWindow: (params: OpenSubWindowParams) => typedError<null, ApiError>(__TAURI_INVOKE("open_sub_window", { params })),
 	/**
@@ -307,10 +307,21 @@ export const commands = {
 	showWindowMenu: () => typedError<null, ApiError>(__TAURI_INVOKE("show_window_menu")),
 	/**
 	 *  Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
-	 *  (`init_title_bar`). The value is written to `settings.json` here, before the restart: the page saves its settings
-	 *  debounced, and the new process reads the file (`stored_system_title_bar`).
+	 *  (`init_title_bar`). The value goes through the writer of the settings, which saves it now, before the restart: the
+	 *  new process reads the file.
 	 */
 	restartApp: (systemTitleBar: boolean) => typedError<null, ApiError>(__TAURI_INVOKE("restart_app", { systemTitleBar })),
+	/**
+	 *  Applies the change of the calling window to the settings and sends it to every window (`settings_changed`, with the
+	 *  window's label as its origin); answers the change, whose version the window has applied then. The file follows
+	 *  within the debounce of the writer. A value of a field Rust reads that is invalid is refused and changes nothing
+	 */
+	setSetting: (params: SetSettingParams) => typedError<SettingsChange, ApiError>(__TAURI_INVOKE("set_setting", { params })),
+	/**
+	 *  The changes the calling window gets that came after `since`, the version of the snapshot its page started from: a
+	 *  change made while the page loaded reached no listener
+	 */
+	getSettingsChanges: (since: number) => typedError<SettingsChange[], ApiError>(__TAURI_INVOKE("get_settings_changes", { since })),
 	/**
 	 *  Moves commits to another branch by setting (or removing) the `(branch)` prefix of their subjects in one history
 	 *  rewrite; the working tree is not touched.
@@ -2564,8 +2575,8 @@ export type OpenSubWindowParams = {
 	title: string,
 	width: number | null,
 	height: number | null,
+	/**  The JSON of the window's data (`__INIT_DATA__`) */
 	data: string,
-	storeCache: string,
 	/**  When the opener asked (`Date.now()`) */
 	openedAt: number | null,
 };
@@ -3843,6 +3854,33 @@ export type SetRepositoryConfigParams = {
 	scope?: WriteScope,
 };
 
+export type SetSettingParams = {
+	patch: SettingsPatch,
+};
+
+/**
+ *  A change the writer applied, which every window gets (`settings_changed`): `value` is the whole key after the patch
+ *  (`null` when the key is gone), `version` its place in the order of the writer, `origin` who asked for it (a window
+ *  label, `rust`), so a window knows its own echo
+ */
+export type SettingsChange = {
+	/**  Grows by one with each applied patch; the snapshot of a window carries the version it was taken at */
+	version: number,
+	key: string,
+	value: unknown,
+	origin: string,
+};
+
+/**  A change a window or Rust asks the writer of the settings (`app_settings::service::SettingsService::set`) for */
+export type SettingsPatch = 
+/**
+ *  Set these fields of the object of `key` and keep its other fields, so that two windows that change two fields of
+ *  one key at once keep both; a `null` field is removed (its default). A missing key starts as an empty object
+ */
+{ kind: "fields"; key: string; fields: { [key in string]: unknown } } | 
+/**  Replace the whole value of `key`; `null` removes the key */
+{ kind: "value"; key: string; value: unknown };
+
 /**  The items, each with its key and whether it can be skipped, for the page */
 export type SetupEntry = {
 	key: string,
@@ -4245,12 +4283,11 @@ export type SubWindowOpen = {
 };
 
 /**
- *  The data of an open of a sub-window, as `open_sub_window` got it: `__INIT_DATA__`, `__TAURI_STORE__` and
- *  `__SUB_WINDOW_OPEN__` of its page
+ *  The data of an open of a sub-window, as `open_sub_window` got it: `__INIT_DATA__` and `__SUB_WINDOW_OPEN__` of its
+ *  page. Not the settings: a loaded page hears every change of them (`settings_changed`)
  */
 export type SubWindowUpdate = {
 	data: string,
-	storeCache: string,
 	open: SubWindowOpen,
 };
 

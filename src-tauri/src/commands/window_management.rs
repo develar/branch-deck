@@ -1,6 +1,8 @@
 use crate::operation::{operation, tauri_error};
+use crate::settings::init_script as settings_init_script;
 use crate::title_bar::{prepare_title_bar, title_bar_script, with_title_bar};
-use crate::zoom::{apply_zoom, stored_zoom, sub_window_min_size};
+use crate::zoom::{apply_zoom, sub_window_min_size};
+use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -32,13 +34,12 @@ pub struct SubWindowOpen {
   pub opened_at: f64,
 }
 
-/// The data of an open of a sub-window, as `open_sub_window` got it: `__INIT_DATA__`, `__TAURI_STORE__` and
-/// `__SUB_WINDOW_OPEN__` of its page
+/// The data of an open of a sub-window, as `open_sub_window` got it: `__INIT_DATA__` and `__SUB_WINDOW_OPEN__` of its
+/// page. Not the settings: a loaded page hears every change of them (`settings_changed`)
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SubWindowUpdate {
   pub data: String,
-  pub store_cache: String,
   pub open: SubWindowOpen,
 }
 
@@ -48,12 +49,11 @@ impl SubWindowUpdate {
     let open = to_json(&self.open)?;
     Ok(format!(
       "
-      window.__TAURI_STORE__ = {};
       window.__INIT_DATA__ = {};
       window.__SUB_WINDOW_OPEN__ = {open};
       window.dispatchEvent(new CustomEvent('init-data-updated'));
       ",
-      self.store_cache, self.data
+      self.data
     ))
   }
 }
@@ -185,30 +185,26 @@ pub struct OpenSubWindowParams {
   pub title: String,
   pub width: Option<f64>,
   pub height: Option<f64>,
-  pub data: String,        // JSON string with window-specific data
-  pub store_cache: String, // JSON string with store cache
+  /// The JSON of the window's data (`__INIT_DATA__`)
+  pub data: String,
   /// When the opener asked (`Date.now()`)
   pub opened_at: f64,
 }
 
 /// Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
 /// on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
-/// settled its content (`sub_window_ready`).
+/// settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.
 #[tauri::command]
-#[instrument(skip(app_handle, state, params), fields(window_id = %params.window_id, url = %params.url))]
+#[instrument(skip(app_handle, state, settings, params), fields(window_id = %params.window_id, url = %params.url))]
 #[specta::specta]
-pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowState>, params: OpenSubWindowParams) -> Result<(), ApiError> {
+pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowState>, settings: State<'_, SettingsService>, params: OpenSubWindowParams) -> Result<(), ApiError> {
   operation(async move {
     let _open = state.open_lock.lock().await;
     let open = state.next_open(params.opened_at);
     if let Some(existing_window) = app_handle.get_webview_window(&params.window_id) {
       // titled for what it shows now
       existing_window.set_title(&params.title).map_err(tauri_error)?;
-      let update = SubWindowUpdate {
-        data: params.data,
-        store_cache: params.store_cache,
-        open,
-      };
+      let update = SubWindowUpdate { data: params.data, open };
       match state.reopened(&params.window_id, update.clone()) {
         Reopen::Pending => {}
         Reopen::Hidden => existing_window.eval(update.script()?).map_err(tauri_error)?,
@@ -222,22 +218,22 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
       return Ok(());
     }
 
-    // the store cache, the window data, the open and how the page draws the title bar, before the page's own scripts
+    // the settings, the window data, the open and how the page draws the title bar, before the page's own scripts
     let init_script = format!(
       "
-      window.__TAURI_STORE__ = {};
+      {}
       window.__INIT_DATA__ = {};
       window.__SUB_WINDOW_OPEN__ = {};
       {}
       ",
-      params.store_cache,
+      settings_init_script(&settings, &params.window_id),
       params.data,
       to_json(&open)?,
       title_bar_script()
     );
 
     // Create new window: its page draws the title bar, as the main window's does
-    let zoom = stored_zoom(&params.store_cache);
+    let zoom = settings.app().zoom;
     let (min_width, min_height) = sub_window_min_size(&params.window_id, zoom);
     let width = params.width.unwrap_or(1400.0).max(min_width);
     let height = params.height.unwrap_or(900.0).max(min_height);

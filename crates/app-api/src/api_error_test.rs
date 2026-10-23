@@ -1,5 +1,6 @@
 use crate::api_error::{CONTRACT_JSON, api_error, api_error_at, contract_cases, undo_error};
 use anyhow::{Context, anyhow};
+use app_settings::service::SettingsError;
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, LockHolderInfo, Retry};
 use file_diffs::accio::SearchCanceled;
 use git_ops::rewrite_guard::HeadMoved;
@@ -166,4 +167,17 @@ fn a_stale_undo_says_it_cannot_be_undone_instead_of_advising_a_retry() {
   assert!(api_error(anyhow::Error::new(head_moved())).message.ends_with("; read it again and retry"));
   let locked = undo_error(anyhow!("exit 128").context("Cannot move branch master back"));
   assert_eq!((locked.code, locked.message.as_str()), (ErrorCode::Internal, "Cannot move branch master back: exit 128"));
+}
+
+#[test]
+fn api_error_refuses_an_invalid_value_of_a_setting_as_invalid_arguments() {
+  let invalid = SettingsError::Invalid {
+    key: "appSettings".to_string(),
+    field: "zoom".to_string(),
+    value: "-1".to_string(),
+    expected: "a positive number",
+  };
+  let error = api_error_at(&anyhow::Error::new(invalid).context("Cannot change the settings"), NOW);
+  assert_eq!(error.code, ErrorCode::InvalidArguments);
+  assert_eq!(error.message, "Cannot change the settings: appSettings.zoom cannot be -1: a positive number");
 }

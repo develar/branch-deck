@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 domain-types = { path = "../domain-types", features = ["specta"] }
 # the typed errors of the cores that reach a command of the app
+app-settings = { path = "../app-settings" }
 cli-tools = { path = "../cli-tools" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }

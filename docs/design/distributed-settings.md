@@ -1,33 +1,34 @@
 # Distributed Settings Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-18  
+**Updated:** 2026-10-24  
 **Tags:** [settings, zustand, tauri]
 
 ## Problem
 
-Branch Deck opens sub-windows (the reviews, the conflict windows, Settings) next to the main window. Every window renders settings
-(theme, diff view options, AI settings, recent projects) and some can change them. Each window must have the settings
-synchronously on its first render, and a change made in any window must reach all others without loops or lost updates.
+Branch Deck opens sub-windows (the reviews, the conflict windows, Settings, Activity) next to the main window. Every
+window renders settings (theme, diff view options, AI settings, recent projects) and some can change them. Each window
+must have the settings synchronously on its first render, and a change made in any window must reach all others
+without loops or lost updates. Rust reads some of them too: the zoom and the title bar when it builds a window, the
+check of Auto-sync on Focus in the native menu, and `bd` the branch prefix of the app.
 
-Only one process can safely own `settings.json`. Several windows writing it independently would race and overwrite
-each other, and a naive "write, then apply the change notification" loop echoes values back and can roll the state
-back to a stale value while several writes are in flight.
+`settings.json` needs one writer. Several writers race and overwrite each other; a write in place (truncate, then
+write) gives a reader a cut file; and a naive "write, then apply the change notification" loop echoes values back and
+rolls the state back to a stale value while several writes are in flight.
 
 ## Solution Overview
 
-Each setting group is a zustand vanilla store created by `createPersistentStore`. It is initialized synchronously from
-`window.__TAURI_STORE__`, a snapshot injected by the backend before the page loads (`stored_settings`: `{}` without the
-file and for one that does not parse as an object, so a file cut within a write never makes the init script a syntax
-error). Every value read from disk or received from another window passes through the store's Zod schema.
+The backend owns the file: one `SettingsService` (`crates/app-settings/src/service.rs`, no Tauri, so the E2E server
+runs the same writer) holds the settings in memory, applies every change as a patch in the order it arrives, gives each
+change a version and saves the file at most 500 ms after the first unsaved change, to a temporary file renamed over it.
+`src-tauri` opens it on `settings.json` of the app data directory in `setup` (`src-tauri/src/settings.rs`).
 
-The main window owns `settings.json` through the Tauri store plugin (`LazyStore`). It persists local changes (debounced),
-applies writes requested by sub-windows and broadcasts every change. Sub-windows never touch the file: they send their
-changes to the main window and receive the result back like every other window. The plugin writes the file in place
-(truncate, then write), so `bd`, which reads the app's branch prefix from it, reads a file that does not parse again
-for up to 200 ms (`read_app_settings` in `crates/bd-core/src/context.rs`) instead of taking the git prefix silently.
-One writer with a temporary file and a rename is the stage `s5-settings` of
-[Rust как источник предметных правил](rust-domain-authority.md).
+Each setting group of the page is a zustand vanilla store created by `createPersistentStore`
+(`src/stores/settings/persistent-store.ts`). It starts synchronously from `window.__TAURI_STORE__`, the writer's copy
+that the backend sets in the init script of every window, with the version it was taken at
+(`window.__TAURI_STORE_VERSION__`). A local change goes to the writer as a patch (`set_setting`); the writer sends every
+change to every window (`settings_changed`), and each window applies a change newer than the one it applied. Every value
+read from the snapshot or received from the writer passes through the store's Zod schema.
 
 ## Design
 
@@ -35,119 +36,132 @@ One writer with a temporary file and a rename is the stage `s5-settings` of
 
 ```mermaid
 flowchart TD
+    subgraph Backend["Backend (src-tauri)"]
+        Service[SettingsService] -->|tmp + rename, debounced 500 ms| File[(settings.json)]
+        Service -->|init_script| Snapshot["__TAURI_STORE__, __TAURI_STORE_VERSION__"]
+    end
+
     subgraph Main["Main window"]
-        MS[zustand stores] -->|subscribe, debounced 500 ms| MSync[MainStoreSync]
-        MSync <-->|set / delete / onChange| File[(settings.json via LazyStore)]
+        MS[zustand stores]
     end
 
     subgraph Sub["Sub-window"]
-        SS[zustand stores] -->|subscribe| SSync[SubWindowStoreSync]
+        SS[zustand stores]
     end
 
-    SSync -->|store-set-request| MSync
-    MSync -->|store-response| SSync
-    MSync -->|store-snapshot-update| SSync
+    MS -->|set_setting: patch| Service
+    SS -->|set_setting: patch| Service
+    Service -->|settings_changed: version, key, value, origin| MS
+    Service -->|settings_changed, not the main-only keys| SS
+    Snapshot --> MS
+    Snapshot --> SS
+    File -.->|read, no write| BD[bd]
 ```
 
 ### Data Flow
 
 ```mermaid
 sequenceDiagram
-    participant Sub as Sub-window store
-    participant Main as Main window
+    participant Win as Window store
+    participant Svc as SettingsService
     participant Disk as settings.json
-    participant Others as Other sub-windows
+    participant All as Every window
 
-    Sub->>Sub: setState (local change)
-    Sub->>Main: store-set-request with the changed fields (an array store: echo recorded)
-    Main->>Main: the fields on its own value, parse, setState(value, true) without re-persisting
-    Main->>Disk: write non-default fields (echo recorded)
-    Main-->>Sub: store-response
-    Disk->>Main: onChange (own echo, not re-applied)
-    Main->>Sub: store-snapshot-update (an array's echo ignored; an object applied, keeping unanswered fields)
-    Main->>Others: store-snapshot-update
-    Others->>Others: setState(value, true) under the echo guard
+    Win->>Win: setState (local change)
+    Win->>Svc: set_setting: the changed fields (an array whole)
+    Svc->>Svc: apply in arrival order, version n
+    Svc-->>Win: SettingsChange n (the answer)
+    Svc->>All: settings_changed n
+    All->>All: apply if n is newer than the applied version, own unanswered fields on top
+    Svc->>Disk: within 500 ms: the non-default form, tmp + rename
 ```
-
-A change made in the main window takes the same path from the `subscribe` listener: debounced persist, `onChange`,
-broadcast to all sub-windows.
 
 ### Key Decisions
 
-1. **Decision**: The main window is the single owner of `settings.json`.
-   **Rationale**: Avoids file races and merging. Sub-windows are short-lived and depend on the main window anyway:
-   they close with it (`close_sub_windows` in `src-tauri/src/lib.rs`), so no window writes settings that no one saves.
-   Settings, the window of most writes, is opened by the main window only, so it starts from the current state.
+1. **Decision**: One writer in the backend; every window, the main one too, changes the settings through it.
+   **Rationale**: No window owns the file, so a sub-window writes nothing that no one saves, and a write never waits for
+   the main window. Rust writes through the same writer (`restart_app` saves the title bar setting and flushes before
+   the restart), and `bd` only reads the file, which the rename never shows cut. The command is synchronous: Tauri runs
+   it on the main thread, in the order the calls arrive.
 
-2. **Decision**: Synchronous initialization from an injected snapshot.
-   **Rationale**: Settings are available on the first render, without loading states. The main window gets the file
-   content through an initialization script (`src-tauri/src/lib.rs`). The opener passes `getStoreSnapshot()` as
-   `storeCache` when it opens a sub-window, so the sub-window starts from the opener's current state.
+2. **Decision**: Synchronous initialization from the writer's copy, set by the backend in every window's init script.
+   **Rationale**: Settings are there on the first render, without loading states. The opener passes no settings: a
+   sub-window starts from the writer as it is when the backend builds it (`open_sub_window`), the zoom of its builder
+   too. The values are serialized JSON, so the script parses even for a settings file that was cut (its snapshot is the
+   defaults). A page that starts to listen asks for the changes made after its snapshot (`get_settings_changes`): one
+   made while it loaded reached no listener (a zoom changed while a review window loaded; a reload of the main window).
 
-3. **Decision**: External values replace the whole state with `setState(value, true)` while an `applyingExternal` flag is set.
-   **Rationale**: The local `subscribe` listener filters out these updates, so a received value is never persisted or
-   sent back. Values equal to the current state (compared with `stableStringify`) are not applied at all, so subscribed
-   components do not re-render.
+3. **Decision**: A window sends patches, not whole values: the fields of an object that differ from the value it last
+   knew (`SettingsPatch::Fields`, a field back at its default as `null`), an array whole (`SettingsPatch::Value`).
+   **Rationale**: Two windows that change two fields of one key at once keep both (the Activity panel opened in the
+   main window, then F in a review window hid its sidebar). The writer merges the fields into its own value.
 
-4. **Decision**: An `EchoTracker` per window remembers the values it wrote.
-   **Rationale**: The `onChange` in the main window and the `store-snapshot-update` in a sub-window that come back for a
-   value this window wrote are recognized and dropped. Applying the echo of an older write would roll the state back
-   while a newer write is in flight. A sub-window records the echo of an array store only: the main window takes the
-   fields of an object store on its own value (decision 7), so its broadcast need not be the object the sub-window
-   wrote, and an entry no broadcast matched would later drop a real update equal to it (the review window wrote
-   `{zoom: 1, reviewSidebar: false}` while the main window held 110%; its Actual Size broadcast that very value, and the
-   review window stayed at 110%). An object store's update is applied, keeping the fields of the unanswered writes.
+4. **Decision**: Versions instead of echo tracking. Every applied patch gets the next version; the answer of
+   `set_setting` and `settings_changed` carry the change (`SettingsChange`: version, key, the whole key after the patch,
+   origin), and a window takes a change only when it is newer than the last one it took for the key.
+   **Rationale**: The answer and the broadcast of one change arrive in either order, and a late one is older than what
+   the window took since, so it never rolls a key back; a change equal to a value the window had before still arrives
+   (Actual Size after a review window wrote its sidebar at 110%). This replaces the echo tracker and the relay of the
+   main window.
 
-5. **Decision**: Only non-default fields are persisted; an empty array or an all-default object deletes the key.
-   **Rationale**: Keeps the file small and lets new defaults apply to users who never changed a setting. A sub-window
-   compares the echo after parsing, because the broadcast value lacks the default fields.
+5. **Decision**: A window has at most one patch per key in flight; the changes made meanwhile merge into the next one,
+   and the state it shows is the writer's value with its unanswered patches on top.
+   **Rationale**: The writer gets a window's changes in the order they were made (↓ ↓ ↑ in Settings ends at the last
+   value), a burst of changes costs one round trip per answer, and a change of another window applied while the window
+   waits keeps the window's own newer field. A refused patch (a field Rust reads with an invalid value) drops it: the
+   window shows the writer's value and says "Cannot change the settings".
 
-6. **Decision**: Array stores (recent projects) wrap the array as `{ items }`.
-   **Rationale**: zustand state must be an object. The sync layer and the file see the plain array.
+6. **Decision**: Only non-default fields are persisted; an empty array, and an object whose last field went, remove
+   the key. The fields Rust reads (`AppSettings`) go to the windows in their full form, every field with its default
+   (`AppSettings::to_full`).
+   **Rationale**: Keeps the file small and lets new defaults apply to users who never changed a setting; the page and
+   Rust agree on the defaults of the fields both read. Keys the backend does not know are kept raw.
 
-7. **Decision**: A sub-window sends the fields of an object store its change made (`fields` of `store-set-request`,
-   against the value it last knew), and the main window takes only them, on its own value.
-   **Rationale**: The main window broadcasts its own changes only after the debounced write (500 ms): a whole object
-   from a sub-window would put back the field the main window changed meanwhile (the Activity panel opened in the main
-   window, then F in a review window closed it again). An update that reaches a sub-window keeps the fields of its
-   writes the main window has not answered yet, so the update never rolls the newer field back either.
+7. **Decision**: Array stores (recent projects) wrap the array as `{ items }`.
+   **Rationale**: zustand state must be an object. The writer and the file see the plain array.
 
-8. **Decision**: A sub-window asks for the settings once it listens (`store-snapshot-request`, answered with
-   `getStoreSnapshot()` as `store-snapshot` for its label).
-   **Rationale**: Its injected snapshot is the opener's state at the open; a change broadcast while its page loaded
-   reached no listener (a zoom changed while a review window loaded).
+8. **Decision**: Keys only the main window keeps (`MAIN_ONLY_KEYS` in `crates/app-settings/src/windows.rs`: the
+   Activity log, the robot history) reach no sub-window: not in its snapshot, not in its changes.
+   **Rationale**: They are large and only the main window writes them; the Activity window gets the log of the selected
+   repository over its window link (`src/lib/activity-window-link.ts`).
+
+9. **Decision**: The disk lags, the windows don't: a change is sent to every window at once, and the file is saved on
+   one writer thread at most 500 ms after the first unsaved change. The app flushes on `RunEvent::ExitRequested`.
+   **Rationale**: A burst of changes (a zoom by keys, a dragged split) is one write. A failed save keeps the settings in
+   memory, is tried again by the next change or flush, and is told to the main window once per streak of failures
+   (`settings_save_failed` → "Cannot save the settings").
 
 ### Implementation Notes
 
-- Store factory: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`.
-  It registers a `StoreRegistration` (`src/stores/settings/sync-utils.ts`), so the sync layer never touches the zustand store directly.
-- Main window: `MainStoreSync` in `src/stores/settings/app-store.ts`. Writes from sub-windows are applied to the local store
-  immediately, then saved in the same non-default form. Its writes reach `settings.json` one at a time, in the order they
-  were asked for (`write`): Tauri runs two `set` commands in flight concurrently, so ↓ ↓ ↑ in Settings could leave the
-  middle value on disk; a failed write fails its request and the next one still runs. Changes of unregistered keys only update the raw snapshot.
-  Stores with `isMainOnly` are not broadcast and are left out of the sub-window snapshot (`getStoreSnapshot`): the
-  Activity log (`src/stores/activity.ts`), which only the main window writes; the Activity window gets the log of the
-  selected repository over its window link (`src/lib/activity-window-link.ts`), not from the store.
-- Sub-windows: `SubWindowStoreSync` in `src/stores/settings/sub-window-app-store.ts`. Request ids include the window label
-  because every sub-window receives every `store-response`. A request without a response fails after 10 s.
-- Initialization: `initializeStoreHandlers()` is called at module level in `src/main.tsx`. It starts serving
-  `store-set-request` in the main window and is a no-op in sub-windows.
-- Stores: `appSettings.ts`, `aiSettings.ts`, `diff-view-settings.ts`, `repositorySettings.ts` in `src/stores/settings/`, and the
-  Activity log `src/stores/activity.ts`. They are module-level singletons. Components read them with `useStore` selectors, non-React code with `getState()`.
+- Writer: `SettingsService` (`crates/app-settings/src/service.rs`): `set(patch, origin)` answers the change at once,
+  `snapshot()` and `changes_since(version)` for the windows, `flush()`, `on_save_error`. The file:
+  `SettingsFile` (`file.rs`): a tolerant load (a missing or broken file is the defaults, a field of the wrong type its
+  default), the stored form, the atomic save. Which window gets which key: `windows.rs`.
+- Backend: `src-tauri/src/settings.rs` opens the writer, builds the settings part of every init script
+  (`init_script`) and sends the changes (`emit_change`); `src-tauri/src/commands/settings.rs` has `set_setting` (origin:
+  the calling window's label) and `get_settings_changes`. The window builders (the zoom), the title bar and the menu
+  read their settings from the writer's `AppSettings` (`zoom.rs`, `title_bar.rs`, `menu.rs`), with its defaults.
+- Page: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`; one
+  `settings_changed` listener per page, started with the first store. Stores: `appSettings.ts`, `aiSettings.ts`,
+  `diff-view-settings.ts`, `repositorySettings.ts` in `src/stores/settings/`, the Activity log `src/stores/activity.ts`
+  and the robot history `src/stores/robot-history.ts`. They are module-level singletons; components read them with
+  `useStore` selectors, non-React code with `getState()`.
+- E2E: the test server gives each test repository a `SettingsService` of its own on a file of its app data
+  (`TestRepository::store`); the page mock routes `set_setting` and `get_settings_changes` to it and sends the change to
+  its page and the linked pages ([E2E Testing](e2e-testing.md)).
 
 ## Alternatives Considered
 
-- **Each window manages its own file**:
-  - Why not: File conflicts, race conditions, complex merging.
-
-- **zustand `persist` middleware**:
-  - Why not: It has no cross-window ownership. Every window would write the file, and it loads asynchronously.
-
-- **Keeping settings in the Rust backend**:
-  - Why not: Every read would be an async IPC call. The UI needs synchronous access on the first render.
-
-- **CRDT for conflict-free updates**:
-  - Why not: Unnecessary complexity for settings that change rarely and one at a time.
+- **The main window owns the file** (the design before, with the Tauri store plugin): the sub-windows relayed their
+  writes through it and it broadcast its own writes after its debounce, which needed an echo tracker and the fields of
+  unanswered writes in every sub-window; the plugin wrote the file in place, so `bd` read a cut file.
+- **Each window manages its own file**: file conflicts, race conditions, complex merging.
+- **zustand `persist` middleware**: no cross-window ownership; every window would write the file, and it loads
+  asynchronously.
+- **Every read through IPC**: the UI needs synchronous access on the first render; the snapshot gives it, the changes
+  keep it current.
+- **CRDT for conflict-free updates**: unnecessary for settings that change rarely and one at a time; a per-field patch
+  and a version per change suffice.
 
 ## Performance Considerations
 
@@ -155,13 +169,14 @@ broadcast to all sub-windows.
 - **Solution**: Synchronous initialization from the injected snapshot, before the React root renders.
 
 Optimizations:
-- Debounced persistence (500 ms) in the main window coalesces rapid changes into one disk write.
+- The writer saves at most once per 500 ms of changes, on its own thread; `set_setting` answers before the save.
+- A window sends only the fields that changed, and one patch per key at a time.
 - Equal incoming values are not applied, so selectors do not re-run.
-- Only plain values are transmitted between windows.
 
 ## References
 
-- Implementation: `src/stores/settings/app-store.ts` (main window), `src/stores/settings/sub-window-app-store.ts` (sub-windows)
-- Store creation: `src/stores/settings/persistent-store.ts`
-- Sub-window opening: `src/lib/window-management.ts`, `src-tauri/src/commands/window_management.rs`
-- Related: [virtual-branches.md](virtual-branches.md)
+- Writer: `crates/app-settings/src/service.rs`, `crates/app-settings/src/file.rs`, `crates/app-settings/src/windows.rs`
+- Backend: `src-tauri/src/settings.rs`, `src-tauri/src/commands/settings.rs`, `src-tauri/src/commands/window_management.rs`
+- Page: `src/stores/settings/persistent-store.ts`
+- Spec: [Settings](../../spec/repository/settings.spec.md) ("Writes through the backend")
+- Plan: [Rust как источник предметных правил](rust-domain-authority.md), stage `s5-settings`

@@ -115,7 +115,7 @@ function SystemTitleBarSwitch() {
             size="xs"
             variant="outline"
             onClick={() => {
-              // the backend writes the setting before it restarts: the main window saves the settings debounced
+              // the backend's writer saves the setting before the restart, whose new process reads the file
               commands
                 .restartApp(setting)
                 .then(result => {

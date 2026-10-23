@@ -31,21 +31,14 @@ async function openRepositorySettings(page: Page, focus?: string): Promise<Page>
   return window
 }
 
-/**
- * Selects the repository in the main window, whose saved recent projects reach the window as the main window
- * broadcasts them in the app (`store-snapshot-update`: the mock of the store plugin reports no change to broadcast)
- */
+/** Selects the repository in the main window, whose recent projects reach the window as a change of the writer */
 async function selectRepository(page: Page, window: Page, testStore: { get: (key: string) => Promise<unknown> }, path: string): Promise<void> {
   await page.getByRole("combobox").click()
   await page.getByRole("option", { name: nameOf(path) }).click()
-  let saved: unknown = null
+  await expect.poll(async () => ((await testStore.get("recentProjects")) as Array<{ path: string }> | null)?.[0]?.path).toBe(path)
   await expect
-    .poll(async () => {
-      saved = await testStore.get("recentProjects")
-      return (saved as Array<{ path: string }> | null)?.[0]?.path
-    })
+    .poll(() => window.evaluate(() => (globalThis as unknown as { __TAURI_STORE__: { recentProjects?: { path: string }[] } }).__TAURI_STORE__.recentProjects?.[0]?.path))
     .toBe(path)
-  await emitTauriEvent(window, "store-snapshot-update", { key: "recentProjects", value: saved })
 }
 
 function row(window: Page, key: string): Locator {

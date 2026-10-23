@@ -1,9 +1,9 @@
 import { z } from "zod"
 import { useStore } from "zustand"
 import type { GitBranchPrefix, IssueNavigationConfig } from "@/lib/bindings"
+import { stableStringify } from "@/lib/stable-stringify"
 import { createPersistentStore } from "./persistent-store"
 import type { ArrayStoreState } from "./persistent-store"
-import { stableStringify } from "./sync-utils"
 
 /** The issue links of the repository's `.idea/vcs.xml`, as the last sync read them */
 const IssueNavigationConfigSchema = z.object({

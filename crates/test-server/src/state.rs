@@ -45,7 +45,9 @@ pub struct TestRepository {
   /// Held for reading by every request of the page mock for this repository (`hold_repository` in lib.rs) and for
   /// writing by `delete_repository`, so a repository is deleted only after the commands still running for it
   pub in_flight: std::sync::Arc<tokio::sync::RwLock<()>>,
-  pub store: DashMap<String, serde_json::Value>,
+  /// The settings of the page: the writer of the app on `settings.json` in `app_data`, which `set_setting` and the
+  /// `/store` fixture routes change
+  pub store: app_settings::service::SettingsService,
   /// How often the app asked for pull requests, so a test can check the refresh policy
   pub pull_request_calls: AtomicU32,
   /// What `get_review_requests` answers and how `fetch_review_head` fails (E2E never runs gh); not on GitHub until a

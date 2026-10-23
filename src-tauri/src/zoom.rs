@@ -30,16 +30,6 @@ const MIN_ACTIVITY_WINDOW_WIDTH: f64 = 440.0;
 const MIN_ACTIVITY_WINDOW_HEIGHT: f64 = 400.0;
 const MIN_ACTIVITY_ISLANDS_WIDTH: f64 = 400.0;
 
-/// The zoom level of the pages, saved as `appSettings.zoom` (`src/stores/settings/appSettings.ts`, absent at 100%).
-/// `store_json` is the content of `settings.json` that the window gets as `window.__TAURI_STORE__`.
-pub fn stored_zoom(store_json: &str) -> f64 {
-  serde_json::from_str::<serde_json::Value>(store_json)
-    .ok()
-    .and_then(|store| store.get("appSettings")?.get("zoom")?.as_f64())
-    .filter(|zoom| zoom.is_finite() && *zoom > 0.0)
-    .unwrap_or(1.0)
-}
-
 /// The minimum width of the main window at `zoom`
 pub fn min_window_width(zoom: f64) -> f64 {
   MIN_WINDOW_WIDTH.max(MIN_ISLANDS_WIDTH * zoom)

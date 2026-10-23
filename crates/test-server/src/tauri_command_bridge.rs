@@ -1782,3 +1782,39 @@ pub async fn set_auto_sync_menu_checked(Json(request): Json<SetAutoSyncMenuCheck
   tracing::debug!(checked = request.checked, "Auto-sync on Focus checked");
   Json(serde_json::Value::Null)
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSettingRequest {
+  pub patch: domain_types::settings::SettingsPatch,
+  /// The label of the page's window (the page mock sends it; the app takes the webview's)
+  pub origin: String,
+}
+
+/// `set_setting` of the app on the settings of the requesting page's repository: the change, which the page mock sends
+/// to its windows (`settings_changed`)
+pub async fn set_setting(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<SetSettingRequest>) -> CommandResult<domain_types::settings::SettingsChange> {
+  let repository = requesting_repository(&state, &headers)?;
+  let change = repository.store.set(request.patch, &request.origin);
+  change
+    .map(Json)
+    .map_err(|e| failed("change the settings", anyhow::Error::new(e).context("Cannot change the settings")))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetSettingsChangesRequest {
+  pub since: u32,
+  /// The label of the page's window
+  pub origin: String,
+}
+
+/// `get_settings_changes` of the app: the changes after the version the page started from that its window gets
+pub async fn get_settings_changes(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+  Json(request): Json<GetSettingsChangesRequest>,
+) -> CommandResult<Vec<domain_types::settings::SettingsChange>> {
+  let repository = requesting_repository(&state, &headers)?;
+  Ok(Json(app_settings::windows::window_changes_since(&repository.store, &request.origin, request.since)))
+}

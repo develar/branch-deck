@@ -8,7 +8,6 @@
     "core:webview:allow-set-webview-zoom",
     "core:window:allow-set-progress-bar",
     "core:window:allow-set-badge-count",
-    "store:default",
     "log:default",
     "notification:default",
     "clipboard-manager:allow-write-text"

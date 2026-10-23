@@ -67,7 +67,6 @@ function announceSubWindowLoaded(): void {
     }
     const update = result.data
     if (update !== null) {
-      window.__TAURI_STORE__ = JSON.parse(update.storeCache) as Record<string, unknown>
       window.__INIT_DATA__ = JSON.parse(update.data) as unknown
       window.__SUB_WINDOW_OPEN__ = update.open
       window.dispatchEvent(new CustomEvent("init-data-updated"))

@@ -118,14 +118,28 @@ export async function setupTestRepository(page: Page, templateName: string, opti
     }
   }
 
-  await page.addInitScript(storeValues => {
-    // Inject the store values just like Tauri does in production: a window starts from `settings.json` as it is now, so
-    // a reload starts from what the app wrote to its store since (`rememberStoreWrite` of `tauri-mocks.ts`)
-    const written = JSON.parse(sessionStorage.getItem("bd-e2e-store-writes") ?? "{}") as Record<string, unknown>
-    const current = Object.fromEntries(Object.entries({ ...storeValues, ...written }).filter(([, value]) => value !== null))
-    Object.assign(window, { __TAURI_STORE__: current })
-    console.log("[Test Setup] Injected __TAURI_STORE__:", current)
-  }, storeData)
+  // the version of the test server's writer the values are taken at: the page asks for the changes after it
+  let storeVersion = 0
+  if (repoBuilder.id) {
+    const snapshot = await fetch(`${TEST_SERVER_URL}/store/${repoBuilder.id}`)
+    if (snapshot.ok) {
+      storeVersion = ((await snapshot.json()) as { version: number }).version
+    }
+  }
+
+  await page.addInitScript(
+    ({ storeValues, version }) => {
+      // Inject the store values just like Tauri does in production: a window starts from the writer's copy as it is
+      // now, so a reload starts from the changes the page heard since, at the version of the last one
+      // (`rememberStoreChange` of `tauri-mocks.ts`); a test's own init script may change the copy after this one
+      const written = JSON.parse(sessionStorage.getItem("bd-e2e-store-writes") ?? "{}") as Record<string, unknown>
+      const current = Object.fromEntries(Object.entries({ ...storeValues, ...written }).filter(([, value]) => value !== null))
+      const heard = Number(sessionStorage.getItem("bd-e2e-store-version") ?? 0)
+      Object.assign(window, { __TAURI_STORE__: current, __TAURI_STORE_VERSION__: Math.max(version, heard) })
+      console.log("[Test Setup] Injected __TAURI_STORE__:", current)
+    },
+    { storeValues: storeData, version: storeVersion },
+  )
 
   // Navigate to the app with the repository ID in URL for test server tracking
   await page.goto(`/?repoId=${repoBuilder.id}`)

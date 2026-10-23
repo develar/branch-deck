@@ -140,6 +140,7 @@ name = "app-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "app-settings",
  "cli-tools",
  "domain-types",
  "file-diffs",
@@ -744,6 +745,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "app-api",
+ "app-settings",
  "bd-cli",
  "bd-core",
  "branch-integration",
@@ -781,7 +783,6 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
- "tauri-plugin-store",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
  "tauri-specta",
@@ -1784,6 +1785,7 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
+ "specta-typescript",
  "thiserror 2.0.21",
 ]
 
@@ -5651,7 +5653,6 @@ checksum = "ed155e448f42fc4be7a5cbc12bd43f6c549981f7c32fcba429ff6bc57cc4f30c"
 dependencies = [
  "paste",
  "rustc_version",
- "serde_json",
  "specta-macros",
 ]
 
@@ -6257,22 +6258,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-plugin-store"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3c6fdaac41e60f2313a440fa1776f3a5fdd16800ff967915e9800985b680822"
-dependencies = [
- "dunce",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "tauri-plugin-updater"
 version = "2.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6524,6 +6509,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "app-api",
+ "app-settings",
  "axum",
  "branch-integration",
  "cli-tools",

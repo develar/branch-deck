@@ -4,10 +4,10 @@ import { useRobotOverview } from "@/hooks/useRobotOverview"
 import { setBadgeSource, setDockProgress } from "@/lib/dock"
 import { getRobotTiming } from "@/lib/robot-eta"
 import { countConflicts, getDockProgress, isFailingEntry } from "@/lib/robot-overview"
+import { isMainWindow } from "@/lib/window-label"
 import { useBranchSync } from "@/stores/branch-sync"
 import { getRobotEstimate, useRepositoryViewCurrent } from "@/stores/patronus"
 import { useReviewRequestCount } from "@/stores/review-requests"
-import { isMainWindow } from "@/stores/settings/app-store"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
 /**

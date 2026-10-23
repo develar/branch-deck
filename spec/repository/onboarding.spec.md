@@ -137,10 +137,11 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`, `changes_with_the_upstream_of_the_checked_out_branch`)
   [@test] ../../src/stores/branch-sync.test.ts (`syncs only when what a sync reads changed since the last sync, one read otherwise`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
-- File → Auto-sync on Focus of the native menu is checked as the setting is: at startup as `settings.json` says
-  (`stored_auto_sync_on_focus`), then by the main window for every value of the setting, whichever window changed it
-  (`set_auto_sync_menu_checked`); checking the item sets the setting (`auto_sync_on_focus_toggled`, sent to the main
-  window). The switch of Settings → General is the same setting: its write through the main window checks the item.
+- File → Auto-sync on Focus of the native menu is checked as the setting is: at startup as the backend's writer loaded
+  `settings.json` (`AppSettings::auto_sync_on_focus`, on by default), then by the main window for every value of the
+  setting, whichever window changed it (`set_auto_sync_menu_checked`); checking the item sets the setting
+  (`auto_sync_on_focus_toggled`, sent to the main window). The switch of Settings → General is the same setting: its
+  change reaches the main window, which checks the item.
   [@test] ../../src-tauri/src/menu_test.rs (`auto_sync_on_focus_is_checked_as_the_stored_setting`, `without_a_stored_setting_auto_sync_on_focus_is_checked`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
 - A sync while git is in the middle of a rebase, merge, cherry-pick or revert, or with HEAD detached, is refused before

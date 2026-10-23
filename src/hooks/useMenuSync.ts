@@ -7,7 +7,7 @@ import { setAutoSyncOnFocus, useAppSettings } from "@/stores/settings/appSetting
 /**
  * Keeps Auto-sync on Focus of the native menu and the setting in sync, in the main window: the item the user checks
  * sets the setting, and every value of the setting, whichever window changed it (the settings sync), checks the item.
- * The backend checks it as `settings.json` says at startup (`stored_auto_sync_on_focus`).
+ * The backend checks it as its writer loaded `settings.json` at startup (`configure_app_menu`).
  */
 export function useMenuSync(): void {
   useTauriListen<boolean>("auto_sync_on_focus_toggled", checked => {

@@ -5,7 +5,8 @@ style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs
   - ../../src-tauri/src/lib.rs
-  - ../../src-tauri/src/stored_settings.rs
+  - ../../src-tauri/src/settings.rs
+  - ../../src-tauri/src/commands/settings.rs
   - ../../src-tauri/src/zoom.rs
   - ../../src-tauri/src/commands/window_management.rs
   - ../../src-tauri/capabilities/settings.json
@@ -43,11 +44,12 @@ targets:
   - ../../src/stores/ai-suggestions.ts
   - ../../src/stores/settings/appSettings.ts
   - ../../src/stores/settings/repositorySettings.ts
-  - ../../src/stores/settings/app-store.ts
-  - ../../src/stores/settings/sub-window-app-store.ts
+  - ../../src/stores/settings/persistent-store.ts
   - ../../src/stores/repository.ts
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/app-settings/src/resolve.rs
+  - ../../crates/app-settings/src/service.rs
+  - ../../crates/app-settings/src/windows.rs
   - ../../crates/domain-types/src/settings.rs
   - ../../crates/sync-core/src/repository_config.rs
   - ../../crates/sync-core/src/config_snapshot.rs
@@ -86,7 +88,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - Every setting of the app in one place, one page per subject, each page without scrolling at the size the window
   opens with.
 - A button that needs a setting opens the page that has it, not the top of a long list.
-- The same settings in every window: Settings writes them through the main window, which owns `settings.json`.
+- The same settings in every window: every window writes them through the backend, which owns `settings.json`.
 
 ## Non-goals
 
@@ -106,8 +108,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   `src/lib/zoom.ts`, which `useZoom` sets by the label of the window).
   [@test] ../../src-tauri/src/zoom_test.rs (`the_settings_window_is_smaller_and_widens_above_107_percent`)
   [@test] ../../src/lib/zoom.test.ts (`is smaller for Settings, and wider above 107%`)
-- Only the main window opens it (`openSettingsWindow` of `IndexPage`, the handler of `open_settings`): it has the
-  current settings, the window's start (`storeCache`). Every entry point asks it: the native menu item sends
+- Only the main window opens it (`openSettingsWindow` of `IndexPage`, the handler of `open_settings`); the window starts
+  from the settings of the backend's writer as they are at the open. Every entry point asks the main window: the native menu item sends
   `open_settings` to the main window, `openSettings` (`runAppCommand`) runs there or sends it there. Opened again, the
   open window comes to the front with the new open.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open at the page an open names, else at the page shown last, its tab focused`)
@@ -116,8 +118,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   the notification settings of the system (`x-apple.systempreferences:`, `ms-settings:`).
   [@test] ../../src-tauri/src/title_bar_test.rs (`every_window_gets_the_permissions_of_the_title_bar`)
 - The window closes with the main window: when the main window is destroyed, every sub-window is (`close_sub_windows`
-  in `src-tauri/src/lib.rs`), and the app quits with the last window. Without the main window a sub-window would lose
-  the settings it changes and wait for the answers of the main window.
+  in `src-tauri/src/lib.rs`), and the app quits with the last window. Without the main window a sub-window would wait
+  for the answers of the main window.
 
 ### Entry points
 
@@ -237,28 +239,47 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should close on Escape, which takes the typing of a field back first`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`)
 
-### Writes through the main window
+### Writes through the backend
 
-- The window writes the settings through the main window, which applies and saves them
+- Every window writes the settings through the one writer of the backend (`set_setting`, `SettingsService`), which
+  applies them in the order they arrive, sends each change to every window (`settings_changed`, with its version and
+  the window that asked) and saves `settings.json` within 500 ms, with a temporary file renamed over it
   ([Distributed Settings](../../docs/design/distributed-settings.md)): the zoom zooms every window, Auto-sync on Focus
   checks the item of the native menu (`set_auto_sync_menu_checked`), a changed AI mode clears the last AI failure of
-  every window (`ai-suggestions.ts`).
+  every window (`ai-suggestions.ts`). The writer refuses a value of a field it reads that is invalid (a zoom that is no
+  positive number), and the window shows the value the writer has, with "Cannot change the settings".
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the main window`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should zoom every window from Appearance with the items of the View menu`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
-- A sub-window's write changes only the settings it changed: a setting the main window changed a moment before (the
-  Activity panel opened) stays, also when the sub-window had not heard of it yet; and a sub-window that loads takes the
-  changes made while it loaded (it asks the main window once it listens). A later change of the main window reaches the
-  sub-window also when it equals the value of the sub-window's own write (Actual Size after a review window hid its
-  sidebar at 110%).
+  [@test] ../../crates/app-settings/src/service_test.rs (`the_changes_are_saved_in_the_order_they_arrive_so_the_last_one_is_on_disk`, `an_invalid_value_of_a_field_rust_knows_is_refused_and_changes_nothing`)
+  [@test] ../../src/stores/settings/persistent-store.test.ts (`puts the writer's value back when it refuses a change, and says so`)
+- A window's write changes only the settings it changed (the fields of an object, an array whole): a setting another
+  window changed a moment before (the Activity panel opened in the main window) stays, also when the window had not
+  heard of it yet. A window sends its next change after the answer of the one before, so the writer gets them in
+  order, and applies only a change newer than the last one it applied: a late answer or echo never rolls a setting
+  back, and a change equal to a value the window had before still arrives (Actual Size after a review window hid its
+  sidebar at 110%). A window that loads takes the changes made after the snapshot it started from, once it listens
+  (`get_settings_changes`). The Activity log and the robot history reach only the main window.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should keep the Activity panel the main window opened when a review window hides its sidebar right after`)
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should follow Actual Size of the main window in a review window whose write the main window took on its zoom`)
-  [@test] ../../src/stores/settings/app-store.test.ts (`takes only the fields a sub-window changed, so a field the main window changed meanwhile stays`, `answers a sub-window that asks for the settings with those it has now`)
-  [@test] ../../src/stores/settings/app-store.test.ts (`sends the main window the fields a change made, not the whole object`, `asks for the settings once it listens, and takes a change the main window made while the page loaded`, `keeps the field of a write the main window has not answered when another window's change arrives`, `takes a later change of the main window that equals the value of its own write before the merge`)
-- The main window starts from the saved settings, and with the defaults from a settings file that does not parse (one
-  cut within a write): it never starts without its settings because of a syntax error in its init script
-  (`stored_settings`).
-  [@test] ../../src-tauri/src/stored_settings_test.rs (`a_cut_settings_file_gives_the_page_an_empty_object`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should follow Actual Size of the main window in a review window that changed another field in between`)
+  [@test] ../../crates/app-settings/src/service_test.rs (`two_origins_that_patch_two_fields_of_one_key_at_once_keep_both`, `a_change_older_than_the_applied_version_is_an_echo`, `the_changes_since_a_snapshot_name_each_key_changed_after_it_once_with_its_value_now`)
+  [@test] ../../crates/app-settings/src/windows_test.rs (`a_sub_window_gets_no_key_only_the_main_window_keeps`)
+  [@test] ../../src/stores/settings/persistent-store.test.ts (`sends the fields a change made, not the whole object, a field back at its default as null`, `sends the next change only after the answer of the one before, the changes made meanwhile as one`)
+  [@test] ../../src/stores/settings/persistent-store.test.ts (`keeps the field of its own change the writer has not answered when another window's change of the key arrives`, `never rolls a key back with a late echo of an older change`, `takes the changes made while the page loaded, once it listens`)
+  [@test] ../../src/stores/settings/persistent-store.test.ts (`sends an array whole, an empty one as no value`, `starts a key only the main window keeps empty in a sub-window and takes none of its changes`)
+- The file keeps only what differs from the defaults: a field back at its default is removed, and an object or an
+  array left empty removes its key. Keys the backend does not know are kept as they are.
+  [@test] ../../crates/app-settings/src/service_test.rs (`a_field_patch_merges_into_the_key_and_a_null_field_is_removed`, `a_field_patch_that_removes_the_last_field_removes_the_key`)
+  [@test] ../../crates/app-settings/src/file_test.rs (`unknown_keys_round_trip`)
+- Every window starts from the writer's copy of the settings, set before its page's scripts (`__TAURI_STORE__`, with
+  its version `__TAURI_STORE_VERSION__`; `init_script` of `src-tauri/src/settings.rs`), and with the defaults from a
+  settings file that does not parse (one cut within a write): it never starts without its settings because of a syntax
+  error in its init script.
+  [@test] ../../crates/app-settings/src/service_test.rs (`the_snapshot_of_a_cut_file_is_a_json_object_of_the_defaults`)
+- A failed save keeps the settings in memory, is tried again by the next change, and the main window says so once per
+  streak of failures ("Cannot save the settings", `settings_save_failed`). The app saves what is unsaved before it
+  quits (`RunEvent::ExitRequested`) and before Restart of the title bar setting (`restart_app`).
+  [@test] ../../crates/app-settings/src/service_test.rs (`an_unwritable_directory_reports_the_error_once_a_streak_and_memory_keeps_the_value`, `a_flush_soon_after_a_patch_saves_it_without_waiting_for_the_debounce`)
 - The pages read only what every window has: the settings and the backend. The branch prefix field reads the prefix of
   git for the selected repository itself (`get_branch_prefix_from_git_config`, again on focus), and stays enabled while
   a sync runs: a sync reads the prefix when it starts, so a change names the branches of the next one.
@@ -419,15 +440,17 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 - `pnpm e2e`: `tests/e2e/settings/settings.spec.ts`. `openSettingsWindow` of `tests/e2e/helpers/settings-helpers.ts`
   fires `open_settings` in the main window's page and shows the recorded open as a linked page
-  (`openLinkedSubWindow`), whose settings writes reach the main window; it starts from the settings the open recorded
-  (`store` of `__e2eSubWindows`, the `storeCache` of the open). `expectSettingsOpened` checks the last open and that it
-  is the only new one; `reopenLinkedSubWindow` hands a later open to the shown window, as the backend does.
+  (`openLinkedSubWindow`), whose settings changes reach every linked page; it starts from the settings the open
+  recorded (`store` and `storeVersion` of `__e2eSubWindows`, the main page's copy at the open). `expectSettingsOpened`
+  checks the last open and that it is the only new one; `reopenLinkedSubWindow` hands a later open to the shown
+  window, as the backend does.
+- The settings of a test live in the test server's writer of the repository (`TestRepository::store`, the app's
+  `SettingsService`): `set_setting` changes them there, the mock sends the change to its page and the linked pages
+  (`settings_changed`), and `testStore` of the fixtures reads and writes them (`/store/<repo>/<key>`).
 - `tests/e2e/settings/repository-settings.spec.ts`: the test server reads and writes the local config of the test
   repository and a global config of its own (`GIT_CONFIG_GLOBAL`, `AppState::global_config_of`), never the
   developer's or the system config; the sync of the repository does not read that global file. The mock sends
   `repository_config_changed` to the main window's page after a write (`set_repository_config` of `tauri-mocks.ts`).
-  The mock's store reports no change, so the main window broadcasts no recent projects: a test that switches the
-  repository hands them to the window (`store-snapshot-update`).
 - By hand: `pnpm tauri dev`; ⌘, from the menu, from a review window and again with the window open (it comes to the
   front); every page at 100% and 150% without scrolling; closing the main window closes Settings; Repository: stacks
   on syncs the main window, a prefix of the repository renames its branches, `git config --worktree` disables a row.
@@ -436,4 +459,5 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 - [Zoom](zoom.spec.md), [Title Bar](title-bar.spec.md), [Review Requests](review-requests.spec.md),
   [GitHub Sign-in](github-sign-in.spec.md), [Onboarding](onboarding.spec.md).
-- [Distributed Settings](../../docs/design/distributed-settings.md): how a sub-window writes the settings.
+- [Distributed Settings](../../docs/design/distributed-settings.md): the one writer of the settings and how every window
+  follows it.

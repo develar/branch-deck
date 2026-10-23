@@ -5,6 +5,7 @@
 //! - `resolve`: the order of the branch prefixes, with where the prefix came from (`resolve_branch_prefix`)
 //! - `service`: the one writer of the file (`SettingsService`): patches in the order they arrive, versions, a debounced
 //!   save on one thread, `flush`
+//! - `windows`: which window gets which key (`MAIN_ONLY_KEYS`): the snapshot a window starts from, the changes it hears
 //!
 //! The types that cross a window or a process (`AppSettings`, `GitBranchPrefix`, `ResolvedBranchPrefix`,
 //! `SettingsPatch`, `SettingsChange`) are `domain_types::settings`.
@@ -12,6 +13,7 @@
 pub mod file;
 pub mod resolve;
 pub mod service;
+pub mod windows;
 
 #[cfg(test)]
 mod file_test;
@@ -19,3 +21,5 @@ mod file_test;
 mod resolve_test;
 #[cfg(test)]
 mod service_test;
+#[cfg(test)]
+mod windows_test;

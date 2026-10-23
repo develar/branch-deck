@@ -5,6 +5,7 @@
 //! `in_undo` (`undo_error`), as `bd undo` does. A code is never picked by reading a message; an error without a code of
 //! its own is `internal` with its whole context chain.
 
+use app_settings::service::SettingsError;
 use cli_tools::install::ActionError;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHolderInfo};
 use domain_types::landing::LandingRefusal;
@@ -211,6 +212,10 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   }
   if error.downcast_ref::<PendingUpdate>().is_some() {
     return code(ErrorCode::FinishPending);
+  }
+  // a value of a setting Rust reads that is refused, not a save that failed
+  if let Some(SettingsError::Invalid { .. } | SettingsError::NotAnObject { .. }) = error.downcast_ref::<SettingsError>() {
+    return code(ErrorCode::InvalidArguments);
   }
   classify_branch_moves(error).or_else(|| classify_landing(error))
 }

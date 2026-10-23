@@ -29,17 +29,30 @@ export const tauriMockScript = () => {
   // the label of the window: `main`, or that of a linked sub-window (`openLinkedSubWindow` sets `__e2eWindowLabel`)
   const windowLabel: string = (window as any).__e2eWindowLabel ?? "main"
 
-  // Use a constant store resource ID for consistency across reloads
-  const storeResourceId = "test-store-resource"
-
   /**
-   * What the app wrote to its store in this tab, as `settings.json` holds it in the app: a reload starts from it, as a
-   * window of the app starts from the file (`common-setup.ts` reads it; null is a deleted key)
+   * A change of the settings this page heard (`settings_changed`), as the writer of the app holds it: a reload starts
+   * from it at the version it heard last, as a window of the app starts from the writer's copy (`common-setup.ts` reads
+   * both; null is a deleted key),
+   * and so does a sub-window this page opens (`__TAURI_STORE__` and `__TAURI_STORE_VERSION__`, the copy of this page)
    */
-  function rememberStoreWrite(key: string, value: unknown) {
+  const storeVersions = new Map<string, number>()
+  function rememberStoreChange(change: { version: number; key: string; value: unknown }) {
+    if ((storeVersions.get(change.key) ?? -1) >= change.version) {
+      return
+    }
+    storeVersions.set(change.key, change.version)
     const written = JSON.parse(sessionStorage.getItem("bd-e2e-store-writes") ?? "{}")
-    written[key] = value ?? null
+    written[change.key] = change.value ?? null
     sessionStorage.setItem("bd-e2e-store-writes", JSON.stringify(written))
+    const copy = ((window as any).__TAURI_STORE__ ??= {})
+    if (change.value === null) {
+      delete copy[change.key]
+    } else {
+      copy[change.key] = change.value
+    }
+    const version = Math.max((window as any).__TAURI_STORE_VERSION__ ?? 0, change.version)
+    ;(window as any).__TAURI_STORE_VERSION__ = version
+    sessionStorage.setItem("bd-e2e-store-version", String(version))
   }
 
   /**
@@ -323,103 +336,6 @@ export const tauriMockScript = () => {
   }
 
   /**
-   * Handle store plugin commands
-   */
-  function handleStoreCommand(cmd: string, payload: any): any {
-    const [, action] = cmd.split("|")
-
-    switch (action) {
-      case "load":
-        // Return the constant store resource ID
-        return storeResourceId
-
-      case "get": {
-        const key = payload?.key
-        if (!key) {
-          console.error("[Test Mock] Store get called without key")
-          return [null, false]
-        }
-
-        return (async () => {
-          try {
-            const response = await serverFetch(`/store/${repoId}/${key}`)
-            if (response.ok) {
-              const value = await response.json()
-              return [value, value !== null] // null means key not found
-            }
-
-            // Any error means something is wrong
-            const errorMsg = `Store get failed: ${response.status} ${response.statusText} for repo=${repoId}, key=${key}`
-            console.error(`[Test Mock] ${errorMsg}`)
-            throw new Error(errorMsg)
-          } catch (error) {
-            console.error(`[Test Mock] Store get error for key ${key}:`, error)
-            throw error
-          }
-        })()
-      }
-
-      case "set": {
-        const key = payload?.key
-        const value = payload?.value
-        if (!key) {
-          console.error("[Test Mock] Store set called without key")
-          return null
-        }
-
-        return (async () => {
-          try {
-            const response = await serverFetch(`/store/${repoId}/${key}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(value),
-            })
-            if (!response.ok) {
-              const errorMsg = `Store set failed: ${response.status} ${response.statusText} for repo=${repoId}, key=${key}`
-              console.error(`[Test Mock] ${errorMsg}`)
-              throw new Error(errorMsg)
-            }
-            rememberStoreWrite(key, value)
-            return null
-          } catch (error) {
-            console.error(`[Test Mock] Store set error for key ${key}:`, error)
-            throw error
-          }
-        })()
-      }
-
-      case "delete": {
-        const key = payload?.key
-        if (!key) {
-          console.error("[Test Mock] Store delete called without key")
-          return null
-        }
-
-        return (async () => {
-          try {
-            const response = await serverFetch(`/store/${repoId}/${key}`, {
-              method: "DELETE",
-            })
-            if (!response.ok) {
-              const errorMsg = `Store delete failed: ${response.status} ${response.statusText} for repo=${repoId}, key=${key}`
-              console.error(`[Test Mock] ${errorMsg}`)
-              throw new Error(errorMsg)
-            }
-            rememberStoreWrite(key, null)
-            return null
-          } catch (error) {
-            console.error(`[Test Mock] Store delete error for key ${key}:`, error)
-            throw error
-          }
-        })()
-      }
-
-      default:
-        throw new Error(`Unimplemented store action: ${action}`)
-    }
-  }
-
-  /**
    * Handle event plugin commands
    */
   // listeners registered with `listen`; a test fires them with `window.__e2eEmitTauriEvent` (`emitTauriEvent` in
@@ -429,6 +345,9 @@ export const tauriMockScript = () => {
   const eventListeners = new Map<number, { event: string; label: string | null; handler: (event: any) => void }>()
   let nextEventId = 1
   ;(window as any).__e2eEmitTauriEvent = (event: string, payload: unknown, label: string | null = null) => {
+    if (event === "settings_changed") {
+      rememberStoreChange(payload as { version: number; key: string; value: unknown })
+    }
     for (const [id, listener] of eventListeners) {
       if (listener.event === event && (label === null || listener.label === null || listener.label === label)) {
         listener.handler({ event, id, payload })
@@ -579,7 +498,6 @@ export const tauriMockScript = () => {
 
   const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
     // Plugin commands
-    "plugin:store": handleStoreCommand,
     "plugin:event": handleEventCommand,
     "plugin:window": handleWindowCommand,
     // the page zoom (`useZoom`), recorded in `__e2eWebviewZoom`; a test zooms the page as the webview does with a
@@ -611,7 +529,9 @@ export const tauriMockScript = () => {
         url: params.url,
         title: params.title,
         data: JSON.parse(params.data),
-        store: JSON.parse(params.storeCache),
+        // the backend builds a new window from its writer's copy of the settings, which this page's copy follows
+        store: structuredClone((window as any).__TAURI_STORE__ ?? {}),
+        storeVersion: (window as any).__TAURI_STORE_VERSION__ ?? 0,
       })
       return null
     },
@@ -655,6 +575,19 @@ export const tauriMockScript = () => {
       // Fallback to proxy if no progress channel
       return proxyToTestServer("sync_branches", payload)
     },
+
+    // a change of the settings: the test server's writer applies it, and the backend sends the change to every window
+    // (`settings_changed`), this page and the other pages of a linked sub-window; the origin is this page's window. The
+    // patches are recorded in `__e2eSettingsPatches`
+    set_setting: async (cmd: string, payload: any) => {
+      ;((window as any).__e2eSettingsPatches ??= []).push(payload?.params?.patch)
+      const change = await proxyToTestServer(cmd, { params: { patch: payload?.params?.patch, origin: windowLabel } })
+      ;(window as any).__e2eEmitTauriEvent("settings_changed", change)
+      void (window as any).__e2eRelay?.("settings_changed", change)
+      return change
+    },
+    // the changes after the snapshot the page started from, which its window gets
+    get_settings_changes: async (cmd: string, payload: any) => proxyToTestServer(cmd, { since: payload?.since ?? 0, origin: windowLabel }),
 
     // a write of Settings → Repository: the backend tells the main window what changed (`repository_config_changed`,
     // `set_repository_config` of src-tauri), here or in the main window's page of a linked sub-window

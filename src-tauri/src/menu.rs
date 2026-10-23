@@ -1,5 +1,6 @@
 use crate::operation::operation_now;
 use domain_types::error::ApiError;
+use domain_types::settings::AppSettings;
 use std::error::Error;
 use tauri::menu::{CheckMenuItemBuilder, MenuItemBuilder};
 use tauri::{
@@ -17,8 +18,8 @@ use tracing::instrument;
 /// accelerator table takes the keys.
 ///
 /// A menu event goes to the main window, named as the command it runs there (`AppCommand` of `src/lib/app-commands.ts`).
-#[instrument(skip(app, store_json))]
-pub fn configure_app_menu(app: &mut App, store_json: &str) -> Result<(), Box<dyn Error>> {
+#[instrument(skip(app, settings))]
+pub fn configure_app_menu(app: &mut App, settings: &AppSettings) -> Result<(), Box<dyn Error>> {
   #[cfg(not(target_os = "macos"))]
   if crate::title_bar::is_custom_title_bar() {
     return Ok(());
@@ -49,7 +50,7 @@ pub fn configure_app_menu(app: &mut App, store_json: &str) -> Result<(), Box<dyn
   let update_project = MenuItemBuilder::with_id(UPDATE_PROJECT, "Update Project").accelerator("CmdOrCtrl+T").build(app)?;
   // the main window keeps it checked as the setting is (`set_auto_sync_menu_checked`)
   let auto_sync_checkbox = CheckMenuItemBuilder::with_id(AUTO_SYNC_ON_FOCUS, "Auto-sync on Focus")
-    .checked(stored_auto_sync_on_focus(store_json))
+    .checked(settings.auto_sync_on_focus)
     .build(app)?;
 
   let file_menu_builder = SubmenuBuilder::new(app, "File")
@@ -167,15 +168,6 @@ const UPDATE_PROJECT: &str = "update_project";
 const INSTALL_AGENT_CLI: &str = "install_agent_cli";
 const CHECK_FOR_UPDATES: &str = "check_for_updates";
 const AUTO_SYNC_ON_FOCUS: &str = "auto_sync_on_focus";
-
-/// `appSettings.autoSyncOnFocus` of `settings.json` (on by default, so absent then), the content the main window gets
-/// as `window.__TAURI_STORE__`
-pub fn stored_auto_sync_on_focus(store_json: &str) -> bool {
-  serde_json::from_str::<serde_json::Value>(store_json)
-    .ok()
-    .and_then(|store| store.get("appSettings")?.get("autoSyncOnFocus")?.as_bool())
-    .unwrap_or(true)
-}
 
 /// Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
 /// for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on

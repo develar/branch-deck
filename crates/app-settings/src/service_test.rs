@@ -47,8 +47,8 @@ fn the_changes_are_saved_in_the_order_they_arrive_so_the_last_one_is_on_disk() {
   service.flush().unwrap();
 
   changes.sort_by_key(|change| change.version);
-  let versions: Vec<u64> = changes.iter().map(|change| change.version).collect();
-  assert_eq!(versions, (1..=200).collect::<Vec<u64>>(), "every patch gets the next version");
+  let versions: Vec<u32> = changes.iter().map(|change| change.version).collect();
+  assert_eq!(versions, (1..=200).collect::<Vec<u32>>(), "every patch gets the next version");
   let last = changes.last().unwrap();
   assert_eq!(read(&path)["appSettings"]["zoom"], last.value["zoom"]);
   assert_eq!(service.snapshot(), (200, json!({ "appSettings": last.value })));
@@ -349,4 +349,32 @@ fn a_field_patch_merges_into_the_key_and_a_null_field_is_removed() {
   let refused = service.set(fields("recentProjects", json!({ "items": [] })), "main");
   assert!(matches!(&refused, Err(SettingsError::NotAnObject { key }) if key == "recentProjects"), "{refused:?}");
   assert_eq!(service.snapshot().1["recentProjects"], json!([1, 2]));
+}
+
+#[test]
+fn a_field_patch_that_removes_the_last_field_removes_the_key() {
+  let service = SettingsService::open_with_debounce(tempfile::tempdir().unwrap().path().join("settings.json"), NEVER).unwrap();
+  service.set(fields("diffView", json!({ "mode": "unified" })), "main").unwrap();
+  let change = service.set(fields("diffView", json!({ "mode": null })), "review").unwrap();
+  assert_eq!(change.value, Value::Null);
+  assert_eq!(service.snapshot().1.get("diffView"), None);
+}
+
+#[test]
+fn the_snapshot_of_a_cut_file_is_a_json_object_of_the_defaults() {
+  let directory = tempfile::tempdir().unwrap();
+  let path = settings_path(&directory);
+  for cut in ["", r#"{"appSettings": {"globalUserBra"#, "[1, 2]"] {
+    std::fs::write(&path, cut).unwrap();
+    let service = SettingsService::open_with_debounce(path.clone(), NEVER).unwrap();
+    let (version, snapshot) = service.snapshot();
+    assert_eq!(version, 0);
+    // the text the init script of a window embeds parses back as the same object
+    let script_value: Value = serde_json::from_str(&snapshot.to_string()).unwrap();
+    assert_eq!(
+      script_value,
+      json!({ "appSettings": { "patronusNewApi": false, "autoSyncOnFocus": true, "systemTitleBar": false, "zoom": 1 } }),
+      "{cut:?}"
+    );
+  }
 }

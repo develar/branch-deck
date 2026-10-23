@@ -3,7 +3,7 @@ import { useDockStatus } from "@/hooks/useDockStatus"
 import { useRunProgress } from "@/hooks/useRunProgress"
 import { setDockProgress } from "@/lib/dock"
 import { progressPercent } from "@/lib/update-progress"
-import { isMainWindow } from "@/stores/settings/app-store"
+import { isMainWindow } from "@/lib/window-label"
 import type { RunningUpdate } from "@/stores/update-project"
 import { useShownUpdate } from "@/stores/update-project"
 

@@ -3,7 +3,6 @@ use crate::commands::window_management::{Reopen, SubWindowOpen, SubWindowState, 
 fn update(state: &SubWindowState, data: &str) -> SubWindowUpdate {
   SubWindowUpdate {
     data: data.to_string(),
-    store_cache: "{}".to_string(),
     open: state.next_open(0.0),
   }
 }

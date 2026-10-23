@@ -2,7 +2,7 @@ import { z } from "zod"
 import type { PatronusRobot } from "@/lib/bindings"
 import { isRobotActive } from "@/lib/patronus"
 import type { RobotSample } from "@/lib/robot-eta"
-import { isMainWindow } from "@/stores/settings/app-store"
+import { isMainWindow } from "@/lib/window-label"
 import { createPersistentStore } from "@/stores/settings/persistent-store"
 
 /*

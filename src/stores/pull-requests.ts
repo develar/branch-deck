@@ -9,9 +9,9 @@ import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import type { RefreshReason } from "@/lib/refresh-gate"
 import { createRefreshGates } from "@/lib/refresh-gate"
+import { stableStringify } from "@/lib/stable-stringify"
 import { formatReadinessSubject, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
-import { stableStringify } from "@/stores/settings/sync-utils"
 
 /** Calls closer together than this are skipped, except right after a push and on a manual refresh */
 export const MIN_REFRESH_GAP_MS = 60_000

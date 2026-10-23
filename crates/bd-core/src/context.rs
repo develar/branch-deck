@@ -27,7 +27,7 @@ use tracing::{debug, warn};
 use youtrack::service::EnvironmentToken;
 use youtrack::token_store::token_file;
 
-/// The tauri-plugin-store file of the app (`LazyStore("settings.json")` in `src/stores/settings/app-store.ts`), in the
+/// The settings file of the app (`app_settings::service::SettingsService`, opened by `src-tauri/src/settings.rs`), in the
 /// app data directory of the bundle identifier (`tauri.conf.json`)
 const APP_IDENTIFIER: &str = "org.develar.branch-deck";
 const SETTINGS_FILE_NAME: &str = "settings.json";

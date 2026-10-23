@@ -50,7 +50,8 @@ branch-integration = { path = "../crates/branch-integration", features = ["spect
 serde_json.workspace = true
 specta.workspace = true
 tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
-tauri-plugin-store = "2"
+# the one writer of settings.json (`settings.rs`)
+app-settings = { path = "../crates/app-settings" }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-log = "2"
@@ -103,7 +104,7 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsA
 
 [dev-dependencies]
 # the export of src/lib/bindings.ts, which only `bindings_test` runs
-specta-typescript = "0.0.13"
+specta-typescript.workspace = true
 tempfile = "3"
 test-utils = { path = "../crates/test-utils" }
 # the cases of the adapters' contract test (`api_error_contract_test.rs`)

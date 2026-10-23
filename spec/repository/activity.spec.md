@@ -42,7 +42,7 @@ targets:
   - ../../src/lib/review-requests.ts
   - ../../src/stores/update-project.ts
   - ../../src/stores/landed.ts
-  - ../../src/stores/settings/app-store.ts
+  - ../../src/stores/settings/persistent-store.ts
 ---
 
 # Activity

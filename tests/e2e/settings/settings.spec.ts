@@ -169,6 +169,7 @@ test.describe("Settings window", () => {
     await settingsTab(window, "Notifications").click()
     await reopenSettings(page, window, {}, 3)
     await expect(settingsTab(window, "Notifications")).toHaveAttribute("aria-selected", "true")
+    await expect.poll(async () => ((await testStore.get("appSettings")) as { settingsPage?: string } | null)?.settingsPage).toBe("notifications")
 
     // a new window starts at the page shown last
     await window.close()

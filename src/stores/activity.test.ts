@@ -20,11 +20,17 @@ import {
   undoActivity,
   UNDO_WINDOW_MS,
 } from "@/stores/activity"
-import type { StoreRegistration } from "@/stores/settings/sync-utils"
+import type { ArrayStoreState } from "@/stores/settings/persistent-store"
 import { testRemoteStatus } from "@/stores/test-branch"
 
-const { registrations, selection, stored } = vi.hoisted(() => ({
-  registrations: new Map<string, StoreRegistration>(),
+/** A persistent store as the test creates it: its options and its zustand store */
+interface CreatedStore {
+  options: { schema: { parse: (value: unknown) => unknown }; isArray: boolean; isMainOnly: boolean }
+  store: { getState: () => ArrayStoreState<unknown> }
+}
+
+const { created, selection, stored } = vi.hoisted(() => ({
+  created: new Map<string, CreatedStore>(),
   selection: { path: "/a" },
   // what an earlier session persisted: the store starts from it
   stored: {
@@ -35,11 +41,17 @@ const { registrations, selection, stored } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 vi.mock("@/components/ui/toast", () => ({ toast: { add: () => "toast", close: () => {} } }))
-vi.mock("@/stores/settings/app-store", () => ({
-  isMainWindow: true,
-  getRawStoreValue: (key: string) => stored[key],
-  registerStore: (registration: StoreRegistration) => registrations.set(registration.key, registration),
-}))
+// the store starts from what is stored, as a window starts from its snapshot
+vi.mock("@/stores/settings/persistent-store", async () => {
+  const { createStore } = await import("zustand/vanilla")
+  return {
+    createPersistentStore: (key: string, options: CreatedStore["options"]) => {
+      const store = createStore(() => ({ items: options.schema.parse(stored[key] ?? []) as unknown[] }))
+      created.set(key, { options, store })
+      return store
+    },
+  }
+})
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: selection.path }),
   useSelectedProject: () => ({ path: selection.path }),
@@ -75,11 +87,12 @@ const ROBOT: PatronusRobot = {
 describe("persistence", () => {
   it("starts from the stored log and parses what is stored or received", () => {
     // the stored entry of an earlier session, before the first record of this one
-    expect(registrations.get("activity")?.getValue()).toEqual([expect.objectContaining({ id: "old", title: "Pushed auth" })])
+    const activity = created.get("activity")!
+    expect(activity.store.getState().items).toEqual([expect.objectContaining({ id: "old", title: "Pushed auth" })])
 
-    const registration = registrations.get("activity")!
-    expect(registration.isArray).toBe(true)
-    expect(registration.isMainOnly).toBe(true)
+    expect(activity.options.isArray).toBe(true)
+    expect(activity.options.isMainOnly).toBe(true)
+    const registration = activity.options.schema
     expect(registration.parse(undefined)).toEqual([])
     const landed: ActivityEntry = {
       id: "1",

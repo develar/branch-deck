@@ -28,7 +28,6 @@ vi.mock("@/components/ui/toast", () => ({
     close: () => {},
   },
 }))
-vi.mock("@/stores/settings/app-store", () => ({ isMainWindow: true, getRawStoreValue: () => undefined, registerStore: () => {} }))
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: selection.path }),
   getSelectedRepositoryPath: () => selection.path,

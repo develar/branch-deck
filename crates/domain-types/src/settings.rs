@@ -213,9 +213,17 @@ impl ResolvedBranchPrefix {
 pub enum SettingsPatch {
   /// Set these fields of the object of `key` and keep its other fields, so that two windows that change two fields of
   /// one key at once keep both; a `null` field is removed (its default). A missing key starts as an empty object
-  Fields { key: String, fields: Map<String, Value> },
+  Fields {
+    key: String,
+    #[cfg_attr(feature = "specta", specta(type = std::collections::BTreeMap<String, specta_typescript::Unknown<Value>>))]
+    fields: Map<String, Value>,
+  },
   /// Replace the whole value of `key`; `null` removes the key
-  Value { key: String, value: Value },
+  Value {
+    key: String,
+    #[cfg_attr(feature = "specta", specta(type = specta_typescript::Unknown))]
+    value: Value,
+  },
 }
 
 impl SettingsPatch {
@@ -236,8 +244,9 @@ impl SettingsPatch {
 #[serde(rename_all = "camelCase")]
 pub struct SettingsChange {
   /// Grows by one with each applied patch; the snapshot of a window carries the version it was taken at
-  pub version: u64,
+  pub version: u32,
   pub key: String,
+  #[cfg_attr(feature = "specta", specta(type = specta_typescript::Unknown))]
   pub value: Value,
   pub origin: String,
 }
@@ -247,7 +256,7 @@ impl SettingsChange {
   /// this change: only a newer one; an older or the same version is a late echo of what it already has, and applying
   /// it would roll the key back
   #[must_use]
-  pub const fn is_newer_than(&self, applied: u64) -> bool {
+  pub const fn is_newer_than(&self, applied: u32) -> bool {
     self.version > applied
   }
 }

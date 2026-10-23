@@ -5,9 +5,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { logError } from "@/lib/errors"
 import { isMac } from "@/lib/platform"
+import { isMainWindow } from "@/lib/window-label"
 import { MIN_WINDOW, minSubWindowSize, minWindowWidth, nextZoom } from "@/lib/zoom"
 import type { ZoomAction } from "@/lib/zoom"
-import { isMainWindow } from "@/stores/settings/app-store"
 import { appSettingsStore, setZoom, useAppSettings } from "@/stores/settings/appSettings"
 
 function zoom(action: ZoomAction): void {

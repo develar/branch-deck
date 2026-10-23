@@ -6,9 +6,9 @@ import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test
 import { activityButton, activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
-import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
 import { holdCommand, waitForStorePersistence } from "../helpers/wait-helpers"
 
 // the `commit_tree` template: one commit of the `session` branch, five files in nested directories
@@ -90,37 +90,29 @@ async function openTreeReview(page: Page): Promise<Locator> {
   return showReviewWindow(page, await openedReview(page, 1))
 }
 
-/** The fields of the persisted `appSettings` that the window tests read */
-type AppSettings = { activityPanel?: boolean; reviewSidebar?: boolean; zoom?: number }
-
 /**
- * Opens the review of the pool size commit in a linked window, once the main window answered the window's request for
- * the settings (`store-snapshot-request`): what the main window changes from now on, the window has not heard of
+ * Opens the review of the pool size commit in a linked window, once its page listens to the writer of the settings
+ * (`settings_changed`): what the main window changes from now on reaches it as a change
  */
 async function openSettledReviewWindow(page: Page): Promise<Page> {
   const window = await openLinkedSubWindow(page, await reviewPoolSizeCommit(page))
-  await expect.poll(async () => (await getEmittedEvents(page, "store-snapshot")).length).toBe(1)
+  await waitForTauriListener(window, "settings_changed")
   await expect(window.getByTestId("review-sidebar-toggle")).toHaveAttribute("aria-pressed", "true")
   return window
 }
 
-/** The appSettings the window asked the main window to save last (`store-set-request`) */
-async function lastAppSettingsWrite(window: Page): Promise<{ value: AppSettings; fields?: string[] } | undefined> {
-  const writes = await getEmittedEvents<{ key: string; value: AppSettings; fields?: string[] }>(window, "store-set-request")
-  return writes.findLast(it => it.key === "appSettings")
+/** The patch of `appSettings` the window sent the writer last (`set_setting`, recorded by the Tauri mock) */
+async function lastAppSettingsPatch(window: Page): Promise<unknown> {
+  const patches = await window.evaluate(() => (globalThis as unknown as { __e2eSettingsPatches?: { key: string }[] }).__e2eSettingsPatches ?? [])
+  return patches.findLast(it => it.key === "appSettings")
 }
 
-/**
- * The appSettings the main window saved, once `matches` holds, and hands them to the review window as the main window
- * broadcasts them in the app (`store-snapshot-update`: the mock of the store plugin reports no change to broadcast)
- */
-async function broadcastSavedAppSettings(page: Page, window: Page, matches: (saved: AppSettings) => boolean): Promise<void> {
-  let saved: AppSettings = {}
-  await waitForStorePersistence(page, "appSettings", value => {
-    saved = (value ?? {}) as AppSettings
-    return matches(saved)
-  })
-  await emitTauriEvent(window, "store-snapshot-update", { key: "appSettings", value: saved })
+/** Hides the sidebar of the review window, whose patch of `appSettings` names that field alone */
+async function hideSidebarSendingOnlyIt(window: Page): Promise<void> {
+  const toggle = window.getByTestId("review-sidebar-toggle")
+  await toggle.click()
+  await expect(toggle).toHaveAttribute("aria-pressed", "false")
+  expect(await lastAppSettingsPatch(window)).toEqual({ kind: "fields", key: "appSettings", fields: { reviewSidebar: false } })
 }
 
 /** The zoom the page gave its webview, 1 if none */
@@ -390,50 +382,39 @@ simpleTest("should strike a deleted file through, never its status letter, in th
   await expectStruckName(window.locator("[data-testid=review-file-header][data-path='src/LegacyMapper.kt']"))
 })
 
-testWithIssueLinks("should keep the Activity panel the main window opened when a review window hides its sidebar right after", async ({ page }) => {
+testWithIssueLinks("should keep the Activity panel the main window opened when a review window hides its sidebar right after", async ({ page, testStore }) => {
   await page.setViewportSize({ width: 2000, height: 1000 })
   // a push, so that the main window has activity to show
   const pushed = findBranchRow(page, "ABC-123")
   await getPushButton(pushed).click()
   await expectNothingToPush(pushed)
   const window = await openSettledReviewWindow(page)
-  const toggle = window.getByTestId("review-sidebar-toggle")
 
-  // the main window opens its panel, and the review window hides its sidebar before it heard of the panel
+  // the main window opens its panel, and the review window hides its sidebar right after
   await activityButton(page).click()
   await expect(activityPanel(page)).toBeVisible()
-  await toggle.click()
-  await expect(toggle).toHaveAttribute("aria-pressed", "false")
-  // the race: the window's whole value still has the panel closed, only the field it changed keeps the panel open
-  expect(await lastAppSettingsWrite(window)).toMatchObject({ value: { activityPanel: false, reviewSidebar: false }, fields: ["reviewSidebar"] })
-  // the main window takes only the sidebar from the review window: its panel stays open, and both are saved
-  await waitForStorePersistence(page, "appSettings", settings => {
-    const saved = settings as { activityPanel?: boolean; reviewSidebar?: boolean } | undefined
-    return saved?.reviewSidebar === false && saved.activityPanel === true
-  })
+  // the window sends only the field it changed, so the writer keeps the panel of the main window
+  await hideSidebarSendingOnlyIt(window)
+  await expect.poll(() => testStore.get("appSettings")).toMatchObject({ reviewSidebar: false, activityPanel: true })
   await expect(activityPanel(page)).toBeVisible()
 })
 
-testWithIssueLinks("should follow Actual Size of the main window in a review window whose write the main window took on its zoom", async ({ page }) => {
+testWithIssueLinks("should follow Actual Size of the main window in a review window that changed another field in between", async ({ page }) => {
   const window = await openSettledReviewWindow(page)
   const toggle = window.getByTestId("review-sidebar-toggle")
 
-  // the main window zooms in, and the review window hides its sidebar before it heard of the zoom
+  // the main window zooms in, and the review window hides its sidebar
   await emitTauriEvent(page, "zoom", "in")
   await expect.poll(() => webviewZoom(page)).toBe(1.1)
-  await toggle.click()
-  await expect(toggle).toHaveAttribute("aria-pressed", "false")
-  expect(await lastAppSettingsWrite(window)).toMatchObject({ value: { reviewSidebar: false }, fields: ["reviewSidebar"] })
-  expect((await lastAppSettingsWrite(window))?.value.zoom).toBe(1)
-  // the main window saves the sidebar on its zoom, which reaches the review window
-  await broadcastSavedAppSettings(page, window, saved => saved.reviewSidebar === false && saved.zoom === 1.1)
+  await hideSidebarSendingOnlyIt(window)
+  // the writer's change of the zoom reaches the review window, and its own change keeps the zoom
   await expect.poll(() => webviewZoom(window)).toBe(1.1)
 
-  // Actual Size: the main window's value is now the one the review window wrote, which is no echo of that write
+  // Actual Size: the zoom goes back to its default, which reaches the review window too
   await emitTauriEvent(page, "zoom", "reset")
   await expect.poll(() => webviewZoom(page)).toBe(1)
-  await broadcastSavedAppSettings(page, window, saved => saved.reviewSidebar === false && saved.zoom === undefined)
   await expect.poll(() => webviewZoom(window)).toBe(1)
+  await expect(toggle).toHaveAttribute("aria-pressed", "false")
 })
 
 testWithIssueLinks("should switch the commit of a review with Alt and the arrows", async ({ page }) => {

@@ -58,7 +58,7 @@ type SaveErrorListener = Arc<dyn Fn(&SaveError) + Send + Sync>;
 /// The version of the last change of a key and who asked for it
 #[derive(Debug, Clone)]
 struct KeyChange {
-  version: u64,
+  version: u32,
   origin: String,
 }
 
@@ -66,7 +66,7 @@ struct KeyChange {
 struct State {
   file: SettingsFile,
   /// The version of the last applied patch; 0 for the file as it was loaded
-  version: u64,
+  version: u32,
   /// The last change of each key changed since the load, a removed key too
   changes: BTreeMap<String, KeyChange>,
   /// When the first change that no save has taken yet arrived
@@ -74,8 +74,8 @@ struct State {
   /// A flush waits for a save of every change before it
   flush_requested: bool,
   /// The version of the last save the writer finished, and of the last one that succeeded
-  attempted: u64,
-  saved: u64,
+  attempted: u32,
+  saved: u32,
   /// The error of the last save when it failed; a failure after a success starts a new streak
   last_error: Option<SaveError>,
   shutdown: bool,
@@ -188,7 +188,7 @@ impl SettingsService {
 
   /// The version of the settings and the value of every key, as a window starts with them
   #[must_use]
-  pub fn snapshot(&self) -> (u64, Value) {
+  pub fn snapshot(&self) -> (u32, Value) {
     let state = self.shared.lock();
     let mut values = state.file.other.clone();
     values.insert(APP_SETTINGS_KEY.to_owned(), app_value(&state.file.app));
@@ -198,7 +198,7 @@ impl SettingsService {
   /// The last change of each key changed after `version` (a snapshot's), in the order of their versions; a removed key
   /// comes with `null`
   #[must_use]
-  pub fn changes_since(&self, version: u64) -> Vec<SettingsChange> {
+  pub fn changes_since(&self, version: u32) -> Vec<SettingsChange> {
     let state = self.shared.lock();
     let mut changes: Vec<SettingsChange> = state
       .changes
@@ -334,7 +334,9 @@ fn apply_patch(file: &mut SettingsFile, patch: SettingsPatch) -> Result<Value, S
         Some(_) => return Err(SettingsError::NotAnObject { key }),
       };
       merge_fields(&mut object, fields);
-      (key, Value::Object(object))
+      // every field back at its default: the key goes, as the page stores only what differs (decision 5)
+      let value = if object.is_empty() { Value::Null } else { Value::Object(object) };
+      (key, value)
     }
     SettingsPatch::Value { key, value } => (key, value),
   };

@@ -1,5 +1,8 @@
 use crate::operation::operation_now;
+use app_api::api_error::api_error;
+use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
+use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsPatch};
 use serde::Serialize;
 use std::sync::OnceLock;
 use tauri::{Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
@@ -235,36 +238,26 @@ pub fn macos_double_click(action: Option<&str>) -> DoubleClick {
   }
 }
 
-/// `appSettings.systemTitleBar` of `settings.json`, the content the main window gets as `window.__TAURI_STORE__`
-pub fn stored_system_title_bar(store_json: &str) -> bool {
-  serde_json::from_str::<serde_json::Value>(store_json)
-    .ok()
-    .and_then(|store| store.get("appSettings")?.get("systemTitleBar")?.as_bool())
-    .unwrap_or(false)
-}
-
 /// Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
-/// (`init_title_bar`). The value is written to `settings.json` here, before the restart: the page saves its settings
-/// debounced, and the new process reads the file (`stored_system_title_bar`).
+/// (`init_title_bar`). The value goes through the writer of the settings, which saves it now, before the restart: the
+/// new process reads the file.
 #[tauri::command]
-#[instrument(skip(app_handle))]
+#[instrument(skip(app_handle, webview, service))]
 #[specta::specta]
-#[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle of a command by value")]
-pub fn restart_app(app_handle: tauri::AppHandle, system_title_bar: bool) -> Result<(), ApiError> {
+#[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle, the webview and the state of a command by value")]
+pub fn restart_app(app_handle: tauri::AppHandle, webview: tauri::Webview, service: tauri::State<'_, SettingsService>, system_title_bar: bool) -> Result<(), ApiError> {
   operation_now(|| {
-    use tauri_plugin_store::StoreExt;
-    let store = app_handle.store("settings.json").map_err(|e| ApiError::internal(e.to_string()))?;
-    let mut app_settings = store.get("appSettings").filter(serde_json::Value::is_object).unwrap_or_else(|| serde_json::json!({}));
-    if let Some(settings) = app_settings.as_object_mut() {
-      // the page saves a setting only when it is not the default
-      if system_title_bar {
-        settings.insert("systemTitleBar".to_owned(), serde_json::Value::Bool(true));
-      } else {
-        settings.remove("systemTitleBar");
-      }
-    }
-    store.set("appSettings", app_settings);
-    store.save().map_err(|e| ApiError::internal(e.to_string()))?;
+    let mut fields = serde_json::Map::new();
+    fields.insert("systemTitleBar".to_owned(), serde_json::Value::Bool(system_title_bar));
+    let patch = SettingsPatch::Fields {
+      key: APP_SETTINGS_KEY.to_owned(),
+      fields,
+    };
+    let change = service
+      .set(patch, webview.label())
+      .map_err(|e| api_error(anyhow::Error::new(e).context("Cannot change the settings")))?;
+    crate::settings::emit_change(&app_handle, &change);
+    service.flush().map_err(|e| api_error(anyhow::Error::new(e).context("Cannot save the settings")))?;
     app_handle.restart();
   })
 }
@@ -273,11 +266,11 @@ static TITLE_BAR: OnceLock<TitleBar> = OnceLock::new();
 
 /// Decides the title bar of the process, once, in `setup`: on the main thread, where GTK can be read, before the menu
 /// and the first window
-pub fn init_title_bar(store_json: &str) -> &'static TitleBar {
+pub fn init_title_bar(settings: &AppSettings) -> &'static TitleBar {
   TITLE_BAR.get_or_init(|| {
     let environment = TitleBarEnvironment {
       native_env: std::env::var("BRANCH_DECK_NATIVE_TITLE_BAR").is_ok_and(|it| it == "1"),
-      system_title_bar_setting: stored_system_title_bar(store_json),
+      system_title_bar_setting: settings.system_title_bar,
       wsl: std::env::var_os("WSL_DISTRO_NAME").is_some() || std::env::var_os("WSL_INTEROP").is_some(),
       current_desktop: std::env::var("XDG_CURRENT_DESKTOP").ok(),
     };

@@ -23,7 +23,7 @@ const AppSettingsSchema = z.object({
   reviewBadge: z.boolean().default(true),
   attentionBadge: z.boolean().default(true),
   // Settings → Appearance → Title bar (Windows, Linux): the system title bar and menu bar instead of the page's, read by the backend at
-  // startup (`stored_system_title_bar` in src-tauri/src/title_bar.rs)
+  // startup (`init_title_bar` in src-tauri/src/title_bar.rs)
   systemTitleBar: z.boolean().default(false),
   // "Assign to me" of the "Create pull request" dialog, as the user left it last
   createPullRequestAssignSelf: z.boolean().default(true),

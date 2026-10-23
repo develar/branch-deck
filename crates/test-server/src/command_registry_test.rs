@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 121;
+const COMMAND_COUNT: usize = 123;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -97,6 +97,7 @@ const MUTATING: &[&str] = &[
   // the app
   "set_repository_config",
   "set_auto_sync_menu_checked",
+  "set_setting",
   "install_agent_cli",
   // the CLIs of Settings → Tools, on the fakes of the repository
   "run_cli_tool_action",
@@ -160,7 +161,7 @@ fn server_routes() -> Vec<String> {
     .collect()
 }
 
-/// The top-level keys of `COMMAND_HANDLERS` in the page mock, plugin prefixes (`plugin:store`) included
+/// The top-level keys of `COMMAND_HANDLERS` in the page mock, plugin prefixes (`plugin:event`) included
 fn page_handlers() -> Vec<String> {
   page_handlers_of(&read_workspace_file("tests/e2e/setup/tauri-mocks.ts"))
 }
@@ -272,8 +273,8 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
   let page_mocked = names_of(PAGE_MOCKED);
   let handlers = page_handlers();
   assert!(
-    handlers.iter().any(|key| key == "plugin:store"),
-    "the parse of COMMAND_HANDLERS found no `plugin:store`: {handlers:?}"
+    handlers.iter().any(|key| key == "plugin:event"),
+    "the parse of COMMAND_HANDLERS found no `plugin:event`: {handlers:?}"
   );
   let mut wrappers = Vec::new();
   for key in handlers.iter().filter(|key| !key.starts_with("plugin:")) {
@@ -298,8 +299,10 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
       "cancel_lock_wait",
       "get_file_diffs",
       "get_file_merges",
+      "get_settings_changes",
       "save_youtrack_token",
       "set_repository_config",
+      "set_setting",
       "sign_out_of_github",
       "sign_out_of_youtrack",
       "sync_branches",
@@ -324,18 +327,18 @@ fn the_page_handler_parser_reads_every_entry_form_it_knows_and_refuses_another()
   let known = r#"
   const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
     // a comment between the entries
-    "plugin:store": handleStoreCommand,
+    "plugin:event": handleEventCommand,
     "plugin:webview": (cmd: string, payload: any) => {
       return null
     },
     get_zoom: () => 1,
   }
 "#;
-  assert_eq!(page_handlers_of(known), ["plugin:store", "plugin:webview", "get_zoom"]);
+  assert_eq!(page_handlers_of(known), ["plugin:event", "plugin:webview", "get_zoom"]);
 
   let shorthand = r#"
   const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
-    "plugin:store": handleStoreCommand,
+    "plugin:event": handleEventCommand,
     start_patronus_robot(_cmd, payload) {
       return robot
     },
