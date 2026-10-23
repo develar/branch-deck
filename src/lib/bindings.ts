@@ -445,7 +445,10 @@ export const commands = {
 	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, CommandError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
 	/**  The skill files of `bd install` that exist, without writing anything */
 	agentCliStatus: () => __TAURI_INVOKE<AgentCliStatus>("agent_cli_status"),
-	/**  The status of every tool, each read in its own threads */
+	/**
+	 *  The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window
+	 *  reads the Setup dot again
+	 */
 	cliToolsStatus: () => typedError<CliToolStatus[], CommandError>(__TAURI_INVOKE("cli_tools_status")),
 	/**
 	 *  Runs `action` of `tool` (install, update, the skill), each line of its output to `progress`; a second action of the
@@ -454,6 +457,11 @@ export const commands = {
 	runCliToolAction: (tool: CliTool, action: CliToolAction, latest: string | null, progress: Channel<CliToolProgress>) => typedError<CliToolActionDone, CommandError>(__TAURI_INVOKE("run_cli_tool_action", { tool, action, latest, progress })),
 	/**  Ends the action of `tool` that runs, with its whole process group */
 	cancelCliToolAction: (tool: CliTool) => __TAURI_INVOKE<void>("cancel_cli_tool_action", { tool }),
+	/**
+	 *  What waits for the user (the Setup dot): the downloaded update of the app, the tools' updates and expiring sign-ins
+	 *  from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides
+	 */
+	getSetupItems: (skips: SetupSkip[]) => typedError<SetupEntry[], CommandError>(__TAURI_INVOKE("get_setup_items", { skips })),
 };
 
 /* Types */
@@ -3428,6 +3436,34 @@ export type SetRepositoryConfigParams = {
 	change: RepositoryConfigChange,
 	/**  The local config when omitted */
 	scope?: WriteScope,
+};
+
+/**  The items, each with its key and whether it can be skipped, for the page */
+export type SetupEntry = {
+	key: string,
+	item: SetupItem,
+	skippable: boolean,
+};
+
+/**  One thing to do, with what its action needs */
+export type SetupItem = 
+/**  The update of Branch Deck is downloaded: Install and Restart */
+{ kind: "appUpdate"; version: string } | 
+/**  A newer release of a CLI than the installed one */
+{ kind: "toolUpdate"; tool: CliTool; version: string } | 
+/**  The agents have an older skill of the CLI than it bundles */
+{ kind: "skillUpdate"; tool: CliTool; version: string } | 
+/**  The token of a CLI for a server expires within a week */
+{ kind: "signInExpiring"; tool: CliTool; server: string; expiresAt: number } | 
+/**  The token of a CLI for a server expired; it can't be skipped */
+{ kind: "signInExpired"; tool: CliTool; server: string } | 
+/**  The app's own YouTrack sign-in stopped working; it can't be skipped */
+{ kind: "youTrackSignIn" };
+
+/**  A skipped item: hidden until `until` (Unix seconds) or for good (an update: until another version) */
+export type SetupSkip = {
+	key: string,
+	until: number | null,
 };
 
 export type Share = {

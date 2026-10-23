@@ -22,7 +22,7 @@ targets:
 
 # Command-Line Tools
 
-Status: In progress
+Status: Implemented
 Date: 2026-10-23
 
 ## Summary
@@ -130,6 +130,6 @@ to, the skill of the agents (`teamcity`), and the one thing it needs next, which
 
 ## Open Questions / Risks
 
-- The newest release is known only to the fixture of the test server for now; the app learns it from the releases on
-  GitHub in the Setup indicator's change.
+- The newest release comes from GitHub once a day ([Setup Dot](setup-attention.spec.md#items)); a tap that lags
+  behind it makes an update say so instead of looping.
 - Windows: no package manager runs yet; the row shows the command.

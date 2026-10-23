@@ -50,7 +50,7 @@ function CliToolRow({ status, homeDir }: { status: CliToolStatus; homeDir: strin
         <span className="flex-1" />
         {running === undefined ? (
           label !== null && (
-            <Button size="xs" variant="outline" onClick={() => void runCliToolAction(status)}>
+            <Button size="xs" variant="outline" onClick={() => status.action !== null && void runCliToolAction(status.tool, status.action, status.latest)}>
               <DownloadIcon data-icon="inline-start" />
               {label}
             </Button>

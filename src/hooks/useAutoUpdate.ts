@@ -5,6 +5,7 @@ import { useAppCommand } from "@/hooks/useAppCommand"
 import { commands } from "@/lib/bindings"
 import type { UpdateInfo } from "@/lib/bindings"
 import { logError, notifyError } from "@/lib/errors"
+import { refreshSetup } from "@/stores/setup"
 
 const UPDATE_AVAILABLE_TOAST_ID = "update-available"
 // wait a bit after app startup to avoid interfering with the initial load
@@ -16,7 +17,7 @@ let isStartupCheckScheduled = false
 /**
  * Checks for updates and reports the result with toasts.
  * An available update is already downloaded by the check command, so the toast offers to install it right away.
- * Without `showNoUpdateToast` (silent startup check), only an available update is reported; a failure is only logged.
+ * Without `showNoUpdateToast` (silent startup check), an available update goes to the Setup dot; a failure is only logged.
  */
 export async function checkForUpdates(showNoUpdateToast = false): Promise<void> {
   let failure: unknown
@@ -24,7 +25,12 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
     const result = await commands.checkForUpdates()
     if (result.status === "ok") {
       if (result.data.is_update_available) {
-        showUpdateAvailableToast(result.data)
+        // asked: a toast; at startup the Setup dot keeps it, as nobody asked (spec/repository/setup-attention.spec.md)
+        if (showNoUpdateToast) {
+          showUpdateAvailableToast(result.data)
+        } else {
+          void refreshSetup()
+        }
       } else if (showNoUpdateToast) {
         toast.add({
           type: "success",
@@ -65,7 +71,8 @@ function showUpdateAvailableToast(updateInfo: UpdateInfo): void {
   })
 }
 
-async function installUpdateNow(): Promise<void> {
+/** Installs the downloaded update; the app restarts on success, a failure is a toast */
+export async function installUpdateNow(): Promise<void> {
   let failure: unknown = null
   try {
     // the app restarts on success

@@ -36,7 +36,7 @@ pub async fn set_update(
   Ok(StatusCode::OK)
 }
 
-fn available_update(repository: &TestRepository) -> Option<String> {
+pub fn available_update(repository: &TestRepository) -> Option<String> {
   repository.available_update.read().expect("update fixture lock").clone()
 }
 

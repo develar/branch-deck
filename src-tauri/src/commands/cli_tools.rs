@@ -1,24 +1,64 @@
 //! Settings → Tools: the `teamcity` and `youtrack` CLIs, their status and the action of each row
-//! (spec/repository/cli-tools.spec.md). The cores are `cli_tools`; this is their adapter.
+//! (spec/repository/cli-tools.spec.md), and the Setup dot of what waits for the user
+//! (spec/repository/setup-attention.spec.md). The cores are `cli_tools` and `remote_facts::cli_tool_releases`; this is
+//! their adapter.
 
+use crate::auto_update::SharedUpdateState;
 use crate::command_error::CommandError;
+use crate::commands::github::GitHubState;
 use crate::commands::patronus::PatronusState;
+use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use cli_tools::environment::ToolEnvironment;
 use cli_tools::install::run_action;
+use cli_tools::setup::{SetupFacts, setup_entries};
 use cli_tools::status::{KnownFacts, read_statuses};
 use domain_types::cli_tools::{CliTool, CliToolAction, CliToolStatus};
+use domain_types::setup::{SetupEntry, SetupSkip};
+use domain_types::update::UpdateStatus;
+use remote_facts::cli_tool_releases::{refresh_releases, releases_file};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::State;
+use sync_utils::timestamp::unix_now;
 use tauri::ipc::Channel;
+use tauri::{AppHandle, Emitter, State};
 use tracing::{instrument, warn};
 
-/// The actions running now, by tool: a cancel sets its flag
-#[derive(Default)]
+/// Every window reads the items of the Setup dot again: the statuses of the tools changed
+pub const SETUP_CHANGED_EVENT: &str = "setup-changed";
+
 pub struct CliToolsState {
+  /// The actions running now, by tool: a cancel sets its flag
   running: Mutex<HashMap<CliTool, Arc<AtomicBool>>>,
+  /// The last statuses read, which the Setup dot takes without running the CLIs again
+  statuses: Mutex<Option<Vec<CliToolStatus>>>,
+  /// The newest releases, asked of GitHub at most once a day (no lock: two reads at once ask twice at worst)
+  releases_file: Option<PathBuf>,
+}
+
+impl CliToolsState {
+  pub fn new(app_data_dir: Option<&Path>) -> Self {
+    Self {
+      running: Mutex::default(),
+      statuses: Mutex::default(),
+      releases_file: app_data_dir.map(releases_file),
+    }
+  }
+
+  /// The statuses of every tool with the newest releases, kept for the Setup dot
+  async fn read(&self, github: &GitHubState) -> Result<Vec<CliToolStatus>, CommandError> {
+    let releases = refresh_releases(&github.service, self.releases_file.as_deref(), unix_now()).await;
+    let statuses = run_blocking(move || {
+      Ok::<_, CommandError>(read_statuses(&ToolEnvironment::from_process(), &|tool| KnownFacts {
+        latest: releases.latest(tool).map(str::to_string),
+      }))
+    })
+    .await?;
+    *self.statuses.lock().expect("the statuses") = Some(statuses.clone());
+    Ok(statuses)
+  }
 }
 
 /// A line of the output of a running action
@@ -33,12 +73,54 @@ pub struct CliToolActionDone {
   pub title: String,
 }
 
-/// The status of every tool, each read in its own threads
+/// The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window
+/// reads the Setup dot again
 #[tauri::command]
 #[specta::specta]
-#[instrument]
-pub async fn cli_tools_status() -> Result<Vec<CliToolStatus>, CommandError> {
-  run_blocking(|| Ok::<_, CommandError>(read_statuses(&ToolEnvironment::from_process(), &|_| KnownFacts::default()))).await
+#[instrument(skip_all)]
+pub async fn cli_tools_status(app: AppHandle, state: State<'_, CliToolsState>, github: State<'_, GitHubState>) -> Result<Vec<CliToolStatus>, CommandError> {
+  operation(async {
+    let statuses = state.read(&github).await?;
+    if let Err(e) = app.emit(SETUP_CHANGED_EVENT, ()) {
+      warn!(error = %e, "can't tell the windows that the setup changed");
+    }
+    Ok(statuses)
+  })
+  .await
+}
+
+/// What waits for the user (the Setup dot): the downloaded update of the app, the tools' updates and expiring sign-ins
+/// from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides
+#[tauri::command]
+#[specta::specta]
+#[instrument(skip_all, fields(skips = skips.len()))]
+pub async fn get_setup_items(
+  state: State<'_, CliToolsState>,
+  github: State<'_, GitHubState>,
+  update_state: State<'_, SharedUpdateState>,
+  youtrack: State<'_, YouTrackState>,
+  skips: Vec<SetupSkip>,
+) -> Result<Vec<SetupEntry>, CommandError> {
+  operation(async {
+    let cached = state.statuses.lock().expect("the statuses").clone();
+    let statuses = match cached {
+      Some(statuses) => statuses,
+      None => state.read(&github).await?,
+    };
+    let app_update = {
+      let update = update_state.lock().map_err(|e| CommandError::new(format!("the update state is poisoned: {e}")))?;
+      (update.info.is_update_available && update.info.status == UpdateStatus::Downloaded).then(|| update.info.available_version.clone())
+    };
+    let youtrack_broken = youtrack.service.status().await.problem.is_some();
+    Ok(setup_entries(&SetupFacts {
+      app_update: app_update.as_deref(),
+      tools: &statuses,
+      youtrack_broken,
+      skips: &skips,
+      now: unix_now(),
+    }))
+  })
+  .await
 }
 
 /// Runs `action` of `tool` (install, update, the skill), each line of its output to `progress`; a second action of the

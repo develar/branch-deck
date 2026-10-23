@@ -13,6 +13,7 @@
 //! - `pull_request_writes`: the base of a stacked pull request, reviews, reviewers and the closing of landed ones
 //! - `review_requests`: the pull requests of others that wait for the user's review
 //! - `branch_rules`: the rules GitHub applies to pull requests into a branch
+//! - `cli_tool_releases`: the newest release of the CLIs of Settings → Tools, once a day
 //!
 //! Patronus:
 //! - `patronus_command`: the `/patronus` comment of a pull request
@@ -22,6 +23,7 @@
 //! - `robot_stats_aggregate`: what the statistics count of them, pure (moves to `domain-policy` in s8)
 
 pub mod branch_rules;
+pub mod cli_tool_releases;
 pub mod patronus_command;
 pub mod patronus_review;
 pub mod pull_request_create;
@@ -36,6 +38,8 @@ pub mod stack_pull_request;
 
 #[cfg(test)]
 mod branch_rules_test;
+#[cfg(test)]
+mod cli_tool_releases_test;
 #[cfg(test)]
 mod patronus_command_test;
 #[cfg(test)]

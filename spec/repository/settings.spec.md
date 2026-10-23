@@ -121,7 +121,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open at the page an open names, else at the page shown last, its tab focused`)
 - The last control of the toolbar, after Sync, in every state (no repository, an invalid path): the `ghost` `icon-sm`
   Settings button, "Settings" and ⌘, (Ctrl+,) in its tooltip. It replaces the popover of Sync, whose one switch,
-  Auto-sync on Focus, is on General.
+  Auto-sync on Focus, is on General. While something of the setup waits for the user, the button has a dot and lists
+  it first ([Setup Dot](setup-attention.spec.md)).
   [@test] ../../tests/e2e/repository/header.spec.ts (`should open Settings from the button after Sync, its tooltip naming the key`, `should offer Settings before a repository is chosen`)
 - ☰ File → Settings… and Ctrl+, where the page draws the title bar (Windows, Linux); Ctrl+, of a sub-window asks the
   main window.

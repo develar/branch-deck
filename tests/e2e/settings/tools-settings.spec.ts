@@ -1,8 +1,8 @@
 // @spec spec/repository/cli-tools.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
+import { teamcityBehindOnHomebrew } from "../helpers/cli-tools-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
-
-const SIGNED_IN_TEAMCITY = JSON.stringify([{ server: "https://ci.example", status: "authenticated", user: { username: "jane" }, token_expiry: "2026-11-21T16:58:19Z" }])
+import { emitTauriEvent } from "../helpers/sync-helpers"
 
 test.describe("Settings → Tools", () => {
   test("should install a missing CLI through Homebrew, then show its version and how to sign it in", async ({ page, setupRepo }) => {
@@ -34,12 +34,7 @@ test.describe("Settings → Tools", () => {
 
   test("should update a CLI to its newest release, then the skill of the agents", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
-    await repo.setCliTools({
-      brew: true,
-      installed: [{ tool: "teamcity", version: "1.6.0" }],
-      latest: { teamcity: "1.7.0" },
-      files: { "teamcity.auth": SIGNED_IN_TEAMCITY, "teamcity.skill": "1.4.0" },
-    })
+    await repo.setCliTools(teamcityBehindOnHomebrew({ "teamcity.skill": "1.4.0" }))
     const window = await openSettingsWindow(page, { page: "tools" })
     const row = window.getByTestId("cli-tool-teamcity")
     await expect(row.getByTestId("cli-tool-server")).toHaveText("ci.example · jane · expires Nov 21")
@@ -87,5 +82,22 @@ test.describe("Settings → Tools", () => {
     const window = await openSettingsWindow(page, { page: "agents" })
     await window.getByTestId("agent-tools").getByRole("button", { name: "Open Tools" }).click()
     await expectSettingsOpened(page, { page: "tools" }, 2)
+  })
+
+  test("should mark Tools in the sidebar while a CLI waits for you, until it is done", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    await repo.setCliTools({
+      brew: true,
+      installed: [{ tool: "youtrack", version: "0.6.0" }],
+      latest: { youtrack: "0.7.0" },
+      files: { "youtrack.auth": JSON.stringify({ url: "https://yt.example", login: "jane", status: "authenticated" }) },
+    })
+    const window = await openSettingsWindow(page, { page: "tools" })
+    const tab = window.getByTestId("settings-tab-tools")
+    await expect(tab.getByTestId("setup-dot")).toBeVisible()
+    await window.getByTestId("cli-tool-youtrack").getByRole("button", { name: "Update to 0.7.0" }).click()
+    await expect(window.locator("[data-slot=toast]", { hasText: "Updated youtrack to 0.7.0" })).toBeVisible()
+    await emitTauriEvent(window, "setup-changed")
+    await expect(tab.getByTestId("setup-dot")).toHaveCount(0)
   })
 })

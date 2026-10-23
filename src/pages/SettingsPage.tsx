@@ -24,6 +24,7 @@ import { resolveSettingsPage } from "@/lib/settings-window"
 import type { SettingsTarget } from "@/lib/settings-window"
 import { useSelectedProjectPath } from "@/stores/repository"
 import { appSettingsStore, setSettingsPage } from "@/stores/settings/appSettings"
+import { useSetupEntries, useSetupTracking } from "@/stores/setup"
 
 const PAGE_LABELS: Record<SettingsPageId, string> = {
   general: "General",
@@ -79,6 +80,8 @@ export function SettingsPage() {
     }
   })
   useEffect(() => focusOpened(), [openCount])
+  useSetupTracking({ readTools: false })
+  const toolsNeedYou = useSetupEntries().some(entry => "tool" in entry.item)
 
   return (
     <WindowPage
@@ -102,6 +105,7 @@ export function SettingsPage() {
             ) : (
               <TabsTrigger key={id} value={id} data-testid={`settings-tab-${id}`}>
                 {PAGE_LABELS[id]}
+                {id === "tools" && toolsNeedYou && <span className="size-1.5 rounded-full bg-primary" data-testid="setup-dot" aria-hidden />}
               </TabsTrigger>
             ),
           )}

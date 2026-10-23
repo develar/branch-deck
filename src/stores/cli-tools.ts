@@ -54,10 +54,12 @@ function setRunning(tool: CliTool, running: RunningCliToolAction | undefined): v
   cliToolsStore.setState(state => ({ running: { ...state.running, [tool]: running } }))
 }
 
-/** Runs the action of a row, its lines shown under it; then the toast of what it did and the status again */
-export async function runCliToolAction(status: CliToolStatus): Promise<void> {
-  const { tool, action } = status
-  if (action === null || cliToolsStore.getState().running[tool] !== undefined) {
+/**
+ * Runs `action` of `tool`, its lines shown under its row; then the toast of what it did and the status again, which
+ * tells every window's Setup dot (`setup-changed`). `latest` names the release an update wants
+ */
+export async function runCliToolAction(tool: CliTool, action: CliToolAction, latest: string | null): Promise<void> {
+  if (cliToolsStore.getState().running[tool] !== undefined) {
     return
   }
   setRunning(tool, { action, line: "" })
@@ -68,7 +70,7 @@ export async function runCliToolAction(status: CliToolStatus): Promise<void> {
     }
   }
   try {
-    const result = await commands.runCliToolAction(tool, action, status.latest, progress)
+    const result = await commands.runCliToolAction(tool, action, latest, progress)
     if (result.status === "ok") {
       showToast({ title: result.data.title })
     } else if (result.error.message !== "canceled") {

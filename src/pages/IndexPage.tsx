@@ -31,6 +31,7 @@ import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
 import { getSelectedProject, initRepository } from "@/stores/repository"
 import { appSettingsStore } from "@/stores/settings/appSettings"
+import { useSetupTracking } from "@/stores/setup"
 
 /**
  * Window focus handler: with "Auto-sync on Focus" (on by default) and a project selected, syncs when what a sync reads
@@ -134,6 +135,8 @@ export function IndexPage() {
   useAutoUpdate()
   // the "Install Agent CLI…" menu item
   useInstallAgentCli()
+  // the Setup dot: the main window also reads the CLIs now and then
+  useSetupTracking({ readTools: true })
   // the review window of a branch: the tips a sync built, what it can do with its branches, and what it asks for
   useBranchReviewLink()
   // the review window of a pull request: the state of its requests, and the writes it asks for

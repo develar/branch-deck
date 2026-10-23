@@ -67,7 +67,8 @@ export function describeCliToolVersion(status: CliToolStatus): string {
   return status.action === "update" && status.latest !== null ? `${version} · ${status.latest} is out` : version
 }
 
-function hostOf(url: string): string {
+/** The host of a server URL, the URL itself when it is none */
+export function hostOf(url: string): string {
   try {
     return new URL(url).host
   } catch {

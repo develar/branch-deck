@@ -1,6 +1,4 @@
 import { lazy, Suspense, useState } from "react"
-import { SettingsIcon } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
@@ -11,15 +9,13 @@ import { MainViewSwitcher } from "@/components/repository/MainViewSwitcher"
 import { PatronusStatusLine } from "@/components/repository/PatronusStatusLine"
 import { PullRequestStatusLine } from "@/components/repository/PullRequestStatusLine"
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
+import { SettingsButton } from "@/components/repository/SettingsButton"
 import { SyncButton } from "@/components/repository/SyncButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
 import { RelativeTime } from "@/components/shared/RelativeTime"
-import { ShortcutHint } from "@/components/shared/ShortcutHint"
 import { WindowTitleBar } from "@/components/shared/WindowTitleBar"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useHasFilterBar } from "@/hooks/useBranchFilter"
-import { isMac } from "@/lib/platform"
-import { openSettings } from "@/lib/settings-window"
 import { hasCustomTitleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
@@ -90,14 +86,7 @@ export function ConfigurationHeader() {
             )}
             {/* a failed sync shows as the red Sync with the error in its tooltip, next to the page alert */}
             <SyncButton />
-            <Tooltip>
-              <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Settings" data-testid="settings-button" onClick={() => openSettings()} />}>
-                <SettingsIcon />
-              </TooltipTrigger>
-              <TooltipContent>
-                <ShortcutHint kbd={isMac ? "⌘," : "Ctrl+,"}>Settings</ShortcutHint>
-              </TooltipContent>
-            </Tooltip>
+            <SettingsButton />
           </>
         }
       >

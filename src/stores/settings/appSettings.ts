@@ -36,6 +36,8 @@ const AppSettingsSchema = z.object({
   patronusNewApi: z.boolean().default(false),
   // the period of the Safe Push statistics (`StatsPeriod`), as the user chose it last in the Landing view
   statsPeriod: z.enum(STATS_PERIODS).catch("30d"),
+  // the items of the Setup dot the user skipped: an update until another version, a reminder until its time (Unix s)
+  setupSkips: z.array(z.object({ key: z.string(), until: z.number().nullable() })).catch([]),
 })
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>
@@ -93,4 +95,11 @@ export function setSettingsPage(settingsPage: SettingsPageId): void {
   if (appSettingsStore.getState().settingsPage !== settingsPage) {
     appSettingsStore.setState({ settingsPage })
   }
+}
+
+/** Hides an item of the Setup dot (`SetupEntry.key`): for good (another version is another key) or until `until` */
+export function skipSetupItem(key: string, until: number | null): void {
+  const now = Date.now() / 1000
+  const kept = appSettingsStore.getState().setupSkips.filter(skip => skip.key !== key && (skip.until === null || skip.until > now))
+  appSettingsStore.setState({ setupSkips: [...kept, { key, until }] })
 }
