@@ -5,12 +5,17 @@ use quick_xml::Reader;
 use quick_xml::XmlVersion;
 use quick_xml::events::Event;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
+
+/// `.idea/vcs.xml` of the repository, where IntelliJ IDEA keeps the issue navigation links
+pub fn issue_navigation_config_path(repository_path: &str) -> PathBuf {
+  Path::new(repository_path).join(".idea").join("vcs.xml")
+}
 
 /// Load issue navigation configuration from .idea/vcs.xml if it exists
 pub fn load_issue_navigation_config(repository_path: &str) -> Option<IssueNavigationConfig> {
-  let vcs_xml_path = Path::new(repository_path).join(".idea").join("vcs.xml");
+  let vcs_xml_path = issue_navigation_config_path(repository_path);
 
   if !vcs_xml_path.exists() {
     debug!(path = ?vcs_xml_path, "No .idea/vcs.xml found");

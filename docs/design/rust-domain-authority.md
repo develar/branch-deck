@@ -822,7 +822,9 @@ repository». Аудит всех функций в тот же день наш�
   поиском в фоне, до него слот «Starting…» (слот своего репозитория, переживает переключение) и повтор того же PR
   и mode присоединяется (`lateCommentStarts`, в реестре `pending_start` s9); минута ответа бота — от комментария, не от
   проверок перед ним; сверка по tip и `comment_id` остаётся s10; `CancelCheck::AlreadyFinished` для `replaced`.
-- **Sync:** точные oids, notes без отказа, отпечаток всех remote refs префикса, кэш issue config по stamp.
+- **Sync:** точные oids, notes без отказа, отпечаток всех remote refs префикса, кэш issue config по stamp. Сделано
+  (`fix/settings-config`): кэш issue config по stamp `.idea/vcs.xml`, того же, что хэширует отпечаток
+  (`issue_config_follows_a_rewrite_of_vcs_xml`).
 - **Факты и сервисы:** `/problems` после ответа; single-flight токена GitHub и refresh YouTrack; scope `read:org`;
   записи `.git/config`. Single-flight токена GitHub сделан (`fix/remote-perf`): источник-процесс один раз на всех
   спрашивающих, ответ (и отсутствие токена) хранится `SOURCE_TTL` 30 с, состояние цепочки — короткий `std` mutex

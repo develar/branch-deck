@@ -46,6 +46,28 @@ fn issue_config_is_loaded_from_vcs_xml() {
   assert!(cache.issue_config(without_config.path().to_str().unwrap()).is_none());
 }
 
+/// An edit of the issue links in the IDE changes `.idea/vcs.xml`, which starts a sync (its fingerprint hashes the
+/// file's stamp): that sync reads the new links, not the ones of the first read; a deleted file gives none
+#[test]
+fn issue_config_follows_a_rewrite_of_vcs_xml() {
+  let cache = RepositoryStateCache::new();
+  let dir = TempDir::new().unwrap();
+  let path = dir.path().to_str().unwrap();
+  let vcs_xml = dir.path().join(".idea").join("vcs.xml");
+  std::fs::create_dir_all(vcs_xml.parent().unwrap()).unwrap();
+  std::fs::write(&vcs_xml, VCS_XML).unwrap();
+  let first = cache.issue_config(path);
+  assert_eq!(first.as_ref().as_ref().unwrap().links[0].link_regexp, "https://jira.example.com/browse/$0");
+
+  std::fs::write(&vcs_xml, VCS_XML.replace("jira.example.com", "youtrack.example.org")).unwrap();
+  let config = cache.issue_config(path);
+  assert_eq!(config.as_ref().as_ref().unwrap().links[0].link_regexp, "https://youtrack.example.org/browse/$0");
+  assert!(Arc::ptr_eq(&config, &cache.issue_config(path)), "an unchanged file is served from the cache");
+
+  std::fs::remove_file(&vcs_xml).unwrap();
+  assert!(cache.issue_config(path).is_none());
+}
+
 /// A new repository in a temporary directory, with a git that counts its processes
 fn counted_repository() -> (GitCommandExecutor, TempDir) {
   let git = GitCommandExecutor::new().with_process_stats("test");

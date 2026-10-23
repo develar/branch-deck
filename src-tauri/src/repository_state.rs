@@ -7,19 +7,28 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use sync_core::github_repository::{GitHubRepository, resolve_github_repository};
-use sync_core::issue_navigation::load_issue_navigation_config;
+use sync_core::issue_navigation::{issue_navigation_config_path, load_issue_navigation_config};
+use sync_core::sync_inputs::file_stamp;
 use tracing::{debug, instrument};
 
-/// Per-repository issue navigation config (`.idea/vcs.xml`), cached for an hour, the git directories and the object
-/// cache of each repository, and the GitHub repository of its branches.
+/// Per-repository issue navigation config (`.idea/vcs.xml`), kept while the file stays as it was, the git directories
+/// and the object cache of each repository, and the GitHub repository of its branches.
 ///
 /// Cloning is cheap and shares the underlying cache, so a clone can be moved into `spawn_blocking`.
 #[derive(Clone)]
 pub struct RepositoryStateCache {
-  cache: Cache<String, Arc<Option<IssueNavigationConfig>>>,
+  cache: Cache<String, Arc<KnownIssueConfig>>,
   dirs: Cache<String, Arc<RepositoryDirs>>,
   object_caches: Cache<String, ObjectCache>,
   github_repositories: Cache<String, Arc<KnownGitHubRepository>>,
+}
+
+/// The issue navigation config of a repository, and the stamp of `.idea/vcs.xml` it was read with (`file_stamp`, the
+/// one the sync fingerprint hashes): an edit of the links in the IDE changes the stamp, starts a sync, and that sync
+/// reads the file again
+struct KnownIssueConfig {
+  config: Arc<Option<IssueNavigationConfig>>,
+  stamp: Option<(u64, u128)>,
 }
 
 /// The GitHub repository of a repository's branches, and the config files it was resolved with
@@ -49,13 +58,9 @@ const GITHUB_REPOSITORY_TTL: Duration = Duration::from_secs(600);
 
 impl RepositoryStateCache {
   pub fn new() -> Self {
-    let cache = Cache::builder()
-      .max_capacity(100) // Maximum 100 repositories cached
-      .time_to_live(Duration::from_secs(3600)) // 1 hour TTL
-      .build();
-
     Self {
-      cache,
+      // never stale: an entry holds only while `.idea/vcs.xml` has the stamp it was read with
+      cache: Cache::new(100),
       // never stale: a repository doesn't move its git directories; an evicted cache closes its environment once no
       // operation holds it (`EnvHandle`)
       dirs: Cache::new(100),
@@ -64,16 +69,27 @@ impl RepositoryStateCache {
     }
   }
 
-  /// Returns the cached config, loading it on a miss. Reads the file system: call from a blocking context.
-  ///
-  /// Concurrent misses for the same path load the config once.
+  /// Returns the cached config while `.idea/vcs.xml` has the stamp it was read with (one `stat`), else reads the file
+  /// again. Reads the file system: call from a blocking context.
   #[instrument(skip(self))]
   pub fn issue_config(&self, repository_path: &str) -> Arc<Option<IssueNavigationConfig>> {
-    self.cache.get_with_by_ref(repository_path, || {
-      let config = load_issue_navigation_config(repository_path);
-      debug!(found = config.is_some(), "Loaded issue navigation config");
-      Arc::new(config)
-    })
+    // before the read: a file written meanwhile is read again by the next call
+    let stamp = file_stamp(&issue_navigation_config_path(repository_path));
+    if let Some(known) = self.cache.get(repository_path)
+      && known.stamp == stamp
+    {
+      return Arc::clone(&known.config);
+    }
+    let config = Arc::new(load_issue_navigation_config(repository_path));
+    debug!(found = config.is_some(), "Loaded issue navigation config");
+    self.cache.insert(
+      repository_path.to_string(),
+      Arc::new(KnownIssueConfig {
+        config: Arc::clone(&config),
+        stamp,
+      }),
+    );
+    config
   }
 
   /// The git directories of the repository; the first call for a path resolves them with one `rev-parse`: call from a

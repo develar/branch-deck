@@ -1678,7 +1678,10 @@ a `master` or `main`).
 
 The hash of these and the prefix is the fingerprint. The page reads it before each sync, so a commit made while the
 sync runs is a change, and keeps it with the result; a focus compares it. Not in it: the notes the sync writes, the
-working tree (the paths that block an update are read by the next sync).
+working tree (the paths that block an update are read by the next sync). The app keeps the issue links of a repository
+(`RepositoryStateCache::issue_config`) while `.idea/vcs.xml` has the stamp they were read with, the one the fingerprint
+hashes, so the sync that an edit of the links starts reads the new ones
+(`issue_config_follows_a_rewrite_of_vcs_xml`).
 
 #### Virtual commit reuse
 

@@ -1,6 +1,7 @@
 //! What a sync reads, as one cheap fingerprint: the window syncs on focus only when it changed since the last sync
 //! (docs/design/git-operations.md, "Sync inputs check").
 
+use crate::issue_navigation::issue_navigation_config_path;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
@@ -57,7 +58,7 @@ pub fn sync_inputs_fingerprint(git_executor: &GitCommandExecutor, repository_pat
   for file in [
     Path::new(&common_dir).join("config"),
     Path::new(&git_dir).join("config.worktree"),
-    Path::new(repository_path).join(".idea/vcs.xml"),
+    issue_navigation_config_path(repository_path),
   ] {
     file_stamp(&file).hash(&mut hasher);
   }
@@ -77,7 +78,7 @@ fn unlisted_upstream(refs: &str) -> Option<&str> {
 }
 
 /// The size and the modification time of a file, nanoseconds; none for a missing one
-fn file_stamp(path: &Path) -> Option<(u64, u128)> {
+pub fn file_stamp(path: &Path) -> Option<(u64, u128)> {
   let metadata = std::fs::metadata(path).ok()?;
   let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos();
   Some((metadata.len(), modified))
