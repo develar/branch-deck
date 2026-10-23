@@ -297,7 +297,7 @@ flowchart TD
 | `cli-tools` | новый (2026-10-23) | CLI команды в Settings → Tools: поиск, версия, `auth status`, скил `teamcity`, действие строки, установка и обновление через Homebrew в `ToolEnvironment` (процесс или fakes `test_utils::fake_cli_tools`) | — |
 | `repository-model` | вырастает из `repository-view` | `Session` на `SessionKey` — один actor; `Fact<T>`; инкрементальная модель таблицы на `SyncEvent`; `derive()` → `RepositoryView`; диффинг `ViewPatch` по частям; `ContentMemo`; demand | глобальный `AtomicU32`; `GetRepositoryViewParams.{matched, remote, robots, revision}` |
 | `operations` | новый | `Intent`, `Plan`, `Effect`, `Outcome`; `admit`; `prepare`/`execute` по семействам (`land`, `push`, `robot`, `pull_request`, `review`, `rewrite`, `update`, `sign_in`); witness; `reconcile`; реестр `operations.json`; журнал; оборачивает существующие `*_core`, git не добавляет | оркестрация `bd-remote/src/{safe_push_command, push_command, robot_command, request_review_command, landed, status}.rs`; TS-оркестрация |
-| `app-settings` | новый | типизированный `AppSettings`; `SettingsFile { known, other }` с сохранением неизвестных и UI-only ключей; defaults; `resolve_branch_prefix` с источником; единственный писатель (атомарная запись, порядок, версия) | ручные читатели; файловая половина `restart_app` |
+| `app-settings` | новый | типизированный `AppSettings`; `SettingsFile { app, other }` с сохранением неизвестных и UI-only ключей; defaults; `resolve_branch_prefix` с источником; единственный писатель (атомарная запись, порядок, версия) | ручные читатели; файловая половина `restart_app` |
 | `app-api` | новый: в `s4-errors` только `api_error` (одна цепочка downcast типизированных ошибок ядер в `ApiError`, общая для Tauri и test-server); в `s12-app-api` тела `src-tauri/src/commands/*` (2,9 тыс. строк) | `AppContext` (executor, cache, sessions, services, settings, clock); реестр `api_commands!` из `async fn(ctx, params) -> Result<T, ApiError>`; транспортные traits `EventSink<T>` (Tauri `Channel`, SSE); планировщики сессий | тела команд; ручные маршруты `test-server/src/lib.rs` |
 | `bd-*` | сжимаются | clap → `Intent`; `Outcome` → JSON-схема и exit codes; сводки check уезжают в `bd-core` | ребро `bd-remote → bd-rewrite` (`check_command`, `safe_push_command.rs:39`); `bd-clustering` → `commit-clustering` (библиотека; `bd-remote/src/branch_stats.rs` читает `areas`, `generated`); `safe_push_command.rs` с 1943 строк до нескольких сотен отображения |
 | `test-server` | тонкий | размещает `app-api` с `FakeGitHub`/`FakePatronus`/фальшивым YouTrack за **реальными** сервисами, `TestClock`; fixture-эндпоинты пишут состояние fakes, эндпоинты счётчиков читают их журналы запросов | ручные маршруты `test-server/src/lib.rs` (109: 108 команд и `get_blob_syntax`) |
@@ -2120,7 +2120,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s2-types | приземлён |
 | s3-crates | приземлён |
 | s4-errors | приземлён |
-| s5-settings | не начат |
+| s5-settings | в работе: s5-1 приземлён (`domain-types::settings`, crate `app-settings`: `SettingsFile`, defaults, `resolve_branch_prefix` с источником) |
 | s6-session-table | не начат |
 | s7-session-facts | не начат |
 | s8-policy | не начат |

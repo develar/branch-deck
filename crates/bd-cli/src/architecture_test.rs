@@ -56,6 +56,11 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "the crate of the types does no IO",
   },
   Unreachable {
+    from: "app-settings",
+    forbidden: &["git-ops", "git-executor", "reqwest", "tokio", TAURI, "clap"],
+    why: "the settings of the app are a file: no git, no network, no runtime, no Tauri, so bd reads them without the app",
+  },
+  Unreachable {
     from: "patronus",
     forbidden: &["git-ops", "git-executor"],
     why: "the Patronus client runs no git",

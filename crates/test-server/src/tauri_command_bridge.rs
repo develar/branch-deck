@@ -22,6 +22,7 @@ use domain_types::pull_request::{
 };
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
+use domain_types::settings::GitBranchPrefix;
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use domain_types::{ProgressReporter, SyncEvent};
 use file_diffs::model::{
@@ -57,7 +58,6 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::branch_name_suggestion::clean_names;
-use sync_core::branch_prefix::GitBranchPrefix;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::github_repository::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
 use sync_core::patronus::{SpaceRepository, find_target_branch, required_target_branch};

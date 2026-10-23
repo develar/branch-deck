@@ -623,6 +623,7 @@ crates/
 ├── repository-model/ # The model of a repository for the page and bd: the table of the last sync, the Patronus section (one rule), the guards of the app's push and robot actions
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
+├── app-settings/    # The settings file of the app (`settings.json`) for the app and bd: the tolerant load, the stored form, the atomic save; the order of the branch prefixes with its source (`resolve_branch_prefix`); no Tauri, no git
 ├── cli-tools/       # The teamcity and youtrack CLIs of Settings → Tools: status, install and update through Homebrew; no git, no service
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies

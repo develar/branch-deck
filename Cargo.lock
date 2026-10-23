@@ -156,6 +156,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "app-settings"
+version = "0.1.0"
+dependencies = [
+ "domain-types",
+ "pretty_assertions",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -514,6 +526,7 @@ name = "bd-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "app-settings",
  "dirs",
  "domain-types",
  "file-diffs",
@@ -1765,6 +1778,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "jiff",
+ "pretty_assertions",
  "schemars 1.2.3",
  "serde",
  "serde_json",

@@ -1,6 +1,7 @@
-use crate::branch_prefix::{GitBranchPrefix, get_branch_prefix_from_git_config_sync};
+use crate::branch_prefix::get_branch_prefix_from_git_config_sync;
 use crate::config_snapshot::{ConfigSnapshot, SymbolMode, read_symbol_mode};
 use crate::github_repository::GitHubRepository;
+use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
 use git_ops::word_resolve::ResolveMode;

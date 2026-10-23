@@ -47,6 +47,8 @@ targets:
   - ../../src/stores/settings/sub-window-app-store.ts
   - ../../src/stores/repository.ts
   - ../../crates/sync-core/src/branch_prefix.rs
+  - ../../crates/app-settings/src/resolve.rs
+  - ../../crates/domain-types/src/settings.rs
   - ../../crates/sync-core/src/repository_config.rs
   - ../../crates/sync-core/src/config_snapshot.rs
   - ../../src-tauri/src/commands/repository_config.rs
@@ -385,12 +387,16 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ### Branch prefix order
 
 - The branches of a repository are named by the specific prefix first, in the app as in `bd`
-  (`resolve_branch_prefix` in `crates/sync-core/src/branch_prefix.rs`, `computeEffectiveBranchPrefix` in
+  (`resolve_branch_prefix` in `crates/app-settings/src/resolve.rs`, `computeEffectiveBranchPrefix` in
   `src/stores/repository.ts`): the repository's own `branchdeck.branchPrefix` (its local or worktree git config, or `git -c` and `GIT_CONFIG_*`),
-  else the app's prefix (General, `globalUserBranchPrefix`), else the one of the global or system git config. The
-  prefix of git is read with its scope (`get_branch_prefix_from_git_config`: `GitBranchPrefix { prefix,
+  else the app's prefix (General, `globalUserBranchPrefix`), else the one of the global or system git config. Each is
+  named as the branches are (trimmed, no trailing slash), and one that nothing is left of counts as unset. The
+  resolved prefix names its source (`ResolvedBranchPrefix { prefix, source }`: `cli`, `repositoryConfig`,
+  `appSetting`, `globalConfig`, or `none` exactly when there is no prefix).
+  [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_is_named_as_the_branches_are_and_one_of_slashes_only_is_unset`, `the_source_is_written_in_camel_case`)
+- The prefix of git is read with its scope (`get_branch_prefix_from_git_config`: `GitBranchPrefix { prefix,
   repositoryScoped }`, one `git config --show-scope`).
-  [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`the_specific_prefix_wins`, `a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`, `a_prefix_of_git_c_is_repository_scoped`)
+  [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`, `a_prefix_of_git_c_is_repository_scoped`)
   [@test] ../../src/stores/repository.test.ts (`takes the repository's own git prefix, then the app's, then the global git prefix`, `names the branches as the backend does: no trailing slash`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`names the branches by the repository's own prefix over the app's, and says so in Settings`, `names the branches by the app's prefix where the repository has none`)
 - The main window caches the prefix of git per repository with its scope (`cachedBranchPrefix` of `recentProjects`:

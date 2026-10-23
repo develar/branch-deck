@@ -8,6 +8,7 @@ description = "What every `bd` command builds on: the context, the errors, the o
 publish = false
 
 [dependencies]
+app-settings = { path = "../app-settings" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }

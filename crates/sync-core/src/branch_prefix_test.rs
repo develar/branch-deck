@@ -1,4 +1,5 @@
-use crate::branch_prefix::{GitBranchPrefix, get_branch_prefix_from_git_config_sync, parse_scoped_prefix, resolve_branch_prefix};
+use crate::branch_prefix::{get_branch_prefix_from_git_config_sync, parse_scoped_prefix};
+use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_utils::git_test_utils::TestRepo;
 use tracing::{debug, warn};
@@ -126,23 +127,8 @@ fn the_scope_of_the_prefix_is_read_with_it() {
 
 #[test]
 fn a_prefix_of_git_c_is_repository_scoped() {
-  // `git -c` and `GIT_CONFIG_*` win over every config file, so over the app's prefix too
-  let prefix = parse_scoped_prefix("command\0jane\0");
-  assert_eq!(prefix, git_prefix("jane", true));
-  assert_eq!(resolve_branch_prefix(&prefix, Some("app")), "jane");
-}
-
-#[test]
-fn the_specific_prefix_wins() {
-  // the app's prefix only
-  assert_eq!(resolve_branch_prefix(&GitBranchPrefix::default(), Some("app")), "app");
-  // the repository's own git prefix wins over the app's
-  assert_eq!(resolve_branch_prefix(&git_prefix("local", true), Some("app")), "local");
-  // the app's prefix wins over the global git prefix
-  assert_eq!(resolve_branch_prefix(&git_prefix("global", false), Some("app")), "app");
-  assert_eq!(resolve_branch_prefix(&git_prefix("global", false), None), "global");
-  assert_eq!(resolve_branch_prefix(&git_prefix("global", false), Some("  ")), "global");
-  assert_eq!(resolve_branch_prefix(&GitBranchPrefix::default(), None), "");
+  // `git -c` and `GIT_CONFIG_*` win over every config file, so over the app's prefix too (`app_settings::resolve`)
+  assert_eq!(parse_scoped_prefix("command\0jane\0"), git_prefix("jane", true));
 }
 
 #[test]
@@ -152,5 +138,4 @@ fn a_local_prefix_is_repository_scoped() {
   let git_executor = GitCommandExecutor::new();
   let prefix = get_branch_prefix_from_git_config_sync(&git_executor, test_repo.path_str()).unwrap();
   assert_eq!(prefix, git_prefix("jane", true));
-  assert_eq!(resolve_branch_prefix(&prefix, Some("app")), "jane");
 }

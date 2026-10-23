@@ -1,7 +1,9 @@
 use crate::bd_command::bd_command;
 use crate::error::CliError;
 use crate::output::ShortIds;
+use app_settings::resolve::{cli_branch_prefix, resolve_branch_prefix};
 use domain_types::error::ErrorCode;
+use domain_types::settings::PrefixSource;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
@@ -16,7 +18,6 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
-use sync_core::branch_prefix::resolve_branch_prefix;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::{SpaceRepository, parse_space_repository};
@@ -146,7 +147,7 @@ pub struct RepoContext {
 
 impl RepoContext {
   /// Resolve git, the repository top level and the branch prefix: `--prefix`, else the specific one first
-  /// (`resolve_branch_prefix`): `branchdeck.branchPrefix` of the repository's local or worktree config, the app setting
+  /// (`app_settings::resolve::resolve_branch_prefix`): `branchdeck.branchPrefix` of the repository's local or worktree config, the app setting
   /// `globalUserBranchPrefix`, the global or system `branchdeck.branchPrefix`. An empty prefix is an error
   pub fn resolve(environment: &Environment, options: &RepoOptions<'_>) -> Result<Self, CliError> {
     let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
@@ -175,14 +176,14 @@ impl RepoContext {
     // the config the sync reads too: one `git config` for the prefix, the settings and the descriptions
     let mut config = None;
     let prefix = if let Some(prefix) = options.prefix {
-      prefix.trim().to_string()
+      cli_branch_prefix(prefix)
     } else {
       let snapshot = ConfigSnapshot::read(&git, &repository)?;
       let git_prefix = snapshot.branch_prefix();
       config = Some(snapshot);
       resolve_branch_prefix(&git_prefix, environment.settings_file.as_deref().and_then(read_app_branch_prefix).as_deref())
     };
-    if prefix.is_empty() {
+    if prefix.source == PrefixSource::None {
       return Err(CliError::new(
         ErrorCode::NoBranchPrefix,
         "No branch prefix: pass --prefix, set it in the app (Settings), or run `git config --global branchdeck.branchPrefix <name>` \
@@ -192,7 +193,7 @@ impl RepoContext {
 
     Ok(Self {
       git,
-      prefix,
+      prefix: prefix.prefix,
       short_ids: !options.full_ids,
       git_common_dir,
       use_cache: !options.no_cache,

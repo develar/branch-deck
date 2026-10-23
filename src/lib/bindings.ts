@@ -2060,7 +2060,7 @@ export type GitBranchPrefix = {
 	prefix: string,
 	/**
 	 *  Set in the local or the worktree config of the repository, or by `git -c` / `GIT_CONFIG_*`: it wins over the app's
-	 *  prefix (`resolve_branch_prefix`, `ConfigScope::is_repository_scoped`)
+	 *  prefix (`resolve_branch_prefix`)
 	 */
 	repositoryScoped: boolean,
 };

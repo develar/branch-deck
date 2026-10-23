@@ -27,6 +27,8 @@
 //! - `robot_failure`: why a robot failed and the commits it checked
 //! - `robot_landing`: what a merged robot landed and what a running one lands
 //! - `robot_stats`: the Safe Push statistics, the robots they keep and the command of the app
+//! - `settings`: the settings of the app that Rust reads (`AppSettings`), the branch prefix of git and the resolved one
+//!   with its source
 //! - `setup`: what in the setup of the machine waits for the user (the Setup dot)
 //! - `stack`: the stacked branches as a sync reports them, the syntax of a stack prefix (`(auth/login)`)
 //! - `update`: the update of the app
@@ -59,6 +61,7 @@ pub mod review_request;
 pub mod robot_failure;
 pub mod robot_landing;
 pub mod robot_stats;
+pub mod settings;
 pub mod setup;
 pub mod stack;
 pub mod update;

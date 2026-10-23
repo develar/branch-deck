@@ -2,11 +2,11 @@
 //! `repository_config` and the branch descriptions of `bd describe`. An operation reads it once and passes it on,
 //! instead of one process per key (docs/design/git-operations.md, "Repository settings").
 
-use crate::branch_prefix::GitBranchPrefix;
 use crate::github_repository::GitHubRepository;
 use crate::remote_url::split_owner_and_name;
 use crate::repository_config::{ConfigEntry, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries};
 use anyhow::{Result, anyhow};
+use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::word_resolve::ResolveMode;

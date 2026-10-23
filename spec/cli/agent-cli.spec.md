@@ -11,6 +11,7 @@ targets:
   - ../../crates/bd-cli/src/lib.rs
   - ../../crates/bd-core/src/context.rs
   - ../../crates/sync-core/src/branch_prefix.rs
+  - ../../crates/app-settings/src/resolve.rs
   - ../../crates/bd-core/src/error.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-core/src/output.rs
@@ -142,12 +143,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/status_test.rs (`subdirectory_resolves_to_top_level`)
 - The branch prefix must come from `--prefix`, else the specific one first: `branchdeck.branchPrefix` of the
   repository's local or worktree config or `git -c`, else the app setting `globalUserBranchPrefix`, else the global or system
-  `branchdeck.branchPrefix` (`resolve_branch_prefix`); every output must echo it. The app rewrites its settings file in
+  `branchdeck.branchPrefix` (`app_settings::resolve`), each named as the branches are (`jane/` is `jane`); every
+  output must echo it. The app rewrites its settings file in
   place: a read beside that write must still get the app's prefix (a file that does not parse is read again for up to
   200 ms), and only a file that stays cut is ignored.
   [@test] ../../crates/bd-remote/src/status_test.rs (`prefix_from_app_settings`, `prefix_from_git_config`)
   [@test] ../../crates/bd-core/src/context_test.rs (`the_prefix_of_the_app_is_read_while_the_app_rewrites_its_settings_file`, `a_settings_file_that_stays_cut_gives_no_prefix`)
-  [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`the_specific_prefix_wins`, `a_local_prefix_is_repository_scoped`)
+  [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_of_the_command_line_is_taken_as_it_is_named`)
+  [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`)
 - Git must come from `BD_GIT`, else `git` on `PATH`, else Homebrew's git, never from a login shell, and be 2.54 or newer.
   [@test] ../../crates/git-executor/src/git_info.rs (`minimum_version`, `a_missing_explicit_git_is_not_found_with_the_hint`)
 - Logs must go to stderr, and only with `-v` (debug) or `-vv` (trace). Every line of a run must name its operation,

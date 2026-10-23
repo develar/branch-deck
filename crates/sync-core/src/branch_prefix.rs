@@ -1,38 +1,13 @@
-//! The branch prefix the virtual branches are named under: `branchdeck.branchPrefix` with the scope git read it from,
-//! and the order of the repository's own prefix, the app's and the global one (`resolve_branch_prefix`).
+//! The branch prefix of git the virtual branches are named under: `branchdeck.branchPrefix` with the scope git read it
+//! from. The order of the repository's own prefix, the app's and the global one is `app_settings::resolve`.
 
 use crate::repository_config::ConfigScope;
+use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
-use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 
 /// The git config key of the branch prefix (case-insensitive, as every git config key)
 pub const BRANCH_PREFIX_CONFIG_KEY: &str = "branchdeck.branchPrefix";
-
-/// `branchdeck.branchPrefix` as git resolves it (system, global, local, worktree, command: the last one wins), and
-/// whether it is the repository's own
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GitBranchPrefix {
-  /// Trimmed, empty if no config sets it
-  pub prefix: String,
-  /// Set in the local or the worktree config of the repository, or by `git -c` / `GIT_CONFIG_*`: it wins over the app's
-  /// prefix (`resolve_branch_prefix`, `ConfigScope::is_repository_scoped`)
-  pub repository_scoped: bool,
-}
-
-/// The prefix the branches are named with, the specific one first: the repository's own git prefix (local or worktree
-/// config, `git -c`), else the app's prefix (`globalUserBranchPrefix`), else the global or system git prefix. Empty if none is set
-pub fn resolve_branch_prefix(git: &GitBranchPrefix, app: Option<&str>) -> String {
-  if git.repository_scoped && !git.prefix.is_empty() {
-    return git.prefix.clone();
-  }
-  match app.map(str::trim).filter(|prefix| !prefix.is_empty()) {
-    Some(prefix) => prefix.to_string(),
-    None => git.prefix.clone(),
-  }
-}
 
 /// Get the branch prefix from git config: one `git config -z --show-scope --get branchdeck.branchPrefix`, with git's
 /// precedence (the last scope wins); the global config alone for an empty `repository_path`.

@@ -2690,8 +2690,10 @@ no operation.
   repository the answer is the global config alone. The test server gives each test repository a global config of its
   own (`GIT_CONFIG_GLOBAL`, `AppState::global_config_of`), which its config reads and writes use, so that no test
   reads or changes the config of the developer, and two tests that run at once share none.
-- **Branch prefix**: the backend's order (`resolve_branch_prefix`, used by `bd`) puts the specific prefix first: the
-  repository's own (local, worktree or command scope), then the app's `globalUserBranchPrefix`, then the global or system one.
+- **Branch prefix**: the backend's order (`resolve_branch_prefix` of `crates/app-settings/src/resolve.rs`, used by
+  `bd`) puts the specific prefix first: the repository's own (local, worktree or command scope), then the app's
+  `globalUserBranchPrefix`, then the global or system one, and names where the prefix came from
+  (`ResolvedBranchPrefix`).
   `get_branch_prefix_from_git_config_sync` reads the value with its scope in one `git config -z --show-scope --get`.
 
 No other git config is written by the app, except the branch descriptions of `bd describe` and the global write above.
