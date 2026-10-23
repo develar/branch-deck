@@ -3,10 +3,9 @@ use crate::operation::run_blocking;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::move_commits::MoveCommitsResult;
-use sync_core::check::StackIndependence;
+use sync_core::check::{StackIndependence, StackIndependenceParams, get_stack_independence as get_stack_independence_core};
 use sync_core::stack_operations::{
-  RenameBranchParams, RestackBranchParams, StackIndependenceParams, UndoRegroupParams, get_stack_independence as get_stack_independence_core, rename_branch as rename_branch_core,
-  restack_branch as restack_branch_core, undo_regroup as undo_regroup_core,
+  RenameBranchParams, RestackBranchParams, UndoRegroupParams, rename_branch as rename_branch_core, restack_branch as restack_branch_core, undo_regroup as undo_regroup_core,
 };
 use tauri::State;
 use tracing::instrument;

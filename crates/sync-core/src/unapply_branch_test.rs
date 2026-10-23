@@ -1,11 +1,11 @@
 use crate::regroup_test::{commits, path, repo, sync};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyRefusal, UnapplyUndoToken, UndoneUnapply, unapply_branch_core, undo_unapply_core};
-use crate::update_project::UndoBlocked;
 use anyhow::Result;
 use domain_types::{SyncEvent, UnappliedBranchInfo};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
+use git_ops::update_branch::UndoBlocked;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use pretty_assertions::assert_eq;
 use test_log::test;

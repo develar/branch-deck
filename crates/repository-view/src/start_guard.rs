@@ -20,19 +20,55 @@ use crate::patronus_view::{branch_start_refusal, landed_commits, stack_start_ref
 use crate::push_guard::{GuardFacts, row_refusal};
 use anyhow::{Result, anyhow, bail};
 use domain_types::GroupedBranchInfo;
+use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotParams, StartPatronusRobotParams};
 use domain_types::repository_view::StartRefusal;
 use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
+use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use std::collections::HashSet;
-use sync_core::landing_gate::{LandingCheck, LandingGateParams, landing_check};
+use sync_core::landing_gate::{LandingCheck, LandingGateParams, ensure_landing_starts, landing_check};
 use sync_core::parked::parked_state;
-use sync_core::patronus::prepare_robot_start;
+use sync_core::patronus::required_target_branch;
 use sync_core::patronus_start::{carried_ids, carried_words, is_robot_active, join_names, push_mode_name};
 use sync_core::push::not_synced_refusal;
 use sync_utils::span::in_current_span;
 use tracing::instrument;
+
+/// The branches of a start Patronus is asked for
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RobotStartBranches {
+  /// `refs/heads/{prefix}/virtual/<name>`, or `refs/heads/{prefix}/stack/<root>` for the whole stack
+  pub source_branch: String,
+  /// The branch of origin the baseline tracks
+  pub target_branch: String,
+}
+
+/// What the app checks before it asks Patronus to start `params`, after the checks of the repository view
+/// (`check_start`): the landing gate, as `bd safe-push` refuses it (`ensure_landing_starts`), with `landed_commits`, the
+/// commits (original ids) merged Safe Pushes landed as the view names them, whose names the target has; then the branch
+/// the robot pushes into. The full ref of the pushed virtual branch, or of the stack branch with `stack`
+pub fn prepare_robot_start(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &StartPatronusRobotParams, landed_commits: Vec<String>) -> Result<RobotStartBranches> {
+  let gate = LandingGateParams {
+    repository_path: params.repository_path.clone(),
+    branch_prefix: params.branch_prefix.clone(),
+    branch_name: params.branch_name.clone(),
+    stack: params.stack,
+    allow: params.allow,
+  };
+  ensure_landing_starts(git_executor, cache, &gate, &landed_commits.into_iter().collect())?;
+  let target_branch = required_target_branch(git_executor, &params.repository_path, &params.baseline_branch)?;
+  let source = if params.stack {
+    to_stack_branch_name(&params.branch_prefix, &params.branch_name)?
+  } else {
+    to_final_branch_name(&params.branch_prefix, &params.branch_name)?
+  };
+  Ok(RobotStartBranches {
+    source_branch: format!("refs/heads/{source}"),
+    target_branch,
+  })
+}
 
 /// Why a start of `subject` ("auth", "the whole auth stack") is not possible, in the words of the app, for the robot part
 /// of the decision (`BranchPatronus::start`, `StackPatronus::start`): the commits a descendant lands named by their ids

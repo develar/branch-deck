@@ -13,6 +13,7 @@ use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
+use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, pending_update};
 use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use history_rewrite::baseline::detect_baseline_branch;
@@ -21,12 +22,12 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write as _;
 use std::path::PathBuf;
-use sync_core::resolve_copies::{Materialize, display_path};
+use sync_core::baseline::check_baseline_update;
+use sync_core::resolve_copies::Materialize;
 use sync_core::resolve_session::{ContinueOptions, NoSession, SessionOutcome, SessionView, abort_resolve, continue_resolve, session_status};
-use sync_core::update_project::{
-  BdUpdate, FetchFailed, NoUpstream, UndoBlocked, UndoneUpdate, UpdateOptions, UpdateUndoToken, check_baseline_update, undo_update_core, update_and_resolve,
-};
+use sync_core::update_project::{BdUpdate, FetchFailed, NoUpstream, UndoneUpdate, UpdateOptions, UpdateUndoToken, undo_update_core, update_and_resolve};
 use sync_utils::list_cut::kept;
+use sync_utils::paths::display_path;
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]

@@ -4,7 +4,9 @@
 //! reaction: 👍 started, 👎 not (with a `⚠️` comment saying why). The other writes of the app on GitHub keep the pull
 //! requests of a stack in line (`pull_request_writes.rs`).
 
-use crate::pull_requests::{GitHubRepository, GitHubWriteError};
+use crate::pull_requests::GitHubWriteError;
+
+use crate::github_repository::GitHubRepository;
 use domain_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;

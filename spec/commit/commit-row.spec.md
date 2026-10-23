@@ -43,6 +43,7 @@ targets:
   - ../../src/components/conflict/MissingCommitsDetails.tsx
   - ../../src/hooks/useMissingCommitOwners.ts
   - ../../crates/sync-core/src/missing_commits.rs
+  - ../../crates/sync-core/src/commit_owners.rs
   - ../../src/components/conflict/ConflictingFilesSection.tsx
   - ../../src/components/diff/DiffView.tsx
   - ../../src/stores/file-merges.ts

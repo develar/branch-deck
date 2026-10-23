@@ -8,6 +8,7 @@ targets:
   - ../../crates/github/src/service.rs
   - ../../crates/github/src/token.rs
   - ../../crates/sync-core/src/pull_requests.rs
+  - ../../crates/sync-core/src/github_repository.rs
   - ../../src-tauri/src/commands/github.rs
   - ../../src-tauri/src/commands/pull_requests.rs
   - ../../src-tauri/src/repository_state.rs
@@ -106,19 +107,19 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   one `git cat-file`, never from the working tree). SSH (`git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`, `ssh.github.com:443`),
   HTTPS (with or without `.git` and credentials) and `git://` URLs name a github.com repository. No repository host or
   name is built into the app, and nothing searches GitHub for a mirror.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`parses_github_remote_urls`)
+  [@test] ../../crates/sync-core/src/github_repository_test.rs (`parses_github_remote_urls`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_configured_github_repository_wins_over_origin`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`reads_the_mirror_from_the_committed_space_settings`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_space_mirror_must_be_on_github`)
+  [@test] ../../crates/sync-core/src/github_repository_test.rs (`the_configured_github_repository_wins_over_origin`)
+  [@test] ../../crates/sync-core/src/github_repository_test.rs (`reads_the_mirror_from_the_committed_space_settings`)
+  [@test] ../../crates/sync-core/src/github_repository_test.rs (`a_space_mirror_must_be_on_github`)
 - The app must resolve it once per repository and keep it while the repository's `config` and the worktree's
   `config.worktree` stay as they are, at most 10 minutes (the global config and the Space settings may name it too):
   a refresh of the pull requests, the review requests and the user search runs no git for it, and a change in
   Settings → Repository is read at the next one.
   [@test] ../../src-tauri/src/repository_state_test.rs (`the_github_repository_is_kept_until_the_config_changes`)
 - Otherwise a remote on another host, a local path or no `origin` must report "not on GitHub" without asking GitHub.
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`rejects_remote_urls_outside_github`)
-  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`a_remote_outside_github_has_no_github_repository`)
+  [@test] ../../crates/sync-core/src/github_repository_test.rs (`rejects_remote_urls_outside_github`)
+  [@test] ../../crates/sync-core/src/github_repository_test.rs (`a_remote_outside_github_has_no_github_repository`)
 - One GraphQL request per refresh (`PULL_REQUESTS_QUERY`): the search `repo:<owner>/<name> is:pr author:@me
   sort:updated-desc`, first 50, with the fields `gh pr list --json` reads, and `repository(owner, name)`. Newest first,
   unlike `gh pr list`: the virtual branches under review are among the 50 most recently updated.

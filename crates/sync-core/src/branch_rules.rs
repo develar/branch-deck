@@ -3,7 +3,7 @@
 //! of new commits. One `GET rules/branches/<branch>`, readable with read access to the repository (classic branch
 //! protection needs admin rights and is not read).
 
-use crate::pull_requests::GitHubRepository;
+use crate::github_repository::GitHubRepository;
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;

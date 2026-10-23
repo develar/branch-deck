@@ -1,7 +1,7 @@
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
-use sync_core::pull_requests::GitHubRepository;
+use sync_core::github_repository::GitHubRepository;
 use tempfile::TempDir;
 
 const VCS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>

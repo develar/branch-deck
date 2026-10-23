@@ -2,7 +2,6 @@
 //! branch moves to the unapplied namespace in the transaction that moves HEAD, under the repository lock
 //! (spec/branch/unapply.spec.md); and its undo (`UnapplyUndoToken`), which moves both back.
 
-use crate::update_project::UndoBlocked;
 use anyhow::Result;
 use branch_integration::archive::{REF_RENAME_MUTEX, own_commits_start, unique_branch_name};
 use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
@@ -10,6 +9,7 @@ use domain_types::commit::Commit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::is_object_id;
 use git_ops::unapply::{UnappliedMove, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
+use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{UndoCheck, UpdateUndo, finish_pending_update};
 use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions, lock_repository};
 use history_rewrite::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};

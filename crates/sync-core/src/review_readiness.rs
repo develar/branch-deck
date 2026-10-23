@@ -10,9 +10,9 @@
 //! day, one without it (an older Patronus, a start through the API) as long as before: 2 minutes while approvals are
 //! missing, 10 without. Errors are never kept. A repository only on Space keeps its own path (`review_requirement`).
 
+use crate::github_repository::GitHubRepository;
 use crate::patronus::{SpaceRepository, required_target_branch};
 use crate::patronus_review::{ReviewInput, attribute_ownership_paths, read_review_inputs, skipped_review};
-use crate::pull_requests::GitHubRepository;
 use anyhow::anyhow;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use domain_types::patronus::{

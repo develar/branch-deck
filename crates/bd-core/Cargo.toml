@@ -15,6 +15,7 @@ object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
 github = { path = "../github" }
 sync-core = { path = "../sync-core" }
+sync-utils = { path = "../sync-utils" }
 history-rewrite = { path = "../history-rewrite" }
 domain-types = { path = "../domain-types", features = ["schemars"] }
 youtrack = { path = "../youtrack" }

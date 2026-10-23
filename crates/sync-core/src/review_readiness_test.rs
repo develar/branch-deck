@@ -1,5 +1,5 @@
+use crate::github_repository::GitHubRepository;
 use crate::patronus::SpaceRepository;
-use crate::pull_requests::GitHubRepository;
 use crate::review_readiness::{ReadinessInputs, ReadinessRepository, branch_review_readiness, is_fresh, prepare_review_readiness};
 use domain_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart,

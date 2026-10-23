@@ -16,11 +16,12 @@ use object_cache::commit_diff::FileChange;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use sync_core::config_snapshot::{SymbolMode, read_symbol_mode};
 use sync_core::dependencies::{Dependency, compute_dependencies, connected_components, with_symbols};
 use sync_core::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use sync_core::grouping::BranchGrouping;
 use sync_core::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
-use sync_core::symbol_scan::{SymbolMode, read_symbol_input, read_symbol_mode};
+use sync_core::symbol_scan::read_symbol_input;
 use sync_utils::issue_pattern::find_issue_number;
 
 #[derive(Debug, clap::Args)]

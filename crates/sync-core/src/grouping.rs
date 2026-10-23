@@ -1,9 +1,9 @@
 //! The grouping of the commits ahead of the baseline as a sync groups them, without the builds and the events
 //! (`BranchGrouping`): what `bd status`, `bd robot` and the other reads of `bd` start from.
 
+use crate::baseline::BaselineUpstream;
 use crate::repo_facts::{BaselineListing, read_baseline_listing};
 use crate::sync::prepare_branches_for_ui;
-use crate::update_project::BaselineUpstream;
 use anyhow::Result;
 use branch_integration::common::ListedBranch;
 use domain_types::GroupedBranchInfo;

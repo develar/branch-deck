@@ -5,7 +5,7 @@ use crate::context::Environment;
 use crate::error::CliError;
 use domain_types::error::ErrorCode;
 use std::path::{Path, PathBuf};
-use sync_core::resolve_copies::display_path;
+use sync_utils::paths::display_path;
 
 /// Where the `bd` symlink goes, under the home directory
 #[cfg(unix)]

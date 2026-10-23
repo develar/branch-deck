@@ -4,7 +4,6 @@
 //! process reads the `Cargo.toml` and `tsconfig*.json` files of the directories above the files (`ModuleRoots`, one
 //! `cat-file --batch` of the trees at HEAD), for the names of the crates and the path aliases of TypeScript.
 
-use crate::config_snapshot::ConfigSnapshot;
 use crate::diff_scan::CommitDiff;
 use crate::module_roots::ModuleRoots;
 use anyhow::Result;
@@ -20,41 +19,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
-
-/// The git config key of the symbol mode (`off`, `report`, `on`)
-pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
-
-/// How far the dependencies by symbols reach (`branchdeck.symbols`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "lowercase")]
-pub enum SymbolMode {
-  /// No summaries are read
-  Off,
-  /// `bd commits` reports the dependencies by symbols, and the dangling-reference check subtracts by the trees; nothing
-  /// decides by them
-  Report,
-  /// They also order and stack branches, and the conflict fix and the checks use them
-  #[default]
-  On,
-}
-
-impl SymbolMode {
-  pub fn parse(value: &str) -> Option<Self> {
-    match value.trim().to_ascii_lowercase().as_str() {
-      "off" | "false" => Some(Self::Off),
-      "report" => Some(Self::Report),
-      "on" | "true" => Some(Self::On),
-      _ => None,
-    }
-  }
-}
-
-/// `branchdeck.symbols` of the repository, `SymbolMode::default()` when unset: one `ConfigSnapshot`; an operation that
-/// reads more of the config takes `ConfigSnapshot::symbol_mode` of its snapshot
-pub fn read_symbol_mode(git: &GitCommandExecutor, repository_path: &str) -> Result<SymbolMode> {
-  ConfigSnapshot::read(git, repository_path)?.symbol_mode()
-}
 
 /// What the scan read, for `bd commits --symbol-stats`
 #[derive(Debug, Clone, Default)]

@@ -7,10 +7,11 @@
 //! comes first, so a rejected token is replaced before anything is written, and after the `POST pulls` nothing fails
 //! the request: the assignee and the reviewers that GitHub refuses are warnings of the pull request it created.
 
+use crate::github_repository::GitHubRepository;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::pull_request_text::{AncestorText, CommitText, PullRequestTextInput, issue_texts, pull_request_text};
 use crate::pull_request_writes::{request_reviews, unique_logins};
-use crate::pull_requests::{GitHubRepository, GitHubWriteError, list_pull_requests, visible_data};
+use crate::pull_requests::{GitHubWriteError, list_pull_requests, visible_data};
 use anyhow::{Result, anyhow, bail};
 use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequest, PullRequestState, Reviewer, ReviewerState};
 use git_executor::git_command_executor::GitCommandExecutor;

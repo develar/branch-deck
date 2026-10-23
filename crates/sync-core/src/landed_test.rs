@@ -1,7 +1,8 @@
+use crate::baseline::check_baseline_update;
 use crate::landed::{STATE_FILE, dismiss_landed, read_report, record_sync};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::update_project_test::{Setup, git, path, setup, update};
-use crate::update_project::{UpdateUndoToken, check_baseline_update, undo_update_core};
+use crate::update_project::{UpdateUndoToken, undo_update_core};
 use domain_types::SyncEvent;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateKind, UpdateState};

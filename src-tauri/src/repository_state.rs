@@ -6,8 +6,8 @@ use object_cache::cache::ObjectCache;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use sync_core::github_repository::{GitHubRepository, resolve_github_repository};
 use sync_core::issue_navigation::load_issue_navigation_config;
-use sync_core::pull_requests::{GitHubRepository, resolve_github_repository};
 use tracing::{debug, instrument};
 
 /// Per-repository issue navigation config (`.idea/vcs.xml`), cached for an hour, the git directories and the object

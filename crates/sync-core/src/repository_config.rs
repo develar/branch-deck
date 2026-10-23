@@ -5,9 +5,9 @@
 //! where the request names it (`WriteScope`), and `bd` reads the same keys.
 
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
-use crate::pull_requests::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_source};
+use crate::config_snapshot::{SYMBOLS_CONFIG_KEY, SymbolMode};
+use crate::github_repository::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_source};
 use crate::remote_url::split_owner_and_name;
-use crate::symbol_scan::{SYMBOLS_CONFIG_KEY, SymbolMode};
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::{is_valid_branch_prefix, normalize_branch_prefix};
 use git_executor::git_command_executor::GitCommandExecutor;

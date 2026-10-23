@@ -2,8 +2,8 @@
 //! an update brings the branch in. Only the baseline's remote branch is fetched (as Update Project does); the branch,
 //! the index and the working tree stay as they are.
 
+use crate::baseline::{fetch_baseline, resolve_baseline_upstream};
 use crate::transfer_progress::TransferProgress;
-use crate::update_project::{fetch_baseline, resolve_baseline_upstream};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::baseline::detect_baseline_branch;

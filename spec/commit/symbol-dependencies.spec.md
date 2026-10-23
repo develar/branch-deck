@@ -10,6 +10,7 @@ targets:
   - ../../crates/code-symbols/src/java.rs
   - ../../crates/code-symbols/src/rust_lang.rs
   - ../../crates/sync-core/src/symbol_scan.rs
+  - ../../crates/sync-core/src/config_snapshot.rs
   - ../../crates/sync-core/src/symbol_dependencies.rs
   - ../../crates/sync-core/src/module_roots.rs
   - ../../crates/sync-core/src/dangling_references.rs
@@ -442,7 +443,7 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 - `branchdeck.symbols` must be `off`, `report` or `on` (the default; Settings → Repository, Symbol dependencies: Off ·
   Report Only · On, [Settings](../repository/settings.spec.md#repository)); another value is an error. `report` must
   read the summaries for `bd commits` and the dangling-reference check only; `off` must read none.
-  [@test] ../../crates/sync-core/src/symbol_scan_test.rs (`the_mode_comes_from_git_config_and_is_on_without_it`)
+  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_mode_comes_from_git_config_and_is_on_without_it`)
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_word_in_kdoc_is_no_use`)
   [@test] ../../crates/sync-core/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`)

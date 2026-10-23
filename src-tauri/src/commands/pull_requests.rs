@@ -6,6 +6,7 @@ use crate::repository_state::RepositoryStateCache;
 use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
+use sync_core::github_repository::{GitHubRepository, parse_known_github_repository};
 use sync_core::pull_request_create::{
   CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
   new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
@@ -15,7 +16,7 @@ use sync_core::pull_request_writes::{
   close_pull_request as core_close_pull_request, read_pull_request_head, request_pull_request_reviewers as core_request_pull_request_reviewers,
   retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
 };
-use sync_core::pull_requests::{GetPullRequestsParams, GitHubRepository, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests, parse_known_github_repository};
+use sync_core::pull_requests::{GetPullRequestsParams, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
 use sync_core::stack_pull_request::{GetNewStackPullRequestParams, read_new_stack_pull_request};
 use tauri::State;
 use tracing::instrument;

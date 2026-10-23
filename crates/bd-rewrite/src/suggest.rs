@@ -29,10 +29,11 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::RandomState;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
+use sync_core::config_snapshot::SymbolMode;
 use sync_core::dependencies::compute_dependencies;
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
-use sync_core::symbol_scan::{SymbolMode, read_symbol_input};
+use sync_core::symbol_scan::read_symbol_input;
 use sync_utils::issue_pattern::{find_issue_number, issue_keys_in, parse_semantic_prefix};
 
 #[derive(Debug, clap::Args)]

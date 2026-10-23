@@ -18,9 +18,10 @@ use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullReque
 use git_ops::revs::resolve_commit;
 use schemars::JsonSchema;
 use serde::Serialize;
+use sync_core::github_repository::{GitHubRepository, resolve_github_repository_with};
 use sync_core::patronus::target_branch_of;
 use sync_core::pull_request_writes::request_pull_request_reviewers;
-use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests, resolve_github_repository_with};
+use sync_core::pull_requests::{GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests};
 use sync_core::review_readiness::ReadinessRepository;
 use tokio::runtime::Runtime;
 

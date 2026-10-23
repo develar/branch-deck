@@ -1,9 +1,9 @@
-use crate::pull_requests::GitHubRepositorySource;
+use crate::config_snapshot::SymbolMode;
+use crate::github_repository::GitHubRepositorySource;
 use crate::repository_config::{
   ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, RepositoryConfigChange, WriteScope, parse_config_entries, read_config_entries,
   read_repository_config, repository_config_from_entries, set_config, set_repository_config,
 };
-use crate::symbol_scan::SymbolMode;
 use pretty_assertions::assert_eq;
 use sync_utils::git_bool::parse_git_bool;
 use test_utils::git_test_utils::TestRepo;

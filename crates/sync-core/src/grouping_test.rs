@@ -1,5 +1,5 @@
+use crate::baseline::resolve_baseline_upstream;
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::update_project::resolve_baseline_upstream;
 use branch_integration::common::list_branches;
 use history_rewrite::baseline::NoBaseline;
 use pretty_assertions::assert_eq;

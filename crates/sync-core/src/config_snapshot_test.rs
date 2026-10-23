@@ -1,7 +1,6 @@
 use crate::branch_prefix::{GitBranchPrefix, get_branch_prefix_from_git_config_sync};
-use crate::config_snapshot::ConfigSnapshot;
-use crate::pull_requests::GitHubRepository;
-use crate::symbol_scan::{SymbolMode, read_symbol_mode};
+use crate::config_snapshot::{ConfigSnapshot, SymbolMode, read_symbol_mode};
+use crate::github_repository::GitHubRepository;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
 use git_ops::word_resolve::ResolveMode;
@@ -173,4 +172,17 @@ fn the_resolve_by_words_is_on_unless_the_config_turns_it_off() {
   assert_eq!((setting.value, setting.local_set, setting.fallback_value), (false, true, true));
   repo.set_config("branchdeck.resolveByWords", "maybe").unwrap();
   snapshot(&repo).resolve_mode().unwrap_err();
+}
+
+#[test]
+fn the_mode_comes_from_git_config_and_is_on_without_it() {
+  let repo = TestRepo::new();
+  let mode = || read_symbol_mode(repo.git_executor(), repo.path_str());
+  assert_eq!(mode().unwrap(), SymbolMode::On);
+  repo.set_config("branchdeck.symbols", "report").unwrap();
+  assert_eq!(mode().unwrap(), SymbolMode::Report);
+  repo.set_config("branchdeck.symbols", "off").unwrap();
+  assert_eq!(mode().unwrap(), SymbolMode::Off);
+  repo.set_config("branchdeck.symbols", "maybe").unwrap();
+  mode().unwrap_err();
 }

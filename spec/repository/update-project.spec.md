@@ -9,6 +9,7 @@ targets:
   - ../../crates/git-ops/src/revs.rs
   - ../../crates/git-ops/src/worktree_update.rs
   - ../../crates/sync-core/src/update_project.rs
+  - ../../crates/sync-core/src/baseline.rs
   - ../../crates/sync-core/src/transfer_progress.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/sync.rs

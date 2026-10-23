@@ -900,8 +900,8 @@ mark as `pending_update`.
 
 Code: `crates/git-ops/src/update_branch.rs` (check, apply, the undo check, and the moves of a resolve finish),
 `crates/git-ops/src/paths.rs` (the changed paths of two trees, the commits that change the likely conflicting files),
-`crates/git-ops/src/worktree_update.rs` (the exempt `read-tree -u`), `crates/sync-core/src/update_project.rs` (upstream, fetch, lock, undo, the check inside
-sync), `crates/bd-update/src/update_command.rs` (`bd update`, `bd undo update:`).
+`crates/git-ops/src/worktree_update.rs` (the exempt `read-tree -u`), `crates/sync-core/src/baseline.rs` (upstream, fetch, the check inside
+sync), `crates/sync-core/src/update_project.rs` (lock, update, undo), `crates/bd-update/src/update_command.rs` (`bd update`, `bd undo update:`).
 
 #### Resolve session
 
@@ -2419,8 +2419,8 @@ check of the popover, `check_landing`):
 
 No lock: the start changes no ref of the repository, and `bd safe-push` starts after its lock too.
 
-Code: `crates/repository-view/src/start_guard.rs`, `crates/patronus/src/service.rs` (`robots_for_action`),
-`crates/sync-core/src/patronus.rs` (`prepare_robot_start`), `src-tauri/src/commands/patronus.rs`,
+Code: `crates/repository-view/src/start_guard.rs` (the checks and `prepare_robot_start`), `crates/patronus/src/service.rs` (`robots_for_action`),
+`src-tauri/src/commands/patronus.rs`,
 `crates/test-server/src/tauri_command_bridge.rs`.
 
 #### Agent robot status (`bd robot`)
@@ -3110,7 +3110,7 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/replay.rs`, `crates/git-ops/src/amend_operations.rs`,
   `crates/git-ops/src/squash_commits.rs`,
   `crates/history-rewrite/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
-  `crates/sync-core/src/update_project.rs`, `crates/git-ops/src/update_resolve.rs`, `crates/git-ops/src/resolve_check.rs`,
+  `crates/sync-core/src/baseline.rs`, `crates/sync-core/src/update_project.rs`, `crates/git-ops/src/update_resolve.rs`, `crates/git-ops/src/resolve_check.rs`,
   `crates/git-ops/src/merge_tree_output.rs`, `crates/sync-core/src/resolve_session.rs`,
   `crates/sync-core/src/resolve_copies.rs`, `crates/history-rewrite/src/regroup.rs`, `crates/history-rewrite/src/repository_lock.rs`,
   `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`; the module maps in

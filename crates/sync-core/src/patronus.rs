@@ -1,11 +1,9 @@
 //! The git side of Patronus: which Space repository (`git.jetbrains.team`) the virtual branches are pushed to. The HTTP side is
 //! the `patronus` crate.
 
-use crate::landing_gate::{LandingGateParams, ensure_landing_starts};
+use crate::baseline::{BaselineUpstream, resolve_baseline_upstream};
 use crate::remote_url::{origin_push_url, parse_remote_url, split_owner_and_name};
-use crate::update_project::{BaselineUpstream, resolve_baseline_upstream};
-use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
-use domain_types::patronus::{PatronusReviewRequirement, ReviewPathsSource, StartPatronusRobotParams};
+use domain_types::patronus::{PatronusReviewRequirement, ReviewPathsSource};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::read_commit_files_cached;
 use git_ops::ownership::OwnershipRules;
@@ -55,46 +53,6 @@ pub fn find_target_branch(git_executor: &GitCommandExecutor, repository_path: &s
 pub fn required_target_branch(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> anyhow::Result<String> {
   find_target_branch(git_executor, repository_path, baseline_branch)?
     .ok_or_else(|| anyhow::anyhow!("The baseline {baseline_branch} is not a branch of origin: Patronus pushes into a branch of origin"))
-}
-
-/// The branches of a start Patronus is asked for
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RobotStartBranches {
-  /// `refs/heads/{prefix}/virtual/<name>`, or `refs/heads/{prefix}/stack/<root>` for the whole stack
-  pub source_branch: String,
-  /// The branch of origin the baseline tracks
-  pub target_branch: String,
-}
-
-/// What the app checks before it asks Patronus to start `params`, after the checks of the repository view
-/// (`repository_view::start_guard`): the landing gate, as `bd safe-push` refuses it (`ensure_landing_starts`), with
-/// `landed_commits`, the commits (original ids) merged Safe Pushes landed as the view names them, whose names the target
-/// has; then the branch the robot pushes into. The full ref of the pushed virtual branch, or of the stack branch with
-/// `stack`
-pub fn prepare_robot_start(
-  git_executor: &GitCommandExecutor,
-  cache: &ObjectCache,
-  params: &StartPatronusRobotParams,
-  landed_commits: Vec<String>,
-) -> anyhow::Result<RobotStartBranches> {
-  let gate = LandingGateParams {
-    repository_path: params.repository_path.clone(),
-    branch_prefix: params.branch_prefix.clone(),
-    branch_name: params.branch_name.clone(),
-    stack: params.stack,
-    allow: params.allow,
-  };
-  ensure_landing_starts(git_executor, cache, &gate, &landed_commits.into_iter().collect())?;
-  let target_branch = required_target_branch(git_executor, &params.repository_path, &params.baseline_branch)?;
-  let source = if params.stack {
-    to_stack_branch_name(&params.branch_prefix, &params.branch_name)?
-  } else {
-    to_final_branch_name(&params.branch_prefix, &params.branch_name)?
-  };
-  Ok(RobotStartBranches {
-    source_branch: format!("refs/heads/{source}"),
-    target_branch,
-  })
 }
 
 /// `find_target_branch` of the upstream of the baseline a caller read (`SyncReport::upstream`): no git process

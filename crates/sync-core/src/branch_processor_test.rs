@@ -1,5 +1,5 @@
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltBranch, build_branch, finish_branch, process_single_branch};
-use crate::missing_commits::CommitOwners;
+use crate::commit_owners::CommitOwners;
 use crate::sync::{SyncOptions, sync_branches};
 use domain_types::commit::Commit;
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, SyncEvent};

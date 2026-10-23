@@ -2,7 +2,7 @@
 //! prefix, the files following, the unapplied branch deleted in the transaction that moves HEAD, under the repository
 //! lock (`git_ops::reapply`, spec/branch/unapply.spec.md); and its undo (`ReapplyUndoToken`).
 
-use crate::pick::baseline_tracking_ref;
+use crate::baseline::baseline_tracking_ref;
 use crate::unapply_branch::{checked_undo, parse_move_token};
 use anyhow::Result;
 use branch_integration::archive::own_commits_start;

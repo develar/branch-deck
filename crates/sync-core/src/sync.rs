@@ -3,18 +3,18 @@
 //! notes write and the stack branches' refs; the events reach the app as they happen (docs/design/git-operations.md,
 //! "Virtual branch sync").
 
+use crate::baseline::{BaselineCheck, BaselineUpstream, KnownBaseline, check_known_baseline_update};
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, build_branch, finish_branch};
 use crate::cache_memo::ConflictMemo;
 use crate::commit_key::CommitKey;
+use crate::commit_owners::CommitOwners;
 use crate::config_snapshot::ConfigSnapshot;
 use crate::conflict_chain::{ChainMemo, conflict_ref, move_conflict_refs};
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
-use crate::missing_commits::CommitOwners;
 use crate::remote_status::RemoteStatusMemo;
 use crate::repo_facts::{RepoFacts, read_repo_facts};
 use crate::stack_branch::{BuildResult, StackBranchSync, StackBuilds, StackFinish, build_planned, finish_stack_branches, plan_stack_branches};
-use crate::update_project::{BaselineCheck, BaselineUpstream, KnownBaseline, check_known_baseline_update};
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::common::ListedBranch;
@@ -99,7 +99,7 @@ fn compute_branch_summary(commits: &[Commit]) -> String {
 
 /// The summary of a branch, of its subjects oldest first: the first that is no cleanup, refactoring or formatting,
 /// without its issue key (a `[category]` or `type:` before the key stays); else the first that is not empty
-pub(crate) fn branch_summary<'a>(subjects: impl IntoIterator<Item = &'a str>) -> String {
+pub fn branch_summary<'a>(subjects: impl IntoIterator<Item = &'a str>) -> String {
   let mut fallback_summary: Option<String> = None;
   for subject in subjects {
     // the issue key goes, with the separator after it; what comes before it stays
@@ -1145,7 +1145,7 @@ impl<P: ProgressReporter + Clone + 'static> SyncTask<P> {
 
 /// `cache` with the trees the commit list read: the parent of a commit ahead of the baseline is another such commit, so
 /// checking a mapping note's source asks git for no tree
-pub(crate) fn seeded_tree_cache<'a>(cache: TreeIdCache, commits: impl Iterator<Item = &'a Commit>) -> TreeIdCache {
+pub fn seeded_tree_cache<'a>(cache: TreeIdCache, commits: impl Iterator<Item = &'a Commit>) -> TreeIdCache {
   for commit in commits {
     if !commit.tree_id.is_empty() {
       cache.insert(&commit.id, &commit.tree_id);

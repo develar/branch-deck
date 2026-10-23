@@ -42,6 +42,7 @@ use sync_core::branch_name_suggestion::clean_names;
 use sync_core::branch_prefix::GitBranchPrefix;
 use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
+use sync_core::github_repository::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
 use sync_core::patronus::{SpaceRepository, find_target_branch, required_target_branch};
 use sync_core::patronus_command::{
   UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
@@ -54,9 +55,7 @@ use sync_core::pull_request_writes::{
   ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, close_pull_request as core_close_pull_request, read_pull_request_head,
   retarget_pull_request as core_retarget_pull_request,
 };
-use sync_core::pull_requests::{
-  GetPullRequestsParams, GitHubRepository, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests, parse_known_github_repository, resolve_github_repository,
-};
+use sync_core::pull_requests::{GetPullRequestsParams, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
 use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
@@ -469,12 +468,12 @@ pub async fn check_landing_gate(
 /// Without the object cache, as every command of the mock server
 pub async fn get_stack_independence(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::stack_operations::StackIndependenceParams>,
+  Json(params): Json<sync_core::check::StackIndependenceParams>,
 ) -> CommandResult<sync_core::check::StackIndependence> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("check the stack independence", move || {
-    sync_core::stack_operations::get_stack_independence(&git_executor, &ObjectCache::disabled(), &params)
+    sync_core::check::get_stack_independence(&git_executor, &ObjectCache::disabled(), &params)
   })
   .await
 }

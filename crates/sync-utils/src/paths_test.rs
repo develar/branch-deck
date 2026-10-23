@@ -1,4 +1,4 @@
-use crate::resolve_copies::windows_display;
+use crate::paths::windows_display;
 use pretty_assertions::assert_eq;
 
 #[test]

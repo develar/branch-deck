@@ -3,7 +3,7 @@
 //! `refs/branch-deck/review/<n>/{head,base}`; then the merge base and the commits of the range. Pruning deletes those
 //! refs in one CAS transaction. See "Review fetch" in `docs/design/git-operations.md`.
 
-use crate::pull_requests::{GitHubRepository, GitHubRepositorySource, parse_github_repository, resolve_github_repository_source};
+use crate::github_repository::{GitHubRepository, GitHubRepositorySource, parse_github_repository, resolve_github_repository_source};
 use crate::remote_command::execute_remote_command_with_progress_until;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
@@ -311,7 +311,7 @@ fn is_safe_branch_name(name: &str) -> bool {
 }
 
 /// Whether each of `names` (object ids or ref names) is a local commit, from one `cat-file --batch-check`
-pub(crate) fn present_commits<const N: usize>(git: &GitCommandExecutor, repo: &str, names: [&str; N]) -> Result<[bool; N]> {
+pub fn present_commits<const N: usize>(git: &GitCommandExecutor, repo: &str, names: [&str; N]) -> Result<[bool; N]> {
   let types = object_types(git, repo, &names)?;
   Ok(std::array::from_fn(|index| types[index] == Some("commit")))
 }

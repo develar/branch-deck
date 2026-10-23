@@ -1,7 +1,8 @@
 //! The merge memos in the object cache. A trial sync (`check.rs`) remembers the merges and commit trees of its builds,
 //! so that trying variants of a plan repeats no `merge-tree` (`CacheMemo`). A sync remembers only its conflict views
 //! (`ConflictMemo`): its merges already run in the branch's one `merge-tree --stdin` process, but the view of a conflict
-//! costs a merge of its own and the analysis, again at every sync of the unchanged branch.
+//! costs a merge of its own and the analysis, again at every sync of the unchanged branch. Public for the trial build of
+//! `check`.
 
 use domain_types::conflict::MergeConflictInfo;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -22,7 +23,7 @@ use tracing::debug;
 /// write transaction syncs the file (`F_FULLFSYNC` on macOS, ~4 ms) and takes the writer lock the parallel `bd` share.
 /// A remembered clean merge counts only while its tree is there: the trees of trial builds are on no ref, so `gc`
 /// prunes them while the entry stays (`tree_exists`)
-pub(crate) struct CacheMemo {
+pub struct CacheMemo {
   cache: ObjectCache,
   pending: Mutex<PendingWrites>,
   git_executor: GitCommandExecutor,
@@ -52,7 +53,7 @@ struct PendingWrites {
 }
 
 impl CacheMemo {
-  pub(crate) fn new(cache: ObjectCache, git_executor: GitCommandExecutor, repository_path: String) -> Self {
+  pub fn new(cache: ObjectCache, git_executor: GitCommandExecutor, repository_path: String) -> Self {
     Self {
       cache,
       pending: Mutex::default(),
@@ -95,7 +96,7 @@ impl CacheMemo {
   }
 
   /// Write what the check learned; the lock is not held while LMDB writes
-  pub(crate) fn flush(&self) {
+  pub fn flush(&self) {
     let PendingWrites { merges, trees, resolutions } = std::mem::take(&mut *self.pending());
     self.cache.put_merge_results(&merges.into_iter().collect::<Vec<_>>());
     self.cache.put_commit_trees(&trees);
@@ -180,14 +181,14 @@ impl MergeMemo for CacheMemo {
 /// remembered. What the sync learns waits in `pending` and is written in one transaction when the memo drops, after
 /// the branches are built. The views are those of the sync's resolve mode: a conflict that a sync without the resolve
 /// reports may resolve with it
-pub(crate) struct ConflictMemo {
+pub struct ConflictMemo {
   cache: ObjectCache,
   resolve: ResolveMode,
   pending: Mutex<HashMap<ConflictKey, MergeConflictInfo>>,
 }
 
 impl ConflictMemo {
-  pub(crate) fn new(cache: ObjectCache, resolve: ResolveMode) -> Self {
+  pub fn new(cache: ObjectCache, resolve: ResolveMode) -> Self {
     Self {
       cache,
       resolve,
@@ -208,7 +209,7 @@ impl Drop for ConflictMemo {
   }
 }
 
-pub(crate) fn conflict_key(commits: CherryCommits<'_>, resolve: ResolveMode) -> ConflictKey {
+pub fn conflict_key(commits: CherryCommits<'_>, resolve: ResolveMode) -> ConflictKey {
   ConflictKey {
     resolve: resolve.key(),
     commit: commits.commit.to_string(),

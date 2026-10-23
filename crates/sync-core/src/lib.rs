@@ -18,10 +18,12 @@
 //! - `remote_status`: what a virtual branch has that its remote branch lacks and the reverse, by content
 //! - `commit_walk`: one `rev-list` walk of commits that a caller matches across a rebase by `CommitKey`
 //! - `commit_key`: the identity of a commit across a rebase and an amend
-//! - `missing_commits`: the commits a conflicting commit likely needs, with their branches
+//! - `commit_owners`: where the commits of a sync go, so a conflict names the branch of each commit it likely needs
 //! - `cache_memo`: the merges, commit trees and conflict views in the object cache
 //! - `conflict_chain`: the copies of a conflicting branch before its conflict, kept by a ref and remembered
 //! - `landed`: the user's commits that reached the baseline, before and after an update
+//! - `baseline`: the remote branch the baseline tracks, its fetch, and the update check every sync runs, without the
+//!   network
 //! - `baseline_fetch`: the fetch of the baseline without an update
 //!
 //! Rewrites of the checked out branch, each under the repository lock its core takes:
@@ -35,12 +37,16 @@
 //! - `parked`: park and unpark a branch (no rewrite: the store `refs/branch-deck/parked`), and whether a branch is parked
 //!
 //! Stores and config:
-//! - `config_snapshot`: `ConfigSnapshot`, the `branchdeck.*` keys and the branch descriptions from one `git config`
+//! - `config_snapshot`: `ConfigSnapshot`, the `branchdeck.*` keys and the branch descriptions from one `git config`;
+//!   the symbol mode (`SymbolMode`)
+//! - `github_repository`: the GitHub repository of the branches, from the config, `origin` and the Space mirror, no HTTP
 //! - `repository_config`: the `branchdeck.*` config that Settings shows and writes
 //! - `branch_prefix`: the branch prefix by git config and the app setting
 //!
 //! The check, trial syncs that write objects only:
-//! - `check`: `CheckSession`, the trial sync of a regroup plan
+//! - `check`: `CheckSession`, the trial sync of a regroup plan, and whether a stacked branch builds without its parent
+//!   (`get_stack_independence`); it builds with `branch_processor` and `cache_memo`
+//! - `missing_commits`: the commits a conflicting commit of a trial build likely needs, by the changed files
 //! - `conflict_fix`: the regroup after which the conflicting branches apply cleanly, found by trial builds
 //! - `dangling_references`: the declarations a branch removes while its tree still uses them, and by the summaries
 //!   (`symbol_dependencies::declaration_checks`) those it changes or declares again
@@ -57,7 +63,7 @@
 //! - `module_roots`: where the modules of source files begin
 //!
 //! Update Project:
-//! - `update_project`: the fetch and the update onto the baseline, and the check every sync runs
+//! - `update_project`: the update onto the baseline (after the fetch of `baseline`) and its undo
 //! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), and the undo
 //! - `resolve_session`: the resolve sessions of a conflicting `bd update`
 //! - `resolve_copies`: the copies of a round that the agent edits, the only files of a session
@@ -110,19 +116,21 @@ pub mod agent_workspace;
 #[cfg(test)]
 mod agent_workspace_test;
 pub mod amend_to_branch;
+pub mod baseline;
 pub mod baseline_fetch;
 pub mod branch_name_suggestion;
 pub mod branch_prefix;
-mod branch_processor;
+pub mod branch_processor;
 pub mod branch_review;
 pub mod branch_rules;
-mod cache_memo;
+pub mod cache_memo;
 pub mod check;
 pub mod clone_dir;
 pub mod commit_key;
+pub mod commit_owners;
 pub mod commit_walk;
 pub mod config_snapshot;
-mod conflict_chain;
+pub mod conflict_chain;
 pub mod conflict_fix;
 pub mod dangling_fix;
 pub mod dangling_references;
@@ -130,6 +138,7 @@ pub mod delete_archived_branch;
 pub mod dependencies;
 pub mod diff_scan;
 pub mod git_setup;
+pub mod github_repository;
 pub mod grouping;
 pub mod inverted_stack;
 pub mod issue_navigation;
@@ -199,6 +208,8 @@ mod diff_scan_test;
 #[cfg(test)]
 mod git_setup_test;
 #[cfg(test)]
+mod github_repository_test;
+#[cfg(test)]
 mod issue_groups_test;
 #[cfg(test)]
 mod move_commits_test;
@@ -230,8 +241,6 @@ mod remote_command_test;
 mod repository_config_test;
 #[cfg(test)]
 mod repository_lock_test;
-#[cfg(test)]
-mod resolve_copies_test;
 #[cfg(test)]
 mod review_readiness_test;
 #[cfg(test)]

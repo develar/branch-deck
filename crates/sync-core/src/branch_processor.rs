@@ -1,10 +1,11 @@
 //! The build of one virtual branch of a sync: its commits copied (`git_ops::copy_commit`) with one `merge-tree --stdin`
 //! and one `fast-import`, then its ref moved with compare-and-swap on the tip the sync listed, its remote status
-//! computed and its notes returned for the one notes write of the sync.
+//! computed and its notes returned for the one notes write of the sync. The trial build of `check` builds a branch with
+//! the same `build_branch`, which writes commit objects only, so these are public.
 
 use crate::commit_key::CommitKey;
+use crate::commit_owners::CommitOwners;
 use crate::conflict_chain::{ChainMemo, ConflictChain, conflict_ref};
-use crate::missing_commits::CommitOwners;
 use crate::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, compute_remote_status_for_branch};
 use anyhow::Result;
 use domain_types::branch_names::to_final_branch_name;
@@ -26,7 +27,7 @@ use std::sync::{Arc, OnceLock};
 use tracing::{debug, instrument, warn};
 
 /// State shared by all branch tasks of one sync
-pub(crate) struct BranchSyncContext<P: ProgressReporter> {
+pub struct BranchSyncContext<P: ProgressReporter> {
   pub repository_path: String,
   pub branch_prefix: String,
   pub baseline_branch: String,
@@ -60,14 +61,14 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
 
 /// The commits of every existing virtual branch above the base of the sync, read with one `log` by the first branch
 /// that needs them, instead of one per branch
-pub(crate) struct ExistingCommits {
+pub struct ExistingCommits {
   base: String,
   tips: Vec<String>,
   commits: OnceLock<Option<HashMap<String, VirtualCommit>>>,
 }
 
 impl ExistingCommits {
-  pub(crate) fn new(base: &str, tips: impl IntoIterator<Item = String>) -> Self {
+  pub fn new(base: &str, tips: impl IntoIterator<Item = String>) -> Self {
     Self {
       base: base.to_string(),
       tips: tips.into_iter().collect(),
@@ -98,7 +99,7 @@ impl ExistingCommits {
 }
 
 /// One branch to rebuild
-pub(crate) struct BranchJob {
+pub struct BranchJob {
   pub branch_name: String,
   /// Commits oldest first
   pub commits: Vec<Commit>,
@@ -113,7 +114,7 @@ pub(crate) struct BranchJob {
 }
 
 /// A branch whose commits are written; its ref, notes and remote status are not updated yet
-pub(crate) struct BuiltBranch {
+pub struct BuiltBranch {
   /// The new tip, which the children of the branch are built on
   pub head: String,
   branch_name: String,
@@ -133,12 +134,12 @@ pub(crate) struct BuiltBranch {
 }
 
 impl BuiltBranch {
-  pub(crate) fn branch_name(&self) -> &str {
+  pub fn branch_name(&self) -> &str {
     &self.branch_name
   }
 }
 
-pub(crate) enum BuildOutcome {
+pub enum BuildOutcome {
   Built(Box<BuiltBranch>),
   /// A commit could not be copied (`Conflict` or `Error`); its events are sent and the branch is left as it was. A
   /// conflict names what its conflict ref keeps
@@ -146,7 +147,7 @@ pub(crate) enum BuildOutcome {
 }
 
 /// What the conflict ref of a conflicting branch keeps (`conflict_chain`)
-pub(crate) struct KeptChain {
+pub struct KeptChain {
   pub full_branch_name: String,
   /// The copy of the last commit before the conflict; `None` when no ref is needed: the conflict is at the first commit,
   /// or that copy is on the virtual branch already
@@ -168,7 +169,7 @@ enum CommitProcessingResult {
 /// Rebuilds one virtual branch and returns the `original -> new` mapping notes of the commits it created; the caller
 /// writes the notes. The sync runs the two steps as separate tasks.
 #[cfg(test)]
-pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<MappingNote>> {
+pub fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<MappingNote>> {
   match build_branch(ctx, job)? {
     BuildOutcome::Built(built) => finish_branch(ctx, *built).map(|notes| notes.mappings),
     BuildOutcome::Failed(..) => Ok(Vec::new()),
@@ -186,7 +187,7 @@ pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext
     commit_count = job.commits.len(),
   )
 )]
-pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<BuildOutcome> {
+pub fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<BuildOutcome> {
   let BranchSyncContext {
     repository_path,
     branch_prefix,
@@ -396,7 +397,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
 }
 
 /// The notes a branch leaves for the sync to write, and where its ref is after its finish
-pub(crate) struct BranchNotes {
+pub struct BranchNotes {
   /// The mapping notes of the created commits, and of the reused ones whose note had no source
   pub mappings: Vec<MappingNote>,
   /// `(tip, base)` of a stacked branch, see `BuiltBranch::stack_note`
@@ -414,7 +415,7 @@ pub(crate) struct BranchNotes {
 /// written; one it moved elsewhere keeps that tip, and the branch reports an error, without notes, for the next sync to
 /// rebuild. Any other failure of the move (a ref of the name is in the way) fails the branch's task
 #[instrument(skip(ctx, built), fields(branch_name = %built.branch_name))]
-pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, built: BuiltBranch) -> Result<BranchNotes> {
+pub fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, built: BuiltBranch) -> Result<BranchNotes> {
   let BuiltBranch {
     head,
     branch_name,
@@ -496,7 +497,7 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
 }
 
 /// How the move of a virtual branch ended
-pub(crate) enum BranchMove {
+pub enum BranchMove {
   /// The ref is at the new head: moved by this sync, or by another one to the same copy
   Written,
   /// Another process moved the ref to this tip (`None`: deleted it) since the sync listed it
@@ -506,7 +507,7 @@ pub(crate) enum BranchMove {
 /// Moves `refs/heads/<full_branch_name>` from `old_tip` (`None`: no such ref) to `head` in one CAS transaction. A
 /// failed transaction whose ref is at neither `head` nor `old_tip` any more lost to another writer; any other failure is
 /// not about the old value and is returned
-pub(crate) fn move_branch(git_executor: &GitCommandExecutor, repository_path: &str, full_branch_name: &str, head: &str, old_tip: Option<&str>) -> Result<BranchMove> {
+pub fn move_branch(git_executor: &GitCommandExecutor, repository_path: &str, full_branch_name: &str, head: &str, old_tip: Option<&str>) -> Result<BranchMove> {
   let reference = format!("refs/heads/{full_branch_name}");
   let mut transaction = RefTransaction::new();
   match old_tip {

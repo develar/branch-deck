@@ -4,6 +4,7 @@
 //! repository, so the counts are the same on every run.
 
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
+use crate::baseline::check_baseline_update;
 use crate::check::{CheckSession, check_plan};
 use crate::landing_gate::landing_gate_test;
 use crate::landing_gate::landing_needs_of;
@@ -17,7 +18,7 @@ use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubject
 use crate::sync::{SyncOptions, sync_branches};
 use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_target};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
-use crate::update_project::{UpdateProjectParams, check_baseline_update, update_project_core};
+use crate::update_project::{UpdateProjectParams, update_project_core};
 use domain_types::robot_landing::RobotLandingRequest;
 use domain_types::{BranchError, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;

@@ -19,11 +19,11 @@ use std::sync::Mutex;
 use tracing::{debug, warn};
 
 /// The refs that keep the copies of the conflicting branches, one per branch
-pub(crate) const CONFLICT_REFS: &str = "refs/branch-deck/conflict/";
+pub const CONFLICT_REFS: &str = "refs/branch-deck/conflict/";
 
 /// The ref that keeps the copies of the virtual branch `full_branch_name`: named by a hash of the name, so the refs of a
 /// branch `a` and a branch `a/b` never clash, and a rename deletes one ref and creates another in one transaction
-pub(crate) fn conflict_ref(full_branch_name: &str) -> String {
+pub fn conflict_ref(full_branch_name: &str) -> String {
   let hash = Sha256::digest(full_branch_name.as_bytes());
   hash.iter().fold(String::from(CONFLICT_REFS), |mut name, byte| {
     let _ = write!(name, "{byte:02x}");
@@ -34,7 +34,7 @@ pub(crate) fn conflict_ref(full_branch_name: &str) -> String {
 /// The commits of a branch before its conflict, in order, their copies `(id, tree)`, and the resolve by words each copy
 /// took, which its mapping note records
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct ConflictChain {
+pub struct ConflictChain {
   pub originals: Vec<String>,
   pub copies: Vec<(String, String)>,
   pub resolutions: Vec<Option<NoteResolution>>,
@@ -42,26 +42,26 @@ pub(crate) struct ConflictChain {
 
 impl ConflictChain {
   /// Whether the branch's `commits` start with the originals: a commit added after the conflict keeps the chain
-  pub(crate) fn starts(&self, commits: &[Commit]) -> bool {
+  pub fn starts(&self, commits: &[Commit]) -> bool {
     self.originals.len() <= commits.len() && self.originals.iter().zip(commits).all(|(original, commit)| *original == commit.id)
   }
 
   /// The copy of the last commit before the conflict, the target of the conflict's merge
-  pub(crate) fn last(&self) -> Option<&str> {
+  pub fn last(&self) -> Option<&str> {
     self.copies.last().map(|(id, _)| id.as_str())
   }
 }
 
 /// The chains of one sync in the object cache: read by each branch, the new ones written in one transaction when the
 /// memo drops. The chains are those of the sync's resolve mode, whose copies differ
-pub(crate) struct ChainMemo {
+pub struct ChainMemo {
   cache: ObjectCache,
   resolve: ResolveMode,
   pending: Mutex<Vec<([u8; 32], ConflictChain)>>,
 }
 
 impl ChainMemo {
-  pub(crate) fn new(cache: ObjectCache, resolve: ResolveMode) -> Self {
+  pub fn new(cache: ObjectCache, resolve: ResolveMode) -> Self {
     Self {
       cache,
       resolve,
@@ -70,11 +70,11 @@ impl ChainMemo {
   }
 
   /// The chain the branch `full_branch_name` had on `base` when it last conflicted
-  pub(crate) fn get(&self, full_branch_name: &str, base: &str) -> Option<ConflictChain> {
+  pub fn get(&self, full_branch_name: &str, base: &str) -> Option<ConflictChain> {
     self.cache.get_conflict_chain(CONFLICT_CHAIN_VERSION, &chain_key(full_branch_name, base, self.resolve))
   }
 
-  pub(crate) fn remember(&self, full_branch_name: &str, base: &str, chain: ConflictChain) {
+  pub fn remember(&self, full_branch_name: &str, base: &str, chain: ConflictChain) {
     self
       .pending
       .lock()
@@ -106,7 +106,7 @@ fn chain_key(full_branch_name: &str, base: &str, resolve: ResolveMode) -> [u8; 3
 /// compare-and-swap on the tips the sync listed (`listed`); none when nothing changes. They only keep copies, so a failed
 /// move fails no sync: the refs are listed again, a ref another sync already moved where it should be counts as moved,
 /// the rest is logged and moved by the next sync
-pub(crate) fn move_conflict_refs(git_executor: &GitCommandExecutor, repository_path: &str, listed: &HashMap<String, String>, wanted: &HashMap<String, Option<String>>) {
+pub fn move_conflict_refs(git_executor: &GitCommandExecutor, repository_path: &str, listed: &HashMap<String, String>, wanted: &HashMap<String, Option<String>>) {
   let mut transaction = RefTransaction::new();
   let mut moves = 0;
   for (reference, tip) in wanted {

@@ -749,6 +749,14 @@ pub struct NotAnUpdate {
   pub message: String,
 }
 
+/// Local changes sit on paths the undo of a move would write (an update, a pick, an unapply, a reapply); nothing was
+/// changed
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Uncommitted, staged or untracked files sit on paths the undo would write: {}", .paths.join(", "))]
+pub struct UndoBlocked {
+  pub paths: Vec<String>,
+}
+
 /// Check the undo of an update that moved the checked out branch from `previous_head` to `new_head`: the move back,
 /// with the old and the new tree swapped, so the dry run refuses every path changed since the update and an ignored
 /// file in the way of a file that comes back. The last entry of the branch's reflog must be that update

@@ -574,8 +574,8 @@ flowchart TD
   (`macro_items`, `macro_item`, `enum_variants`; `Walk::add_token_declaration` with a `TokenItem`, `Walk::tokens_header`,
   decision 17), and a field of a struct expression or pattern as a reference qualified by the struct (`field`, the
   shorthand by `emit_text` beside its local).
-- `crates/sync-core/src/symbol_scan.rs`: the mode (`branchdeck.symbols`), the summaries through the cache, the crate
-  names and the TypeScript aliases.
+- `crates/sync-core/src/symbol_scan.rs`: the summaries through the cache, the crate names and the TypeScript aliases;
+  the mode (`branchdeck.symbols`, `SymbolMode`) is `crates/sync-core/src/config_snapshot.rs`.
 - `crates/sync-core/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
   TypeScript packages).
 - `crates/sync-core/src/symbol_dependencies.rs`: the `Order` edges with their evidence, what a use needs

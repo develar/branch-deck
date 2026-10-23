@@ -2,12 +2,16 @@
 // numbers.
 //
 //   pnpm perf:bd-rebuild measure --out <dir> [--runs 5] [--edits safe_push,clustering,lease,sync] [--workspace] [--clean] [--phases]
+//
+// The edits (`EDITS`): `safe_push`, `clustering`, `lease`, `sync`, `check_command` and `update_command` change a bd
+// command; `remote` (`list_pull_requests`), `check` (`check_plan`), `update` (`update_project_core`) and `lease_pool`
+// (`pool_dir`) change a core of sync-core, so the split of sync-core is measured by the same edit before and after.
 //   pnpm perf:bd-rebuild summarize <out>
 //   pnpm perf:bd-rebuild compare <out> <other out>
 //
 // An edit inserts `let _ = std::hint::black_box(<n>u32);` into the body of one function, a new `n` per run, and the
 // original bytes come back at the end, also on Ctrl-C. The file is found by its name in `crates/*/src/`, so an edit
-// names the same function before and after a move; the crate of its directory is its owner. Per edit, each scenario
+// names the same function before and after a move (of two files of that name, the one with the function); the crate of its directory is its owner. Per edit, each scenario
 // is built once untimed, then timed `--runs` times:
 //   own        cargo nextest run -p <owner> --no-run   the inner loop of the owner's tests
 //   cli        cargo nextest run -p bd-cli --no-run    the tests of the crate with the `Cli`
@@ -36,8 +40,12 @@ const EDITS = {
   clustering: ["clustering.rs", "pub fn name_clusters("],
   lease: ["lease_command.rs", "pub fn lease_status("],
   sync: ["sync_command.rs", "pub fn sync_locked("],
-  check: ["check_command.rs", "pub fn check("],
-  update: ["update_command.rs", "pub fn update("],
+  check_command: ["check_command.rs", "pub fn check("],
+  update_command: ["update_command.rs", "pub fn update("],
+  remote: ["pull_requests.rs", "pub async fn list_pull_requests("],
+  check: ["check.rs", "pub fn check_plan("],
+  update: ["update_project.rs", "pub fn update_project_core("],
+  lease_pool: ["lease.rs", "pub fn pool_dir("],
 }
 const WAIT_LIMIT_MS = 10 * 60 * 1000
 
@@ -107,7 +115,7 @@ function measure(args) {
 
   for (const edit of edits) {
     const [file, anchor] = EDITS[edit]
-    const source = sourceFile(file)
+    const source = sourceFile(file, anchor)
     const owner = source.split("/")[1]
     const scenarios = [
       { scenario: "own", build: ["nextest", "run", "-p", owner, "--no-run"], count: runs },
@@ -184,10 +192,14 @@ function bdPackages() {
     .sort()
 }
 
-function sourceFile(name) {
-  const files = git("ls-files", `crates/*/src/${name}`).split("\n").filter(Boolean)
+/** The one `crates/<crate>/src/<name>` with a line starting with `anchor` */
+function sourceFile(name, anchor) {
+  const files = git("ls-files", `crates/*/src/${name}`)
+    .split("\n")
+    .filter(Boolean)
+    .filter(file => readFileSync(path.join(root, file), "utf8").split("\n").some(line => line.trimStart().startsWith(anchor)))
   if (files.length !== 1) {
-    fail(`expected one crates/*/src/${name}, found ${files.length}`)
+    fail(`expected one crates/*/src/${name} with ${anchor}, found ${files.length}`)
   }
   return files[0]
 }

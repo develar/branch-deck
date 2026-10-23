@@ -1,12 +1,14 @@
+use crate::baseline::{check_baseline_update, previous_tip_of_forced_update};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::{
-  FetchFailed, LOCKED_MESSAGE, UndoBlocked, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error,
-  check_baseline_update, previous_tip_of_forced_update, undo_update_core, update_project_core, update_project_with,
+  FetchFailed, LOCKED_MESSAGE, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error, undo_update_core,
+  update_project_core, update_project_with,
 };
 use domain_types::SyncEvent;
 use domain_types::update_project::{UpdateCommit, UpdateKind, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
+use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{
   BranchSwitched, CheckPurpose, NotAnUpdate, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, blocked_state, check_update, check_update_undo,
   no_landed_candidates,

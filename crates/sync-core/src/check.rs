@@ -9,15 +9,16 @@
 
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, ExistingCommits, build_branch};
 use crate::cache_memo::CacheMemo;
+use crate::commit_owners::CommitOwners;
 use crate::config_snapshot::ConfigSnapshot;
+use crate::config_snapshot::SymbolMode;
 use crate::dangling_references::{DanglingInput, DanglingReference, SyntaxMemo, find_dangling_references, read_commit_lines};
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::grouping::branch_tips;
-use crate::missing_commits::CommitOwners;
 use crate::symbol_dependencies::declaration_checks::{AddedKeys, DeclarationFacts};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
-use crate::symbol_scan::{SymbolInput, SymbolMode, read_symbol_input};
+use crate::symbol_scan::{SymbolInput, read_symbol_input};
 use crate::sync::{SyncReport, seeded_tree_cache};
 use code_symbols::language::language_of as symbols_language_of;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
@@ -41,7 +42,7 @@ use history_rewrite::stack::{PendingDetection, empty_parent_states, place_branch
 use history_rewrite::stack::{StackForest, describe_problem};
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
@@ -171,6 +172,29 @@ pub fn stack_independence(
   cache: &ObjectCache,
 ) -> Result<StackIndependence, RegroupError> {
   CheckSession::open(git_executor, repository_path, branch_prefix, cache)?.stack_independence(branch)
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackIndependenceParams {
+  pub repository_path: String,
+  pub branch_prefix: String,
+  /// A stacked branch
+  pub branch_name: String,
+}
+
+/// Whether a stacked branch builds on the baseline without its parent, and else which commits of its ancestors it
+/// needs: a trial build of the branch as a root (`stack_independence`), objects only, without the repository lock
+#[instrument(skip(git_executor, cache, params), fields(branch = %params.branch_name))]
+pub fn get_stack_independence(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &StackIndependenceParams) -> anyhow::Result<StackIndependence> {
+  Ok(stack_independence(
+    git_executor,
+    &params.repository_path,
+    &params.branch_prefix,
+    &params.branch_name,
+    cache,
+  )?)
 }
 
 /// Check `plan` (or the current grouping without one): would every branch build?

@@ -1,5 +1,5 @@
 use crate::diff_scan_test::commit_diffs;
-use crate::symbol_scan::{SymbolMode, TsAliases, crate_name, read_symbol_input, read_symbol_mode, ts_aliases};
+use crate::symbol_scan::{TsAliases, crate_name, read_symbol_input, ts_aliases};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
@@ -19,19 +19,6 @@ fn the_name_of_a_crate_and_the_aliases_of_a_tsconfig() {
       paths: vec![("@/*".to_string(), vec!["web/src/*".to_string()]), ("~,}".to_string(), vec!["web/lib/x,}".to_string()])],
     }
   );
-}
-
-#[test]
-fn the_mode_comes_from_git_config_and_is_on_without_it() {
-  let repo = TestRepo::new();
-  let mode = || read_symbol_mode(repo.git_executor(), repo.path_str());
-  assert_eq!(mode().unwrap(), SymbolMode::On);
-  repo.set_config("branchdeck.symbols", "report").unwrap();
-  assert_eq!(mode().unwrap(), SymbolMode::Report);
-  repo.set_config("branchdeck.symbols", "off").unwrap();
-  assert_eq!(mode().unwrap(), SymbolMode::Off);
-  repo.set_config("branchdeck.symbols", "maybe").unwrap();
-  mode().unwrap_err();
 }
 
 /// The summaries of both sides of each changed source file, the crate names and the aliases; a second scan reads every

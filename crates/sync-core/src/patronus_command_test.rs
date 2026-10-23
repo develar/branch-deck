@@ -1,5 +1,5 @@
+use crate::github_repository::GitHubRepository;
 use crate::patronus_command::{GhComment, patronus_command_body, post_patronus_command, read_patronus_command_reply, rejection_reason};
-use crate::pull_requests::GitHubRepository;
 use domain_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusPushMode};
 use github::fake_github::{FakeAnswer, start_fake_service};
 use pretty_assertions::assert_eq;

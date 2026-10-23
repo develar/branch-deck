@@ -3,9 +3,9 @@
 //! one read of how the branch groups tells the group of each picked commit, the branches whose stack parent a
 //! `(parent/leaf)` prefix changes, and the picked commits whose branch is not built on the branches they need.
 
+use crate::baseline::baseline_tracking_ref;
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::read_commit_diffs_cached;
-use crate::update_project::{UndoBlocked, resolve_baseline_upstream};
 use anyhow::{Result, anyhow};
 use domain_types::commit::Commit;
 use file_diffs::service::FileDiffs;
@@ -13,8 +13,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
 use git_ops::pick::{AppliedPick, PickCheck, PickRequest, PickSource, PickState, PickedCommit, apply_pick, check_pick, check_pick_undo};
 use git_ops::revs::is_object_id;
+use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update};
-use history_rewrite::baseline::{NoBaseline, detect_baseline_branch};
 use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
 use history_rewrite::repository_lock::{RewriteOptions, lock_repository};
 use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
@@ -174,17 +174,6 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     reparented: landing.reparented,
     applied,
   })
-}
-
-/// The target's baseline and its remote-tracking ref; `None` for no baseline, the ref `None` for a local baseline
-pub(crate) fn baseline_tracking_ref(git_executor: &GitCommandExecutor, target: &str) -> Result<(Option<String>, Option<String>)> {
-  let baseline = match detect_baseline_branch(git_executor, target) {
-    Ok(baseline) => baseline,
-    Err(e) if e.downcast_ref::<NoBaseline>().is_some() => return Ok((None, None)),
-    Err(e) => return Err(e),
-  };
-  let upstream = resolve_baseline_upstream(git_executor, target, &baseline)?.map(|upstream| upstream.tracking_ref);
-  Ok((Some(baseline), upstream))
 }
 
 /// Where the diffs of the dependency check come from

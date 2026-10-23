@@ -66,7 +66,7 @@ pub fn stack_pull_request_text(own: Option<&Description>, members: &[StackMember
 /// Appends each section (its text starts with its separator) while the body fits into `MAX_BODY_CHARS`; from the first
 /// that doesn't, the sections are named in a last line instead ("the text of 2 branches is left out (auth, login)").
 /// `kind` names a section: one and many.
-pub(crate) fn push_fitting_sections<'a>(body: &mut String, sections: impl IntoIterator<Item = (&'a str, String)>, kind: (&str, &str)) {
+pub fn push_fitting_sections<'a>(body: &mut String, sections: impl IntoIterator<Item = (&'a str, String)>, kind: (&str, &str)) {
   let mut used = body.chars().count();
   let mut omitted: Vec<&str> = Vec::new();
   for (name, section) in sections {
@@ -176,13 +176,13 @@ pub fn read_new_stack_pull_request(git: &GitCommandExecutor, params: &GetNewStac
 }
 
 /// One line of at most `MAX_TITLE_CHARS`
-pub(crate) fn cut_title(title: &str) -> String {
+pub fn cut_title(title: &str) -> String {
   let line = title.lines().next().unwrap_or_default().trim();
   cut_chars(line, MAX_TITLE_CHARS)
 }
 
 /// `text`, or its first characters and "…" to `max` characters
-pub(crate) fn cut_chars(text: &str, max: usize) -> String {
+pub fn cut_chars(text: &str, max: usize) -> String {
   if text.chars().count() <= max {
     return text.to_string();
   }

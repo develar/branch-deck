@@ -359,7 +359,7 @@ fn baseline_commits_of(git_executor: &GitCommandExecutor, repository_path: &str,
 /// Which of the `(older, newer)` pairs make the same changes: the patch ids of their diffs without context (`-U0`; a
 /// patch id ignores the line numbers and whitespace) are equal. One `diff-tree --stdin` and one `patch-id`, none
 /// without pairs
-pub(crate) fn same_changes(git_executor: &GitCommandExecutor, repository_path: &str, pairs: &[(&str, &str)]) -> Result<Vec<bool>> {
+pub fn same_changes(git_executor: &GitCommandExecutor, repository_path: &str, pairs: &[(&str, &str)]) -> Result<Vec<bool>> {
   if pairs.is_empty() {
     return Ok(Vec::new());
   }

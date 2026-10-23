@@ -2,7 +2,9 @@
 //! GraphQL search: requested by name only (`user-review-requested:@me`), not through a team. Like `pull_requests.rs`,
 //! every failure is an availability, not an error.
 
-use crate::pull_requests::{GitHubRepository, availability_of, parse_review_decision, visible_data};
+use crate::pull_requests::{availability_of, parse_review_decision, visible_data};
+
+use crate::github_repository::GitHubRepository;
 use domain_types::pull_request::{ChecksState, PullRequestAvailability};
 use domain_types::review_request::{BackToYou, ReviewRequest, ReviewRequestsResult};
 use github::service::{GitHubService, RequestKind};

@@ -5,7 +5,7 @@
 
 use crate::config_snapshot::ConfigSnapshot;
 use crate::landed::landed_candidates;
-use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, display_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
+use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
 use crate::update_project::record_landed_update;
 use anyhow::{Result, anyhow};
 use domain_types::conflict::ResolvedFileSummary;
@@ -27,6 +27,7 @@ use history_rewrite::snapshot::read_grouping_inputs;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use sync_utils::paths::display_path;
 use tracing::{instrument, warn};
 
 /// No resolve session for this worktree

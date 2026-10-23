@@ -107,7 +107,7 @@ pub fn repository(repo: &TestRepo) -> String {
 
 /// `path` resolved like `std::fs::canonicalize`, without the `\\?\` prefix that it gives on Windows
 pub fn canonical(path: &Path) -> std::path::PathBuf {
-  std::path::PathBuf::from(sync_core::resolve_copies::display_path(&std::fs::canonicalize(path).unwrap()))
+  std::path::PathBuf::from(sync_utils::paths::display_path(&std::fs::canonicalize(path).unwrap()))
 }
 
 /// The `undo_token` of `output` is `<head>..<HEAD now>`, and `bd undo` with it moves HEAD back to `head`

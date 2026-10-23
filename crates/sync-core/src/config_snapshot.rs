@@ -3,10 +3,9 @@
 //! instead of one process per key (docs/design/git-operations.md, "Repository settings").
 
 use crate::branch_prefix::GitBranchPrefix;
-use crate::pull_requests::GitHubRepository;
+use crate::github_repository::GitHubRepository;
 use crate::remote_url::split_owner_and_name;
 use crate::repository_config::{ConfigEntry, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries};
-use crate::symbol_scan::{SYMBOLS_CONFIG_KEY, SymbolMode};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
@@ -19,6 +18,41 @@ use tracing::instrument;
 /// Settings read) and every `branch.<name>.description`, as `--get-regexp` matches them: the section and the key
 /// lowercase, the branch name as it is
 const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords)|branch\..+\.description)$";
+
+/// The git config key of the symbol mode (`off`, `report`, `on`)
+pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
+
+/// How far the dependencies by symbols reach (`branchdeck.symbols`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "lowercase")]
+pub enum SymbolMode {
+  /// No summaries are read
+  Off,
+  /// `bd commits` reports the dependencies by symbols, and the dangling-reference check subtracts by the trees; nothing
+  /// decides by them
+  Report,
+  /// They also order and stack branches, and the conflict fix and the checks use them
+  #[default]
+  On,
+}
+
+impl SymbolMode {
+  pub fn parse(value: &str) -> Option<Self> {
+    match value.trim().to_ascii_lowercase().as_str() {
+      "off" | "false" => Some(Self::Off),
+      "report" => Some(Self::Report),
+      "on" | "true" => Some(Self::On),
+      _ => None,
+    }
+  }
+}
+
+/// `branchdeck.symbols` of the repository, `SymbolMode::default()` when unset: one `ConfigSnapshot`; an operation that
+/// reads more of the config takes `ConfigSnapshot::symbol_mode` of its snapshot
+pub fn read_symbol_mode(git: &GitCommandExecutor, repository_path: &str) -> Result<SymbolMode> {
+  ConfigSnapshot::read(git, repository_path)?.symbol_mode()
+}
 
 /// The keys of one `git config -z --show-scope --get-regexp`, in git's order (a later entry wins)
 #[derive(Debug, Clone, Default)]

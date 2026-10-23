@@ -10,6 +10,7 @@ targets:
   - ../../crates/sync-core/src/update_project.rs
   - ../../crates/sync-core/src/resolve_session.rs
   - ../../crates/sync-core/src/resolve_copies.rs
+  - ../../crates/sync-utils/src/paths.rs
   - ../../crates/git-ops/src/update_resolve.rs
   - ../../crates/git-ops/src/resolve_check.rs
   - ../../crates/git-ops/src/merge_tree_output.rs
@@ -161,7 +162,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   blocks left in `edit` now), a `hint`, and the newest 10 `upstream_commits` that changed it since the merge base.
   On Windows every path of a copy must have backslashes, and the `\\?\` form only from 260 characters on, which
   Windows PowerShell 5.1 opens without long paths enabled.
-  [@test] ../../crates/sync-core/src/resolve_copies_test.rs (`a_windows_path_has_backslashes_and_the_verbatim_form_only_from_260_characters`)
+  [@test] ../../crates/sync-utils/src/paths_test.rs (`a_windows_path_has_backslashes_and_the_verbatim_form_only_from_260_characters`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `modify_delete_is_resolved_with_take_and_delete`)
 - A local commit whose patch id (`patch-id --stable`) equals that of a baseline commit since the merge base must be
   left out of the replay, as `git rebase` leaves it out, and listed as `landed_dropped` with that baseline commit (in
