@@ -121,19 +121,19 @@ beforeEach(() => {
 })
 
 describe("the running update", () => {
-  it("waits for a rewrite of the repository that runs, and the rewrites wait for it: one rewrite at a time", async () => {
+  it("waits in the queue for a rewrite of the repository that runs, then runs, and the rewrites wait for it: one rewrite at a time", async () => {
     let finishRewrite!: () => void
     const rewrite = runOperation(
       { id: "unstack", subject: "branch:auth", objects: ["auth"], kind: "rewrite", label: "Unstacking auth", repositoryPath: "/a" },
       () => new Promise<void>(resolve => (finishRewrite = resolve)),
     )
-    await runUpdateProject()
+    const update = runUpdateProject()
     expect(backend.commands).toEqual([])
-    expect(runningIn("/a")).toBeUndefined()
+    expect(getOperations().map(operation => operation.waitsFor)).toEqual([null, "Unstacking auth"])
     finishRewrite()
     await rewrite
 
-    const update = runUpdateProject()
+    await vi.waitFor(() => expect(backend.commands).toHaveLength(1))
     const move = { id: "move-to", subject: "branch:login", objects: ["login"], kind: "rewrite", repositoryPath: "/a" } as const
     expect(getOperationBlocker(getOperations(), move)?.label).toBe("Updating the project")
     commandOf("/a").finish({ status: "ok", data: UP_TO_DATE })

@@ -1,4 +1,3 @@
-import { toast } from "@/components/ui/toast"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
@@ -21,29 +20,26 @@ export interface RewriteOutcome {
 /**
  * Runs a rewrite of the repository (a regroup, a squash, a reword, an undo) as one operation: the command, then the sync
  * that shows its result, then the toast `applied` says; its row is busy until then (`runOperation`), the other rewrites
- * of the repository wait. A failure is an error toast titled `failureTitle`; a start while another rewrite runs says so
- * under the same title and runs nothing. Resolves to the result of the command, null if it failed or did not run; a
- * second start of the same action resolves with the first.
+ * of the repository wait for it in the queue, and a start while another rewrite runs waits for that one the same way. A
+ * failure is an error toast titled `failureTitle`. Resolves to the result of the command, null if it failed; a second
+ * start of the same action resolves with the first.
  */
 export async function runRewrite<T>(spec: RewriteSpec, failureTitle: string, command: () => Promise<CommandResult<T>>, applied: (data: T) => RewriteOutcome): Promise<T | null> {
-  const value = await runOperation(
-    { ...spec, kind: "rewrite" },
-    async () => {
-      const result = await invokeCommand(command)
-      if (result.status !== "ok") {
-        notifyError(failureTitle, result.error)
-        return null
-      }
-      const outcome = applied(result.data)
-      // the sync shows the selected repository: a rewrite of another one (an Undo clicked after a switch) is synced
-      // when it opens
-      if (outcome.sync && (spec.repositoryPath === undefined || isSelectedRepository(spec.repositoryPath))) {
-        await syncBranches({ autoScroll: false, autoExpand: false })
-      }
-      outcome.after?.()
-      return result.data
-    },
-    reason => toast.add({ type: "info", title: failureTitle, description: reason }),
-  )
+  // a rewrite never resolves to `undefined`: one that must wait waits in the queue
+  const value = await runOperation({ ...spec, kind: "rewrite" }, async () => {
+    const result = await invokeCommand(command)
+    if (result.status !== "ok") {
+      notifyError(failureTitle, result.error)
+      return null
+    }
+    const outcome = applied(result.data)
+    // the sync shows the selected repository: a rewrite of another one (an Undo clicked after a switch) is synced
+    // when it opens
+    if (outcome.sync && (spec.repositoryPath === undefined || isSelectedRepository(spec.repositoryPath))) {
+      await syncBranches({ autoScroll: false, autoExpand: false })
+    }
+    outcome.after?.()
+    return result.data
+  })
   return value ?? null
 }

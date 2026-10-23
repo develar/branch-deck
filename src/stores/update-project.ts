@@ -158,11 +158,7 @@ export async function runUpdateProject(): Promise<void> {
   if (repositoryPath === undefined) {
     return
   }
-  await runOperation(
-    { ...UPDATE_OPERATION, label: "Updating the project", repositoryPath },
-    () => updateProjectOf(repositoryPath),
-    reason => toast.add({ type: "info", title: "Cannot update the project", description: reason }),
-  )
+  await runOperation({ ...UPDATE_OPERATION, label: "Updating the project", repositoryPath }, () => updateProjectOf(repositoryPath))
 }
 
 async function updateProjectOf(repositoryPath: string): Promise<void> {

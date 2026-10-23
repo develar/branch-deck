@@ -351,9 +351,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/stores/update-project.test.ts (`syncs only the selected repository: another one selected during the update is not synced for it`)
   [@test] ../../src/stores/update-project.test.ts (`runs one at a time in a repository`)
 - An update is a rewrite of the repository ([Running Operations](../../docs/design/operations.md)): while a regroup, a
-  squash or another rewrite runs, Update is disabled with its busy state on hover ("Unstacking oauth…") and a start
-  says so in a toast; while the update runs, the rewrites of the menus wait for it ("Updating the project…").
-  [@test] ../../src/stores/update-project.test.ts (`waits for a rewrite of the repository that runs, and the rewrites wait for it: one rewrite at a time`)
+  squash or another rewrite runs, Update stays enabled with the busy state it would wait for on hover ("Unstacking
+  oauth…"), and a start waits for it in the queue, never refused; while the update runs, a rewrite of a menu waits for
+  it in the queue ("Waits for Updating the project").
+  [@test] ../../src/stores/update-project.test.ts (`waits in the queue for a rewrite of the repository that runs, then runs, and the rewrites wait for it: one rewrite at a time`)
 - Once git reports a stage of the fetch, its percent of the whole fetch moves the progress of the update, and the
   tooltip shows the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas

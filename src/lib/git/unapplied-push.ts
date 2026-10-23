@@ -21,10 +21,11 @@ export async function pushUnappliedBranch(name: string): Promise<void> {
     return
   }
   const failureTitle = `Cannot push ${branch.branch}`
+  // the repository of the click: a push that waits for another one of the branch still goes there
+  const request = vcsRequestFactory.createRequest()
   await runOperation(
-    { id: "push", kind: "remote", subject: branchSubject(name), objects: [name], label: `Pushing ${branch.branch}` },
+    { id: "push", kind: "remote", subject: branchSubject(name), objects: [name], label: `Pushing ${branch.branch}`, repositoryPath: request.repositoryPath },
     async () => {
-      const request = vcsRequestFactory.createRequest()
       const result = await invokeCommand(() =>
         commands.pushBranches(
           {

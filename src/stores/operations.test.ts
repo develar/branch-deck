@@ -45,24 +45,57 @@ describe("runOperation", () => {
     expect(getOperations()).toEqual([])
   })
 
-  it("lets a rewrite wait for any rewrite of the repository, never for a remote action", async () => {
+  it("queues a rewrite behind any rewrite of the repository, never behind a remote action, and runs it once that one ended", async () => {
     const running = deferred<null>()
-    void runOperation(rewriteOf("auth"), () => running.promise)
+    const first = runOperation(rewriteOf("auth"), () => running.promise)
 
-    const blocked = vi.fn()
-    const otherRewrite = vi.fn(() => Promise.resolve())
-    await expect(runOperation(rewriteOf("login", "move-to"), otherRewrite, blocked)).resolves.toBeUndefined()
+    const otherRewrite = vi.fn(() => Promise.resolve("moved"))
+    const second = runOperation(rewriteOf("login", "move-to"), otherRewrite)
+    // it waits in the queue, its row busy, saying what it waits for
     expect(otherRewrite).not.toHaveBeenCalled()
-    expect(blocked).toHaveBeenCalledWith("Unstacking auth…")
+    expect(getOperations().map(operation => [operation.label, operation.waitsFor])).toEqual([
+      ["Unstacking auth", null],
+      ["Unstacking login", "Unstacking auth"],
+    ])
 
     // a rewrite of another repository runs
     await expect(runOperation({ ...rewriteOf("login"), repositoryPath: "/other" }, () => Promise.resolve(1))).resolves.toBe(1)
     // a remote action of the branch the rewrite works on runs beside it
     await expect(runOperation(remoteOf("robot:7", ["auth"]), () => Promise.resolve(2))).resolves.toBe(2)
+    expect(otherRewrite).not.toHaveBeenCalled()
+
     running.resolve(null)
+    await expect(first).resolves.toBeNull()
+    await expect(second).resolves.toBe("moved")
+    expect(otherRewrite).toHaveBeenCalledOnce()
+    expect(getOperations()).toEqual([])
   })
 
-  it("lets a remote action wait for one of the same object or of a branch it works on", async () => {
+  it("runs the queue in the order of the starts, also after a failure, and joins a start of a waiting action", async () => {
+    const order: string[] = []
+    const first = deferred<null>()
+    const failing = runOperation(rewriteOf("auth"), () => first.promise)
+    const second = runOperation(rewriteOf("login", "move-to"), () => {
+      order.push("login")
+      return Promise.resolve("login")
+    })
+    const third = runOperation(rewriteOf("docs", "park"), () => {
+      order.push("docs")
+      return Promise.resolve("docs")
+    })
+    // the same action of the same subject joins the one that waits
+    const again = runOperation(rewriteOf("docs", "park"), () => Promise.resolve("twice"))
+    expect(getOperations().map(operation => operation.waitsFor)).toEqual([null, "Unstacking auth", "Unstacking auth"])
+
+    first.reject(new Error("git failed"))
+    await expect(failing).rejects.toThrow("git failed")
+    await expect(second).resolves.toBe("login")
+    await expect(third).resolves.toBe("docs")
+    await expect(again).resolves.toBe("docs")
+    expect(order).toEqual(["login", "docs"])
+  })
+
+  it("lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request", async () => {
     const running = deferred<null>()
     void runOperation(remoteOf("robot:7", ["auth"]), () => running.promise)
 
@@ -72,7 +105,13 @@ describe("runOperation", () => {
     expect(run).not.toHaveBeenCalled()
     // another object
     await expect(runOperation(remoteOf("robot:8", ["login"]), () => Promise.resolve(3))).resolves.toBe(3)
+
+    // a retarget and a review request of one pull request write other fields of it: side by side
+    const review = deferred<null>()
+    void runOperation({ ...remoteOf("pr:13", ["login"], "request-review"), resources: ["pr:13:reviewers"] }, () => review.promise)
+    await expect(runOperation({ ...remoteOf("pr:13", ["login"], "retarget-pull-request"), resources: ["pr:13:base"] }, () => Promise.resolve(4))).resolves.toBe(4)
     running.resolve(null)
+    review.resolve(null)
   })
 
   it("tells the moves of the running operations of the repository until they end", async () => {
@@ -102,21 +141,28 @@ describe("operationItem", () => {
     operationsStore.setState({ running: [], claims: {} })
   })
 
-  it("marks the item of the running action running, the items that wait for it disabled with its busy state", async () => {
+  it("marks the item of the running action running, and leaves the items that would wait for it enabled: their start queues", async () => {
     const running = deferred<null>()
     void runOperation(rewriteOf("auth"), () => running.promise)
     const operations = getOperations()
 
     expect(operationItem(operations, unstack, rewriteOf("auth"))).toMatchObject({ running: true, disabled: true, description: "Unstacking auth…" })
     const move: MenuItem = { id: "move-to", label: "Move to…", onSelect: () => {} }
-    expect(operationItem(operations, move, rewriteOf("login", "move-to"))).toMatchObject({ disabled: true, description: "Unstacking auth…" })
-    expect(operationItem(operations, move, rewriteOf("login", "move-to")).running).toBeUndefined()
+    expect(operationItem(operations, move, rewriteOf("login", "move-to"))).toBe(move)
     // an item disabled for its own reason keeps it
     const disabled: MenuItem = { ...move, disabled: true, description: "No other branch" }
     expect(operationItem(operations, disabled, rewriteOf("login", "move-to"))).toBe(disabled)
     // a remote action is no rewrite's to wait for
     const restart: MenuItem = { id: "restart-robot", label: "Restart Safe Push", onSelect: () => {} }
     expect(operationItem(operations, restart, remoteOf("robot:7", ["auth"]))).toBe(restart)
+    running.resolve(null)
+  })
+
+  it("disables the item of a remote action that must wait with the busy state of the one it waits for", async () => {
+    const running = deferred<null>()
+    void runOperation(remoteOf("robot:7", ["auth"]), () => running.promise)
+    const cancel: MenuItem = { id: "cancel-robot", label: "Cancel Safe Push", onSelect: () => {} }
+    expect(operationItem(getOperations(), cancel, remoteOf("robot:7", [], "cancel-robot"))).toMatchObject({ disabled: true, description: "Restarting robot:7…" })
     running.resolve(null)
   })
 })

@@ -5,6 +5,7 @@ import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, g
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
+import { holdCommandCalls } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -113,6 +114,35 @@ test.describe("Move commits", () => {
     await verifyCommitCount(findBranchRow(page, "docs"), "3 commits")
     await verifyCommitCount(findBranchRow(page, ISSUE), "1 commit")
     await expect(findBranchRow(page, "docs")).not.toHaveAttribute("data-drop-target")
+  })
+
+  test("should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it", async ({ page }) => {
+    await expandBranch(page, findBranchRow(page, ISSUE))
+    const moves = await holdCommandCalls(page, "move_commits_to_branch")
+    // the first move gives the oldest commit a prefix: every commit after it gets another id
+    await startDrag(page, getBranchCommitRow(page, ISSUE, "Add parser"))
+    await dropOn(page, findBranchRow(page, "docs"))
+    await expect.poll(() => moves.calls.length).toBe(1)
+
+    // a drop while it runs is taken: no refusal, its move waits for the first one, the row says so
+    await startDrag(page, getUnassignedCommitRow(page, "Refactor build script"))
+    await expect(findBranchRow(page, "docs")).toHaveAttribute("data-drop-target", "ready")
+    await dropOn(page, findBranchRow(page, "docs"))
+    const more = findBranchRow(page, "docs").getByRole("button", { name: "More actions for docs" })
+    await expect(more).toHaveAttribute("aria-busy", "true")
+    await more.hover()
+    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Waits for Moving 1 commit to docs…" })).toBeVisible()
+    expect(moves.calls).toHaveLength(1)
+
+    await runAndWaitForSync(page, async () => moves.release())
+    // the second move ran after the first one and its sync, with the id the first move gave the commit: the old id
+    // would fail with "Cannot move the commits to docs"
+    await expect.poll(() => moves.calls.length).toBe(2)
+    await verifyCommitCount(findBranchRow(page, "docs"), "3 commits")
+    await verifyCommitCount(findBranchRow(page, ISSUE), "2 commits")
+    await expect(page.getByTestId("unassigned-commits-section")).toHaveCount(0)
+    await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot move/ })).toHaveCount(0)
+    await expect(more).not.toHaveAttribute("aria-busy")
   })
 
   test("should drag an unassigned commit onto the new branch zone", async ({ page }) => {

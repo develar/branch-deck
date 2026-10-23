@@ -400,7 +400,7 @@ describe("getBranchNextStep", () => {
     expect(getBranchNextStep(facts({ pullRequestsAvailable: false })).needsReadiness).toBe(false)
   })
 
-  it("disables the action of the slot while an operation on the row runs, never the quiet steps; its own runs", () => {
+  it("disables the action of the slot while an operation on the row runs, never the quiet steps nor a write of another field of its pull request; its own runs", () => {
     const renaming = { id: "rename", label: "Renaming auth to login" }
     expect(getBranchNextStep(facts({ busy: renaming }))).toMatchObject({
       item: { disabled: true, description: "Renaming auth to login…" },
@@ -409,6 +409,14 @@ describe("getBranchNextStep", () => {
     expect(getBranchNextStep(withReadiness(missing([group()]), { busy: renaming })).item?.disabled).toBeUndefined()
     const safePushing = { id: "safe-push", label: "Starting the Safe Push" }
     expect(getBranchNextStep(facts({ busy: safePushing })).item).toMatchObject({ id: "safe-push", running: true, disabled: true, description: "Starting the Safe Push…" })
+
+    // a review request writes the reviewers of the pull request, the retarget its base: the retarget stays offered
+    const intoVirtual = { pullRequest: { ...openPullRequest, base: "user/virtual/auth", intoTarget: false, baseIsVirtualBranch: true } }
+    const requesting = { id: "request-review", label: "Requesting a review on #1078" }
+    const retarget = getBranchNextStep(facts({ ...intoVirtual, busy: requesting }))
+    expect(retarget.item).toMatchObject({ id: "retarget-pull-request" })
+    expect(retarget.item?.disabled).toBeUndefined()
+    expect(getBranchNextStep(facts({ ...intoVirtual, busy: renaming })).item).toMatchObject({ disabled: true, description: "Renaming auth to login…" })
   })
 
   it("words the notice of S as a short title naming the branch, the reason below; a reason of the branch first", () => {

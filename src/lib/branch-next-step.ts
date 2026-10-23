@@ -484,15 +484,29 @@ function decideNextStep(facts: NextStepFacts): BranchNextStep {
 }
 
 /**
+ * The field of the pull request each of these actions writes: a retarget and a review request of one pull request run
+ * side by side (`OperationKey.resources`)
+ */
+const PULL_REQUEST_FIELDS: Readonly<Record<string, string>> = { "retarget-pull-request": "base", "request-review": "reviewers" }
+
+/** Whether the step `id` writes another field of the pull request than the running action `busyId` */
+function writesOtherField(id: string | undefined, busyId: string): boolean {
+  const field = id === undefined ? undefined : PULL_REQUEST_FIELDS[id]
+  const busyField = PULL_REQUEST_FIELDS[busyId]
+  return field !== undefined && busyField !== undefined && field !== busyField
+}
+
+/**
  * The step while `busy` runs on the row: the action of the slot running itself (a retarget, a restart), else waiting for
- * it; a quiet step only opens the pull request and stays
+ * it, unless it writes another field of the pull request (a retarget during a review request); a quiet step only opens
+ * the pull request and stays
  */
 function withBusy(result: BranchNextStep, busy: NextStepBusy | null): BranchNextStep {
   if (busy !== null && result.item !== null) {
     if (result.item.id === busy.id) {
       return { ...result, item: { ...result.item, running: true, disabled: true, description: `${busy.label}…` } }
     }
-    if (result.tone === "default" && result.item.disabled !== true) {
+    if (result.tone === "default" && result.item.disabled !== true && !writesOtherField(result.item.id, busy.id)) {
       return { ...result, item: { ...result.item, disabled: true, description: `${busy.label}…` } }
     }
   }

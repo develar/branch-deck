@@ -26,7 +26,7 @@ import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getParkedState, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
 import { landedStore } from "@/stores/landed"
 import type { Operations } from "@/stores/operations"
-import { getObjectBusy, operationsStore, runOperation } from "@/stores/operations"
+import { getObjectBusy, operationLabel, operationsStore, runOperation } from "@/stores/operations"
 import {
   getBranchRobot,
   getLandedBy,
@@ -101,7 +101,15 @@ export async function retargetToTarget(branchName: string): Promise<void> {
   const failure = `Cannot retarget pull request #${pullRequest.number}`
   // an operation of the pull request: a second click joins it, the slot and the menu say it runs
   await runOperation(
-    { id: "retarget-pull-request", subject: `pr:${pullRequest.number}`, objects: [branchName], kind: "remote", label: `Retargeting #${pullRequest.number} to ${base}` },
+    {
+      id: "retarget-pull-request",
+      subject: `pr:${pullRequest.number}`,
+      objects: [branchName],
+      kind: "remote",
+      label: `Retargeting #${pullRequest.number} to ${base}`,
+      // the base of the pull request: a review request of it runs beside
+      resources: [`pr:${pullRequest.number}:base`],
+    },
     () =>
       retargetPullRequest(branchName, base).then(
         () => {
@@ -141,7 +149,7 @@ function stackPullRequestFactOf(name: string): StackPullRequestFact | null {
 export function busyFact(key: string, options: StartStepOptions | null): NextStepBusy | null {
   const operation = getObjectBusy(key)
   if (operation !== undefined) {
-    return { id: operation.id, label: operation.label }
+    return { id: operation.id, label: operationLabel(operation) }
   }
   const starting = options === null ? getSafePushStarting(key) : null
   return starting == null ? null : { id: "", label: `Starting the ${formatPushMode(starting.mode)}` }

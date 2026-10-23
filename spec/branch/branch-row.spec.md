@@ -482,7 +482,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - P, D, O and M must run the item of the branch menu they are the hints of (`selectRowItem`): the same action, enabled
   as the item is, a running one joined. A disabled item says why in an `info` toast, its reason as the title ("The
   remote branch is up to date", "Unstacking oauth…"); a branch without the item (O without a pull request) does nothing.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it, from a key too`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
 - P must push the focused branch as its push button does (`pushOrConfirm`, the stack where the button pushes it, the
   question before a push that drops remote commits), when that button is enabled (`canPushNow`, the rule of P in the
   preview).
@@ -552,16 +552,22 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites disabled with the reason`)
 - An action of the menu must run once ([Running Operations](../../docs/design/operations.md)): while it runs, until the
   sync that shows its result ends, its item is running (disabled, a spinner in place of its icon) on every surface, a
-  second start joins it (a double click runs one `restack_branch`), and every other rewrite of the repository, in every
-  branch and commit menu, is disabled with its busy state as the reason: "Unstacking oauth…". A rewrite that must wait
-  says so in an info toast titled as its failure; its success toast with Undo comes after the sync.
-  [@test] ../../src/stores/operations.test.ts (`runs a second start of the same action once: it joins the running one and resolves with it`, `lets a rewrite wait for any rewrite of the repository, never for a remote action`, `lets a remote action wait for one of the same object or of a branch it works on`, `ends the operation when its action fails`, `marks the item of the running action running, the items that wait for it disabled with its busy state`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it, from a key too`)
+  second start joins it (a double click runs one `restack_branch`). Every other rewrite of the repository, in every
+  branch and commit menu, by a drag, a key or a toast's Undo, stays offered and is never refused: its start waits for
+  the running one in the queue, in the order of the starts, its rows busy and its "⋯" saying what it waits for ("Waits
+  for Unstacking oauth…"), then runs on what the one before left (a move takes the commits by the ids that one gave
+  them). A remote action that must wait for another one of its object (a cancel during a restart) is disabled with its
+  busy state ("Restarting the Safe Push…") and a start says so in an info toast titled as its failure; a retarget and
+  a review request of one pull request write other fields of it and run side by side. A success toast with Undo comes
+  after the sync.
+  [@test] ../../src/stores/operations.test.ts (`runs a second start of the same action once: it joins the running one and resolves with it`, `queues a rewrite behind any rewrite of the repository, never behind a remote action, and runs it once that one ended`, `runs the queue in the order of the starts, also after a failure, and joins a start of a waiting action`, `lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request`, `ends the operation when its action fails`, `marks the item of the running action running, and leaves the items that would wait for it enabled: their start queues`, `disables the item of a remote action that must wait with the busy state of the one it waits for`)
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
 - An action started from the menu, a key or a toast must show its spinner on the "⋯" of its row (`aria-busy`, its
   hover the busy state); one started from a button that stays (the notice's "Unstack from login", a form, a dialog,
   the Safe Push popover) shows it there, and "⋯" is only disabled. Every row the operation works on is busy meanwhile:
   no right-click menu, "⋯" disabled, no drag, no push.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it, from a key too`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
 - The same error toast must not stack: an error with the title and the description of an open error toast updates
   it in place; Activity records each.
 - An item that opens a form must end with "…"; an item that acts at once must not: "Safe Push" and "Dry Run" start at

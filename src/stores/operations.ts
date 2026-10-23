@@ -23,6 +23,12 @@ export interface OperationKey {
   readonly kind: OperationKind
   /** The repository; the selected one by default */
   readonly repositoryPath?: string
+  /**
+   * What a remote action writes, where it is narrower than its subject: a field of a pull request (`pr:8:base`,
+   * `pr:8:reviewers`). Two remote actions that both name theirs conflict only when they share one, so a retarget and a
+   * review request of one pull request run side by side
+   */
+  readonly resources?: readonly string[]
 }
 
 export interface OperationSpec extends OperationKey {
@@ -44,6 +50,8 @@ export interface Operation extends OperationSpec {
   readonly key: number
   readonly repositoryPath: string
   readonly surface: string | null
+  /** The busy state of the operation it waits for in the queue ("Unstacking oauth"); null once it runs */
+  readonly waitsFor: string | null
 }
 
 export type Operations = readonly Operation[]
@@ -81,35 +89,37 @@ export function findSame(running: Operations, key: OperationKey): Operation | un
 /**
  * The running operation that `key` must wait for, null when it can run: a rewrite waits for any rewrite of the
  * repository (all of them move HEAD or a ref of Branch Deck under one lock), a remote action for a remote action of
- * the same object or of a branch it works on. A rewrite and a remote action run side by side: a push waits for the
- * sync after the rewrite itself.
+ * the same object or of a branch it works on, or of a resource it writes when both name theirs (`resources`). A rewrite
+ * and a remote action run side by side: a push waits for the sync after the rewrite itself.
  */
 export function getOperationBlocker(running: Operations, key: OperationKey): Operation | null {
   const repositoryPath = repositoryOf(key)
   for (const operation of running) {
-    if (operation.repositoryPath !== repositoryPath || operation.kind !== key.kind) {
-      continue
-    }
-    if (key.kind === "rewrite" || operation.subject === key.subject || operation.objects.some(name => key.objects.includes(name))) {
+    if (operation.repositoryPath === repositoryPath && operation.kind === key.kind && conflicts(operation, key)) {
       return operation
     }
   }
   return null
 }
 
-/** The reason an action can't start while `operation` runs: its busy state, "Unstacking tool-events…" */
-export function formatOperationBlocker(operation: Operation): string {
-  return `${operation.label}…`
+function conflicts(operation: Operation, key: OperationKey): boolean {
+  if (key.kind === "rewrite") {
+    return true
+  }
+  if (operation.resources !== undefined && key.resources !== undefined) {
+    return operation.resources.some(resource => key.resources!.includes(resource))
+  }
+  return operation.subject === key.subject || operation.objects.some(name => key.objects.includes(name))
 }
 
-/**
- * The busy state of a rewrite of the selected repository that runs ("Parking docs…"), null when none runs: a drop waits
- * for it, since what was dragged may have other ids once it ends
- */
-export function getRunningRewrite(): string | null {
-  const repositoryPath = getSelectedProject()?.path ?? ""
-  const rewrite = operationsStore.getState().running.find(operation => operation.kind === "rewrite" && operation.repositoryPath === repositoryPath)
-  return rewrite === undefined ? null : formatOperationBlocker(rewrite)
+/** The busy state of an operation as its surfaces show it: "Unstacking tool-events", or what it waits for in the queue */
+export function operationLabel(operation: Operation): string {
+  return operation.waitsFor === null ? operation.label : `Waits for ${operation.waitsFor}`
+}
+
+/** The busy state of `operation` with the ellipsis, as an item that runs it says it: "Unstacking tool-events…" */
+export function formatOperationBlocker(operation: Operation): string {
+  return `${operationLabel(operation)}…`
 }
 
 /** The running operations; a component reads them with `useOperations` */
@@ -119,15 +129,16 @@ export function getOperations(): Operations {
 
 /**
  * The item of an action of an object as the running operations leave it: running while it runs itself (a second start
- * joins it), disabled with the busy state of the operation it waits for, else as it is. An item already disabled keeps
- * its reason; a submenu (Stack On ›) is disabled as a whole.
+ * joins it); a remote action that must wait is disabled with the busy state of the operation it waits for, a rewrite
+ * that must wait stays enabled, its start waits in the queue (`runOperation`); else as it is. An item already disabled
+ * keeps its reason; a submenu (Stack On ›) is disabled as a whole.
  */
 export function operationItem(running: Operations, item: MenuItem, key: OperationKey): MenuItem {
   const same = findSame(running, key)
   if (same !== undefined) {
     return { ...item, running: true, disabled: true, description: formatOperationBlocker(same) }
   }
-  if (item.disabled === true) {
+  if (item.disabled === true || key.kind === "rewrite") {
     return item
   }
   const blocker = getOperationBlocker(running, key)
@@ -137,8 +148,11 @@ export function operationItem(running: Operations, item: MenuItem, key: Operatio
 /**
  * Runs `run` as the operation `spec`, from its start until its promise settles, which for a rewrite includes the sync
  * that shows its result. A second start of the same action (a double click, the same item in another surface) joins the
- * running one and resolves with it; a start that must wait for another operation (`getOperationBlocker`) runs nothing,
- * tells `onBlocked` why and resolves to `undefined`.
+ * running one and resolves with it. A rewrite that must wait for another one (`getOperationBlocker`) is never refused:
+ * it waits in the queue, in the order of the starts, its rows busy and its surface saying what it waits for ("Waits
+ * for Unstacking oauth"), and runs once the rewrites before it ended, however they ended. A remote action that must
+ * wait (a cancel of the robot a restart replaces) runs nothing, tells `onBlocked` why and resolves to `undefined`: it
+ * would act on the robot or the pull request as it was before the one it waits for.
  */
 export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBlocked: (reason: string) => void = () => {}): Promise<T | undefined> {
   const { running } = operationsStore.getState()
@@ -147,7 +161,7 @@ export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBl
     return promises.get(same.key) as Promise<T>
   }
   const blocker = getOperationBlocker(running, spec)
-  if (blocker !== null) {
+  if (blocker !== null && spec.kind === "remote") {
     onBlocked(formatOperationBlocker(blocker))
     return Promise.resolve(undefined)
   }
@@ -161,25 +175,62 @@ export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBl
     label: spec.label,
     repositoryPath: repositoryOf(spec),
     surface: spec.surface ?? null,
+    waitsFor: blocker?.label ?? null,
+    ...(spec.resources === undefined ? null : { resources: spec.resources }),
     ...(spec.move === undefined ? null : { move: spec.move }),
   }
   operationsStore.setState(state => ({ running: [...state.running, operation] }))
-  // the promise is known before `run` starts, so a start of the same action from inside it joins it; `run` starts at
-  // once, as a direct call would, and a throw before its first await rejects the promise
+  // the promise is known before `run` starts, so a start of the same action from inside it joins it; without a blocker
+  // `run` starts at once, as a direct call would, and a throw before its first await rejects the promise
   let settle!: { resolve: (value: T) => void; reject: (error: unknown) => void }
   const promise = new Promise<T>((resolve, reject) => {
     settle = { resolve, reject }
   }).finally(() => {
     promises.delete(operation.key)
-    operationsStore.setState(state => ({ running: state.running.filter(it => it !== operation) }))
+    operationsStore.setState(state => ({ running: state.running.filter(it => it.key !== operation.key) }))
   })
   promises.set(operation.key, promise)
-  try {
-    run().then(settle.resolve, settle.reject)
-  } catch (error) {
-    settle.reject(error)
+  const start = () => {
+    try {
+      run().then(settle.resolve, settle.reject)
+    } catch (error) {
+      settle.reject(error)
+    }
+  }
+  if (blocker === null) {
+    start()
+  } else {
+    void waitTurn(operation.key).then(start)
   }
   return promise
+}
+
+/**
+ * Waits until no operation started before the one of `key` conflicts with it: each that does is awaited in turn (the
+ * queue keeps the order of the starts), and the record says which one it waits for
+ */
+async function waitTurn(key: number): Promise<void> {
+  while (true) {
+    const { running } = operationsStore.getState()
+    const index = running.findIndex(it => it.key === key)
+    const operation = running[index]
+    if (operation === undefined) {
+      return
+    }
+    const blocker = getOperationBlocker(running.slice(0, index), operation)
+    const waitsFor = blocker?.label ?? null
+    if (operation.waitsFor !== waitsFor) {
+      operationsStore.setState(state => ({ running: state.running.map(it => (it.key === key ? { ...it, waitsFor } : it)) }))
+    }
+    const promise = blocker === null ? undefined : promises.get(blocker.key)
+    if (promise === undefined) {
+      return
+    }
+    await promise.then(
+      () => {},
+      () => {},
+    )
+  }
 }
 
 // ---- hooks ----
@@ -190,10 +241,11 @@ export function useOperations(): Operations {
 }
 
 /**
- * Why the action `key` can't start now (`formatOperationBlocker`), for a button that is no menu item; null while it can,
- * also while it runs itself (a start joins it)
+ * The busy state of the operation a start of `key` would wait for ("Unstacking oauth…"), for a button that is no menu
+ * item: a remote action can't start then (the button is disabled with it), a rewrite waits in the queue (its hover says
+ * it); null while nothing is in its way, also while it runs itself (a start joins it)
  */
-export function useOperationBlocker(key: OperationKey): string | null {
+export function useOperationWait(key: OperationKey): string | null {
   return useStore(operationsStore, state => {
     if (findSame(state.running, key) !== undefined) {
       return null
@@ -229,7 +281,10 @@ export function isObjectBusy(name: string): boolean {
 
 /** The busy state of the operation that works on `name` ("Unstacking tool-events"), null while none does */
 export function useObjectBusy(name: string): string | null {
-  return useStore(operationsStore, state => busyOf(state.running, name)?.label ?? null)
+  return useStore(operationsStore, state => {
+    const operation = busyOf(state.running, name)
+    return operation === undefined ? null : operationLabel(operation)
+  })
 }
 
 /**
@@ -237,7 +292,10 @@ export function useObjectBusy(name: string): string | null {
  * a popover closed by the click): the trigger of the object's menu shows its spinner; null otherwise
  */
 export function useUnclaimedBusy(subject: string): string | null {
-  return useStore(operationsStore, state => state.running.find(operation => operation.subject === subject && !isClaimed(state, operation.surface))?.label ?? null)
+  return useStore(operationsStore, state => {
+    const operation = state.running.find(it => it.subject === subject && !isClaimed(state, it.surface))
+    return operation === undefined ? null : operationLabel(operation)
+  })
 }
 
 function isClaimed(state: OperationsState, surface: string | null): boolean {
@@ -246,7 +304,10 @@ function isClaimed(state: OperationsState, surface: string | null): boolean {
 
 /** The busy state of the operation `surface` started, while it runs: the surface shows its spinner; null otherwise */
 export function useSurfaceBusy(surface: string | undefined): string | null {
-  return useStore(operationsStore, state => (surface === undefined ? null : (state.running.find(operation => operation.surface === surface)?.label ?? null)))
+  return useStore(operationsStore, state => {
+    const operation = surface === undefined ? undefined : state.running.find(it => it.surface === surface)
+    return operation === undefined ? null : operationLabel(operation)
+  })
 }
 
 /**

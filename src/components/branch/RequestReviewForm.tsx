@@ -128,7 +128,9 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
     const label = `Requesting a review on #${number}`
     // the move of the row: the reviewers answer next, from the click on (the push included)
     const move = { key: branch.name, lands: false, label }
-    void runOperation({ id: "request-review", subject: `pr:${number}`, objects: [branch.name], kind: "remote", label, surface, move, repositoryPath }, run, reason =>
+    // the reviewers of the pull request: a retarget of it runs beside
+    const resources = [`pr:${number}:reviewers`]
+    void runOperation({ id: "request-review", subject: `pr:${number}`, objects: [branch.name], kind: "remote", label, surface, move, repositoryPath, resources }, run, reason =>
       showToast({ type: "info", title: errorTitle, description: reason }),
     )
   }

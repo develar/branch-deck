@@ -57,13 +57,11 @@ const GITHUB_COMPARE = "https://github.com/acme/monorepo/compare"
  * it ran once and its toast comes with the sync
  */
 async function expectRewritesWaitAndUnstackOnce(page: Page, restack: { calls: readonly unknown[]; release: () => void }): Promise<void> {
+  // the other rewrites stay offered: a start waits for the unstack in the queue
   await openContextMenu(page, findBranchRow(page, "docs"))
-  await expectDisabledItems(page, [
-    [/^Move to…/, "Unstacking oauth…"],
-    // a submenu waits as an item that says why
-    [/^Stack On…/, "Unstacking oauth…"],
-    ["Unapply…", "Unstacking oauth…"],
-  ])
+  for (const name of [/^Move to…/, /^Stack On…/, /^Unapply…/]) {
+    await expect(page.getByRole("menuitem", { name })).not.toHaveAttribute("aria-disabled", "true")
+  }
   await page.keyboard.press("Escape")
   await runAndWaitForSync(page, async () => restack.release())
   // its toast comes once the sync showed the result
@@ -503,7 +501,7 @@ test.describe("Stacked branches", () => {
     await expect(getBranchDetailsRow(page, "oauth").getByTestId("branch-base-changed")).toHaveCount(0)
   })
 
-  test("should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it, from a key too", async ({
+  test("should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -520,10 +518,11 @@ test.describe("Stacked branches", () => {
     await more.hover()
     // the tooltip of the menu item the click closed may still fade out
     await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Unstacking oauth…" })).toBeVisible()
-    // a key runs the item it is the hint of: M on another row says why it waits, and opens no form
+    // a key runs the item it is the hint of: M on another row opens its form, whose move would wait for the unstack
     await findBranchRow(page, "docs").focus()
     await page.keyboard.press("m")
-    await expect(page.locator("[data-slot=toast]", { hasText: "Unstacking oauth…" })).toBeVisible()
+    await expect(page.getByTestId("inline-branch-target")).toBeVisible()
+    await page.keyboard.press("Escape")
     await expect(page.getByTestId("inline-branch-target")).toHaveCount(0)
     await expectRewritesWaitAndUnstackOnce(page, restack)
     await expect(more).toBeEnabled()

@@ -575,6 +575,34 @@ test.describe("Next step", () => {
     await expect(popover).toHaveCount(0)
   })
 
+  test("should retarget a pull request while a review is requested in it: both reach GitHub, neither refuses the other", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // #1078 goes into a virtual branch and nobody of the code owners is asked: a retarget and a review request
+    const unasked = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")], baseRefName: "user-name/virtual/feature-auth" })
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked])
+    const menu = await openMenu(page)
+    await menu.getByRole("menuitem", { name: "Request Review…" }).click()
+    const popover = page.getByTestId("request-review-popover")
+    // the approvals into a virtual branch don't count: no code owner to offer, the search finds whom to ask
+    await popover.getByTestId("request-review-reviewer-search").fill("ikor")
+    await page.getByRole("option", { name: /ikorennoy/ }).click()
+    const request = await holdCommandCalls(page, "request_pull_request_reviewers")
+    await popover.getByTestId("request-review-submit").click()
+    await expect.poll(() => request.calls.length).toBe(1)
+
+    // the retarget writes the base of the pull request, the request its reviewers: it runs while the request waits
+    await page.keyboard.press("Escape")
+    const retarget = slot(page).getByRole("button", { name: "Retarget #1078" })
+    await expect(retarget).toBeEnabled()
+    await retarget.click()
+    await expect.poll(async () => gitHubWrites(await repo.getGitHubLog())).toEqual([["PATCH", repoPath("pulls", 1078), { base: "master" }]])
+    await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #1078 to master" })).toBeVisible()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot retarget" })).toHaveCount(0)
+
+    request.release()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
+    expect(await gitHubRequests(repo, "POST", "pulls", 1078, "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
+  })
+
   test("should retarget a pull request into the branch of a parent that landed, whose approvals don't count", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the base is the branch of a parent that is no branch of the table any more
     const repo = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/landed-parent")

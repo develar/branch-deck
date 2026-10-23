@@ -1192,7 +1192,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   a spinner in place of its icon, `aria-busy`), a second click joins it, the other one of the robot waits with its busy
   state ("Restarting the Safe Push…").
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart a robot once while its restart runs, running in the slot and in its details, landing from the click`)
-  [@test] ../../src/stores/operations.test.ts (`lets a remote action wait for one of the same object or of a branch it works on`)
+  [@test] ../../src/stores/operations.test.ts (`lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request`)
 - One builder lists the actions of a robot (`getRobotActions`), and every surface of the robot renders that list: the
   branch menu, the details (the chip popover, the preview section) and the [landing overview](../repository/landing-overview.spec.md#overview).
   In this order: "Restart Safe Push" or "Restart Safe Push" (below), "Cancel Safe Push", "Open in Patronus",

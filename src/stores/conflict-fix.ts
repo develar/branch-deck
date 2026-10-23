@@ -30,7 +30,7 @@ export const conflictFixStore = createStore<ConflictFixState>(() => ({ key: null
 export const APPLY_FIX_SURFACE = "apply-conflict-fix"
 
 /** The operation of applying `component`: a rewrite of the branches it moves commits of or to */
-export function conflictFixOperation(component: FixComponent): OperationKey {
+function conflictFixOperation(component: FixComponent): OperationKey {
   return { id: "apply-conflict-fix", subject: "conflict-fix", objects: branchesOfFix(component), kind: "rewrite" }
 }
 

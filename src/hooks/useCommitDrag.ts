@@ -3,10 +3,10 @@ import type { DragEvent } from "react"
 import { useStore } from "zustand"
 import { toast } from "@/components/ui/toast"
 import type { BranchDrop, BranchDropFacts } from "@/lib/branch-drop"
-import { branchSyncStore, findCommits, getBranch, getBranchCommits, getParkedState, getStackDescendants, isStacksEnabled } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchCommits, getParkedState, getStackDescendants, isStacksEnabled, resolveCommits } from "@/stores/branch-sync"
 import type { CommitDrag } from "@/stores/commit-move"
 import { clearHoverRefusal, commitMoveStore, endCommitDrag, isDroppableOn, setDragOrigin, setHoverRefusal, useDroppableDrag } from "@/stores/commit-move"
-import { getRunningRewrite, operationsStore } from "@/stores/operations"
+import { operationsStore } from "@/stores/operations"
 import { getPushHold, patronusStore } from "@/stores/patronus"
 
 /** `dataTransfer` type of a commit drag; the commits themselves are in the commit move store */
@@ -67,7 +67,6 @@ export function getBranchDropFacts(): BranchDropFacts {
     descendants: getStackDescendants,
     stacksEnabled: isStacksEnabled(),
     isSyncing: branchSyncStore.getState().isSyncing,
-    rewrite: getRunningRewrite(),
   }
 }
 
@@ -104,7 +103,7 @@ function refreshDrag(drag: CommitDrag): CommitDrag | string {
     const gone = drag.branches.find(name => getBranch(name) === undefined)
     return gone === undefined ? { ...drag, commits: getBranchCommits(drag.branches) } : `Cannot move ${gone}: The branch is gone`
   }
-  const commits = findCommits(drag.commits.map(commit => commit.originalHash))
+  const commits = resolveCommits(drag.commits)
   return commits === null ? "Cannot move the commits: They changed, drag them again" : { ...drag, commits }
 }
 

@@ -6,10 +6,10 @@ import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { capitalize, countMoved, describeMove } from "@/lib/move-summary"
 import { runRewrite } from "@/lib/rewrite"
-import { branchSyncStore, getBranchesOfCommits } from "@/stores/branch-sync"
+import { branchSyncStore, getBranchesOfCommits, resolveCommits } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { branchSubject } from "@/stores/operations"
-import { getSelectedRepositoryPath } from "@/stores/repository"
+import { getSelectedRepositoryPath, isSelectedRepository } from "@/stores/repository"
 
 export interface MoveOptions {
   /** The action, as the id of its item: "move-to" by default, "ungroup", "remove-prefix" */
@@ -25,7 +25,8 @@ export interface MoveOptions {
  * the issue group of their key), with the smallest change (`move_commits_to_branch`): a whole issue goes by the issue
  * groups, without a rewrite, the other commits by their `(branch)` prefix. One rewrite (`runRewrite`): the move, the
  * sync, then the toast with an undo of the whole move and the moved commits revealed in the target branch; when a
- * stacked branch of the move builds alone afterwards, the toast also offers its unstack. Resolves after the sync, to
+ * stacked branch of the move builds alone afterwards, the toast also offers its unstack. A move that waited for another
+ * rewrite in the queue moves the commits as that rewrite left them (`resolveCommits`). Resolves after the sync, to
  * false, after an error toast, if the commits could not be moved.
  */
 export async function moveCommits(commits: readonly Commit[], targetBranch: string | null, options: MoveOptions = {}): Promise<boolean> {
@@ -45,12 +46,16 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
       surface: options.surface,
     },
     targetBranch === null ? "Cannot move the commits back" : `Cannot move the commits to ${targetBranch}`,
-    () =>
-      commands.moveCommitsToBranch({
+    () => {
+      // the ids as the rewrite before it left them, while the table shows the repository of the move; a commit the
+      // table no longer has goes by the id it had
+      const current = (isSelectedRepository(repositoryPath) ? resolveCommits(commits) : null) ?? commits
+      return commands.moveCommitsToBranch({
         repositoryPath,
-        commitIds: commits.map(commit => commit.originalHash),
+        commitIds: current.map(commit => commit.originalHash),
         targetBranch,
-      }),
+      })
+    },
     moved => {
       const count = countMoved(moved)
       if (count === 0) {

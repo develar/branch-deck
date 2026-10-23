@@ -27,7 +27,9 @@ describe("getSafePushBlocker", () => {
     expect(getSafePushBlocker(testBranch("login", null, { hasError: true }))).toBe("The branch failed to sync")
     expect(getSafePushBlocker(testBranch("login", null, { commitCount: 0 }))).toBe("No commits to push")
     operationsStore.setState({
-      running: [{ key: 1, id: "rename", subject: "branch:login", objects: ["login"], kind: "rewrite", label: "Renaming login to auth", repositoryPath: "", surface: null }],
+      running: [
+        { key: 1, id: "rename", subject: "branch:login", objects: ["login"], kind: "rewrite", label: "Renaming login to auth", repositoryPath: "", surface: null, waitsFor: null },
+      ],
     })
     expect(getSafePushBlocker(testBranch("login", null))).toBe("Renaming login to auth…")
   })

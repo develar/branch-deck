@@ -3,13 +3,13 @@
  * ([Move Commits](../../spec/branch/move-commits.spec.md#drag-and-drop)): the Parked card and the park zone of the drag
  * bar park them, the unpark zone unparks them, the "Stack on" chip of a row stacks the branch there, the unstack zone
  * makes it a root. Each answer takes the branches or refuses them with the reason the target shows, the reason the menu
- * gives for the same action.
+ * gives for the same action. A drop while a rewrite of the repository runs is taken: its action waits for that rewrite in
+ * the queue (`runOperation`).
  */
 import type { ParkedState } from "@/lib/parked"
 import type { PushHold } from "@/lib/patronus"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { hasStackFix, stackOnFixes, stackProblemOf } from "@/lib/stack"
-import { joinNames } from "@/lib/text"
 import type { Branch } from "@/stores/branch-sync"
 
 /** What a drop decides by: the branches as the last sync left them */
@@ -22,8 +22,6 @@ export interface BranchDropFacts {
   stacksEnabled: boolean
   /** A sync rebuilds the branches */
   isSyncing: boolean
-  /** The busy state of a rewrite of the repository that runs ("Parking docs…"), null when none runs: every drop waits */
-  rewrite: string | null
 }
 
 /** A drop target's answer: the branches it acts on, or why it refuses the drag ("Cannot park auth: …") */
@@ -72,17 +70,13 @@ export function parkBlocker(branch: Branch, hold: PushHold | null, isSyncing: bo
 
 /**
  * The move of the dragged commits into the branch `target` of a row, or back out of the branches (`target` null):
- * a row of the Parked card leaves a drag of branches that land to the card, which parks them (null). Refused while a
- * rewrite runs, and for a drag of whole branches while one of them can't be rewritten (`rewriteBlocker`), as Move to…
- * of their menu; a drag of commit rows moves during a sync, as Move to… of a commit
+ * a row of the Parked card leaves a drag of branches that land to the card, which parks them (null). Refused for a drag
+ * of whole branches while one of them can't be rewritten (`rewriteBlocker`), as Move to… of their menu; a drag of
+ * commit rows moves during a sync, as Move to… of a commit
  */
 export function moveDrop(branches: readonly string[], target: string | null, facts: BranchDropFacts): BranchDrop | null {
   if (target !== null && branches.length > 0 && facts.parked(target) !== null && showsParkDrop(branches, facts)) {
     return null
-  }
-  const cannot = target === null ? "Cannot move the commits back" : `Cannot move to ${target}`
-  if (facts.rewrite !== null) {
-    return { refusal: `${cannot}: ${facts.rewrite}` }
   }
   for (const name of branches) {
     const branch = facts.branch(name)
@@ -100,17 +94,14 @@ export function showsParkDrop(names: readonly string[], facts: BranchDropFacts):
 }
 
 /**
- * The park of the dragged branches that land; those parked already stay as they are. Refused while a rewrite runs, when
- * all of them are parked, or when one that lands can't be parked now (`parkBlocker`)
+ * The park of the dragged branches that land; those parked already stay as they are. Refused when all of them are
+ * parked, or when one that lands can't be parked now (`parkBlocker`)
  */
 export function parkDrop(names: readonly string[], facts: BranchDropFacts): BranchDrop {
   const landing = names.filter(name => facts.parked(name) === null)
   const [only] = names
   if (landing.length === 0) {
     return { refusal: names.length === 1 && only !== undefined ? `Cannot park ${only}: It is parked already` : "Cannot park: They are parked already" }
-  }
-  if (facts.rewrite !== null) {
-    return { refusal: `Cannot park ${joinNames(landing)}: ${facts.rewrite}` }
   }
   for (const name of landing) {
     const branch = facts.branch(name)
@@ -133,9 +124,6 @@ export function showsUnparkDrop(names: readonly string[], facts: BranchDropFacts
  * its parent, which only an unpark of the parent lets land
  */
 export function unparkDrop(names: readonly string[], facts: BranchDropFacts): BranchDrop {
-  if (facts.rewrite !== null) {
-    return { refusal: `Cannot unpark: ${facts.rewrite}` }
-  }
   if (facts.isSyncing) {
     return { refusal: "Cannot unpark: Wait for the sync to finish" }
   }
@@ -176,7 +164,7 @@ export function stackOnDrop(names: readonly string[], target: string, facts: Bra
   }
   const problem = stackProblemOf(branch)
   const fix = problem !== null && stackOnFixes(problem).includes(target)
-  const blocker = facts.rewrite ?? (fix ? fixBlocker(branch, facts.isSyncing) : rewriteBlocker(branch, facts.isSyncing))
+  const blocker = fix ? fixBlocker(branch, facts.isSyncing) : rewriteBlocker(branch, facts.isSyncing)
   return blocker === null ? { names } : { refusal: `Cannot stack ${name} on ${target}: ${blocker}` }
 }
 
@@ -200,7 +188,7 @@ export function unstackDrop(names: readonly string[], facts: BranchDropFacts): B
   if (parent === null && !fix) {
     return null
   }
-  const blocker = facts.rewrite ?? (fix ? fixBlocker(branch, facts.isSyncing) : rewriteBlocker(branch, facts.isSyncing))
+  const blocker = fix ? fixBlocker(branch, facts.isSyncing) : rewriteBlocker(branch, facts.isSyncing)
   const cannot = parent === null ? `Cannot unstack ${branch.name}` : `Cannot unstack ${branch.name} from ${parent}`
   return blocker === null ? { names } : { refusal: `${cannot}: ${blocker}` }
 }

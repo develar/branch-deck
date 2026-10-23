@@ -213,11 +213,14 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag the selection onto a branch, but not onto its own branch`)
   [@test] ../../src/stores/commit-move.test.ts (`drops anywhere but on the one list a drag comes from`)
 - The unassigned commits card must accept the commits and branches that have a way back, and move them back.
-- A target must wait as the menu of the same action does, and say why while the pointer is over it: every target
-  while a rewrite of the repository runs ("Cannot move to docs: Parking auth…"); a drag of whole branches also while a
-  sync runs or one of them failed to sync, as Move to… of a branch; a drag of commit rows moves during a sync, as Move
-  to… of a commit. Its answer follows the sync and the rewrites while the drag goes on, and a drop asks it once more
-  and takes the commits as the last sync left them: gone ones refuse the drop with an info toast.
+- A target must wait as the menu of the same action does, and say why while the pointer is over it: a drag of whole
+  branches while a sync runs or one of them failed to sync, as Move to… of a branch; a drag of commit rows moves during
+  a sync, as Move to… of a commit. A target takes a drop while a rewrite of the repository runs: its move waits for
+  that rewrite in the queue ([Running Operations](../../docs/design/operations.md)) and then moves the commits as the
+  rewrite left them, by the ids it gave them. Its answer follows the sync and the rewrites while the drag goes on, and
+  a drop asks it once more and takes the commits as the last sync left them (a commit a rewrite gave another id is
+  found by its author, author time and subject): gone ones refuse the drop with an info toast.
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it`)
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag a branch while a sync runs, say why the targets wait for it, and take the drop once it ended`)
   [@test] ../../src/lib/branch-drop.test.ts (`moves dragged commits onto a branch, leaves a drag of branches that land to the Parked card from its rows, and waits as Move to… does`)
 - While commits or branches are dragged, the drag bar must show over the bottom of the window, in view wherever the
@@ -245,7 +248,7 @@ Renaming and ungrouping a branch are moves of all its commits.
     stacks it there instead of moving its commits; the unstack zone of the drag bar makes a stacked branch a root
     ([Stack Parents](stack-parents.spec.md#app)).
   - After the drop the row is scrolled into view where it went (the Parked card, the table).
-  [@test] ../../src/lib/branch-drop.test.ts (`parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and waits for the sync and a rewrite`)
+  [@test] ../../src/lib/branch-drop.test.ts (`parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and waits for the sync`)
   [@test] ../../src/lib/branch-drop.test.ts (`unparks the dragged branches with a line of their own, the ones parked with them along, never one alone, and leaves those that land`)
   [@test] ../../src/lib/branch-drop.test.ts (`stacks one dragged branch on another, never on itself, its parent or a branch stacked on it`)
   [@test] ../../src/lib/branch-drop.test.ts (`unstacks one dragged branch that is stacked, and shows no zone for a root`)

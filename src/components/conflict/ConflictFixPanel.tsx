@@ -13,8 +13,8 @@ import { branchesOfFix, componentFixing, describeFixGrouping, describeFixResult,
 import { buildConflictPrompt } from "@/lib/conflict-fix-prompt"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
-import { APPLY_FIX_SURFACE, applyConflictFix, conflictFixOperation, requestConflictFix, useConflictFix, useSubjectOf } from "@/stores/conflict-fix"
-import { useIndicatorClaim, useOperationBlocker, useSurfaceBusy } from "@/stores/operations"
+import { APPLY_FIX_SURFACE, applyConflictFix, requestConflictFix, useConflictFix, useSubjectOf } from "@/stores/conflict-fix"
+import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 import { usePushHolds } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { useSelectedProject } from "@/stores/repository"
@@ -93,10 +93,9 @@ function FixSteps({ component }: { component: FixComponent }) {
   const pullRequests = useRepositoryPullRequestMap()
   useIndicatorClaim(APPLY_FIX_SURFACE)
   const applying = useSurfaceBusy(APPLY_FIX_SURFACE) !== null
-  // another rewrite of the repository runs: the fix waits for it
-  const waitsFor = useOperationBlocker(conflictFixOperation(component))
+  // another rewrite of the repository runs: the fix waits for it in the queue, its button shows what it waits for
   const held = branchesOfFix(component).find(branch => holds.has(branch))
-  const reason = held === undefined ? waitsFor : `A Safe Push of ${held} is running`
+  const reason = held === undefined ? null : `A Safe Push of ${held} is running`
   const steps = component.steps.map(step => describeFixStep(step, subjectOf))
   const grouping = describeFixGrouping(component)
   const result = describeFixResult(component, branch => pullRequests[branch]?.state === "open")

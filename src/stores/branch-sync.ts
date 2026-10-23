@@ -763,6 +763,30 @@ export function findCommits(ids: readonly string[]): Commit[] | null {
   return findCommitsIn(branchSyncStore.getState(), ids)
 }
 
+/**
+ * The commits as the last sync left them, in their order; null when one of them is gone. A commit whose id a rewrite
+ * changed since (a move, a reword of another commit, a rename: the author, the author time and the subject without the
+ * prefix stay) is found by them, when one commit of the table has them: a rewrite that waited for another one in the
+ * queue acts on the commits the user chose
+ */
+export function resolveCommits(commits: readonly Commit[]): Commit[] | null {
+  const state = branchSyncStore.getState()
+  const all = [...Object.values(state.branches).flatMap(branch => branch.commits), ...state.unassignedCommits]
+  const byId = new Map(all.map(commit => [commit.originalHash, commit]))
+  const byKey = new Map<string, Commit | null>()
+  for (const commit of all) {
+    const key = commitKey(commit)
+    byKey.set(key, byKey.has(key) ? null : commit)
+  }
+  const found = commits.map(commit => byId.get(commit.originalHash) ?? byKey.get(commitKey(commit)) ?? undefined)
+  return found.every(commit => commit !== undefined) ? found : null
+}
+
+/** What a rewrite of the commit keeps: its author, the author time and the subject without the prefix */
+function commitKey(commit: Commit): string {
+  return `${commit.author}\n${commit.authorTime}\n${commit.strippedSubject}`
+}
+
 function findCommitsIn({ branches, unassignedCommits }: BranchSyncState, ids: readonly string[]): Commit[] | null {
   const byId = new Map<string, Commit>()
   for (const branch of Object.values(branches)) {

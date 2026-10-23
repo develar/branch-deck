@@ -27,8 +27,10 @@ One registry of the operations that run (`src/stores/operations.ts`), and one wa
 
 - **join**: a second start of the same action of the same object (a double click, the same item in another surface)
   runs nothing and resolves with the first;
-- **wait**: an action that conflicts with a running one doesn't start; its menu item is disabled with the running
-  operation's busy state as the reason ("Unstacking tool-events…");
+- **queue**: a rewrite that conflicts with a running one waits for it and runs after it, in the order of the starts;
+  its menu item stays enabled, and its rows and its surface say what it waits for ("Waits for Unstacking
+  tool-events"). A remote action that conflicts with a running one doesn't start; its menu item is disabled with the
+  running operation's busy state as the reason ("Restarting the Safe Push…");
 - **one indicator**: the surface that started it shows the spinner; a start from a menu, a key or a toast shows it on
   the "⋯" of the object's row;
 - **the whole action**: a rewrite runs until the sync that shows its result ends (`runRewrite`), so a row never offers
@@ -59,12 +61,21 @@ that is the move of a row, its `move` ([Moves](#moves)).
 
 `getOperationBlocker(running, key)` is the one rule; `runOperation` and every builder read it.
 
-1. **The same action of the same subject** joins: the promise of the running one.
-2. **A rewrite waits for any rewrite of the repository.** Every rewrite moves HEAD or a ref of Branch Deck under one
-   repository lock; the backend would run them one after the other, the second on what the first left, as the triple
-   Unstack did.
+1. **The same action of the same subject** joins: the promise of the running one, also of one that waits.
+2. **A rewrite waits for any rewrite of the repository, in the queue.** Every rewrite moves HEAD or a ref of Branch
+   Deck under one repository lock; the backend would run them one after the other, the second on what the first left,
+   as the triple Unstack did. `runOperation` records the second one at once (`waitsFor`: the busy state of the one it
+   waits for; its rows are busy, `operationLabel` says "Waits for Unstacking tool-events") and runs it once every
+   rewrite started before it ended, however it ended, the sync after it included; it is never refused. What it acts on
+   it reads when it runs: a move takes the commits as the rewrite before it left them (`resolveCommits`: by id, else by
+   the author, the author time and the subject without the prefix, which a message rewrite keeps), a branch goes by its
+   name; the other rewrites by commit ids pass the ids of the click, which the backend refuses with the exact error
+   when a rewrite before them changed them.
 3. **A remote action waits for a remote action of its subject or of a branch it works on** (restart and cancel of one
-   robot).
+   robot), and is refused meanwhile: a cancel queued behind a restart would act on the robot the restart replaced.
+   Where an action names the resources it writes (`resources`: a field of a pull request, `pr:<n>:base` of a retarget,
+   `pr:<n>:reviewers` of a review request), two such actions wait only for one that writes the same resource: a
+   retarget and a review request of one pull request run side by side.
 4. **A rewrite and a remote action run side by side**, as before the registry: a push during a rewrite waits for the
    sync itself and pushes what it leaves.
 
@@ -75,8 +86,8 @@ backend lock orders them and the sync chain reads the result again. Only the men
 ### Items
 
 A builder marks its items with `operationItem(running, item, key)`: the running action's item is `running` and
-disabled, an item that must wait is disabled with the busy state as its `description`, an item disabled for its own
-reason keeps it. The rewrites of the branch menu go through `rewriteItem` (the sync blocker first), the commit menus
+disabled; the item of a rewrite that must wait stays as it is (its start queues), the item of a remote action that must
+wait is disabled with the busy state as its `description`; an item disabled for its own reason keeps it. The rewrites of the branch menu go through `rewriteItem` (the sync blocker first), the commit menus
 through the same call. A surface that renders a builder reads it through a selector cached by the states of the stores it reads, the
 registry among them (`useBranchMenu`), or subscribes to the registry and passes its snapshot (`useOperations`): a store
 read inside a builder that the React Compiler memoizes would show a stale menu
@@ -107,8 +118,8 @@ Every row the operation works on is busy (`useObjectBusy`): no right-click menu,
 `notifyError` on a failure, `applied` (reveal the moved commits, say whether anything changed), then the sync, then
 the toast `applied` returns, with Undo. The toast comes after the sync: the user sees the result beside its Undo, and
 an Undo clicked at once never meets its own running operation. An Undo is a rewrite of its own (`undoRegroup`,
-`undoSquash`). A start that must wait says so in an info toast titled as its failure ("Cannot undo the move",
-"Unstacking tool-events…").
+`undoSquash`). A start while another rewrite runs (an Undo clicked during an Unstack, a second drag during a move)
+waits for it in the queue: no info toast, its rows say "Waits for Unstacking tool-events".
 
 Through it: Stack On and Unstack, rename, move (and ungroup, remove prefix), squash, squash fixups and squash into,
 reword, the conflict fix, park and unpark, unapply, and their undos. The inline forms run theirs through
