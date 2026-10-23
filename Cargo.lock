@@ -760,9 +760,13 @@ dependencies = [
  "git-executor",
  "git-ops",
  "indexmap 2.14.2",
+ "pretty_assertions",
  "serde",
  "serde_json",
  "sync-utils",
+ "test-log",
+ "test-utils",
+ "tokio",
  "tracing",
 ]
 
@@ -3029,26 +3033,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4200d433cbd5178df7797c9c2e75b348b728e39631cf14520d1e2fc424201f4"
 dependencies = [
  "cfb",
-]
-
-[[package]]
-name = "integration-detection-tests"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "branch-integration",
- "domain-types",
- "git-executor",
- "git-ops",
- "history-rewrite",
- "indexmap 2.14.2",
- "pretty_assertions",
- "sync-core",
- "sync-utils",
- "test-log",
- "test-utils",
- "tokio",
- "tracing",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-use super::test_helpers::{setup_test_repos, test_partial_integration_detection_with_strategy};
+use crate::detection_test_helpers::test_partial_integration_detection_with_strategy;
 use branch_integration::rebase::{CherryMarks, RightSideMarks, scan_cherry_marks};
 use branch_integration::{detector::detect_integrated_branches, strategy::DetectionStrategy};
 use domain_types::SyncEvent;
@@ -7,6 +7,7 @@ use sync_utils::timestamp::{days_ago, format_utc_date, utc_today};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::setup_test_repos;
 
 /// Test the core orphan scenario: virtual branch exists but original commits are gone from HEAD
 #[test(tokio::test)]
@@ -315,11 +316,12 @@ fn test_partial_integration_detection_with_rebase_strategy() {
 /// Test archiving + production cleanup with custom retention
 #[test(tokio::test)]
 async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
-  use super::test_helpers::options_with_strategy;
-  use crate::test_helpers::{integrated_cache_info, not_integrated_cache_info};
+  use crate::detection_test_helpers::options_with_strategy;
+  use crate::sync::{SyncOptions, sync_branches};
   use branch_integration::detection_notes::CacheOps;
-  use sync_core::sync::{SyncOptions, sync_branches};
+  use branch_integration::detection_notes::CachedDetection;
   use test_utils::sync_fixtures::TestReporter;
+  use test_utils::sync_fixtures::{integrated_branch_info, not_integrated_branch_info};
 
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
 
@@ -359,8 +361,14 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   let cache_ops = CacheOps::new(&git_executor, local_repo.path().to_str().unwrap());
 
   // Create integrated and not-integrated cache entries
-  let integrated_info = integrated_cache_info();
-  let not_integrated_info = not_integrated_cache_info(1, 0, 1);
+  let integrated_info = CachedDetection {
+    info: integrated_branch_info(),
+    check: None,
+  };
+  let not_integrated_info = CachedDetection {
+    info: not_integrated_branch_info(1, 0, 1),
+    check: None,
+  };
 
   cache_ops.write(&commit1, &integrated_info).unwrap(); // old + integrated = should be deleted
   cache_ops.write(&commit2, &integrated_info).unwrap(); // recent + integrated = should remain (not old enough)
@@ -399,7 +407,7 @@ async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   assert!(archived_after.contains(&recent_archived_name), "Recent integrated branch should remain (not old enough)");
   // its note has no baseline, but it is beyond the retention period: reported as is, not detected again
   let events = progress.get_events();
-  let status = &crate::test_helpers::detected_branch_info(&events, &orphaned_archived_name).status;
+  let status = &test_utils::sync_fixtures::detected_branch_info(&events, &orphaned_archived_name).status;
   assert!(
     matches!(
       status,
@@ -469,7 +477,7 @@ fn a_tag_with_the_name_of_an_archived_branch_does_not_change_its_detection() {
   detect_integrated_branches(&git_executor, repo_path, "user", "origin/master", config).unwrap();
 
   let events = progress.get_events();
-  let status = &super::test_helpers::detected_branch_info(&events, &archived).status;
+  let status = &test_utils::sync_fixtures::detected_branch_info(&events, &archived).status;
   assert!(
     matches!(
       status,

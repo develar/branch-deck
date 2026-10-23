@@ -207,7 +207,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   pull request names), as the app cuts its lists and prompts (`cutList`).
   [@test] ../../crates/sync-utils/src/list_cut_test.rs (`a_list_one_longer_than_its_limit_is_kept_whole_and_a_longer_one_is_cut_at_the_limit`)
   [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
   [@test] ../../crates/patronus/src/actions_test.rs (`the_failed_checks_of_a_robot_are_named_whole_when_only_one_is_past_the_limit`)
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`the_failed_checks_of_a_pull_request_are_named_whole_when_only_one_is_past_the_limit`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)

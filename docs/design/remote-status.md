@@ -321,5 +321,5 @@ is the same commits on an older baseline: no warning, a quiet line in the detail
 ## References
 
 - Implementation: `crates/sync-core/src/remote_status.rs`
-- Tests: `crates/integration-detection-tests/src/remote_status_tests.rs`
+- Tests: `crates/sync-core/src/detection_remote_status_test.rs`
 - Related: [virtual-branches.md](virtual-branches.md) - Virtual branch architecture

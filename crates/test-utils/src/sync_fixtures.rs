@@ -1,9 +1,13 @@
-//! Fixtures of the sync tests (sync-core, repository-model, integration-detection-tests): a progress reporter that
-//! records the sync events, and a grouped branch placed in a stack.
+//! Fixtures of the sync and detection tests (sync-core, repository-model, branch-integration): a progress reporter
+//! that records the sync events, a grouped branch placed in a stack, a local clone of an upstream, and the integration
+//! results a detection reports or a detection note holds.
 
+use crate::git_test_utils::TestRepo;
 use anyhow::Result;
+use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use domain_types::stack::BranchStack;
 use domain_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::{Arc, Mutex};
 
 /// Progress reporter that captures sync events for verification.
@@ -56,5 +60,59 @@ pub fn placed_branch(name: &str, effective_base: Option<&str>, declared_parent: 
       effective_base: effective_base.map(str::to_string),
       ..BranchStack::default()
     }),
+  }
+}
+
+/// An upstream repository with `main` at its initial commit and a local clone of it, so the tests run with a real
+/// remote
+pub fn setup_test_repos() -> (TestRepo, TestRepo, GitCommandExecutor) {
+  let git_executor = GitCommandExecutor::new();
+
+  let upstream_repo = TestRepo::new();
+  let initial_commit = upstream_repo.create_commit("Initial commit", "README.md", "# Project");
+  upstream_repo.create_branch_at("main", &initial_commit).unwrap();
+
+  let local_repo = TestRepo::new_empty();
+  local_repo.clone_from(upstream_repo.path()).unwrap();
+
+  (upstream_repo, local_repo, git_executor)
+}
+
+/// Integration info of the detected branch `name`, from its `BranchIntegrationDetected` event
+pub fn detected_branch_info<'a>(events: &'a [SyncEvent], name: &str) -> &'a BranchIntegrationInfo {
+  events
+    .iter()
+    .find_map(|e| match e {
+      SyncEvent::BranchIntegrationDetected { info } if info.name == name => Some(info),
+      _ => None,
+    })
+    .expect("Should find integration info")
+}
+
+/// Integration info of a fully integrated branch, as a detection note holds it
+pub fn integrated_branch_info() -> BranchIntegrationInfo {
+  BranchIntegrationInfo {
+    name: "test-branch".to_string(),
+    summary: String::new(),
+    status: BranchIntegrationStatus::Integrated {
+      integrated_at: Some(0),
+      confidence: IntegrationConfidence::High,
+      commit_count: 1,
+      commit: None,
+    },
+  }
+}
+
+/// Integration info of a branch whose commits are partly or not at all integrated, as a detection note holds it
+pub fn not_integrated_branch_info(total_commit_count: u32, integrated_count: u32, orphaned_count: u32) -> BranchIntegrationInfo {
+  BranchIntegrationInfo {
+    name: "test-branch".to_string(),
+    summary: String::new(),
+    status: BranchIntegrationStatus::NotIntegrated {
+      total_commit_count,
+      integrated_count,
+      orphaned_count,
+      integrated_at: None,
+    },
   }
 }

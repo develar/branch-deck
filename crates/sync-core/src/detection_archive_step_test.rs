@@ -1,6 +1,6 @@
 //! Tests for the archive step of a sync: which branches it moves into the archive and how it fails
 
-use crate::test_helpers::{setup_test_repos, sync_user_branches};
+use crate::detection_test_helpers::sync_user_branches;
 use branch_integration::common::get_all_branch_data;
 use branch_integration::detector::archive_and_clean_up;
 use branch_integration::strategy::DetectionStrategy;
@@ -12,6 +12,7 @@ use sync_utils::timestamp::utc_today;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, git_command};
 use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::setup_test_repos;
 
 /// A clone with one commit and the virtual branch `user/virtual/auth` at it: (upstream, clone, git, commit)
 fn repo_with_virtual_auth() -> (TestRepo, TestRepo, GitCommandExecutor, String) {

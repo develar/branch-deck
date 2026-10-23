@@ -15,6 +15,12 @@ serde.workspace = true
 serde_json.workspace = true
 indexmap.workspace = true
 
+[dev-dependencies]
+test-utils = { path = "../test-utils" }
+tokio.workspace = true
+pretty_assertions.workspace = true
+test-log.workspace = true
+
 [features]
 default = []
 specta = ["domain-types/specta", "git-ops/specta"]

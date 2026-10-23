@@ -1,6 +1,6 @@
 //! Integration detection of archived stacked branches: only the commits after the stack base are the branch's own
 
-use super::test_helpers::{detection_note, setup_test_repos, sync_user_branches};
+use crate::detection_test_helpers::{detection_note, sync_user_branches};
 use branch_integration::detection_notes::{NOTES_REF, STACK_NOTES_REF};
 use branch_integration::strategy::DetectionStrategy;
 use domain_types::SyncEvent;
@@ -10,6 +10,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::setup_test_repos;
 
 /// The detection result of the archived branch whose simple name is `name`
 fn archived_info(events: &[SyncEvent], name: &str) -> BranchIntegrationInfo {

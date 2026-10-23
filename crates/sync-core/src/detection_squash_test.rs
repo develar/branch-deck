@@ -1,9 +1,8 @@
 //! Tests specifically for squash merge integration detection
 
-use super::integration_tests::test_integration_workflow_helper;
-use super::test_helpers::{
-  IntegrationMethod, UpdateMethod, detected_branch_info, detected_branch_names, get_commit_timestamp, setup_test_repos, sync_user_branches, verify_archived_branches_listed,
-  verify_detection_cache_works,
+use crate::detection_integration_test::test_integration_workflow_helper;
+use crate::detection_test_helpers::{
+  IntegrationMethod, UpdateMethod, detected_branch_names, get_commit_timestamp, sync_user_branches, verify_archived_branches_listed, verify_detection_cache_works,
 };
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
@@ -14,6 +13,7 @@ use sync_utils::timestamp::{unix_now, utc_today};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::{detected_branch_info, setup_test_repos};
 
 #[test]
 fn test_squash_merge_integration_with_timestamp_verification() {

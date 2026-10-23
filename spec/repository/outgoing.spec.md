@@ -67,12 +67,12 @@ is outgoing compares content, not hashes: the question is whether the remote has
   remote has them), nor the rebased copies of pushed commits (patch-equivalent). A branch not on the remote counts all
   its commits, the baseline excluded; mine counts only the user's commits, also for a first push.
   [@test] ../../src/lib/push-summary.test.ts (`counts the commits whose content the remote lacks`)
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_new_branch_counts_commits_by_author`)
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_new_commit_after_baseline_merge`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_new_branch_counts_commits_by_author`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_new_commit_after_baseline_merge`)
 - A branch only rebased onto a newer baseline must be up to date: the remote has all its commits by content. Its row
   says so, and it is not outgoing.
   [@test] ../../src/lib/push-summary.test.ts (`is up to date for a branch only rebased onto a newer baseline: the remote has its work`)
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_shows_zero_unpushed`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_shows_zero_unpushed`)
 - A branch with a conflict, a sync error or no commits must not count; a branch whose remote status is not loaded yet
   must not count either; the summary counts how many there are.
   [@test] ../../src/lib/push-summary.test.ts (`skips the branches whose row offers no push and counts the ones not loaded`)
@@ -92,7 +92,7 @@ is outgoing compares content, not hashes: the question is whether the remote has
     remote branch and the local one, not the result of the last sync, so it stays the same across syncs and restarts;
   - "push" otherwise (`Push (2)`).
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`, `force pushes a branch whose remote has older versions of commits amended or restacked`)
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
 - A remote commit whose content the branch lacks must be told by its identity, the author email, the author time and
   the subject without the `(prefix)` (as [landed commits](landed-commits.spec.md) are): amended when an unpushed
   commit of the branch has it (an older version of a commit amended here) and makes other changes, a rebased copy
@@ -113,14 +113,14 @@ is outgoing compares content, not hashes: the question is whether the remote has
   newer version of a remote commit counts as restacked only. The status text says "restacked", its hover "Rebuilt on
   the new auth: the remote lacks 1 of its commits, which a Safe Push of the branch lands with it.", the toast of the
   push "1 new commit of the parent".
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote`)
   [@test] ../../src/lib/push-summary.test.ts (`force pushes a branch whose remote has older versions of commits amended or restacked`, `says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`an_amended_commit_is_amended_not_dropped`, `a_rebased_copy_whose_context_moved_is_not_amended`, `a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`, `another_authors_commit_stays_dropped`, `an_amended_commit_and_a_dropped_one_are_told_apart`, `a_remote_commit_that_landed_in_the_baseline_with_other_changes_is_landed_not_dropped`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`an_amended_commit_is_amended_not_dropped`, `a_rebased_copy_whose_context_moved_is_not_amended`, `a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`, `another_authors_commit_stays_dropped`, `an_amended_commit_and_a_dropped_one_are_told_apart`, `a_remote_commit_that_landed_in_the_baseline_with_other_changes_is_landed_not_dropped`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
 - A commit the remote has by content in another version, its message or its author changed here (a reword), must be
   reworded (`commitsReworded`), with no process more than the walks: not ahead, yet the remote branch is not the
   branch, and a robot started or restarted from it would land the old version. A rebased copy keeps its message and
   author and stays up to date.
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_reworded_commit_is_not_on_the_remote_as_it_is`, `test_rebased_branch_with_new_commit_is_not_fast_forward`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_reworded_commit_is_not_on_the_remote_as_it_is`, `test_rebased_branch_with_new_commit_is_not_fast_forward`)
 - A branch is up to date only when the remote has nothing to receive and nothing the branch lacks, older versions
   included, landed and reworded ones too (`isRemoteUpToDate`); the push button, the status text, the review status of
   a robot or a pull request and the restart of a robot (pushed first when the remote is not up to date) decide by it.
@@ -130,13 +130,13 @@ is outgoing compares content, not hashes: the question is whether the remote has
 - The remote status must name the remote commit it was computed against (`remoteTip`, null without a remote branch)
   and list the newest ten of the commits a push drops (`droppedCommits`: id, subject, author, time), newest first;
   `commitsBehind` counts them all. A push leases on that commit ([Push](#push)).
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`)
 - The last push time of a remote status (`lastPushTime`, "Pushed …" in the description of the status text and in the
   branch preview) must be the time of the newest push of the branch from this clone, by its remote-tracking ref: a
   fetch that moved the remote branch later doesn't change it, also for a branch whose name holds a `{`. Without such
   a push it is 0, and nothing is shown. The push times of the branches of a sync are one read, when a status needs
   one; a remote branch deleted meanwhile has none, and the others keep theirs.
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`the_push_time_is_the_newest_push_not_a_later_fetch`, `the_push_times_of_several_branches_are_one_read`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`the_push_time_is_the_newest_push_not_a_later_fetch`, `the_push_times_of_several_branches_are_one_read`)
 - The remote status of commits that did not move (the branch, its remote branch, the baseline, a stacked branch's
   parent) must be the one computed before, without a walk: the app remembers it, push time included; `bd`, a new
   process each time, takes it from the object cache and reads only the push times.
@@ -235,7 +235,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
 - The description of a push that drops remote commits must list them under its text, newest first: subject, author,
   short id and age, then "and N more" past the ten listed, all eleven of eleven (`DROPPED_COMMITS_LIMIT`,
   `list_cut::kept`: never "and 1 more").
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`, `test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`, `test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
   [@test] ../../src/hooks/usePushButton.test.ts (`lists the remote commits a force push drops under its description, with how many more there are`, `lists nothing for a push that drops no remote commit`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's work, must ask first: the click opens its

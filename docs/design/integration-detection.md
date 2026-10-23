@@ -236,7 +236,7 @@ flowchart TB
 Key optimizations:
 - Single `git log --no-walk` fetches all notes
 - One cherry-mark walk per detected tip, for the counts and the integration commit alike; the processes of a detection
-  by subcommand are pinned in `crates/integration-detection-tests/src/process_budget_tests.rs`
+  by subcommand are pinned in `crates/branch-integration/src/process_budget_test.rs`
 - Parallel detection with configurable concurrency
 - "Detect once, cache forever" for integrated branches; a not integrated one costs one scan of the new baseline
   commits per baseline move
@@ -248,5 +248,8 @@ Key optimizations:
 - Cache format: `crates/branch-integration/src/detection_notes.rs`
 - Detection strategies: `merge.rs`, `rebase.rs`, `squash.rs`; the integration commit format: `common.rs`
 - UI: `src/stores/archived-branches.ts` (`newlyArchived`, `clearNewlyArchived`), `src/lib/integration-commit.ts`
-- Tests: `crates/integration-detection-tests/`
+- Tests: the detection without a sync in `crates/branch-integration/src/*_test.rs` (`archive_cleanup_test.rs`,
+  `detection_notes_test.rs`, `process_budget_test.rs`), the detection a sync runs in
+  `crates/sync-core/src/detection_*_test.rs` (helpers in `detection_test_helpers.rs`, the shared fixtures in
+  `crates/test-utils/src/sync_fixtures.rs`)
 - Related: [virtual-branches.md](virtual-branches.md)

@@ -7,15 +7,15 @@ use test_log::test;
 /// Cached-status-based cleanup during detection deletes only fully integrated branches older than retention
 #[test(tokio::test)]
 async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
-  use crate::test_helpers::{integrated_cache_info, not_integrated_cache_info};
-  use branch_integration::detection_notes::CacheOps;
-  use branch_integration::detector::{DetectConfig, detect_integrated_branches};
-  use branch_integration::strategy::DetectionStrategy;
-  use history_rewrite::baseline::detect_baseline_branch;
+  use crate::detection_notes::CacheOps;
+  use crate::detection_notes::CachedDetection;
+  use crate::detector::{DetectConfig, detect_integrated_branches};
+  use crate::strategy::DetectionStrategy;
   use test_utils::sync_fixtures::TestReporter;
+  use test_utils::sync_fixtures::{integrated_branch_info, not_integrated_branch_info};
 
   // Set up repos and executor
-  let (_upstream_repo, local_repo, git_executor) = crate::test_helpers::setup_test_repos();
+  let (_upstream_repo, local_repo, git_executor) = test_utils::sync_fixtures::setup_test_repos();
 
   // Create distinct commits to serve as tips for archived branches
   let initial_commit = local_repo.create_commit("Initial commit", "README.md", "# Test");
@@ -50,15 +50,22 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   let recent_integrated_tip = tip(&recent_integrated);
 
   // Create cache entries
-  let integrated_info = integrated_cache_info();
-  let not_integrated_info = not_integrated_cache_info(3, 1, 2);
+  let integrated_info = CachedDetection {
+    info: integrated_branch_info(),
+    check: None,
+  };
+  let not_integrated_info = CachedDetection {
+    info: not_integrated_branch_info(3, 1, 2),
+    check: None,
+  };
 
   cache_ops.write(&old_integrated_tip, &integrated_info).unwrap();
   cache_ops.write(&old_orphaned_tip, &not_integrated_info).unwrap();
   cache_ops.write(&recent_integrated_tip, &integrated_info).unwrap();
 
   // Run detection (which triggers cleanup using cached notes). No active branches.
-  let baseline = detect_baseline_branch(&git_executor, repo_path).unwrap_or_else(|_| "origin/main".to_string());
+  // the upstream of the cloned branch, which a sync takes for the baseline
+  let baseline = git_executor.execute_command(&["rev-parse", "--abbrev-ref", "@{u}"], repo_path).unwrap().trim().to_string();
   let active_branches = std::collections::HashSet::new();
   let progress = TestReporter::new();
   let cfg = DetectConfig {
@@ -91,7 +98,7 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   assert!(reported.contains(&recent_integrated), "recent-integrated should be reported: {reported:?}");
   // a note without a baseline beyond the retention period is reported as is, not detected again
   let events = progress.get_events();
-  let status = &crate::test_helpers::detected_branch_info(&events, &old_orphaned).status;
+  let status = &test_utils::sync_fixtures::detected_branch_info(&events, &old_orphaned).status;
   assert!(
     matches!(
       status,

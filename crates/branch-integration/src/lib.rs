@@ -24,3 +24,10 @@ pub mod squash;
 pub mod strategy;
 
 // No re-exports - import modules directly
+
+#[cfg(test)]
+mod archive_cleanup_test;
+#[cfg(test)]
+mod detection_notes_test;
+#[cfg(test)]
+mod process_budget_test;

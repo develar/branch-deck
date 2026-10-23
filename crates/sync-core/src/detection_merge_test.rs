@@ -1,7 +1,7 @@
 //! Tests specifically for merge-based integration detection
 
-use super::integration_tests::test_integration_workflow_helper;
-use super::test_helpers::{IntegrationMethod, UpdateMethod, detected_branch_info, setup_test_repos, test_partial_integration_detection_with_strategy};
+use crate::detection_integration_test::test_integration_workflow_helper;
+use crate::detection_test_helpers::{IntegrationMethod, UpdateMethod, test_partial_integration_detection_with_strategy};
 use branch_integration::detection_notes::STACK_NOTES_REF;
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
@@ -12,6 +12,7 @@ use sync_utils::timestamp::utc_today;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::{detected_branch_info, setup_test_repos};
 
 #[test]
 fn test_full_integration_workflow_with_push_and_merge() {

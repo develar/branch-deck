@@ -2,8 +2,8 @@
 //! branch is compared with the baseline commits since then only; a note without a baseline is detected again in full,
 //! within the retention period
 
-use super::stack_tests::{land_auth_and_sync_login, stacked_clone};
-use super::test_helpers::{detected_branch_info, detection_note, setup_test_repos, sync_user_branches};
+use crate::detection_stack_test::{land_auth_and_sync_login, stacked_clone};
+use crate::detection_test_helpers::{detection_note, sync_user_branches};
 use branch_integration::detection_notes::{CacheOps, CachedDetection, Recheck};
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
@@ -16,6 +16,7 @@ use sync_utils::timestamp::format_utc_date;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::{detected_branch_info, setup_test_repos};
 
 const RETENTION_DAYS: u64 = 7;
 

@@ -168,7 +168,7 @@ reports in it and closes it once merged.
   [@test] ../../src/lib/patronus.test.ts (`prefers a running robot over a canceling one over a finished one, then the newest`)
 - The pushed tip comes with the remote status of the branch: the `rev-parse` that checks the remote branch exists
   returns it, so it costs no extra git process.
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`)
 
 ### Load on Patronus
 
@@ -279,7 +279,7 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
   [@test] ../../src/lib/patronus.test.ts (`shows a running robot and a finished one of the branch as it is in the Status cell, the git status otherwise`, `is the live robot while it runs, also while it cancels`, `offers "Safe Push…" for a branch changed since its robot, a merged one too`, `names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
   [@test] ../../src/hooks/useStackNextStep.test.ts (`waits for the robot of a branch of a straight chain, not the failure of the earlier piece; a new parent commit starts anew`)
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote`)
 - The Actions cell has the Safe Push slot after the push button ([Branch Row](branch-row.spec.md#actions-cell)), in a
   column of its own, so the push buttons, the steps and "⋯" line up down the table and its islands. It shows the next step of the branch, the
   first row of the table of [Next Step](next-step.spec.md) that matches (`getBranchNextStep`), from the robot, the pull

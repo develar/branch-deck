@@ -1,8 +1,7 @@
 //! The git processes of a detection, by subcommand: one cherry-mark walk per branch, the batch reads once per detection
 
-use super::test_helpers::{detected_branch_info, setup_test_repos};
-use branch_integration::detector::{DetectConfig, detect_integrated_branches};
-use branch_integration::strategy::DetectionStrategy;
+use crate::detector::{DetectConfig, detect_integrated_branches};
+use crate::strategy::DetectionStrategy;
 use domain_types::branch_integration::BranchIntegrationStatus;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -11,6 +10,7 @@ use sync_utils::timestamp::utc_today;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::{detected_branch_info, setup_test_repos};
 
 /// Detects the archived branches of `repo` against `origin/master` with `strategy`; returns the events and the
 /// processes by subcommand

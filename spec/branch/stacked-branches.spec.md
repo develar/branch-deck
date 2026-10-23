@@ -184,8 +184,8 @@ menu stacks, unstacks and renames branches.
   archived a sync before. The sync writes the note, and its archiving reports the parent from it; `bd status` and
   `bd check` detect without writing.
   [@test] ../../crates/history-rewrite/src/stack_test.rs (`a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement`)
-  [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline`)
-  [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent`, `a_stale_note_on_the_archived_parent_does_not_hide_an_integrated_parent`)
+  [@test] ../../crates/sync-core/src/detection_stack_test.rs (`the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline`)
+  [@test] ../../crates/sync-core/src/detection_recheck_test.rs (`a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent`, `a_stale_note_on_the_archived_parent_does_not_hide_an_integrated_parent`)
   [@test] ../../crates/bd-remote/src/status_test.rs (`a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one`)
 - A parent without commits, whatever its state, must move the child to its nearest active ancestor, or the baseline,
   with `prBaseChanged`: the local history is linear on the baseline, so the child's commits can be picked there like
@@ -229,7 +229,7 @@ menu stacks, unstacks and renames branches.
   outside the sync reads them from the parent's virtual branch with one `rev-list`, only while a remote commit
   matches nothing of the child. `bd` reports them as `remote.restacked` and pushes such a branch without `--force`
   ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`)
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`)
   [@test] ../../src/lib/stack.test.ts (`pushes an amended or restacked ancestor with the stack and asks nothing: its push replaces older versions`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
 
@@ -240,14 +240,14 @@ menu stacks, unstacks and renames branches.
 - Detection of an archived child must look only at the commits after that base: `^<base>` in the cherry-mark walk and
   the merge count, the base as the merge base of the squash check. A child whose own commits are upstream is
   integrated even if its parent is not.
-  [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_is_integrated_when_its_own_commits_are`)
-  [@test] ../../crates/integration-detection-tests/src/merge_tests.rs (`a_merged_stacked_branch_counts_only_its_own_commits`)
+  [@test] ../../crates/sync-core/src/detection_stack_test.rs (`an_archived_child_is_integrated_when_its_own_commits_are`)
+  [@test] ../../crates/sync-core/src/detection_merge_test.rs (`a_merged_stacked_branch_counts_only_its_own_commits`)
 - The result of a stacked child must be cached like any other: a `NotIntegrated` note records the baseline it was
   checked against and the commits without an equivalent, and is checked again against the baseline commits since then
   when the baseline moves ([Integration Detection](../../docs/design/integration-detection.md)).
-  [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_counts_only_its_own_commits_and_is_cached_with_its_orphaned_commits`)
-  [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_not_integrated_note_is_rechecked_when_the_baseline_moves`, `partial_integration_is_tracked_incrementally`, `a_recheck_compares_only_the_baseline_commits_since_the_note`, `a_v1_note_within_retention_is_detected_afresh`, `a_v1_note_beyond_retention_is_reported_as_is`, `a_rewound_baseline_falls_back_to_a_full_detection`, `two_archived_names_with_one_tip_are_rechecked_once`, `a_fast_forwarded_branch_names_its_tip_as_the_integration_commit`)
-  [@test] ../../crates/integration-detection-tests/src/detection_notes_tests.rs (`a_not_integrated_note_records_its_baseline_and_orphaned_commits`, `a_final_result_records_no_baseline`, `a_version_1_note_has_no_check_data`)
+  [@test] ../../crates/sync-core/src/detection_stack_test.rs (`an_archived_child_counts_only_its_own_commits_and_is_cached_with_its_orphaned_commits`)
+  [@test] ../../crates/sync-core/src/detection_recheck_test.rs (`a_not_integrated_note_is_rechecked_when_the_baseline_moves`, `partial_integration_is_tracked_incrementally`, `a_recheck_compares_only_the_baseline_commits_since_the_note`, `a_v1_note_within_retention_is_detected_afresh`, `a_v1_note_beyond_retention_is_reported_as_is`, `a_rewound_baseline_falls_back_to_a_full_detection`, `two_archived_names_with_one_tip_are_rechecked_once`, `a_fast_forwarded_branch_names_its_tip_as_the_integration_commit`)
+  [@test] ../../crates/branch-integration/src/detection_notes_test.rs (`a_not_integrated_note_records_its_baseline_and_orphaned_commits`, `a_final_result_records_no_baseline`, `a_version_1_note_has_no_check_data`)
 
 ### Pull requests
 

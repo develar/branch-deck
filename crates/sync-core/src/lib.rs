@@ -126,6 +126,24 @@ mod branch_review_test;
 #[cfg(test)]
 mod conflict_report_test;
 #[cfg(test)]
+mod detection_archive_step_test;
+#[cfg(test)]
+mod detection_integration_test;
+#[cfg(test)]
+mod detection_merge_test;
+#[cfg(test)]
+mod detection_rebase_test;
+#[cfg(test)]
+mod detection_recheck_test;
+#[cfg(test)]
+mod detection_remote_status_test;
+#[cfg(test)]
+mod detection_squash_test;
+#[cfg(test)]
+mod detection_stack_test;
+#[cfg(test)]
+mod detection_test_helpers;
+#[cfg(test)]
 mod git_setup_test;
 #[cfg(test)]
 mod github_repository_test;

@@ -16,7 +16,6 @@ members = [
   "crates/domain-types",
   "crates/sync-utils",
   "crates/branch-integration",
-  "crates/integration-detection-tests",
   "crates/git-executor",
   "crates/bd-cli",
   "crates/bd-core",

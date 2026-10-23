@@ -1023,8 +1023,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   (`check_command`: `CheckConflict`, `CheckWarning`, `dangling_references_in`, `session_of_sync` → `bd-core`);
   `bd-clustering` → `commit-clustering` (`bd-remote` и `bd-rewrite` читают `areas`, `generated`);
   `agent_defaults` → `lease-pool`, `src-tauri` теряет `bd-lease`; `integration-detection-tests` →
-  `branch-integration/src/*_test.rs`. Каждый модуль, читающий `file_diffs` (`diff_scan`, `move_hunk`, `dangling_fix`,
-  `declaration_checks`, проверочная половина `missing_commits`), уходит в `trial-check`, `pick` — в `update-core`,
+  `sync-core/src/detection_*_test.rs` и `branch-integration/src/*_test.rs`. Каждый модуль, читающий `file_diffs`
+  (`diff_scan`, `move_hunk`, `dangling_fix`, `declaration_checks`, проверочная половина `missing_commits`), уходит в `trial-check`, `pick` — в `update-core`,
   `patronus_review` — в `remote-facts`; `CommitOwners` остаётся в `sync-core`. `baseline_tracking_ref` → `sync_core::baseline`,
   `display_path` → `sync-utils`, чтобы `lease-pool` не зависел от `update-core`. Шаг начинается с `accio impact`
   каждого уходящего модуля; модуль, который нужен sync и читает `file_diffs`, — дефект плана, о нём сообщают до переноса.

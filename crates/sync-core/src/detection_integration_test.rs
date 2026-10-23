@@ -1,23 +1,24 @@
-use super::test_helpers::{detected_branch_info, integrated_branch_names, newly_archived_names, setup_test_repos, sync_user_branches, verify_detection_cache_works};
+use crate::detection_test_helpers::{integrated_branch_names, newly_archived_names, sync_user_branches, verify_detection_cache_works};
+use crate::sync::{SyncOptions, sync_branches};
 use branch_integration::archive::get_archived_branch_commits;
 use branch_integration::strategy::DetectionStrategy;
 use domain_types::branch_names::to_final_branch_name;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
-use sync_core::sync::{SyncOptions, sync_branches};
 use sync_utils::timestamp::unix_now;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::{detected_branch_info, setup_test_repos};
 use tracing::debug;
 
-use super::test_helpers::{
+use crate::detection_test_helpers::{
   BranchTestData, IntegrationMethod, UpdateMethod, get_commit_timestamp, test_partial_integration_detection_with_strategy, verify_archived_branches_listed,
 };
 
 /// Helper function for integration workflow tests
 /// Tests the complete workflow of creating commits, syncing, pushing, integrating upstream, and detecting integration
-pub fn test_integration_workflow_helper(update_method: UpdateMethod, integration_method: IntegrationMethod, branch_names: &BranchTestData) {
+pub(crate) fn test_integration_workflow_helper(update_method: UpdateMethod, integration_method: IntegrationMethod, branch_names: &BranchTestData) {
   let rt = tokio::runtime::Runtime::new().unwrap();
   let (upstream_repo, local_repo, git_executor) = setup_test_repos();
 

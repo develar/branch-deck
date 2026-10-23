@@ -153,7 +153,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_stack_that_no_longer_forks_loses_its_stack_branch_unless_it_is_on_the_remote`)
 - The archive step and the integration detection must leave the stack branches out: never archived, and a stack tip
   never names the detection note of an archived branch.
-  [@test] ../../crates/integration-detection-tests/src/archive_step_tests.rs (`branches_are_classified_by_their_namespace`)
+  [@test] ../../crates/sync-core/src/detection_archive_step_test.rs (`branches_are_classified_by_their_namespace`)
 - `bd sync` and `bd status` must list them as `stacks`: `root`, `branch`, `state` (`built`, `blocked`, `conflict`,
   `stale`), `tip`, `member` and `reason` of a block, `conflict`, `error`, `commits`, `members`, and with `bd sync` the
   `remote` summary. `bd status` reads the state without a sync and without a git process: blocked by the placement,

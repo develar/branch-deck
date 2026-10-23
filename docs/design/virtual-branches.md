@@ -238,7 +238,7 @@ Key optimizations:
 ## References
 
 - Implementation: `crates/sync-core/`, `src-tauri/src/commands/`
-- Tests: `crates/integration-detection-tests/`
+- Tests: `crates/sync-core/src/*_test.rs` (the archive step and the detection a sync runs: `detection_*_test.rs`)
 - Related docs: 
   - [integration-detection.md](integration-detection.md) - Detection strategies
   - [distributed-settings.md](distributed-settings.md) - Settings synchronization

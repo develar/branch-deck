@@ -1,33 +1,17 @@
-//! Test helper functions for integration detection tests
+//! Helpers of the detection tests that run a sync (`detection_*_test.rs`); the fixtures without a sync, which the
+//! tests of branch-integration share, are in `test_utils::sync_fixtures`
 
+use crate::sync::{IssueConfigSource, SyncOptions, sync_branches};
 use anyhow::Result;
 use branch_integration::detection_notes::CachedDetection;
 use branch_integration::strategy::DetectionStrategy;
 use domain_types::SyncEvent;
-use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
+use domain_types::branch_integration::BranchIntegrationStatus;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::time::Instant;
-use sync_core::sync::{IssueConfigSource, SyncOptions, sync_branches};
 use test_utils::git_test_utils::TestRepo;
-use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::{TestReporter, setup_test_repos};
 use tracing::{debug, info};
-
-/// Common test setup that creates upstream and local repositories with proper clone relationship
-/// This ensures tests use realistic git configuration with remotes
-pub(crate) fn setup_test_repos() -> (TestRepo, TestRepo, GitCommandExecutor) {
-  let git_executor = GitCommandExecutor::new();
-
-  // Create upstream repository
-  let upstream_repo = TestRepo::new();
-  let initial_commit = upstream_repo.create_commit("Initial commit", "README.md", "# Project");
-  upstream_repo.create_branch_at("main", &initial_commit).unwrap();
-
-  // Clone to create local repository
-  let local_repo = TestRepo::new_empty();
-  local_repo.clone_from(upstream_repo.path()).unwrap();
-
-  (upstream_repo, local_repo, git_executor)
-}
 
 /// Sync options for tests: load the issue config from the repository and use the given detection strategy
 pub(crate) fn options_with_strategy(strategy: DetectionStrategy) -> SyncOptions {
@@ -91,17 +75,6 @@ pub(crate) fn integrated_branch_names(events: &[SyncEvent]) -> Vec<String> {
     .collect()
 }
 
-/// Integration info of the detected branch `name`
-pub(crate) fn detected_branch_info<'a>(events: &'a [SyncEvent], name: &str) -> &'a BranchIntegrationInfo {
-  events
-    .iter()
-    .find_map(|e| match e {
-      SyncEvent::BranchIntegrationDetected { info } if info.name == name => Some(info),
-      _ => None,
-    })
-    .expect("Should find integration info")
-}
-
 /// The detection note on `commit`, parsed
 pub(crate) fn detection_note(repo: &TestRepo, commit: &str) -> CachedDetection {
   let note = repo
@@ -112,41 +85,6 @@ pub(crate) fn detection_note(repo: &TestRepo, commit: &str) -> CachedDetection {
     )
     .unwrap_or_else(|e| panic!("no detection note on {commit}: {e}"));
   branch_integration::detection_notes::deserialize_from_cache(note.trim()).unwrap()
-}
-
-/// Detection cache entry of a fully integrated branch
-pub(crate) fn integrated_cache_info() -> CachedDetection {
-  CachedDetection {
-    info: BranchIntegrationInfo {
-      name: "test-branch".to_string(),
-      summary: String::new(),
-      status: BranchIntegrationStatus::Integrated {
-        integrated_at: Some(0),
-        confidence: IntegrationConfidence::High,
-        commit_count: 1,
-        commit: None,
-      },
-    },
-    check: None,
-  }
-}
-
-/// Detection cache entry of a branch whose commits are partly or not at all integrated, without the baseline it was
-/// checked against, as version 1 wrote it
-pub(crate) fn not_integrated_cache_info(total_commit_count: u32, integrated_count: u32, orphaned_count: u32) -> CachedDetection {
-  CachedDetection {
-    info: BranchIntegrationInfo {
-      name: "test-branch".to_string(),
-      summary: String::new(),
-      status: BranchIntegrationStatus::NotIntegrated {
-        total_commit_count,
-        integrated_count,
-        orphaned_count,
-        integrated_at: None,
-      },
-    },
-    check: None,
-  }
 }
 
 /// Verify that detection cache is working correctly after an initial detection run
@@ -252,14 +190,14 @@ pub(crate) async fn verify_detection_cache_works(
 
 /// Update method for pulling changes from upstream
 #[derive(Debug, Clone, Copy)]
-pub enum UpdateMethod {
+pub(crate) enum UpdateMethod {
   Rebase,
   Merge,
 }
 
 /// Integration method for how branches are integrated upstream
 #[derive(Debug, Clone, Copy)]
-pub enum IntegrationMethod {
+pub(crate) enum IntegrationMethod {
   Merge,  // --no-ff merge (default)
   Rebase, // cherry-pick commits
   Squash, // squash merge

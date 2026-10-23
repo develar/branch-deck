@@ -622,7 +622,6 @@ crates/
 ├── youtrack/        # YouTrack REST client, the sign-in through its Hub (OAuth, PKCE, refresh token), issues and commands
 ├── test-server/     # E2E mock server
 ├── test-utils/      # Test repositories, fixture git (`git_command`), the fixtures of the sync tests (`sync_fixtures`) and, with the feature `http`, `fake_server`: the loopback HTTP server of the fakes of patronus, github, youtrack and the test server
-├── integration-detection-tests/ # Tests of the integration detection
 └── …
 tests/
 ├── e2e/             # Playwright specs by feature, their HTML snapshots, fixtures/ and helpers/

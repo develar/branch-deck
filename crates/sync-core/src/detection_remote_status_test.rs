@@ -1,14 +1,15 @@
-use super::test_helpers::{options_with_strategy, setup_test_repos};
+use crate::detection_test_helpers::options_with_strategy;
+use crate::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, PushTimes, StackParent, compute_remote_status_for_branch};
+use crate::sync::sync_branches;
 use branch_integration::strategy::DetectionStrategy;
 use domain_types::{DroppedCommit, LandedRemoteCommit, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
-use sync_core::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, PushTimes, StackParent, compute_remote_status_for_branch};
-use sync_core::sync::sync_branches;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::setup_test_repos;
 
 /// Result of extracting remote status from sync events
 #[derive(Debug)]

@@ -7,7 +7,6 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/git-ops/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/test-utils/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/test-server/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/integration-detection-tests/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/branch-integration/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/git-executor/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/sync-core/benches" isTestSource="true" />
