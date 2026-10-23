@@ -3,7 +3,7 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
 import type { Commit, SuggestBranchNamesParams } from "@/lib/bindings"
-import { notifyError } from "@/lib/errors"
+import { commandFailure, notifyError } from "@/lib/errors"
 import { clearAIError, setAIError } from "@/stores/ai-suggestions"
 import { useAISettings } from "@/stores/settings/aiSettings"
 import type { AIMode } from "@/stores/settings/aiSettings"
@@ -157,7 +157,7 @@ function createSuggestionSession() {
       return
     }
     if (result.status === "error") {
-      fail(new Error(result.error.message))
+      fail(commandFailure(result.error))
       return
     }
 

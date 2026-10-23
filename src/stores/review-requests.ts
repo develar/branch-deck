@@ -484,7 +484,7 @@ export async function submitReview(
         body,
       })
       if (result.status === "error") {
-        feedback.error(failure, result.error.message)
+        feedback.error(failure, result.error)
         return false
       }
       return true
@@ -548,7 +548,7 @@ async function startReviewedSafePush(
   try {
     const head = await commands.getPullRequestHead({ repositoryPath, githubRepository, pullRequestNumber: number })
     if (head.status === "error") {
-      feedback.error(SAFE_PUSH_FAILURE, head.error.message)
+      feedback.error(SAFE_PUSH_FAILURE, head.error)
       return false
     }
     if (head.data !== commitId) {

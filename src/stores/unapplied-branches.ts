@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
 import type { Commit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { commandFailure } from "@/lib/errors"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 
@@ -99,6 +100,6 @@ export async function loadUnappliedCommits(name: string): Promise<void> {
 export async function deleteUnappliedBranch(name: string): Promise<void> {
   const result = await commands.deleteUnappliedBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName: name, branchPrefix: getEffectiveBranchPrefix() })
   if (result.status !== "ok") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
 }

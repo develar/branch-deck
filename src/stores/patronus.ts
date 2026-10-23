@@ -19,6 +19,7 @@ import type {
   RobotOf,
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { commandFailure } from "@/lib/errors"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-stack"
 import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
@@ -1385,7 +1386,7 @@ export async function startPatronusRobot(
     allow,
   })
   if (result.status === "error") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
   // the form knows the name of the profile Patronus may not have written into the robot yet
   const robot =
@@ -1523,7 +1524,7 @@ async function askPatronusOnPullRequest(
     start: start === null ? null : { ...start, branchPrefix },
   })
   if (posted.status === "error") {
-    throw new Error(posted.error.message)
+    throw commandFailure(posted.error)
   }
   // the comment is posted once the command answers, after the checks of the start in Rust (the list, the landing gate):
   // the minute of the bot counts from here, not from before the checks
@@ -1546,7 +1547,7 @@ async function askPatronusOnPullRequest(
     if (acceptedAt === null) {
       const reply = await commands.readPatronusCommandReply(replyParams)
       if (reply.status === "error") {
-        throw new Error(reply.error.message)
+        throw commandFailure(reply.error)
       }
       if (reply.data.status === "rejected") {
         // the bot reacts first and comments right after: one more look for the reason
@@ -1613,7 +1614,7 @@ async function robotAction(command: typeof commands.restartPatronusRobot, robot:
   const { repositoryPath, branchPrefix } = request ?? patronusRequest()
   const result = await command({ repositoryPath, branchPrefix, robotId: robot.id, replaced })
   if (result.status === "error") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
   upsertPatronusRobot(result.data, repositoryKey(repositoryPath, branchPrefix))
   return result.data

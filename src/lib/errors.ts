@@ -1,5 +1,6 @@
 import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
+import type { CommandError } from "@/lib/bindings"
 import type { ToastActionProps } from "@/lib/toast-message"
 
 /** The message of an error for the user: the `message` of an `Error` (no "Error:" prefix) or of a `CommandError` */
@@ -24,6 +25,15 @@ export function getErrorOperationId(error: unknown): string | undefined {
     return error.operation_id
   }
   return undefined
+}
+
+/**
+ * The error of a failed command as an `Error` to throw, with what the page tells apart: its `kind` (a wait the user
+ * stopped, `isLockWaitCanceled`) and its `operation_id`, which `notifyError` and `recordError` keep for Activity and the
+ * log line. A step that throws what a command returned throws this, never `new Error(error.message)`, which drops both
+ */
+export function commandFailure(error: CommandError): Error {
+  return Object.assign(new Error(error.message), { kind: error.kind ?? null, operation_id: error.operation_id ?? null })
 }
 
 type ErrorRecorder = (title: string, description: string, operationId: string | undefined) => void

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type {
+  CommandError,
   GetPatronusRobotsParams,
   GetRobotCommitMapParams,
   PatronusCommandReply,
@@ -12,6 +13,7 @@ import type {
   PatronusView,
   WaitLandingNeedsParams,
 } from "@/lib/bindings"
+import { notifyError, setErrorRecorder } from "@/lib/errors"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { FAILURE_PROBLEMS_WAIT_MS, formatFailedRobotToast, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
 import { getStackLandedBy, resetLandedStacks } from "@/stores/landed-stacks"
@@ -45,6 +47,7 @@ import {
   LATE_ROBOT_WAIT_MS,
   startPatronusFromPullRequest,
   startPatronusFromReviewedPullRequest,
+  startPatronusRobot,
   watchRobot,
   whenRepositoryViewCurrent,
 } from "@/stores/patronus"
@@ -69,6 +72,9 @@ const { patronus, branches } = vi.hoisted(() => ({
     failureKind: "checks" as string,
     detailCalls: [] as string[],
     commands: [] as PostPatronusCommandParams[],
+    /** What a start of a robot and a post of a command fail with; a post succeeds while it is null */
+    startFailure: { message: "start refused" } as CommandError,
+    postFailure: null as CommandError | null,
     replies: [] as PatronusCommandReply[],
     replyCalls: 0,
     /** How long the checks of a start in Rust take before the comment is posted */
@@ -106,9 +112,13 @@ vi.mock("@/lib/bindings", () => ({
       patronus.polls.push(params)
       return { status: "ok", data: patronus.poll }
     },
+    startPatronusRobot: async () => ({ status: "error", error: patronus.startFailure }),
     postPatronusCommand: async (params: PostPatronusCommandParams) => {
       await new Promise(resolve => setTimeout(resolve, patronus.checkMs))
       patronus.commands.push(params)
+      if (patronus.postFailure !== null) {
+        return { status: "error", error: patronus.postFailure }
+      }
       return { status: "ok", data: { id: "4402154133", url: "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133" } }
     },
     readPatronusCommandReply: async () => {
@@ -176,6 +186,14 @@ const { notices } = vi.hoisted(() => ({
     closedIn: [] as string[],
     /** The pull requests of the whole stacks GitHub lists, by root */
     stackPullRequests: {} as Record<string, { number: number; state: string; headRefOid: string }>,
+  },
+}))
+
+const { logged } = vi.hoisted(() => ({ logged: [] as { title: string; keyValues: Record<string, unknown> }[] }))
+
+vi.mock("@tauri-apps/plugin-log", () => ({
+  error: async (title: string, options: { keyValues: Record<string, unknown> }) => {
+    logged.push({ title, keyValues: options.keyValues })
   },
 }))
 
@@ -329,6 +347,7 @@ beforeEach(() => {
   patronus.detailCalls = []
   resetFailingAnnouncements()
   patronus.commands = []
+  patronus.postFailure = null
   patronus.replies = []
   patronus.replyCalls = 0
   patronus.checkMs = 0
@@ -1060,6 +1079,41 @@ describe("pull request start", () => {
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
     expect(patronusStore.getState().repositories["/repo\nuser"]?.githubRepository).toBe("acme/monorepo")
     expect(notices.pullRequestRefreshes).toEqual(["push"])
+  })
+})
+
+describe("a failed start", () => {
+  const OPERATION_ID = "01K8ZQ3V6Y4M2N7P9R1S5T0W2X"
+
+  /** The error entries of Activity and the backend log lines of what `run` threw, told with `notifyError` as the caller does */
+  async function tellFailure(title: string, run: () => Promise<unknown>): Promise<{ recorded: unknown[]; logged: unknown[] }> {
+    const recorded: unknown[] = []
+    setErrorRecorder((recordedTitle, description, operationId) => recorded.push({ title: recordedTitle, description, operationId }))
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    logged.length = 0
+    const settled = run().then(
+      () => null,
+      (error: unknown) => error,
+    )
+    // the checks of a start in Rust answer after `checkMs`
+    await vi.advanceTimersByTimeAsync(patronus.checkMs)
+    const failure = await settled
+    expect(failure, "the start throws").not.toBeNull()
+    notifyError(title, failure)
+    return { recorded, logged: [...logged] }
+  }
+
+  it("keeps the operation the failed start of a robot names, for Activity and the log line", async () => {
+    patronus.startFailure = { message: "Patronus answered 503", kind: null, operation_id: OPERATION_ID }
+    const told = await tellFailure("Cannot start the Safe Push", () => startPatronusRobot("auth", "rebaseAutosquash", null, null))
+    expect(told.recorded).toEqual([{ title: "Cannot start the Safe Push", description: "Patronus answered 503", operationId: OPERATION_ID }])
+    expect(told.logged).toEqual([{ title: "Cannot start the Safe Push", keyValues: { error: "Patronus answered 503", operation_id: OPERATION_ID } }])
+  })
+
+  it("keeps the operation the failed post of a command on the pull request names", async () => {
+    patronus.postFailure = { message: "GitHub answered 403", kind: null, operation_id: OPERATION_ID }
+    const told = await tellFailure("Cannot start the Safe Push", () => startPatronusFromPullRequest(9, "rebaseAutosquash", { branchName: "auth" }))
+    expect(told.recorded).toEqual([{ title: "Cannot start the Safe Push", description: "GitHub answered 403", operationId: OPERATION_ID }])
   })
 })
 

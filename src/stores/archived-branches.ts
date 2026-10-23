@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
 import type { BranchIntegrationInfo, Commit, IntegrationConfidence, UpstreamCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { commandFailure } from "@/lib/errors"
 import { getEffectiveBranchPrefix, getSelectedProject, vcsRequestFactory } from "@/stores/repository"
 
 /**
@@ -305,6 +306,6 @@ export async function deleteArchivedBranch(branchName: string): Promise<void> {
     branchPrefix: getEffectiveBranchPrefix(),
   })
   if (result.status !== "ok") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
 }

@@ -1,4 +1,5 @@
 import { commands } from "@/lib/bindings"
+import { commandFailure } from "@/lib/errors"
 import { getStoreSnapshot } from "@/stores/settings/app-store"
 
 interface SubWindowOptions<T = unknown> {
@@ -29,6 +30,6 @@ export async function openSubWindow<T = unknown>(options: SubWindowOptions<T>): 
   })
 
   if (result.status === "error") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
 }

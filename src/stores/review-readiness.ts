@@ -6,6 +6,7 @@ import { approvalNewsKey, findApprovalNews } from "@/lib/approval-news"
 import type { PatronusReviewRequirement, PullRequest, ReviewReadiness, ReviewReadinessBranch } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { rememberReviewGroups } from "@/lib/branch-review-window"
+import { commandFailure } from "@/lib/errors"
 import { getPullRequestStart } from "@/lib/patronus"
 import { waitingReviewers } from "@/lib/pull-request"
 import { baselineOnRemote } from "@/lib/stack"
@@ -302,7 +303,7 @@ async function ask(key: string, batch: readonly ReadinessInput[], recheck: boole
   try {
     const result = await commands.getBranchReviewReadiness(params)
     if (result.status === "error") {
-      throw new Error(result.error.message)
+      throw commandFailure(result.error)
     }
     answers = batch.map(input => {
       const answer = result.data.find(it => it.branchName === input.branch.branchName && it.tip === input.branch.tip)

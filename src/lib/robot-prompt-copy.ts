@@ -3,7 +3,7 @@ import { commands } from "@/lib/bindings"
 import type { AgentCliCommand, PatronusRobot, RobotFailureReport } from "@/lib/bindings"
 import { hostOf } from "@/lib/cli-tools"
 import { copyTextLater } from "@/lib/clipboard"
-import { notifyError } from "@/lib/errors"
+import { commandFailure, notifyError } from "@/lib/errors"
 import { formatRobotSubject } from "@/lib/patronus"
 import { buildRobotPrompt } from "@/lib/robot-prompt"
 import { openSettings } from "@/lib/settings-window"
@@ -57,7 +57,7 @@ export async function readRobotPrompt(robot: PatronusRobot, full: boolean): Prom
     readAgentCliCommand(repositoryPath),
   ])
   if (result.status === "error") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
   const report = result.data
   return { prompt: buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch, report, bd }), report }

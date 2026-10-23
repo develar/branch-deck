@@ -3,6 +3,7 @@ import { createStore } from "zustand/vanilla"
 import type { CreatedPullRequest, PullRequest, PullRequestAvailability, RequestedReviewers } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { isLogin } from "@/lib/create-pull-request"
+import { commandFailure } from "@/lib/errors"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
@@ -292,7 +293,7 @@ export async function retargetPullRequest(branchName: string, base: string): Pro
   }
   const result = await commands.retargetPullRequest({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, base })
   if (result.status === "error") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
   setPullRequest(key, branchName, { ...pullRequest, baseRefName: base })
   // the retarget changes what the next step of the branch reads: GitHub is asked after the refresh in flight, if any
@@ -330,7 +331,7 @@ export async function closeStackPullRequest(root: string, comment: string): Prom
 async function closeOnGitHub(key: string, pullRequest: PullRequest, comment: string): Promise<void> {
   const result = await commands.closePullRequest({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, comment })
   if (result.status === "error") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
 }
 
@@ -354,7 +355,7 @@ export async function requestReviewers(branchName: string, logins: readonly stri
   }
   const result = await commands.requestPullRequestReviewers({ repositoryPath: repository.repositoryPath, pullRequestNumber: pullRequest.number, reviewers: [...logins] })
   if (result.status === "error") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
   const requested = result.data.requested
   const current = pullRequestOf() ?? pullRequest
@@ -429,7 +430,7 @@ export async function createPullRequest(request: NewPullRequestRequest): Promise
   const { wholeStack = false, ...params } = request
   const result = await commands.createPullRequest(params)
   if (result.status === "error") {
-    throw new Error(result.error.message)
+    throw commandFailure(result.error)
   }
   const createdKey = wholeStack ? stackKey(key) : key
   const pending = created.get(createdKey) ?? new Map()

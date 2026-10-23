@@ -1,7 +1,7 @@
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
-import { commandFailure } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
+import { commandFailure } from "@/lib/errors"
 import type { Branch } from "@/stores/branch-sync"
 import { resolveCommitsOf, syncBranches } from "@/stores/branch-sync"
 import { withRowProcessing } from "@/stores/inline-row-action"

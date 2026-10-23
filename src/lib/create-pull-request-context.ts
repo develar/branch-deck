@@ -4,7 +4,7 @@ import { commands } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import type { PullRequestIncludes } from "@/lib/create-pull-request"
 import { formatCreatedToast, formatPullRequestIncludes } from "@/lib/create-pull-request"
-import { getErrorDetails } from "@/lib/errors"
+import { commandFailure, getErrorDetails } from "@/lib/errors"
 import { formatNewPullRequestBlocker, getBranchesGitHubRepository, getPullRequestBase, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
@@ -308,7 +308,7 @@ async function continueOnGitHubOf(context: CreatePullRequestContext, fields: Com
   if (context.pushNeeded) {
     const result = await commands.waitForGithubBranch({ repositoryPath: context.repositoryPath, branch: context.head })
     if (result.status === "error") {
-      throw new Error(result.error.message)
+      throw commandFailure(result.error)
     }
     if (!result.data) {
       throw new Error(`GitHub doesn't have ${context.head} yet: a mirror copies a pushed branch a moment later; try again`)
