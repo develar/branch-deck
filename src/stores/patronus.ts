@@ -1505,9 +1505,13 @@ async function robotAction(command: typeof commands.restartPatronusRobot, robot:
   return result.data
 }
 
-/** Starts the robot again on the newest commit of its branch; resolves to the new robot, throws what Patronus said */
-export function restartPatronusRobot(robot: PatronusRobot): Promise<PatronusRobot> {
-  return robotAction(commands.restartPatronusRobot, robot)
+/**
+ * Starts the robot again on the newest commit of its branch, in the repository of `request` (by default the selected
+ * one: a restart after a push restarts where the push went, also after a switch); resolves to the new robot, throws
+ * what Patronus said
+ */
+export function restartPatronusRobot(robot: PatronusRobot, request: VcsRequest | null = null): Promise<PatronusRobot> {
+  return robotAction(commands.restartPatronusRobot, robot, request)
 }
 
 /**

@@ -256,9 +256,17 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   a retarget) stops it before it reads the branches again: the branch of the same name there is another branch, so
   nothing of it is pushed, and "Cannot push auth" says "idea-1 is no longer the open repository" (a push of an action
   returns that reason to its action). A push already sent ends in its repository: its spinner, its progress and the
-  remote status it brings stay off the rows of the other repository, whose branch of the same name pushes on its own.
+  remote status it brings stay off the rows of the other repository, whose branch of the same name pushes on its own;
+  the progress it leaves is gone, so the next push of the branch, in either repository, starts at "Pushing…".
   [@test] ../../src/lib/git/push.test.ts (`pushes nothing of the branch of the same name there, and says why`, `pushes no stack of the same names there`, `refuses the push of an action in place`)
-  [@test] ../../src/stores/branch-sync.test.ts (`keeps a push that ends after a switch of the repository out of the branch of the same name there`)
+  [@test] ../../src/stores/branch-sync.test.ts (`keeps a push that ends after a switch of the repository out of the branch of the same name there`, `drops the progress of a push that ends after a switch: the next push of the branch starts without its percent`, `keeps a stack push that runs on after a switch off the row of the same name there`)
+- The robot a push cancels, to restart it (Restart Safe Push) or because a start replaces it, must be canceled after
+  the last of those checks, right before the push is sent: a switch before it cancels nothing, and from the cancel on
+  the push goes on in its repository with the branches as they were, so no cancel is followed by "Cannot push auth".
+  The restart goes to the push's repository, its robot and its Activity entry there, also after a switch. The "auth
+  changed on the remote" toast of a push pushes only while its repository is shown; after a switch its Push says
+  "Cannot push auth" with "idea-1 is no longer the open repository".
+  [@test] ../../src/lib/git/push.test.ts (`restarts the robot of Restart Safe Push where the push went, after a switch during the push`, `pushes and restarts the robot it canceled after a switch during the cancel: no cancel is followed by a refusal`, `pushes the branches over the robot a start replaces after a switch during the cancel`, `cancels nothing when the switch comes before the push's last check`, `pushes and restarts the whole stack's robot in the repository of the push after a switch during the cancel`, `pushes nothing of the branch of the same name from the toast of a remote that moved during the push`)
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
   a stage; the compact button of the row "45%" after the spinner, the label its accessible name), and its description on hover the last progress line of git, then what was sent so far and how fast,
   "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)), unless git's

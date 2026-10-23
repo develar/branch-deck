@@ -203,7 +203,7 @@ export interface BranchSyncState {
   /**
    * The stack pushes in flight: the branch a push of several branches started from (Push Stack, Push with Children,
    * Push Up to Here) -> the branches it sends in its one `git push`, parents first; empty while it waits for a sync.
-   * Owned by push, as `pushingBranches`.
+   * By `pushKey` of the repository the push started in, and owned by push, as `pushingBranches`.
    */
   stackPushes: Readonly<Record<string, readonly string[]>>
   unassignedCommits: Commit[]
@@ -255,8 +255,8 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
 }))
 
 /**
- * How far each running push is, absent before git reports a stage: apart from `branchSyncStore`, because a progress
- * tick would re-run every selector of it (docs/design/rendering-performance.md)
+ * How far each running push is, by `pushKey` of the repository it started in, absent before git reports a stage: apart
+ * from `branchSyncStore`, because a progress tick would re-run every selector of it (docs/design/rendering-performance.md)
  */
 const pushProgressStore = createStore<Readonly<Record<string, TransferProgress>>>(() => ({}))
 
@@ -807,7 +807,8 @@ export function useIsBranchPushing(name: string): boolean {
  * sync); null when none runs
  */
 export function useStackPush(startedFrom: string): readonly string[] | null {
-  return useStore(branchSyncStore, state => state.stackPushes[startedFrom] ?? null)
+  const key = pushKey(useSelectedProjectPath() ?? "", startedFrom)
+  return useStore(branchSyncStore, state => state.stackPushes[key] ?? null)
 }
 
 /**
@@ -823,13 +824,17 @@ export function useStackBranchPushProgress(root: string): TransferProgress | nul
   return useBranchPushProgress(stackReadinessKey(root))
 }
 
-/** How far the running push of the branch is; null before git reports a stage and when no push runs */
+/**
+ * How far the running push of the branch in the selected repository is; null before git reports a stage and when no
+ * push runs
+ */
 export function useBranchPushProgress(name: string): TransferProgress | null {
-  return useStore(pushProgressStore, state => state[name] ?? null)
+  const key = pushKey(useSelectedProjectPath() ?? "", name)
+  return useStore(pushProgressStore, state => state[key] ?? null)
 }
 
-export function getBranchPushProgress(name: string): TransferProgress | null {
-  return pushProgressStore.getState()[name] ?? null
+export function getBranchPushProgress(name: string, repositoryPath: string = selectedRepositoryPath()): TransferProgress | null {
+  return pushProgressStore.getState()[pushKey(repositoryPath, name)] ?? null
 }
 
 export function useUnassignedCommits(): Commit[] {
@@ -1005,34 +1010,40 @@ export function setBranchPushing(name: string, isPushing: boolean, repositoryPat
     const { [key]: _, ...pushingBranches } = state.pushingBranches
     return { pushingBranches }
   })
-  // the progress is of the rows of the selected repository
-  if (!isPushing && repositoryPath === selectedRepositoryPath() && Object.hasOwn(pushProgressStore.getState(), name)) {
-    const { [name]: _, ...progress } = pushProgressStore.getState()
+  // also after a switch of the repository: the next push of the branch starts without this one's percent
+  if (!isPushing && Object.hasOwn(pushProgressStore.getState(), key)) {
+    const { [key]: _, ...progress } = pushProgressStore.getState()
     pushProgressStore.setState(progress, true)
   }
 }
 
-export function isStackPushing(startedFrom: string): boolean {
-  return Object.hasOwn(branchSyncStore.getState().stackPushes, startedFrom)
+/** Whether a stack push started from `startedFrom` runs in the repository (by default the selected one) */
+export function isStackPushing(startedFrom: string, repositoryPath: string = selectedRepositoryPath()): boolean {
+  return Object.hasOwn(branchSyncStore.getState().stackPushes, pushKey(repositoryPath, startedFrom))
 }
 
-/** The branches a stack push started from `startedFrom` sends (`stackPushes`); null when it ended */
-export function setStackPush(startedFrom: string, names: readonly string[] | null): void {
+/**
+ * The branches a stack push started from `startedFrom` in `repositoryPath`, the repository it started in, sends
+ * (`stackPushes`); null when it ended. The row of the same name in another repository shows no push of it and pushes
+ * its own stack.
+ */
+export function setStackPush(startedFrom: string, names: readonly string[] | null, repositoryPath: string): void {
+  const key = pushKey(repositoryPath, startedFrom)
   branchSyncStore.setState(state => {
     if (names === null) {
-      if (!Object.hasOwn(state.stackPushes, startedFrom)) {
+      if (!Object.hasOwn(state.stackPushes, key)) {
         return state
       }
-      const { [startedFrom]: _, ...stackPushes } = state.stackPushes
+      const { [key]: _, ...stackPushes } = state.stackPushes
       return { stackPushes }
     }
-    return { stackPushes: { ...state.stackPushes, [startedFrom]: names } }
+    return { stackPushes: { ...state.stackPushes, [key]: names } }
   })
 }
 
 /**
- * Records how far the push of the branch in `repositoryPath` is; a message that arrives after the push ended, or while
- * another repository is selected, is dropped
+ * Records how far the push of the branch in `repositoryPath` is, for its rows there; a message that arrives after the
+ * push ended is dropped
  */
 export function setBranchPushProgress(name: string, progress: TransferProgress, repositoryPath: string): void {
   setBranchesPushProgress([name], progress, repositoryPath)
@@ -1040,12 +1051,9 @@ export function setBranchPushProgress(name: string, progress: TransferProgress, 
 
 /** Records how far the one push of the branches is, for each of them in one update; the ones whose push ended drop it */
 export function setBranchesPushProgress(names: readonly string[], progress: TransferProgress, repositoryPath: string): void {
-  if (repositoryPath !== selectedRepositoryPath()) {
-    return
-  }
   const pushing = names.filter(name => isBranchPushing(name, repositoryPath))
   if (pushing.length > 0) {
-    pushProgressStore.setState(Object.fromEntries(pushing.map(name => [name, progress])))
+    pushProgressStore.setState(Object.fromEntries(pushing.map(name => [pushKey(repositoryPath, name), progress])))
   }
 }
 

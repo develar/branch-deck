@@ -6,7 +6,7 @@ import { getBranchContextMenuItems, getSafePushBlocker } from "@/hooks/useBranch
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem } from "@/lib/menu"
 import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
-import { branchSyncStore } from "@/stores/branch-sync"
+import { branchSyncStore, setStackPush } from "@/stores/branch-sync"
 import { operationsStore } from "@/stores/operations"
 import { patronusStore } from "@/stores/patronus"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -155,7 +155,7 @@ describe("the push of the branch menu", () => {
 
   it("is disabled with the reason while the stack push runs", () => {
     setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed))
-    branchSyncStore.setState({ stackPushes: { login: ["auth", "login"] } })
+    setStackPush("login", ["auth", "login"], "/repo")
     expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "The stack is being pushed" })])
   })
 
@@ -235,7 +235,7 @@ describe("Push with Children in the branch menu", () => {
     expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "login asks first in its row: the push drops remote commits" })
     setBranches(synced("auth", null, pushed), synced("login", "auth", unpushed))
     expect(pushWithChildren("auth")).toMatchObject({ label: "Push with Children (login)", disabled: false })
-    branchSyncStore.setState({ stackPushes: { auth: ["login"] } })
+    setStackPush("auth", ["login"], "/repo")
     expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "The stack is being pushed" })
   })
 

@@ -4,7 +4,7 @@ import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { Retargeted } from "@/lib/git/new-pull-request"
 import { retargetBeforePush } from "@/lib/git/new-pull-request"
-import type { PushReport } from "@/lib/git/push"
+import type { PushClearance, PushReport } from "@/lib/git/push"
 import { cancelHoldingRobot, checkPushHold, createPushRequest, isHeldBy, isStillIn, pushesOverMovedRemote, restartAfterPush, sentPart, showRemoteMovedToast } from "@/lib/git/push"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showStackPushToast } from "@/lib/git/push-toast"
@@ -130,10 +130,11 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
   if (request === null) {
     return false
   }
+  const repositoryPath = request.repositoryPath
   // the branches of the table are of the selected repository: the push goes on only while it is the one it started in
-  const stillIn = () => isStillIn(request.repositoryPath, startedFrom, report)
+  const stillIn = () => isStillIn(repositoryPath, startedFrom, report)
   // the row shows the push while it waits for a sync, and a second click does nothing
-  setStackPush(startedFrom, [])
+  setStackPush(startedFrom, [], repositoryPath)
   // a push of the stack branch alone asked meanwhile (Request Review…, a restart) waits for this one, which may take it
   let settleStackBranch: (() => void) | null = null
   try {
@@ -145,8 +146,12 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
     if (wholeStack !== null) {
       settleStackBranch = joinableStackBranchPush(wholeStack)
     }
-    if ((order.names.length === 0 && wholeStack === null) || !(await checkStackHolds(order.names, options, report))) {
-      return order.names.length === 0 && wholeStack === null
+    if (order.names.length === 0 && wholeStack === null) {
+      return true
+    }
+    const clearance = await checkStackHolds(order.names, options, report)
+    if (clearance === false) {
+      return false
     }
     // the checks may have waited for Patronus while a sync changed the branches: push them as they are now
     if (!stillIn()) {
@@ -168,23 +173,23 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
     if (!stillIn()) {
       return false
     }
-    setStackPush(startedFrom, order.names)
-    let pushed = branches
+    // from here on the push reads nothing of the table: it goes on in its repository with the branches and the baseline
+    // as they are now, also after a switch, so the robot it cancels is pushed over and replaced, never canceled for a push
+    // that stops
+    const baselineBranch = branchSyncStore.getState().baselineBranch!
     let stack = stackBranchAlong(wholeStack)
-    let moved = await sendTogether(request, pushed, tips, stack, report)
+    if (clearance.cancels !== null && !(await cancelHoldingRobot(clearance.cancels, report, request))) {
+      return false
+    }
+    setStackPush(startedFrom, order.names, repositoryPath)
+    let pushed: readonly Branch[] = branches
+    let moved = await sendTogether(request, baselineBranch, pushed, tips, stack, report)
     // nobody's work is lost: the stack goes over what the remotes have now, once, as the push of one branch does; a
     // remote that moves again, or one with commits its branch lacks, is told
     if (moved != null && pushesOverMovedRemote(moved.status)) {
-      if (!stillIn()) {
-        return false
-      }
-      const fetched = findBranches(order.names, report)
-      if (fetched === null) {
-        return false
-      }
-      pushed = fetched
-      stack = stackBranchAlong(wholeStack)
-      moved = await sendTogether(request, pushed, tips, stack, report)
+      pushed = moved.branches
+      stack = moved.stack
+      moved = await sendTogether(request, baselineBranch, pushed, tips, stack, report)
     }
     if (moved === undefined) {
       return false
@@ -193,7 +198,7 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
       if (moved.wholeStack) {
         report(`Cannot push ${formatWholeStackBranch(moved.name)}`, describeMovedStackBranch(moved.status))
       } else {
-        await showRemoteMovedToast(moved.name, moved.status, undefined)
+        await showRemoteMovedToast(request, moved.name, moved.status, undefined)
       }
       return false
     }
@@ -208,8 +213,20 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
     return true
   } finally {
     settleStackBranch?.()
-    setStackPush(startedFrom, null)
+    setStackPush(startedFrom, null, repositoryPath)
   }
+}
+
+/** A stack push the remote refused (`sendTogether`): the branch whose remote moved, and what the push sends over them */
+interface MovedInStack {
+  readonly name: string
+  readonly wholeStack: boolean
+  /** What its remote has now */
+  readonly status: RemoteStatus
+  /** The branches of the push with the remote statuses it brought */
+  readonly branches: readonly Branch[]
+  /** The stack branch it took along, with the remote status it brought */
+  readonly stack: StackBranch | null
 }
 
 /** The stack branch of the whole stack of `root` as the push sends it: only while it still goes along; null otherwise */
@@ -243,24 +260,23 @@ async function settledOrder(orderOf: () => StackPushOrder): Promise<StackPushOrd
 
 /**
  * Whether no running Safe Push holds a branch of the push (`checkPushHold`), so the push may go: one held branch
- * refuses the whole push, with the reason. The robot a Safe Push start replaces is canceled once, at the first branch it
- * holds.
+ * refuses the whole push, with the reason. The robot a Safe Push start replaces is canceled once, by the push right
+ * before it sends (`cancels`), whichever of its branches it holds.
  */
-async function checkStackHolds(names: readonly string[], options: StackPushOptions, report: PushReport): Promise<boolean> {
-  let canceled: string | null = null
+async function checkStackHolds(names: readonly string[], options: StackPushOptions, report: PushReport): Promise<PushClearance> {
+  let cancels: PatronusRobot | null = null
   for (const name of names) {
     const hold = getPushHold(name)
-    if (hold !== null && hold.robot.id === canceled) {
+    if (hold !== null && hold.robot.id === cancels?.id) {
       continue
     }
-    if (!(await checkPushHold(name, { replacesRobot: options.replacesRobot }, report))) {
+    const clearance = await checkPushHold(name, { replacesRobot: options.replacesRobot }, report)
+    if (clearance === false) {
       return false
     }
-    if (hold !== null && hold.robot.id === options.replacesRobot?.id) {
-      canceled = hold.robot.id
-    }
+    cancels ??= clearance.cancels
   }
-  return true
+  return { cancels }
 }
 
 /** The branches in the table, or null when one is gone (it said so) */
@@ -282,15 +298,17 @@ function findBranches(names: readonly string[], report: PushReport): Branch[] | 
  * a whole stack after them (`stack`, leased on the remote head of its status), while their rows show its progress (the
  * stack branch is pushing too, under its key: a push of it alone waits); their remote statuses are updated from the
  * result. The branch whose remote moved when nothing was pushed (`wholeStack`: its
- * stack branch), with what its remote has now; null when they were pushed; undefined when the push failed (it said why).
+ * stack branch), with what its remote has now, and the branches and the stack branch with the remote statuses the push
+ * brought, for a push over them; null when they were pushed; undefined when the push failed (it said why).
  */
 async function sendTogether(
   request: VcsRequest,
+  baselineBranch: string,
   branches: readonly Branch[],
   tips: ReadonlyMap<string, string>,
   stack: StackBranch | null,
   report: PushReport,
-): Promise<{ name: string; wholeStack: boolean; status: RemoteStatus } | null | undefined> {
+): Promise<MovedInStack | null | undefined> {
   const names = branches.map(branch => branch.name)
   // what an error names: the branches, then the stack branch
   const subjects = stack === null ? names : [...names, formatWholeStackBranch(stack.root)]
@@ -310,7 +328,7 @@ async function sendTogether(
         repositoryPath: request.repositoryPath,
         branchPrefix: request.branchPrefix,
         myEmail: branches[0]?.myEmail ?? null,
-        baselineBranch: branchSyncStore.getState().baselineBranch!,
+        baselineBranch,
         branches: [
           ...branches.map(branch => ({
             branchName: branch.name,
@@ -353,7 +371,13 @@ async function sendTogether(
       } else {
         recordPush(request.repositoryPath, branchName, branches[index]!.remoteStatus, status)
       }
-      return { name: branchName, wholeStack, status }
+      return {
+        name: branchName,
+        wholeStack,
+        status,
+        branches: branches.map((branch, at) => ({ ...branch, remoteStatus: statuses[at] ?? branch.remoteStatus })),
+        stack: stack === null ? null : { ...stack, remoteStatus: stackStatus ?? stack.remoteStatus },
+      }
     }
     for (const branch of branches) {
       recordPush(request.repositoryPath, branch.name, sentPart(branch.remoteStatus, tips.get(branch.name)), null)
@@ -455,10 +479,15 @@ export function pushWholeStack(root: string, options: WholeStackPushOptions = {}
   if (running !== undefined && restarts !== null && running.restarts === restarts) {
     return running.done
   }
-  const pushed = sendWholeStack(root, running?.pushed ?? null, options)
+  const request = createPushRequest(`Cannot push ${formatWholeStack(root)}`, options.report ?? notifyError)
+  if (request === null) {
+    return Promise.resolve(false)
+  }
+  const pushed = sendWholeStack(request, root, running?.pushed ?? null, options)
   const done = pushed.then(async isPushed => {
     if (isPushed && options.restartRobot !== undefined) {
-      const restarted = await restartAfterPush(options.restartRobot)
+      // in the repository of the push, also after a switch
+      const restarted = await restartAfterPush(options.restartRobot, request)
       // the restart is the action: its toast is the one toast, Activity has the push and the restart
       if (restarted !== undefined) {
         showRobotToast(`${formatPushMode(restarted.pushMode)} restarted`, restarted)
@@ -471,18 +500,15 @@ export function pushWholeStack(root: string, options: WholeStackPushOptions = {}
 }
 
 /**
- * The push of `pushWholeStack`: after the push it joins (`joined`), the sync and a push of Push with Children, what the
- * remote still lacks of the stack branch, the robot it restarts or replaces canceled first. Resolves to whether the
- * stack branch is on the remote.
+ * The push of `pushWholeStack` in the repository of `request`: after the push it joins (`joined`), the sync and a push
+ * of Push with Children, what the remote still lacks of the stack branch, the robot it restarts or replaces canceled
+ * after the last check, right before it sends, so no refusal follows the cancel. Resolves to whether the stack branch is
+ * on the remote.
  */
-async function sendWholeStack(root: string, joined: Promise<boolean> | null, options: WholeStackPushOptions): Promise<boolean> {
+async function sendWholeStack(request: VcsRequest, root: string, joined: Promise<boolean> | null, options: WholeStackPushOptions): Promise<boolean> {
   const report = options.report ?? notifyError
   const subject = formatWholeStack(root)
   const key = stackReadinessKey(root)
-  const request = createPushRequest(`Cannot push ${subject}`, report)
-  if (request === null) {
-    return false
-  }
   // a failed push of the stack branch alone was said by the request that pushed: one toast
   if (joined !== null && !(await joined)) {
     return false
@@ -504,28 +530,30 @@ async function sendWholeStack(root: string, joined: Promise<boolean> | null, opt
   // a push that ran meanwhile left nothing to send, unless a sync rebuilt the stack branch since
   const upToDate = getPushAction({ remoteStatus: getStackBranch(root)?.remoteStatus ?? null }) === "upToDate"
   const hold = getStackPushHold(root)
+  let cancels: PatronusRobot | null = null
   if (hold !== null) {
     if (hold.robot.id === options.restartRobot?.id || hold.robot.id === options.replacesRobot?.id) {
-      if (!(await cancelHoldingRobot(hold.robot, report))) {
-        return false
-      }
+      cancels = hold.robot
     } else if (!upToDate) {
       report(`Cannot push ${subject}`, formatStackPushHoldReason(root, hold.robot))
       return false
     }
   }
-  if (upToDate) {
-    return true
-  }
-  if (!isStillIn(request.repositoryPath, subject, report)) {
+  // from here on the push reads nothing of the table: it goes on in its repository with the stack branch as it is now,
+  // also after a switch, so the robot it cancels is pushed over and restarted or replaced, never canceled for nothing
+  const sent = upToDate ? null : stackBranchToSend(root, report)
+  if (sent === undefined) {
     return false
   }
-  let moved = await sendStackBranch(request, root, report)
+  if (cancels !== null && !(await cancelHoldingRobot(cancels, report, request))) {
+    return false
+  }
+  if (sent === null) {
+    return true
+  }
+  let moved = await sendStackBranch(request, sent, report)
   if (moved !== null && moved !== undefined && pushesOverMovedRemote(moved)) {
-    if (!isStillIn(request.repositoryPath, subject, report)) {
-      return false
-    }
-    moved = await sendStackBranch(request, root, report)
+    moved = await sendStackBranch(request, { ...sent, stack: { ...sent.stack, remoteStatus: moved } }, report)
   }
   if (moved === undefined) {
     return false
@@ -537,19 +565,33 @@ async function sendWholeStack(root: string, joined: Promise<boolean> | null, opt
   return true
 }
 
+/** What the push of a stack branch sends, as the table had it when the push started (`stackBranchToSend`) */
+interface StackBranchToSend {
+  readonly root: string
+  readonly stack: StackBranch
+  readonly myEmail: string | null
+  readonly baselineBranch: string
+}
+
+/** The stack branch of `root` and what its push needs, from the table; undefined when it can't be pushed (it said why) */
+function stackBranchToSend(root: string, report: PushReport): StackBranchToSend | undefined {
+  const stack = getStackBranch(root)
+  const blocker = getStackBranchBlocker(root, stack)
+  if (stack === undefined || blocker !== null) {
+    report(`Cannot push ${formatWholeStack(root)}`, blocker ?? "The stack has no stack branch")
+    return undefined
+  }
+  return { root, stack, myEmail: getBranch(root)?.myEmail ?? null, baselineBranch: branchSyncStore.getState().baselineBranch! }
+}
+
 /**
  * The one push of the stack branch, leased on the remote head of its status, pushing under its key with its progress;
  * its remote status is updated from the result. What its remote has now when it moved, null when it was pushed,
  * undefined when the push failed (it said why).
  */
-async function sendStackBranch(request: VcsRequest, root: string, report: PushReport): Promise<RemoteStatus | null | undefined> {
+async function sendStackBranch(request: VcsRequest, sent: StackBranchToSend, report: PushReport): Promise<RemoteStatus | null | undefined> {
+  const { root, stack } = sent
   const subject = formatWholeStack(root)
-  const stack = getStackBranch(root)
-  const blocker = getStackBranchBlocker(root, stack)
-  if (stack === undefined || blocker !== null) {
-    report(`Cannot push ${subject}`, blocker ?? "The stack has no stack branch")
-    return undefined
-  }
   const key = stackReadinessKey(root)
   const repositoryPath = request.repositoryPath
   setBranchPushing(key, true, repositoryPath)
@@ -562,8 +604,8 @@ async function sendStackBranch(request: VcsRequest, root: string, report: PushRe
       {
         repositoryPath: request.repositoryPath,
         branchPrefix: request.branchPrefix,
-        myEmail: getBranch(root)?.myEmail ?? null,
-        baselineBranch: branchSyncStore.getState().baselineBranch!,
+        myEmail: sent.myEmail,
+        baselineBranch: sent.baselineBranch,
         branches: [{ branchName: root, wholeStack: true, expectedRemote: stack.remoteStatus?.remoteTip ?? null }],
       },
       progress,

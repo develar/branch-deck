@@ -128,7 +128,8 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
     return null
   }
 
-  if (!(await checkPushHold(branchName, options, report))) {
+  const clearance = await checkPushHold(branchName, options, report)
+  if (clearance === false) {
     return null
   }
   const restartRobot = options.restartRobot
@@ -147,27 +148,31 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
   if (!isStillIn(repositoryPath, branchName, report)) {
     return null
   }
+  // from here on the push reads nothing of the table: it goes on in its repository with the branch and the baseline as
+  // they are now, also after a switch, so the robot it cancels is pushed over and restarted or replaced, never canceled
+  // for a push that stops
+  const baselineBranch = branchSyncStore.getState().baselineBranch!
+  if (clearance.cancels !== null && !(await cancelHoldingRobot(clearance.cancels, report, request))) {
+    return null
+  }
   let before = branch.remoteStatus
-  let pushed = await pushWithProgress(request, branch, options, report)
+  let pushed = await pushWithProgress(request, baselineBranch, branch, options, report)
   // the remote moved since the row showed it, without commits the branch lacks: nobody's work is lost, so the push goes
   // over what the remote has now, once (a remote that moves again, or one with commits the branch lacks, is told)
   const moved = pushed?.moved ?? null
   if (moved !== null && pushesOverMovedRemote(moved)) {
-    if (!isStillIn(repositoryPath, branchName, report)) {
-      return null
-    }
     before = moved
-    pushed = await pushWithProgress(request, { ...branch, remoteStatus: moved }, { ...options, expectedRemote: moved.remoteTip }, report)
+    pushed = await pushWithProgress(request, baselineBranch, { ...branch, remoteStatus: moved }, { ...options, expectedRemote: moved.remoteTip }, report)
   }
   if (pushed === null) {
     return null
   }
   if (pushed.moved !== null) {
-    await showRemoteMovedToast(branchName, pushed.moved, restartRobot)
+    await showRemoteMovedToast(request, branchName, pushed.moved, restartRobot)
     return null
   }
-  // the restart takes the commit just pushed
-  const restarted = restartRobot === undefined ? undefined : await restartAfterPush(restartRobot)
+  // the restart takes the commit just pushed, in the repository of the push
+  const restarted = restartRobot === undefined ? undefined : await restartAfterPush(restartRobot, request)
   return { name: branchName, before: sentPart(before, options.tip), restarted, retargeted }
 }
 
@@ -214,7 +219,13 @@ export function sentPart(before: RemoteStatus | null, tip: string | undefined): 
  * The push itself, while the row shows its progress: the remote status the remote moved to when nothing was pushed
  * (`moved`), null when it failed (an error toast said so)
  */
-async function pushWithProgress(request: VcsRequest, branch: Branch, options: PushOptions, report: PushReport): Promise<{ moved: RemoteStatus | null } | null> {
+async function pushWithProgress(
+  request: VcsRequest,
+  baselineBranch: string,
+  branch: Branch,
+  options: PushOptions,
+  report: PushReport,
+): Promise<{ moved: RemoteStatus | null } | null> {
   const branchName = branch.name
   // the repository the push started in: its result applies there, also after a switch of the repository
   const repositoryPath = request.repositoryPath
@@ -230,7 +241,7 @@ async function pushWithProgress(request: VcsRequest, branch: Branch, options: Pu
         branchPrefix: request.branchPrefix,
         branchName,
         myEmail: branch.myEmail,
-        baselineBranch: branchSyncStore.getState().baselineBranch!,
+        baselineBranch,
         // a stacked branch's own commits are those after its parent
         parentBranch: branch.stack?.effectiveBase ?? null,
         // without a loaded status the branch must not be on the remote: if it is, the push fetches and shows it
@@ -260,14 +271,15 @@ async function pushWithProgress(request: VcsRequest, branch: Branch, options: Pu
 }
 
 /**
- * Restarts a robot the push canceled, on the pushed commit, and records it in Activity in the words of a restart
- * toast; the caller says it, in the toast of its action. Undefined when the restart failed (an error toast said so).
+ * Restarts a robot the push canceled, on the pushed commit, in the repository of the push (`request`, also after a
+ * switch), and records it in Activity there in the words of a restart toast; the caller says it, in the toast of its
+ * action. Undefined when the restart failed (an error toast said so).
  */
-export async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRobot | undefined> {
+export async function restartAfterPush(robot: PatronusRobot, request: VcsRequest): Promise<PatronusRobot | undefined> {
   const mode = formatPushMode(robot.pushMode)
   try {
-    const restarted = await restartPatronusRobot(robot)
-    recordRobot(`${mode} restarted`, describeRobot(restarted), restarted)
+    const restarted = await restartPatronusRobot(robot, request)
+    recordRobot(`${mode} restarted`, describeRobot(restarted), restarted, request.repositoryPath)
     return restarted
   } catch (error) {
     notifyError(`Cannot restart the ${mode}`, error)
@@ -276,28 +288,37 @@ export async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRo
 }
 
 /**
+ * Whether a push may go (`checkPushHold`): false when a hold refuses it (it said why); else the robot to cancel right
+ * before it sends, the one it restarts or replaces (null for none)
+ */
+export type PushClearance = false | { readonly cancels: PatronusRobot | null }
+
+const CLEAR: PushClearance = { cancels: null }
+
+/**
  * A branch whose Safe Push runs, or that a Safe Push of a branch built on it lands, is not pushed (`PushHold`): the push
  * won't land, and a push into the robot's own branch makes it fail at the end ("branch was modified"). The rows offer no
  * push then; this refuses one that raced with a start (the IDE, `bd`) or came from a toast. The status is read fresh
  * first (one row on the server), so a robot that finished meanwhile holds nothing. The robot the push restarts or
- * replaces (`restartRobot`, `replacesRobot`) is canceled instead, and the push goes on. A branch a merged Safe Push
- * landed (`landed`) is refused without a read: its commits are in the target. The holds are those of the repository
- * view of the robots and the branches as they are now (`whenRepositoryViewCurrent`): a robot of a branch built on it
- * holds it only while its commit has commits of it. Resolves to whether to push.
+ * replaces (`restartRobot`, `replacesRobot`) is canceled instead, by the push after its last check, right before it
+ * sends (`cancels`), so no refusal follows the cancel. A branch a merged Safe Push landed (`landed`) is refused without a
+ * read: its commits are in the target. The holds are those of the repository view of the robots and the branches as
+ * they are now (`whenRepositoryViewCurrent`): a robot of a branch built on it holds it only while its commit has
+ * commits of it.
  */
-export async function checkPushHold(branchName: string, options: PushOptions, report: PushReport): Promise<boolean> {
+export async function checkPushHold(branchName: string, options: PushOptions, report: PushReport): Promise<PushClearance> {
   // the holds of the robots and the branches as they are now: a robot started meanwhile holds it once the view says so
   await whenRepositoryViewCurrent()
   const hold = getPushHold(branchName)
   if (hold === null) {
-    return true
+    return CLEAR
   }
   if (hold.robot.id === options.restartRobot?.id || hold.robot.id === options.replacesRobot?.id) {
-    return await cancelHoldingRobot(hold.robot, report)
+    return { cancels: hold.robot }
   }
   const status = hold.kind === "landed" ? null : await fetchPatronusRobotStatus(hold.robot).catch(() => null)
   if (status !== null && status !== "running") {
-    return true
+    return CLEAR
   }
   // the robot that holds it opens from the error: its restart, its cancel
   report(`Cannot push ${branchName}`, formatPushHoldReason(branchName, hold), { children: "Open in Patronus", onClick: () => openRobot(hold.robot) })
@@ -355,12 +376,14 @@ export function pushFromButton(branchName: string): void {
  * The remote branch moved since its status was shown, so nothing was pushed: the toast says what the remote has now,
  * and its action pushes over exactly that, through the Safe Push question as any push; a push that drops the commits
  * the remote has now confirms in the row first. A Safe Push the push canceled to restart is restarted by that push;
- * with nothing left to push it is restarted at once, and the toast says so and opens it.
+ * with nothing left to push it is restarted at once, and the toast says so and opens it. The toast is of the repository
+ * the push went to (`request`): its push refuses while the main window shows another one, whose branch of the same name
+ * is another branch.
  */
-export async function showRemoteMovedToast(branchName: string, remoteStatus: RemoteStatus, restartRobot: PatronusRobot | undefined): Promise<void> {
+export async function showRemoteMovedToast(request: VcsRequest, branchName: string, remoteStatus: RemoteStatus, restartRobot: PatronusRobot | undefined): Promise<void> {
   const texts = buildRemoteMovedTexts(branchName, remoteStatus)
   // nothing left to push: the remote has the branch's commits, the robot can run on them
-  const restarted = restartRobot !== undefined && texts.action === null ? await restartAfterPush(restartRobot) : undefined
+  const restarted = restartRobot !== undefined && texts.action === null ? await restartAfterPush(restartRobot, request) : undefined
   let note = ""
   if (restarted !== undefined) {
     note = ` The ${formatPushMode(restarted.pushMode)} restarted on it.`
@@ -378,7 +401,9 @@ export async function showRemoteMovedToast(branchName: string, remoteStatus: Rem
         children: texts.action,
         onClick: () => {
           toast.close(id)
-          pushOrConfirm(branchName, "row", { expectedRemote: remoteStatus.remoteTip, restartRobot })
+          if (isStillIn(request.repositoryPath, branchName, notifyError)) {
+            pushOrConfirm(branchName, "row", { expectedRemote: remoteStatus.remoteTip, restartRobot })
+          }
         },
       },
     }),

@@ -29,8 +29,9 @@ export function rememberLandedStackRoot(root: string, branch: string): void {
 }
 
 /** A new pull request of the whole stack of `root` matches the stack as it is: what landed before is no reason any more */
-export function forgetLandedStackRoot(root: string): void {
-  const key = currentKey()
+export function forgetLandedStackRoot(root: string, repositoryPath: string, branchPrefix: string): void {
+  // the repository the pull request was created in, also after a switch: the root of the same name there is another stack
+  const key = keyOf(repositoryPath, branchPrefix)
   if (landedStacksStore.getState().landedBy[key]?.[root] === undefined) {
     return
   }

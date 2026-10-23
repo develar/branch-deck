@@ -30,6 +30,14 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     stack: undefined as PatronusRobot | undefined,
     /** The whole stacks every branch of which merged Safe Pushes landed: root -> why nothing is left */
     stackLanded: {} as Record<string, string>,
+    /** The repository of each cancel and restart Patronus was asked, in order */
+    askedIn: [] as string[],
+    /** The repository of each robot Activity recorded */
+    recordedIn: [] as (string | undefined)[],
+    /** Runs while Patronus cancels a robot: what the user does meanwhile */
+    whileCanceling: () => {},
+    /** Runs while the repository view of the robots is brought up to date (`whenRepositoryViewCurrent`) */
+    whileViewing: () => {},
   },
   toasts: [] as { type?: string; title?: string; description?: unknown; actionProps?: { children: string; onClick: () => void } }[],
   stores: {
@@ -62,7 +70,8 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     pushGate: Promise.resolve(),
     /** Why the next stack push fails, as the backend says it; null: it pushes */
     pushError: null as string | null,
-    whileAsking: () => {},
+    /** Runs while git pushes: what the user does meanwhile */
+    whilePushing: () => {},
     /** The repository the main window shows */
     selected: "/repo",
   },
@@ -100,6 +109,7 @@ vi.mock("@/lib/bindings", () => ({
     pushBranch: async (params: { branchName: string; expectedRemote: string | null }) => {
       calls.push(`push ${params.branchName}`)
       stores.expectedRemotes.push(params.expectedRemote)
+      stores.whilePushing()
       const moved = stores.movedRemotes.shift()
       return {
         status: "ok",
@@ -116,6 +126,7 @@ vi.mock("@/lib/bindings", () => ({
       calls.push(`push ${params.branches.map(branch => (branch.tip == null ? nameOf(branch) : `${branch.branchName}@${branch.tip}`)).join(" ")}`)
       stores.expectedRemotes.push(...params.branches.map(branch => branch.expectedRemote))
       await stores.pushGate
+      stores.whilePushing()
       const error = stores.pushError
       if (error !== null) {
         stores.pushError = null
@@ -209,10 +220,13 @@ vi.mock("@/stores/patronus", () => ({
   },
   fetchPatronusRobotStatus: async () => robots.status,
   whenRepositoryViewCurrent: async () => {
+    robots.whileViewing()
     robots.spans = Object.fromEntries(Object.entries(robots.spans).filter(([name]) => !robots.released.includes(name)))
   },
-  cancelPatronusRobot: async (robot: PatronusRobot) => {
+  cancelPatronusRobot: async (robot: PatronusRobot, request: { repositoryPath: string } | null) => {
     calls.push(`cancel ${robot.id}`)
+    robots.askedIn.push(request?.repositoryPath ?? stores.selected)
+    robots.whileCanceling()
     // the store has it canceling: it holds nothing
     for (const held of [robots.running, robots.stack, ...Object.values(robots.spans)]) {
       if (held?.id === robot.id) {
@@ -221,8 +235,9 @@ vi.mock("@/stores/patronus", () => ({
     }
     return { ...robot, status: "canceling" }
   },
-  restartPatronusRobot: async (robot: PatronusRobot) => {
+  restartPatronusRobot: async (robot: PatronusRobot, request: { repositoryPath: string } | null) => {
     calls.push(`restart ${robot.id}`)
+    robots.askedIn.push(request?.repositoryPath ?? stores.selected)
     return { ...robot, id: "restarted", url: "https://patronus/restarted" }
   },
 }))
@@ -247,8 +262,9 @@ vi.mock("@/stores/activity", async () => ({
   recordPush: (_repositoryPath: string, branchName: string) => {
     records.push(`push ${branchName}`)
   },
-  recordRobot: (title: string) => {
+  recordRobot: (title: string, _description: string, _robot: PatronusRobot, repositoryPath?: string) => {
     records.push(title)
+    robots.recordedIn.push(repositoryPath)
   },
   recordRetarget: (title: string, description: string) => {
     records.push(`${title}: ${description}`)
@@ -300,6 +316,10 @@ beforeEach(() => {
   robots.landed = {}
   robots.stack = undefined
   robots.stackLanded = {}
+  robots.askedIn = []
+  robots.recordedIn = []
+  robots.whileCanceling = () => {}
+  robots.whileViewing = () => {}
   stores.branches = {}
   stores.pullRequests = {}
   stores.expectedRemotes = []
@@ -313,6 +333,7 @@ beforeEach(() => {
   stores.pushGate = Promise.resolve()
   stores.pushError = null
   stores.selected = "/repo"
+  stores.whilePushing = () => {}
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
 })
@@ -938,13 +959,18 @@ describe("a push that started in another repository", () => {
     }
   }
 
+  /** The push of auth pushed nothing, canceled nothing, and said why */
+  async function expectStopped(pushed: Promise<boolean>): Promise<void> {
+    expect(await pushed).toBe(false)
+    expect(calls).toEqual([])
+    expect(toasts.map(toast => [toast.title, toast.description])).toEqual([["Cannot push auth", "/repo is no longer the open repository"]])
+  }
+
   it("pushes nothing of the branch of the same name there, and says why", async () => {
     const finish = switchDuringSync()
     const pushed = pushBranch("auth")
     finish()
-    expect(await pushed).toBe(false)
-    expect(calls).toEqual([])
-    expect(toasts.map(toast => [toast.title, toast.description])).toEqual([["Cannot push auth", "/repo is no longer the open repository"]])
+    await expectStopped(pushed)
   })
 
   it("pushes no stack of the same names there", async () => {
@@ -963,6 +989,68 @@ describe("a push that started in another repository", () => {
     finish()
     expect(await pushed).toEqual({ pushed: false, reason: "/repo is no longer the open repository" })
     expect(calls).toEqual([])
+  })
+
+  /** The user opens `/other`, whose `auth` is another branch */
+  function switchRepository(): void {
+    stores.selected = "/other"
+  }
+
+  /** Restart Safe Push of auth: canceled, pushed and restarted in /repo, where Activity records the restart */
+  async function expectRestartedInRepo(): Promise<void> {
+    robots.running = { ...RUNNING }
+    expect(await pushBranch("auth", { restartRobot: robots.running, announce: false })).toBe(true)
+    expect(calls).toEqual(["cancel old", "push auth", "restart old"])
+    expect(robots.askedIn).toEqual(["/repo", "/repo"])
+    expect(robots.recordedIn).toEqual(["/repo"])
+  }
+
+  it("restarts the robot of Restart Safe Push where the push went, after a switch during the push", async () => {
+    stores.whilePushing = switchRepository
+    await expectRestartedInRepo()
+  })
+
+  it("pushes and restarts the robot it canceled after a switch during the cancel: no cancel is followed by a refusal", async () => {
+    robots.whileCanceling = switchRepository
+    await expectRestartedInRepo()
+  })
+
+  it("pushes the branches over the robot a start replaces after a switch during the cancel", async () => {
+    addBranch("login", "auth", false)
+    const run = { ...RUNNING, id: "login-run", branchName: "login" }
+    robots.spans.auth = run
+    robots.spans.login = run
+    robots.whileCanceling = switchRepository
+    expect(await pushStack("login", { replacesRobot: run, announce: false })).toBe(true)
+    expect(calls).toEqual(["cancel login-run", "push auth login"])
+    expect(robots.askedIn).toEqual(["/repo"])
+  })
+
+  it("cancels nothing when the switch comes before the push's last check", async () => {
+    robots.running = { ...RUNNING }
+    robots.whileViewing = switchRepository
+    await expectStopped(pushBranch("auth", { restartRobot: robots.running, announce: false }))
+  })
+
+  it("pushes and restarts the whole stack's robot in the repository of the push after a switch during the cancel", async () => {
+    forkingStack(testRemoteStatus(STACK_AHEAD))
+    robots.stack = { ...STACK_ROBOT }
+    robots.whileCanceling = switchRepository
+    expect(await pushWholeStack("auth", { restartRobot: STACK_ROBOT })).toBe(true)
+    expect(calls).toEqual(["cancel whole", "push stack:auth", "restart whole"])
+    expect(robots.askedIn).toEqual(["/repo", "/repo"])
+    expect(robots.recordedIn).toEqual(["/repo"])
+  })
+
+  it("pushes nothing of the branch of the same name from the toast of a remote that moved during the push", async () => {
+    stores.movedRemotes = [{ commitsBehind: 2, remoteTip: "theirs" }]
+    stores.whilePushing = switchRepository
+    expect(await pushBranch("auth")).toBe(false)
+    const moved = toasts.find(toast => toast.title === "auth changed on the remote")
+    expect(moved?.actionProps).toBeDefined()
+    moved!.actionProps!.onClick()
+    expect(calls).toEqual(["push auth"])
+    expect(toasts.at(-1)).toMatchObject({ title: "Cannot push auth", description: "/repo is no longer the open repository" })
   })
 })
 

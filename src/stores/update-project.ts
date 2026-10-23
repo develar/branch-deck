@@ -252,11 +252,6 @@ function syncFetched(repositoryPath: string): void {
 }
 
 /**
- * Fetches only the baseline of the repository, without updating (the Fetch of a merged robot's toast): the button shows
- * the fetch as for an update, then a sync of the selected repository, on Sync, checks the update against the fetched
- * baseline. Shares the one-at-a-time slot of the update in the repository.
- */
-/**
  * "Update Project" of a toast about `repositoryPath` (a merge, a Safe Push refused by the target): the update of that
  * repository while the main window shows it, else only the fetch of its baseline. Update Project updates the shown
  * repository, so a click after a switch never moves the HEAD and the working tree of another one.
@@ -265,6 +260,11 @@ export function runUpdateProjectOf(repositoryPath: string): Promise<void> {
   return isSelectedRepository(repositoryPath) ? runUpdateProject() : runFetchBaseline(repositoryPath)
 }
 
+/**
+ * Fetches only the baseline of the repository, without updating (the Fetch of a merged robot's toast): the button shows
+ * the fetch as for an update, then a sync of the selected repository, on Sync, checks the update against the fetched
+ * baseline. Shares the one-at-a-time slot of the update in the repository.
+ */
 export async function runFetchBaseline(repositoryPath: string): Promise<void> {
   if (!startRunning(repositoryPath, "fetch", ["fetch"])) {
     return

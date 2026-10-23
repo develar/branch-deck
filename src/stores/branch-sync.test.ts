@@ -7,12 +7,14 @@ import {
   getBranchTableRows,
   getStackBranch,
   isBranchPushing,
+  isStackPushing,
   requestSync,
   resetBranchSync,
   selectSyncFraction,
   setBranchPushing,
   setBranchPushProgress,
   setBranchRemoteStatus,
+  setStackPush,
   syncBranches,
   syncIfChanged,
   toRemoteStatus,
@@ -510,6 +512,43 @@ describe("sync during a push", () => {
       setBranchPushing("a", false, "/other")
       expect(isBranchPushing("a")).toBe(false)
       expect(branchSyncStore.getState().pushingBranches).toEqual({})
+    } finally {
+      repository.path = "/repo"
+    }
+  })
+
+  it("drops the progress of a push that ends after a switch: the next push of the branch starts without its percent", () => {
+    const writing = { percent: 45, transferred: "1.23 KiB", speed: "1.23 MiB/s", line: "Writing objects:  45% (2/4)" }
+    setBranchPushing("a", true, "/repo")
+    setBranchPushProgress("a", writing, "/repo")
+    repository.path = "/other"
+    try {
+      // the rows of /other show no progress of it, and its push of the branch of the same name starts at none
+      expect(getBranchPushProgress("a")).toBeNull()
+      setBranchPushing("a", false, "/repo")
+      setBranchPushing("a", true, "/other")
+      expect(getBranchPushProgress("a")).toBeNull()
+      setBranchPushing("a", false, "/other")
+    } finally {
+      repository.path = "/repo"
+    }
+    // back in /repo, a new push of it starts without the old percent
+    setBranchPushing("a", true, "/repo")
+    expect(getBranchPushProgress("a")).toBeNull()
+    setBranchPushing("a", false, "/repo")
+  })
+
+  it("keeps a stack push that runs on after a switch off the row of the same name there", () => {
+    setStackPush("core", ["auth", "core"], "/repo")
+    repository.path = "/other"
+    try {
+      // the row of core in /other is idle: its own stack push goes
+      expect(isStackPushing("core")).toBe(false)
+      setStackPush("core", ["core"], "/other")
+      setStackPush("core", null, "/repo")
+      expect(isStackPushing("core")).toBe(true)
+      setStackPush("core", null, "/other")
+      expect(branchSyncStore.getState().stackPushes).toEqual({})
     } finally {
       repository.path = "/repo"
     }

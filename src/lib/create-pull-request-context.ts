@@ -282,7 +282,7 @@ async function createPullRequestOf(context: CreatePullRequestContext, input: Cre
   const result: CreatedPullRequest = await createPullRequest(request)
   if (context.wholeStack !== null) {
     // a new pull request of the stack matches the stack as it is
-    forgetLandedStackRoot(context.branchName)
+    forgetLandedStackRoot(context.branchName, context.repositoryPath, context.branchPrefix)
   }
   const toast = formatCreatedToast(context.label, context.base, input.viewerLogin, result)
   if (result.created) {
