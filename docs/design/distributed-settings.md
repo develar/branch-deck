@@ -59,12 +59,12 @@ sequenceDiagram
     participant Others as Other sub-windows
 
     Sub->>Sub: setState (local change)
-    Sub->>Main: store-set-request with the changed fields (echo recorded)
+    Sub->>Main: store-set-request with the changed fields (an array store: echo recorded)
     Main->>Main: the fields on its own value, parse, setState(value, true) without re-persisting
     Main->>Disk: write non-default fields (echo recorded)
     Main-->>Sub: store-response
     Disk->>Main: onChange (own echo, not re-applied)
-    Main->>Sub: store-snapshot-update (echo, ignored)
+    Main->>Sub: store-snapshot-update (an array's echo ignored; an object applied, keeping unanswered fields)
     Main->>Others: store-snapshot-update
     Others->>Others: setState(value, true) under the echo guard
 ```
@@ -92,7 +92,11 @@ broadcast to all sub-windows.
 4. **Decision**: An `EchoTracker` per window remembers the values it wrote.
    **Rationale**: The `onChange` in the main window and the `store-snapshot-update` in a sub-window that come back for a
    value this window wrote are recognized and dropped. Applying the echo of an older write would roll the state back
-   while a newer write is in flight.
+   while a newer write is in flight. A sub-window records the echo of an array store only: the main window takes the
+   fields of an object store on its own value (decision 7), so its broadcast need not be the object the sub-window
+   wrote, and an entry no broadcast matched would later drop a real update equal to it (the review window wrote
+   `{zoom: 1, reviewSidebar: false}` while the main window held 110%; its Actual Size broadcast that very value, and the
+   review window stayed at 110%). An object store's update is applied, keeping the fields of the unanswered writes.
 
 5. **Decision**: Only non-default fields are persisted; an empty array or an all-default object deletes the key.
    **Rationale**: Keeps the file small and lets new defaults apply to users who never changed a setting. A sub-window

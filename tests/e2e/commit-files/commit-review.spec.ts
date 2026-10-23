@@ -6,8 +6,9 @@ import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test
 import { activityButton, activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
-import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
+import { emitTauriEvent } from "../helpers/sync-helpers"
 import { holdCommand, waitForStorePersistence } from "../helpers/wait-helpers"
 
 // the `commit_tree` template: one commit of the `session` branch, five files in nested directories
@@ -90,6 +91,43 @@ async function openTreeReview(page: Page): Promise<Locator> {
 }
 
 /** The colour a `--syntax-*` token of the theme resolves to, as `getComputedStyle` gives a colour */
+type AppSettings = { activityPanel?: boolean; reviewSidebar?: boolean; zoom?: number }
+
+/**
+ * Opens the review of the pool size commit in a linked window, once the main window answered the window's request for
+ * the settings (`store-snapshot-request`): what the main window changes from now on, the window has not heard of
+ */
+async function openSettledReviewWindow(page: Page): Promise<Page> {
+  const window = await openLinkedSubWindow(page, await reviewPoolSizeCommit(page))
+  await expect.poll(async () => (await getEmittedEvents(page, "store-snapshot")).length).toBe(1)
+  await expect(window.getByTestId("review-sidebar-toggle")).toHaveAttribute("aria-pressed", "true")
+  return window
+}
+
+/** The appSettings the window asked the main window to save last (`store-set-request`) */
+async function lastAppSettingsWrite(window: Page): Promise<{ value: AppSettings; fields?: string[] } | undefined> {
+  const writes = await getEmittedEvents<{ key: string; value: AppSettings; fields?: string[] }>(window, "store-set-request")
+  return writes.findLast(it => it.key === "appSettings")
+}
+
+/**
+ * The appSettings the main window saved, once `matches` holds, and hands them to the review window as the main window
+ * broadcasts them in the app (`store-snapshot-update`: the mock of the store plugin reports no change to broadcast)
+ */
+async function broadcastSavedAppSettings(page: Page, window: Page, matches: (saved: AppSettings) => boolean): Promise<void> {
+  let saved: AppSettings = {}
+  await waitForStorePersistence(page, "appSettings", value => {
+    saved = (value ?? {}) as AppSettings
+    return matches(saved)
+  })
+  await emitTauriEvent(window, "store-snapshot-update", { key: "appSettings", value: saved })
+}
+
+/** The zoom the page gave its webview, 1 if none */
+function webviewZoom(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as { __e2eWebviewZoom?: number }).__e2eWebviewZoom ?? 1)
+}
+
 async function tokenColor(review: Locator, token: string): Promise<string> {
   return review.evaluate((element, name) => {
     const probe = document.createElement("span")
@@ -357,21 +395,44 @@ testWithIssueLinks("should keep the Activity panel the main window opened when a
   const pushed = findBranchRow(page, "ABC-123")
   await getPushButton(pushed).click()
   await expectNothingToPush(pushed)
-  const window = await openLinkedSubWindow(page, await reviewPoolSizeCommit(page))
+  const window = await openSettledReviewWindow(page)
   const toggle = window.getByTestId("review-sidebar-toggle")
-  await expect(toggle).toHaveAttribute("aria-pressed", "true")
 
   // the main window opens its panel, and the review window hides its sidebar before it heard of the panel
   await activityButton(page).click()
   await expect(activityPanel(page)).toBeVisible()
   await toggle.click()
   await expect(toggle).toHaveAttribute("aria-pressed", "false")
+  // the race: the window's whole value still has the panel closed, only the field it changed keeps the panel open
+  expect(await lastAppSettingsWrite(window)).toMatchObject({ value: { activityPanel: false, reviewSidebar: false }, fields: ["reviewSidebar"] })
   // the main window takes only the sidebar from the review window: its panel stays open, and both are saved
   await waitForStorePersistence(page, "appSettings", settings => {
     const saved = settings as { activityPanel?: boolean; reviewSidebar?: boolean } | undefined
     return saved?.reviewSidebar === false && saved.activityPanel === true
   })
   await expect(activityPanel(page)).toBeVisible()
+})
+
+testWithIssueLinks("should follow Actual Size of the main window in a review window whose write the main window took on its zoom", async ({ page }) => {
+  const window = await openSettledReviewWindow(page)
+  const toggle = window.getByTestId("review-sidebar-toggle")
+
+  // the main window zooms in, and the review window hides its sidebar before it heard of the zoom
+  await emitTauriEvent(page, "zoom", "in")
+  await expect.poll(() => webviewZoom(page)).toBe(1.1)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute("aria-pressed", "false")
+  expect(await lastAppSettingsWrite(window)).toMatchObject({ value: { reviewSidebar: false }, fields: ["reviewSidebar"] })
+  expect((await lastAppSettingsWrite(window))?.value.zoom).toBe(1)
+  // the main window saves the sidebar on its zoom, which reaches the review window
+  await broadcastSavedAppSettings(page, window, saved => saved.reviewSidebar === false && saved.zoom === 1.1)
+  await expect.poll(() => webviewZoom(window)).toBe(1.1)
+
+  // Actual Size: the main window's value is now the one the review window wrote, which is no echo of that write
+  await emitTauriEvent(page, "zoom", "reset")
+  await expect.poll(() => webviewZoom(page)).toBe(1)
+  await broadcastSavedAppSettings(page, window, saved => saved.reviewSidebar === false && saved.zoom === undefined)
+  await expect.poll(() => webviewZoom(window)).toBe(1)
 })
 
 testWithIssueLinks("should switch the commit of a review with Alt and the arrows", async ({ page }) => {

@@ -158,6 +158,13 @@ function deliver(name: string, payload: unknown): void {
   listeners.get(name)!({ payload })
 }
 
+/** The window hides its review sidebar; the id of the write it asks the main window for */
+function hideSidebar(window: ReturnType<typeof subWindow>): string {
+  window.change({ reviewSidebar: false })
+  const { requestId } = emitted.findLast(it => it.name === "store-set-request")!.payload as { requestId: string }
+  return requestId
+}
+
 describe("SubWindowStoreSync", () => {
   it("sends the main window the fields a change made, not the whole object", () => {
     const window = subWindow()
@@ -181,8 +188,7 @@ describe("SubWindowStoreSync", () => {
 
   it("keeps the field of a write the main window has not answered when another window's change arrives", () => {
     const window = subWindow()
-    window.change({ reviewSidebar: false })
-    const { requestId } = emitted.findLast(it => it.name === "store-set-request")!.payload as { requestId: string }
+    const requestId = hideSidebar(window)
     // the main window broadcasts its own change, made before it applied this window's write
     deliver("store-snapshot-update", { key: "appSettings", value: { activityPanel: true } })
     expect(window.state()).toEqual({ activityPanel: true, reviewSidebar: false })
@@ -191,5 +197,18 @@ describe("SubWindowStoreSync", () => {
     deliver("store-response", { requestId, success: true })
     deliver("store-snapshot-update", { key: "appSettings", value: { activityPanel: true } })
     expect(window.state()).toEqual({ activityPanel: true, reviewSidebar: true })
+  })
+
+  it("takes a later change of the main window that equals the value of its own write before the merge", () => {
+    const window = subWindow()
+    const requestId = hideSidebar(window)
+    // the main window took the field on its own value, where its debounced change had opened the panel
+    deliver("store-snapshot-update", { key: "appSettings", value: { activityPanel: true, reviewSidebar: false } })
+    deliver("store-response", { requestId, success: true })
+    expect(window.state()).toEqual({ activityPanel: true, reviewSidebar: false })
+
+    // the main window closes the panel again: the value is what this window sent, but it is no echo of it
+    deliver("store-snapshot-update", { key: "appSettings", value: { reviewSidebar: false } })
+    expect(window.state()).toEqual({ activityPanel: false, reviewSidebar: false })
   })
 })

@@ -36,8 +36,9 @@ const RESPONSE_TIMEOUT_MS = 10_000
  * Local changes are sent to the main window as `store-set-request`, with the fields of an object store they changed,
  * which the main window applies to its own value: a field the main window changed meanwhile stays. Changes made
  * anywhere are received back as `store-snapshot-update`, and an update keeps the fields of this window's writes the
- * main window has not answered yet. Once it listens, the window asks for the settings again (`store-snapshot-request`):
- * a change made while its page loaded reached no listener.
+ * main window has not answered yet: an object store records no echo, because the main window's broadcast holds its own
+ * fields too. Once it listens, the window asks for the settings again (`store-snapshot-request`): a change made while
+ * its page loaded reached no listener.
  */
 export class SubWindowStoreSync {
   private requestCounter = 0
@@ -80,9 +81,13 @@ export class SubWindowStoreSync {
     }
     registration.subscribeLocal(() => {
       const value = registration.getValue()
-      this.echoTracker.record(registration.key, stableStringify(value))
       let fields: string[] | undefined
-      if (!registration.isArray) {
+      if (registration.isArray) {
+        // the main window takes the whole array, so its broadcast is this value
+        this.echoTracker.record(registration.key, stableStringify(value))
+      } else {
+        // no echo: the main window broadcasts these fields on its own value, which a recorded whole object would not
+        // match, and the stale entry would later drop a real update equal to it; the unanswered fields guard the write
         const current = value as Record<string, unknown>
         fields = changedFields(this.known.get(registration.key) ?? {}, current)
         this.known.set(registration.key, current)
@@ -95,7 +100,7 @@ export class SubWindowStoreSync {
 
   private handleSnapshotUpdate(key: string, value: unknown): void {
     const registration = this.registry.get(key)
-    if (registration === undefined) {
+    if (registration?.isArray !== true) {
       this.applyFromMain(key, value)
       return
     }
