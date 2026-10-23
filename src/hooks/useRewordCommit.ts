@@ -43,7 +43,8 @@ export async function rewordCommit(commit: CommitUnion, message: string, onFollo
   // the commit the reword rewrites, once its turn in the queue comes
   let target = commitId
   const result = await runRewrite(
-    { id, subject, objects, label: "Editing the commit message", surface, repositoryPath },
+    // a reword of another commit of the branch, or with another message, is a reword of its own: it never joins this one
+    { id, subject, objects, parameters: JSON.stringify([commitId, message]), label: "Editing the commit message", surface, repositoryPath },
     "Cannot edit the commit message",
     () => {
       // the id as the rewrite before it in the queue left it (`resolveCommitsOf`); a missing commit goes by its hash
@@ -73,8 +74,8 @@ export async function rewordCommit(commit: CommitUnion, message: string, onFollo
 
 /**
  * "Reword…" of a commit row: its preview opens with the message in edit, as E does there; disabled while a sync runs (a
- * reword is a rewrite) and while the reword of its branch runs (`operationItem`, a second start joins it); while
- * another rewrite runs it stays enabled, and the save waits for that rewrite in the queue
+ * reword is a rewrite); while another rewrite runs, a reword of the branch included, it stays enabled, and the save
+ * waits for that rewrite in the queue (a save of the same commit with the same message joins it)
  */
 export function getRewordMenuItem(commit: CommitUnion, reword: (commit: CommitUnion) => void): MenuItem {
   const syncing = branchSyncStore.getState().isSyncing

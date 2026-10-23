@@ -53,7 +53,8 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
   const repositoryPath = getSelectedRepositoryPath()
   await withRowProcessing(
     branch.name,
-    { id: "amend-changes", kind: "rewrite", label: `Amending changes to ${branch.name}`, repositoryPath },
+    // an amend of other files is an amend of its own: it waits for this one, never joins it
+    { id: "amend-changes", kind: "rewrite", parameters: JSON.stringify(files), label: `Amending changes to ${branch.name}`, repositoryPath },
     async () => {
       const result = await commands.amendUncommittedToBranch({
         repositoryPath,

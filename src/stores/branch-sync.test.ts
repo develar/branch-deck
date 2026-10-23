@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { GroupedBranchInfo, RemoteStatusUpdate, StackBranchUpdate, SyncEvent } from "@/lib/bindings"
+import type { Commit, GroupedBranchInfo, RemoteStatusUpdate, StackBranchUpdate, SyncEvent } from "@/lib/bindings"
 import {
   branchSyncStore,
   getBranch,
@@ -10,6 +10,7 @@ import {
   isStackPushing,
   requestSync,
   resetBranchSync,
+  resolveCommits,
   selectSyncFraction,
   setBranchPushing,
   setBranchPushProgress,
@@ -731,5 +732,33 @@ describe("branch table rows", () => {
   it("shows a single branch of an issue without a branch of its own with a chip", async () => {
     const rows = await rowsOf(grouped(["lexer", "Prefix", "ABC-1"], ["XYZ-2", "Issue", "XYZ-2"]))
     expect(rows).toEqual(["c:lexer", "b:XYZ-2"])
+  })
+})
+
+describe("the commits a rewrite that waited in the queue acts on", () => {
+  afterEach(() => {
+    branchSyncStore.setState(branchSyncStore.getInitialState(), true)
+  })
+
+  function commitOf(originalHash: string, strippedSubject: string, authorTime: number, committerTime: number): Commit {
+    return { originalHash, strippedSubject, message: strippedSubject, author: "Ann", authorTime, committerTime }
+  }
+
+  function showCommits(commits: Commit[]): void {
+    branchSyncStore.setState({ branches: { auth: testBranch("auth", null, { commits }) }, branchOrder: ["auth"] })
+  }
+
+  it("finds a commit whose subject a message rewrite changed by the committer it kept, and one an amend replayed by its subject", () => {
+    const tip = commitOf("a1", "Add login", 100, 200)
+    const base = commitOf("b1", "Add form", 90, 190)
+    // Add Issue Reference gave the tip another id and subject and kept its committer; an amend of the base before it
+    // replayed it with a new committer time and the same subject
+    showCommits([commitOf("a2", "GH-1 Add login", 100, 200), commitOf("b2", "Add form", 90, 300)])
+    expect(resolveCommits([tip, base])?.map(commit => commit.originalHash)).toEqual(["a2", "b2"])
+  })
+
+  it("finds no commit by a key two commits share", () => {
+    showCommits([commitOf("a2", "GH-1 Add login", 100, 200), commitOf("c2", "GH-1 Add logout", 100, 200)])
+    expect(resolveCommits([commitOf("a1", "Add login", 100, 200)])).toBeNull()
   })
 })

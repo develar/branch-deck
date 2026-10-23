@@ -45,6 +45,33 @@ describe("runOperation", () => {
     expect(getOperations()).toEqual([])
   })
 
+  it("joins only a start with the same parameters: a move of other commits of the same branch is a move of its own, queued behind the running and the waiting one", async () => {
+    const running = deferred<null>()
+    void runOperation(rewriteOf("auth"), () => running.promise)
+    const moveOf = (parameters: string) => ({ ...rewriteOf("docs", "move-to"), parameters })
+    const moved: string[] = []
+    const move = (commit: string) => () => {
+      moved.push(commit)
+      return Promise.resolve(commit)
+    }
+    const first = runOperation(moveOf("A"), move("A"))
+    // the drop of A again joins the move of A that waits; the drop of B waits behind it
+    const repeat = runOperation(moveOf("A"), move("A"))
+    const second = runOperation(moveOf("B"), move("B"))
+    expect(getOperations().map(operation => [operation.parameters, operation.waitsFor])).toEqual([
+      [undefined, null],
+      ["A", "Unstacking auth"],
+      ["B", "Unstacking auth"],
+    ])
+
+    running.resolve(null)
+    await expect(first).resolves.toBe("A")
+    await expect(repeat).resolves.toBe("A")
+    await expect(second).resolves.toBe("B")
+    expect(moved).toEqual(["A", "B"])
+    expect(getOperations()).toEqual([])
+  })
+
   it("queues a rewrite behind any rewrite of the repository, never behind a remote action, and runs it once that one ended", async () => {
     const running = deferred<null>()
     const first = runOperation(rewriteOf("auth"), () => running.promise)

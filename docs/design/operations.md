@@ -25,8 +25,8 @@ held it.
 One registry of the operations that run (`src/stores/operations.ts`), and one way to start an action:
 `runOperation(spec, run)`. While an operation runs, every surface of the app reads the same record:
 
-- **join**: a second start of the same action of the same object (a double click, the same item in another surface)
-  runs nothing and resolves with the first;
+- **join**: a second start of the same action of the same object with the same parameters (a double click, the same
+  item in another surface) runs nothing and resolves with the first;
 - **queue**: a rewrite that conflicts with a running one waits for it and runs after it, in the order of the starts;
   its menu item stays enabled, and its rows and its surface say what it waits for ("Waits for Unstacking
   tool-events"). A remote action that conflicts with a running one doesn't start; its menu item is disabled with the
@@ -61,7 +61,12 @@ that is the move of a row, its `move` ([Moves](#moves)).
 
 `getOperationBlocker(running, key)` is the one rule; `runOperation` and every builder read it.
 
-1. **The same action of the same subject** joins: the promise of the running one, also of one that waits.
+1. **The same action of the same subject with the same parameters** joins: the promise of the running one, also of one
+   that waits. An action whose starts differ by what they act on names it (`parameters`: the commits and the target of a
+   move, the commit and the message of a reword, the commits and the message of a squash, the files of an amend, the
+   key of an added issue reference): a drag of another commit of the branch onto the same target is a move of its own,
+   which waits in the queue, never one that resolves with the first and moves nothing. A menu item names none, so it
+   shows running only an action without parameters; its start of another move queues.
 2. **A rewrite waits for any rewrite of the repository, in the queue.** Every rewrite moves HEAD or a ref of Branch
    Deck under one repository lock; the backend would run them one after the other, the second on what the first left,
    as the triple Unstack did. `runOperation` records the second one at once (`waitsFor`: the busy state of the one it
@@ -69,8 +74,10 @@ that is the move of a row, its `move` ([Moves](#moves)).
    rewrite started before it ended, however it ended, the sync after it included; it is never refused. What it acts on
    it reads when it runs, in the repository of its click (`repositoryPath`), whichever the main window shows by then: a
    move, a squash, a reword, an amend and an added issue reference take the commits as the rewrite before it left them
-   (`resolveCommitsOf`: by id, else by the author, the author time and the subject without the prefix, which a message
-   rewrite keeps), while the table shows that repository; after a switch they pass the ids of the click, which the
+   (`resolveCommitsOf`: by id, else by the author, the author time and the subject without the prefix, which a content
+   rewrite such as an amend keeps, else by the author and the author and committer times, which a message rewrite (a
+   move, a reword, an added issue reference) keeps byte for byte with the subject it changed; a key two commits share
+   finds none), while the table shows that repository; after a switch they pass the ids of the click, which the
    backend refuses with the exact error when a rewrite before them changed them (stages s7 and s11 of
    [Rust Domain Authority](rust-domain-authority.md) re-resolve the intent in Rust). A branch goes by its name. A
    rewrite that ends while the window shows another repository syncs nothing: that one syncs when it opens. A push waits for the rewrites of its repository too, the queued ones and

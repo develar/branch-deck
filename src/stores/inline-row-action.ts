@@ -40,6 +40,8 @@ export interface RowOperation {
    * the selected one by default
    */
   repositoryPath?: string
+  /** What the start acts with, where two starts of the form differ (`OperationKey.parameters`): the files of an amend */
+  parameters?: string
 }
 
 export interface RowProcessingOptions<T> {

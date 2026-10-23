@@ -29,6 +29,12 @@ export interface OperationKey {
    * review request of one pull request run side by side
    */
   readonly resources?: readonly string[]
+  /**
+   * What the start acts with, where two starts of one action of one subject do different things: the commits and the
+   * target of a move, the commit and the message of a reword, the commits and the message of a squash. A second start
+   * joins only the same parameters; one with others is another operation, which waits for it in the queue
+   */
+  readonly parameters?: string
 }
 
 export interface OperationSpec extends OperationKey {
@@ -80,10 +86,10 @@ function repositoryOf(key: OperationKey): string {
   return key.repositoryPath ?? getSelectedProject()?.path ?? ""
 }
 
-/** The running operation that `key` joins: the same action of the same object */
+/** The running operation that `key` joins: the same action of the same object with the same parameters */
 export function findSame(running: Operations, key: OperationKey): Operation | undefined {
   const repositoryPath = repositoryOf(key)
-  return running.find(it => it.id === key.id && it.subject === key.subject && it.repositoryPath === repositoryPath)
+  return running.find(it => it.id === key.id && it.subject === key.subject && it.parameters === key.parameters && it.repositoryPath === repositoryPath)
 }
 
 /**
@@ -170,12 +176,13 @@ export function operationItem(running: Operations, item: MenuItem, key: Operatio
 
 /**
  * Runs `run` as the operation `spec`, from its start until its promise settles, which for a rewrite includes the sync
- * that shows its result. A second start of the same action (a double click, the same item in another surface) joins the
- * running one and resolves with it. A rewrite that must wait for another one (`getOperationBlocker`) is never refused:
- * it waits in the queue, in the order of the starts, its rows busy and its surface saying what it waits for ("Waits
- * for Unstacking oauth"), and runs once the rewrites before it ended, however they ended. A remote action that must
- * wait (a cancel of the robot a restart replaces) runs nothing, tells `onBlocked` why and resolves to `undefined`: it
- * would act on the robot or the pull request as it was before the one it waits for.
+ * that shows its result. A second start of the same action with the same parameters (a double click, the same item in
+ * another surface) joins the running one and resolves with it; a start with other parameters (`OperationKey.parameters`:
+ * other commits of a move) is an operation of its own. A rewrite that must wait for another one (`getOperationBlocker`)
+ * is never refused: it waits in the queue, in the order of the starts, its rows busy and its surface saying what it
+ * waits for ("Waits for Unstacking oauth"), and runs once the rewrites before it ended, however they ended. A remote
+ * action that must wait (a cancel of the robot a restart replaces) runs nothing, tells `onBlocked` why and resolves to
+ * `undefined`: it would act on the robot or the pull request as it was before the one it waits for.
  */
 export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBlocked: (reason: string) => void = () => {}): Promise<T | undefined> {
   const { running } = operationsStore.getState()
@@ -200,6 +207,7 @@ export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBl
     surface: spec.surface ?? null,
     waitsFor: blocker?.label ?? null,
     ...(spec.resources === undefined ? null : { resources: spec.resources }),
+    ...(spec.parameters === undefined ? null : { parameters: spec.parameters }),
     ...(spec.move === undefined ? null : { move: spec.move }),
   }
   operationsStore.setState(state => ({ running: [...state.running, operation] }))

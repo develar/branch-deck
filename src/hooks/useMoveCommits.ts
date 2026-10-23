@@ -41,6 +41,8 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
       repositoryPath,
       id: options.id ?? "move-to",
       subject: branchSubject(sources[0] ?? targetBranch ?? ""),
+      // a move of other commits or to another target is a move of its own: it waits for this one, never joins it
+      parameters: JSON.stringify([commits.map(commit => commit.originalHash), targetBranch]),
       objects,
       label: options.label ?? (targetBranch === null ? `Moving ${commitCount} back` : `Moving ${commitCount} to ${targetBranch}`),
       surface: options.surface,

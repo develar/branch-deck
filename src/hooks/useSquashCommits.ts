@@ -20,6 +20,8 @@ export async function squashCommits(commits: readonly Commit[], message: string,
     {
       id: "squash",
       subject: branchSubject(branchName ?? ""),
+      // a squash of other commits of the branch, or with another message, is a squash of its own
+      parameters: JSON.stringify([commits.map(commit => commit.originalHash), message]),
       objects: branchName === null ? [] : [branchName],
       label: `Squashing ${formatCommitCount(commits.length)}`,
       surface,

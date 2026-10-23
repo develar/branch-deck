@@ -4,6 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, isBranchProcessing } from "../helpers/branch-helpers"
 import { inlineIssueReference, submitInlineForm } from "../helpers/inline-form-helpers"
+import { editCommitMessage } from "../helpers/preview-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
@@ -209,6 +210,33 @@ test.describe("Amend Changes Feature", () => {
       await expect(toastOf(page, "Added GH-2 to feature-auth")).toBeVisible()
       await expect(toastOf(page, "Cannot add GH-2 to feature-auth")).toHaveCount(0)
       await expect(toastOf(page, "Cannot amend feature-api")).toHaveCount(0)
+    })
+
+    test("should reword a commit as the issue reference before it in the queue left it: another id, another subject", async ({ page }) => {
+      const references = await holdCommandCalls(page, "add_issue_reference_to_commits")
+      const rewords = await recordCommand(page, "reword")
+      await addIssueReference(page, "feature-api", "GH-1")
+      await expect.poll(() => references.calls.length).toBe(1)
+      // the commit as the click saw it: the issue reference rewords it, a new id and the key in its subject
+      const oldId = (references.calls[0]!.commits as { hash: string }[])[0]!.hash
+
+      // the reword of the same commit, from its preview while its branch is busy: it waits in the queue
+      await expandBranch(page, findBranchRow(page, "feature-api"))
+      // the form of the issue reference shows its progress between the branch row and its commits
+      const editor = await editCommitMessage(page, page.locator("[data-row-id]:not([data-testid=branch-row])").filter({ hasText: "Add API endpoints" }))
+      await editor.fill("(feature-api) Add the API endpoints")
+      await page.keyboard.press("ControlOrMeta+Enter")
+      expect(rewords).toEqual([])
+
+      references.release()
+      await expect(toastOf(page, "Added GH-1 to feature-api")).toBeVisible()
+      // the reword went to the commit the issue reference wrote: the old id would fail with "Cannot edit the commit
+      // message"
+      await expect.poll(() => rewords.length).toBe(1)
+      const target = (rewords[0]!.rewords as { commit: string }[])[0]!.commit
+      expect(target).not.toBe(oldId)
+      await expect(toastOf(page, `Reworded ${target.slice(0, 8)}`)).toBeVisible()
+      await expect(toastOf(page, "Cannot edit the commit message")).toHaveCount(0)
     })
   })
 })

@@ -14,6 +14,15 @@ export async function openCommitPreview(page: Page, row: Locator): Promise<Locat
   return preview
 }
 
+/** Opens the preview of the commit row with Space and starts editing its message with E; returns the focused editor */
+export async function editCommitMessage(page: Page, row: Locator): Promise<Locator> {
+  const preview = await openCommitPreview(page, row)
+  await page.keyboard.press("e")
+  const editor = preview.getByTestId("commit-message-editor")
+  await expect(editor).toBeFocused()
+  return editor
+}
+
 /** Opens the Files section of the commit preview, closed at first, by its header; returns the tree of the files */
 export async function openCommitFilesSection(preview: Locator): Promise<Locator> {
   const header = preview.getByTestId("commit-files-header")

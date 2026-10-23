@@ -22,7 +22,8 @@ export async function addIssueReference(issueReference: string, branch: Branch):
   const repositoryPath = getSelectedRepositoryPath()
   await withRowProcessing(
     branch.name,
-    { id: "add-issue-reference", kind: "rewrite", label: `Adding ${issueReference} to ${branch.name}`, repositoryPath },
+    // another reference is a start of its own: it waits for this one, never joins it
+    { id: "add-issue-reference", kind: "rewrite", parameters: issueReference, label: `Adding ${issueReference} to ${branch.name}`, repositoryPath },
     async () => {
       const result = await commands.addIssueReferenceToCommits({
         repositoryPath,

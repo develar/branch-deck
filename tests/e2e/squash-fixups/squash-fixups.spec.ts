@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { editCommitMessage } from "../helpers/preview-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
 
@@ -95,13 +96,7 @@ test.describe("Squash fixups", () => {
     const rows = getBranchCommitRow(page, "auth", "Add login form")
     const target = rows.filter({ hasNot: page.getByTestId("fixup-marker") })
     const fixupId = await fixupRow(rows, page).getAttribute("data-row-id")
-    await target.hover()
-    await page.keyboard.press("Space")
-    const preview = page.getByTestId("commit-preview")
-    await expect(preview.getByTestId("commit-preview-body")).toBeFocused()
-    await page.keyboard.press("e")
-    const editor = preview.getByTestId("commit-message-editor")
-    await expect(editor).toBeFocused()
+    const editor = await editCommitMessage(page, target)
 
     // `fixup! (auth) Add login form` would fold into nothing
     const draft = "(auth) Add the login form"
