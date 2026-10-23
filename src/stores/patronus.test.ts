@@ -990,6 +990,24 @@ describe("failing robots", () => {
     expect(patronus.failingCalls).toEqual([["r1"]])
   })
 
+  it("asks after an answer only: sync ends and focus events the list gate refuses ask nothing, each poll still asks", async () => {
+    patronus.list = available(robot())
+    setBranches("auth")
+    await refreshPatronus("sync")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(patronus.failingCalls).toEqual([["r1"]])
+    for (let i = 0; i < 10; i++) {
+      await refreshPatronus(i % 2 === 0 ? "sync" : "focus")
+      await vi.advanceTimersByTimeAsync(1000)
+    }
+    expect(patronus.lists).toHaveLength(1)
+    expect(patronus.failingCalls).toEqual([["r1"]])
+
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(patronus.polls).toHaveLength(1)
+    expect(patronus.failingCalls).toEqual([["r1"], ["r1"]])
+  })
+
   it("tells once that a running robot will fail, with Cancel Safe Push and the failed checks", async () => {
     const stop = watchFailingRobots()
     patronus.list = available(robot())

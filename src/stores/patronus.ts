@@ -101,7 +101,7 @@ export interface RepositoryPatronus {
   readonly watched: Readonly<Record<string, string>>
   /**
    * By robot id, the running robots a failed required check dooms: Patronus warns that they will fail, although they run
-   * on (for an hour, maybe). Asked after each list and poll (`loadFailingRobots`) until known; a robot stays failing
+   * on (for an hour, maybe). Asked after each answer of a list or a poll (`loadRobotFacts`) until known; a robot stays failing
    * until it finishes.
    */
   readonly failing: Readonly<Record<string, true>>
@@ -1117,20 +1117,28 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
       const answered = await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: current !== "manual", newApi }), full, true)
       if (answered) {
         update(key, () => ({ listedFrom: startedAt }))
+        loadRobotFacts(key)
       }
     } finally {
       update(key, () => ({ isRefreshing: false }))
     }
   })
-  return listed.then(() => {
-    schedulePoll(false)
-    void loadReviewProblems(key)
-    void loadFailingRobots(key)
-  })
+  return listed.then(() => schedulePoll(false))
+}
+
+/**
+ * The facts of the robots an answer of Patronus (a list or a poll) brought: the problems of the failed ones, whether the
+ * running ones will fail. Only after an answer: a sync end or a focus the list gate refused brings no new robot and asks
+ * nothing (each `/problems` is a request per robot)
+ */
+function loadRobotFacts(key: string): void {
+  void loadReviewProblems(key)
+  void loadFailingRobots(key)
 }
 
 const problemsInFlight = new Set<string>()
-let failingInFlight = false
+/** The keys whose `loadFailingRobots` runs: one at a time per repository, another repository's runs beside it */
+const failingInFlight = new Set<string>()
 
 /**
  * Asks whether the running robots of the branches (and the watched ones) will fail, the ones not known failing yet, in
@@ -1142,10 +1150,10 @@ async function loadFailingRobots(key: string): Promise<void> {
   const robotIds = activeBranchRobots(key)
     .filter(robot => robot.status === "running" && failing[robot.id] !== true)
     .map(robot => robot.id)
-  if (robotIds.length === 0 || failingInFlight) {
+  if (robotIds.length === 0 || failingInFlight.has(key)) {
     return
   }
-  failingInFlight = true
+  failingInFlight.add(key)
   try {
     const [repositoryPath] = key.split("\n") as [string, string]
     const result = await commands.getPatronusFailingRobots({ repositoryPath, robotIds })
@@ -1155,7 +1163,7 @@ async function loadFailingRobots(key: string): Promise<void> {
   } catch {
     // an extra: the robot shows as running
   } finally {
-    failingInFlight = false
+    failingInFlight.delete(key)
   }
 }
 
@@ -1266,11 +1274,11 @@ export function pollPatronus(): Promise<void> {
   const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
   return pollGates.refresh(key, "poll", 0, async () => {
     try {
-      await applyAnswer(key, commands.pollPatronusRobots({ repositoryPath, branchPrefix, robots: known }), false, false)
+      if (await applyAnswer(key, commands.pollPatronusRobots({ repositoryPath, branchPrefix, robots: known }), false, false)) {
+        loadRobotFacts(key)
+      }
     } finally {
       schedulePoll(true)
-      void loadReviewProblems(key)
-      void loadFailingRobots(key)
     }
   })
 }
@@ -1553,7 +1561,7 @@ export function setPatronusWindowFocus(focused: boolean): void {
 /** Forgets the gates, the timer and the data (tests) */
 export function resetPatronus(): void {
   problemsInFlight.clear()
-  failingInFlight = false
+  failingInFlight.clear()
   listGates.reset()
   pollGates.reset()
   clearTimeout(pollTimer)

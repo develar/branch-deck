@@ -204,8 +204,11 @@ reports in it and closes it once merged.
   not known failing yet are asked whether they will fail ([Failing](#failing)): `GET /robots/{id}/problems` of each, in
   parallel, in one command (`get_patronus_failing_robots`), through the request policy below. A robot known failing is
   not asked again: it stays failing until it finishes. So a poll costs at most one small request more per running
-  robot, and none once each is known.
+  robot, and none once each is known. Only an answer asks: a sync end or a focus whose list the policy holds back, and a
+  list or a poll Patronus didn't answer, ask nothing; the problems of the failed robots of the branches are read after an
+  answer too. One such question runs per repository at a time.
   [@test] ../../src/stores/patronus.test.ts (`asks whether the running robots will fail after a list and each poll, until known, never for a canceling one`)
+  [@test] ../../src/stores/patronus.test.ts (`asks after an answer only: sync ends and focus events the list gate refuses ask nothing, each poll still asks`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_running_robot_whose_required_check_failed_is_failing`)
 - A token Patronus rejects (401) is not sent again by a background request until the token file changes (the CLI
   renewed it): Patronus checks every unknown token against Space. The refresh button still asks.
