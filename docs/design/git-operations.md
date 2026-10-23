@@ -39,7 +39,17 @@ flowchart TD
     APP[src-tauri: a Tauri command, run_blocking of a core] --> CORE
     BD[bd-cli: arguments, JSON output, error codes] --> CORE
     E2E[test-server: the commands of the E2E mock] --> CORE
-    CORE[sync-core: one core per operation, the expected HEAD, the order of the steps; the sync] --> OPS
+    APP & BD & E2E --> UC & TC & RM & RF
+    APP & BD --> LP
+    UC[update-core: Update Project, bd pick, the resolve sessions] --> TC
+    UC --> CORE
+    TC[trial-check: the trial checks, the landing gate, bd move-hunk; the diffs and the symbols of the commits] --> CORE
+    TC --> FD[file-diffs, code-symbols: the typed diffs, the tree-sitter summaries]
+    LP[lease-pool: bd lease, bd workspace, the clean rules] --> CORE
+    RM[repository-model: the branch table Rust derives, the guards of the push and robot actions] --> CORE
+    RM -.->|until s7| TC
+    RM -.->|until s9| NET
+    CORE[sync-core: one core per operation, the expected HEAD, the order of the steps; the sync, the pushes, the baseline] --> OPS
     APP --> HR
     BD --> HR
     CORE --> HR[history-rewrite: the rewrites that need no sync, the grouping, the stores, the repository lock] --> OPS
@@ -49,9 +59,6 @@ flowchart TD
     OPS --> EX[git-executor: GitCommandExecutor, the one place a git process starts]
     OPS --> OC[(object-cache: LMDB keyed by object ids)]
     CORE --> OC
-    APP --> RF
-    BD --> RF
-    E2E --> RF
     RF[remote-facts: what GitHub and Patronus answer, and the writes to them] --> CORE
     RF --> NET[github, patronus, youtrack: HTTP only]
 ```
@@ -60,15 +67,21 @@ Each layer calls only the layers below it. The adapters (the app, `bd`, the E2E 
 (`<operation>_core(params, options)`) and present its result; the app and `bd` run no git of their own and call git-ops
 directly only for reads that need no lock or guard, such as the patches of the diff view. A core is where an operation
 is made safe against the app and the parallel `bd` processes, once for every caller (the cores of the rewrites that
-need no sync, GitHub or Patronus are the crate history-rewrite, the others sync-core, which talks to no remote service
-but through git; the readers and the writers of GitHub and Patronus are the crate remote-facts, over HTTP and above
-sync-core): it takes the repository lock,
+need no sync, GitHub or Patronus are the crate history-rewrite; Update Project, `bd pick` and the resolve sessions
+update-core; the trial checks, `bd move-hunk` and every reader of the diffs and the symbols trial-check; the lease pool
+lease-pool; the readers and the writers of GitHub and Patronus remote-facts, over HTTP; the rest sync-core, which
+reads no diff and no symbol and talks to no remote service but through git, so a change above it rebuilds no sync;
+what the branch table shows and the guards of the app's actions on the remote are repository-model, on what the others
+read): it takes the repository lock,
 checks the HEAD the request was made for and orders the git steps. git-ops knows git and no policy: which arguments,
 which process, how to read its output, each module one operation or one primitive that operations share; a rewrite there
 runs the guards on the history it read and moves the branch with CAS. The `//!` headers of `crates/git-ops/src/lib.rs`,
 `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`, `crates/update-core/src/lib.rs`,
-`crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs` and `crates/remote-facts/src/lib.rs` map their
-modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
+`crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs`, `crates/remote-facts/src/lib.rs` and
+`crates/repository-model/src/lib.rs` map their modules by area; `crates/bd-cli/src/architecture_test.rs` fences the
+edges on `cargo metadata` (sync-core, update-core and trial-check reach no HTTP crate, sync-core and lease-pool no
+`file-diffs` or `code-symbols`, lease-pool and remote-facts no trial check and no update, repository-model none of
+the crates beside it; the two dashed edges stand in its `ALLOWED`, each with the stage that removes it); "Adding a git operation" in `AGENTS.md` is the checklist
 of a new one, and [Adding a Git Operation](../guidelines/adding-git-operation.md) says where it goes and which helpers
 it reuses.
 
@@ -274,8 +287,9 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
   last clone is dropped (`git processes`, e.g. `merge-tree 2×40ms, log 5×31ms`). The sync and every `bd` command count
   theirs; `bd -v` prints the summary. Tests assert on `process_stats().by_command()`; the budget of every operation is
   pinned, process by process, in `crates/sync-core/src/process_budget_test.rs`,
-  `crates/update-core/src/process_budget_test.rs`, `crates/trial-check/src/process_budget_test.rs` and
-  `crates/remote-facts/src/process_budget_test.rs` (the cores) and
+  `crates/update-core/src/process_budget_test.rs`, `crates/trial-check/src/process_budget_test.rs`,
+  `crates/remote-facts/src/process_budget_test.rs` and `crates/branch-integration/src/process_budget_test.rs` (the
+  cores) and
   `crates/bd-cli/src/process_budget_test.rs` (what a `bd` command adds), so a change that saves a process lowers a
   number there.
 

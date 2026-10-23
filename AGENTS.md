@@ -380,19 +380,21 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 ### Adding a git operation
 Read [Adding a Git Operation](docs/guidelines/adding-git-operation.md) (the layers in detail, the helper table) before
 you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/update-core/`,
-`crates/trial-check/`, `crates/lease-pool/`, `crates/remote-facts/`, `crates/bd-*/` or `src-tauri/src/commands/`.
+`crates/trial-check/`, `crates/lease-pool/`, `crates/remote-facts/`, `crates/repository-model/`, `crates/bd-*/` or
+`src-tauri/src/commands/`.
 The checklist:
 - One name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`); the `//!` headers of
   `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
-  `crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs` and
-  `crates/remote-facts/src/lib.rs` map the modules by area.
+  `crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs`,
+  `crates/remote-facts/src/lib.rs` and `crates/repository-model/src/lib.rs` map the modules by area.
 - **git-ops** has the git: one process per phase, `-z` output, full ids, `--end-of-options` before a revision from
   outside, `--literal-pathspecs` for paths after `--`; no lock and no policy.
 - **The core** `<op>_core` in `crates/history-rewrite/` (a rewrite that needs no sync, GitHub or Patronus),
   `crates/update-core/` (Update Project, `bd pick`, the resolve sessions), `crates/trial-check/` (the trial checks,
   `bd move-hunk`, whatever reads the diffs or the symbols of the commits), `crates/lease-pool/` (`bd lease`,
-  `bd workspace`), `crates/remote-facts/` (what GitHub and Patronus answer over HTTP, and the writes to them) or
-  `crates/sync-core/` (the rest, with no remote service but git's) is the one
+  `bd workspace`), `crates/remote-facts/` (what GitHub and Patronus answer over HTTP, and the writes to them),
+  `crates/repository-model/` (the branch table Rust derives, the guards of the app's push and robot actions) or
+  `crates/sync-core/` (the sync, the pushes and the rest, with no remote service but git's) is the one
   entry of every caller: a rewrite of the checked-out branch
   takes `&RewriteOptions` and the lock before it reads anything, then checks the expected HEAD.
 - **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
@@ -400,7 +402,7 @@ The checklist:
   and the E2E server routes it to the same core.
 - **Reuse a helper** before writing a parser or a process: `ref_transaction`, `commit_writer`, `commit_chain`,
   `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `snapshot`, `repository_lock`
-  and `regroup` in `history_rewrite`; `repo_facts` and `remote_command` in `sync_core`.
+  and `regroup` in `history_rewrite`; `repo_facts`, `baseline` and `remote_command` in `sync_core`.
 - **Same commit**: the spec, the flow's section in [Git Operations](docs/design/git-operations.md), and a test in
   `process_budget_test.rs` that pins its processes by subcommand; the scan tests stay green.
 
@@ -597,7 +599,7 @@ crates/
 ├── git-executor/    # GitCommandExecutor: the one place git starts; the scan tests
 ├── git-ops/         # Git operations library
 ├── history-rewrite/ # The rewrites of the checked out branch (regroup, reword, squash, fold), the grouping, the stores, the repository lock
-├── sync-core/       # Branch sync and the cores of the other operations
+├── sync-core/       # Branch sync, the pushes, the baseline and the cores of the other operations; no HTTP crate, no `file-diffs`, no `code-symbols`
 ├── trial-check/     # The trial checks (`bd check`, the conflict fix, the landing gate), `bd move-hunk`, the diff scan and the symbol summaries of the commits
 ├── update-core/     # Update Project, `bd pick` and the resolve sessions of a conflicting `bd update`, and their undo
 ├── lease-pool/      # The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`)

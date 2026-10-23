@@ -1107,6 +1107,34 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `s7-session-facts` и `→ patronus` (`PatronusService` в `RemoteActions`) до `s9-engine-remote`; `github` и `youtrack`
     он не достигает. Ссылки спецификаций, документов и реестра расхождений (`discrepancies.json`) идут на
     `crates/repository-model/`; имя view в API (`get_repository_view`, `domain_types::repository_view`) осталось.
+  - `bd-clustering` переименован в `commit-clustering` в `s3-7`; сводки проверки (`CheckWarning`, `CheckConflict`,
+    `dangling_references_in`, `session_of_sync`, `FixProver`) — в `bd-core/src/check_summary.rs`, `bd-remote` больше
+    не зависит от `bd-rewrite` (цена: правка `trial-check` пересобирает и `bd-core`). `integration-detection-tests`
+    растворён в `s3-8`: восемь тестов sync — `sync-core/src/detection_*_test.rs`, `archive_cleanup`,
+    `detection_notes` и бюджет процессов — `branch-integration/src/*_test.rs`; 78 тестов до и после, имена те же.
+  - Сделано: crates этапа (строк `wc -l` кода без `*_test.rs` / тестов): `sync-core` 11625 / 14508 (было 27702 / 23169
+    на `4004222e`), `trial-check` 8874 / 6858, `remote-facts` 3730 / 2982, `lease-pool` 2169 / 378,
+    `commit-clustering` 1874 / 867, `repository-model` 1813 / 1231, `update-core` 1727 / 1494. `architecture_test.rs`
+    держит `UNREACHABLE`: `sync-core` ↛ `github`, `patronus`, `youtrack`, `file-diffs`, `code-symbols`;
+    `update-core`, `trial-check` ↛ HTTP-crates; `lease-pool` ↛ HTTP-crates, `trial-check`, `update-core`, `file-diffs`,
+    `code-symbols`; `remote-facts` ↛ `trial-check`, `update-core`, `lease-pool`, `file-diffs`, `code-symbols`;
+    `repository-model` ↛ `trial-check`, `remote-facts`, `update-core`, `lease-pool`, HTTP-crates; в `ALLOWED` остались
+    только `repository-model → trial-check` (s7) и `repository-model → patronus` (s9), слой `bd` — по префиксу
+    `bd-`. `cargo tree -p sync-core -e normal` прямых зависимостей: `branch-integration`, `domain-types`,
+    `git-executor`, `git-ops`, `history-rewrite`, `object-cache`, `sync-utils` и внешние без HTTP; `grep -E
+    'github|patronus|youtrack|reqwest|file-diffs|code-symbols|tree-sitter'` по дереву пуст. `pnpm perf:bd-rebuild
+    compare` (3 прогона, медианы стены own / cli / bin, секунды, до → после; владелец правки после — новый crate):
+    `remote` 4.5 / 6.6 / 5.9 → 2.0 / 3.5 / 1.9, `check` 4.4 / 8.9 / 14.3 → 3.6 / 3.9 / 2.5, `update` 32.3 / 8.8 /
+    4.9 → 1.7 / 2.9 / 1.5, `lease_pool` 3.7 / 4.6 / 3.0 → 1.1 / 2.8 / 1.3; `sync` 1.1 / 3.3 / 2.0 → 1.1 / 3.4 / 1.6 и
+    `safe_push` 4.0 / 2.8 / 2.0 → 3.2 / 3.0 / 1.3 не изменились (CPU-медианы: `remote` bin 14.7 → 6.3, `update` bin
+    11.2 → 3.5, `lease_pool` bin 9.4 → 3.3, `check` bin 13.4 → 9.0). По `--timings` первого прогона правка
+    `list_pull_requests` пересобирает `remote-facts`, `bd-remote`, `bd-cli` (было: `sync-core`, `repository-view` и все
+    `bd-*`), `update_project_core` — `update-core`, `bd-update`, `bd-cli`, `pool_dir` — `lease-pool`, `bd-lease`,
+    `bd-cli`; правка `check_plan` — `trial-check` и то, что от него зависит (`update-core`, `repository-model`, все
+    `bd-*`), но не `sync-core`. `bindings.ts` и `bd schema` отличаются от master только строками комментариев, которые
+    называют переехавшие модули (`trial_check::landing_gate`, `remote_facts::review_readiness`,
+    `crates/trial-check/src/check.rs`): типы и команды те же; `cargo nextest run --workspace` — 2372 теста, все
+    зелёные.
 - **Удаляется:** `crates/repository-view`, `crates/integration-detection-tests`, `crates/bd-clustering` (как имя);
   записи allowlist `sync-core → github/patronus/youtrack/file-diffs/code-symbols`, `bd-remote → bd-rewrite`,
   `src-tauri → bd-lease`.
@@ -1595,7 +1623,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s0c-scenarios | приземлён |
 | s1-holes | приземлён |
 | s2-types | приземлён |
-| s3-crates | не начат |
+| s3-crates | приземлён |
 | s4-errors | не начат |
 | s5-settings | не начат |
 | s6-session-table | не начат |
