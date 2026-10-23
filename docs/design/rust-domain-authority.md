@@ -645,7 +645,8 @@ repository». Аудит всех функций в тот же день наш�
    запись store-ref). Всё, что считается на замороженных oids — merge-tree, `replay`, resolve by words, trial session
    landing gate, поиск первого конфликта, landing report `bd pick`, отчёт landed, — идёт до lock или после него. Тест
    «lock span» каждого ядра утверждает подкоманды, которые стартуют между lock и unlock. **Исключение до s11:** ядра
-   rewrites и Update Project считают под lock, как сегодня, и sync внутри remote-intent'а `bd push`/`bd safe-push`
+   rewrites считают под lock, как сегодня (Update Project с `fix/locks-io` — только witness, локальные изменения и
+   move; поиск первого конфликта сессии `bd update` — под lock до s11), и sync внутри remote-intent'а `bd push`/`bd safe-push`
    (s9) идёт под lock со своим merge-tree; s11 снимает и то и другое. `bd sync` и sync после rewrite `bd` идут без
    lock с `fix/locks-io` (CAS как у приложения).
    До s11 lock span этих путей утверждает исключение как есть, и ни один этап до s11 не добавляет под lock новых
@@ -782,7 +783,10 @@ repository». Аудит всех функций в тот же день наш�
   (`a_dry_run_of_continue_answers_while_another_process_holds_the_lock`); landing `bd pick` — после move и unlock, с
   замороженного head (`the_landing_of_a_pick_is_read_after_the_lock`); `bd sync` и `--sync` rewrite `bd` (после
   unlock) — без lock (`a_rewrite_beside_a_running_sync_does_not_wait_for_it`,
-  `the_sync_of_a_rewrite_runs_after_the_lock`), раньше s11.
+  `the_sync_of_a_rewrite_runs_after_the_lock`), раньше s11; check Update Project (replay, resolve by words, landed
+  candidates) — до lock на замороженных HEAD и upstream, под lock — witness (сдвиг — один re-prepare под lock),
+  `blocking_paths` и move, landed report — после unlock (C11; `the_check_of_an_update_runs_before_the_lock`,
+  `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`).
 - **Очередь в TS до s11:** `runOperation` ставит rewrite в очередь вместо `onBlocked`; Undo помечается выполненным
   после `Ok`; слот Update Project — только apply (`fetch_baseline`, затем `update_project` без fetch); ⌘T во время
   Fetch присоединяется; push ждёт идущий rewrite. `operations.md` в том же коммите: «Conflicts», «Items» и

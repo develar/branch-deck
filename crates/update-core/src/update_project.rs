@@ -10,8 +10,10 @@ use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{Worktree, current_worktree, is_object_id};
 use git_ops::update_branch::{
-  CheckPurpose, UndoBlocked, UndoCheck, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_guards, check_update_undo, finish_pending_update,
+  CheckPurpose, LandedScope, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards,
+  check_update_undo, finish_pending_update, recheck_update,
 };
+use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository, lock_repository_with};
@@ -196,43 +198,40 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     (None, last_fetch_time(git_executor, repo_path))
   };
 
-  let _lock = lock_repository_with(git_executor, repo_path, options.lock_timeout, &|| on_progress(UpdatePhase::Waiting.into()))?;
+  let upstream_ref = UpstreamRef {
+    tracking_ref: &upstream.tracking_ref,
+    name: &upstream.name,
+    previous: previous.as_deref(),
+  };
+  // the check (the replay, the resolution by words, the landed candidates) on the HEAD and the upstream it reads once,
+  // before the lock: the lock is held only for the witness, the local changes and the move
   on_progress(UpdatePhase::Checking.into());
+  let mut prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::NotHeld)?;
+  let lock = lock_repository_with(git_executor, repo_path, options.lock_timeout, &|| on_progress(UpdatePhase::Waiting.into()))?;
   // an update or undo that a crash stopped before its files followed: they follow first
-  finish_pending_update(git_executor, repo_path)?;
-  let (grouping, resolve_mode) = read_check_inputs(git_executor, repo_path)?;
-  // a resolve session marks the same candidates as likely landed
-  let candidates: RefCell<Option<Vec<Vec<String>>>> = RefCell::new(None);
-  let mut plan = check_update(
-    git_executor,
-    repo_path,
-    UpstreamRef {
-      tracking_ref: &upstream.tracking_ref,
-      name: &upstream.name,
-      previous: previous.as_deref(),
-    },
-    CheckPurpose::Apply,
-    &|scope| {
-      let found = landed_candidates(git_executor, repo_path, scope, &grouping)?;
-      candidates.replace(Some(found.clone()));
-      Ok(found)
-    },
+  let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
+  if recovered || !recheck_update(git_executor, repo_path, &mut prepared.plan, &upstream.tracking_ref)? {
+    // HEAD or the upstream moved during the check: once more, under the lock now, so it can't move again
+    info!(recovered, "the update is checked again under the lock");
+    prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::Held)?;
+  }
+  let Prepared {
+    grouping,
     resolve_mode,
-  )?;
+    mut plan,
+    candidates,
+  } = prepared;
   plan.check.fetched_at = fetched_at;
 
   if let (UpdateState::Conflict { .. }, Resolve::Yes { dir, worktree }) = (&plan.check.state, resolve) {
     let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir, &worktree.git_dir)).transpose()?;
-    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, candidates.take(), dir, resolve_mode)?;
+    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, candidates, dir, resolve_mode)?;
     return Ok(BdUpdate::Session(Box::new(outcome)));
   }
-  let mut landed = Vec::new();
   let applied = match &plan.check.state {
     UpdateState::Clean { .. } => {
       on_progress(UpdatePhase::Updating.into());
-      let applied = apply_update(git_executor, repo_path, &plan)?;
-      landed = record_landed_update(git_executor, repo_path, &plan.check, plan.excluded(), &applied.new_head, &grouping, &[]);
-      Some(applied)
+      Some(apply_update(git_executor, repo_path, &plan)?)
     }
     UpdateState::UpToDate => None,
     UpdateState::Conflict { .. } | UpdateState::Blocked { .. } => {
@@ -240,11 +239,55 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       None
     }
   };
+  // the update is done: what it landed is a report, read without the lock
+  drop(lock);
+  let landed = applied
+    .as_ref()
+    .map_or_default(|applied| record_landed_update(git_executor, repo_path, &plan.check, plan.excluded(), &applied.new_head, &grouping, &[]));
   Ok(BdUpdate::Update(Box::new(UpdateProjectResult {
     check: plan.check,
     applied,
     landed,
   })))
+}
+
+/// Whether the caller of `prepare_update` holds the repository lock
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lock {
+  /// The check runs before it: `recheck_update` under the lock reads the local changes and that nothing moved
+  NotHeld,
+  /// Under it: the check is the exact one
+  Held,
+}
+
+/// The check of an update and what it read
+struct Prepared {
+  grouping: GroupingInputs,
+  resolve_mode: ResolveMode,
+  plan: UpdatePlan,
+  /// The landed candidates the check found; a resolve session marks them as likely landed
+  candidates: Option<Vec<Vec<String>>>,
+}
+
+/// The inputs of the check, then the check of `upstream` for an apply
+fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, lock: Lock) -> Result<Prepared> {
+  let (grouping, resolve_mode) = read_check_inputs(git_executor, repo_path)?;
+  let candidates: RefCell<Option<Vec<Vec<String>>>> = RefCell::new(None);
+  let found = |scope: LandedScope<'_>| {
+    let found = landed_candidates(git_executor, repo_path, scope, &grouping)?;
+    candidates.replace(Some(found.clone()));
+    Ok(found)
+  };
+  let plan = match lock {
+    Lock::NotHeld => check_update_before_lock(git_executor, repo_path, upstream, &found, resolve_mode)?,
+    Lock::Held => check_update(git_executor, repo_path, upstream, CheckPurpose::Apply, &found, resolve_mode)?,
+  };
+  Ok(Prepared {
+    grouping,
+    resolve_mode,
+    plan,
+    candidates: candidates.into_inner(),
+  })
 }
 
 /// What an applied update landed, added to the report; `not_landed` are local commits that are gone for another reason

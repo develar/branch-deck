@@ -54,9 +54,9 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ### Update
 
-- `bd update` must do what the app's Update Project does: fetch the baseline, then, under the repository lock, check
-  again and apply a clean update (`up_to_date`, `fast_forward`, `rebase`), the files following through the guarded
-  working-tree update. It must print the state, the previous and the new HEAD, the `replayed` and
+- `bd update` must do what the app's Update Project does: fetch the baseline, check the update, then, under the
+  repository lock, check that nothing moved and apply a clean update (`up_to_date`, `fast_forward`, `rebase`), the
+  files following through the guarded working-tree update. It must print the state, the previous and the new HEAD, the `replayed` and
   `dropped_already_upstream` counts, the landed commits (`landed`) and the undo token
   `update:<previous head>..<new head>` with full ids.
   [@test] ../../crates/bd-update/src/update_test.rs (`update_fast_forwards_and_the_undo_moves_the_files_back`, `update_rebases_the_local_commits_and_keeps_unrelated_local_changes`)

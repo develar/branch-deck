@@ -887,10 +887,10 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   let progress = RefCell::new(Vec::new());
   let error = update_project_with(clone.git_executor(), path(&clone), options, &|it| progress.borrow_mut().push(it.phase)).unwrap_err();
   assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
-  // the wait is a step of its own, told once; the check never started
+  // the check runs before the lock; the wait is a step of its own, told once
   let mut phases = progress.into_inner();
   phases.dedup();
-  assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Waiting]);
+  assert_eq!(phases, vec![UpdatePhase::Fetching, UpdatePhase::Checking, UpdatePhase::Waiting]);
   // the app says who holds it, without the lock file
   assert_eq!(format!("{:#}", app_error(error)), LOCKED_MESSAGE);
   // the fetch ran before the lock; nothing else changed

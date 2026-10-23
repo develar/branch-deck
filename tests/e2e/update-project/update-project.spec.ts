@@ -100,12 +100,19 @@ test.describe("Update Project", () => {
     // the Dock shows the update, the user may wait for it in another app
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toMatchObject({ progressBar: { status: "normal" } })
 
-    // another operation holds the repository: the wait is told, not hidden in the check
-    await update.send({ phase: "waiting", fetch: null })
-    await expect(progress).toHaveAttribute("data-step", "waiting")
-    await expect(steps).toHaveText(["Fetched origin/master · 5.79 MiB", "Waiting for Branch Deck or bd to finish…", "Check the update", "Update to origin/master", "Sync branches"])
+    // the check runs before the repository lock
     await update.send({ phase: "checking", fetch: null })
     await expect(steps.nth(1)).toHaveText("Checking the update onto origin/master…")
+    // another operation holds the repository: the wait for the move is told, not hidden in the check
+    await update.send({ phase: "waiting", fetch: null })
+    await expect(progress).toHaveAttribute("data-step", "waiting")
+    await expect(steps).toHaveText([
+      "Fetched origin/master · 5.79 MiB",
+      "Checked the update onto origin/master",
+      "Waiting for Branch Deck or bd to finish…",
+      "Update to origin/master",
+      "Sync branches",
+    ])
     // one word for the whole run: the button keeps its width from step to step
     await expect.poll(async () => (await button.boundingBox())!.width).toBe(width)
 

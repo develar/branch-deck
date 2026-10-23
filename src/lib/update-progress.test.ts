@@ -84,9 +84,9 @@ describe("the progress of an update", () => {
 
   it("learns what the steps took, without the wait for the lock and the sync, which learns from every sync", () => {
     const fetching = run()
-    const waiting = advanceRun(fetching, "waiting", 2000)
-    const checking = advanceRun(waiting, "check", 5000)
-    const syncing = advanceRun(advanceRun(checking, "apply", 6000), "sync", 6500)
+    const checking = advanceRun(fetching, "check", 2000)
+    const waiting = advanceRun(checking, "waiting", 3000)
+    const syncing = advanceRun(advanceRun(waiting, "apply", 6000), "sync", 6500)
     expect(learnTimings(undefined, finishRun(syncing, 9000))).toEqual({ fetch: [2000], check: [1000], apply: [500] })
   })
 })

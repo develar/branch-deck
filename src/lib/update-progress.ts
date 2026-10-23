@@ -1,7 +1,7 @@
 import type { TransferProgress } from "@/lib/bindings"
 
 /*
- * One progress for Update Project, from the click to its end: the fetch, the wait for the repository lock, the check,
+ * One progress for Update Project, from the click to its end: the fetch, the check, the wait for the repository lock,
  * the update of the files and the sync of an applied update. The share of a step is its usual time in the repository
  * (the median of its last runs); inside a step the progress is git's where git reports one (the fetch) or the sync's
  * (its commits), else the time: `1 − e^(−t/usual)`, 63 % at the usual time, never still. A step reaches its end only
@@ -10,7 +10,7 @@ import type { TransferProgress } from "@/lib/bindings"
  */
 
 /** A step of an update, in order; `waiting` only while another operation holds the repository */
-export type UpdateStep = "fetch" | "waiting" | "check" | "apply" | "sync"
+export type UpdateStep = "fetch" | "check" | "waiting" | "apply" | "sync"
 
 /** A step with a share of the bar: the wait for the lock has no usual time, the bar stands still meanwhile */
 export type TimedStep = Exclude<UpdateStep, "waiting">
@@ -87,8 +87,8 @@ export function startRun(kind: UpdateRun["kind"], plan: readonly TimedStep[], ti
 
 /** The steps of the plan after `step`: those still to run */
 export function stepsAfter(plan: readonly TimedStep[], step: UpdateStep): TimedStep[] {
-  // the wait for the lock sits between the fetch and the check
-  const position = step === "waiting" ? ORDER.indexOf("fetch") : ORDER.indexOf(step)
+  // the wait for the lock sits between the check, which runs before the lock, and the apply
+  const position = step === "waiting" ? ORDER.indexOf("check") : ORDER.indexOf(step)
   return plan.filter(it => ORDER.indexOf(it) > position)
 }
 

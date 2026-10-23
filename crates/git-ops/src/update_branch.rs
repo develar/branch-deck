@@ -94,6 +94,10 @@ pub struct UpdatePlan {
   replayed_head: Option<String>,
   /// The update changes HEAD's tree, so the index and the working tree must follow
   files_change: bool,
+  /// The paths a clean update changes, whose local changes `recheck_update` reads under the lock
+  changed: Vec<ChangedPath>,
+  /// The check left the local changes to `recheck_update` (`check_update_before_lock`); `apply_update` refuses it
+  blocks_unchecked: bool,
   /// The revisions excluded from the replayed range besides the upstream (previous upstream tips)
   excluded: Vec<String>,
   /// What the check read, kept apart from the public `check`: a resolve session starts from these (`update_resolve`)
@@ -148,17 +152,60 @@ pub fn check_update(
   candidates: LandedCandidates<'_>,
   resolve: ResolveMode,
 ) -> Result<UpdatePlan> {
-  let branch = check_update_guards(git_executor, repo_path)?;
-  // one `rev-parse` of two revisions, which takes no `--end-of-options`: the name from the configuration is checked here
-  let tracking_ref = full_ref_name(upstream.tracking_ref)?;
-  let ids = git_executor.execute_command_lines(&["rev-parse", "HEAD^{commit}", &format!("{tracking_ref}^{{commit}}")], repo_path)?;
-  let [head, upstream_head] = <[String; 2]>::try_from(ids).map_err(|ids| anyhow!("Unexpected rev-parse output: {ids:?}"))?;
+  check_update_read(git_executor, repo_path, upstream, purpose, candidates, resolve, Blocks::Now)
+}
+
+/// `check_update` for an apply whose caller takes the repository lock only after it (Update Project): the replay, the
+/// resolution by words and the landed candidates run without the lock on the HEAD and the upstream read once; the
+/// local changes on the paths the update writes are left to `recheck_update`, which the caller runs under the lock, and
+/// `apply_update` refuses the plan before it
+#[instrument(skip(git_executor, candidates))]
+pub fn check_update_before_lock(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  upstream: UpstreamRef<'_>,
+  candidates: LandedCandidates<'_>,
+  resolve: ResolveMode,
+) -> Result<UpdatePlan> {
+  check_update_read(git_executor, repo_path, upstream, CheckPurpose::Apply, candidates, resolve, Blocks::UnderTheLock)
+}
+
+/// The check of the state `read_checked_head` reads
+fn check_update_read(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  upstream: UpstreamRef<'_>,
+  purpose: CheckPurpose,
+  candidates: LandedCandidates<'_>,
+  resolve: ResolveMode,
+  blocks: Blocks,
+) -> Result<UpdatePlan> {
+  let (branch, head, upstream_head) = read_checked_head(git_executor, repo_path, upstream.tracking_ref)?;
   let checked = CheckedHead {
     branch: &branch,
     head: &head,
     upstream_head: &upstream_head,
   };
-  check_update_of(git_executor, repo_path, checked, upstream, purpose, candidates, resolve)
+  check_update_with(git_executor, repo_path, checked, upstream, purpose, candidates, resolve, blocks)
+}
+
+/// The guards, then the checked out branch, HEAD and the upstream's tip: one `rev-parse` of two revisions, which takes
+/// no `--end-of-options`, so the tracking ref from the configuration is checked to be a full ref name here
+fn read_checked_head(git_executor: &GitCommandExecutor, repo_path: &str, tracking_ref: &str) -> Result<(String, String, String)> {
+  let branch = check_update_guards(git_executor, repo_path)?;
+  let tracking_ref = full_ref_name(tracking_ref)?;
+  let ids = git_executor.execute_command_lines(&["rev-parse", "HEAD^{commit}", &format!("{tracking_ref}^{{commit}}")], repo_path)?;
+  let [head, upstream_head] = <[String; 2]>::try_from(ids).map_err(|ids| anyhow!("Unexpected rev-parse output: {ids:?}"))?;
+  Ok((branch, head, upstream_head))
+}
+
+/// When an apply's check reads the local changes on the paths the update writes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Blocks {
+  /// In the check
+  Now,
+  /// In `recheck_update`, under the lock the check ran without
+  UnderTheLock,
 }
 
 /// `name` if it is a full ref name by git's rules (`refs/…`, `check-ref-format`): never an option, a range or a
@@ -194,6 +241,20 @@ pub fn check_update_of(
   candidates: LandedCandidates<'_>,
   resolve: ResolveMode,
 ) -> Result<UpdatePlan> {
+  check_update_with(git_executor, repo_path, checked, upstream, purpose, candidates, resolve, Blocks::Now)
+}
+
+#[expect(clippy::too_many_arguments, reason = "check_update_of and when its blocks are read")]
+fn check_update_with(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  checked: CheckedHead<'_>,
+  upstream: UpstreamRef<'_>,
+  purpose: CheckPurpose,
+  candidates: LandedCandidates<'_>,
+  resolve: ResolveMode,
+  blocks: Blocks,
+) -> Result<UpdatePlan> {
   let (branch, head, upstream_head) = (checked.branch.to_string(), checked.head.to_string(), checked.upstream_head.to_string());
   let Some(base) = merge_base(git_executor, repo_path, &head, &upstream_head)? else {
     bail!("{branch} and {} have no common history", upstream.name);
@@ -221,6 +282,8 @@ pub fn check_update_of(
     new_head: None,
     replayed_head: None,
     files_change: false,
+    changed: Vec::new(),
+    blocks_unchecked: false,
     excluded: Vec::new(),
     checked,
   };
@@ -288,6 +351,10 @@ pub fn check_update_of(
       let blocked = match purpose {
         _ if changed.is_empty() => Vec::new(),
         CheckPurpose::Preview => preview_blocking_paths(git_executor, repo_path, changed, &mut probe)?,
+        CheckPurpose::Apply if blocks == Blocks::UnderTheLock => {
+          plan.blocks_unchecked = true;
+          Vec::new()
+        }
         CheckPurpose::Apply => blocking_paths(git_executor, repo_path, &head, new_head, changed)?,
       };
       (Some(new_head.clone()), changed.as_slice(), blocked)
@@ -307,7 +374,34 @@ pub fn check_update_of(
   plan.check.state = UpdateState::Clean { kind };
   plan.new_head = Some(new_head);
   plan.files_change = files_change;
+  plan.changed = changed.to_vec();
   Ok(plan)
+}
+
+/// The witness of `check_update_before_lock`, for its caller under the lock before `apply_update`: `false` when the
+/// branch, HEAD or the upstream moved since, so the caller checks again; else, for a clean update that changes files,
+/// the local changes on the paths it writes (`blocking_paths`, the exact dry run), now that nobody else moves HEAD. The
+/// guards and one `rev-parse` of both, then the dry run only when files change
+#[instrument(skip(git_executor, plan))]
+pub fn recheck_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &mut UpdatePlan, tracking_ref: &str) -> Result<bool> {
+  let (branch, head, upstream_head) = read_checked_head(git_executor, repo_path, tracking_ref)?;
+  let checked = &plan.checked;
+  if branch != checked.branch || head != checked.head || upstream_head != checked.upstream_head {
+    debug!(%branch, %head, %upstream_head, "the branch or its upstream moved during the check");
+    return Ok(false);
+  }
+  if plan.blocks_unchecked
+    && let (UpdateState::Clean { .. }, Some(new_head)) = (&plan.check.state, &plan.new_head)
+  {
+    let blocked = blocking_paths(git_executor, repo_path, &head, new_head, &plan.changed)?;
+    if !blocked.is_empty() {
+      plan.check.state = blocked_state(blocked);
+      plan.new_head = None;
+      plan.files_change = false;
+    }
+  }
+  plan.blocks_unchecked = false;
+  Ok(true)
 }
 
 /// The part of a check that depends only on the commits: the replay and the paths it changes
@@ -662,6 +756,9 @@ pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
   };
   if plan.purpose == CheckPurpose::Preview {
     bail!("A preview check can't be applied");
+  }
+  if plan.blocks_unchecked {
+    bail!("The local changes of this check are not read yet: recheck_update under the lock first");
   }
   let check = &plan.check;
   move_branch_and_files(

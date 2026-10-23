@@ -1,4 +1,6 @@
 use bd_cli::fixture_test::assert_covered;
+#[cfg(unix)]
+use bd_cli::fixture_test::{LockSpanGit, subcommand};
 use bd_cli::fixture_test::{assert_error, assert_refused_during, environment, git, run_in, run_json, start_cherry_pick, write};
 use history_rewrite::repository_lock::lock_repository;
 use pretty_assertions::assert_eq;
@@ -252,6 +254,82 @@ fn the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved() {
   let (previous, new) = token.trim_start_matches("update:").split_once("..").unwrap();
   let (exit_code, undo) = run_in(&clone, &["undo", &format!("update:{}..{}", &previous[..12], &new[..12])]);
   assert_error(&undo, exit_code, (2, "invalid_arguments"));
+}
+
+/// The check of an update (the replay, the resolution by words, the landed candidates) runs before the lock, and the
+/// landed report after it: under the lock only the witness, the local changes and the move
+#[cfg(unix)]
+#[test_log::test]
+fn the_check_of_an_update_runs_before_the_lock() {
+  let (_upstream, clone) = clone_with_a_fetched_change();
+  let wrapped = LockSpanGit::new(&clone, "");
+  let (exit_code, output) = wrapped.run(&["update", "--no-fetch"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("rebase")), "{output}");
+  let commands = wrapped.commands();
+  let replay = commands.iter().position(|(_, args)| subcommand(args) == "replay").expect("the check replays");
+  let locked = commands.iter().position(|(locked, _)| *locked).expect("the move runs under the lock");
+  assert!(replay < locked, "the replay before the lock: {commands:#?}");
+  let mut under_lock: Vec<String> = wrapped.under_lock().iter().map(|args| subcommand(args).to_string()).collect();
+  under_lock.sort_unstable();
+  under_lock.dedup();
+  assert_eq!(
+    under_lock,
+    ["read-tree", "rev-list", "rev-parse", "symbolic-ref", "update-index", "update-ref"],
+    "{commands:#?}"
+  );
+}
+
+/// `bd update --no-fetch` in `clone` with its first replay held until `during` returned: between the check and the lock
+#[cfg(unix)]
+fn update_held_in_its_replay(clone: &TestRepo, during: impl FnOnce()) -> (LockSpanGit, i32, Value) {
+  let wrapped = LockSpanGit::new(
+    clone,
+    "*\" replay \"*) if [ ! -f '{dir}/held' ]; then touch '{dir}/held'; while [ ! -f '{dir}/go' ]; do sleep 0.01; done; fi;;",
+  );
+  let (held, go) = (wrapped.dir().join("held"), wrapped.dir().join("go"));
+  let (exit_code, output) = std::thread::scope(|scope| {
+    let update = scope.spawn(|| wrapped.run(&["update", "--no-fetch"]));
+    while !held.exists() && !update.is_finished() {
+      std::thread::yield_now();
+    }
+    assert!(held.exists(), "the update reached its replay");
+    during();
+    std::fs::write(&go, "").unwrap();
+    update.join().unwrap()
+  });
+  (wrapped, exit_code, output)
+}
+
+/// A regroup while the update replays (the app's Move, or `bd` of an agent) is done at once; the update then finds HEAD
+/// moved under the lock, checks once more there, and applies onto the regrouped commits
+#[cfg(unix)]
+#[test_log::test]
+fn a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again() {
+  let (upstream, clone) = clone_with_a_fetched_change();
+  let (wrapped, exit_code, output) = update_held_in_its_replay(&clone, || {
+    let (exit_code, renamed) = run_in(&clone, &["rename", "auth", "login"]);
+    assert_eq!(exit_code, 0, "the regroup does not wait for the update: {renamed}");
+  });
+  assert_eq!((exit_code, &output["state"]), (0, &json!("rebase")), "{output}");
+  let replays_under_lock = wrapped.under_lock().iter().filter(|args| subcommand(args) == "replay").count();
+  assert_eq!(replays_under_lock, 1, "one check again, under the lock");
+  assert_eq!(git(&clone, &["log", "-1", "--format=%s"]), "(login) Add login");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+}
+
+/// A file the update writes, edited while the update replays: the local changes are read under the lock, so the update
+/// is blocked with the path, as if the edit had come before it, and nothing moves
+#[cfg(unix)]
+#[test_log::test]
+fn a_file_edited_during_the_replay_of_an_update_blocks_it() {
+  let (_upstream, clone) = clone_with_a_fetched_change();
+  let head = clone.head();
+  let (wrapped, exit_code, output) = update_held_in_its_replay(&clone, || write(&clone, "shared.txt", "one\nmine\nthree\n"));
+  assert_error(&output, exit_code, (4, "uncommitted_overlap"));
+  assert_eq!(output["error"]["paths"], json!(["shared.txt"]));
+  assert_eq!(wrapped.under_lock().iter().filter(|args| subcommand(args) == "replay").count(), 0, "no check again");
+  assert_eq!(clone.head(), head);
+  assert_eq!(read(&clone, "shared.txt"), "one\nmine\nthree\n");
 }
 
 #[test_log::test]

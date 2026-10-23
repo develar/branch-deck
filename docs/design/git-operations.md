@@ -509,7 +509,7 @@ Branch Deck operation holds … ; retry when it is done". `bd push`, `bd safe-pu
 `bd move-hunk`, `bd pick` (the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
 (`push_branch`, `push_branches`: `push_guard`, on the `$GIT_COMMON_DIR` the app keeps, so the push and its checks see
 the branches no other writer moves meanwhile; "App stack push"), and so does Update Project (the app's and `bd update`, which also starts a
-resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` and
+resolve session under it) after its fetch and its check, for the witness, the local changes and the move, and `bd update --continue` and `--abort`; `bd update --status` and
 `--continue --dry-run` take none. A holder writes who it is next to the lock (`branch-deck.lock.holder`: the command line, the pid, the start of
 the process and the time, through a temporary file and a rename) once it has the lock, and deletes it before it
 releases it, so the error of a wait names the holder; the lock file itself can't carry it, Windows refuses to read a
@@ -754,23 +754,30 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 0. Guards | `rev-parse --git-path` for the operation markers, `symbolic-ref HEAD` | error: an operation in progress, a detached HEAD |
 | 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
 | 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` | error (`FetchFailed`), nothing changed |
-| 2b. Lock | `$GIT_COMMON_DIR/branch-deck.lock`, held to the end; the wait is the step `waiting` | `locked` after 10 s, nothing changed |
-| 2c. Pending files | `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below) | `finish_pending`: the branch moved since, nothing changed |
+| 2b. Lock | after step 6: `$GIT_COMMON_DIR/branch-deck.lock`, held to the end of step 10; the wait is the step `waiting` | `locked` after 10 s, nothing changed |
+| 2c. Pending files | under the lock: `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below), and steps 3 to 8 run again | `finish_pending`: the branch moved since, nothing changed |
+| 2d. Witness | under the lock (`recheck_update`): step 0 and `rev-parse HEAD^{commit} U^{commit}` again; another branch, H or U: steps 3 to 8 once more, under the lock | as steps 0 and 3 |
 | 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U`; exit 1: no common history, any other exit (a history git can't read) an error with git's message |
 | 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none (exit 1): the merge base suffices; any other exit (the ref is gone) an error |
 | 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
-| 7. Dry run | on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
+| 7. Dry run | under the lock; on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
 | 9. Move | `symbolic-ref --quiet HEAD` (still `refs/heads/<b>`), then `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `create refs/branch-deck/update-pending/<worktree id> H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile; `locked` with the path when `HEAD.lock` or the branch's lock file exists; nothing changed |
 | 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh`, then `delete refs/branch-deck/update-pending/<worktree id> H` | roll back: `update HEAD H N` and the mark deleted, `branch-deck: update project rolled back` |
 
 Details:
 
-- **Lock.** The fetch runs before the repository lock, so a slow network never blocks another writer; the check and
-  the move run under it, so the app's Update Project, `bd update` and every rewrite of the app or of bd never
-  interleave. The check runs again under the lock, so an update never applies a check made before another writer
-  moved the branch. `bd update --dry-run` is the check inside sync (below): no fetch, no lock, no move.
+- **Lock.** The fetch and the check (steps 3 to 6: the replay, the resolution by words, the landed candidates) run
+  before the repository lock, on the HEAD and the upstream one `rev-parse` read (`check_update_before_lock`), so
+  neither a slow network nor a long replay blocks another writer: a regroup, a push or an agent's `bd` goes on
+  meanwhile. Under the lock run only the witness (2d), the local changes on the paths the update writes (7, 8) and the
+  move (9, 10), so the app's Update Project, `bd update` and every rewrite of the app or of bd never interleave with
+  the move. A writer that moved the branch or the upstream during the check makes the update check once more, under
+  the lock, so an update never applies a check made before another writer moved the branch. What the update landed
+  is recorded after the release (`record_landed_update`, a report). A conflict of `bd update` starts its resolve
+  session under the lock, its search for the first conflict too. `bd update --dry-run` is the check inside sync
+  (below): no fetch, no lock, no move.
 - **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay
   where the last push saw them, so the `--force-with-lease` of the virtual branches keeps protecting work pushed from
   elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)
