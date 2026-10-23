@@ -136,6 +136,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "app-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "domain-types",
+ "git-ops",
+ "history-rewrite",
+ "pretty_assertions",
+ "serde_json",
+ "sync-core",
+ "trial-check",
+ "update-core",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

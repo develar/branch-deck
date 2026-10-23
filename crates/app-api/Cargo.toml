@@ -1,0 +1,29 @@
+[package]
+name = "app-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The adapters' crate of the app and the e2e server: the one conversion of a core's error into the `ApiError` a command answers"
+publish = false
+
+[dependencies]
+domain-types = { path = "../domain-types", features = ["specta"] }
+# the typed errors of the cores that reach a command of the app
+git-ops = { path = "../git-ops" }
+history-rewrite = { path = "../history-rewrite" }
+sync-core = { path = "../sync-core" }
+trial-check = { path = "../trial-check" }
+update-core = { path = "../update-core" }
+anyhow.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+pretty_assertions = { workspace = true }
+
+[features]
+default = []
+# `contract_cases`: the errors of the adapters' contract test (the app and the e2e server answer the same JSON)
+fixtures = []
+
+[lints]
+workspace = true

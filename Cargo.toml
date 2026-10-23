@@ -3,6 +3,7 @@ cargo-features = ["profile-rustflags"]
 [workspace]
 members = [
   "src-tauri",
+  "crates/app-api",
   "crates/git-ops",
   "crates/test-utils",
   "crates/test-server",

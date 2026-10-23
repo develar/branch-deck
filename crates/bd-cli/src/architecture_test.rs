@@ -20,6 +20,10 @@ use std::process::Command;
 
 /// The app (`src-tauri`): nothing depends on it, and only it depends on Tauri
 const APP: &str = "branch-deck";
+/// The adapters' crate (`api_error`): only the app and the e2e server depend on it
+const APP_API: &str = "app-api";
+/// The e2e server, the other host of the app's commands
+const TEST_SERVER: &str = "test-server";
 /// The base of the CLI layer, which every family builds on
 const BD_CORE: &str = "bd-core";
 /// The CLI that collects the families
@@ -41,6 +45,11 @@ struct Unreachable {
 }
 
 const UNREACHABLE: &[Unreachable] = &[
+  Unreachable {
+    from: APP_API,
+    forbidden: &[TAURI, APP],
+    why: "the adapters' crate serves the app and the e2e server alike: the Tauri side stays in the app",
+  },
   Unreachable {
     from: "domain-types",
     forbidden: &["git-ops", "git-executor", "object-cache", "reqwest", "tokio", TAURI, "clap"],
@@ -321,6 +330,9 @@ fn direct_rule(from: &str, dependency: &Dependency) -> Option<&'static str> {
   if matches(TAURI, to) && from != APP {
     return Some("only the app depends on Tauri");
   }
+  if to == APP_API && from != APP && from != TEST_SERVER {
+    return Some("only the app and the e2e server depend on app-api, the adapters' crate");
+  }
   if !is_layer(to) {
     return None;
   }
@@ -396,7 +408,7 @@ fn every_allowed_edge_exists_and_breaks_a_rule() {
 #[test]
 fn the_rules_of_the_architecture_name_crates_of_the_workspace() {
   let graph = workspace_graph();
-  let named = UNREACHABLE.iter().map(|rule| rule.from).chain([APP, BD_CORE, BD_CLI]);
+  let named = UNREACHABLE.iter().map(|rule| rule.from).chain([APP, APP_API, TEST_SERVER, BD_CORE, BD_CLI]);
   let unknown: Vec<&str> = named.filter(|name| !graph.contains_key(*name)).collect();
   assert!(unknown.is_empty(), "the architecture rules name crates the workspace lacks (renamed?): {unknown:?}");
 }
@@ -597,6 +609,28 @@ fn the_architecture_check_keeps_the_bd_families_apart() {
       format!("  branch-deck depends on bd-update (Normal): {outside}"),
       format!("  test-server depends on bd-core (Normal): {outside}"),
       "  test-server depends on branch-deck (Dev): nothing depends on the app".to_owned(),
+    ]
+  );
+}
+
+#[test]
+fn the_architecture_check_keeps_app_api_to_the_app_and_the_e2e_server() {
+  let graph = graph_of(&[
+    (APP, APP_API, Kind::Normal, &[]),
+    (TEST_SERVER, APP_API, Kind::Normal, &[]),
+    ("sync-core", APP_API, Kind::Normal, &[]),
+    ("bd-core", APP_API, Kind::Dev, &[]),
+    (APP_API, "sync-core", Kind::Normal, &[]),
+    (APP_API, "tauri-specta", Kind::Normal, &[]),
+  ]);
+  let only = "only the app and the e2e server depend on app-api, the adapters' crate";
+  assert_eq!(
+    violations(&graph, &[]),
+    [
+      "  app-api reaches tauri-specta (app-api -> tauri-specta): the adapters' crate serves the app and the e2e server alike: the Tauri side stays in the app".to_owned(),
+      "  app-api depends on tauri-specta (Normal): only the app depends on Tauri".to_owned(),
+      format!("  bd-core depends on app-api (Dev): {only}"),
+      format!("  sync-core depends on app-api (Normal): {only}"),
     ]
   );
 }

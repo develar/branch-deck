@@ -1,0 +1,17 @@
+{
+  "internal": {"code":"internal","message":"Cannot read the commits ahead of the baseline: git cat-file exited with 128","details":null,"retry":"no","operation_id":null},
+  "operation_in_progress": {"code":"operation_in_progress","message":"Not synced: a rebase is in progress","details":null,"retry":"no","operation_id":null},
+  "detached_head": {"code":"detached_head","message":"Not synced: HEAD is detached","details":null,"retry":"no","operation_id":null},
+  "no_baseline": {"code":"no_baseline","message":"The repository has no commits yet: commit to the main branch, then sync","details":null,"retry":"no","operation_id":null},
+  "head_moved": {"code":"head_moved","message":"Branch master moved: HEAD is 22222222, not 11111111; read it again and retry","details":null,"retry":"after_reread","operation_id":null},
+  "invalid_plan": {"code":"invalid_plan","message":"The plan names auth twice","details":null,"retry":"no","operation_id":null},
+  "locked_by_bd": {"code":"locked","message":"`bd push auth` (pid 4242) is changing this repository; try again when it is done","details":{"type":"locked","holder":{"tool":"bd","command":"bd push auth","pid":4242,"held_for":0}},"retry":"same","operation_id":null},
+  "locked_by_the_app": {"code":"locked","message":"`branch-deck` (pid 4242) is changing this repository; try again when it is done","details":{"type":"locked","holder":{"tool":"app","command":"branch-deck","pid":4242,"held_for":0}},"retry":"same","operation_id":null},
+  "locked_without_holder": {"code":"locked","message":"Branch Deck or bd is changing this repository; try again when it is done","details":{"type":"locked","holder":null},"retry":"same","operation_id":null},
+  "canceled": {"code":"canceled","message":"The wait for /repo/.git/branch-deck.lock was canceled","details":null,"retry":"no","operation_id":null},
+  "uncommitted_overlap": {"code":"uncommitted_overlap","message":"Uncommitted, staged or untracked files sit on paths the unapply writes: src/auth.rs, src/login.rs","details":{"type":"paths","paths":["src/auth.rs","src/login.rs"]},"retry":"no","operation_id":null},
+  "reapply_conflict": {"code":"reapply_conflict","message":"Check the token (3333333333333333333333333333333333333333) of auth conflicts with HEAD in src/auth.rs: nothing was changed","details":{"type":"conflict","commits":["3333333333333333333333333333333333333333"],"paths":["src/auth.rs"]},"retry":"no","operation_id":null},
+  "network_error": {"code":"network_error","message":"Failed to fetch origin/master: Could not resolve host: github.com","details":null,"retry":"same","operation_id":null},
+  "missing_declaration": {"code":"missing_declaration","message":"auth would not build: \"Check the token\" of auth uses TokenCheck in src/auth.rs, which \"Add TokenCheck\" of tokens adds","details":null,"retry":"no","operation_id":null},
+  "passed_through": {"code":"canceled","message":"The sign-in was canceled","details":null,"retry":"no","operation_id":null}
+}
