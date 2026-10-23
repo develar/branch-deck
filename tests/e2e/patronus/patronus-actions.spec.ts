@@ -539,13 +539,15 @@ test.describe("Patronus actions", () => {
     )
     await syncAndWaitForBranches()
     await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
-    const releaseCheck = await holdCommand(page, "check_target_conflict")
+    const check = await holdCommandCalls(page, "check_target_conflict")
 
     await safePushFromMenu(page, "JIRA-456")
     await expect(slotSafePush(page, "JIRA-456")).toHaveText("Checking…")
-    // the user opens another repository while the start checks the target
+    // the user opens another repository while the start checks the target: "Checking…" is also the read of the facts
+    // before the start, whose decision a switch would leave to the other repository's stores
+    await expect.poll(() => check.calls.length).toBe(1)
     await switchRepository(page, OTHER_REPOSITORY)
-    releaseCheck()
+    check.release()
 
     // the start goes on in the repository it was asked in: Patronus got it, and the toast says it
     await expect(toastWith(page, "Safe Push started")).toBeVisible()
