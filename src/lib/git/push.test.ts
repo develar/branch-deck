@@ -173,6 +173,7 @@ vi.mock("@/stores/branch-sync", () => ({
   whenBranchPushed: async () => {},
   isStackPushing: (name: string) => Object.hasOwn(stores.stackPushes, name),
   setBranchPushing: () => {},
+  setBranchPushWaiting: () => {},
   setStackPush: (startedFrom: string, names: readonly string[] | null) => {
     const { [startedFrom]: _, ...others } = stores.stackPushes
     stores.stackPushes = names === null ? others : { ...others, [startedFrom]: names }

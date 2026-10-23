@@ -1063,6 +1063,32 @@ export function setBranchPushing(name: string, isPushing: boolean, repositoryPat
   }
 }
 
+/**
+ * By `pushKey`: the pushes that wait (for a sync, a rewrite) with the spinner of a push and send nothing yet. A push
+ * reads its branch once the wait ends, so the remote status a sync computes meanwhile is the one it must push over
+ */
+const waitingPushes = new Set<string>()
+
+/**
+ * Marks a push of the branch in `repositoryPath` as waiting before it sends, or the wait as ended: the row shows the
+ * push (`isBranchPushing`, and a stack push waits for it), and the remote status of a sync meanwhile still reaches the
+ * row, unlike the one a sync computes while the push sends
+ */
+export function setBranchPushWaiting(name: string, waiting: boolean, repositoryPath: string): void {
+  const key = pushKey(repositoryPath, name)
+  if (waiting) {
+    waitingPushes.add(key)
+  } else {
+    waitingPushes.delete(key)
+  }
+  setBranchPushing(name, waiting, repositoryPath)
+}
+
+/** Whether a push of the branch in the repository sends it now: a push that only waits does not */
+function isBranchSending(name: string, repositoryPath: string): boolean {
+  return isBranchPushing(name, repositoryPath) && !waitingPushes.has(pushKey(repositoryPath, name))
+}
+
 /** Whether a stack push started from `startedFrom` runs in the repository (by default the selected one) */
 export function isStackPushing(startedFrom: string, repositoryPath: string = selectedRepositoryPath()): boolean {
   return Object.hasOwn(branchSyncStore.getState().stackPushes, pushKey(repositoryPath, startedFrom))
@@ -1541,8 +1567,9 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null
 
 function queueSyncEvent(event: SyncEvent, repositoryPath: string, options: SyncOptions | undefined): void {
   // decided on arrival, not at the flush: the push result is authoritative, and a push that ends before the flush
-  // would let a status the sync computed mid-push overwrite it
-  if (event.type === "remoteStatusUpdate" && isBranchPushing(event.data.branchName, repositoryPath)) {
+  // would let a status the sync computed mid-push overwrite it. A push that only waits for this sync sends after it,
+  // over the status it brings: a fetch moved the remote branch, and the push goes over the new tip at once
+  if (event.type === "remoteStatusUpdate" && isBranchSending(event.data.branchName, repositoryPath)) {
     return
   }
   queuedSyncEvents.push({ event, repositoryPath, options })

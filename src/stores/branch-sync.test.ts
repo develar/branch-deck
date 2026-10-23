@@ -13,6 +13,7 @@ import {
   resolveCommits,
   selectSyncFraction,
   setBranchPushing,
+  setBranchPushWaiting,
   setBranchPushProgress,
   setBranchRemoteStatus,
   setStackPush,
@@ -536,6 +537,27 @@ describe("sync during a push", () => {
     setBranchPushing("a", false, "/repo")
     await syncBranches()
     expect(getBranch("a")!.remoteStatus!.commitsAhead).toBe(2)
+  })
+
+  it("applies the remote status of a sync that a push of the branch waits for: the push sends over it after the wait", async () => {
+    await syncBranches()
+    const known = getBranch("a")!.remoteStatus
+    setBranchPushWaiting("a", true, "/repo")
+    // a fetch moved the remote branch: the sync the push waits for brings its new tip
+    syncEvents.current = [branchesGrouped, { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 2) }]
+
+    await syncBranches()
+    expect(isBranchPushing("a")).toBe(true)
+    expect(getBranch("a")!.remoteStatus).not.toEqual(known)
+    expect(getBranch("a")!.remoteStatus!.commitsAhead).toBe(2)
+
+    // once it sends, a status computed meanwhile is the sync's, not the push's
+    setBranchPushWaiting("a", false, "/repo")
+    setBranchPushing("a", true, "/repo")
+    syncEvents.current = [branchesGrouped, { type: "remoteStatusUpdate", data: remoteStatusUpdate("a", 5) }]
+    await syncBranches()
+    expect(getBranch("a")!.remoteStatus!.commitsAhead).toBe(2)
+    setBranchPushing("a", false, "/repo")
   })
 
   it("keeps the push result when the push ends before the sync applies the status it computed mid-push", async () => {

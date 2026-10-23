@@ -804,6 +804,9 @@ repository». Аудит всех функций в тот же день наш�
   115 с → 59 и 15 с (два замера), процессов под lock 49 → 30: под lock остались два `read-tree -m -u` (около 7 с CPU
   каждый, 5–37 с wall при этой нагрузке) и около 3 с witness и локальных изменений. Сделано (`fix/remote-perf`):
   повтор fetch на `cannot lock ref` (`a_fetch_beside_another_fetch_of_the_tracking_ref_succeeds`), до `fetch.lock` s10.
+- **Push и sync (стопгап до s6):** ожидание push — не pushing для статусов sync: push, который ждёт sync, получает его
+  remote status и шлёт поверх нового tip один раз (`setBranchPushWaiting`, `fix/sync-lease`; `applies the remote status
+  of a sync that a push of the branch waits for: the push sends over it after the wait`); порядок по `seq` — s6.
 - **Очередь в TS до s11:** `runOperation` ставит rewrite в очередь вместо `onBlocked`; Undo помечается выполненным
   после `Ok`; слот Update Project — только apply (`fetch_baseline`, затем `update_project` без fetch); ⌘T во время
   Fetch присоединяется; push ждёт идущий rewrite. `operations.md` в том же коммите: «Conflicts», «Items» и

@@ -22,6 +22,7 @@ import {
   getBranch,
   isBranchPushing,
   setBranchPushing,
+  setBranchPushWaiting,
   setBranchPushProgress,
   setBranchRemoteStatus,
   toRemoteStatus,
@@ -241,12 +242,13 @@ async function whenSettled(branchName: string, repositoryPath: string): Promise<
   while (isBranchPushing(branchName, repositoryPath)) {
     await whenBranchPushed(branchName, repositoryPath)
   }
-  setBranchPushing(branchName, true, repositoryPath)
+  // waiting, not sending: the remote status this sync brings reaches the row, and the push reads it after
+  setBranchPushWaiting(branchName, true, repositoryPath)
   try {
     await whenRewritesDone(repositoryPath)
     await whenSynced()
   } finally {
-    setBranchPushing(branchName, false, repositoryPath)
+    setBranchPushWaiting(branchName, false, repositoryPath)
   }
 }
 
