@@ -1,5 +1,76 @@
 # Changelog
 
+## [0.29.0](https://github.com/develar/branch-deck/compare/v0.28.1...v0.29.0) (2026-10-23)
+
+
+### Features
+
+* **activity:** the side panel of the main window, beside the branch tables, where the window has room for it ([4bae533](https://github.com/develar/branch-deck/commit/4bae53330464fc6bb2f343ab993592fb7cc6b652))
+* **bd:** a profile that skips the review starts without the approvals on the API route (D2) ([90b5c62](https://github.com/develar/branch-deck/commit/90b5c626c47003c3417911b2d418b79bb1904656))
+* **bd:** safe-push reads the branch rules: push_dismisses_approvals, rules_unknown and --allow-unknown-rules (D1, D9 bd side) ([2f06430](https://github.com/develar/branch-deck/commit/2f0643005073a1349d6e1fa8bdf22644ccd9a21d))
+* **bindings:** regenerate bindings.ts headless through the bindings test ([5e06eda](https://github.com/develar/branch-deck/commit/5e06eda98e2eb3914182794f4ecba239a693dfa3))
+* **landing:** the charts say whose week was slow, what the week of now holds, when to start and which robot failed ([75adaca](https://github.com/develar/branch-deck/commit/75adacae04eff88902ec94d3fa5df00d35121396))
+* **landing:** the islands by their question, each as tall as its content, and the charts say the one number they are for ([8613074](https://github.com/develar/branch-deck/commit/861307461fede401ae0eb1b87ad2b5ba72791cac))
+* **landing:** the Landing view of the main window, Branches · Landing, with the Safe Push statistics ([ebbd30a](https://github.com/develar/branch-deck/commit/ebbd30a235a08f71787676b5625d95cfdc0e40cd))
+* **landing:** the period of the Safe Push statistics, 30 days by default ([fb66dc8](https://github.com/develar/branch-deck/commit/fb66dc8a9c0e17080f3b9d694ab49e7c3bb32d43))
+* **landing:** the Safe Push statistics on shadcn Charts, in a chart palette that passes the colour-blind checks ([4deba26](https://github.com/develar/branch-deck/commit/4deba26d9e34f3c17c74ee776cb8c9aa6bce216c))
+* **observability:** an operation id on every bd and Tauri command, carried into Activity ([c248fb3](https://github.com/develar/branch-deck/commit/c248fb36b674b295f3a1e2b1b753c30b7dbbcfbd))
+* **palette:** the command palette of the main window, ⌘K, over the views, Activity, the commands of the app and the branches ([f7d9011](https://github.com/develar/branch-deck/commit/f7d90113bd0d68b88ba2e67c0507f6b6a82e5abb))
+* **patronus:** start, restart and cancel check parked, landed, not built and overlap from the table and the robots Rust reads (D10 robots) ([bfbb322](https://github.com/develar/branch-deck/commit/bfbb3226d611f461c650c01819f1f2d7a330f011))
+* **push:** the app's push_branch(es) take the repository lock and refuse parked, landed and held branches in Rust (D10 push) ([ec18b10](https://github.com/develar/branch-deck/commit/ec18b108526822261c5ae547e3e74cfbf9fdd19c))
+* **safe-push:** the row says which branch its Safe Push needs before any press ([2bbb709](https://github.com/develar/branch-deck/commit/2bbb7090efd8b6414bfa5c5bc2b370ec57f29f6b))
+* **setup:** the Setup dot on Settings: a downloaded update, newer CLIs and expiring sign-ins ([74787e0](https://github.com/develar/branch-deck/commit/74787e05c7f2cc7cf1a22a99e06578429af2dd2c))
+* **stats:** Safe Push statistics in Rust and bd robot-stats ([a813b92](https://github.com/develar/branch-deck/commit/a813b92c9c34c99fd189b28250a9c12c35f9d6d3))
+* **teamcity:** sign teamcity in through its own browser sign-in from Settings → Tools ([fff9d52](https://github.com/develar/branch-deck/commit/fff9d52cb800c7131ff467c5bdbe8345e1553b0c))
+* **tools:** install and update the CLIs through winget and scoop on Windows ([af3d0c5](https://github.com/develar/branch-deck/commit/af3d0c5d674cac7498edd0c87372fb08c8a5e5c2))
+* **tools:** the agent skill of each CLI on a line of its own, installed with the CLI by default ([16182ad](https://github.com/develar/branch-deck/commit/16182add133c6e48493e5bd99db72501e3b39351))
+* **tools:** the teamcity and youtrack CLIs in Settings → Tools, installed and updated through Homebrew ([45a990b](https://github.com/develar/branch-deck/commit/45a990bde707ec5de9a46b88a3ec8cf62b2a557b))
+* **youtrack:** sign the youtrack CLI in with a permanent token of the Branch Deck sign-in ([277f9d6](https://github.com/develar/branch-deck/commit/277f9d6f49e6750106d18ae69d781613eb31c959))
+
+
+### Bug Fixes
+
+* **architecture:** the reach follows a test feature a normal edge enables; one wording and one rule of the whole stack ([d40837f](https://github.com/develar/branch-deck/commit/d40837ff91557fb8db754b4e6ae0a35c74af8ff7))
+* **cache:** a semaphore set of its own for each environment, and one environment that cannot open misses only its stores ([7862037](https://github.com/develar/branch-deck/commit/7862037717f3066f290272903184c90cfd8865f5))
+* **diff:** a refresh of the uncommitted diffs during a read reads once more, keyed by repository ([cf090e1](https://github.com/develar/branch-deck/commit/cf090e172490736eac076874c5ec06e4efb5b2f0))
+* **e2e:** Continue on GitHub of the stack's pull request waits for the text of its commits ([a58f5e5](https://github.com/develar/branch-deck/commit/a58f5e55fed7ca38b3729d68bf07ea13e31d01ee))
+* **e2e:** the Activity side panel tests push for real, to the template's own origin, not through a page answer ([c3798a6](https://github.com/develar/branch-deck/commit/c3798a6fa12ce8c6c073e4d6a8afbafafc1bfd33))
+* **e2e:** the held comment start lists its robot through the fake Patronus, pushes nothing in the page ([564ba00](https://github.com/develar/branch-deck/commit/564ba00bf8797efe4334e744d6685b912cbe2963))
+* **e2e:** the hooks of the fake Patronus run in the span of their request ([877627a](https://github.com/develar/branch-deck/commit/877627af81bebef1be055b3afbb6d0314847babc))
+* **e2e:** the listed weeks of the period test sort with a comparator ([5739dd4](https://github.com/develar/branch-deck/commit/5739dd4ce4518b4289602b0fdf1425cbeba4755d))
+* **e2e:** the page answer scan refuses a fixture's answer, reads a formatted overload and a regex after an arrow ([fe80146](https://github.com/develar/branch-deck/commit/fe80146a661635252b73a3d173016d7007fb4bbd))
+* **e2e:** the ratchet counts page answers per helper call, the fakes' hooks leave the runtime free ([fb91d26](https://github.com/develar/branch-deck/commit/fb91d26b1f7809f9d0ecc00bfd4aa1b96a6384da))
+* **e2e:** the ratchet reads every declaration of a helper, a rewrite only by the fetched response, every answer inside a test ([65301c3](https://github.com/develar/branch-deck/commit/65301c36df0f32064868646cf487f2ac12ab9818))
+* **e2e:** the rules-unknown tests push through the test server, not in the page ([48d8dd4](https://github.com/develar/branch-deck/commit/48d8dd4ffbd1681e25bb1719ccd77b4753c43d86))
+* **observability:** every fallible command an operation, the span carried into every thread, no collection in a span ([4ebefbc](https://github.com/develar/branch-deck/commit/4ebefbcf694986c8e53e1a412e44c4aa253603d8))
+* **patronus:** a Safe Push start keeps the repository it was asked in ([52119d8](https://github.com/develar/branch-deck/commit/52119d8da0ff99d836082ea727417268615ce3ac))
+* **patronus:** a start Patronus accepted holds until its robot is listed, a repeat posts no second comment ([299c9d7](https://github.com/develar/branch-deck/commit/299c9d7a006116ac30c1196cc6aa2899e881fe92))
+* **patronus:** a start that replaces a robot which finished meanwhile goes on instead of failing its cancel ([7be3fb1](https://github.com/develar/branch-deck/commit/7be3fb1e0a5dc706e50660f23a5fcb4f671c09e7))
+* **patronus:** Close Landed closes only the pull requests of the merged robot's repository ([143a98c](https://github.com/develar/branch-deck/commit/143a98cf78c9d2ec1a58caf319e9be88b691b2b2))
+* **patronus:** the checks of the app's actions ask Patronus every time, one RemoteActions of both hosts, the landing check covered on the landed robots ([4f0808e](https://github.com/develar/branch-deck/commit/4f0808ef707c5fdfd17b506ce17dbf728da87c43))
+* **patronus:** the landing check of the popover fails without the robots instead of counting nothing landed, the lists of a start pinned ([6bad27e](https://github.com/develar/branch-deck/commit/6bad27e8ceedd6a5da13574ff4adaca28a562468))
+* **patronus:** the minute of the bot counts from the comment, and a held start keeps its slot through a switch of the repository ([7067d83](https://github.com/develar/branch-deck/commit/7067d8365e3496b95d2e7a62e97f3f6c52b11359))
+* **patronus:** the robot of a /patronus comment is never an earlier robot of its pull request ([ea20640](https://github.com/develar/branch-deck/commit/ea20640d307017f7a2960caca3cc6c43823e26f0))
+* **patronus:** the running robots are asked whether they will fail only after an answer of Patronus ([3405712](https://github.com/develar/branch-deck/commit/3405712e13c8048eecfa5a543968184c1f4572b7))
+* **patronus:** the start from a pull request runs the checks of a start before its /patronus comment ([bd66eab](https://github.com/develar/branch-deck/commit/bd66eabc9a097b59d000f9a579950b643d8effa7))
+* **perf:** bd-rebuild declares BD_LIBRARIES before the dispatch runs the command ([4e426fb](https://github.com/develar/branch-deck/commit/4e426fb5ca8350bc0d21ced984d89f4262ced5a5))
+* **pull-requests:** Create Pull Request and Request Review keep the repository they were asked in ([8759843](https://github.com/develar/branch-deck/commit/87598438a6853cf021bd60fce587268da34b6a70))
+* **pull-requests:** the discrepancy register names the pushFirst call of Request Review with its repository ([14212f2](https://github.com/develar/branch-deck/commit/14212f21bd205014473ef757f9badc9d0a9b2a83))
+* **push:** a push cancels the robot it restarts right before it sends, and restarts it in its own repository ([fe12b35](https://github.com/develar/branch-deck/commit/fe12b35b123853c32d29bb43447fa977502b8f7e))
+* **push:** a push keeps the repository it started in ([8d5205d](https://github.com/develar/branch-deck/commit/8d5205d63d7aa732aee1ee6ec91a1a54def9c753))
+* **push:** a stack push retargets only while its repository is shown, and a late push toast offers no pull request of another one ([a1d37dd](https://github.com/develar/branch-deck/commit/a1d37dd3bac9e271309954dd958714fca5e05247))
+* **push:** the robots of the app's checks stay current, the push refuses an unknown branch and a stack branch not built, one PushActions for both hosts ([63cae6a](https://github.com/develar/branch-deck/commit/63cae6a3e8549bf4aa298ff77cf4115507263e35))
+* **safe-push:** a failed read of the branch rules is a confirmation, never "keeps the approvals" (D9 app side) ([2e57b03](https://github.com/develar/branch-deck/commit/2e57b034947e26ef6dfeada8e20486d262fe75e3))
+* **safe-push:** a name a branch outside what lands adds refuses the start, in bd and the app ([77b1241](https://github.com/develar/branch-deck/commit/77b12419a292f7cb44257dcd44fe6a5704f533e8))
+* **symbols:** an item macro declares its pub items, a Rust field links through its struct ([b639e42](https://github.com/develar/branch-deck/commit/b639e423ecf22332bafd14346d276b6448617d3d))
+* **undo:** the Undo of a park and of a regroup acts on the repository of its rewrite ([b2e3660](https://github.com/develar/branch-deck/commit/b2e36605b602656fbcd5f0a091f75d9532105668))
+* **update-project:** the Update Project of a toast acts on the toast's repository ([09f2b03](https://github.com/develar/branch-deck/commit/09f2b03500c8e861b6e130915915712f961a1e05))
+
+
+### Performance Improvements
+
+* **table:** IPC counters of the mock page in perf:table ([a54bfe8](https://github.com/develar/branch-deck/commit/a54bfe8bffa70c8861c9036f2eff6134b8311121))
+
 ## [0.28.1](https://github.com/develar/branch-deck/compare/v0.28.0...v0.28.1) (2026-10-21)
 
 
