@@ -109,7 +109,7 @@
     "discrepancy": "D5",
     "today": {
       "app": [
-        "src/components/branch/RequestReviewForm.tsx#if (pushes && !(await pushFirst(branch.name, errorTitle)))",
+        "src/components/branch/RequestReviewForm.tsx#if (pushes && !(await pushFirst(branch.name, errorTitle, repositoryPath)))",
         "src/lib/request-review.ts#export function getRequestReviewCandidates"
       ],
       "bd": ["crates/bd-remote/src/request_review_command.rs#fn suggested_reviewers"]
