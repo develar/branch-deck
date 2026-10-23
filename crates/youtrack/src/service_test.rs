@@ -225,6 +225,69 @@ async fn a_renewal_held_at_the_hub_leaves_the_status_free_and_is_shared_by_the_l
   }
 }
 
+/// Lookups that wait for a renewal held at the Hub, which then answers `answer`: each lookup answers, and the Hub was
+/// asked once
+async fn lookups_waiting_for_a_held_renewal(answer: FakeAnswer) -> (Arc<FakeGitHub>, Arc<YouTrackService>, tempfile::TempDir, [YouTrackIssueAnswer; 3]) {
+  let (fake, service, dir) = service_with(|url| stored(url, Some(unix_now() + 10), true)).await;
+  fake.answer("POST", "/hub/api/rest/oauth2/token", answer);
+  let gate = fake.hold("POST", "/hub/api/rest/oauth2/token");
+  let service = Arc::new(service);
+  let first = tokio::spawn({
+    let service = Arc::clone(&service);
+    async move { service.issue("ABC-1").await }
+  });
+  gate.arrived().await;
+  // the popovers and the rows that ask while the Hub holds the renewal: polled once, each read the state and waits
+  let mut second = Box::pin(service.issue("ABC-2"));
+  let mut third = Box::pin(service.issue("ABC-1"));
+  std::future::poll_fn(|cx| {
+    assert!(second.as_mut().poll(cx).is_pending() && third.as_mut().poll(cx).is_pending());
+    std::task::Poll::Ready(())
+  })
+  .await;
+  gate.open();
+  let answers = [first.await.unwrap(), second.await, third.await];
+  assert_eq!(fake.requests_to("POST", "/hub/api/rest/oauth2/token").len(), 1, "{answers:?}");
+  (fake, service, dir, answers)
+}
+
+/// A Hub that refuses the refresh token after a while: the lookups that waited for the renewal answer the expired
+/// sign-in at once, without asking the Hub again one after another
+#[tokio::test(flavor = "multi_thread")]
+async fn the_lookups_that_wait_for_a_refused_renewal_answer_the_expired_sign_in_without_asking_again() {
+  let (_fake, _service, _dir, answers) =
+    lookups_waiting_for_a_held_renewal(FakeAnswer::status(400, json!({"error": "invalid_grant", "error_description": "Refresh token expired"}))).await;
+  for answer in answers {
+    assert_eq!(
+      answer,
+      YouTrackIssueAnswer::SignInProblem {
+        problem: YouTrackAuthProblem::Expired
+      }
+    );
+  }
+}
+
+/// A Hub that fails the renewal (a 503 of a slow Hub): the lookups that waited for it answer the same failure, and a
+/// lookup after it renews again
+#[tokio::test(flavor = "multi_thread")]
+async fn the_lookups_that_wait_for_a_failed_renewal_share_its_failure_and_a_later_lookup_renews_again() {
+  let (fake, service, _dir, answers) = lookups_waiting_for_a_held_renewal(FakeAnswer::status(503, json!({"error": "unavailable"}))).await;
+  for answer in &answers {
+    assert!(matches!(answer, YouTrackIssueAnswer::Error { .. }), "{answer:?}");
+  }
+  assert_eq!(answers[1], answers[0]);
+  assert!(fake.requests_to("GET", "/api/issues/ABC-1").is_empty());
+
+  // the Hub answers again: the next popover renews
+  fake.answer(
+    "POST",
+    "/hub/api/rest/oauth2/token",
+    FakeAnswer::ok(json!({"access_token": "access-new", "expires_in": 3600, "refresh_token": "refresh-2"})),
+  );
+  assert!(is_found(&service.issue("ABC-1").await));
+  assert_eq!(fake.requests_to("POST", "/hub/api/rest/oauth2/token").len(), 2);
+}
+
 /// A sign-out while the Hub holds a renewal: the sign-out does not wait, and the late answer of the Hub is of a sign-in
 /// that is gone, so the renewed token is neither kept nor written back
 #[tokio::test(flavor = "multi_thread")]

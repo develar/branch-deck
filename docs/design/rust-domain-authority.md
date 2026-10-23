@@ -864,7 +864,9 @@ repository». Аудит всех функций в тот же день наш�
   (`two_writes_at_once_both_succeed`, `ConfigWrites`). `/problems` после ответа сделано (`fix/patronus-start`: `loadRobotFacts` в задаче списка и
   опроса, `failingInFlight` по ключу); одна команда на пачку `loadReviewProblems` — s7.
   Refresh YouTrack сделан (`fix/sync-lease`): состояние auth — короткий `std` mutex, refresh — single-flight
-  (`renewal`), поколение `forget` отбрасывает поздний ответ Hub; `status()` синхронный и не ждёт
+  (`renewal`) и для отказа: ждавшие поиски берут его `Expired` или сбой, не повторяя запрос к Hub
+  (`the_lookups_that_wait_for_a_refused_renewal_answer_the_expired_sign_in_without_asking_again`), поколение `forget`
+  отбрасывает поздний ответ Hub; `status()` синхронный и не ждёт
   (`a_renewal_held_at_the_hub_leaves_the_status_free_and_is_shared_by_the_lookups`,
   `a_sign_out_during_a_renewal_keeps_nothing_of_the_answer`). Sign-in и sign-out кладут токен в состояние до записи
   файла (`replace_stored`, новое поколение), записи файла идут по одной под `store`: поиск во время записи не читает

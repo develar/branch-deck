@@ -66,14 +66,29 @@ struct Auth {
   problem: Option<YouTrackAuthProblem>,
   /// One more with every `forget`: a renewal started before a sign-in or a sign-out keeps nothing of its answer
   generation: u64,
+  /// One more with every answer of the Hub to a renewal in this generation: a lookup that read the state before it and
+  /// still finds the token it read shares the failure, never asks the Hub again
+  renewals: u64,
+  /// Why the last renewal of this generation failed, for the lookups that waited for it
+  renewal_failure: Option<String>,
 }
 
 /// What `access` does with the token it read
 enum Access {
   /// Send it: the YouTrack and the token
   Send(String, String),
-  /// Renew it first, the stored token as read in `generation`
-  Renew(StoredToken, u64),
+  /// Renew it first, the stored token as read in `generation`, after `renewals` answers of the Hub
+  Renew(StoredToken, u64, u64),
+}
+
+/// What a lookup that holds the renewal finds in the state
+enum AfterWait {
+  /// The renewal it waited for, a sign-in, a sign-out or an expired sign-in changed the state: read it again
+  ReadAgain,
+  /// The renewal it waited for failed and left the token it read: the same failure, no second request to the Hub
+  Failed(String),
+  /// Nobody renewed the token it read: it renews
+  Renew,
 }
 
 /// Why no token can be sent
@@ -91,7 +106,7 @@ pub struct YouTrackService {
   /// Held only to read or change the state, never across a request: `status` and a sign-out never wait for YouTrack
   auth: Mutex<Auth>,
   /// The single flight of a renewal: held across the request to the Hub by the one lookup that renews; a lookup that
-  /// waited for it sends the token it brought
+  /// waited for it sends the token it brought, or answers its failure (an expired sign-in, a Hub that did not answer)
   renewal: tokio::sync::Mutex<()>,
   /// The writes of the token file in order: a sign-in, a sign-out (`replace_stored`) and the write of a renewal. Held
   /// across the write (a local `security` process or a file), never across a request
@@ -238,18 +253,21 @@ impl YouTrackService {
   /// is locked only to be read and changed, never across the request to the Hub
   async fn access(&self, rejected: Option<&str>) -> Result<(String, String), Denied> {
     loop {
-      let (stored, generation) = match self.read_access(rejected)? {
+      let (stored, generation, renewals) = match self.read_access(rejected)? {
         Access::Send(url, token) => return Ok((url, token)),
-        Access::Renew(stored, generation) => (stored, generation),
+        Access::Renew(stored, generation, renewals) => (stored, generation, renewals),
       };
       if !self.renews {
         return Err(Denied::Failed("The YouTrack token needs a renewal: the app renews it".to_string()));
       }
       let renewal = self.renewal.lock().await;
-      // a lookup that waited for another's renewal, or a sign-in or a sign-out meanwhile: read again
-      if !self.is_current(&stored, generation) {
-        drop(renewal);
-        continue;
+      match self.after_wait(&stored, generation, renewals) {
+        AfterWait::ReadAgain => {
+          drop(renewal);
+          continue;
+        }
+        AfterWait::Failed(message) => return Err(Denied::Failed(message)),
+        AfterWait::Renew => {}
       }
       let Some(grant) = stored.refresh.clone() else {
         return Ok((stored.url, stored.access_token));
@@ -265,6 +283,12 @@ impl YouTrackService {
         drop(renewal);
         continue;
       }
+      // counted before the renewal is released, so every lookup that waited for it finds the answer
+      auth.renewals += 1;
+      auth.renewal_failure = match &answer {
+        Err(RefreshError::Failed(error)) => Some(error.message()),
+        _ => None,
+      };
       return match answer {
         Ok(answer) => {
           let mut renewed = stored;
@@ -320,13 +344,21 @@ impl YouTrackService {
     if !is_rejected && !expires_soon {
       return Ok(Access::Send(credential.url, credential.access_token));
     }
-    Ok(Access::Renew(stored, auth.generation))
+    Ok(Access::Renew(stored, auth.generation, auth.renewals))
   }
 
-  /// Whether `stored`, read in `generation`, is still the stored token
-  fn is_current(&self, stored: &StoredToken, generation: u64) -> bool {
+  /// What a lookup that read `stored` in `generation` after `renewals` answers of the Hub does once it holds the
+  /// renewal: a single flight shares its failure as it shares its token
+  fn after_wait(&self, stored: &StoredToken, generation: u64, renewals: u64) -> AfterWait {
     let auth = self.auth();
-    auth.generation == generation && auth.stored.as_ref().is_some_and(|current| current.access_token == stored.access_token)
+    let is_current = auth.generation == generation && auth.stored.as_ref().is_some_and(|current| current.access_token == stored.access_token);
+    if auth.problem.is_some() || !is_current {
+      return AfterWait::ReadAgain;
+    }
+    if auth.renewals == renewals {
+      return AfterWait::Renew;
+    }
+    auth.renewal_failure.clone().map_or(AfterWait::ReadAgain, AfterWait::Failed)
   }
 
   /// A request with the token; after a 401 the token is renewed once and the request asked again, and a token that

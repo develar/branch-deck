@@ -137,9 +137,12 @@ client takes a pasted token.
   [@test] ../../crates/youtrack/src/service_test.rs (`an_expiring_access_token_is_renewed_once_for_parallel_lookups_and_kept`)
 - A renewal must hold nothing but itself across the request to the Hub: the status (Settings, the popovers), a sign-in,
   a sign-out and an issue the cache has answer while a slow Hub holds it; the lookups that need it wait for the one
-  renewal and send its token. A sign-in or a sign-out meanwhile makes the late answer of the Hub one of a sign-in that is
-  gone: it is neither kept nor written to the token file.
+  renewal and send its token. A renewal that the Hub refuses or fails is shared as its token is: the lookups that waited
+  for it answer the expired sign-in, or the same failure, at once and never ask the Hub again one after another; a lookup
+  after a failed renewal renews again. A sign-in or a sign-out meanwhile makes the late answer of the Hub one of a
+  sign-in that is gone: it is neither kept nor written to the token file.
   [@test] ../../crates/youtrack/src/service_test.rs (`a_renewal_held_at_the_hub_leaves_the_status_free_and_is_shared_by_the_lookups`, `a_sign_out_during_a_renewal_keeps_nothing_of_the_answer`)
+  [@test] ../../crates/youtrack/src/service_test.rs (`the_lookups_that_wait_for_a_refused_renewal_answer_the_expired_sign_in_without_asking_again`, `the_lookups_that_wait_for_a_failed_renewal_share_its_failure_and_a_later_lookup_renews_again`)
 - A sign-in or a sign-out must change what a lookup sends before it writes the token file: a lookup while the file is
   written or removed sends the new token, or nothing, and never reads the token being replaced back from the file to
   renew it; a renewal writes the file before or after that write, never over it or after it.
