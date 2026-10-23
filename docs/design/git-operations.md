@@ -2532,6 +2532,11 @@ The GitHub API is asked with the first token of a chain (`crates/github/src/toke
 - never `credential approve` or `reject`: these are the user's credentials, and a token GitHub rejects is only
   skipped by the app (`TokenChain::reject`), not erased from the helper.
 
+A source that starts a process runs once for every caller that asks while it runs (an async mutex per source, by
+repository path and repository for git), and its answer, a token or none, is kept for `SOURCE_TTL` (30 s); the state
+of the chain (accepted, rejected, no access) is a `std` mutex held only to read or write it, never across a process,
+so a repository GitHub accepted a token for never waits for a slow `credential fill` of another.
+
 It reads nothing of the working tree and writes nothing; the worktree safety scan allows it. GitHub itself is asked
 over HTTP (`GitHubService`, `crates/github/src/service.rs`); the only `gh` process is `gh auth token` of the chain.
 

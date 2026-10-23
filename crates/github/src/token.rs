@@ -3,7 +3,8 @@
 //! `gh` comes before the app's sign-in: organizations that restrict OAuth apps have usually approved it, and not yet
 //! the Branch Deck app. The token GitHub accepted is kept per repository; a token it
 //! rejected (401) is never sent again, and one that can't see a repository is skipped for that repository for a while,
-//! so a `gh auth login` takes effect without a restart.
+//! so a `gh auth login` takes effect without a restart. A process source (`gh`, git) runs once for every caller that
+//! asks while it runs, and its answer, a token or none, is kept for `SOURCE_TTL`; no lock is held across a source.
 
 use crate::token_store::{read_token, token_file};
 use domain_types::pull_request::TokenSource;
@@ -12,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use sync_utils::child_process::{find_tool, run_child};
 use sync_utils::known_tools::GH;
@@ -103,10 +105,36 @@ struct ChainState {
   no_access: HashMap<(String, u64), Instant>,
 }
 
+impl ChainState {
+  fn usable(&self, repository: &str, token: &Token) -> bool {
+    let key = token.key();
+    !self.rejected.contains(&key) && self.no_access.get(&(repository.to_string(), key)).is_none_or(|since| since.elapsed() >= NO_ACCESS_RETRY)
+  }
+}
+
+/// How long the answer of a process source (a token or none) is kept: `gh auth login` or a new git credential is seen
+/// this long after it at the latest; the app's own sign-in and sign-out forget at once (`forget`)
+pub const SOURCE_TTL: Duration = Duration::from_secs(30);
+
+/// A source whose answer is kept: git's credentials are per repository (its config, `credential.useHttpPath`)
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum SourceKey {
+  Gh,
+  BranchDeck,
+  GitCredential { repository_path: String, repository: String },
+}
+
+/// The last answer of a source and when it came; the async mutex around it is the single flight of the source
+type SourceSlot = Arc<tokio::sync::Mutex<Option<(Instant, Option<Token>)>>>;
+
 pub struct TokenChain {
   sources: TokenSources,
   git: GitCommandExecutor,
-  state: tokio::sync::Mutex<ChainState>,
+  /// Held only to read or write, never across a source: an accepted repository answers while another's `git
+  /// credential fill` runs
+  state: std::sync::Mutex<ChainState>,
+  /// By source: one read at a time (concurrent first requests run `gh` once), its answer kept for `SOURCE_TTL`
+  reads: std::sync::Mutex<HashMap<SourceKey, SourceSlot>>,
 }
 
 impl TokenChain {
@@ -114,26 +142,25 @@ impl TokenChain {
     Self {
       sources,
       git,
-      state: tokio::sync::Mutex::new(ChainState::default()),
+      state: std::sync::Mutex::new(ChainState::default()),
+      reads: std::sync::Mutex::new(HashMap::new()),
     }
+  }
+
+  fn state(&self) -> std::sync::MutexGuard<'_, ChainState> {
+    self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
   }
 
   /// The token to ask about `repository` (`owner/name`) with: the one GitHub last accepted, else the first source's
   /// that is not rejected for it. `repository_path` is where git reads the credential config.
   #[instrument(skip(self))]
   pub async fn token(&self, repository_path: &str, repository: &str) -> Option<Token> {
-    // held while the sources run: two refreshes at once don't start two `gh` processes
-    let state = self.state.lock().await;
-    if let Some(token) = state.accepted.get(repository) {
+    if let Some(token) = self.state().accepted.get(repository) {
       return Some(token.clone());
     }
-    let usable = |token: &Token| {
-      let key = token.key();
-      !state.rejected.contains(&key) && state.no_access.get(&(repository.to_string(), key)).is_none_or(|since| since.elapsed() >= NO_ACCESS_RETRY)
-    };
     for source in SOURCE_ORDER {
-      if let Some(token) = self.read_source(source, repository_path, repository).await
-        && usable(&token)
+      if let Some(token) = self.source_token(source, repository_path, repository).await
+        && self.state().usable(repository, &token)
       {
         return Some(token);
       }
@@ -144,15 +171,38 @@ impl TokenChain {
   /// Where the token comes from that the chain would take first, without git (its credentials are per repository):
   /// for Settings
   pub async fn first_source(&self) -> Option<TokenSource> {
-    let state = self.state.lock().await;
     for source in [TokenSource::Environment, TokenSource::Gh, TokenSource::BranchDeck] {
-      if let Some(token) = self.read_source(source, "", "").await
-        && !state.rejected.contains(&token.key())
+      if let Some(token) = self.source_token(source, "", "").await
+        && !self.state().rejected.contains(&token.key())
       {
         return Some(source);
       }
     }
     None
+  }
+
+  /// The token of `source`: the environment as it is, a process or a file source once per `SOURCE_TTL`, with the
+  /// callers that ask meanwhile waiting for that one read
+  async fn source_token(&self, source: TokenSource, repository_path: &str, repository: &str) -> Option<Token> {
+    let key = match source {
+      TokenSource::Environment => return self.read_source(source, repository_path, repository).await,
+      TokenSource::Gh => SourceKey::Gh,
+      TokenSource::BranchDeck => SourceKey::BranchDeck,
+      TokenSource::GitCredential => SourceKey::GitCredential {
+        repository_path: repository_path.to_string(),
+        repository: repository.to_string(),
+      },
+    };
+    let slot = Arc::clone(self.reads.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(key).or_default());
+    let mut read = slot.lock().await;
+    if let Some((at, token)) = &*read
+      && at.elapsed() < SOURCE_TTL
+    {
+      return token.clone();
+    }
+    let token = self.read_source(source, repository_path, repository).await;
+    *read = Some((Instant::now(), token.clone()));
+    token
   }
 
   /// The token of `source`; a process source runs off the async workers
@@ -184,8 +234,8 @@ impl TokenChain {
   }
 
   /// GitHub answered `repository` with `token`
-  pub async fn accept(&self, repository: &str, token: &Token) {
-    let mut state = self.state.lock().await;
+  pub fn accept(&self, repository: &str, token: &Token) {
+    let mut state = self.state();
     if state.accepted.get(repository) != Some(token) {
       info!(repository, source = ?token.source, "GitHub accepted the token");
       state.accepted.insert(repository.to_string(), token.clone());
@@ -193,8 +243,8 @@ impl TokenChain {
   }
 
   /// GitHub rejected `token` (401): it is not sent again for any repository
-  pub async fn reject(&self, token: &Token) {
-    let mut state = self.state.lock().await;
+  pub fn reject(&self, token: &Token) {
+    let mut state = self.state();
     warn!(source = ?token.source, "GitHub rejected the token");
     let key = token.key();
     state.rejected.insert(key);
@@ -202,8 +252,8 @@ impl TokenChain {
   }
 
   /// `token` can't see `repository`: the next source is tried for it
-  pub async fn deny(&self, repository: &str, token: &Token) {
-    let mut state = self.state.lock().await;
+  pub fn deny(&self, repository: &str, token: &Token) {
+    let mut state = self.state();
     warn!(repository, source = ?token.source, "the token can't see the repository");
     state.no_access.insert((repository.to_string(), token.key()), Instant::now());
     if state.accepted.get(repository) == Some(token) {
@@ -211,11 +261,13 @@ impl TokenChain {
     }
   }
 
-  /// Forgets what GitHub accepted and denied: a new token was stored or removed
-  pub async fn forget(&self) {
-    let mut state = self.state.lock().await;
+  /// Forgets what GitHub accepted and denied and what the sources answered: a new token was stored or removed
+  pub fn forget(&self) {
+    let mut state = self.state();
     state.accepted.clear();
     state.no_access.clear();
+    // a read in flight keeps its own slot: its answer is not kept
+    self.reads.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
   }
 }
 

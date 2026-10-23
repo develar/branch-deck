@@ -155,9 +155,17 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`a_timed_command_is_killed_after_its_timeout`)
 - The token GitHub accepted is kept per repository. A token GitHub rejects (401) is never sent again and the next one is
   tried in the same request; one that can't see the repository is skipped for it for 10 minutes. A new `gh auth login`
-  takes effect without a restart.
+  takes effect without a restart, within 30 s.
   [@test] ../../crates/github/src/service_test.rs (`a_rejected_token_is_followed_by_the_next_source_and_not_sent_again`)
   [@test] ../../crates/github/src/service_test.rs (`a_listing_without_access_tries_the_next_token_and_remembers_why_all_failed`)
+- A source that starts a process (`gh`, git) must run once for every request that asks while it runs, and its answer, a
+  token or none, must be kept 30 s, so the first requests of every repository at start run `gh` once and a signed-out
+  chain asks no process on every refresh; the app's sign-in and sign-out forget the answers at once. No request waits
+  for a source it does not ask: a repository whose token GitHub accepted answers while `git credential fill` of another
+  waits for a keychain.
+  [@test] ../../crates/github/src/token_test.rs (`five_first_requests_at_once_run_gh_once`)
+  [@test] ../../crates/github/src/token_test.rs (`a_signed_out_chain_asks_its_sources_once_a_while_and_again_after_a_sign_in`)
+  [@test] ../../crates/github/src/token_test.rs (`an_accepted_repository_answers_while_the_credential_of_another_is_read`)
 
 ### Requests
 

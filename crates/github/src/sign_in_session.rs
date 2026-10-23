@@ -86,7 +86,7 @@ impl GitHubSignInSession {
     let signed_in = self.finish(service, client_id, &code, generation).await;
     self.pending.lock().unwrap().take_if(|(pending, _)| *pending == generation);
     if signed_in.is_ok() {
-      service.tokens.forget().await;
+      service.tokens.forget();
     }
     signed_in
   }
@@ -129,7 +129,7 @@ impl GitHubSignInSession {
       .await
       .map_err(|e| e.to_string())?
       .map_err(|e| format!("Cannot remove the GitHub token: {e}"))?;
-    service.tokens.forget().await;
+    service.tokens.forget();
     Ok(())
   }
 

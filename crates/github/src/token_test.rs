@@ -86,19 +86,19 @@ async fn the_chain_takes_the_first_source_and_skips_rejected_tokens() {
   assert_eq!(chain.token(path, "acme/monorepo").await, Some(environment.clone()));
 
   // a rejected token is skipped everywhere
-  chain.reject(&environment).await;
+  chain.reject(&environment);
   assert_eq!(chain.token(path, "acme/monorepo").await, Some(from_gh.clone()));
   assert_eq!(chain.token(path, "acme/other").await, Some(from_gh.clone()));
 
   // a token that can't see one repository is still tried for another
-  chain.deny("acme/monorepo", &from_gh).await;
+  chain.deny("acme/monorepo", &from_gh);
   assert_eq!(chain.token(path, "acme/monorepo").await, None);
   assert_eq!(chain.token(path, "acme/other").await, Some(from_gh.clone()));
 
   // the accepted token is kept; forgetting tries again what was denied
-  chain.accept("acme/other", &from_gh).await;
+  chain.accept("acme/other", &from_gh);
   assert_eq!(chain.token(path, "acme/other").await, Some(from_gh.clone()));
-  chain.forget().await;
+  chain.forget();
   assert_eq!(chain.token(path, "acme/monorepo").await, Some(from_gh));
 }
 
@@ -125,11 +125,87 @@ async fn the_sign_in_of_the_app_comes_after_gh_and_before_git() {
     repo.git_executor().clone(),
   );
   assert_eq!(chain.first_source().await, Some(TokenSource::Gh));
-  chain.reject(&token("from-gh", TokenSource::Gh)).await;
+  chain.reject(&token("from-gh", TokenSource::Gh));
   assert_eq!(chain.token(path, "acme/monorepo").await, Some(token("from-app", TokenSource::BranchDeck)));
   assert_eq!(chain.first_source().await, Some(TokenSource::BranchDeck));
-  chain.reject(&token("from-app", TokenSource::BranchDeck)).await;
+  chain.reject(&token("from-app", TokenSource::BranchDeck));
   assert_eq!(chain.token(path, "acme/monorepo").await, Some(token("from-git", TokenSource::GitCredential)));
   // git has credentials per repository: Settings names no source
   assert_eq!(chain.first_source().await, None);
+}
+
+/// A chain whose only source is a fake `gh` in `dir` that runs `body` after it counted its run in `dir/runs`
+fn counting_gh_chain(repo: &TestRepo, dir: &std::path::Path, body: &str) -> TokenChain {
+  let gh = fake_executable(dir, "gh", &format!("echo run >> '{}'\n{body}", shell_path(&dir.join("runs"))));
+  TokenChain::new(
+    TokenSources {
+      gh: GhSource::At(gh),
+      ..TokenSources::default()
+    },
+    repo.git_executor().clone(),
+  )
+}
+
+fn runs(dir: &std::path::Path) -> usize {
+  std::fs::read_to_string(dir.join("runs")).map_or(0, |runs| runs.lines().count())
+}
+
+#[tokio::test]
+async fn five_first_requests_at_once_run_gh_once() {
+  let repo = TestRepo::new();
+  let path = repo.path().to_str().unwrap();
+  let dir = tempfile::tempdir().unwrap();
+  let chain = counting_gh_chain(&repo, dir.path(), "sleep 0.3\necho from-gh");
+  let ask = || chain.token(path, "acme/monorepo");
+  let tokens = tokio::join!(ask(), ask(), ask(), ask(), ask());
+  let from_gh = Some(token("from-gh", TokenSource::Gh));
+  assert_eq!([tokens.0, tokens.1, tokens.2, tokens.3, tokens.4], std::array::from_fn(|_| from_gh.clone()));
+  assert_eq!(runs(dir.path()), 1);
+  // the answer is kept: another repository asks no process either
+  assert_eq!(chain.token(path, "acme/other").await, from_gh);
+  assert_eq!(runs(dir.path()), 1);
+}
+
+#[tokio::test]
+async fn a_signed_out_chain_asks_its_sources_once_a_while_and_again_after_a_sign_in() {
+  let repo = TestRepo::new();
+  let path = repo.path().to_str().unwrap();
+  let dir = tempfile::tempdir().unwrap();
+  let chain = counting_gh_chain(&repo, dir.path(), "exit 1");
+  assert_eq!(chain.token(path, "acme/monorepo").await, None);
+  assert_eq!(chain.token(path, "acme/monorepo").await, None);
+  assert_eq!(chain.first_source().await, None);
+  assert_eq!(runs(dir.path()), 1);
+  // the app's sign-in or sign-out forgets what the sources answered
+  chain.forget();
+  assert_eq!(chain.token(path, "acme/monorepo").await, None);
+  assert_eq!(runs(dir.path()), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_accepted_repository_answers_while_the_credential_of_another_is_read() {
+  let dir = tempfile::tempdir().unwrap();
+  let started = dir.path().join("started");
+  let (repo, _helper_dir) = repo_with_helper(&format!("touch '{}'\nsleep 3\necho username=me\necho password=from-git", shell_path(&started)));
+  let path = repo.path().to_str().unwrap().to_string();
+  let chain = std::sync::Arc::new(TokenChain::new(
+    TokenSources {
+      git_credential: true,
+      ..TokenSources::default()
+    },
+    repo.git_executor().clone(),
+  ));
+  let from_git = token("from-git", TokenSource::GitCredential);
+  chain.accept("acme/monorepo", &from_git);
+  let slow = tokio::spawn({
+    let (chain, path) = (std::sync::Arc::clone(&chain), path.clone());
+    async move { chain.token(&path, "acme/other").await }
+  });
+  while !started.exists() {
+    tokio::time::sleep(Duration::from_millis(10)).await;
+  }
+  let asked = std::time::Instant::now();
+  assert_eq!(chain.token(&path, "acme/monorepo").await, Some(from_git.clone()));
+  assert!(asked.elapsed() < Duration::from_millis(100), "{:?}", asked.elapsed());
+  assert_eq!(slow.await.unwrap(), Some(from_git));
 }

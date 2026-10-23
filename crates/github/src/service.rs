@@ -66,13 +66,13 @@ impl GitHubService {
       }
       match request(self.client.clone(), token.value.clone()).await {
         Ok(value) => {
-          self.tokens.accept(repository, &token).await;
+          self.tokens.accept(repository, &token);
           self.denied.lock().unwrap().remove(repository);
           return Ok(value);
         }
-        Err(GitHubError::Unauthorized) => self.tokens.reject(&token).await,
+        Err(GitHubError::Unauthorized) => self.tokens.reject(&token),
         Err(error @ (GitHubError::NoAccess { .. } | GitHubError::SsoRequired { .. })) if kind == RequestKind::Listing => {
-          self.tokens.deny(repository, &token).await;
+          self.tokens.deny(repository, &token);
           let denied = GitHubFailure::Failed { error, source: token.source };
           self.denied.lock().unwrap().insert(repository.to_string(), denied.clone());
           failure = Some(denied);
