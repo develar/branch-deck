@@ -423,6 +423,145 @@ fn a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges() {
   assert!(found[1].2.contains(&link("ControlOwner", Evidence::Qualified)), "{found:?}");
 }
 
+const EXECUTE_BEFORE: &str = "use std::path::PathBuf;\n\npub fn run(_: PathBuf) {}\n\n#[cfg(test)]\nmod tests;\n";
+const EXECUTE_WITH_PATH: &str = "use std::path::{Path, PathBuf};\n\npub fn run(_: PathBuf) {}\n\nfn plan(_: &Path) {}\n\n#[cfg(test)]\nmod tests;\n";
+
+/// The edges of a range over the crate `bins/bt`: the first commit gives `src/execute.rs` the private import of
+/// `Path` (`EXECUTE_WITH_PATH`), the second writes `files`; `tests` is `src/execute/tests.rs` before the range
+fn after_the_import_of_path(tests: &str, files: &[(&str, Option<&str>)]) -> Vec<Edge> {
+  let mut range = Range::default();
+  range
+    .baseline(&[("bins/bt/src/execute.rs", EXECUTE_BEFORE), ("bins/bt/src/execute/tests.rs", tests)])
+    .commit(&[("bins/bt/src/execute.rs", Some(EXECUTE_WITH_PATH))])
+    .commit(files);
+  let cargo = [file("Cargo.toml")];
+  edges(&range.graph(&[("bins/bt", &cargo)], &[("bins/bt", "bt")], &[]))
+}
+
+const TESTS_BEFORE: &str = "use super::*;\n\nfn check() {}\n";
+
+/// A test module gets the private imports of its parent through `use super::*`: a commit that uses `Path` there, as a
+/// type or in `Path::new`, needs the commit that imports it in the parent (the Safe Push of bt-remote-host,
+/// whose `bt_test` did not compile without the commit of lane-sharding), and a use in the parent's own file needs it
+/// too
+#[test]
+fn a_rust_use_of_a_name_another_commit_imports_is_an_edge() {
+  let tests = |body: &str| format!("{TESTS_BEFORE}\n{body}");
+  assert_eq!(
+    after_the_import_of_path(TESTS_BEFORE, &[("bins/bt/src/execute/tests.rs", Some(&tests("fn create_dir_all(_: &Path) {}\n")))]),
+    [(1, 0, vec![link("Path", Evidence::StarImport)])]
+  );
+  assert_eq!(
+    after_the_import_of_path(TESTS_BEFORE, &[("bins/bt/src/execute/tests.rs", Some(&tests("fn root() { let _ = Path::new(\"/\"); }\n")))]),
+    [(1, 0, vec![link("Path", Evidence::StarImport)])],
+    "`Path::new`"
+  );
+  assert_eq!(
+    after_the_import_of_path(
+      TESTS_BEFORE,
+      &[("bins/bt/src/execute/tests.rs", Some(&tests("use super::Path;\n\nfn root(_: &Path) {}\n")))]
+    ),
+    [(1, 0, vec![link("Path", Evidence::Import)])],
+    "a `use` of the parent's import"
+  );
+  let parent = EXECUTE_WITH_PATH.replace("fn plan(_: &Path) {}\n", "fn plan(_: &Path) {}\n\nfn root(_: &Path) {}\n");
+  assert_eq!(
+    after_the_import_of_path(TESTS_BEFORE, &[("bins/bt/src/execute.rs", Some(&parent))]),
+    [(1, 0, vec![link("Path", Evidence::SameFile)])],
+    "the file of the import"
+  );
+}
+
+/// A name the module of the use binds itself wins over a glob import, so it needs no import of the parent; nor does a
+/// use through a second glob import, which may bring the same item; a qualified path names the item itself; and a
+/// private import is no name of a module beside its own
+#[test]
+fn a_rust_use_that_needs_no_import_of_another_commit_is_no_edge() {
+  let own_import = "use super::*;\nuse std::path::Path;\n\nfn check() {}\n";
+  assert_eq!(
+    after_the_import_of_path(own_import, &[("bins/bt/src/execute/tests.rs", Some(&format!("{own_import}\nfn root(_: &Path) {{}}\n")))]),
+    [],
+    "its own import"
+  );
+  let two_globs = "use super::*;\nuse std::path::*;\n\nfn check() {}\n";
+  assert_eq!(
+    after_the_import_of_path(two_globs, &[("bins/bt/src/execute/tests.rs", Some(&format!("{two_globs}\nfn root(_: &Path) {{}}\n")))]),
+    [],
+    "a second glob import"
+  );
+  let qualified = EXECUTE_WITH_PATH.replace("fn plan(_: &Path) {}\n", "fn plan(_: &Path) {}\n\nfn root(_: &std::path::Path) {}\n");
+  assert_eq!(
+    after_the_import_of_path(TESTS_BEFORE, &[("bins/bt/src/execute.rs", Some(&qualified))]),
+    [],
+    "a qualified path"
+  );
+  assert_eq!(
+    after_the_import_of_path(TESTS_BEFORE, &[("bins/bt/src/other.rs", Some("fn root(_: &crate::execute::Path) {}\n"))]),
+    [],
+    "another module"
+  );
+}
+
+/// A use of an item another commit adds, through an import a third commit adds, needs both: the import is no
+/// alternative to the item
+#[test]
+fn a_rust_use_needs_the_import_beside_the_item() {
+  let mut range = Range::default();
+  range
+    .baseline(&[("bins/bt/src/execute.rs", "pub fn run() {}\n")])
+    .commit(&[("bins/bt/src/shard.rs", Some("pub struct Shard;\n"))])
+    .commit(&[("bins/bt/src/execute.rs", Some("use crate::shard::Shard;\n\npub fn run() {}\n"))])
+    .commit(&[(
+      "bins/bt/src/execute.rs",
+      Some("use crate::shard::Shard;\n\npub fn run() {}\n\nfn first() -> Shard { Shard }\n"),
+    )]);
+  let cargo = [file("Cargo.toml")];
+  assert_eq!(
+    edges(&range.graph(&[("bins/bt", &cargo)], &[("bins/bt", "bt")], &[])),
+    [
+      (1, 0, vec![link("Shard", Evidence::Import)]),
+      (2, 0, vec![link("Shard", Evidence::Import)]),
+      (2, 1, vec![link("Shard", Evidence::SameFile)]),
+    ]
+  );
+}
+
+/// A TypeScript import and a Kotlin alias bind their names in their own file only
+#[test]
+fn a_use_of_a_name_another_commit_imports_in_the_same_file_is_an_edge() {
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("src/lib/stack.ts", "export function stackLead(name: string): string {\n  return name;\n}\n"),
+      ("src/lib/use.ts", "export const first = 1;\n"),
+      (
+        "src/a/Owner.kt",
+        "package a\n\nclass Owner {\n  companion object {\n    fun create(): Owner = Owner()\n  }\n}\n",
+      ),
+      ("src/b/Use.kt", "package b\n\nfun start() = 1\n"),
+    ])
+    .commit(&[
+      ("src/lib/use.ts", Some("import { stackLead } from \"./stack\";\n\nexport const first = 1;\n")),
+      ("src/b/Use.kt", Some("package b\n\nimport a.Owner as Boss\n\nfun start() = 1\n")),
+    ])
+    .commit(&[
+      (
+        "src/lib/use.ts",
+        Some("import { stackLead } from \"./stack\";\n\nexport const first = 1;\nexport const lead = stackLead(\"a\");\n"),
+      ),
+      (
+        "src/b/Use.kt",
+        Some("package b\n\nimport a.Owner as Boss\n\nfun start() = 1\n\nfun boss() = Boss.create()\n"),
+      ),
+    ])
+    .commit(&[("src/lib/other.ts", Some("export const other = stackLead(\"b\");\n"))]);
+  let web = [file("package.json"), file("tsconfig.json")];
+  assert_eq!(
+    edges(&range.graph(&[("", &web)], &[], &[])),
+    [(1, 0, vec![link("Boss", Evidence::SameFile), link("stackLead", Evidence::SameFile)])]
+  );
+}
+
 const MANIFEST_BEFORE: &str = "pub struct Manifest {\n  pub name: String,\n}\n";
 
 /// The links of the one edge from a commit that writes `source` in `avl_guest` to a commit of `avl_trace` that adds an

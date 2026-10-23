@@ -188,6 +188,17 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   the type's path resolved as for a static member. A member on a value (`manifest.stills`, `self.stills`) or through
   `Self` must be no edge: the summary knows no type of a Rust value.
   [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_item_of_an_item_macro_and_a_field_by_its_struct_are_edges`, `a_rust_field_on_a_value_is_no_edge`)
+- A name that a private import of the range binds (a Rust `use`, a TypeScript import, a Kotlin alias) must be an edge
+  by a bare use where the import reaches: its own file, and in Rust its module and the modules below it, through
+  `use super::*`, `use super::Path` or `super::Path` (`Path` of a `use std::path::{Path, PathBuf}` in `execute.rs`,
+  used in `execute/tests.rs`, also in `Path::new`). The import must be needed beside the declaration it names, never
+  instead of it: a use of an item one commit adds, through an import another commit adds, needs both commits.
+  [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_use_of_a_name_another_commit_imports_is_an_edge`, `a_rust_use_needs_the_import_beside_the_item`, `a_use_of_a_name_another_commit_imports_in_the_same_file_is_an_edge`)
+- A use that needs no import of another commit must be no edge: in Rust a name the module of the use binds itself (an
+  item or an import of its file), which wins over a glob import; an import of the parent reached through a glob
+  import beside a second glob import, which may bring the same item; a qualified path (`std::path::Path`), which names
+  the item itself; and a private import from a module that is not its own or below it.
+  [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_use_that_needs_no_import_of_another_commit_is_no_edge`)
   [@test] ../../crates/code-symbols/src/rust_test.rs (`references`)
 - A call of a function of the same package without an import must be no edge, nor a type of the same package in
   another module.

@@ -70,7 +70,8 @@ flowchart TD
    one; a stack or the order of two Safe Pushes satisfies it, and `merge-tree` can never refute it. Joining units by
    it would fuse every issue that uses a shared helper into one branch.
 
-2. **Decision**: the index is the declarations the range adds or changes, not the repository.
+2. **Decision**: the index is the declarations the range adds or changes, the names its imports bind among them
+   (decision 19), not the repository.
    **Rationale**: only those can make one commit of the range need another, and they are a few hundred even in a
    monorepo of 1.4 million files; no build, no language server and no index of the tree is needed. A member key a
    commit changes brings the overloads its file had before the range along (decision 7).
@@ -557,6 +558,24 @@ flowchart TD
     in the syntax; a value's type needs a compiler, and the Rust summary keeps none (no `value_type`, decision 13 is of
     Kotlin and Java), and `Self` means the type only in its own impl, the same file. The checks of decision 15 resolve
     the same way, so a removed field or method used by its type in another file is found there too.
+
+19. **Decision**: the name that a private import of the range binds (a Rust `use`, a TypeScript import, a Kotlin
+    alias; a `Binding` of the summary) is an entry of its own. A bare use links to it where the import reaches: its file,
+    and in Rust its module and the modules below it (a glob `use super::*`, `use super::Path`, `super::Path`); a
+    qualified path names the item, not the import. It is needed beside the declaration the import names, never instead
+    of it: the private bindings are resolved apart from the declarations and the re-exports (`of_kind`), because the
+    entries of one name are alternatives (decision 7), and a use needs the commit of the item and the commit of the
+    import. In Rust a name the module binds itself (an item or an import of its file) wins over a glob import, and an
+    import of the parent reached through a glob import is no edge beside a second glob import, which may bring the same
+    item.
+    **Rationale**: the Safe Push of `bt-remote-host` (robot `3ce3d8d4`, 2026-10-23) failed on
+    `//tools/bt/bins/bt:bt_test`: its commit added `fn create_dir_all(&self, path: &Path)` to `execute/tests.rs`, whose
+    `Path` came through `use super::*` from the `use std::path::{Path, PathBuf}` that a commit of `lane-sharding`
+    below it had given `execute.rs`. Only a `pub use` was an entry then, so the branch had no edge and was built alone on
+    master; its insertion next to the lines that commit rewrote conflicted, the conflict resolved by words, and the
+    landing gate found no missing declaration. With the import an entry, the gate refuses such a start as it refuses any
+    `MissingDeclaration`. A Java import and a Kotlin import without an alias bind no name in the summary, so a use of
+    such an import of another commit in the same file is still no edge: a limit.
 
 ### Implementation Notes
 

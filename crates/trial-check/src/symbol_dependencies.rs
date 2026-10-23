@@ -12,6 +12,10 @@
 //!   override in a subtype whose supertype resolves. A call of a function of the same package without an import, or a
 //!   member of an unknown receiver, is no evidence: Kotlin's implicit receivers and extensions decide those, which only
 //!   a compiler sees.
+//! - **An import is a name too.** The name a private import of the range binds (a Rust `use`, a TypeScript import, a
+//!   Kotlin alias) is needed beside the declaration it names, by a bare use (`Path`, also of `Path::new`), where the
+//!   import reaches: its file, and in Rust its module and the modules below (`use super::*`). It is no alternative to the
+//!   declaration (`of_kind`): a use needs both commits.
 //! - **A key has entries.** The key of a JVM type or a member of one holds each overload and constructor with the
 //!   step that made its form (`Entry`, `Origin`); a use needs the newest commit before its own that every entry it may
 //!   mean needs (`steps_of`, `lineage`), told apart by its arguments where they can (`accepts_call`). A commit whose
@@ -27,6 +31,7 @@ use crate::symbol_scan::{SymbolInput, TsAliases, join, normalize};
 use code_symbols::language::{Family, Language};
 use code_symbols::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, ImportTarget, MemberKind, Parameter, Reach, Reference, Role, Shape, Signature, TypeRef};
 use object_cache::commit_diff::FileChange;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
@@ -204,7 +209,7 @@ struct Origin<'a> {
 
 /// The entries of a key the range added or changed so far, of two kinds that one key may hold together (a factory
 /// `fun Foo(): Foo` beside `class Foo`). A use judges each kind as the entries of a key of its own
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct KeyState<'a> {
   /// Those of a JVM type, its constructors included, or of a member of one, all in the file of the type, with their
   /// forms (`has_entries`)
@@ -303,12 +308,48 @@ fn aliases_of<'a>(roots: &ModuleRoots, aliases: &'a HashMap<String, TsAliases>, 
     .find_map(|(config, _)| aliases.get(config.rsplit_once('/').map_or("", |(dir, _)| dir)))
 }
 
-/// Whether a declaration can be used from other files at all: a binding of an import only where it is re-exported
-fn is_exported(declaration: &Declaration, summary: &FileSummary) -> bool {
-  match declaration.kind {
-    DeclKind::Binding => summary.imports.iter().any(|import| import.exported && import.line == declaration.name_line),
-    _ => true,
+/// Whether a declaration is the binding of an import that passes no name on: one the use needs beside the declaration
+/// it names, not instead of it (`of_kind`). A `pub use` re-exports, so a use through it means it as a declaration
+fn is_private_binding(site: &Site<'_>) -> bool {
+  let declaration = site.declaration;
+  declaration.kind == DeclKind::Binding && !site.ctx.summary.imports.iter().any(|import| import.exported && import.line == declaration.name_line)
+}
+
+/// The candidates of a name of one kind: the declarations and the re-exports, one of which a use means, or the private
+/// bindings of imports (`is_private_binding`), which it needs beside the declaration it means; borrowed when all are of
+/// that kind
+fn of_kind<'m, 'a>(candidates: &'m BTreeMap<String, KeyState<'a>>, bindings: bool) -> Cow<'m, BTreeMap<String, KeyState<'a>>> {
+  let fits = |entry: &Entry<'_>| is_private_binding(&entry.site) == bindings;
+  if candidates.values().flat_map(|state| state.entries.iter().chain(&state.present)).all(fits) {
+    return Cow::Borrowed(candidates);
   }
+  Cow::Owned(
+    candidates
+      .iter()
+      .filter_map(|(key, state)| {
+        let state = KeyState {
+          entries: state.entries.iter().filter(|entry| fits(entry)).cloned().collect(),
+          present: state.present.iter().filter(|entry| fits(entry)).cloned().collect(),
+        };
+        (!state.entries.is_empty() || !state.present.is_empty()).then(|| (key.clone(), state))
+      })
+      .collect(),
+  )
+}
+
+/// What `reference` needs of the candidates of its name of one kind (`of_kind`): the commit, the name and the file of
+/// the declaration, and the evidence
+fn resolve_kind(
+  input: &SymbolInput,
+  use_site: &UseSite<'_>,
+  reference: &Reference,
+  candidates: &BTreeMap<String, KeyState<'_>>,
+  bindings: bool,
+  position: usize,
+) -> Option<(usize, String, String, Evidence)> {
+  let candidates = of_kind(candidates, bindings);
+  let (owner, entry, evidence) = resolve_use(input, use_site, reference, &candidates, position)?;
+  Some((owner, entry.site.name().to_string(), entry.file.to_string(), evidence))
 }
 
 /// Line ranges `[start, end)`
@@ -529,7 +570,7 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
       for reference in use_site.summary.references.iter().filter(|reference| in_ranges(&added_lines, reference.line)) {
         let direct = index
           .get(use_site.summary.name(reference.name))
-          .and_then(|candidates| resolve_use(input, use_site, reference, candidates, position));
+          .and_then(|candidates| resolve_kind(input, use_site, reference, candidates, false, position));
         // else a property of the other JVM language by its accessor, its key unchanged
         let found = direct.or_else(|| {
           accessor_names(use_site, reference).into_iter().find_map(|(name, accessor)| {
@@ -538,19 +579,22 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
               accessor: Some(accessor),
               ..use_site.clone()
             };
-            resolve_use(input, &ctx, reference, candidates, position)
+            resolve_kind(input, &ctx, reference, candidates, false, position)
           })
         });
-        let Some((owner, entry, evidence)) = found else {
-          continue;
-        };
-        edges.entry((position, owner)).or_default().push(SymbolLink {
-          name: entry.site.name().to_string(),
-          declared_in: entry.file.to_string(),
-          used_in: change.path.clone(),
-          line: reference.line,
-          evidence,
-        });
+        // and beside it the import that binds its name
+        let bound = index
+          .get(use_site.summary.name(reference.name))
+          .and_then(|candidates| resolve_kind(input, use_site, reference, candidates, true, position));
+        for (owner, name, declared_in, evidence) in found.into_iter().chain(bound) {
+          edges.entry((position, owner)).or_default().push(SymbolLink {
+            name,
+            declared_in,
+            used_in: change.path.clone(),
+            line: reference.line,
+            evidence,
+          });
+        }
       }
     }
 
@@ -803,10 +847,10 @@ fn sites_of_key<'a>(ctx: &'a FileCtx<'a>, site: &Site<'_>) -> Vec<Site<'a>> {
     .collect()
 }
 
-/// Whether a declaration a commit adds may be an entry: not misread (a degraded file, a parse error around it) and
-/// visible to other files (`is_exported`)
+/// Whether a declaration a commit adds may be an entry: not misread (a degraded file, a parse error around it). The
+/// binding of a private import is one too, which only the uses where the import reaches find (`resolve_any`)
 fn is_clean_addition(site: &Site<'_>) -> bool {
-  !site.ctx.summary.is_degraded() && !site.declaration.in_error && is_exported(site.declaration, site.ctx.summary)
+  !site.ctx.summary.is_degraded() && !site.declaration.in_error
 }
 
 /// The entries of a key only present or absent that move to the declarations of their key in another version of their
@@ -1497,6 +1541,11 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
     return resolve_override(use_site, reference, qualifier, site);
   }
   if use_site.path == site.ctx.path {
+    // an import binds a bare name in the containers it is in: a qualified one names its own path, and the name of an
+    // import is that of another
+    if site.declaration.kind == DeclKind::Binding && (reference.qualifier.is_some() || reference.role == Role::Import || !contains(use_site.summary, reference, &site.containers)) {
+      return None;
+    }
     // the extraction drops locals; a private member is used only in the containers that see it (`private_scope`), and
     // neither a name qualified by another type nor an extension called on anything but `this` is a use of it
     if names_another_type(use_site.summary, qualifier, site) || on_unknown_receiver(qualifier, site) || of_another_receiver(use_site.summary, reference, site) {
@@ -2391,7 +2440,12 @@ fn resolve_rust(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referen
           ImportTarget::Name(imported) if summary.name(imported) == name && binds(import.alias, imported, reference) && is_item(path) => {
             return Some(Evidence::Import);
           }
-          ImportTarget::All if reference.qualifier.is_none() && is_item(path) => return Some(Evidence::StarImport),
+          // a name the module binds itself wins over a glob import; an import of the parent may name an item that a
+          // second glob brings in too
+          ImportTarget::All if reference.qualifier.is_none() && is_item(path) => {
+            let second_glob = || site.declaration.kind == DeclKind::Binding && summary.imports.iter().filter(|import| import.target == ImportTarget::All).nth(1).is_some();
+            return (!binds_itself(summary, reference, name) && !second_glob()).then_some(Evidence::StarImport);
+          }
           _ => {}
         }
       }
@@ -2418,6 +2472,17 @@ fn resolve_rust(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referen
         .then_some(Evidence::Qualified)
     }
   }
+}
+
+/// Whether the module of a Rust `reference` binds `name` itself, which wins over a glob import: an item or an import
+/// of the file, at its top or in a declaration around the reference
+fn binds_itself(summary: &FileSummary, reference: &Reference, name: &str) -> bool {
+  let Some(id) = summary.name_id(name) else { return false };
+  let around: Vec<u32> = outward(summary, reference.container).map(|(index, _)| index).collect();
+  summary
+    .declarations
+    .iter()
+    .any(|declaration| declaration.name == id && declaration.member == MemberKind::TopLevel && declaration.container.is_none_or(|container| around.contains(&container)))
 }
 
 /// Whether `reference` is the name an import of `imported` (as `alias`) binds, or the imported name in the import itself
