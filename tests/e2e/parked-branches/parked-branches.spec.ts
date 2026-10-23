@@ -301,14 +301,17 @@ test.describe("Parked branches", () => {
     const last = rows.last()
     await last.scrollIntoViewIfNeeded()
     const lastName = (await last.getAttribute("data-branch-name"))!
-    const before = (await last.boundingBox())!
+    // where the row is in the content of the list: a drag that rests near the bottom of the list scrolls it, as the
+    // browser does, into the room the bar gives at its end, which moves no row in the content
+    const contentTop = () => last.evaluate(row => row.getBoundingClientRect().top + row.closest("[data-testid=branches-view]")!.scrollTop)
+    const before = await contentTop()
 
     // nothing shows in the flow: the row stays under the pointer, the bar is over the bottom of the window
     await startDrag(page, last)
     const parkZone = dragBar(page).getByTestId("park-drop-zone")
     await expect(parkZone).toBeInViewport()
     await expect(dragBar(page).getByTestId("new-branch-drop-zone")).toBeInViewport()
-    expect((await last.boundingBox())!.y).toBeCloseTo(before.y, 0)
+    expect(await contentTop()).toBeCloseTo(before, 0)
     const bar = (await dragBar(page).boundingBox())!
     await runAndWaitForSync(page, () => dropAt(page, parkZone))
     await expect(toast(page, `Parked ${lastName}`)).toBeVisible()
