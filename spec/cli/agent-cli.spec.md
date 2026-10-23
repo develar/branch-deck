@@ -198,8 +198,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   error. Exit 1 must never be an error object: it is the output of a command that found a conflict (`state:
   "conflict"`, a branch not built, `ok: false`); a conflict bd refuses to work around is exit 4. `retryable` must be
   true only where the same command again can succeed: never for `lease_rejected` (a push
-  again with `--force` would drop what the remote has now) nor for a stale undo token (`undo_stale`).
+  again with `--force` would drop what the remote has now) nor for a stale undo token (`undo_stale`). It must be the
+  `retry` class of the code other than `no`, the one the app's `ApiError` carries: `same` for `locked` and
+  `network_error`, `after_reread` for the stale reads. The codes are one registry with the app: `canceled` (an action
+  the user stopped) exits with 4, `internal` (a failure without a code of its own, which the app answers; `bd` prints a
+  failure of git or IO as `git_error`) with 5.
   [@test] ../../crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
+  [@test] ../../crates/domain-types/src/error_test.rs (`an_error_without_a_code_of_its_own_is_internal_and_canceled_is_a_code`, `an_error_carries_the_retry_of_its_code`)
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
   with `invalid_arguments`, an unknown `--branch` with `unknown_branch`; all exit with 2.
   [@test] ../../crates/bd-remote/src/status_test.rs (`empty_prefix_is_an_error`, `not_a_repository`, `invalid_arguments`, `status_filters_and_pages`)

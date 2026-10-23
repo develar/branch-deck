@@ -1,6 +1,6 @@
 use crate::fixture_test::{environment, run_json};
 use bd_core::error::CONFLICT_EXIT;
-use domain_types::error::ErrorCode;
+use domain_types::error::{ErrorCode, Retry};
 use pretty_assertions::assert_eq;
 
 /// Every code with its exit code and whether the same command again may succeed: 2 invalid input, 3 stale (retry), 4
@@ -76,12 +76,23 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::GitError, 5, false),
   (ErrorCode::NetworkError, 5, true),
   (ErrorCode::PatronusError, 5, false),
+  (ErrorCode::Internal, 5, false),
+  (ErrorCode::Canceled, 4, false),
 ];
 
 #[test_log::test]
 fn every_error_code_has_the_exit_code_and_the_retry_of_its_class() {
   for &(code, exit_code, retryable) in CODES {
     assert_eq!((code.exit_code(), code.retryable()), (exit_code, retryable), "{code:?}");
+    // `retryable` is the retry class of the app's `ApiError`: a stale read retries after a new read, the rest as it is
+    let retry = if !retryable {
+      Retry::No
+    } else if exit_code == 3 && code != ErrorCode::Locked {
+      Retry::AfterReread
+    } else {
+      Retry::Same
+    };
+    assert_eq!(code.retry(), retry, "{code:?}");
     // a retry is for a stale read (exit 3) or the network, never for a refusal
     assert!(!retryable || exit_code == 3 || code == ErrorCode::NetworkError, "{code:?}");
     assert_ne!(exit_code, CONFLICT_EXIT, "{code:?}: a conflict is an output, never an error");

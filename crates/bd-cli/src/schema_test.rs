@@ -69,6 +69,8 @@ fn schema_lists_every_output() {
     "session_stale",
     "landed",
     "git_error",
+    "internal",
+    "canceled",
   ] {
     assert!(codes.contains(code), "{code} in {codes:?}");
   }

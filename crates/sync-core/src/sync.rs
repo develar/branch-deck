@@ -23,6 +23,7 @@ use branch_integration::detector::{archive_and_clean_up_listed, detect_archived_
 use branch_integration::strategy::DetectionStrategy;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use domain_types::commit::Commit;
+use domain_types::error::ErrorCode;
 use domain_types::issue_navigation::IssueNavigationConfig;
 use domain_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchUpdate};
 use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, GroupedBranchInfo, ProgressReporter, SyncEvent, UnappliedBranchInfo};
@@ -321,6 +322,16 @@ pub enum SyncDeferred {
   OperationInProgress(&'static str),
   #[error("Not synced: HEAD is detached")]
   DetachedHead,
+}
+
+impl SyncDeferred {
+  /// The stable code of the refusal
+  pub const fn code(&self) -> ErrorCode {
+    match self {
+      Self::OperationInProgress(_) => ErrorCode::OperationInProgress,
+      Self::DetachedHead => ErrorCode::DetachedHead,
+    }
+  }
 }
 
 /// Refuses a sync with `SyncDeferred` while HEAD is not on a branch the user works on; returns the branch. Two git

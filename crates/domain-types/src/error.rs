@@ -1,10 +1,11 @@
-//! The stable error codes of `bd`: the `code` of every error object it prints, with the exit code and the retry of
-//! its class. Agents branch on the code and the exit code, never on the message.
+//! The stable error codes: the `code` of every error object `bd` prints and of every error a command of the app
+//! answers (`ApiError`), with the exit code and the retry of its class. Agents and the page branch on the code (and
+//! the exit code), never on the message.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A stable error code. Agents branch on the code and the exit code, never on the message
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "snake_case")]
@@ -189,6 +190,11 @@ pub enum ErrorCode {
   NetworkError,
   /// A request to Patronus failed; `message` is its answer
   PatronusError,
+  /// A failure without a code of its own: `message` is the whole chain of its causes. `bd` prints `git_error` for a
+  /// failure of git or IO, as before; the app answers this code
+  Internal,
+  /// The user stopped it: a sign-in, a review fetch, an action of a CLI tool, the wait for a lock. Nothing more to show
+  Canceled,
 }
 
 impl ErrorCode {
@@ -256,16 +262,130 @@ impl ErrorCode {
       | Self::UnlandedCommits
       | Self::DirtyWorktree
       | Self::BranchExists
-      | Self::OtherVolume => 4,
-      Self::GitNotFound | Self::GitError | Self::NetworkError | Self::PatronusError => 5,
+      | Self::OtherVolume
+      | Self::Canceled => 4,
+      Self::GitNotFound | Self::GitError | Self::NetworkError | Self::PatronusError | Self::Internal => 5,
     }
   }
 
-  /// Whether running the same command again (after re-reading the state for a stale code) may succeed
+  /// What may succeed after this error: nothing (`No`), the same request again (`Same`: the holder of the lock finishes,
+  /// the network comes back), or the request built again from a new read of the state (`AfterReread`: HEAD or a store
+  /// moved, another round of the resolve session is open)
+  pub const fn retry(self) -> Retry {
+    match self {
+      Self::Locked | Self::NetworkError => Retry::Same,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::RoundMoved => Retry::AfterReread,
+      _ => Retry::No,
+    }
+  }
+
+  /// Whether running the same command again (after re-reading the state for a stale code) may succeed: the `retryable`
+  /// of `bd`
   pub const fn retryable(self) -> bool {
-    matches!(
-      self,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::RoundMoved | Self::Locked | Self::NetworkError
-    )
+    !matches!(self.retry(), Retry::No)
   }
 }
+
+/// What may succeed after an error (`ErrorCode::retry`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum Retry {
+  /// The same request fails again: the user decides
+  No,
+  /// The same request again may succeed, as it is
+  Same,
+  /// A request built again from a new read of the state may succeed; the same one fails again
+  AfterReread,
+}
+
+/// The error a command of the app answers, the same JSON from Tauri and from the E2E server: `{"code", "message",
+/// "details", "retry", "operation_id"}`. The page branches on `code` (and `details`), never on `message`, which is for
+/// the user
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[error("{message}")]
+pub struct ApiError {
+  pub code: ErrorCode,
+  pub message: String,
+  /// The data of the code, typed by it; null for a code without data
+  pub details: Option<ErrorDetails>,
+  /// `code.retry()`, so the page needn't know the classes
+  pub retry: Retry,
+  /// The operation that failed, the `operation_id` of its log lines (the key of its Activity entry); null for an error
+  /// raised outside one
+  pub operation_id: Option<String>,
+}
+
+impl ApiError {
+  pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+    Self {
+      code,
+      message: message.into(),
+      details: None,
+      retry: code.retry(),
+      operation_id: None,
+    }
+  }
+
+  /// A failure without a code of its own (`ErrorCode::Internal`)
+  pub fn internal(message: impl Into<String>) -> Self {
+    Self::new(ErrorCode::Internal, message)
+  }
+
+  #[must_use]
+  pub fn with_details(mut self, details: ErrorDetails) -> Self {
+    self.details = Some(details);
+    self
+  }
+}
+
+/// The data of an error code, tagged by its kind of data: `{"type": "conflict", "commits": [...], "paths": [...]}`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ErrorDetails {
+  /// The commit that conflicts and its files: `target_conflict`, `hunk_conflict`, `stack_conflict`,
+  /// `reapply_conflict`, `drop_conflict`
+  Conflict { commits: Vec<String>, paths: Vec<String> },
+  /// The files the error is about, relative to the repository: the local files of `uncommitted_overlap`
+  Paths { paths: Vec<String> },
+  /// The full names of the branches the error is about: the rejected ones of `lease_rejected`
+  Branches { branches: Vec<String> },
+  /// The ids of the blocks the file has now: `block_not_found`
+  Blocks { blocks: Vec<String> },
+  /// Who holds the repository lock: `locked`; `None` when the holder wrote no record
+  Locked { holder: Option<LockHolderInfo> },
+}
+
+/// The holder of the repository lock as the page names it: "`bd push auth` (pid 4242) has held the repository for 40 s"
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub struct LockHolderInfo {
+  pub tool: HolderTool,
+  /// Its command line, the program by its file name: `bd check --fix`
+  pub command: String,
+  pub pid: u32,
+  /// Seconds since it took the lock
+  pub held_for: u32,
+}
+
+/// Which program holds the lock
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum HolderTool {
+  /// The agent CLI
+  Bd,
+  /// Branch Deck, the app
+  App,
+}
+
+#[cfg(test)]
+#[path = "error_test.rs"]
+mod error_test;

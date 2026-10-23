@@ -105,18 +105,23 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume` |
-| 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `canceled` |
+| 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
 "The repository has no commits yet: commit to the main branch, then sync".
 
-The codes are `ErrorCode` of `crates/domain-types/src/error.rs` (its `exit_code` and `retryable`); `CliError`, the error
-object, is in `crates/bd-core/src/error.rs`.
+The codes are `ErrorCode` of `crates/domain-types/src/error.rs` (its `exit_code`, `retry` and `retryable`), one registry
+for `bd` and the app: a command of the app fails with `ApiError` of the same file, whose `code` is one of these. `CliError`,
+the error object of `bd`, is in `crates/bd-core/src/error.rs`. A typed error of a core names its code itself
+(`RegroupError::code`, `SyncDeferred::code`), so `bd` and the app read one mapping. `canceled` is an action the user
+stopped (the wait for a lock, a sign-in, a review fetch); `internal` is a failure without a code of its own, which the app
+answers, while `bd` prints a failure of git or IO as `git_error`.
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
 `retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `round_moved`, `locked` and `network_error`: retry when it is
-true, whatever the exit code. The message of `locked` names the holder when it wrote its record (`` `bd check --fix` (pid 4242, for 12
+true, whatever the exit code. It is the `retry` class of the code other than `no`: `same` (`locked`, `network_error`) runs
+the same command again, `after_reread` (`head_moved` and the other `*_moved`) builds it again from a new read. The message of `locked` names the holder when it wrote its record (`` `bd check --fix` (pid 4242, for 12
 min 3 s) holds …/branch-deck.lock (waited 10.0 s); retry when it is done``), else "Another Branch Deck operation".
 
 A write whose step after the write failed (the descriptions or the sync of `bd group --sync`, the sync of

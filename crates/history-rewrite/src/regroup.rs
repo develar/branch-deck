@@ -22,6 +22,7 @@ use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE};
 use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head, undo_over_drops};
 use domain_types::branch_names::sanitize_branch_name;
 use domain_types::commit::Commit;
+use domain_types::error::ErrorCode;
 use domain_types::stack::{StackProblem, StackProblemView, stack_path};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{StoreUpdate, WrittenStore, write_store_commits, write_store_updates};
@@ -292,6 +293,24 @@ impl RegroupError {
     } else {
       Self::GroupsMoved(moved)
     }
+  }
+
+  /// The stable code of the error; `None` for a failure without a code of its own (git, IO), which `bd` prints as
+  /// `git_error` and the app answers as `internal`. A refusal of fixups is `invalid_plan`: each surface adds its action
+  pub fn code(&self) -> Option<ErrorCode> {
+    Some(match self {
+      Self::InvalidPlan { .. } | Self::FixupsStranded { .. } => ErrorCode::InvalidPlan,
+      Self::NotAheadOfBaseline { .. } => ErrorCode::NotAheadOfBaseline,
+      Self::HeadMoved(_) => ErrorCode::HeadMoved,
+      Self::GroupsMoved(_) => ErrorCode::GroupsMoved,
+      Self::StacksMoved(_) => ErrorCode::StacksMoved,
+      Self::ParkedMoved(_) => ErrorCode::ParkedMoved,
+      Self::Locked(_) => ErrorCode::Locked,
+      Self::OperationInProgress(_) => ErrorCode::OperationInProgress,
+      Self::DetachedHead(_) => ErrorCode::DetachedHead,
+      Self::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
+      Self::Other(_) => return None,
+    })
   }
 
   /// The commits the error is about
