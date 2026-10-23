@@ -378,6 +378,13 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   window reads them, the review window its own request. So is "Request Review…": its button shows the spinner, a
   second click joins it.
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`creates_the_pull_request_assigns_the_user_and_asks_the_reviewers_except_the_author`, `without_the_assignee_and_reviewers_only_the_pull_request_is_created`, `a_refused_list_of_reviewers_is_asked_one_by_one_and_who_github_refuses_is_a_warning`, `an_assignee_github_leaves_out_or_refuses_is_a_warning_of_the_created_pull_request`, `a_rejected_token_writes_nothing`, `a_title_of_several_lines_is_refused_before_github_is_asked`)
+- The creation, "Continue on GitHub" and "Request Review…" belong to the repository they were asked in (the dialog of
+  the main window or of the review window, the popover): its path and branch prefix go with the request, so the push,
+  the pull request, its reviewers, the store and Activity are of that repository also when the main window opens
+  another during the push. The push reads the branches of the table: a switch before it sends nothing, and the action
+  fails with "idea-1 is no longer the open repository".
+  [@test] ../../src/stores/pull-requests.test.ts (`creates the pull request in the repository the dialog was opened in`, `asks the reviewers on the pull request of its repository, not on the one of the same branch selected now`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request asked from the review window in its repository when the main window opens another during its push`)
 - The result is one toast with "Open Pull Request", recorded in Activity: "Created pull request #123" / "feature-auth
   → master · review requested from alice · assigned to you", a `warning` toast whose description names what GitHub
   refused ("cannot request review from bob: …"). The pull request is in the row at once and stays there until

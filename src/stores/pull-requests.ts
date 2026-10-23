@@ -3,6 +3,7 @@ import { createStore } from "zustand/vanilla"
 import type { CreatedPullRequest, PullRequest, PullRequestAvailability, RequestedReviewers } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { isLogin } from "@/lib/create-pull-request"
+import type { VcsRequest } from "@/lib/git/vcs-request"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import type { RefreshReason } from "@/lib/refresh-gate"
@@ -290,15 +291,19 @@ async function closeOnGitHub(key: string, pullRequest: PullRequest, comment: str
  * review readiness reads the reviews of the pull request. A refresh follows. Throws what GitHub said when it refused the
  * request as a whole.
  */
-export async function requestReviewers(branchName: string, logins: readonly string[]): Promise<RequestedReviewers> {
-  const key = currentKey()
+export async function requestReviewers(branchName: string, logins: readonly string[], repository: VcsRequest): Promise<RequestedReviewers> {
+  // the repository the request was asked in: its pull request, also once the main window shows another repository
+  const key = repositoryKey(repository.repositoryPath, repository.branchPrefix)
   const root = stackRootOfReadinessKey(branchName)
-  const pullRequestOf = () => (root === null ? getPullRequest(branchName) : getStackPullRequest(root))
+  const pullRequestOf = () => {
+    const entry = pullRequestsStore.getState().repositories[key]
+    return root === null ? entry?.pullRequests[branchName] : entry?.stackPullRequests[root]
+  }
   const pullRequest = pullRequestOf()
-  if (key === null || pullRequest === undefined) {
+  if (pullRequest === undefined) {
     throw new Error(`${formatReadinessSubject(branchName)} has no pull request`)
   }
-  const result = await commands.requestPullRequestReviewers({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, reviewers: [...logins] })
+  const result = await commands.requestPullRequestReviewers({ repositoryPath: repository.repositoryPath, pullRequestNumber: pullRequest.number, reviewers: [...logins] })
   if (result.status === "error") {
     throw new Error(result.error.message)
   }
@@ -349,6 +354,9 @@ function withCreated(key: string, incoming: Readonly<Record<string, PullRequest>
 
 /** What the "Create pull request" dialog asks for */
 export interface NewPullRequestRequest {
+  /** The repository and branch prefix the dialog was opened in: the pull request goes there, whichever is selected now */
+  repositoryPath: string
+  branchPrefix: string
   /** The branch, or the root of the whole stack (`wholeStack`) */
   branchName: string
   /** The pull request of the stack branch of the whole stack whose root `branchName` is */
@@ -368,13 +376,9 @@ export interface NewPullRequestRequest {
  * the row's chip and the Safe Push popover read it before the next refresh, which follows. Throws what GitHub said.
  */
 export async function createPullRequest(request: NewPullRequestRequest): Promise<CreatedPullRequest> {
-  const key = currentKey()
-  if (key === null) {
-    throw new Error("No repository is selected")
-  }
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const key = repositoryKey(request.repositoryPath, request.branchPrefix)
   const { wholeStack = false, ...params } = request
-  const result = await commands.createPullRequest({ repositoryPath, branchPrefix, ...params })
+  const result = await commands.createPullRequest(params)
   if (result.status === "error") {
     throw new Error(result.error.message)
   }

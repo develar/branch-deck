@@ -23,7 +23,7 @@ import { forgetLandedStackRoot } from "@/stores/landed-stacks"
 import { branchSubject, runOperation } from "@/stores/operations"
 import { getPushHold } from "@/stores/patronus"
 import { createPullRequest } from "@/stores/pull-requests"
-import { getEffectiveBranchPrefix, getFullBranchName, getFullStackBranchName } from "@/stores/repository"
+import { getEffectiveBranchPrefix, getFullBranchName, getFullStackBranchName, getRepositorySwitchReason } from "@/stores/repository"
 
 /**
  * What the "Create pull request" dialog of a branch shows, from the main window, which owns the branches: the dialog
@@ -31,7 +31,12 @@ import { getEffectiveBranchPrefix, getFullBranchName, getFullStackBranchName } f
  * (`BranchReviewWindowState.createPullRequest`). Plain data: it crosses the window boundary as JSON.
  */
 export interface CreatePullRequestContext {
+  /**
+   * The repository and branch prefix the dialog was opened in: the push, the pull request and Activity go there, also
+   * once the main window shows another repository (whose branches of the same name are other branches: the push refuses)
+   */
   readonly repositoryPath: string
+  readonly branchPrefix: string
   /** The branch, or the root of the whole stack (`wholeStack`) */
   readonly branchName: string
   /** How the dialog names what the pull request is of: the branch, or "Whole air stack" */
@@ -92,6 +97,7 @@ export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequ
   const includes = ancestors.length === 0 ? null : { ancestors: ancestors.map(it => it.name), commitCount: ancestors.reduce((sum, it) => sum + it.commitCount, branch.commitCount) }
   return {
     repositoryPath: facts.repositoryPath,
+    branchPrefix: getEffectiveBranchPrefix(),
     branchName: branch.name,
     label: branch.name,
     wholeStack: null,
@@ -142,6 +148,7 @@ export function toStackPullRequestContext(root: string, stack: StackBranch | und
   const names = members.map(it => it.branch.name)
   return {
     repositoryPath: facts.repositoryPath,
+    branchPrefix: getEffectiveBranchPrefix(),
     branchName: root,
     label,
     wholeStack: {
@@ -188,6 +195,11 @@ async function pushForPullRequest(context: CreatePullRequestContext): Promise<vo
     return
   }
   if (context.wholeStack !== null) {
+    // the push reads the stack branch of the table, which is of the selected repository
+    const switched = getRepositorySwitchReason(context.repositoryPath)
+    if (switched !== null) {
+      throw new Error(switched)
+    }
     let reason: string | null = null
     const pushed = await pushWholeStack(context.branchName, {
       report: (_title, error) => {
@@ -199,7 +211,7 @@ async function pushForPullRequest(context: CreatePullRequestContext): Promise<vo
     }
     return
   }
-  const pushed = await pushForAction(context.branchName)
+  const pushed = await pushForAction(context.branchName, { repositoryPath: context.repositoryPath })
   if (!pushed.pushed) {
     throw new Error(pushed.reason)
   }
@@ -255,6 +267,8 @@ async function runPullRequestOperation<T>(context: CreatePullRequestContext, id:
 async function createPullRequestOf(context: CreatePullRequestContext, input: CreatePullRequestInput): Promise<{ toast: Omit<ToastMessage, "action">; pullRequest: PullRequest }> {
   await pushForPullRequest(context)
   const request = {
+    repositoryPath: context.repositoryPath,
+    branchPrefix: context.branchPrefix,
     branchName: context.branchName,
     wholeStack: context.wholeStack !== null,
     head: context.head,
@@ -272,7 +286,7 @@ async function createPullRequestOf(context: CreatePullRequestContext, input: Cre
   }
   const toast = formatCreatedToast(context.label, context.base, input.viewerLogin, result)
   if (result.created) {
-    recordPullRequestCreated(toast.title, toast.description ?? "", result.pullRequest.url, toast.type === "warning")
+    recordPullRequestCreated(toast.title, toast.description ?? "", result.pullRequest.url, toast.type === "warning", context.repositoryPath)
   }
   return { toast, pullRequest: result.pullRequest }
 }

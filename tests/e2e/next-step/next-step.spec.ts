@@ -1,6 +1,7 @@
 // @spec spec/branch/next-step.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusProfile, PatronusReviewRequirement, PullRequest } from "../../../src/lib/bindings"
+import type { BranchReviewRequest } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { waitForTransitionsSettled } from "../helpers/aria-snapshot-helpers"
@@ -29,13 +30,15 @@ import {
   skipCommandReplyWait,
 } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
+import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
-import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
+import { getEmittedEvents } from "../helpers/sub-window-helpers"
+import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, recordCommand, routeCommand } from "../helpers/wait-helpers"
+import { holdCommand, holdCommandCalls, recordCommand, routeCommand } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
@@ -396,6 +399,36 @@ test.describe("Next step", () => {
     ])
     // one action, one toast: the push says nothing of its own
     await expect(pushedToast(page, BRANCH)).toHaveCount(0)
+  })
+
+  test("should create the pull request asked from the review window in its repository when the main window opens another during its push", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the push goes to the test server: its real push into the template's own repository
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true })
+    const creates = await recordCommand(page, "create_pull_request")
+    await addRecentProject(page)
+    await syncAndWaitForBranches()
+    const push = await holdCommandCalls(page, "push_branch")
+    // Create of the dialog of the review window, asked of the main window over the link of the window
+    const input = { title: "Add auth", body: "", reviewers: [], assignSelf: false, viewerLogin: null }
+    await emitTauriEvent(page, "branch-review/request", { id: "create", repositoryPath: repo.path, branchName: BRANCH, dialog: "create", input } satisfies BranchReviewRequest)
+    await expect.poll(() => push.calls.map(call => call.branchName)).toEqual([BRANCH])
+
+    // the main window opens another repository while the push runs: the pull request still goes to the one asked
+    await switchRepository(page, OTHER_REPOSITORY)
+    push.release()
+    await expect
+      .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "branch-review/reply")).filter(it => it.id === "create").map(it => it.ok))
+      .toEqual([true])
+    expect(creates).toEqual([expect.objectContaining({ repositoryPath: repo.path, branchName: BRANCH })])
+    expect(gitHubWrites(await repo.getGitHubLog())).toContainEqual(["POST", repoPath("pulls"), expect.objectContaining({ head: `user-name/virtual/${BRANCH}` })])
+
+    // back in it, the row has its pull request
+    await switchRepository(page, repo.path)
+    await expect(findBranchRow(page, BRANCH).getByTestId("pull-request-chip")).toHaveText("#1079")
   })
 
   test("should open GitHub's form of a branch not on the remote yet from its preview, after the push", async ({ page, setupRepo, syncAndWaitForBranches }) => {

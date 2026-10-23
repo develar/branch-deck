@@ -19,7 +19,7 @@ import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { runOperation, useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 import { requestReviewers } from "@/stores/pull-requests"
-import { useSelectedProjectPath } from "@/stores/repository"
+import { getRepositorySwitchReason, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 
 export interface RequestReviewFormProps {
   /**
@@ -37,12 +37,18 @@ export interface RequestReviewFormProps {
  * The push of the work the remote lacks before the request, reported under `errorTitle`: of the branch (`pushForAction`,
  * its stack first), or of the stack branch of the whole stack (`pushWholeStack`, only a built one)
  */
-async function pushFirst(name: string, errorTitle: string): Promise<boolean> {
+async function pushFirst(name: string, errorTitle: string, repositoryPath: string): Promise<boolean> {
   const root = stackRootOfReadinessKey(name)
   if (root !== null) {
+    // the push reads the stack branch of the table, which is of the selected repository
+    const switched = getRepositorySwitchReason(repositoryPath)
+    if (switched !== null) {
+      notifyError(errorTitle, switched)
+      return false
+    }
     return pushWholeStack(root, { report: (_title, reason) => notifyError(errorTitle, reason) })
   }
-  const pushed = await pushForAction(name)
+  const pushed = await pushForAction(name, { repositoryPath })
   if (!pushed.pushed) {
     notifyError(errorTitle, pushed.reason)
   }
@@ -55,6 +61,7 @@ async function pushFirst(name: string, errorTitle: string): Promise<boolean> {
  */
 export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: RequestReviewFormProps) {
   const repositoryPath = useSelectedProjectPath() ?? ""
+  const branchPrefix = useEffectiveBranchPrefix()
   const candidates = getRequestReviewCandidates(readiness, pullRequest)
   // null until the user changes the choice: the suggested ones of the readiness as it is now
   const [choice, setChoice] = useState<readonly string[] | null>(null)
@@ -97,11 +104,13 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
       return
     }
     const errorTitle = `Cannot request a review on #${number}`
+    // the repository of the click: the push and the request go there, whichever the main window shows meanwhile
+    const repository = { repositoryPath, branchPrefix }
     const run = async () => {
-      if (pushes && !(await pushFirst(branch.name, errorTitle))) {
+      if (pushes && !(await pushFirst(branch.name, errorTitle, repositoryPath))) {
         return
       }
-      const result = await requestReviewers(branch.name, logins).catch((error: unknown) => {
+      const result = await requestReviewers(branch.name, logins, repository).catch((error: unknown) => {
         notifyError(errorTitle, error)
         return null
       })
@@ -119,7 +128,7 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
     const label = `Requesting a review on #${number}`
     // the move of the row: the reviewers answer next, from the click on (the push included)
     const move = { key: branch.name, lands: false, label }
-    void runOperation({ id: "request-review", subject: `pr:${number}`, objects: [branch.name], kind: "remote", label, surface, move }, run, reason =>
+    void runOperation({ id: "request-review", subject: `pr:${number}`, objects: [branch.name], kind: "remote", label, surface, move, repositoryPath }, run, reason =>
       showToast({ type: "info", title: errorTitle, description: reason }),
     )
   }

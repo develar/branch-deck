@@ -10,7 +10,9 @@ import {
   pullRequestsStore,
   refreshPullRequests,
   refreshPullRequestsAfterPush,
+  requestReviewers,
   resetPullRequests,
+  createPullRequest,
 } from "@/stores/pull-requests"
 
 const { gh } = vi.hoisted(() => ({
@@ -20,6 +22,8 @@ const { gh } = vi.hoisted(() => ({
     /** Resolves the call in flight; null answers at once */
     pending: null as (() => void) | null,
     hold: false,
+    /** The writes that reached GitHub, with the repository each named */
+    writes: [] as string[],
   },
 }))
 
@@ -33,6 +37,14 @@ vi.mock("@/lib/bindings", () => ({
         })
       }
       return { status: "ok", data: gh.result }
+    },
+    createPullRequest: async (params: { repositoryPath: string; branchPrefix: string; branchName: string }) => {
+      gh.writes.push(`create ${params.branchName} in ${params.repositoryPath} (${params.branchPrefix})`)
+      return { status: "ok", data: { created: true, pullRequest: { ...pullRequest("tip"), number: 9 }, reviewers: [], assigned: false } }
+    },
+    requestPullRequestReviewers: async (params: { repositoryPath: string; pullRequestNumber: number; reviewers: string[] }) => {
+      gh.writes.push(`request ${params.reviewers.join(" ")} on #${params.pullRequestNumber} in ${params.repositoryPath}`)
+      return { status: "ok", data: { requested: params.reviewers, refused: [] } }
     },
   },
 }))
@@ -68,6 +80,7 @@ beforeEach(() => {
   gh.result = answer()
   gh.hold = false
   gh.pending = null
+  gh.writes = []
 })
 
 afterEach(() => {
@@ -183,5 +196,30 @@ describe("mergePullRequests", () => {
     expect(next.login!.headRefOid).toBe("new")
 
     expect(mergePullRequests(previous, { auth: pullRequest("tip") })).toEqual({ auth: previous.auth })
+  })
+})
+
+describe("the writes of a pull request asked in another repository than the selected one", () => {
+  const other = { repositoryPath: "/other", branchPrefix: "them" }
+
+  it("creates the pull request in the repository the dialog was opened in", async () => {
+    await refreshPullRequests("manual")
+    const request = { ...other, branchName: "auth", head: "them/virtual/auth", base: "master", title: "t", body: "", reviewers: [], assignSelf: false, waitForMirror: false }
+    await createPullRequest(request)
+    expect(gh.writes).toEqual(["create auth in /other (them)"])
+    // the selected repository's auth keeps its own pull request; the new one is the other repository's
+    expect(getPullRequest("auth")?.number).toBe(1)
+    expect(pullRequestsStore.getState().repositories["/other\nthem"]?.pullRequests.auth?.number).toBe(9)
+  })
+
+  it("asks the reviewers on the pull request of its repository, not on the one of the same branch selected now", async () => {
+    await refreshPullRequests("manual")
+    pullRequestsStore.setState(state => ({
+      repositories: { ...state.repositories, "/other\nthem": { ...state.repositories["/repo\nuser"]!, pullRequests: { auth: { ...pullRequest("tip"), number: 7 } } } },
+    }))
+    await requestReviewers("auth", ["ann"], other)
+    expect(gh.writes).toEqual(["request ann on #7 in /other"])
+    expect(getPullRequest("auth")?.reviewers).toEqual([])
+    expect(pullRequestsStore.getState().repositories["/other\nthem"]?.pullRequests.auth?.reviewers).toEqual([{ login: "ann", state: "requested", requested: true }])
   })
 })

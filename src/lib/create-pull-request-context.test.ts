@@ -18,7 +18,7 @@ vi.mock("@/stores/branch-sync", () => ({
 }))
 vi.mock("@/stores/patronus", () => ({ getPushHold: () => null, getPatronusGitHubRepository: () => null }))
 vi.mock("@/stores/pull-requests", () => ({ getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }), getPullRequest: () => undefined }))
-vi.mock("@/stores/repository", () => ({ getFullBranchName: (name: string) => `user/virtual/${name}` }))
+vi.mock("@/stores/repository", () => ({ getFullBranchName: (name: string) => `user/virtual/${name}`, getEffectiveBranchPrefix: () => "user" }))
 
 const FACTS: CreatePullRequestFacts = {
   repositoryPath: "/repo",

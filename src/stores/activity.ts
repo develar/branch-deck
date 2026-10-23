@@ -287,8 +287,8 @@ export function recordApproval(repositoryPath: string, title: string, descriptio
 }
 
 /** A pull request the app created: "Created pull request #123" / the reviewers and the assignee, with it on GitHub */
-export function recordPullRequestCreated(title: string, description: string, url: string, warning: boolean): void {
-  recordActivity({ kind: "review", title, description, ...(warning && { warning }), details: { type: "pullRequest", url } })
+export function recordPullRequestCreated(title: string, description: string, url: string, warning: boolean, repositoryPath?: string): void {
+  recordActivity({ kind: "review", title, description, ...(warning && { warning }), details: { type: "pullRequest", url }, repositoryPath })
 }
 
 /**
