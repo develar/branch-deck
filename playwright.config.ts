@@ -44,9 +44,10 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       env: {
-        // not RUST_LOG: .cargo/config.toml forces it to debug for `cargo run`. A failed request of the Patronus client
-        // is an answer a fixture of the fake scripted (a refused start, an unknown robot), which the page shows
-        TEST_SERVER_LOG: debugE2E ? "test_server=debug,tower_http=debug" : "warn,patronus::client=error,youtrack=error",
+        // not RUST_LOG: .cargo/config.toml forces it to debug for `cargo run`. A failed request of the Patronus, GitHub
+        // or YouTrack client is an answer a fixture of the fake scripted (a refused start, an unknown robot, a token
+        // GitHub rejects), which the page shows
+        TEST_SERVER_LOG: debugE2E ? "test_server=debug,tower_http=debug" : "warn,patronus::client=error,youtrack=error,github=error,remote_facts::pull_requests=error",
         E2E_PORT: String(TEST_SERVER_PORT),
         RUST_BACKTRACE: "1",
       },

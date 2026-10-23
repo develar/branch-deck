@@ -456,9 +456,10 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `openSubmenu` hovers once the animations of the open menus ended (`animationsEnded`)
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The warnings of the Patronus
-  and the YouTrack client and service are left out (`patronus::client=error`, `youtrack=error`): each failed request
-  of a fake is an answer a fixture scripted (a refused start, an unknown robot, a token YouTrack does not know, an
-  expired sign-in), and the page shows it. The console errors and
+  client and of the YouTrack and GitHub clients and services are left out (`patronus::client=error`, `youtrack=error`,
+  `github=error`, `remote_facts::pull_requests=error`): each failed request of a fake is an answer a fixture scripted
+  (a refused start, an unknown robot, a token YouTrack does not know, an expired sign-in, a token GitHub rejects or
+  that can't see the repository, a reviewer who is no collaborator), and the page shows it. The console errors and
   uncaught exceptions of the pages are attached to a failed test only (`page errors` in `base-test.ts`): an
   error-path test makes the app log its expected errors. `DEBUG_E2E=1` prints the server's debug log and every
   console line live. The debug log was 60k lines (23 MB) per run through the pipe that the Playwright main process
