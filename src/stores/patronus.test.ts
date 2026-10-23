@@ -154,8 +154,8 @@ const { notices } = vi.hoisted(() => ({
     notifications: [] as { title: string; body: string }[],
     permissionRequests: 0,
     fetches: [] as string[],
-    /** The Update Project runs of the shown repository */
-    updates: 0,
+    /** The repositories of the Update Project runs of a toast (`runUpdateProjectOf`: an update while shown, else a fetch) */
+    updates: [] as string[],
     opened: [] as string[],
     pullRequestRefreshes: [] as string[],
     /** The pull requests GitHub lists, by branch */
@@ -201,8 +201,8 @@ vi.mock("@/stores/update-project", () => ({
   runFetchBaseline: async (repositoryPath: string) => {
     notices.fetches.push(repositoryPath)
   },
-  runUpdateProject: async () => {
-    notices.updates++
+  runUpdateProjectOf: async (repositoryPath: string) => {
+    notices.updates.push(repositoryPath)
   },
 }))
 
@@ -328,7 +328,7 @@ beforeEach(() => {
   notices.notifications = []
   notices.permissionRequests = 0
   notices.fetches = []
-  notices.updates = 0
+  notices.updates = []
   notices.opened = []
   notices.pullRequests = {}
   notices.stackPullRequests = {}
@@ -701,7 +701,7 @@ describe("merges", () => {
     expect(notices.opened).toEqual(["u"])
     // one click picks the merge up: Update Project fetches first
     notices.toasts[0]?.actionProps?.onClick()
-    expect(notices.updates).toBe(1)
+    expect(notices.updates).toEqual(["/repo"])
     expect(notices.fetches).toEqual([])
 
     // the same robot in a later answer is no news
@@ -723,7 +723,7 @@ describe("merges", () => {
       ["auth merged into master", "Update Project", "Open in Patronus"],
     ])
     notices.toasts[0]?.actionProps?.onClick()
-    expect(notices.updates).toBe(1)
+    expect(notices.updates).toEqual(["/repo"])
   })
 
   it("polls a watched robot of no branch and names its merge by what it tests", async () => {

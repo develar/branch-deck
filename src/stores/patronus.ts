@@ -53,7 +53,7 @@ import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 import { getRecentProjects } from "@/stores/settings/repositorySettings"
-import { runFetchBaseline, runUpdateProject } from "@/stores/update-project"
+import { runFetchBaseline, runUpdateProjectOf } from "@/stores/update-project"
 
 /** A sync asks for new robots at most this often: robots are started elsewhere, a sync never starts one */
 export const SYNC_REFRESH_GAP_MS = 5 * 60_000
@@ -1021,7 +1021,8 @@ function showMergeToast(repositoryPath: string, robot: PatronusRobot, title: str
       children: shown ? "Update Project" : "Fetch",
       onClick: () => {
         toast.close(id)
-        void (shown ? runUpdateProject() : runFetchBaseline(repositoryPath))
+        // the repository of the merge, whichever the main window shows at the click: a fetch only once it is another
+        void (shown ? runUpdateProjectOf(repositoryPath) : runFetchBaseline(repositoryPath))
       },
     },
     // Fetch is the primary action, the robot page the second one

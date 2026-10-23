@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { FetchBaselineResult, TransferProgress, UpdateCheck, UpdateProjectResult } from "@/lib/bindings"
 import { getOperationBlocker, getOperations, operationsStore, runOperation } from "@/stores/operations"
-import { runFetchBaseline, runUpdateProject, selectRunningUpdate, updateProjectStore } from "@/stores/update-project"
+import { runFetchBaseline, runUpdateProject, runUpdateProjectOf, selectRunningUpdate, updateProjectStore } from "@/stores/update-project"
 
 /** A command of the backend that runs until the test finishes it */
 interface RunningCommand {
+  readonly kind: "update" | "fetch"
   readonly repositoryPath: string
   readonly progress: { onmessage: (message: unknown) => void }
   readonly finish: (result: unknown) => void
@@ -28,11 +29,16 @@ vi.mock("@tauri-apps/api/core", () => ({
 }))
 
 vi.mock("@/lib/bindings", () => {
-  const run = (params: { repositoryPath: string }, progress: RunningCommand["progress"]) =>
+  const run = (kind: RunningCommand["kind"], params: { repositoryPath: string }, progress: RunningCommand["progress"]) =>
     new Promise(resolve => {
-      backend.commands.push({ repositoryPath: params.repositoryPath, progress, finish: resolve })
+      backend.commands.push({ kind, repositoryPath: params.repositoryPath, progress, finish: resolve })
     })
-  return { commands: { updateProject: run, fetchBaseline: run } }
+  return {
+    commands: {
+      updateProject: (params: { repositoryPath: string }, progress: RunningCommand["progress"]) => run("update", params, progress),
+      fetchBaseline: (params: { repositoryPath: string }, progress: RunningCommand["progress"]) => run("fetch", params, progress),
+    },
+  }
 })
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
@@ -67,6 +73,7 @@ vi.mock("@/stores/settings/repositorySettings", () => ({
 }))
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: selection.path }),
+  isSelectedRepository: (path: string) => path === selection.path,
   useSelectedProject: () => ({ path: selection.path }),
 }))
 
@@ -158,6 +165,23 @@ describe("the running update", () => {
 
     commandOf("/b").finish({ status: "ok", data: UP_TO_DATE })
     await update
+    expect(runningIn("/b")).toBeUndefined()
+  })
+
+  it("updates the repository a toast is about only while it is shown, else only fetches it: never the one shown since", async () => {
+    // Update Project of a toast of /a while /a is shown: its update
+    const update = runUpdateProjectOf("/a")
+    expect(backend.commands.map(it => [it.kind, it.repositoryPath])).toEqual([["update", "/a"]])
+    commandOf("/a").finish({ status: "ok", data: UP_TO_DATE })
+    await update
+
+    // the same toast clicked after a switch to /b: the fetch of /a, nothing of /b moves
+    backend.commands = []
+    selection.path = "/b"
+    const fetch = runUpdateProjectOf("/a")
+    expect(backend.commands.map(it => [it.kind, it.repositoryPath])).toEqual([["fetch", "/a"]])
+    commandOf("/a").finish({ status: "ok", data: FETCHED })
+    await fetch
     expect(runningIn("/b")).toBeUndefined()
   })
 

@@ -662,12 +662,14 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   by words, because Patronus can't resolve by words. Meanwhile the slot button says "Checking…". A conflict starts
   nothing and pushes nothing: the error toast "Cannot start the Safe Push" says "Patronus can't rebase auth onto
   origin/master: 1a2b3c4d (Add auth) conflicts in a.txt, which origin/master changed after the base of auth: 9e8d7c6b
-  (Alice: Change a). Update Project resolves it locally; then start again.", with "Update Project" as its action. The
+  (Alice: Change a). Update Project resolves it locally; then start again.", with "Update Project" as its action, of the
+  repository of the start (a fetch only, once the main window shows another one, `runUpdateProjectOf`). The
   commit is the one of the row, the target commits are the newest 10 that change the files. A failed fetch doesn't
   stop the check: it replays onto the last fetched tip, and the start's toast says so after its description ("The
   fetch of origin/master failed, so the check used the last fetched origin/master: …"). A check that can't run holds
   nothing back, and the toast says "Not checked whether Patronus can rebase auth onto origin/master: …".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project`)
+  [@test] ../../src/lib/safe-push-start.test.ts (`updates the repository of the start from its toast, also after a switch of the repository`)
   [@test] ../../src/lib/target-conflict.test.ts (`refuses a conflict with the commit as the row shows it, its files, the target commits that change them, and Update Project`, `starts a clean one without a word, and says when the check used the last fetched target or did not run`, `names the files beyond the first ones by their count, and the target without commits that change them`)
   [@test] ../../crates/sync-core/src/target_conflict_test.rs (`a_target_that_moved_with_a_conflicting_change_after_the_last_sync_conflicts`, `a_target_that_moved_without_a_conflict_is_clean`, `a_failed_fetch_checks_the_last_fetched_target_and_says_so`)
 - The push is a step of the start (`startSafePush`): it has no toast of its own (Activity records it), the start's
@@ -831,7 +833,10 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   changes or a lock say so as Update Project does), then "Open in Patronus", which opens the robot page and leaves the
   toast for the update. A merge in a repository the main window doesn't show offers Fetch instead (Update Project
   updates the shown one), or only "Open in Patronus" once its baseline was fetched since the merge (`lastFetchTime`:
-  Branch Deck's fetch, or one elsewhere by `FETCH_HEAD`).
+  Branch Deck's fetch, or one elsewhere by `FETCH_HEAD`). Its "Update Project" acts on the repository of the merge
+  (`runUpdateProjectOf`): clicked after a switch of the repository, it only fetches that repository, never updates the
+  one shown since.
+  [@test] ../../src/stores/update-project.test.ts (`updates the repository a toast is about only while it is shown, else only fetches it: never the one shown since`)
   [@test] ../../src/lib/patronus.test.ts (`names the branch, else the subject of a robot of a temporary ref`)
   [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Update Project and the robot page when a running robot of a branch merged`, `offers Update Project also after a fetch since the merge: the update is what picks it up`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and update the project on request`)

@@ -18,7 +18,7 @@ import { startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patro
 import { getRepositorySwitchReason, vcsRequestFactory } from "@/stores/repository"
 import type { SafePushMode, SafePushStarting } from "@/stores/safe-push"
 import { getSafePushStarting, setSafePushStarting } from "@/stores/safe-push"
-import { runUpdateProject } from "@/stores/update-project"
+import { runUpdateProjectOf } from "@/stores/update-project"
 
 /** What a start runs, as `getSafePushDecision` let it */
 export interface SafePushStart {
@@ -83,7 +83,8 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
     }
     const target = await checkTargetBeforeStart(branchName, root, admitted)
     if (target.kind === "refuse") {
-      notifyError(errorTitle, target.reason, { children: "Update Project", onClick: () => void runUpdateProject() })
+      // the update of the repository of the start: a fetch only, once the main window shows another one
+      notifyError(errorTitle, target.reason, { children: "Update Project", onClick: () => void runUpdateProjectOf(repositoryPath) })
       return false
     }
     if (start.needsPush) {

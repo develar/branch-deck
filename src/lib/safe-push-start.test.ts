@@ -4,7 +4,7 @@ import type { SafePushStart } from "@/lib/safe-push-start"
 import { startSafePush } from "@/lib/safe-push-start"
 import { getSafePushStarting } from "@/stores/safe-push"
 
-const { calls, selection, pushGate, errors } = vi.hoisted(() => ({
+const { calls, selection, pushGate, errors, errorActions, target } = vi.hoisted(() => ({
   /** What reached the backend and Patronus, with the repository each step named */
   calls: [] as string[],
   /** The repository the main window shows */
@@ -12,6 +12,10 @@ const { calls, selection, pushGate, errors } = vi.hoisted(() => ({
   /** The push of the start waits for it */
   pushGate: { current: Promise.resolve() },
   errors: [] as string[],
+  /** The action of the last error toast */
+  errorActions: [] as { children: string; onClick: () => void }[],
+  /** What the target check answers */
+  target: { current: { kind: "start", note: null } as { kind: "start"; note: null } | { kind: "refuse"; reason: string } },
 }))
 
 vi.mock("@/stores/repository", () => ({
@@ -31,7 +35,7 @@ vi.mock("@/lib/landing-gate", () => ({
 vi.mock("@/lib/target-conflict", () => ({
   checkTargetBeforeStart: async (branchName: string, _root: string | null, repository: { request: { repositoryPath: string }; baselineBranch: string }) => {
     calls.push(`target ${branchName} in ${repository.request.repositoryPath} onto ${repository.baselineBranch}`)
-    return { kind: "start", note: null }
+    return target.current
   },
 }))
 vi.mock("@/lib/git/push", () => ({
@@ -54,9 +58,20 @@ vi.mock("@/stores/patronus", () => ({
 vi.mock("@/stores/activity", () => ({
   recordRobot: (title: string, _description: string, _robot: PatronusRobot, repositoryPath: string) => calls.push(`record ${title} in ${repositoryPath}`),
 }))
-vi.mock("@/lib/errors", () => ({ notifyError: (title: string, reason: unknown) => errors.push(`${title}: ${String(reason)}`) }))
+vi.mock("@/lib/errors", () => ({
+  notifyError: (title: string, reason: unknown, action?: { children: string; onClick: () => void }) => {
+    errors.push(`${title}: ${String(reason)}`)
+    if (action !== undefined) {
+      errorActions.push(action)
+    }
+  },
+}))
 vi.mock("@/components/ui/toast", () => ({ toast: { add: () => "toast", close: () => {} } }))
-vi.mock("@/stores/update-project", () => ({ runUpdateProject: async () => {} }))
+vi.mock("@/stores/update-project", () => ({
+  runUpdateProjectOf: async (repositoryPath: string) => {
+    calls.push(`update project of ${repositoryPath}`)
+  },
+}))
 vi.mock("@/hooks/useStackActions", () => ({ restackBranch: async () => true }))
 vi.mock("@/lib/patronus-actions", () => ({ runRobotAction: async () => {} }))
 
@@ -81,6 +96,8 @@ function start(needsPush: boolean): SafePushStart {
 beforeEach(() => {
   calls.length = 0
   errors.length = 0
+  errorActions.length = 0
+  target.current = { kind: "start", note: null }
   selection.path = "/a"
   pushGate.current = Promise.resolve()
 })
@@ -113,5 +130,17 @@ describe("a Safe Push start during a switch of the repository", () => {
     expect(await started).toBe(false)
     expect(calls).toEqual(["landing auth in /a", "target auth in /a onto origin/master of /a"])
     expect(errors).toEqual(["Cannot start the Safe Push: /a is no longer the open repository"])
+  })
+})
+
+describe("a Safe Push start the target refuses", () => {
+  it("updates the repository of the start from its toast, also after a switch of the repository", async () => {
+    target.current = { kind: "refuse", reason: "auth conflicts with the newest master" }
+    expect(await startSafePush(start(false))).toBe(false)
+    expect(errors).toEqual(["Cannot start the Safe Push: auth conflicts with the newest master"])
+    selection.path = "/b"
+    calls.length = 0
+    errorActions[0]!.onClick()
+    expect(calls).toEqual(["update project of /a"])
   })
 })
