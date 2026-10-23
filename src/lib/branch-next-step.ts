@@ -100,6 +100,8 @@ export interface NextStepActions {
 export interface NextStepBusy {
   readonly id: string
   readonly label: string
+  /** The fields of the pull request it writes (`OperationKey.resources`): `pr:8:reviewers` */
+  readonly resources?: readonly string[]
 }
 
 export interface NextStepFacts {
@@ -489,11 +491,13 @@ function decideNextStep(facts: NextStepFacts): BranchNextStep {
  */
 const PULL_REQUEST_FIELDS: Readonly<Record<string, string>> = { "retarget-pull-request": "base", "request-review": "reviewers" }
 
-/** Whether the step `id` writes another field of the pull request than the running action `busyId` */
-function writesOtherField(id: string | undefined, busyId: string): boolean {
+/**
+ * Whether the step `id` writes another field of the pull request than the running action `busy` writes: none of the
+ * fields `busy` names (a review request that pushes first may retarget too, so it names the base as well)
+ */
+function writesOtherField(id: string | undefined, busy: NextStepBusy): boolean {
   const field = id === undefined ? undefined : PULL_REQUEST_FIELDS[id]
-  const busyField = PULL_REQUEST_FIELDS[busyId]
-  return field !== undefined && busyField !== undefined && field !== busyField
+  return field !== undefined && busy.resources !== undefined && !busy.resources.some(resource => resource.endsWith(`:${field}`))
 }
 
 /**
@@ -506,7 +510,7 @@ function withBusy(result: BranchNextStep, busy: NextStepBusy | null): BranchNext
     if (result.item.id === busy.id) {
       return { ...result, item: { ...result.item, running: true, disabled: true, description: `${busy.label}…` } }
     }
-    if (result.tone === "default" && result.item.disabled !== true && !writesOtherField(result.item.id, busy.id)) {
+    if (result.tone === "default" && result.item.disabled !== true && !writesOtherField(result.item.id, busy)) {
       return { ...result, item: { ...result.item, disabled: true, description: `${busy.label}…` } }
     }
   }

@@ -35,6 +35,11 @@ export interface RowOperation {
   kind: OperationKind
   /** The busy state the form shows in place of itself, without the ellipsis: "Unapplying feature-auth" */
   label: string
+  /**
+   * The repository of the start: a rewrite that waits in the queue runs there, whichever the main window shows by then;
+   * the selected one by default
+   */
+  repositoryPath?: string
 }
 
 export interface RowProcessingOptions<T> {

@@ -3,9 +3,11 @@ import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, isBranchProcessing } from "../helpers/branch-helpers"
+import { inlineIssueReference, submitInlineForm } from "../helpers/inline-form-helpers"
+import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
-import { waitForTooltip } from "../helpers/wait-helpers"
+import { holdCommandCalls, recordCommand, waitForTooltip } from "../helpers/wait-helpers"
 
 /** Opens the amend changes dialog of `branchName` from its context menu and returns the branch row */
 async function openAmendDialog(page: Page, branchName: string): Promise<Locator> {
@@ -19,6 +21,25 @@ async function openAmendDialog(page: Page, branchName: string): Promise<Locator>
 
   await page.waitForSelector('[data-testid="uncommitted-changes-card"]', { timeout: 10000 })
   return branchRow
+}
+
+/** Starts Add Issue Reference on `branchName` from its context menu */
+async function addIssueReference(page: Page, branchName: string, reference: string): Promise<void> {
+  await openContextMenu(page, findBranchRow(page, branchName))
+  await clickContextMenuItem(page, "Add Issue Reference…")
+  await inlineIssueReference.waitForVisible(page)
+  await submitInlineForm(inlineIssueReference.getInput(page), reference)
+}
+
+/** Submits the open amend form; the amend starts at once or waits in the queue */
+async function submitAmend(page: Page): Promise<void> {
+  const amendButton = page.getByRole("dialog").getByRole("button", { name: "Amend Changes" })
+  await expect(amendButton).toBeEnabled()
+  await amendButton.click()
+}
+
+function toastOf(page: Page, title: string | RegExp): Locator {
+  return page.locator("[data-slot=toast]", { hasText: title })
 }
 
 test.describe("Amend Changes Feature", () => {
@@ -135,5 +156,59 @@ test.describe("Amend Changes Feature", () => {
     await page.locator('button:has-text("Cancel")').click()
     await page.waitForSelector('[data-testid="uncommitted-changes-card"]', { state: "detached", timeout: 5000 })
     await expect(badge).toHaveCount(0)
+  })
+
+  test.describe("in the queue", () => {
+    // a second recent project: the window switches to it while the rewrite of the first one waits in the queue
+    test.beforeEach(async ({ page, syncAndWaitForBranches }) => {
+      await addRecentProject(page)
+      await syncAndWaitForBranches()
+    })
+
+    test("should amend in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile", async ({ page }) => {
+      // the issue reference rewrites only the commit of feature-api, after the one the amend goes into
+      const references = await holdCommandCalls(page, "add_issue_reference_to_commits")
+      const amends = await recordCommand(page, "amend_uncommitted_to_branch")
+      await addIssueReference(page, "feature-api", "GH-1")
+      await expect.poll(() => references.calls.length).toBe(1)
+      const repositoryPath = references.calls[0]!.repositoryPath as string
+
+      // the amend is taken and waits for it: its form says so, nothing reached the backend
+      await openAmendDialog(page, "feature-auth")
+      await submitAmend(page)
+      await expect(page.getByRole("dialog", { name: "Amend changes to feature-auth" })).toContainText("Waits for Adding GH-1 to feature-api…")
+      expect(amends).toEqual([])
+
+      await switchRepository(page, OTHER_REPOSITORY)
+      references.release()
+      // the amend went to the repository of its click, not to the one the window shows
+      await expect.poll(() => amends.map(call => [call.repositoryPath, call.branchName])).toEqual([[repositoryPath, "feature-auth"]])
+      await expect(toastOf(page, /^Amended .* into feature-auth/)).toBeVisible()
+      await expect(toastOf(page, "Cannot amend feature-auth")).toHaveCount(0)
+    })
+
+    test("should add the issue reference in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile", async ({
+      page,
+    }) => {
+      // the amend of feature-api rewrites only its commit, after the one of feature-auth
+      const amends = await holdCommandCalls(page, "amend_uncommitted_to_branch")
+      const references = await recordCommand(page, "add_issue_reference_to_commits")
+      await openAmendDialog(page, "feature-api")
+      await submitAmend(page)
+      await expect.poll(() => amends.calls.length).toBe(1)
+      const repositoryPath = amends.calls[0]!.repositoryPath as string
+
+      // the issue reference is taken and waits for it: nothing reached the backend
+      await addIssueReference(page, "feature-auth", "GH-2")
+      await inlineIssueReference.waitForHidden(page)
+      expect(references).toEqual([])
+
+      await switchRepository(page, OTHER_REPOSITORY)
+      amends.release()
+      await expect.poll(() => references.map(call => [call.repositoryPath, call.branchName, call.issueReference])).toEqual([[repositoryPath, "feature-auth", "GH-2"]])
+      await expect(toastOf(page, "Added GH-2 to feature-auth")).toBeVisible()
+      await expect(toastOf(page, "Cannot add GH-2 to feature-auth")).toHaveCount(0)
+      await expect(toastOf(page, "Cannot amend feature-api")).toHaveCount(0)
+    })
   })
 })

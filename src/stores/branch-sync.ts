@@ -39,7 +39,7 @@ import { addTiming } from "@/lib/update-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
-import { getLoadingPromise, getSelectedProject, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
+import { getLoadingPromise, getSelectedProject, isSelectedRepository, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
 
@@ -780,6 +780,15 @@ export function resolveCommits(commits: readonly Commit[]): Commit[] | null {
   }
   const found = commits.map(commit => byId.get(commit.originalHash) ?? byKey.get(commitKey(commit)) ?? undefined)
   return found.every(commit => commit !== undefined) ? found : null
+}
+
+/**
+ * The commits a rewrite of `repositoryPath` acts on when its turn comes: as the last sync left them (`resolveCommits`)
+ * while the table shows that repository, so a rewrite that waited in the queue sends the ids the rewrites before it
+ * gave them; else, or when one of them is gone, by the ids they had
+ */
+export function resolveCommitsOf<T extends Commit>(repositoryPath: string, commits: readonly T[]): readonly Commit[] {
+  return (isSelectedRepository(repositoryPath) ? resolveCommits(commits) : null) ?? commits
 }
 
 /** What a rewrite of the commit keeps: its author, the author time and the subject without the prefix */

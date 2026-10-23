@@ -4,9 +4,9 @@ import { commands } from "@/lib/bindings"
 import type { MergeConflictInfo, UncommittedChangesResult } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
 import type { Branch } from "@/stores/branch-sync"
-import { syncBranches } from "@/stores/branch-sync"
+import { resolveCommitsOf, syncBranches } from "@/stores/branch-sync"
 import { openInline, withRowProcessing } from "@/stores/inline-row-action"
-import { getSelectedProject } from "@/stores/repository"
+import { getSelectedProject, getSelectedRepositoryPath, isSelectedRepository } from "@/stores/repository"
 
 interface UncommittedChangesState {
   diffData: UncommittedChangesResult | null
@@ -31,7 +31,8 @@ class AmendConflictError extends Error {
 
 /**
  * Amends the uncommitted changes to the tip commit of the branch, then re-syncs: one operation. A conflict opens the
- * inline conflict viewer.
+ * inline conflict viewer. An amend that waits for another rewrite in the queue runs in the repository of its start, on
+ * the commit as that rewrite left it.
  */
 export async function amendChanges(branch: Branch, diffData: UncommittedChangesResult | null): Promise<void> {
   // the tip commit is the first one (newest, after .rev() in the backend)
@@ -48,14 +49,17 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
   }
 
   const files = diffData.files.map(file => file.filePath)
+  // the repository of the start: an amend that waits in the queue runs there, whichever the main window shows by then
+  const repositoryPath = getSelectedRepositoryPath()
   await withRowProcessing(
     branch.name,
-    { id: "amend-changes", kind: "rewrite", label: `Amending changes to ${branch.name}` },
+    { id: "amend-changes", kind: "rewrite", label: `Amending changes to ${branch.name}`, repositoryPath },
     async () => {
       const result = await commands.amendUncommittedToBranch({
-        repositoryPath: getSelectedProject()?.path ?? "",
+        repositoryPath,
         branchName: branch.name,
-        originalCommitId: tipCommit.originalHash,
+        // the id as the rewrite before it in the queue left it (`resolveCommitsOf`)
+        originalCommitId: resolveCommitsOf(repositoryPath, [tipCommit])[0]?.originalHash ?? tipCommit.originalHash,
         files,
       })
       if (result.status !== "ok") {
@@ -68,7 +72,10 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
         }
         throw new Error(branchError.Generic)
       }
-      await syncBranches({ autoScroll: false, autoExpand: false })
+      // the table shows another repository after a switch: this one is synced when it opens
+      if (isSelectedRepository(repositoryPath)) {
+        await syncBranches({ autoScroll: false, autoExpand: false })
+      }
       return result.data.data
     },
     {

@@ -149,7 +149,7 @@ function stackPullRequestFactOf(name: string): StackPullRequestFact | null {
 export function busyFact(key: string, options: StartStepOptions | null): NextStepBusy | null {
   const operation = getObjectBusy(key)
   if (operation !== undefined) {
-    return { id: operation.id, label: operationLabel(operation) }
+    return { id: operation.id, label: operationLabel(operation), ...(operation.resources === undefined ? null : { resources: operation.resources }) }
   }
   const starting = options === null ? getSafePushStarting(key) : null
   return starting == null ? null : { id: "", label: `Starting the ${formatPushMode(starting.mode)}` }

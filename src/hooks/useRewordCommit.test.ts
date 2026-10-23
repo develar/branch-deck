@@ -6,13 +6,15 @@ import { commands } from "@/lib/bindings"
 import type { CommitUnion } from "@/lib/commit"
 import { activityStore, canUndoActivity, clearActivity, selectActivity, undoActivity, UNDO_WINDOW_MS } from "@/stores/activity"
 
-const { toasts, selection, syncs } = vi.hoisted(() => ({
+const { toasts, selection, syncs, renamed } = vi.hoisted(() => ({
   // what each `toast.add` showed, its action included
   toasts: [] as { title?: string; description?: string; timeout?: number; actionProps?: { onClick?: () => void } }[],
   /** The repository the main window shows */
   selection: { path: "/repo" },
   /** The syncs the rewrites asked for */
   syncs: { count: 0 },
+  /** The ids the rewrites before a reword gave its commits, as the last sync shows them */
+  renamed: new Map<string, string>(),
 }))
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
@@ -36,6 +38,8 @@ vi.mock("@/stores/repository", () => ({
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ isSyncing: false }) },
   getBranchesOfCommits: () => ["auth"],
+  resolveCommitsOf: (_repositoryPath: string, commits: readonly { originalHash: string }[]) =>
+    commits.map(commit => ({ ...commit, originalHash: renamed.get(commit.originalHash) ?? commit.originalHash })),
   syncBranches: async () => {
     syncs.count++
   },
@@ -66,6 +70,7 @@ describe("rewordCommit", () => {
     toasts.length = 0
     selection.path = "/repo"
     syncs.count = 0
+    renamed.clear()
     clearActivity("/repo")
     vi.mocked(commands.undoRegroup).mockResolvedValue({ status: "ok", data: null })
   })
@@ -115,6 +120,20 @@ describe("rewordCommit", () => {
     // the table shows /other: nothing of it is synced for the undo of /repo
     await vi.advanceTimersByTimeAsync(0)
     expect(syncs.count).toBe(1)
+  })
+
+  it("rewords the commit as the rewrite before it in the queue left it, its preview and its Undo on that commit", async () => {
+    // a move before the reword gave the commit another id; the reword runs once its turn comes
+    const MOVED_ID = "3333333333333333333333333333333333333333"
+    renamed.set(OLD_ID, MOVED_ID)
+    answer({ newCommitIds: { [MOVED_ID]: NEW_ID }, previousHead: MOVED_ID, newHead: NEW_ID, undoToken: TOKEN })
+    const follow = vi.fn()
+
+    expect(await rewordCommit(commit, "(auth) Add the login form", follow)).toBe(true)
+
+    expect(vi.mocked(commands.reword)).toHaveBeenCalledExactlyOnceWith({ repositoryPath: "/repo", rewords: [{ commit: MOVED_ID, text: { message: "(auth) Add the login form" } }] })
+    expect(follow.mock.calls).toEqual([[MOVED_ID, NEW_ID]])
+    expect(toasts.map(toast => toast.title)).toEqual(["Reworded 33333333"])
   })
 
   it("offers no Undo past the window of the toast", async () => {

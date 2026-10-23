@@ -67,16 +67,20 @@ that is the move of a row, its `move` ([Moves](#moves)).
    as the triple Unstack did. `runOperation` records the second one at once (`waitsFor`: the busy state of the one it
    waits for; its rows are busy, `operationLabel` says "Waits for Unstacking tool-events") and runs it once every
    rewrite started before it ended, however it ended, the sync after it included; it is never refused. What it acts on
-   it reads when it runs: a move takes the commits as the rewrite before it left them (`resolveCommits`: by id, else by
-   the author, the author time and the subject without the prefix, which a message rewrite keeps), a branch goes by its
-   name; the other rewrites by commit ids pass the ids of the click, which the backend refuses with the exact error
-   when a rewrite before them changed them. A push waits for the rewrites of its repository too, the queued ones and
+   it reads when it runs, in the repository of its click (`repositoryPath`), whichever the main window shows by then: a
+   move, a squash, a reword, an amend and an added issue reference take the commits as the rewrite before it left them
+   (`resolveCommitsOf`: by id, else by the author, the author time and the subject without the prefix, which a message
+   rewrite keeps), while the table shows that repository; after a switch they pass the ids of the click, which the
+   backend refuses with the exact error when a rewrite before them changed them (stages s7 and s11 of
+   [Rust Domain Authority](rust-domain-authority.md) re-resolve the intent in Rust). A branch goes by its name. A
+   rewrite that ends while the window shows another repository syncs nothing: that one syncs when it opens. A push waits for the rewrites of its repository too, the queued ones and
    their syncs included (`whenRewritesDone`): it sends what they leave.
 3. **A remote action waits for a remote action of its subject or of a branch it works on** (restart and cancel of one
    robot), and is refused meanwhile: a cancel queued behind a restart would act on the robot the restart replaced.
    Where an action names the resources it writes (`resources`: a field of a pull request, `pr:<n>:base` of a retarget,
    `pr:<n>:reviewers` of a review request), two such actions wait only for one that writes the same resource: a
-   retarget and a review request of one pull request run side by side.
+   retarget and a review request of one pull request run side by side. A review request that pushes first names the
+   base too: the push may retarget the pull request (`retargetBeforePush`), so the slot's retarget waits for it.
 4. **A rewrite and a remote action run side by side**, as before the registry: a push during a rewrite waits for the
    sync itself and pushes what it leaves.
 

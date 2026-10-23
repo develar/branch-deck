@@ -3,17 +3,18 @@ import { commands } from "@/lib/bindings"
 import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { runRewrite, runUndo } from "@/lib/rewrite"
-import { getBranchesOfCommits } from "@/stores/branch-sync"
+import { getBranchesOfCommits, resolveCommitsOf } from "@/stores/branch-sync"
 import { branchSubject } from "@/stores/operations"
-import { getSelectedProject } from "@/stores/repository"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
  * Squashes the commits into the oldest of them with `message`, as one rewrite (`runRewrite`): the squash, the sync, then
- * the toast with an undo. Resolves after the sync, to false, after an error toast, if the commits could not be
- * squashed; nothing changed then.
+ * the toast with an undo. A squash that waited for another rewrite in the queue squashes the commits as that rewrite
+ * left them. Resolves after the sync, to false, after an error toast, if the commits could not be squashed; nothing
+ * changed then.
  */
 export async function squashCommits(commits: readonly Commit[], message: string, surface: string | null = null): Promise<boolean> {
-  const repositoryPath = getSelectedProject()?.path ?? ""
+  const repositoryPath = getSelectedRepositoryPath()
   const branchName = getBranchesOfCommits(commits.map(commit => commit.originalHash))[0] ?? null
   const result = await runRewrite(
     {
@@ -24,7 +25,8 @@ export async function squashCommits(commits: readonly Commit[], message: string,
       surface,
     },
     "Cannot squash the commits",
-    () => commands.squashCommits({ repositoryPath, commitIds: commits.map(commit => commit.originalHash), message }),
+    // the ids as the rewrite before it in the queue left them (`resolveCommitsOf`)
+    () => commands.squashCommits({ repositoryPath, commitIds: resolveCommitsOf(repositoryPath, commits).map(commit => commit.originalHash), message }),
     ({ newHead, previousHead, squashedCount }) => ({
       sync: true,
       after: () => showUndoToast(`Squashed ${formatCommitCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead, "Cannot undo the squash")),

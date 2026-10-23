@@ -412,10 +412,13 @@ describe("getBranchNextStep", () => {
 
     // a review request writes the reviewers of the pull request, the retarget its base: the retarget stays offered
     const intoVirtual = { pullRequest: { ...openPullRequest, base: "user/virtual/auth", intoTarget: false, baseIsVirtualBranch: true } }
-    const requesting = { id: "request-review", label: "Requesting a review on #1078" }
+    const requesting = { id: "request-review", label: "Requesting a review on #1078", resources: ["pr:1078:reviewers"] }
     const retarget = getBranchNextStep(facts({ ...intoVirtual, busy: requesting }))
     expect(retarget.item).toMatchObject({ id: "retarget-pull-request" })
     expect(retarget.item?.disabled).toBeUndefined()
+    // a review request that pushes first may retarget the pull request too: the retarget waits for it
+    const pushing = { ...requesting, resources: ["pr:1078:reviewers", "pr:1078:base"] }
+    expect(getBranchNextStep(facts({ ...intoVirtual, busy: pushing })).item).toMatchObject({ disabled: true, description: "Requesting a review on #1078…" })
     expect(getBranchNextStep(facts({ ...intoVirtual, busy: renaming })).item).toMatchObject({ disabled: true, description: "Renaming auth to login…" })
   })
 

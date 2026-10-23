@@ -559,13 +559,17 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   second start joins it (a double click runs one `restack_branch`). Every other rewrite of the repository, in every
   branch and commit menu, by a drag, a key or a toast's Undo, stays offered and is never refused: its start waits for
   the running one in the queue, in the order of the starts, its rows busy and its "⋯" saying what it waits for ("Waits
-  for Unstacking oauth…"), then runs on what the one before left (a move takes the commits by the ids that one gave
-  them). A remote action that must wait for another one of its object (a cancel during a restart) is disabled with its
-  busy state ("Restarting the Safe Push…") and a start says so in an info toast titled as its failure; a retarget and
-  a review request of one pull request write other fields of it and run side by side. A success toast with Undo comes
-  after the sync.
+  for Unstacking oauth…"), then runs on what the one before left (a move, a squash, a reword, an amend and an added
+  issue reference take the commits by the ids that one gave them), in the repository of its start, whichever the
+  window shows by then. A remote action that must wait for another one of its object (a cancel during a restart) is
+  disabled with its busy state ("Restarting the Safe Push…") and a start says so in an info toast titled as its
+  failure; a retarget and a review request of one pull request write other fields of it and run side by side, unless
+  the review request pushes first, which may retarget it too. A success toast with Undo comes after the sync.
   [@test] ../../src/stores/operations.test.ts (`runs a second start of the same action once: it joins the running one and resolves with it`, `queues a rewrite behind any rewrite of the repository, never behind a remote action, and runs it once that one ended`, `runs the queue in the order of the starts, also after a failure, and joins a start of a waiting action`, `lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request`, `ends the operation when its action fails`, `marks the item of the running action running, and leaves the items that would wait for it enabled: their start queues`, `disables the item of a remote action that must wait with the busy state of the one it waits for`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it`)
+  [@test] ../../tests/e2e/amend-changes/amend-changes.spec.ts (`should amend in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile`, `should add the issue reference in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile`)
+  [@test] ../../src/hooks/useRewordCommit.test.ts (`rewords the commit as the rewrite before it in the queue left it, its preview and its Undo on that commit`)
+  [@test] ../../src/lib/branch-next-step.test.ts (`disables the action of the slot while an operation on the row runs, never the quiet steps nor a write of another field of its pull request; its own runs`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
 - An action started from the menu, a key or a toast must show its spinner on the "⋯" of its row (`aria-busy`, its
   hover the busy state); one started from a button that stays (the notice's "Unstack from login", a form, a dialog,
