@@ -442,7 +442,9 @@ The view asks for it with `get_blob_syntax` (`crates/file-diffs/src/syntax.rs`),
   clears its whole environment;
 - the view (`src/lib/diff/highlight/backend-syntax.ts`) asks for a run of the pages a view needs and the page after it,
   at most 6 calls at once, the pages in view first, and puts the answer into the token cache as exact pages; it sends
-  the text of a blob whose id is not git's (the result of a merge) with the first call. A `Fallback` sends every side of
+  the text of a blob whose id is not git's (the result of a merge) with the first call, and only until an answer with
+  runs (`textSent`): the backend keeps the highlighting by id, and a later `Missing` (evicted) sends the text once
+  more. A `Fallback` sends every side of
   the file to the worker (`HighlightClient.fallBack`);
 - the answer is raw bytes (`tauri::ipc::Response`, an `ArrayBuffer` in the view, `application/octet-stream` from the
   e2e server): `u32`s of a header (format, status, line count, the lines answered, the run count), the line starts of

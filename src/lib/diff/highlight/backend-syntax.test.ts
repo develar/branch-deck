@@ -94,6 +94,45 @@ describe("BackendSyntax", () => {
     expect([cache.get(OBJECT_ID, 0)?.exact, cache.get("merge-result-1", 0)?.exact]).toEqual([true, true])
   })
 
+  it("sends the text of a blob once: later pages go without it, and a Missing answer brings it back once", async () => {
+    const lineCount = PAGE_LINES * 8
+    // the backend keeps the highlighting of a text it was sent, until it forgets it (`forgotten`)
+    let kept = false
+    let forgotten = false
+    const { client, calls } = setUp(params => {
+      if (params.text === null && (!kept || forgotten)) {
+        forgotten = false
+        kept = false
+        return answer(2, 0, 0, 0)
+      }
+      kept = true
+      return answer(0, lineCount, params.fromLine, Math.min(params.toLine, lineCount))
+    })
+    client.want("v", [want("merge-result-1", [0], { group: "M.kt" })])
+    await settle()
+    client.want("v", [want("merge-result-1", [3], { group: "M.kt" })])
+    await settle()
+    client.want("v", [want("merge-result-1", [5], { group: "M.kt" })])
+    await settle()
+    expect(calls.map(call => [call.fromLine / PAGE_LINES, call.text !== null])).toEqual([
+      [0, true],
+      [3, false],
+      [5, false],
+    ])
+    // the backend evicted it: one call answers Missing, the next sends the text, then the pages go without it again
+    forgotten = true
+    client.want("v", [want("merge-result-1", [7], { group: "M.kt" })])
+    await settle()
+    await settle()
+    client.want("v", [want("merge-result-1", [2], { group: "M.kt" })])
+    await settle()
+    expect(calls.slice(3).map(call => [call.fromLine / PAGE_LINES, call.text !== null])).toEqual([
+      [7, false],
+      [7, true],
+      [2, false],
+    ])
+  })
+
   it("colours both sides of a file the backend cannot colour in the worker", async () => {
     const { port, client, calls } = setUp(() => answer(1, 0, 0, 0))
     client.want("v", [want(OBJECT_ID, [0]), want("b".repeat(40), [0])])

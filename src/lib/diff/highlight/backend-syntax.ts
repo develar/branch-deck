@@ -73,6 +73,11 @@ export class BackendSyntax {
   private running = 0
   /** The blobs whose text the backend lacks: their calls send it */
   private readonly needText = new Set<string>()
+  /**
+   * The blobs whose text a call sent and the backend answered with runs: it keeps their highlighting by id, so later
+   * pages go without the text. An answer `Missing` (the backend evicted it) brings the text back once
+   */
+  private readonly textSent = new Set<string>()
   private readonly fallbackBlobs = new Set<string>()
 
   constructor(
@@ -151,7 +156,7 @@ export class BackendSyntax {
     const keys = pagesOf(job).map(page => `${want.blobId}:${page}`)
     keys.forEach(key => this.inFlight.add(key))
     this.running++
-    const sendText = this.needText.has(want.blobId) || !isObjectId(want.blobId)
+    const sendText = !this.textSent.has(want.blobId) && (this.needText.has(want.blobId) || !isObjectId(want.blobId))
     this.call({
       repositoryPath,
       blob: { id: want.blobId, path: want.worktreePath },
@@ -180,7 +185,8 @@ export class BackendSyntax {
     }
     const [, status, , from, to, pairs] = words as unknown as [number, number, number, number, number, number]
     if (status === STATUS_MISSING && !sentText) {
-      // the backend has no such blob: the next call sends its text
+      // the backend has no such blob, or no longer the text it was sent: the next call sends it
+      this.textSent.delete(want.blobId)
       this.needText.add(want.blobId)
       this.queued.set(`missing:${want.blobId}`, [job])
       return
@@ -188,6 +194,10 @@ export class BackendSyntax {
     if (status !== STATUS_RUNS) {
       this.fallBack(want)
       return
+    }
+    if (sentText) {
+      this.needText.delete(want.blobId)
+      this.textSent.add(want.blobId)
     }
     const starts = words.subarray(HEADER, HEADER + to - from + 1)
     const runs = words.subarray(HEADER + to - from + 1, HEADER + to - from + 1 + pairs * 2)
