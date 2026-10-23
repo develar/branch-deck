@@ -70,7 +70,8 @@ that is the move of a row, its `move` ([Moves](#moves)).
    it reads when it runs: a move takes the commits as the rewrite before it left them (`resolveCommits`: by id, else by
    the author, the author time and the subject without the prefix, which a message rewrite keeps), a branch goes by its
    name; the other rewrites by commit ids pass the ids of the click, which the backend refuses with the exact error
-   when a rewrite before them changed them.
+   when a rewrite before them changed them. A push waits for the rewrites of its repository too, the queued ones and
+   their syncs included (`whenRewritesDone`): it sends what they leave.
 3. **A remote action waits for a remote action of its subject or of a branch it works on** (restart and cancel of one
    robot), and is refused meanwhile: a cancel queued behind a restart would act on the robot the restart replaced.
    Where an action names the resources it writes (`resources`: a field of a pull request, `pr:<n>:base` of a retarget,
@@ -173,7 +174,10 @@ Two runs keep their own record, each one place for every surface of it:
 - **Push and stack push** (`pushingBranches`, `stackPushes` in `branch-sync.ts`, the percent in `pushProgressStore`):
   a stack push carries the branches it sends, learned after the sync it waits for; a push of the stack branch joins a
   stack push that takes it along instead of waiting; a push never holds its row (its menu stays open, its button shows
-  the percent). A second click joins the running push (`pushOne`, `pushTogether`). A push inside an operation (the
+  the percent). A second click joins the running push (`pushOne` by repository and branch, `pushTogether` by
+  repository, row and order), and so does the push of an action, which hears why it failed; another push of the same
+  branch waits for it, and a stack push claims its branches once it knows them, before its checks, so a push of one of
+  them meanwhile waits instead of sending it twice. A push inside an operation (the
   creation of a pull request, a review request, a push and restart, a Safe Push start) is a step of it, not an
   operation of its own.
 - **The start of a Safe Push or a Dry Run** (`safePushStore.starting`): its steps (checking, pushing, starting) span

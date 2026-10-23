@@ -24,7 +24,6 @@ import {
   getStackBranch,
   getUnparkedStackDescendants,
   isBranchPushing,
-  isStackPushing,
   setBranchesPushProgress,
   setBranchPushing,
   setBranchPushProgress,
@@ -35,6 +34,7 @@ import {
   whenBranchPushed,
   whenSynced,
 } from "@/stores/branch-sync"
+import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
 import { getPushHold, getStackBranchHoldReason, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
 import { getStackPullRequest, refreshPullRequests, refreshPullRequestsAfterPushes } from "@/stores/pull-requests"
 import { isSelectedRepository } from "@/stores/repository"
@@ -67,6 +67,7 @@ interface StackPushOrder {
 export async function pushStack(branchName: string, options: StackPushOptions = {}): Promise<boolean> {
   return await pushTogether(
     branchName,
+    `stack ${options.stopAtConfirm === true} ${options.replacesRobot?.id ?? ""}`,
     () => ({ names: stackPushOrder(branchName, getBranch, { stopAtConfirm: options.stopAtConfirm, isHeld: name => isHeldBy(name, options.replacesRobot) }) }),
     options,
   )
@@ -80,6 +81,7 @@ export async function pushStack(branchName: string, options: StackPushOptions = 
 export async function pushWithChildren(branchName: string): Promise<boolean> {
   return await pushTogether(
     branchName,
+    "children",
     () => ({
       names: stackChildrenPushOrder(branchName, getUnparkedStackDescendants(branchName), getBranch, name => isHeldBy(name, undefined)),
       wholeStack: takesStackBranchAlong(branchName) ? branchName : null,
@@ -107,7 +109,7 @@ export async function pushUpTo(steps: readonly PushUpToStep[]): Promise<boolean>
     return false
   }
   const tips = new Map(steps.flatMap(step => (step.tip === undefined ? [] : [[step.name, step.tip] as const])))
-  return await pushTogether(last.name, () => ({ names: steps.map(step => step.name), tips }), {})
+  return await pushTogether(last.name, `up to ${JSON.stringify([...tips])}`, () => ({ names: steps.map(step => step.name), tips }), {})
 }
 
 /**
@@ -119,18 +121,55 @@ export async function pushUpTo(steps: readonly PushUpToStep[]): Promise<boolean>
  * remote head of its status, only while the sync built it. A remote branch that moved since its row showed it refuses
  * the whole push: the branches are fetched, and the push goes again over what the remotes have now, once, when that
  * remote has no commits its branch lacks (`pushesOverMovedRemote`), else its toast says what it has. A second push from
- * the same row while one runs does nothing.
+ * the same row while one runs (`intent`: the same order) joins it and hears why it failed; another one from the row
+ * waits for it, then runs. The branches of the order are claimed once it is known, before the checks: a push of one of
+ * them meanwhile waits for this one instead of sending it twice.
  * Resolves to whether the branches were pushed; true when nothing is left to push.
  */
-async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, options: StackPushOptions): Promise<boolean> {
-  if (isStackPushing(startedFrom)) {
-    return false
-  }
+async function pushTogether(startedFrom: string, intent: string, orderOf: () => StackPushOrder, options: StackPushOptions): Promise<boolean> {
   const report = options.report ?? notifyError
   const request = createPushRequest(`Cannot push ${startedFrom}`, report)
   if (request === null) {
     return false
   }
+  const key = `${request.repositoryPath}\n${startedFrom}`
+  const before = runningStackPushes.get(key)
+  if (before !== undefined && before.intent === intent) {
+    const pushed = await before.promise
+    if (!pushed && before.failure !== null && before.report !== report) {
+      report(...before.failure)
+    }
+    return pushed
+  }
+  const entry: RunningStackPush = { intent, report, promise: Promise.resolve(false), failure: null }
+  const own: PushReport = (title, error, action) => {
+    entry.failure ??= [title, error, action]
+    report(title, error, action)
+  }
+  const run = () => pushTogetherOf(request, startedFrom, orderOf, { ...options, report: own })
+  // another push from the row first: this one goes over what it sent; else the row shows the push at once
+  entry.promise = (before === undefined ? run() : before.promise.catch(() => false).then(run)).finally(() => {
+    if (runningStackPushes.get(key) === entry) {
+      runningStackPushes.delete(key)
+    }
+  })
+  runningStackPushes.set(key, entry)
+  return await entry.promise
+}
+
+/** A stack push that runs (`pushTogether`), by its repository and the row it started from */
+interface RunningStackPush {
+  readonly intent: string
+  readonly report: PushReport
+  promise: Promise<boolean>
+  /** What the push said first when it failed, for a joined caller that says it in place */
+  failure: Parameters<PushReport> | null
+}
+
+const runningStackPushes = new Map<string, RunningStackPush>()
+
+async function pushTogetherOf(request: VcsRequest, startedFrom: string, orderOf: () => StackPushOrder, options: StackPushOptions): Promise<boolean> {
+  const report = options.report ?? notifyError
   const repositoryPath = request.repositoryPath
   // the branches of the table are of the selected repository: the push goes on only while it is the one it started in
   const stillIn = () => isStillIn(repositoryPath, startedFrom, report)
@@ -138,8 +177,20 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
   setStackPush(startedFrom, [], repositoryPath)
   // a push of the stack branch alone asked meanwhile (Request Review…, a restart) waits for this one, which may take it
   let settleStackBranch: (() => void) | null = null
+  // the branches of the order, claimed until the push sends them: a push of one of them meanwhile waits for this one
+  let claimed: readonly string[] = []
+  const release = () => {
+    for (const name of claimed) {
+      setBranchPushing(name, false, repositoryPath)
+    }
+    claimed = []
+  }
   try {
-    const order = await settledOrder(orderOf)
+    const order = await settledOrder(orderOf, repositoryPath)
+    claimed = order.names
+    for (const name of claimed) {
+      setBranchPushing(name, true, repositoryPath)
+    }
     if (!stillIn()) {
       return false
     }
@@ -187,6 +238,8 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
       return false
     }
     setStackPush(startedFrom, order.names, repositoryPath)
+    // the send marks them pushing itself, at once
+    release()
     let pushed: readonly Branch[] = branches
     let moved = await sendTogether(request, baselineBranch, pushed, tips, stack, report)
     // nobody's work is lost: the stack goes over what the remotes have now, once, as the push of one branch does; a
@@ -219,6 +272,7 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
     }
     return true
   } finally {
+    release()
     settleStackBranch?.()
     setStackPush(startedFrom, null, repositoryPath)
   }
@@ -247,21 +301,26 @@ function describeMovedStackBranch(status: RemoteStatus): string {
 }
 
 /**
- * The order once no sync runs and no push of one of its branches from another row, nor of the stack branch it takes
- * along (a request of it alone, its restart included): a stack push waits for them and goes on the branches as they
- * leave them, the stack branch along only while its remote still lacks it
+ * The order once no rewrite of the repository runs (its sync included), no sync runs and no push of one of its
+ * branches from another row, nor of the stack branch it takes along (a request of it alone, its restart included): a
+ * stack push waits for them and goes on the branches as they leave them, the stack branch along only while its remote
+ * still lacks it
  */
-async function settledOrder(orderOf: () => StackPushOrder): Promise<StackPushOrder> {
+async function settledOrder(orderOf: () => StackPushOrder, repositoryPath: string): Promise<StackPushOrder> {
   while (true) {
+    await whenRewritesDone(repositoryPath)
     await whenSynced()
+    if (isRewriteRunning(repositoryPath)) {
+      continue
+    }
     const order = orderOf()
     const names = order.wholeStack == null ? order.names : [...order.names, stackReadinessKey(order.wholeStack)]
-    const running = names.filter(name => isBranchPushing(name))
+    const running = names.filter(name => isBranchPushing(name, repositoryPath))
     const stackPush = order.wholeStack == null ? undefined : runningStackBranchPushes.get(order.wholeStack)
     if (running.length === 0 && stackPush === undefined) {
       return order
     }
-    await Promise.all([...running.map(name => whenBranchPushed(name)), stackPush?.done])
+    await Promise.all([...running.map(name => whenBranchPushed(name, repositoryPath)), stackPush?.done])
   }
 }
 

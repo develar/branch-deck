@@ -1002,9 +1002,9 @@ export function isBranchPushing(name: string, repositoryPath: string = selectedR
   return Object.hasOwn(branchSyncStore.getState().pushingBranches, pushKey(repositoryPath, name))
 }
 
-/** Resolves once no push of the branch runs in the selected repository: at once while none does */
-export function whenBranchPushed(name: string): Promise<void> {
-  const key = pushKey(selectedRepositoryPath(), name)
+/** Resolves once no push of the branch runs in the repository (the selected one by default): at once while none does */
+export function whenBranchPushed(name: string, repositoryPath: string = selectedRepositoryPath()): Promise<void> {
+  const key = pushKey(repositoryPath, name)
   if (!Object.hasOwn(branchSyncStore.getState().pushingBranches, key)) {
     return Promise.resolve()
   }

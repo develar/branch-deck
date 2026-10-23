@@ -28,6 +28,7 @@ import {
   whenBranchPushed,
   whenSynced,
 } from "@/stores/branch-sync"
+import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot, whenRepositoryViewCurrent } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
@@ -78,9 +79,13 @@ export type PushReport = (title: string, error: unknown, action?: ToastActionPro
  * fetched, not overwritten, and a toast says what it has, with a push over exactly that.
  */
 export async function pushBranch(branchName: string, options: PushOptions = {}): Promise<boolean> {
-  const outcome = await pushOne(branchName, options)
+  const { outcome, joined } = await pushOne(branchName, options)
   if (outcome === null) {
     return false
+  }
+  // a repeat joined the running push: its first caller says how it went
+  if (joined) {
+    return true
   }
   if (options.announce === false) {
     // the action the push is a step of says how it went; a restart that pushes first says it
@@ -107,27 +112,67 @@ interface OnePush extends PushOutcome {
   readonly repositoryPath: string
 }
 
+/** A push of one branch that runs (`pushOne`), by its repository and branch: a repeat of the same push joins it */
+interface RunningPush {
+  readonly options: PushOptions
+  readonly report: PushReport
+  promise: Promise<OnePush | null>
+  /** What the push said first when it failed, for a joined caller that says it in place */
+  failure: Parameters<PushReport> | null
+}
+
+const runningPushes = new Map<string, RunningPush>()
+
+/** Whether two pushes of one branch are the same push: the same commit over the same remote, the same robot */
+function isSamePush(a: PushOptions, b: PushOptions): boolean {
+  return a.tip === b.tip && a.expectedRemote === b.expectedRemote && a.restartRobot?.id === b.restartRobot?.id && a.replacesRobot?.id === b.replacesRobot?.id
+}
+
 /**
  * The push of `pushBranch`, without its success toast: what the push did and the robot it restarted (recorded in
- * Activity, the caller says it); null when nothing was pushed (it said why)
+ * Activity, the caller says it); null when nothing was pushed (it said why). The push is claimed before its first await:
+ * a repeat of the same push (a second click, the push of an action meanwhile) joins it (`joined`) and hears why it
+ * failed; another push of the branch (a restart, Push Up to Here) waits for it, then runs.
  */
-async function pushOne(branchName: string, options: PushOptions): Promise<OnePush | null> {
-  if (isBranchPushing(branchName)) {
-    return null
-  }
+async function pushOne(branchName: string, options: PushOptions): Promise<{ outcome: OnePush | null; joined: boolean }> {
   const report = options.report ?? notifyError
   const request = createPushRequest(`Cannot push ${branchName}`, report)
   if (request === null) {
-    return null
+    return { outcome: null, joined: false }
   }
+  const key = `${request.repositoryPath}\n${branchName}`
+  const before = runningPushes.get(key)
+  if (before !== undefined && isSamePush(before.options, options)) {
+    const outcome = await before.promise
+    if (outcome === null && before.failure !== null && before.report !== report) {
+      report(...before.failure)
+    }
+    return { outcome, joined: true }
+  }
+  const entry: RunningPush = { options, report, promise: Promise.resolve(null), failure: null }
+  const own: PushReport = (title, error, action) => {
+    entry.failure ??= [title, error, action]
+    report(title, error, action)
+  }
+  const run = () => pushOneOf(request, branchName, { ...options, report: own }, own)
+  // another push of the branch first: this one goes over what it sent
+  entry.promise = (before === undefined ? run() : before.promise.catch(() => null).then(run)).finally(() => {
+    if (runningPushes.get(key) === entry) {
+      runningPushes.delete(key)
+    }
+  })
+  runningPushes.set(key, entry)
+  return { outcome: await entry.promise, joined: false }
+}
+
+async function pushOneOf(request: VcsRequest, branchName: string, options: PushOptions, report: PushReport): Promise<OnePush | null> {
   const repositoryPath = request.repositoryPath
-  // a push pressed while a sync rebuilds the branches waits for it, with the spinner of a push, and pushes the branch as
-  // the sync left it: the row stays as it was during the sync (a quiet resync), so its button stays enabled; a branch the
-  // sync brings is pushed too
-  if (branchSyncStore.getState().isSyncing) {
-    setBranchPushing(branchName, true, repositoryPath)
-    await whenSynced()
-    setBranchPushing(branchName, false, repositoryPath)
+  // a push pressed while a sync rebuilds the branches or a rewrite of the repository runs (its sync included) waits for
+  // them, with the spinner of a push, and pushes the branch as they left it: the row stays as it was during the sync (a
+  // quiet resync), so its button stays enabled; a branch the sync brings is pushed too. A stack push that sends the
+  // branch is waited for as well: the branch is pushed over what it sent
+  if (branchSyncStore.getState().isSyncing || isRewriteRunning(repositoryPath) || isBranchPushing(branchName, repositoryPath)) {
+    await whenSettled(branchName, repositoryPath)
   }
   if (!isStillIn(repositoryPath, branchName, report) || findBranch(branchName, report) === undefined) {
     return null
@@ -144,8 +189,15 @@ async function pushOne(branchName: string, options: PushOptions): Promise<OnePus
   if (!isStillIn(repositoryPath, branchName, report)) {
     return null
   }
+  // a stack push that sends the branch started during the check: this push goes over what it sent
+  if (isBranchPushing(branchName, repositoryPath)) {
+    await whenSettled(branchName, repositoryPath)
+    if (!isStillIn(repositoryPath, branchName, report)) {
+      return null
+    }
+  }
   const branch = findBranch(branchName, report)
-  if (branch === undefined || isBranchPushing(branchName)) {
+  if (branch === undefined) {
     return null
   }
   // a pull request into a virtual branch goes into the baseline first, with what it lands
@@ -179,6 +231,23 @@ async function pushOne(branchName: string, options: PushOptions): Promise<OnePus
   // the restart takes the commit just pushed, in the repository of the push
   const restarted = restartRobot === undefined ? undefined : await restartAfterPush(restartRobot, request)
   return { name: branchName, before: sentPart(before, options.tip), restarted, retargeted, repositoryPath }
+}
+
+/**
+ * Waits, with the spinner of a push on the row, until no rewrite of the repository runs (its sync included), no sync
+ * runs and no other push sends the branch
+ */
+async function whenSettled(branchName: string, repositoryPath: string): Promise<void> {
+  while (isBranchPushing(branchName, repositoryPath)) {
+    await whenBranchPushed(branchName, repositoryPath)
+  }
+  setBranchPushing(branchName, true, repositoryPath)
+  try {
+    await whenRewritesDone(repositoryPath)
+    await whenSynced()
+  } finally {
+    setBranchPushing(branchName, false, repositoryPath)
+  }
 }
 
 /** The repository and branch prefix a push starts in, or null when none is configured (`report` said why) */
@@ -436,12 +505,15 @@ export interface ActionPushOptions {
 /**
  * The push an action needs before it runs (a pull request, a review request, a Safe Push start): the branch and the
  * ancestors with work for the remote, root first, as the push button pushes them, without a toast of its own: the
- * action says how it went. Nothing to push resolves at once. A sync and a push of the branch already running are
- * awaited, so the action sees the branch as they leave it. A push the user decides is never made here: one that drops
+ * action says how it went. Nothing to push resolves at once. A rewrite of the repository, a sync and a push of the
+ * branch already running are awaited, so the action sees the branch as they leave it; a push of the branch or of its
+ * stack that runs already is joined, and its failure is the reason. A push the user decides is never made here: one that drops
  * remote commits of the branch or of an ancestor between it and the root refuses with the reason, as does a hold.
  */
 export async function pushForAction(branchName: string, options: ActionPushOptions = {}): Promise<ActionPush> {
   const repositoryPath = options.repositoryPath ?? getSelectedRepositoryPath()
+  // a rewrite of the repository that runs (a move out of the branch) and its sync first: the push sends what it leaves
+  await whenRewritesDone(repositoryPath)
   await whenSynced()
   await whenBranchPushed(branchName)
   // the holds decide where the push starts: a parent a running robot's commit doesn't have is pushed too

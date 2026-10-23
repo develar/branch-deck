@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import type { MenuItem } from "@/lib/menu"
 import type { OperationSpec } from "@/stores/operations"
-import { getOperationMoves, getOperations, operationItem, operationsStore, runOperation } from "@/stores/operations"
+import { getOperationMoves, getOperations, operationItem, operationsStore, runOperation, whenRewritesDone } from "@/stores/operations"
 
 const REPOSITORY = "/repo"
 
@@ -112,6 +112,25 @@ describe("runOperation", () => {
     await expect(runOperation({ ...remoteOf("pr:13", ["login"], "retarget-pull-request"), resources: ["pr:13:base"] }, () => Promise.resolve(4))).resolves.toBe(4)
     running.resolve(null)
     review.resolve(null)
+  })
+
+  it("lets a push wait for the rewrites of its repository and the syncs they end with, the queued ones too", async () => {
+    const first = deferred<null>()
+    const second = deferred<null>()
+    void runOperation(rewriteOf("auth"), () => first.promise)
+    void runOperation(rewriteOf("login", "move-to"), () => second.promise)
+    let done = false
+    const waiting = whenRewritesDone(REPOSITORY).then(() => {
+      done = true
+    })
+    first.resolve(null)
+    await vi.waitFor(() => expect(getOperations()).toHaveLength(1))
+    expect(done).toBe(false)
+    second.resolve(null)
+    await waiting
+    expect(getOperations()).toEqual([])
+    // nothing runs: at once
+    await whenRewritesDone(REPOSITORY)
   })
 
   it("tells the moves of the running operations of the repository until they end", async () => {

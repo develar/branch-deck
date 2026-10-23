@@ -122,6 +122,29 @@ export function formatOperationBlocker(operation: Operation): string {
   return `${operationLabel(operation)}…`
 }
 
+/** Whether a rewrite of the repository runs or waits in the queue */
+export function isRewriteRunning(repositoryPath: string): boolean {
+  return operationsStore.getState().running.some(operation => operation.kind === "rewrite" && operation.repositoryPath === repositoryPath)
+}
+
+/**
+ * Resolves once no rewrite of the repository runs or waits, the sync that shows its result included (`runRewrite`): a
+ * push started meanwhile pushes the branches as the rewrite leaves them. Never rejects.
+ */
+export async function whenRewritesDone(repositoryPath: string): Promise<void> {
+  while (true) {
+    const rewrite = operationsStore.getState().running.findLast(operation => operation.kind === "rewrite" && operation.repositoryPath === repositoryPath)
+    const promise = rewrite === undefined ? undefined : promises.get(rewrite.key)
+    if (promise === undefined) {
+      return
+    }
+    await promise.then(
+      () => {},
+      () => {},
+    )
+  }
+}
+
 /** The running operations; a component reads them with `useOperations` */
 export function getOperations(): Operations {
   return operationsStore.getState().running

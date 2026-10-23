@@ -8,6 +8,7 @@ import { pushBranch, pushForAction } from "@/lib/git/push"
 import { pushStack, pushUpTo, pushWholeStack, pushWithChildren } from "@/lib/git/stack-push"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
+import { operationsStore, runOperation } from "@/stores/operations"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
@@ -574,13 +575,39 @@ describe("the toast of a stack push", () => {
     )
   })
 
-  it("pushes nothing more from a row whose stack push runs", async () => {
+  it("joins a second push of the stack from a row whose stack push runs: one push, both pushed", async () => {
     const first = pushStack("oauth")
     expect(stores.stackPushes).toEqual({ oauth: [] })
-    expect(await pushStack("oauth")).toBe(false)
+    expect(await pushStack("oauth")).toBe(true)
     expect(await first).toBe(true)
     expect(calls).toEqual(["push auth login oauth"])
     expect(stores.stackPushes).toEqual({})
+  })
+
+  it("joins the push of an action into the stack push of its row that runs: one push, the action pushed", async () => {
+    let synced!: () => void
+    stores.synced = new Promise(resolve => (synced = resolve))
+    // the push button of oauth, then a Safe Push of oauth while the stack push waits
+    const first = pushStack("oauth", { stopAtConfirm: true })
+    const action = pushForAction("oauth")
+    synced()
+    expect(await action).toEqual({ pushed: true })
+    expect(await first).toBe(true)
+    expect(calls).toEqual(["push auth login oauth"])
+  })
+
+  it("says why the stack push an action joined failed, in the action's words", async () => {
+    // the action joins while the stack push sends, which the remote refuses
+    stores.pushError = "the remote refused it"
+    let sent!: () => void
+    stores.pushGate = new Promise(resolve => (sent = resolve))
+    const failing = pushStack("oauth", { stopAtConfirm: true })
+    const refused = pushForAction("oauth")
+    await vi.waitFor(() => expect(calls).toEqual(["push auth login oauth"]))
+    sent()
+    expect(await refused).toEqual({ pushed: false, reason: "the remote refused it" })
+    expect(await failing).toBe(false)
+    expect(calls).toEqual(["push auth login oauth"])
   })
 
   it("says nothing for a stack push that is a step of a Safe Push start", async () => {
@@ -952,6 +979,34 @@ describe("pushForAction", () => {
     addBranch("login", "auth", false)
     expect(await pushForAction("login")).toEqual({ pushed: false, reason: "auth can't be pushed: merge conflict" })
     expect(calls).toEqual([])
+  })
+})
+
+describe("a push during a rewrite", () => {
+  beforeEach(() => {
+    robots.running = undefined
+    operationsStore.setState({ running: [], claims: {} })
+  })
+
+  it("waits for the rewrite of its repository that runs and the sync it ends with, then pushes the branch as it left it", async () => {
+    let finish!: () => void
+    const move = runOperation(
+      { id: "move-to", subject: "branch:auth", objects: ["auth"], kind: "rewrite", label: "Moving 1 commit out of auth", repositoryPath: stores.selected },
+      () => new Promise<void>(resolve => (finish = resolve)),
+    )
+    // the push button, and the push of an action (a Safe Push start) that started before the move
+    const pushed = pushBranch("auth")
+    const action = pushForAction("auth")
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(calls).toEqual([])
+
+    // the move left auth on another tip: both push that one, once
+    stores.branches.auth = { ...stores.branches.auth!, commits: [{ ...stores.branches.auth!.commits[0]!, hash: "moved-tip" }] }
+    finish()
+    await move
+    expect(await pushed).toBe(true)
+    expect(await action).toEqual({ pushed: true })
+    expect(calls).toEqual(["push auth"])
   })
 })
 

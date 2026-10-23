@@ -299,11 +299,15 @@ menu stacks, unstacks and renames branches.
   also the item after the push in the branch menu (`push-branch-only`, no key; its "⋯" in the preview and the review
   window too): the second way, never the lead ([Landing](../../docs/design/landing.md)). Preview
   `P` pushes as the button does. While the stack push runs, the button names it ("Pushing 3 branches 45%"), the rows of
-  the branches it pushes show the same progress on their own push buttons, and a second click does nothing. The row
-  doesn't name the parent: the stack graph shows it, and the description of the button explains Push Stack.
+  the branches it pushes show the same progress on their own push buttons, and a second click joins it. The push of an
+  action meanwhile (a Safe Push start, a pull request, a review request) joins it too and goes on with its result, or
+  says why it failed in the action's words, never an invented "The remote branch changed"; a push of one of its
+  branches meanwhile (its own row's button) waits for it from the moment the stack push knows its branches, before its
+  checks, so no branch is sent twice. The row doesn't name the parent: the stack graph shows it, and the description of
+  the button explains Push Stack.
   [@test] ../../src/hooks/usePushButton.test.ts (`pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone`, `says what each force push of a stack push replaces, as the push of the branch alone does`, `takes the colour of an ancestor when none of the branch's commits are the user's`)
   [@test] ../../src/lib/remote-status.test.ts (`names it in the line of a stack push in the same words, or the remote commits the push drops`)
-  [@test] ../../src/lib/git/push.test.ts (`pushes nothing more from a row whose stack push runs`)
+  [@test] ../../src/lib/git/push.test.ts (`joins a second push of the stack from a row whose stack push runs: one push, both pushed`, `joins the push of an action into the stack push of its row that runs: one push, the action pushed`, `says why the stack push an action joined failed, in the action's words`)
   [@test] ../../src/lib/stack.test.ts (`names what a stack push sends while it runs: its one push of several branches, or the one branch`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`, `should push a stacked branch alone from the description of its button`, `should push a stacked branch alone from its menu, the second way after the push of the stack`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`offers the push of the branch alone after the push of the stack, as the description of the button does`)

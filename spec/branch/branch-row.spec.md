@@ -319,7 +319,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   its row shows while the sync rebuilds it (a quiet resync, `isQuietResync`): its status, its node, its synced hashes,
   until the sync reports it, so a sync of 35 branches doesn't turn every row to "syncing…" for a moment. Its push stays
   enabled: a push pressed during the sync waits for it with the spinner of a push and pushes the branch as the sync left
-  it; a rewrite (the menu, a drag, M) still waits for the sync to finish.
+  it; a rewrite (the menu, a drag, M) still waits for the sync to finish. A push, also the push of an action (a Safe
+  Push start, a pull request, a review request), started while a rewrite of the repository runs waits for it and the
+  sync it ends with the same way, and pushes the branches as the rewrite left them.
+  [@test] ../../src/lib/git/push.test.ts (`waits for the rewrite of its repository that runs and the sync it ends with, then pushes the branch as it left it`)
+  [@test] ../../src/stores/operations.test.ts (`lets a push wait for the rewrites of its repository and the syncs they end with, the queued ones too`)
   [@test] ../../src/stores/branch-sync.test.ts (`keeps what the row of an unchanged branch shows while the sync rebuilds it, and resets a changed or failed one`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once the sync finished, the row as it was meanwhile`)
 - A push of a branch the last sync did not build (a merge conflict, an error, a blocked parent) must push nothing and
