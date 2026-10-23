@@ -447,3 +447,60 @@ fn the_agent_keys_are_written_globally_and_a_repository_keeps_its_own() {
   let config = set_config(&git, path, &RepositoryConfigChange::AgentSubjectBranch(None), WriteScope::Local).unwrap();
   assert_eq!(config.agent_subject_branch, unset(false));
 }
+
+/// Settings → Repository saves a typed prefix on blur and a switch at once: two writes of the app, each answering the
+/// settings read again, never a "Cannot set …" for a `config.lock` the other write held
+#[test]
+fn two_writes_at_once_both_succeed() {
+  let test_repo = TestRepo::new();
+  let git = test_repo.git_executor();
+  let path = test_repo.path_str();
+
+  std::thread::scope(|scope| {
+    let switches = scope.spawn(|| {
+      for round in 0..50 {
+        set_repository_config(git, path, &RepositoryConfigChange::Stacks(Some(round % 2 == 0))).unwrap();
+      }
+    });
+    let prefixes = scope.spawn(|| {
+      for round in 0..50 {
+        set_repository_config(git, path, &RepositoryConfigChange::BranchPrefix(Some(format!("jane{round}")))).unwrap();
+      }
+    });
+    switches.join().unwrap();
+    prefixes.join().unwrap();
+  });
+
+  let config = read_repository_config(git, path).unwrap();
+  assert_eq!((config.stacks.value, config.branch_prefix.value.as_deref()), (false, Some("jane49")));
+}
+
+/// A `config.lock` of another process (`bd describe`, a `git config` of the user) released within the second is waited
+/// for: the write succeeds once it is gone
+#[test]
+fn a_write_waits_for_a_config_lock_another_process_holds() {
+  let test_repo = TestRepo::new();
+  let git = test_repo.git_executor();
+  let path = test_repo.path_str();
+  let lock = test_repo.path().join(".git").join("config.lock");
+  std::fs::write(&lock, "").unwrap();
+
+  std::thread::scope(|scope| {
+    let release = scope.spawn(|| {
+      std::thread::sleep(std::time::Duration::from_millis(200));
+      std::fs::remove_file(&lock).unwrap();
+    });
+    let config = set_repository_config(git, path, &RepositoryConfigChange::Stacks(Some(true))).unwrap();
+    assert!(config.stacks.value);
+    release.join().unwrap();
+  });
+}
+
+/// A lock that stays is an error after about a second, not a wait without end
+#[test]
+fn a_write_fails_on_a_config_lock_that_stays() {
+  let test_repo = TestRepo::new();
+  std::fs::write(test_repo.path().join(".git").join("config.lock"), "").unwrap();
+  let error = set_repository_config(test_repo.git_executor(), test_repo.path_str(), &RepositoryConfigChange::Stacks(Some(true))).unwrap_err();
+  assert!(error.to_string().starts_with("git config branchdeck.stacks failed"), "{error}");
+}

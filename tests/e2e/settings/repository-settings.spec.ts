@@ -6,7 +6,7 @@ import { expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } f
 import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { windowCalls } from "../helpers/title-bar-helpers"
-import { routeCommandError } from "../helpers/wait-helpers"
+import { holdNextAnswer, routeCommandError } from "../helpers/wait-helpers"
 
 /** docs stacks on ABC-1 (a level below it), or is a branch of its own */
 async function expectDocsStacked(page: Page, stacked: boolean): Promise<void> {
@@ -168,6 +168,37 @@ test.describe("Settings → Repository", () => {
     const toast = window.locator("[data-slot=toast]").filter({ hasText: `Cannot turn on stacked branches in ${nameOf(repo.path)}` })
     await expect(toast).toContainText("could not lock config file .git/config: File exists")
     await expect(toggle).not.toBeChecked()
+  })
+
+  test("should keep a prefix saved while a switch's write runs, when the switch's older answer comes last", async ({ page, setupRepo }) => {
+    // the template sets branchdeck.branchPrefix user-name in .git/config, stacked branches off
+    await setupRepo("simple")
+    const window = await openRepositorySettings(page)
+    const toggle = row(window, "stacks").getByRole("switch", { name: "Stacked branches" })
+    const field = row(window, "branchPrefix").getByRole("textbox", { name: "Branch prefix" })
+    await expect(field).toHaveValue("user-name")
+    await expect(toggle).not.toBeChecked()
+
+    // the switch is written and read again on the server, with the old prefix; its answer waits
+    const switchWrite = await holdNextAnswer(window, "set_repository_config")
+    await toggle.click()
+    await switchWrite.ran
+
+    // the prefix is saved meanwhile, and answered first
+    const prefixWrite = window.waitForResponse(response => response.url().endsWith("/invoke/set_repository_config"))
+    await field.click()
+    await expect(field).toBeFocused()
+    await field.fill("team")
+    await field.press("Enter")
+    await prefixWrite
+    await expect(field).toHaveValue("team")
+
+    // the switch's answer comes last: it never takes the prefix back, and the settings are read again
+    const readAgain = window.waitForResponse(response => response.url().endsWith("/invoke/get_repository_config"))
+    switchWrite.release()
+    await readAgain
+    await expect(toggle).toBeChecked()
+    await expect(field).toHaveValue("team")
   })
 
   test("should name the branches by the repository's own prefix over the app's, in the main window too", async ({ page, setupRepo }) => {

@@ -1,7 +1,8 @@
 // @spec spec/repository/settings.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { ConfigSetting } from "@/lib/bindings"
+import type { ConfigSetting, RepositoryConfig } from "@/lib/bindings"
 import {
+  ConfigWrites,
   describeAppPrefixSource,
   describeDetectedGitHubRepository,
   describeFallback,
@@ -128,5 +129,61 @@ describe("describeGlobalSource", () => {
     expect(describeGlobalSource(null, false)).toBe("Off by default. A change goes to your global Git config, which bd reads too")
     expect(describeGlobalSource("global", false)).toBe("Set in your global Git config, which bd reads too")
     expect(describeGlobalSource("system", true)).toBe("Set in the system Git config. A change goes to your global Git config, which wins over it")
+  })
+})
+
+describe("ConfigWrites", () => {
+  const text = (value: string | null): ConfigSetting<string | null> => ({
+    value,
+    scope: value === null ? null : "local",
+    localSet: value !== null,
+    invalid: null,
+    fallbackValue: null,
+    fallbackScope: null,
+  })
+  const config = (stacks: boolean, prefix: string | null): RepositoryConfig => ({
+    stacks: setting({ value: stacks, scope: "local", localSet: true }),
+    symbols: { value: "on", scope: null, localSet: false, invalid: null, fallbackValue: "on", fallbackScope: null },
+    githubRepository: text(null),
+    branchPrefix: text(prefix),
+    resolveByWords: setting({}),
+    agentLease: setting({}),
+    agentSubjectBranch: setting({}),
+    detectedGithubRepository: null,
+    stacksOffClashes: [],
+  })
+
+  it("gives the page the whole answer of a write alone, and nothing new for a failed one", () => {
+    const writes = new ConfigWrites()
+    const shown = config(false, "jane")
+    writes.start()
+    expect(writes.finish("stacks", config(true, "team"), shown)).toEqual({ config: config(true, "team"), readAgain: false })
+    writes.start()
+    expect(writes.finish("stacks", null, shown)).toEqual({ config: shown, readAgain: false })
+  })
+
+  it("keeps a newer write when an older one answers last, and reads again once both answered", () => {
+    const writes = new ConfigWrites()
+    let shown = config(false, "jane")
+    // the switch is flipped, then a prefix saved while its write runs; the switch's answer was read before the prefix
+    writes.start()
+    writes.start()
+    const prefixAnswer = writes.finish("branchPrefix", config(true, "team"), shown)
+    expect(prefixAnswer).toEqual({ config: config(false, "team"), readAgain: false })
+    shown = prefixAnswer.config!
+    expect(writes.finish("stacks", config(true, "jane"), shown)).toEqual({ config: config(true, "team"), readAgain: true })
+
+    // the next write alone is whole again
+    writes.start()
+    expect(writes.finish("stacks", config(false, "team"), config(true, "team"))).toEqual({ config: config(false, "team"), readAgain: false })
+  })
+
+  it("reads again after overlapping writes even when one failed", () => {
+    const writes = new ConfigWrites()
+    const shown = config(false, "jane")
+    writes.start()
+    writes.start()
+    expect(writes.finish("stacks", null, shown)).toEqual({ config: shown, readAgain: false })
+    expect(writes.finish("branchPrefix", config(false, "team"), shown)).toEqual({ config: config(false, "team"), readAgain: true })
   })
 })

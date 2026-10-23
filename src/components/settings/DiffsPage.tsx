@@ -105,8 +105,8 @@ function resolveByWordsSource(setting: ConfigSetting<boolean>, name: string): st
  * config and the command line win over both, so the switch is disabled then, with that reason.
  */
 function ResolveByWordsSetting({ path }: { path: string }) {
-  const { state, retry, setConfig } = useRepositoryConfig(path)
-  const config = useConfigWrite(path, setConfig)
+  const { state, retry, startWrite } = useRepositoryConfig(path)
+  const config = useConfigWrite(path, startWrite)
   const writing = config.writing
   const setting = state.status === "loaded" ? state.config.resolveByWords : null
   const name = repositoryName(path)

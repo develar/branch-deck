@@ -2609,6 +2609,15 @@ no operation.
   (`domain_types::branch_names::is_valid_branch_prefix`), a GitHub repository is `owner/name` without whitespace; an empty
   text unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
   (`{repositoryPath, key}`) to sync; the agent keys sync nothing.
+- **Writes at once**: the app writes one config file at a time (a mutex per file in `run_config_write`: the local one
+  by the repository's path, the global one), so a prefix saved on blur and a switch flipped right after do not race for
+  `config.lock`; a lock that another process holds (`bd describe`, a `git config` of the user, a write of another
+  worktree; `git config` exits with 255) is tried again with a growing pause for up to a second, which git 2.56 also
+  does itself and 2.54 and 2.55 do not (`two_writes_at_once_both_succeed`,
+  `a_write_waits_for_a_config_lock_another_process_holds`, `a_write_fails_on_a_config_lock_that_stays`). Two writes
+  that overlap answer in any order, and the older answer may lack the newer write: the page then takes from each
+  answer only the setting it wrote and reads the settings again once both answered (`ConfigWrites`,
+  `src/lib/repository-config.ts`).
 - **Global write**: `set_repository_config` with `scope: "global"` (`WriteScope`, local when omitted) writes the same
   key to the user's global config instead: `git config --global --replace-all`, or `--unset-all`, with the same
   validation. No scope refuses it, because it is the value of every repository; a repository whose local, worktree or

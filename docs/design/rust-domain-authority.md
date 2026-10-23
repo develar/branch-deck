@@ -838,7 +838,9 @@ repository». Аудит всех функций в тот же день наш�
   раньше показанного, отбрасывается, а его pre-check не перезаписывает в кэше ответ, сохранённый после начала
   (`keeps the answer of Check Approvals Again when the background batch asked before it answers later`,
   `a_background_answer_after_a_recheck_beside_it_keeps_the_answer_of_the_recheck`); параллельный batch в Rust
-  и попадания кэша до очереди — s7. `/problems` после ответа сделано (`fix/patronus-start`: `loadRobotFacts` в задаче списка и
+  и попадания кэша до очереди — s7. Записи `.git/config` сделаны (`fix/settings-config`): mutex на файл в процессе, повтор
+  `config.lock` чужого процесса до секунды, ответы перекрывающихся записей — только своё поле, затем чтение заново
+  (`two_writes_at_once_both_succeed`, `ConfigWrites`). `/problems` после ответа сделано (`fix/patronus-start`: `loadRobotFacts` в задаче списка и
   опроса, `failingInFlight` по ключу); одна команда на пачку `loadReviewProblems` — s7.
 - **Окно review:** кэш списка range, prefetch после `complete`, блобы по одному запросу в полёте, текст подсветки
   один раз, поколение навигации, trailing refresh uncommitted с путём в ключе. Сделано (`fix/remote-perf`): один кэш

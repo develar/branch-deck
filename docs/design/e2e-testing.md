@@ -135,7 +135,8 @@ Mock implementation:
 - **The ratchet of page answers**: the fourth source of the registry test is the E2E tests themselves
   (`tests/e2e/**/*.ts`). It counts every answer a test gives in the page: each `routeCommand(page, "<name>", …)` and
   each `.route("**/invoke/<name>", …)` whose handler fulfills with an answer of its own (a hold, a record and a
-  rewrite of the server's answer, `rewriteNextSyncEvents`, let the command run on the server: a rewrite binds
+  rewrite of the server's answer, `rewriteNextSyncEvents`, and a hold of the server's answer, `holdNextAnswer` (an
+  older answer that comes after a newer one), let the command run on the server: a rewrite binds
   `const response = await route.fetch()` and passes that binding as the `response` of its `fulfill`; a `fulfill` of
   any other value, also one named `response`, is an answer, and a fetch bound any other way fails the scan). A write
   (`MUTATING`: the Patronus, GitHub and YouTrack writes, the sign-ins, the git writes, the app's settings) has no page

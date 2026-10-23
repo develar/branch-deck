@@ -66,7 +66,7 @@ export function RepositoryPage() {
 }
 
 function RepositorySettings({ path }: { path: string }) {
-  const { state, retry, setConfig } = useRepositoryConfig(path)
+  const { state, retry, startWrite } = useRepositoryConfig(path)
   const name = repositoryName(path)
   return (
     <div className="flex flex-col gap-4" data-testid="repository-settings">
@@ -87,12 +87,12 @@ function RepositorySettings({ path }: { path: string }) {
           </div>
         </Callout>
       )}
-      {state.status === "loaded" && <ConfigRows path={path} config={state.config} onConfig={setConfig} />}
+      {state.status === "loaded" && <ConfigRows path={path} config={state.config} startWrite={startWrite} />}
     </div>
   )
 }
 
-function ConfigRows({ path, config, onConfig }: { path: string; config: RepositoryConfig; onConfig: (config: RepositoryConfig) => void }) {
+function ConfigRows({ path, config, startWrite }: { path: string; config: RepositoryConfig; startWrite: (key: RepositoryConfigKey) => (answer: RepositoryConfig | null) => void }) {
   const appPrefix = normalizeBranchPrefix(useAppSettings(state => state.globalUserBranchPrefix))
   const [writing, setWriting] = useState<RepositoryConfigKey | null>(null)
   const [drafts, setDrafts] = useState<Partial<Record<TextKey, string>>>({})
@@ -104,19 +104,22 @@ function ConfigRows({ path, config, onConfig }: { path: string; config: Reposito
   const write = (change: RepositoryConfigChange): Promise<boolean> => {
     const title = writeErrorTitle(change, config.stacks.fallbackValue, path)
     setWriting(change.key)
+    const answered = startWrite(change.key)
     return commands
       .setRepositoryConfig({ repositoryPath: path, change })
       .then(
         result => {
           if (result.status === "error") {
             notifyError(title, result.error)
+            answered(null)
             return false
           }
-          onConfig(result.data)
+          answered(result.data)
           return true
         },
         (error: unknown) => {
           notifyError(title, error)
+          answered(null)
           return false
         },
       )

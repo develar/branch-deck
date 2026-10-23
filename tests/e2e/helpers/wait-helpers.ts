@@ -51,6 +51,32 @@ export async function holdCommandCalls(page: Page, command: string): Promise<{ c
 }
 
 /**
+ * Lets the next call of a command run on the test server and holds its answer until `release`: `ran` resolves once the
+ * server answered, so a test can start another call meanwhile and see the older answer arrive last
+ */
+export async function holdNextAnswer(page: Page, command: string): Promise<{ ran: Promise<void>; release: () => void }> {
+  let release!: () => void
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+  let answered!: () => void
+  const ran = new Promise<void>(resolve => {
+    answered = resolve
+  })
+  await page.route(
+    `**/invoke/${command}`,
+    async route => {
+      const response = await route.fetch()
+      answered()
+      await held
+      await route.fulfill({ response })
+    },
+    { times: 1 },
+  )
+  return { ran, release }
+}
+
+/**
  * Answers a command in the page instead of the test server, and records the parameters of each call; `answer` may
  * resolve later (read what the test server holds at that moment)
  */

@@ -135,8 +135,8 @@ function AgentRuleSetting({
   defaultValue: boolean
   globalErrorTitle: string
 }) {
-  const { state, retry, setConfig } = useRepositoryConfig(path)
-  const { writing, write } = useConfigWrite(path, setConfig)
+  const { state, retry, startWrite } = useRepositoryConfig(path)
+  const { writing, write } = useConfigWrite(path, startWrite)
   const labelId = useId()
   const setting = state.status === "loaded" ? state.config[configKey] : null
   const overridden = setting === null ? null : overriddenReason(setting)

@@ -17,7 +17,9 @@ use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::issue_groups::ISSUE_GROUPS;
 use history_rewrite::stack::STACKS_CONFIG_KEY;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
@@ -470,18 +472,47 @@ pub fn write_global_config(git: &GitCommandExecutor, change: &RepositoryConfigCh
   run_config_write(git, ".", "--global", change.key().config_key(), change.config_value()?.as_deref())
 }
 
+/// The exit code of `git config` when another writer holds the lock of the file (`config.lock`, `CONFIG_NO_LOCK`)
+const CONFIG_LOCKED_EXIT_CODE: i32 = 255;
+
+/// How long a write tries again while the config file is locked, as long as a write of another process
+/// (`bd describe`, a `git config` of the user, a write of another worktree) takes at worst. Git 2.56 waits about as
+/// long itself; 2.54 and 2.55 fail at once
+const CONFIG_LOCK_WAIT: Duration = Duration::from_secs(1);
+
+/// One mutex per config file this process writes (the local config by the repository's path, the global one by an
+/// empty key): two writes of the app (a prefix saved on blur, then a switch) run one after the other instead of racing
+/// for `config.lock`. A writer of another process is waited for up to `CONFIG_LOCK_WAIT`
+fn config_file_writes(key: &str) -> Arc<Mutex<()>> {
+  static WRITES: LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = LazyLock::new(Mutex::default);
+  let mut writes = WRITES.lock().unwrap_or_else(PoisonError::into_inner);
+  Arc::clone(writes.entry(key.to_string()).or_default())
+}
+
 /// `git config <file option> --replace-all <key> <value>`, or `--unset-all` for `None`: a key that is not set is no
-/// error to unset
+/// error to unset. One write of the file at a time in this process, and a file that another process holds locked is
+/// tried again for about a second
 fn run_config_write(git: &GitCommandExecutor, repository_path: &str, file: &str, config_key: &str, value: Option<&str>) -> Result<()> {
-  let (output, exit_code) = match value {
-    Some(value) => git.execute_command_with_status(&["config", file, "--replace-all", config_key, value], repository_path)?,
-    None => git.execute_command_with_status(&["config", file, "--unset-all", config_key], repository_path)?,
+  let args: Vec<&str> = match value {
+    Some(value) => vec!["config", file, "--replace-all", config_key, value],
+    None => vec!["config", file, "--unset-all", config_key],
   };
-  // 5: the key to unset is not set
-  if !(exit_code == 0 || (value.is_none() && exit_code == 5)) {
-    bail!("git config {config_key} failed: {output}");
+  let file_writes = config_file_writes(if file == "--global" { "" } else { repository_path });
+  let _write = file_writes.lock().unwrap_or_else(PoisonError::into_inner);
+  let deadline = Instant::now() + CONFIG_LOCK_WAIT;
+  let mut wait = Duration::from_millis(10);
+  loop {
+    let (output, exit_code) = git.execute_command_with_status(&args, repository_path)?;
+    // 5: the key to unset is not set
+    if exit_code == 0 || (value.is_none() && exit_code == 5) {
+      return Ok(());
+    }
+    if exit_code != CONFIG_LOCKED_EXIT_CODE || Instant::now() + wait > deadline {
+      bail!("git config {config_key} failed: {output}");
+    }
+    std::thread::sleep(wait);
+    wait = (wait * 2).min(Duration::from_millis(200));
   }
-  Ok(())
 }
 
 /// Write one key to the local config of the repository (`git config --local --replace-all`, or `--unset-all`), after
