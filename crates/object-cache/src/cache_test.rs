@@ -383,10 +383,8 @@ fn blob_summaries_are_read_by_the_extractor_version_that_wrote_them() {
   assert_eq!(cache.get_blob_summaries::<String>(8, &[(1, "b2")]), [Some(two)]);
 }
 
-#[test_log::test]
-fn file_diffs_are_read_by_their_blob_pair_policy_and_version() {
-  let dir = tempfile::tempdir().unwrap();
-  let cache = open(dir.path());
+/// The diff `[1, 2, 3]` of the blobs `a` and `b`, kept at version 1 with policy 0
+fn stored_diff(cache: &ObjectCache) -> (DiffKey<'static>, Vec<u32>) {
   let diff = vec![1u32, 2, 3];
   let pair = DiffKey {
     policy: 0,
@@ -394,6 +392,14 @@ fn file_diffs_are_read_by_their_blob_pair_policy_and_version() {
     new_id: "b",
   };
   cache.put_file_diffs(1, &[(pair, &diff)]);
+  (pair, diff)
+}
+
+#[test_log::test]
+fn file_diffs_are_read_by_their_blob_pair_policy_and_version() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let (pair, diff) = stored_diff(&cache);
   let other_policy = DiffKey { policy: 2, ..pair };
   let swapped = DiffKey { old_id: "b", new_id: "a", ..pair };
   assert_eq!(cache.get_file_diffs::<Vec<u32>>(1, &[pair, other_policy, swapped]), [Some(diff.clone()), None, None]);
@@ -729,13 +735,7 @@ fn an_environment_that_cannot_be_opened_misses_only_its_stores() {
   cache.put_merge_results(&[(merge_key.clone(), merge)]);
   assert_eq!(cache.get_merge_results(std::slice::from_ref(&merge_key)), [None]);
   // the patch environment works
-  let diff = vec![1u32, 2, 3];
-  let pair = DiffKey {
-    policy: 0,
-    old_id: "a",
-    new_id: "b",
-  };
-  cache.put_file_diffs(1, &[(pair, &diff)]);
+  let (pair, diff) = stored_diff(&cache);
   assert_eq!(cache.get_file_diffs::<Vec<u32>>(1, &[pair]), [Some(diff)]);
 }
 

@@ -12,6 +12,8 @@ targets:
   - ../../src/components/landing/charts/WeekChart.tsx
   - ../../src/components/landing/charts/MergeTimeChart.tsx
   - ../../src/components/landing/charts/TimeChart.tsx
+  - ../../src/components/landing/charts/ChartFigure.tsx
+  - ../../src/components/landing/charts/stackedBar.tsx
   - ../../src/components/landing/charts/KindChart.tsx
   - ../../src/components/landing/charts/HourChart.tsx
   - ../../src/components/landing/charts/Sparkline.tsx

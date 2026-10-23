@@ -1,10 +1,9 @@
-import { Bar, BarChart, CartesianGrid, Rectangle, XAxis, YAxis } from "recharts"
+import { BarChart, CartesianGrid, Rectangle, XAxis, YAxis } from "recharts"
 import type { BarShapeProps } from "recharts"
 import type { ChartConfig } from "@/components/ui/chart"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { ChartKey } from "@/components/landing/charts/ChartKey"
-import { BAR_PROPS } from "@/components/landing/charts/stackedBar"
-import { TableView } from "@/components/landing/charts/TableView"
+import { ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { ChartFigure } from "@/components/landing/charts/ChartFigure"
+import { stackedBars } from "@/components/landing/charts/stackedBar"
 import type { WeekCount } from "@/lib/bindings"
 import { countTicks, formatChartWeek } from "@/lib/robot-stats"
 
@@ -83,25 +82,28 @@ export function WeekChart({ weeks }: { weeks: readonly WeekCount[] }) {
   }))
   const ticks = countTicks(Math.max(0, ...data.map(week => week.robots)))
   return (
-    <figure className="flex flex-col gap-2" data-testid="week-chart">
-      <ChartContainer id="weeks" config={config} className="aspect-auto h-40 w-full">
+    <ChartFigure
+      testId="week-chart"
+      id="weeks"
+      config={config}
+      className="aspect-auto h-40 w-full"
+      chart={
         <BarChart data={data} accessibilityLayer margin={{ top: 16, right: 24, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="week" tickLine={false} axisLine={false} tickMargin={6} interval="preserveStartEnd" minTickGap={24} />
           <YAxis tickLine={false} axisLine={false} width={40} ticks={ticks} domain={[0, ticks.at(-1) ?? 0]} allowDecimals={false} />
           <ChartTooltip cursor={false} content={<ChartTooltipContent labelFormatter={label => <>{weekLabel(label)}</>} />} />
-          {PARTS.map(part => (
-            <Bar key={part} dataKey={part} stackId="robots" fill={`var(--color-${part})`} shape={SHAPES[part]} {...BAR_PROPS} />
-          ))}
+          {stackedBars(PARTS, "robots", SHAPES)}
         </BarChart>
-      </ChartContainer>
-      <ChartKey testId="week-legend" items={PARTS.map(part => ({ label: config[part].label, color: config[part].color, mark: "rect" }))} />
-      <TableView
-        caption="Robots per week"
-        columns={["Week", "Merged", "Failed", "Canceled"]}
-        rows={data.map(week => ({ key: week.week, cells: [weekLabel(week.week), week.merged, week.failed, week.canceled] }))}
-      />
-    </figure>
+      }
+      keyTestId="week-legend"
+      keyItems={PARTS.map(part => ({ label: config[part].label, color: config[part].color, mark: "rect" }))}
+      table={{
+        caption: "Robots per week",
+        columns: ["Week", "Merged", "Failed", "Canceled"],
+        rows: data.map(week => ({ key: week.week, cells: [weekLabel(week.week), week.merged, week.failed, week.canceled] })),
+      }}
+    />
   )
 }
 

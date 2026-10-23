@@ -1,10 +1,9 @@
-import { Bar, BarChart, Rectangle, XAxis, YAxis } from "recharts"
+import { BarChart, Rectangle, XAxis, YAxis } from "recharts"
 import type { BarShapeProps } from "recharts"
 import type { ChartConfig } from "@/components/ui/chart"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { ChartKey } from "@/components/landing/charts/ChartKey"
-import { BAR_PROPS } from "@/components/landing/charts/stackedBar"
-import { TableView } from "@/components/landing/charts/TableView"
+import { ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { ChartFigure } from "@/components/landing/charts/ChartFigure"
+import { stackedBars } from "@/components/landing/charts/stackedBar"
 import type { TimeSpent } from "@/lib/bindings"
 import { formatTotalDuration } from "@/lib/duration"
 
@@ -44,8 +43,12 @@ export function TimeChart({ time }: { time: TimeSpent }) {
   const total = time.merged + time.failed + time.canceled + time.between
   const row = { name: "Robot time", merged: time.merged, failed: time.failed, canceled: time.canceled, between: time.between }
   return (
-    <figure className="flex flex-col gap-2" data-testid="time-chart">
-      <ChartContainer id="time" config={config} className="aspect-auto h-6 w-full">
+    <ChartFigure
+      testId="time-chart"
+      id="time"
+      config={config}
+      className="aspect-auto h-6 w-full"
+      chart={
         <BarChart data={[row]} layout="vertical" accessibilityLayer margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
           <XAxis type="number" hide domain={[0, Math.max(1, total)]} />
           <YAxis type="category" dataKey="name" hide />
@@ -53,31 +56,27 @@ export function TimeChart({ time }: { time: TimeSpent }) {
             cursor={false}
             content={<ChartTooltipContent hideLabel formatter={(value, name) => <TimePart name={String(name)} seconds={Number(value)} total={total} />} />}
           />
-          {PARTS.map(part => (
-            <Bar key={part} dataKey={part} stackId="time" fill={`var(--color-${part})`} shape={SHAPES[part]} {...BAR_PROPS} />
-          ))}
+          {stackedBars(PARTS, "time", SHAPES)}
         </BarChart>
-      </ChartContainer>
-      <ChartKey
-        testId="time-legend"
-        items={PARTS.map(part => ({
-          label: config[part].label,
-          color: config[part].color,
-          mark: "rect",
-          value: (
-            <>
-              <span className="font-medium text-foreground tabular-nums">{formatTotalDuration(time[part])}</span>
-              {total > 0 && <span className="text-muted-foreground tabular-nums">{share(time[part], total)}</span>}
-            </>
-          ),
-        }))}
-      />
-      <TableView
-        caption="Robot time"
-        columns={["Part", "Time", "Share"]}
-        rows={PARTS.map(part => ({ key: part, cells: [config[part].label, formatTotalDuration(time[part]), total === 0 ? "–" : share(time[part], total)] }))}
-      />
-    </figure>
+      }
+      keyTestId="time-legend"
+      keyItems={PARTS.map(part => ({
+        label: config[part].label,
+        color: config[part].color,
+        mark: "rect",
+        value: (
+          <>
+            <span className="font-medium text-foreground tabular-nums">{formatTotalDuration(time[part])}</span>
+            {total > 0 && <span className="text-muted-foreground tabular-nums">{share(time[part], total)}</span>}
+          </>
+        ),
+      }))}
+      table={{
+        caption: "Robot time",
+        columns: ["Part", "Time", "Share"],
+        rows: PARTS.map(part => ({ key: part, cells: [config[part].label, formatTotalDuration(time[part]), total === 0 ? "–" : share(time[part], total)] })),
+      }}
+    />
   )
 }
 
