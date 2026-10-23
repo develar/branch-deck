@@ -253,10 +253,12 @@ export async function retargetPullRequest(branchName: string, base: string): Pro
   setPullRequest(key, branchName, { ...pullRequest, baseRefName: base })
 }
 
-/** Closes the pull request of a branch on GitHub with `comment`, and in the store at once. Throws what GitHub said. */
-export async function closePullRequest(branchName: string, comment: string): Promise<void> {
-  const key = currentKey()
-  const pullRequest = getPullRequest(branchName)
+/**
+ * Closes the pull request of a branch on GitHub with `comment`, and in the store at once; of the repository of `key`
+ * (`repositoryKey`), by default the selected one. Throws what GitHub said.
+ */
+export async function closePullRequest(branchName: string, comment: string, key: string | null = currentKey()): Promise<void> {
+  const pullRequest = key === null ? undefined : pullRequestsStore.getState().repositories[key]?.pullRequests[branchName]
   if (key === null || pullRequest === undefined) {
     return
   }

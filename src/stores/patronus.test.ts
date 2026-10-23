@@ -84,6 +84,10 @@ const { patronus, branches } = vi.hoisted(() => ({
     /** The count of finished syncs and the fingerprint of what the last one read */
     syncCount: 0,
     fingerprint: null as string | null,
+    /** The sync a merge waits for (`whenSynced`) ends with it */
+    synced: Promise.resolve(),
+    /** The repository the main window shows */
+    selected: "/repo",
   },
 }))
 
@@ -162,6 +166,8 @@ const { notices } = vi.hoisted(() => ({
     pullRequests: {} as Record<string, { number: number; state: string; headRefOid: string }>,
     /** "<branch> <comment>" of each close of a pull request */
     closed: [] as string[],
+    /** The repository key of each close */
+    closedIn: [] as string[],
     /** The pull requests of the whole stacks GitHub lists, by root */
     stackPullRequests: {} as Record<string, { number: number; state: string; headRefOid: string }>,
   },
@@ -173,8 +179,9 @@ vi.mock("@/stores/pull-requests", () => ({
   },
   getPullRequest: (name: string) => notices.pullRequests[name],
   getStackPullRequest: (root: string) => notices.stackPullRequests[root],
-  closePullRequest: async (name: string, comment: string) => {
+  closePullRequest: async (name: string, comment: string, key: string) => {
     notices.closed.push(`${name} ${comment}`)
+    notices.closedIn.push(key)
   },
 }))
 
@@ -212,7 +219,10 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   },
 }))
 
-vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
+vi.mock("@/stores/repository", async () => ({
+  ...(await import("@/test-support/selected-repository-mock")),
+  getSelectedProject: () => ({ path: branches.selected }),
+}))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 
 const { fetches } = vi.hoisted(() => ({
@@ -241,7 +251,7 @@ vi.mock("@/stores/branch-sync", () => ({
   },
   getBranch: (name: string) => branches.current[name],
   getStackBranch: (root: string) => branches.stacks[root],
-  whenSynced: async () => {},
+  whenSynced: () => branches.synced,
   // the branches built on `name`, parents first, by the parent each was placed on
   stackDescendantsIn: (state: { branches: Record<string, { name: string; stack?: { effectiveBase: string | null } }> }, name: string) => {
     const children = (parent: string): string[] =>
@@ -333,9 +343,12 @@ beforeEach(() => {
   notices.pullRequests = {}
   notices.stackPullRequests = {}
   notices.closed = []
+  notices.closedIn = []
   branches.stacks = {}
   branches.syncCount = 0
   branches.fingerprint = null
+  branches.synced = Promise.resolve()
+  branches.selected = "/repo"
   resetLandedStacks()
   fetches.lastFetchTime = undefined
   patronus.list = available(robot({ status: "failure" }))
@@ -769,7 +782,32 @@ describe("merges", () => {
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
     await vi.waitFor(() => expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."]))
+    // the pull request of the robot's repository
+    expect(notices.closedIn).toEqual(["/repo\nuser"])
     expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
+  })
+
+  it("closes no pull request of the repository shown when the merged robot's repository was left before its view came", async () => {
+    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login") }
+    notices.pullRequests = { auth: { number: 5, state: "open", headRefOid: "auth-tip" } }
+    const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-tip", pullRequest: { number: 7, url: "u7" } })
+    patronus.list = available(oauth)
+    await refreshPatronus("sync")
+    await answerView(landedOauthStack())
+    // the merge waits for the sync; meanwhile the user opens another repository, whose auth has an open pull request too
+    let synced!: () => void
+    branches.synced = new Promise(resolve => {
+      synced = resolve
+    })
+    patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    branches.selected = "/other"
+    synced()
+
+    await vi.waitFor(() => expect(notices.toasts).toHaveLength(1))
+    expect(notices.closed).toEqual([])
+    expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · the pull requests of the branches it landed stay open: repo is no longer the open repository"])
   })
 
   it("closes the pull requests of what a merged robot landed as the view says it, the toast waiting for the view of the merge", async () => {

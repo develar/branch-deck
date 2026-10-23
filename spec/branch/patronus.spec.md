@@ -858,7 +858,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   that holds nothing its branch lacks: its head is the branch's tip, or it is the remote branch and that has no commit
   the branch lacks (older versions of commits amended here included: their newer versions landed). The pull request the
   robot started from is Patronus'. A failed close is an error toast "Cannot close pull request #5". A robot first seen
-  merged closes nothing.
+  merged closes nothing. Only the robot's repository closes: the branches, the pull requests and the view the toast
+  waited for are of the repository the main window shows, so a merge whose repository is no longer shown when the
+  view comes closes nothing there, and the toast says "the pull requests of the branches it landed stay open: idea-1
+  is no longer the open repository" (when it landed any besides its own).
+  [@test] ../../src/stores/patronus.test.ts (`closes no pull request of the repository shown when the merged robot's repository was left before its view came`)
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`, `closes the pull requests of the branches the whole stack landed`, `closes the pull requests of what a merged robot landed as the view says it, the toast waiting for the view of the merge`)
   [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of the branches a merged robot landed whole, not of its own branch`, `leaves a pull request with a commit the branch lacks, one of a branch with work left, and one of a branch the table lacks`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should close by content the pull requests of the branches a Safe Push landed after a change below its commit, not of one with work left`)

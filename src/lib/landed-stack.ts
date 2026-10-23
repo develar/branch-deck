@@ -1,5 +1,6 @@
 import type { PatronusRobot, PullRequest, RobotLandedBranch } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { repositoryName } from "@/lib/repository-config"
 import { stackAncestors } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
@@ -65,12 +66,23 @@ export function findLandedPullRequests(robot: PatronusRobot, facts: LandingFacts
  * (`rememberLandedStackRoot`), and the toast says so too ("#12 no longer matches the air stack: oauth landed"); the user
  * decides on it, nothing closes it.
  */
-export function closeLandedPullRequests(robot: PatronusRobot, landed: readonly RobotLandedBranch[]): string | null {
-  const parts = [closeLanded(robot, landed), rememberLandedRoot(robot)].filter((part): part is string => part !== null)
+export function closeLandedPullRequests(robot: PatronusRobot, landed: readonly RobotLandedBranch[], repositoryKey: string): string | null {
+  const parts = [closeLanded(robot, landed, repositoryKey), rememberLandedRoot(robot)].filter((part): part is string => part !== null)
   return parts.length === 0 ? null : parts.join(" · ")
 }
 
-function closeLanded(robot: PatronusRobot, landedBranches: readonly RobotLandedBranch[]): string | null {
+/**
+ * What the merge toast of a robot of a repository the main window no longer shows says of the branches it landed: the
+ * branches and pull requests of the table are of the shown repository, so nothing is closed ("the pull requests of the
+ * branches it landed stay open: idea-1 is no longer the open repository"); null when it landed none besides its own
+ */
+export function describeLandedLeftOpen(landed: readonly RobotLandedBranch[], repositoryPath: string): string | null {
+  return landed.some(({ own, after }) => !own && after.length === 0)
+    ? `the pull requests of the branches it landed stay open: ${repositoryName(repositoryPath)} is no longer the open repository`
+    : null
+}
+
+function closeLanded(robot: PatronusRobot, landedBranches: readonly RobotLandedBranch[], repositoryKey: string): string | null {
   const landed = findLandedPullRequests(robot, { landed: landedBranches, branchOf: getBranch, pullRequestOf: getPullRequest })
   const name = robot.branchName
   const root = robot.stackRoot ?? null
@@ -81,7 +93,7 @@ function closeLanded(robot: PatronusRobot, landedBranches: readonly RobotLandedB
   const what = name === null ? "which holds this branch" : "which is built on this branch"
   const comment = `Landed in ${robot.targetBranch} with ${robot.pullRequest == null ? by : `#${robot.pullRequest.number}, ${by}`}, ${what}.`
   for (const { branch, number } of landed) {
-    closePullRequest(branch, comment).catch((error: unknown) => notifyError(`Cannot close pull request #${number}`, error))
+    closePullRequest(branch, comment, repositoryKey).catch((error: unknown) => notifyError(`Cannot close pull request #${number}`, error))
   }
   const one = landed.length === 1
   const of = name !== null || landed.length <= 2 ? joinNames(landed.map(it => it.branch)) : `${landed.length} branches`

@@ -19,7 +19,7 @@ import type {
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { VcsRequest } from "@/lib/git/vcs-request"
-import { closeLandedPullRequests } from "@/lib/landed-stack"
+import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-stack"
 import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import {
@@ -976,10 +976,13 @@ function announceMerge(key: string, robot: PatronusRobot): void {
 
 /** The merge told (`announceMerge`), with the pull requests of what it landed closed, as the view says it now */
 function tellMerge(key: string, robot: PatronusRobot): void {
-  const closed = closeLandedPullRequests(robot, patronusStore.getState().repositories[key]?.view?.landedByRobot[robot.id] ?? [])
+  const [repositoryPath] = key.split("\n") as [string, string]
+  const landed = patronusStore.getState().repositories[key]?.view?.landedByRobot[robot.id] ?? []
+  // the branches and pull requests of the table, and the view the wait made current, are of the shown repository: a
+  // merge of another one closes nothing there, and its toast says so
+  const closed = currentKey() === key ? closeLandedPullRequests(robot, landed, key) : describeLandedLeftOpen(landed, repositoryPath)
   const description = closed === null ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed}`
   const title = formatMergedRobotTitle(robot, patronusStore.getState().repositories[key]?.watched[robot.id])
-  const [repositoryPath] = key.split("\n") as [string, string]
   recordRobot(title, description, robot, repositoryPath)
   // the toast's button picks it up (Update Project fetches first): the notification says what merged, as the toast
   const notification = { title, body: description }
