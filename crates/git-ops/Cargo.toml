@@ -30,11 +30,11 @@ tempfile.workspace = true
 specta = { workspace = true, optional = true }
 # `Description` in the JSON schemas of the `bd` output
 schemars = { workspace = true, optional = true }
-gix-validate = "0.13.0"
+gix-validate = "0.13.1"
 bstr = { version = "1", default-features = false, features = ["std"] }
 # blob ids without `hash-object` (`commit_utils::blob_id`)
-sha1 = "0.10.7"
-sha2 = "0.10.9"
+sha1 = "0.11.0"
+sha2 = "0.11.1"
 
 [dev-dependencies]
 test-utils = { path = "../test-utils" }

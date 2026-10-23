@@ -37,10 +37,11 @@
 //! - **Every failure is a miss**: it is logged at debug level and never fails the caller.
 
 use heed::types::{Bytes, DecodeIgnore};
-use heed::{Database, Env, EnvOpenOptions, RwTxn};
+use heed::{CommitOrAbort, CommitToken, Database, DatabaseOpener, Env, EnvOpenOptions, OnCommit, RoTxn, RwTxn, WithTls};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -291,7 +292,19 @@ impl Drop for EnvHandle {
   }
 }
 
-type RawDatabase = Database<Bytes, Bytes>;
+/// A database committed by the transaction that opened it, usable in any later one (heed's `OnCommit`)
+type RawDatabase = Database<'static, Bytes, Bytes>;
+
+/// The databases of one environment while the transaction that opens them runs; its commit makes them `RawDatabase`s
+struct OpenedDatabases<'e>(Vec<Database<'e, Bytes, Bytes>>);
+
+impl OnCommit for OpenedDatabases<'_> {
+  type Committed = Vec<RawDatabase>;
+
+  fn on_commit(self, token: &CommitToken) -> Self::Committed {
+    self.0.into_iter().map(|database| database.on_commit(token)).collect()
+  }
+}
 
 struct Inner {
   /// By `Environment`, in the order of `ENVIRONMENTS`
@@ -348,7 +361,7 @@ impl ObjectCache {
       let env = inner.env(store);
       let txn = env.read_txn()?;
       let current = database.get(&txn, VERSION_KEY)?.map(<[u8]>::to_vec);
-      txn.commit()?;
+      drop(txn);
       if current.as_deref() != Some(meta.as_slice()) {
         debug!(store = store.base_name(), version, "clearing the entries of another version");
         let mut txn = env.write_txn()?;
@@ -537,38 +550,42 @@ pub(crate) fn open_env(dir: &Path, map_size: usize) -> Result<EnvHandle, Box<dyn
 /// of older versions, and those of stores that moved to another environment, are dropped
 fn open_databases(env: &Env, environment: Environment, stores: &[Store], versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<RawDatabase>> {
   let names: Vec<String> = stores.iter().map(|store| format!("{}.v{}", store.base_name(), versions[store.index()])).collect();
-  // the common case, with every database there and none to drop, needs no write transaction
-  let existing = {
-    let txn = env.read_txn()?;
-    let stale = stale_database_names(env, environment, &txn, versions)?;
-    let databases: Option<Vec<RawDatabase>> = names
+  // the common case, with every database there and none to drop, needs no write transaction; the handles stay valid
+  // only because the read transaction commits (`open_databases_and_commit`), the abort of a miss drops them
+  let existing = env.open_databases_and_commit(env.read_txn()?, |opener, txn| -> heed::Result<_> {
+    let stale = stale_database_names(opener, environment, txn, versions)?;
+    let databases: Option<Vec<_>> = names
       .iter()
-      .map(|name| env.open_database::<Bytes, Bytes>(&txn, Some(name)))
+      .map(|name| opener.open_database::<Bytes, Bytes>(txn, Some(name)))
       .collect::<heed::Result<Vec<_>>>()?
       .into_iter()
       .collect();
-    // a handle opened in a read transaction stays valid only if the transaction commits (heed's `RoTxn::commit`)
-    txn.commit()?;
-    databases.filter(|_| stale.is_empty())
-  };
-  if let Some(databases) = existing {
+    Ok(match databases.filter(|_| stale.is_empty()) {
+      Some(databases) => CommitOrAbort::Commit(OpenedDatabases(databases)),
+      None => CommitOrAbort::Abort(()),
+    })
+  })?;
+  if let CommitOrAbort::Commit(databases) = existing {
     return Ok(databases);
   }
-  let mut txn = env.write_txn()?;
-  drop_stale_databases(env, environment, &mut txn, versions)?;
-  let databases = names
-    .iter()
-    .map(|name| env.create_database::<Bytes, Bytes>(&mut txn, Some(name)))
-    .collect::<heed::Result<Vec<_>>>()?;
-  txn.commit()?;
+  let databases = env
+    .create_databases_and_commit(env.write_txn()?, |opener, txn| -> heed::Result<_> {
+      drop_stale_databases(opener, environment, txn, versions)?;
+      let databases = names
+        .iter()
+        .map(|name| opener.create_database::<Bytes, Bytes>(txn, Some(name)))
+        .collect::<heed::Result<Vec<_>>>()?;
+      Ok(CommitOrAbort::<_, Infallible>::Commit(OpenedDatabases(databases)))
+    })?
+    .unwrap_commit();
   Ok(databases)
 }
 
-/// The names of our databases in `env`, the environment `environment`, with an older version than their store's in
+/// The names of our databases in the environment `environment` of `opener`, with an older version than their store's in
 /// `versions`, of a store of another environment, or of a retired store, from the unnamed database that lists all of
 /// them
-fn stale_database_names(env: &Env, environment: Environment, txn: &heed::RoTxn, versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<String>> {
-  let Some(main) = env.open_database::<Bytes, DecodeIgnore>(txn, None)? else {
+fn stale_database_names<'e>(opener: &DatabaseOpener<'e, WithTls>, environment: Environment, txn: &RoTxn<'e>, versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<String>> {
+  let Some(main) = opener.open_database::<Bytes, DecodeIgnore>(txn, None)? else {
     return Ok(Vec::new());
   };
   let mut stale = Vec::new();
@@ -589,9 +606,9 @@ fn stale_database_names(env: &Env, environment: Environment, txn: &heed::RoTxn, 
   Ok(stale)
 }
 
-fn drop_stale_databases(env: &Env, environment: Environment, txn: &mut RwTxn, versions: &[u32; STORE_COUNT]) -> heed::Result<()> {
-  for name in stale_database_names(env, environment, txn, versions)? {
-    if let Some(database) = env.open_database::<Bytes, Bytes>(txn, Some(&name))? {
+fn drop_stale_databases<'e>(opener: &DatabaseOpener<'e, WithTls>, environment: Environment, txn: &mut RwTxn<'e>, versions: &[u32; STORE_COUNT]) -> heed::Result<()> {
+  for name in stale_database_names(opener, environment, txn, versions)? {
+    if let Some(database) = opener.open_database::<Bytes, Bytes>(txn, Some(&name))? {
       debug!(name, "dropping an object cache database of an older schema");
       // SAFETY: the handle is used for nothing else; a process of an older version that still uses it gets errors,
       // which it treats as misses

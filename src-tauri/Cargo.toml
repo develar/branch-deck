@@ -46,7 +46,7 @@ jiff = { workspace = true, features = ["tz-system"] }
 branch-integration = { path = "../crates/branch-integration", features = ["specta"] }
 serde_json.workspace = true
 specta.workspace = true
-tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -100,7 +100,7 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsA
 
 [dev-dependencies]
 # the export of src/lib/bindings.ts, which only `bindings_test` runs
-specta-typescript = "0.0.12"
+specta-typescript = "0.0.13"
 tempfile = "3"
 test-utils = { path = "../crates/test-utils" }
 

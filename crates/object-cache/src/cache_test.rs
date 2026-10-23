@@ -7,9 +7,11 @@ use crate::file_merge::FileMergeKey;
 use crate::merge_result::{MergeKey, MergeResult};
 use crate::review_answer::ReviewAnswer;
 use crate::word_resolution::WordResolutionResult;
+use heed::CommitOrAbort;
 use heed::types::{Bytes, DecodeIgnore};
 #[cfg(target_os = "macos")]
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::path::Path;
 use std::process::Command;
 
@@ -507,11 +509,28 @@ fn a_full_main_store_keeps_the_merges() {
 
 /// The names of the databases of the environment in `dir`
 fn database_names(env: &heed::Env) -> Vec<String> {
-  let txn = env.read_txn().unwrap();
-  let unnamed = env.open_database::<Bytes, DecodeIgnore>(&txn, None).unwrap().unwrap();
-  let names = unnamed.iter(&txn).unwrap().map(|item| String::from_utf8(item.unwrap().0.to_vec()).unwrap()).collect();
-  txn.commit().unwrap();
+  let mut names = Vec::new();
+  env
+    .open_databases_and_commit(env.read_txn().unwrap(), |opener, txn| -> heed::Result<_> {
+      let unnamed = opener.open_database::<Bytes, DecodeIgnore>(txn, None)?.expect("the unnamed database");
+      names = unnamed.iter(txn)?.map(|item| String::from_utf8(item.unwrap().0.to_vec()).unwrap()).collect();
+      Ok(CommitOrAbort::<_, Infallible>::Commit(()))
+    })
+    .unwrap();
   names
+}
+
+/// Create the databases `names` in `env`, each with one entry, as a binary of another layout left them
+fn create_databases_with_an_entry(env: &heed::Env, names: &[&str]) {
+  env
+    .create_databases_and_commit(env.write_txn().unwrap(), |opener, txn| -> heed::Result<_> {
+      for name in names {
+        let database = opener.create_database::<Bytes, Bytes>(txn, Some(name))?;
+        database.put(txn, b"key", b"value")?;
+      }
+      Ok(CommitOrAbort::<_, Infallible>::Commit(()))
+    })
+    .unwrap();
 }
 
 /// The merges and trees of a binary that kept them in the main environment are dropped from it on open
@@ -519,12 +538,7 @@ fn database_names(env: &heed::Env) -> Vec<String> {
 fn the_merges_of_the_main_environment_are_dropped() {
   let dir = tempfile::tempdir().unwrap();
   let main = open_env(dir.path(), DEFAULT_MAP_SIZE).unwrap();
-  let mut txn = main.write_txn().unwrap();
-  for name in ["merge_result.v1", "commit_tree.v1"] {
-    let database = main.create_database::<Bytes, Bytes>(&mut txn, Some(name)).unwrap();
-    database.put(&mut txn, b"key", b"value").unwrap();
-  }
-  txn.commit().unwrap();
+  create_databases_with_an_entry(&main, &["merge_result.v1", "commit_tree.v1"]);
 
   let cache = open(dir.path());
 
@@ -541,10 +555,7 @@ fn the_merges_of_the_main_environment_are_dropped() {
 fn a_retired_store_is_dropped() {
   let dir = tempfile::tempdir().unwrap();
   let patches = open_env(&dir.path().join("patches"), DEFAULT_PATCH_MAP_SIZE).unwrap();
-  let mut txn = patches.write_txn().unwrap();
-  let database = patches.create_database::<Bytes, Bytes>(&mut txn, Some("commit_patch.v1")).unwrap();
-  database.put(&mut txn, b"key", b"value").unwrap();
-  txn.commit().unwrap();
+  create_databases_with_an_entry(&patches, &["commit_patch.v1"]);
 
   let cache = open(dir.path());
   cache.put_file_diffs(

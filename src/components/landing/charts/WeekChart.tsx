@@ -41,7 +41,7 @@ export function WeekChart({ weeks }: { weeks: readonly WeekCount[] }) {
           <CartesianGrid vertical={false} />
           <XAxis dataKey="week" tickLine={false} axisLine={false} tickMargin={6} interval="preserveStartEnd" minTickGap={24} />
           <YAxis tickLine={false} axisLine={false} width={28} allowDecimals={false} />
-          <ChartTooltip cursor={false} content={<ChartTooltipContent labelFormatter={label => `Week of ${String(label)}`} />} />
+          <ChartTooltip cursor={false} content={<ChartTooltipContent labelFormatter={label => <>Week of {label}</>} />} />
           {/* in the order of the stack, not by name */}
           <ChartLegend content={<ChartLegendContent />} itemSorter={item => PARTS.indexOf(item.dataKey as Part)} />
           <Bar dataKey="merged" stackId="robots" fill="var(--color-merged)" stroke="var(--card)" strokeWidth={2} maxBarSize={24} shape={SHAPES.merged} />

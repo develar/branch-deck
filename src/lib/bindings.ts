@@ -285,11 +285,7 @@ export const commands = {
 	 *  The page of the calling sub-window loaded: it gets the data of an open that came while it loaded, and the window
 	 *  shows once the page settled its content, at most `CONTENT_BUDGET` from now
 	 */
-	subWindowLoaded: () => typedError<{
-	data: string,
-	storeCache: string,
-	open: SubWindowOpen,
-} | null, CommandError>(__TAURI_INVOKE("sub_window_loaded")),
+	subWindowLoaded: () => typedError<SubWindowUpdate | null, CommandError>(__TAURI_INVOKE("sub_window_loaded")),
 	/**
 	 *  The page of the calling sub-window settled the content of the open `open_id`: the window shows if that is the latest
 	 *  open and the window is still hidden
@@ -2862,7 +2858,7 @@ export type RepositoryConfig = {
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
-export type RepositoryConfigChange = { key: "stacks"; value: boolean | null } | { key: "symbols"; value: SymbolMode | null } | { key: "githubRepository"; value: string | null } | { key: "branchPrefix"; value: string | null } | { key: "resolveByWords"; value: boolean | null } | { key: "agentLease"; value: boolean | null } | { key: "agentSubjectBranch"; value: boolean | null };
+export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null };
 
 /**  The view of the branch table of the last sync */
 export type RepositoryView = {
