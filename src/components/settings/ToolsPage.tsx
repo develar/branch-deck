@@ -1,17 +1,27 @@
-import { useEffect, useState } from "react"
+import { useEffect, useId, useState } from "react"
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { DownloadIcon, ExternalLinkIcon, LogInIcon, XIcon } from "lucide-react"
+import { CircleArrowUpIcon, DownloadIcon, ExternalLinkIcon, LogInIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { SettingsSection } from "@/components/settings/SettingRow"
 import { CommandLine } from "@/components/shared/CommandLine"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
-import type { CliToolServer, CliToolStatus } from "@/lib/bindings"
-import { CLI_TOOL_PURPOSE, cliToolActionLabel, cliToolCommandHint, describeCliToolServer, describeCliToolVersion } from "@/lib/cli-tools"
+import type { CliToolServer, CliToolSkill, CliToolStatus } from "@/lib/bindings"
+import {
+  CLI_TOOL_PURPOSE,
+  cliToolActionLabel,
+  cliToolCommandHint,
+  cliToolSkillLabel,
+  describeCliToolServer,
+  describeCliToolSkill,
+  describeCliToolVersion,
+  isSkillAction,
+} from "@/lib/cli-tools"
 import { notifyError } from "@/lib/errors"
 import { resolveHomeDir, tildePath } from "@/lib/home-path"
-import { cancelCliToolAction, refreshCliTools, runCliToolAction, useCliToolStatuses, useRunningCliToolAction } from "@/stores/cli-tools"
+import { cancelCliToolAction, refreshCliTools, runCliToolAction, setInstallWithSkill, useCliToolStatuses, useInstallWithSkill, useRunningCliToolAction } from "@/stores/cli-tools"
 import type { RunningCliToolAction } from "@/stores/cli-tools"
 
 /**
@@ -31,7 +41,7 @@ export function ToolsPage({ openCount, server }: { openCount: number; server: st
   useWindowFocus(() => void refreshCliTools())
 
   return (
-    <SettingsSection title="Command-line tools" description="Agents and Branch Deck run them as you would; each keeps its own sign-in">
+    <SettingsSection title="Command-line tools" description="Agents and Branch Deck run them as you would; each keeps its own sign-in, its skill teaches the agents to use it">
       {statuses === null ? (
         <Spinner className="size-4" aria-label="Reading the tools" />
       ) : (
@@ -45,36 +55,43 @@ function CliToolRow({ status, homeDir, server }: { status: CliToolStatus; homeDi
   const running = useRunningCliToolAction(status.tool)
   const label = cliToolActionLabel(status)
   const action = status.action
+  const nameId = useId()
   // the app starts the browser sign-in of the CLI itself: it needs the server
   const signsIn = action === "signIn" && status.command === null
+  // a skill action runs on the line of the skill, everything else on the row
+  const runningHere = running !== undefined && !isSkillAction(running.action) ? running : undefined
+  const busy = running === undefined ? undefined : `${status.tool} is busy`
   return (
-    <div className="flex flex-col gap-1.5" data-testid={`cli-tool-${status.tool}`} data-settings-focus={status.tool} tabIndex={-1}>
+    <div role="group" aria-labelledby={nameId} className="flex flex-col gap-1.5" data-testid={`cli-tool-${status.tool}`} data-settings-focus={status.tool} tabIndex={-1}>
       <div className="flex min-h-6 items-center gap-2">
-        <span className="font-mono text-sm">{status.tool}</span>
+        <span id={nameId} className="font-mono text-sm">
+          {status.tool}
+        </span>
         <span className="min-w-0 truncate text-xs text-muted-foreground" title={status.binary ?? undefined}>
           {status.binary === null ? describeCliToolVersion(status) : `${describeCliToolVersion(status)} · ${tildePath(status.binary, homeDir)}`}
         </span>
         <span className="flex-1" />
-        {running === undefined ? (
-          label !== null &&
-          action !== null && (
-            <Button size="xs" variant="outline" onClick={() => void runCliToolAction(status.tool, action, status.latest)}>
-              <DownloadIcon data-icon="inline-start" />
-              {label}
-            </Button>
-          )
-        ) : (
+        {runningHere !== undefined ? (
           <Button size="xs" variant="ghost" onClick={() => cancelCliToolAction(status.tool)}>
             <XIcon data-icon="inline-start" />
             Cancel
           </Button>
+        ) : (
+          label !== null &&
+          action !== null && (
+            <Button size="xs" variant="outline" disabled={running !== undefined} title={busy} onClick={() => void runCliToolAction(status.tool, action, status.latest)}>
+              {action === "update" ? <CircleArrowUpIcon data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
+              {label}
+            </Button>
+          )
         )}
       </div>
       <p className="text-xs text-muted-foreground">{CLI_TOOL_PURPOSE[status.tool]}</p>
       {status.servers.map(known => (
         <ServerLine key={known.url} status={status} server={known} disabled={running !== undefined} />
       ))}
-      {running !== undefined && <RunningLine running={running} />}
+      {status.skill !== null && <SkillLine status={status} skill={status.skill} running={running} />}
+      {runningHere !== undefined && <RunningLine running={runningHere} />}
       {running === undefined && signsIn && <SignInForm status={status} initialServer={server ?? status.servers[0]?.url ?? ""} />}
       {running === undefined && status.command !== null && (
         <div className="flex flex-col gap-1">
@@ -84,6 +101,53 @@ function CliToolRow({ status, homeDir, server }: { status: CliToolStatus; homeDi
       )}
       {status.problem !== null && <p className="text-xs text-warning">{status.problem}</p>}
     </div>
+  )
+}
+
+/**
+ * The agent skill of the CLI: for a missing CLI the checkbox of its install, else the version the agents have with
+ * Install, Update and Remove; a skill action shows its progress here
+ */
+function SkillLine({ status, skill, running }: { status: CliToolStatus; skill: CliToolSkill; running: RunningCliToolAction | undefined }) {
+  const withSkill = useInstallWithSkill(status.tool)
+  if (status.binary === null) {
+    return (
+      <label className="flex items-center gap-2 text-xs" data-testid="cli-tool-skill">
+        <Checkbox checked={withSkill} disabled={running !== undefined} onCheckedChange={on => setInstallWithSkill(status.tool, on)} />
+        {`Also install the agent skill ${skill.name}`}
+      </label>
+    )
+  }
+  if (running !== undefined && isSkillAction(running.action)) {
+    return (
+      <div className="flex min-w-0 items-center gap-1" data-testid="cli-tool-skill">
+        <RunningLine running={running} />
+        <Button variant="link" size="xs" className="px-1" onClick={() => cancelCliToolAction(status.tool)}>
+          Cancel
+        </Button>
+      </div>
+    )
+  }
+  const actions = [...(skill.action === null ? [] : [skill.action]), ...(skill.installed === null ? [] : ["removeSkill" as const])].filter(
+    (it): it is "installSkill" | "updateSkill" | "removeSkill" => isSkillAction(it),
+  )
+  return (
+    <p className="flex min-w-0 items-center gap-1 text-xs" data-testid="cli-tool-skill" title="~/.claude/skills, ~/.agents/skills">
+      <span className="min-w-0 truncate">{describeCliToolSkill(status.tool, skill)}</span>
+      {actions.map(skillAction => (
+        <Button
+          key={skillAction}
+          variant="link"
+          size="xs"
+          className={skillAction === "removeSkill" ? "px-1 text-muted-foreground" : "px-1"}
+          disabled={running !== undefined}
+          aria-label={skillAction === "removeSkill" ? `Remove the ${status.tool} agent skill` : undefined}
+          onClick={() => void runCliToolAction(status.tool, skillAction, null)}
+        >
+          {cliToolSkillLabel(skillAction)}
+        </Button>
+      ))}
+    </p>
   )
 }
 

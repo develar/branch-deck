@@ -23,9 +23,19 @@ interface CliToolsState {
   /** null until the first read answers; the last answer stays while the next one runs */
   readonly statuses: readonly CliToolStatus[] | null
   readonly running: Partial<Record<CliTool, RunningCliToolAction>>
+  /** "Also install the agent skill" of a missing CLI: on by default, kept while the app runs, not a setting */
+  readonly installWithSkill: Record<CliTool, boolean>
 }
 
-const cliToolsStore = createStore<CliToolsState>(() => ({ statuses: null, running: {} }))
+const cliToolsStore = createStore<CliToolsState>(() => ({ statuses: null, running: {}, installWithSkill: { teamcity: true, youtrack: true } }))
+
+export function useInstallWithSkill(tool: CliTool): boolean {
+  return useStore(cliToolsStore, state => state.installWithSkill[tool])
+}
+
+export function setInstallWithSkill(tool: CliTool, value: boolean): void {
+  cliToolsStore.setState(state => ({ installWithSkill: { ...state.installWithSkill, [tool]: value } }))
+}
 
 export function useCliToolStatuses(): readonly CliToolStatus[] | null {
   return useStore(cliToolsStore, state => state.statuses)
@@ -70,9 +80,9 @@ function setRunning(tool: CliTool, running: RunningCliToolAction | undefined): v
 }
 
 /**
- * Runs `action` of `tool`, its lines shown under its row; then the toast of what it did and the status again, which
- * tells every window's Setup dot (`setup-changed`). `latest` names the release an update wants, `server` the server a
- * sign-in is to
+ * Runs `action` of `tool`, its lines shown where it was started (its row, or the line of the skill); then the toast of
+ * what it did and the status again, which tells every window's Setup dot (`setup-changed`). `latest` names the release
+ * an update wants, `server` the server a sign-in is to; an install brings the agent skill along when its checkbox is on
  */
 export async function runCliToolAction(tool: CliTool, action: CliToolAction, latest: string | null, server: string | null = null): Promise<void> {
   if (cliToolsStore.getState().running[tool] !== undefined) {
@@ -87,9 +97,15 @@ export async function runCliToolAction(tool: CliTool, action: CliToolAction, lat
     }
   }
   try {
-    const result = await commands.runCliToolAction(tool, action, latest, server, progress)
+    const withSkill = action === "install" && cliToolsStore.getState().installWithSkill[tool]
+    const result = await commands.runCliToolAction({ tool, action, latest, server, withSkill }, progress)
     if (result.status === "ok") {
-      showToast({ title: result.data.title })
+      // Undo of a removed skill installs it again
+      const undo = action === "removeSkill" ? { children: "Undo", onClick: () => void runCliToolAction(tool, "installSkill", null) } : undefined
+      showToast({ title: result.data.title, action: undo })
+      if (result.data.skill_problem !== null) {
+        notifyError(`Cannot install the ${tool} agent skill`, result.data.skill_problem)
+      }
     } else if (result.error.message !== "canceled") {
       notifyError(failedTitle(action, tool), result.error)
     }
@@ -113,8 +129,12 @@ function failedTitle(action: CliToolAction, tool: CliTool): string {
       return `Cannot install ${tool}`
     case "update":
       return `Cannot update ${tool}`
+    case "installSkill":
+      return `Cannot install the ${tool} agent skill`
     case "updateSkill":
-      return `Cannot update the skill of ${tool}`
+      return `Cannot update the ${tool} agent skill`
+    case "removeSkill":
+      return `Cannot remove the ${tool} agent skill`
     case "signIn":
       return `Cannot sign ${tool} in`
   }

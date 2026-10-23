@@ -19,7 +19,7 @@ describe("setup dot", () => {
       action: "Update",
       skip: "Skip This Version",
     })
-    expect(describeSetupItem(entry({ kind: "skillUpdate", tool: "teamcity", version: "1.4.0" })).title).toBe("The teamcity skill of the agents is older than 1.4.0")
+    expect(describeSetupItem(entry({ kind: "skillUpdate", tool: "teamcity", version: "1.4.0" })).title).toBe("The teamcity agent skill 1.4.0 is ready to install")
     expect(describeSetupItem(entry({ kind: "signInExpiring", tool: "teamcity", server: "https://ci.example", expiresAt: Date.UTC(2024, 0, 5, 12) / 1000 }))).toEqual({
       title: "The teamcity sign-in to ci.example expires Jan 5",
       action: "Sign In",

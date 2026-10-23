@@ -1,5 +1,5 @@
 use crate::setup::{EXPIRING_WITHIN, SetupFacts, setup_entries};
-use domain_types::cli_tools::{CliTool, CliToolServer, CliToolSignInState, CliToolSkill, CliToolStatus};
+use domain_types::cli_tools::{CliTool, CliToolAction, CliToolServer, CliToolSignInState, CliToolSkill, CliToolStatus};
 use domain_types::setup::{SetupItem, SetupSkip};
 use pretty_assertions::assert_eq;
 
@@ -81,14 +81,18 @@ fn a_tool_not_installed_and_a_skill_never_installed_are_no_items() {
   let missing = tool(CliTool::Youtrack, None, Some("0.7.0"));
   let mut teamcity = tool(CliTool::Teamcity, Some("1.6.0"), Some("1.6.0"));
   teamcity.skill = Some(CliToolSkill {
+    name: "teamcity-cli".to_string(),
     installed: None,
     bundled: Some("1.4.0".to_string()),
+    action: Some(CliToolAction::InstallSkill),
   });
   assert_eq!(items(None, &[missing, teamcity.clone()], false, &[]), vec![]);
 
   teamcity.skill = Some(CliToolSkill {
+    name: "teamcity-cli".to_string(),
     installed: Some("1.0.0".to_string()),
     bundled: Some("1.4.0".to_string()),
+    action: Some(CliToolAction::UpdateSkill),
   });
   assert_eq!(
     items(None, &[teamcity], false, &[]),

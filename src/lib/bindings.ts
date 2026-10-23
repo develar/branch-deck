@@ -451,10 +451,11 @@ export const commands = {
 	 */
 	cliToolsStatus: () => typedError<CliToolStatus[], CommandError>(__TAURI_INVOKE("cli_tools_status")),
 	/**
-	 *  Runs `action` of `tool` (install, update, the skill, the sign-in of `teamcity` to `server`), each line of its output
-	 *  to `progress`; a second action of the same tool while one runs is refused
+	 *  Runs the action of a row (install, with the agent skill when `with_skill`; update; the skill; the sign-in of
+	 *  `teamcity` to `server`), each line of its output to `progress`; a second action of the same tool while one runs is
+	 *  refused
 	 */
-	runCliToolAction: (tool: CliTool, action: CliToolAction, latest: string | null, server: string | null, progress: Channel<CliToolProgress>) => typedError<CliToolActionDone, CommandError>(__TAURI_INVOKE("run_cli_tool_action", { tool, action, latest, server, progress })),
+	runCliToolAction: (params: RunCliToolActionParams, progress: Channel<CliToolProgress>) => typedError<CliToolActionDone, CommandError>(__TAURI_INVOKE("run_cli_tool_action", { params, progress })),
 	/**  Ends the action of `tool` that runs, with its whole process group */
 	cancelCliToolAction: (tool: CliTool) => __TAURI_INVOKE<void>("cancel_cli_tool_action", { tool }),
 	/**
@@ -813,18 +814,24 @@ export type CliTool =
 /**  JetBrains/youtrack-cli: the issues of the commits */
 "youtrack";
 
-/**  The one thing a row offers next, decided in Rust */
+/**  The one thing a row offers next, decided in Rust; the skill has a line of its own */
 export type CliToolAction = "install" | 
 /**  The CLI is signed in to no server */
 "signIn" | 
 /**  A newer release than the installed one */
 "update" | 
-/**  The skill is not installed, or older than the one the CLI bundles */
-"updateSkill";
+/**  The agents get the skill the CLI bundles */
+"installSkill" | 
+/**  The agents have an older skill than the one the CLI bundles */
+"updateSkill" | 
+/**  The agents lose the skill */
+"removeSkill";
 
 /**  What an action did, in the words of its toast */
 export type CliToolActionDone = {
 	title: string,
+	/**  Why the skill an install or an update brings along failed, while the CLI itself is done */
+	skill_problem: string | null,
 };
 
 /**  A line of the output of a running action, or the page a sign-in opened in the browser */
@@ -854,12 +861,19 @@ export type CliToolSignInState = "authenticated" |
 /**  The CLI has the server but its token is missing, rejected or unreadable */
 "failed";
 
-/**  The agent skill a CLI bundles (`teamcity skill`) */
+/**  The agent skill a CLI bundles (`teamcity skill`, `youtrack skill`) */
 export type CliToolSkill = {
+	/**  e.g. `teamcity-cli` */
+	name: string,
 	/**  The `version:` of the installed `SKILL.md`; None while it is not installed */
 	installed: string | null,
 	/**  The version this release of the CLI installs */
 	bundled: string | null,
+	/**
+	 *  What the line of the skill offers besides Remove: `InstallSkill` while the agents have none, `UpdateSkill` while
+	 *  theirs is older than the bundled one
+	 */
+	action: CliToolAction | null,
 };
 
 /**  A CLI as Settings → Tools shows it */
@@ -870,7 +884,7 @@ export type CliToolStatus = {
 	/**  e.g. `1.6.0`; None when it is not installed or does not tell */
 	version: string | null,
 	servers: CliToolServer[],
-	/**  Only for a CLI that bundles a skill the app installs (`teamcity`) */
+	/**  The skill the CLI bundles for the agents; without the CLI, the one the agents may have of an earlier install */
 	skill: CliToolSkill | null,
 	/**  The newest release, once known; None before the first check or offline */
 	latest: string | null,
@@ -3438,6 +3452,18 @@ export type RobotStatsResult = {
 	/**  Unix seconds: when the newest list was read; null without one */
 	fetched_at: number | null,
 	stats: RobotStats | null,
+};
+
+/**  An action of a row of Settings → Tools */
+export type RunCliToolActionParams = {
+	tool: CliTool,
+	action: CliToolAction,
+	/**  The release an update wants */
+	latest: string | null,
+	/**  The server a sign-in of `teamcity` is to */
+	server: string | null,
+	/**  An install brings the agent skill along */
+	withSkill: boolean,
 };
 
 /**  A declaration of a text: its lines and its label, `Outer › inner` */

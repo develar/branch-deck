@@ -1,12 +1,12 @@
 //! The actions the app runs for a tool: its install and update through Homebrew (a `teamcity` outside Homebrew updates
-//! itself), and the `teamcity` skill of the agents. Each streams its lines and ends with its whole process group on a
+//! itself), and the skills of the agents. Each streams its lines and ends with its whole process group on a
 //! cancel; the version is read again after it, so an update that installed nothing new says so.
 
 use crate::environment::ToolEnvironment;
 use crate::parse::{compare_versions, parse_version};
-use crate::status::{KnownFacts, TEAMCITY_SKILL, homebrew_formula, read_status};
+use crate::status::{homebrew_formula, installed_skill, installed_with_homebrew, quiet_flags, read_servers, read_skill, skill_name};
 use crate::terminal_login::sign_in_teamcity;
-use domain_types::cli_tools::{CliTool, CliToolAction, PackageManager};
+use domain_types::cli_tools::{CliTool, CliToolAction};
 use std::cmp::Ordering;
 use std::path::Path;
 use std::time::Duration;
@@ -22,13 +22,23 @@ pub const TASK_TIMEOUT: Duration = Duration::from_mins(10);
 pub struct ToolTaskDone {
   /// e.g. "Installed teamcity 1.6.0", "Updated youtrack to 0.7.0"
   pub title: String,
+  /// What went wrong after the CLI itself was done: the skill an install or an update brings along
+  pub skill_problem: Option<String>,
 }
 
-/// What an action is for: the release an update wants, the server a sign-in is to
+impl ToolTaskDone {
+  const fn new(title: String) -> Self {
+    Self { title, skill_problem: None }
+  }
+}
+
+/// What an action is for: the release an update wants, the server a sign-in is to, whether an install brings the skill
+/// of the agents along
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ActionInput<'a> {
   pub latest: Option<&'a str>,
   pub server: Option<&'a str>,
+  pub with_skill: bool,
 }
 
 /// Where an action tells how far it is: each line of its output, the page a sign-in opened in the browser
@@ -54,22 +64,30 @@ pub fn run_action(
       let brew = environment.find(&BREW).ok_or_else(|| format!("Homebrew is not installed: install {name} in a terminal"))?;
       run_brew(environment, &brew, "install", tool, on_line, is_canceled)?;
       let version = installed_version(environment, tool).ok_or_else(|| format!("Homebrew installed {name}, but it does not run"))?;
-      Ok(ToolTaskDone {
-        title: format!("Installed {name} {version}"),
-      })
+      if input.with_skill {
+        // the CLI is there either way: a failed skill is said beside it, and the line of the skill offers it again
+        return Ok(match run_skill(environment, tool, CliToolAction::InstallSkill, on_line, is_canceled) {
+          Ok(_) => ToolTaskDone::new(format!("Installed {name} {version} and its agent skill")),
+          Err(error) => ToolTaskDone {
+            title: format!("Installed {name} {version}"),
+            skill_problem: Some(error),
+          },
+        });
+      }
+      Ok(ToolTaskDone::new(format!("Installed {name} {version}")))
     }
     CliToolAction::Update => {
       let before = installed_version(environment, tool);
-      let status = read_status(environment, tool, &KnownFacts::default());
-      let binary = status.binary.ok_or_else(|| format!("{name} is not installed"))?;
-      match (status.manager, tool) {
-        (Some(PackageManager::Homebrew), _) => {
+      let binary = environment.find_tool(tool).ok_or_else(|| format!("{name} is not installed"))?;
+      let homebrew = installed_with_homebrew(&binary) && environment.find(&BREW).is_some();
+      match (homebrew, tool) {
+        (true, _) => {
           let brew = environment.find(&BREW).ok_or_else(|| "Homebrew is gone".to_string())?;
           run_brew(environment, &brew, "upgrade", tool, on_line, is_canceled)?;
         }
         // an install script's or a package's teamcity updates itself, without a terminal with --yes
-        (_, CliTool::Teamcity) => run_streamed(environment, Path::new(&binary), &["update", "--yes", "--no-input", "--no-color"], on_line, is_canceled)?,
-        (_, CliTool::Youtrack) => return Err("youtrack updates itself only in a terminal: run youtrack update".to_string()),
+        (false, CliTool::Teamcity) => run_streamed(environment, &binary, &["update", "--yes", "--no-input", "--no-color"], on_line, is_canceled)?,
+        (false, CliTool::Youtrack) => return Err("youtrack updates itself only in a terminal: run youtrack update".to_string()),
       }
       let after = installed_version(environment, tool);
       let newer = match (&before, &after) {
@@ -78,34 +96,27 @@ pub fn run_action(
       };
       if !newer {
         let wanted = latest.map_or_else(String::new, |latest| format!(" {latest}"));
-        let source = if status.manager.is_some() { "Homebrew" } else { name };
+        let source = if homebrew { "Homebrew" } else { name };
         return Err(format!("{source} has no {name}{wanted} yet: {name} stays at {}", before.unwrap_or_default()));
       }
-      Ok(ToolTaskDone {
-        title: format!("Updated {name} to {}", after.unwrap_or_default()),
-      })
-    }
-    CliToolAction::UpdateSkill => {
-      if tool != CliTool::Teamcity {
-        return Err(format!("{name} has no skill Branch Deck installs"));
+      let after = after.unwrap_or_default();
+      // the skill of the agents follows the CLI; one the user removed stays removed
+      let skill_behind = installed_skill(environment, tool).is_some() && read_skill(environment, tool, Some(&binary)).action == Some(CliToolAction::UpdateSkill);
+      if skill_behind {
+        return Ok(match run_skill(environment, tool, CliToolAction::UpdateSkill, on_line, is_canceled) {
+          Ok(_) => {
+            let version = installed_skill(environment, tool).unwrap_or_default();
+            ToolTaskDone::new(format!("Updated {name} to {after} and its agent skill to {version}"))
+          }
+          Err(error) => ToolTaskDone {
+            title: format!("Updated {name} to {after}"),
+            skill_problem: Some(error),
+          },
+        });
       }
-      let status = read_status(environment, tool, &KnownFacts::default());
-      let binary = status.binary.ok_or_else(|| format!("{name} is not installed"))?;
-      let installed = status.skill.as_ref().and_then(|skill| skill.installed.as_ref()).is_some();
-      // the CLI finds the agents of the machine itself
-      let verb = if installed { "update" } else { "install" };
-      run_streamed(
-        environment,
-        Path::new(&binary),
-        &["skill", verb, TEAMCITY_SKILL, "--no-input", "--no-color"],
-        on_line,
-        is_canceled,
-      )?;
-      let version = read_status(environment, tool, &KnownFacts::default()).skill.and_then(|skill| skill.installed);
-      Ok(ToolTaskDone {
-        title: format!("Updated the TeamCity skill of the agents to {}", version.unwrap_or_default()),
-      })
+      Ok(ToolTaskDone::new(format!("Updated {name} to {after}")))
     }
+    CliToolAction::InstallSkill | CliToolAction::UpdateSkill | CliToolAction::RemoveSkill => run_skill(environment, tool, action, on_line, is_canceled),
     CliToolAction::SignIn => {
       if tool != CliTool::Teamcity {
         return Err(format!("Branch Deck does not sign {name} in: run {name} auth login"));
@@ -117,18 +128,37 @@ pub fn run_action(
       let server = server.ok_or_else(|| "the URL of the TeamCity server starts with https://".to_string())?;
       let binary = environment.find_tool(tool).ok_or_else(|| format!("{name} is not installed"))?;
       sign_in_teamcity(environment, &binary, server, on_line, output.on_url, is_canceled)?;
-      let status = read_status(environment, tool, &KnownFacts::default());
-      let user = status
-        .servers
+      let servers = read_servers(environment, tool, &binary)?;
+      let user = servers
         .iter()
         .find(|known| known.url == server)
         .and_then(|known| known.user.clone())
         .ok_or_else(|| format!("teamcity signed in, but is not signed in to {server}"))?;
-      Ok(ToolTaskDone {
-        title: format!("Signed in to {} as {user}", server.split("://").nth(1).unwrap_or(server)),
-      })
+      Ok(ToolTaskDone::new(format!("Signed in to {} as {user}", server.split("://").nth(1).unwrap_or(server))))
     }
   }
+}
+
+/// `<tool> skill install|update|remove <skill>`: the CLI finds the agents of the machine itself
+fn run_skill(environment: &ToolEnvironment, tool: CliTool, action: CliToolAction, on_line: &dyn Fn(&str), is_canceled: &dyn Fn() -> bool) -> Result<ToolTaskDone, String> {
+  let name = tool.command();
+  let binary = environment.find_tool(tool).ok_or_else(|| format!("{name} is not installed"))?;
+  let skill = skill_name(tool);
+  let verb = match action {
+    CliToolAction::InstallSkill => "install",
+    CliToolAction::RemoveSkill => "remove",
+    _ => "update",
+  };
+  let args: Vec<&str> = ["skill", verb, skill].into_iter().chain(quiet_flags(tool).iter().copied()).collect();
+  run_streamed(environment, &binary, &args, on_line, is_canceled)?;
+  let title = match (action, installed_skill(environment, tool)) {
+    (CliToolAction::RemoveSkill, None) => format!("Removed the {name} agent skill"),
+    (CliToolAction::RemoveSkill, Some(_)) => return Err(format!("{name} removed its skill, but the agents still have it")),
+    (CliToolAction::UpdateSkill, Some(version)) => format!("Updated the {name} agent skill to {version}"),
+    (_, Some(version)) => format!("Installed the {name} agent skill {version}"),
+    (_, None) => return Err(format!("{name} installed its skill, but the agents don't have it")),
+  };
+  Ok(ToolTaskDone::new(title))
 }
 
 /// `brew install|upgrade <formula>` without its prompts, hints and cleanup; its taps are updated first, as the tap of a

@@ -120,12 +120,17 @@ esac"#
   fn tool_body(&self, name: &str) -> String {
     let state = shell_path(&self.state());
     let log = shell_path(&self.root.join("log"));
-    let skill = shell_path(&self.home().join(".claude/skills/teamcity-cli"));
+    let skill = shell_path(&self.home().join(format!(".claude/skills/{name}-cli")));
+    // the skill `<name>-cli` of the agents: the version of `<name>.skill` in this release, 1.0.0 without one
     let common = format!(
       r#"echo "{name} $*" >> {log}
+bundled=$(cat {state}/{name}.skill 2>/dev/null || echo 1.0.0)
 case "$1 $2" in
   "--version "*) echo "{name} version $(cat {state}/{name}.version)"; exit 0;;
   "update "*) if [ -e {state}/{name}.latest ]; then cp {state}/{name}.latest {state}/{name}.version; fi; exit 0;;
+  "skill list") echo "{name}-cli         $bundled  Use when working with {name}"; exit 0;;
+  "skill install"|"skill update") mkdir -p {skill}; printf -- '---\nname: {name}-cli\nversion: %s\n---\n' "$bundled" > {skill}/SKILL.md; exit 0;;
+  "skill remove") rm -rf {skill}; exit 0;;
 esac"#
     );
     let own = match name {
@@ -139,8 +144,6 @@ esac"#
     if [ -e {state}/teamcity.denied ]; then echo "Error: the sign-in was denied"; exit 1; fi
     printf '[{{"server":"%s","status":"authenticated","user":{{"username":"jane"}},"token_expiry":"2026-12-01T00:00:00Z"}}]' "$4" > {state}/teamcity.auth
     echo "Logged in to $4 as jane";;
-  "skill list") echo "teamcity-cli         $(cat {state}/teamcity.skill 2>/dev/null || echo 1.0.0)  Use when working with TeamCity";;
-  "skill install"|"skill update") mkdir -p {skill}; printf -- '---\nname: teamcity-cli\nversion: %s\n---\n' "$(cat {state}/teamcity.skill 2>/dev/null || echo 1.0.0)" > {skill}/SKILL.md;;
 esac"#
       ),
       _ => format!(

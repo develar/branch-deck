@@ -1,4 +1,4 @@
-import type { CliTool, CliToolAction, CliToolServer, CliToolStatus } from "@/lib/bindings"
+import type { CliTool, CliToolAction, CliToolServer, CliToolSkill, CliToolStatus } from "@/lib/bindings"
 
 /*
  * The words of Settings → Tools (spec/repository/cli-tools.spec.md). Which action a row offers is Rust's
@@ -18,12 +18,39 @@ export function cliToolActionLabel(status: CliToolStatus): string | null {
       return status.command === null ? "Install" : null
     case "update":
       return status.command === null ? (status.latest === null ? "Update" : `Update to ${status.latest}`) : null
-    case "updateSkill":
-      return status.skill?.installed === null ? "Install Skill" : "Update Skill"
     case "signIn":
+    case "installSkill":
+    case "updateSkill":
+    case "removeSkill":
     case null:
       return null
   }
+}
+
+/** The line of the skill: "Agent skill teamcity-cli 1.3.0 · teamcity has 1.4.0", or "… · not installed" */
+export function describeCliToolSkill(tool: CliTool, skill: CliToolSkill): string {
+  if (skill.installed === null) {
+    return `Agent skill ${skill.name} · not installed`
+  }
+  const newer = skill.action === "updateSkill" && skill.bundled !== null ? ` · ${tool} has ${skill.bundled}` : ""
+  return `Agent skill ${skill.name} ${skill.installed}${newer}`
+}
+
+/** The label of a skill action of the line */
+export function cliToolSkillLabel(action: "installSkill" | "updateSkill" | "removeSkill"): string {
+  switch (action) {
+    case "installSkill":
+      return "Install Skill"
+    case "updateSkill":
+      return "Update Skill"
+    case "removeSkill":
+      return "Remove Skill"
+  }
+}
+
+/** A skill action runs on the line of the skill, its progress there too */
+export function isSkillAction(action: CliToolAction): boolean {
+  return action === "installSkill" || action === "updateSkill" || action === "removeSkill"
 }
 
 /** What the command of a row's action is for, before the command itself */
@@ -35,7 +62,9 @@ export function cliToolCommandHint(action: CliToolAction | null): string {
       return "Sign in in a terminal:"
     case "update":
       return "Update it in a terminal:"
+    case "installSkill":
     case "updateSkill":
+    case "removeSkill":
     case null:
       return ""
   }

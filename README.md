@@ -152,7 +152,7 @@ publisher: choose More info → Run anyway.
   per subject ([settings](spec/repository/settings.spec.md)); ⌘K finds a branch, a view or a command
   ([command palette](spec/repository/command-palette.spec.md)). Signed in to YouTrack, an issue key shows the issue on
   hover and marks it fixed once its work landed ([YouTrack](spec/repository/youtrack.spec.md)). Settings → Tools
-  installs and updates the `teamcity` and `youtrack` CLIs your agents use ([tools](spec/repository/cli-tools.spec.md)).
+  installs and updates the `teamcity` and `youtrack` CLIs your agents use, with their agent skills ([tools](spec/repository/cli-tools.spec.md)).
 
 ## Agent CLI
 

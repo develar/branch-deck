@@ -1,14 +1,14 @@
 // @spec spec/repository/cli-tools.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { CliToolStatus } from "@/lib/bindings"
-import { cliToolActionLabel, describeCliToolServer, describeCliToolVersion } from "@/lib/cli-tools"
+import { cliToolActionLabel, describeCliToolServer, describeCliToolSkill, describeCliToolVersion } from "@/lib/cli-tools"
 
 const INSTALLED: CliToolStatus = {
   tool: "teamcity",
   binary: "/opt/homebrew/bin/teamcity",
   version: "1.6.0",
   servers: [],
-  skill: { installed: "1.0.0", bundled: "1.4.0" },
+  skill: { name: "teamcity-cli", installed: "1.0.0", bundled: "1.4.0", action: "updateSkill" },
   latest: "1.7.0",
   manager: "homebrew",
   action: null,
@@ -22,8 +22,6 @@ describe("cli tools", () => {
     expect(cliToolActionLabel({ ...INSTALLED, binary: null, action: "install", command: "curl -fsSL https://jb.gg/tc/install | bash" })).toBeNull()
     expect(cliToolActionLabel({ ...INSTALLED, action: "update" })).toBe("Update to 1.7.0")
     expect(cliToolActionLabel({ ...INSTALLED, action: "update", command: "youtrack update" })).toBeNull()
-    expect(cliToolActionLabel({ ...INSTALLED, action: "updateSkill" })).toBe("Update Skill")
-    expect(cliToolActionLabel({ ...INSTALLED, action: "updateSkill", skill: { installed: null, bundled: "1.4.0" } })).toBe("Install Skill")
     expect(cliToolActionLabel({ ...INSTALLED, action: "signIn", command: "teamcity auth login" })).toBeNull()
     expect(cliToolActionLabel(INSTALLED)).toBeNull()
   })
@@ -37,5 +35,12 @@ describe("cli tools", () => {
     ).toBe("buildserver.labs.intellij.net · jane.doe · expires Nov 21")
     expect(describeCliToolServer({ url: "https://ci.example", user: null, state: "failed", error: "invalid token", expiresAt: null })).toBe("ci.example · invalid token")
     expect(describeCliToolServer({ url: "https://ci.example", user: null, state: "guest", error: null, expiresAt: null })).toBe("ci.example · guest")
+  })
+
+  it("says the skill of the agents against the one the CLI bundles", () => {
+    const skill = INSTALLED.skill!
+    expect(describeCliToolSkill("teamcity", skill)).toBe("Agent skill teamcity-cli 1.0.0 · teamcity has 1.4.0")
+    expect(describeCliToolSkill("teamcity", { ...skill, installed: "1.4.0", action: null })).toBe("Agent skill teamcity-cli 1.4.0")
+    expect(describeCliToolSkill("youtrack", { name: "youtrack-cli", installed: null, bundled: null, action: "installSkill" })).toBe("Agent skill youtrack-cli · not installed")
   })
 })

@@ -72,8 +72,8 @@ click lists each item with its action and its skip, then Settings.
 - The update of the app that the silent check after startup downloaded is an item, not a toast: "Branch Deck 1.2.0 is
   ready to install", Install and Restart.
   [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should keep a downloaded update of the app in the dot, not in a toast, and install it from there`)
-- "teamcity 1.7.0 is out" updates the CLI as Settings → Tools does (its toast in the main window); "The teamcity skill
-  of the agents is older than 1.4.0" updates the skill.
+- "teamcity 1.7.0 is out" updates the CLI as Settings → Tools does (its toast in the main window), an older skill of the
+  agents with it; "The teamcity agent skill 1.4.0 is ready to install" updates the skill.
   [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should update a CLI from the dot, and skip a version until a newer one`)
 - "The teamcity sign-in to ci.example expires Jan 5" and "… expired" open Settings → Tools at the tool to sign in; "The
   YouTrack sign-in stopped working" opens Settings → YouTrack.

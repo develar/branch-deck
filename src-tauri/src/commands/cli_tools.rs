@@ -73,6 +73,8 @@ pub struct CliToolProgress {
 #[derive(Clone, Debug, serde::Serialize, specta::Type)]
 pub struct CliToolActionDone {
   pub title: String,
+  /// Why the skill an install or an update brings along failed, while the CLI itself is done
+  pub skill_problem: Option<String>,
 }
 
 /// The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window
@@ -125,21 +127,40 @@ pub async fn get_setup_items(
   .await
 }
 
-/// Runs `action` of `tool` (install, update, the skill, the sign-in of `teamcity` to `server`), each line of its output
-/// to `progress`; a second action of the same tool while one runs is refused
+/// An action of a row of Settings → Tools
+#[derive(Debug, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunCliToolActionParams {
+  pub tool: CliTool,
+  pub action: CliToolAction,
+  /// The release an update wants
+  pub latest: Option<String>,
+  /// The server a sign-in of `teamcity` is to
+  pub server: Option<String>,
+  /// An install brings the agent skill along
+  pub with_skill: bool,
+}
+
+/// Runs the action of a row (install, with the agent skill when `with_skill`; update; the skill; the sign-in of
+/// `teamcity` to `server`), each line of its output to `progress`; a second action of the same tool while one runs is
+/// refused
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(state, patronus, progress))]
 pub async fn run_cli_tool_action(
   state: State<'_, CliToolsState>,
   patronus: State<'_, PatronusState>,
-  tool: CliTool,
-  action: CliToolAction,
-  latest: Option<String>,
-  server: Option<String>,
+  params: RunCliToolActionParams,
   progress: Channel<CliToolProgress>,
 ) -> Result<CliToolActionDone, CommandError> {
-  operation(async {
+  operation(async move {
+    let RunCliToolActionParams {
+      tool,
+      action,
+      latest,
+      server,
+      with_skill,
+    } = params;
     let canceled = Arc::new(AtomicBool::new(false));
     {
       let mut running = state.running.lock().expect("the running actions");
@@ -169,6 +190,7 @@ pub async fn run_cli_tool_action(
       let input = ActionInput {
         latest: latest.as_deref(),
         server: server.as_deref(),
+        with_skill,
       };
       let output = ActionOutput {
         on_line: &on_line,
@@ -182,7 +204,10 @@ pub async fn run_cli_tool_action(
     if tool == CliTool::Teamcity {
       patronus.reset_teamcity().await;
     }
-    result.map(|done| CliToolActionDone { title: done.title })
+    result.map(|done| CliToolActionDone {
+      title: done.title,
+      skill_problem: done.skill_problem,
+    })
   })
   .await
 }

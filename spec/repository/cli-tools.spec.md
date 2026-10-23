@@ -1,6 +1,6 @@
 ---
 name: Command-Line Tools
-description: Requirements for the teamcity and youtrack CLIs in Settings → Tools - the binary, its version and the servers it is signed in to, the TeamCity skill of the agents, and the one action Rust picks for each row (install and update through Homebrew, the skill), with the command for a terminal where the app doesn't run it.
+description: Requirements for the teamcity and youtrack CLIs in Settings → Tools - the binary, its version and the servers it is signed in to, the agent skill each bundles (installed with the CLI by default, installed, updated and removed from its line), and the one action Rust picks for each row (install and update through Homebrew, the sign-in), with the command for a terminal where the app doesn't run it.
 style: plain-1
 targets:
   - ../../crates/cli-tools/src/environment.rs
@@ -32,8 +32,8 @@ Two CLIs of the team do what Branch Deck and the agents need beside git: `teamci
 logs and tests of the builds of a robot, for the prompt of a failed robot ([Safe Push Failure
 Prompt](../branch/safe-push-failure-prompt.spec.md)) and for an agent; `youtrack` (JetBrains/youtrack-cli) reads and
 changes the issues of the commits. Settings → Tools shows each: where it is, its version, the servers it is signed in
-to, the skill of the agents (`teamcity`), and the one thing it needs next, which the app does itself where it can
-(install and update through Homebrew, the skill) and otherwise names as a command for a terminal.
+to, the agent skill it bundles, and the one thing it needs next, which the app does itself where it can (install and
+update through Homebrew, the sign-in of `teamcity`) and otherwise names as a command for a terminal.
 
 ## Goals
 
@@ -55,7 +55,7 @@ to, the skill of the agents (`teamcity`), and the one thing it needs next, which
   `bin` (Apple silicon, Intel, Linux) and `~/.local/bin` (the install scripts), then the `PATH` of the login shell, as
   an app started from the Finder has none of them; looked up on every read, so a CLI installed meanwhile is found.
   [@test] ../../crates/sync-utils/src/child_process_test.rs (`finds_a_tool_before_path_then_on_path_then_after_it`)
-- A read runs `--version`, `auth status --json` and, for `teamcity`, `skill list`, each in its own thread, both tools
+- A read runs `--version`, `auth status --json` and `skill list`, each in its own thread, both tools
   at once, 20 s each; the CLIs run without colours, prompts or an update check, and without the `TEAMCITY_*` and
   `YOUTRACK_*` credential variables of the app's environment, so the status is what an agent's shell gets.
   [@test] ../../crates/cli-tools/src/status_test.rs (`reads_every_tool`)
@@ -66,16 +66,16 @@ to, the skill of the agents (`teamcity`), and the one thing it needs next, which
   the entry of no server is no server; `token_expiry` is its expiry. `youtrack auth status --json` is one object or,
   with several instances, an array; `not configured` is no instance.
   [@test] ../../crates/cli-tools/src/parse_test.rs (`reads_the_servers_of_teamcity_with_their_user_and_expiry`, `reads_the_instances_of_youtrack_as_one_object_or_an_array`)
-- The skill of the agents is the `version:` of the oldest `teamcity-cli/SKILL.md` in `~/.claude/skills` and
-  `~/.agents/skills`, against the version of `teamcity skill list`.
+- The skill of the agents (`teamcity-cli`, `youtrack-cli`) is the `version:` of the oldest `<skill>/SKILL.md` in
+  `~/.claude/skills` and `~/.agents/skills`, against the version of `<tool> skill list`; Rust says what its line offers
+  besides Remove: Install Skill while the agents have none, Update Skill while theirs is older.
   [@test] ../../crates/cli-tools/src/parse_test.rs (`reads_the_version_of_a_skill_and_of_the_skill_list`)
-  [@test] ../../crates/cli-tools/src/status_test.rs (`the_teamcity_skill_is_behind_until_the_agents_have_the_bundled_version`)
+  [@test] ../../crates/cli-tools/src/status_test.rs (`the_skill_of_each_cli_is_the_oldest_copy_of_the_agents_against_the_bundled_one_beside_the_action`)
 
 ### The action of a row
 
 - Rust picks one action per tool, the most needed first: Install (not found), Sign In (signed in to no server),
-  Update (a newer release than the installed one), Update Skill (`teamcity`: the agents have none, or an older one);
-  none when all is well.
+  Update (a newer release than the installed one); none when all is well. The skill has a line of its own.
   [@test] ../../crates/cli-tools/src/status_test.rs (`an_installed_cli_has_its_version_and_servers_and_offers_its_sign_in_first`)
 - The app runs the action where it can, else the row shows the command for a terminal with Copy: an install without
   Homebrew (the README's command), a sign-in, an update of a `youtrack` outside Homebrew (`youtrack update`, which
@@ -90,14 +90,33 @@ to, the skill of the agents (`teamcity`), and the one thing it needs next, which
   tap of a tool lags behind its releases otherwise). A `teamcity` outside Homebrew updates itself
   (`teamcity update --yes`).
   [@test] ../../crates/cli-tools/src/install_test.rs (`installs_and_updates_through_homebrew_streaming_its_lines`, `a_teamcity_outside_homebrew_updates_itself`)
-  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should install a missing CLI through Homebrew, then show its version and its sign-in`, `should update a CLI to its newest release, then the skill of the agents`)
-- Update Skill is `teamcity skill install teamcity-cli` without a skill, `skill update` with one; the CLI finds the
-  agents of the machine itself.
-  [@test] ../../crates/cli-tools/src/install_test.rs (`installs_the_teamcity_skill_then_updates_it`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should install a missing CLI through Homebrew with its agent skill, then show its version and its sign-in`)
+- An update also updates an older skill of the agents ("Updated teamcity to 1.7.0 and its agent skill to 1.5.0"); a
+  skill the user removed stays removed.
+  [@test] ../../crates/cli-tools/src/install_test.rs (`an_install_with_the_skill_brings_it_and_one_without_brings_none`)
+
+### Agent skill
+
+- Each CLI bundles a skill that teaches the agents to use it. A missing CLI has "Also install the agent skill
+  teamcity-cli" under its purpose, checked by default for both (the agents are what the CLIs are here for), kept while
+  the app runs and never a setting: Install then runs `<tool> skill install <skill>` after the CLI ("Installed teamcity
+  1.6.0 and its agent skill"). A skill that fails is its own error beside the toast of the CLI ("Cannot install the
+  teamcity agent skill"); the line of the skill offers it again.
+  [@test] ../../crates/cli-tools/src/install_test.rs (`an_install_with_the_skill_brings_it_and_one_without_brings_none`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should install a missing CLI through Homebrew with its agent skill, then show its version and its sign-in`, `should install a CLI without its skill once its checkbox is off`)
+- An installed CLI has the line of its skill: "Agent skill teamcity-cli 1.3.0 · teamcity has 1.4.0" with Update Skill
+  and Remove Skill, "Agent skill teamcity-cli 1.4.0" with Remove Skill, "Agent skill youtrack-cli · not installed"
+  with Install Skill; its tooltip names where the skill lives. The CLI finds the agents of the machine itself
+  (`skill install|update|remove <skill>`). Remove needs no confirmation: its toast has Undo, which installs it again.
+  A skill action shows its progress on that line.
+  [@test] ../../crates/cli-tools/src/install_test.rs (`installs_updates_and_removes_the_skill_of_each_cli`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should update a CLI to its newest release, and install, update and remove its skill from the line of the skill`)
 - The row shows the last line of the running action and Cancel; Cancel ends the action's whole process group (SIGTERM,
   SIGKILL after 3 s), so the Ruby of `brew` holds no lock, and toasts nothing. An action runs at most 10 minutes; one
-  action per tool at a time.
-  [@test] ../../crates/sync-utils/src/child_process_test.rs (`hands_over_each_line_as_it_comes_and_returns_the_output`, `a_cancel_ends_the_whole_process_group`)
+  action per tool at a time; the other buttons of the row wait for it. Once the child exited its pipes are read half a
+  second more, not to their end: a child another thread spawned meanwhile may have inherited them (a process group
+  makes std fork on macOS) and would hold them open as long as it runs.
+  [@test] ../../crates/sync-utils/src/child_process_test.rs (`hands_over_each_line_as_it_comes_and_returns_the_output`, `a_cancel_ends_the_whole_process_group`, `a_child_that_exited_does_not_wait_for_a_neighbour_that_holds_its_pipes`)
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should stop a running install on Cancel, without an error`)
 - The version is read again after an action: an update that installed nothing newer fails with "Homebrew has no
   teamcity 1.7.0 yet: teamcity stays at 1.6.0". A failed `brew` names what the user can act on (another brew holds
@@ -105,7 +124,8 @@ to, the skill of the agents (`teamcity`), and the one thing it needs next, which
   [@test] ../../crates/cli-tools/src/install_test.rs (`an_update_that_installs_nothing_new_says_the_tap_has_none_yet`, `a_failed_brew_names_its_reason`, `without_homebrew_the_install_is_the_users`)
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should name why brew failed`)
 - What an action did is a toast of the Settings window: "Installed teamcity 1.6.0", "Updated youtrack to 0.7.0",
-  "Updated the TeamCity skill of the agents to 1.4.0"; a failure "Cannot install youtrack" with the reason. After an
+  "Installed the teamcity agent skill 1.4.0", "Updated the teamcity agent skill to 1.5.0", "Removed the teamcity agent
+  skill"; a failure "Cannot install youtrack", "Cannot remove the teamcity agent skill" with the reason. After an
   action of `teamcity` the prompt of a failed robot looks for the CLI again.
 
 ### Sign-in

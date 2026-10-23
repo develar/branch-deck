@@ -91,23 +91,31 @@ pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duratio
 
 /// How long a process group has after SIGTERM before SIGKILL
 const TERMINATE_GRACE: Duration = Duration::from_secs(3);
+/// How long the pipes of a child that exited are still read
+const DRAIN_AFTER_EXIT: Duration = Duration::from_millis(500);
 
 /// Runs `command` without input, handing each line of stdout and stderr to `on_line` as it comes, on the calling thread.
 /// On Unix the child leads a process group of its own, which a timeout or `is_canceled` ends with SIGTERM and, after 3 s,
 /// SIGKILL: the processes it started (the Ruby of `brew`) end with it instead of holding its locks. The output is also
-/// returned whole, as by `run_child`.
+/// returned whole, as by `run_child`. Once the child exited its pipes are read for `DRAIN_AFTER_EXIT` more, not to
+/// their end: a child spawned meanwhile by another thread may have inherited them (a process group makes std fork on
+/// macOS, and a pipe there is made before it is close-on-exec), and would hold them open as long as it runs.
 pub fn run_child_lines(command: &mut Command, timeout: Duration, on_line: &dyn Fn(&str), is_canceled: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
   command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
   #[cfg(unix)]
   std::os::unix::process::CommandExt::process_group(command, 0);
   let mut child = start_child(command)?;
-  let (sender, lines) = std::sync::mpsc::channel::<(bool, String)>();
-  let stdout = read_lines(child.stdout.take(), true, sender.clone());
-  let stderr = read_lines(child.stderr.take(), false, sender);
+  let (sender, lines) = std::sync::mpsc::channel::<Option<(bool, String)>>();
+  read_lines(child.stdout.take(), true, sender.clone());
+  read_lines(child.stderr.take(), false, sender);
 
   let mut stdout_text = Vec::new();
   let mut stderr_text = String::new();
-  let mut take_line = |(is_stdout, line): (bool, String)| {
+  // true for the end of a pipe
+  let mut take_line = |message: Option<(bool, String)>| -> bool {
+    let Some((is_stdout, line)) = message else {
+      return true;
+    };
     on_line(&line);
     if is_stdout {
       stdout_text.extend_from_slice(line.as_bytes());
@@ -116,19 +124,21 @@ pub fn run_child_lines(command: &mut Command, timeout: Duration, on_line: &dyn F
       stderr_text.push_str(&line);
       stderr_text.push('\n');
     }
+    false
   };
+  let mut open_pipes = 2;
   let deadline = Instant::now() + timeout;
   let status = loop {
-    while let Ok(line) = lines.try_recv() {
-      take_line(line);
+    while let Ok(message) = lines.try_recv() {
+      open_pipes -= usize::from(take_line(message));
     }
     let stop = match child.try_wait() {
       Ok(Some(status)) => break status,
       Ok(None) if is_canceled() => ChildProcessError::Superseded,
       Ok(None) if Instant::now() >= deadline => ChildProcessError::TimedOut,
       Ok(None) => {
-        if let Ok(line) = lines.recv_timeout(POLL_INTERVAL) {
-          take_line(line);
+        if let Ok(message) = lines.recv_timeout(POLL_INTERVAL) {
+          open_pipes -= usize::from(take_line(message));
         }
         continue;
       }
@@ -137,11 +147,15 @@ pub fn run_child_lines(command: &mut Command, timeout: Duration, on_line: &dyn F
     terminate_group(&mut child);
     return Err(stop);
   };
-  // the pipes close once every process of the group that held them is gone
-  let _ = (stdout.join(), stderr.join());
-  while let Ok(line) = lines.try_recv() {
-    take_line(line);
+  // what the child wrote before it exited, until both pipes end or the drain is over; the readers stay behind then
+  let drained = Instant::now() + DRAIN_AFTER_EXIT;
+  while open_pipes > 0
+    && let Some(left) = drained.checked_duration_since(Instant::now())
+    && let Ok(message) = lines.recv_timeout(left)
+  {
+    open_pipes -= usize::from(take_line(message));
   }
+  drop(take_line);
   Ok(ChildOutput {
     status,
     stdout: stdout_text,
@@ -149,9 +163,13 @@ pub fn run_child_lines(command: &mut Command, timeout: Duration, on_line: &dyn F
   })
 }
 
-fn read_lines(pipe: Option<impl Read + Send + 'static>, is_stdout: bool, sender: std::sync::mpsc::Sender<(bool, String)>) -> JoinHandle<()> {
+/// Sends each line of `pipe`, then `None` at its end
+fn read_lines(pipe: Option<impl Read + Send + 'static>, is_stdout: bool, sender: std::sync::mpsc::Sender<Option<(bool, String)>>) {
   std::thread::spawn(in_current_span(move || {
-    let Some(pipe) = pipe else { return };
+    let Some(pipe) = pipe else {
+      let _ = sender.send(None);
+      return;
+    };
     // `\r` ends a line too: a progress bar rewrites its line
     let mut reader = std::io::BufReader::new(pipe);
     let mut buffer = Vec::new();
@@ -161,14 +179,15 @@ fn read_lines(pipe: Option<impl Read + Send + 'static>, is_stdout: bool, sender:
         Ok(0) | Err(_) => break,
         Ok(_) => {
           for line in String::from_utf8_lossy(&buffer).split(['\n', '\r']).filter(|line| !line.trim().is_empty()) {
-            if sender.send((is_stdout, line.to_string())).is_err() {
+            if sender.send(Some((is_stdout, line.to_string()))).is_err() {
               return;
             }
           }
         }
       }
     }
-  }))
+    let _ = sender.send(None);
+  }));
 }
 
 /// SIGTERM to the child's process group, SIGKILL after the grace; elsewhere the child alone is killed

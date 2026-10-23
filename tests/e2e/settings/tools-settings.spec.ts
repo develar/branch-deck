@@ -5,22 +5,43 @@ import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-he
 import { emitTauriEvent } from "../helpers/sync-helpers"
 
 test.describe("Settings → Tools", () => {
-  test("should install a missing CLI through Homebrew, then show its version and its sign-in", async ({ page, setupRepo }) => {
+  test("should install a missing CLI through Homebrew with its agent skill, then show its version and its sign-in", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
-    await repo.setCliTools({ brew: true, latest: { teamcity: "1.6.0" } })
+    await repo.setCliTools({ brew: true, latest: { teamcity: "1.6.0" }, files: { "teamcity.skill": "1.4.0" } })
     const window = await openSettingsWindow(page, { page: "tools" })
     const row = window.getByTestId("cli-tool-teamcity")
     await expect(row).toContainText("Not installed")
+    // the skill comes along by default
+    await expect(row.getByRole("checkbox", { name: "Also install the agent skill teamcity-cli" })).toBeChecked()
 
     await row.getByRole("button", { name: "Install" }).click()
-    await expect(window.locator("[data-slot=toast]", { hasText: "Installed teamcity 1.6.0" })).toBeVisible()
-    expect(await repo.getCliToolsLog()).toContain("brew install jetbrains/utils/teamcity")
+    await expect(window.locator("[data-slot=toast]", { hasText: "Installed teamcity 1.6.0 and its agent skill" })).toBeVisible()
+    const log = await repo.getCliToolsLog()
+    expect(log).toContain("brew install jetbrains/utils/teamcity")
+    expect(log).toContain("teamcity skill install teamcity-cli --no-input --no-color")
     await expect(row).toContainText("1.6.0")
+    await expect(row.getByTestId("cli-tool-skill")).toContainText("Agent skill teamcity-cli 1.4.0")
     // signed in to no server: the server for its own sign-in, no command to copy
     await expect(row.getByRole("textbox", { name: "TeamCity server" })).toHaveValue("")
     await expect(row.getByRole("button", { name: "Sign In" })).toBeDisabled()
     await expect(row.locator("pre")).toHaveCount(0)
     await expect(row.getByRole("button", { name: "Install" })).toHaveCount(0)
+  })
+
+  test("should install a CLI without its skill once its checkbox is off", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    await repo.setCliTools({ brew: true })
+    const window = await openSettingsWindow(page, { page: "tools" })
+    const row = window.getByTestId("cli-tool-youtrack")
+    const checkbox = row.getByRole("checkbox", { name: "Also install the agent skill youtrack-cli" })
+    await checkbox.click()
+    await expect(checkbox).not.toBeChecked()
+    await row.getByRole("button", { name: "Install" }).click()
+    await expect(window.locator("[data-slot=toast]", { hasText: "Installed youtrack 1.0.0" })).toBeVisible()
+    expect(await repo.getCliToolsLog()).not.toContain("youtrack skill install youtrack-cli --quiet")
+    // the line of the skill offers it
+    await expect(row.getByTestId("cli-tool-skill")).toContainText("Agent skill youtrack-cli · not installed")
+    await expect(row.getByTestId("cli-tool-skill").getByRole("button", { name: "Install Skill" })).toBeVisible()
   })
 
   test("should give the command to install a CLI without Homebrew", async ({ page, setupRepo }) => {
@@ -33,7 +54,7 @@ test.describe("Settings → Tools", () => {
     await expect(row.getByRole("button", { name: "Install" })).toHaveCount(0)
   })
 
-  test("should update a CLI to its newest release, then the skill of the agents", async ({ page, setupRepo }) => {
+  test("should update a CLI to its newest release, and install, update and remove its skill from the line of the skill", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools(teamcityBehindOnHomebrew({ "teamcity.skill": "1.4.0" }))
     const window = await openSettingsWindow(page, { page: "tools" })
@@ -43,14 +64,34 @@ test.describe("Settings → Tools", () => {
 
     await row.getByRole("button", { name: "Update to 1.7.0" }).click()
     await expect(window.locator("[data-slot=toast]", { hasText: "Updated teamcity to 1.7.0" })).toBeVisible()
-    // the skill comes next: the agents have none
-    await row.getByRole("button", { name: "Install Skill" }).click()
-    await expect(window.locator("[data-slot=toast]", { hasText: "Updated the TeamCity skill of the agents to 1.4.0" })).toBeVisible()
     await expect(row).toContainText("1.7.0")
-    await expect(row.getByRole("button", { name: "Update Skill" })).toHaveCount(0)
+    expect(await repo.getCliToolsLog()).toContain("brew upgrade jetbrains/utils/teamcity")
+
+    // the agents have no skill: the line installs it
+    const skill = row.getByTestId("cli-tool-skill")
+    await expect(skill).toContainText("Agent skill teamcity-cli · not installed")
+    await skill.getByRole("button", { name: "Install Skill" }).click()
+    await expect(window.locator("[data-slot=toast]", { hasText: "Installed the teamcity agent skill 1.4.0" })).toBeVisible()
+    await expect(skill).toContainText("Agent skill teamcity-cli 1.4.0")
+
+    // a newer one in the CLI: Update Skill
+    await repo.setCliTools({ files: { "teamcity.skill": "1.5.0" } })
+    await emitTauriEvent(window, "tauri://focus")
+    await expect(skill).toContainText("Agent skill teamcity-cli 1.4.0 · teamcity has 1.5.0")
+    await skill.getByRole("button", { name: "Update Skill" }).click()
+    await expect(window.locator("[data-slot=toast]", { hasText: "Updated the teamcity agent skill to 1.5.0" })).toBeVisible()
+
+    // Remove, and its Undo installs it again
+    await skill.getByRole("button", { name: "Remove the teamcity agent skill" }).click()
+    const removed = window.locator("[data-slot=toast]", { hasText: "Removed the teamcity agent skill" })
+    await expect(removed).toBeVisible()
+    await expect(skill).toContainText("· not installed")
+    await removed.getByRole("button", { name: "Undo" }).click()
+    await expect(skill).toContainText("Agent skill teamcity-cli 1.5.0")
     const log = await repo.getCliToolsLog()
-    expect(log).toContain("brew upgrade jetbrains/utils/teamcity")
-    expect(log).toContain("teamcity skill install teamcity-cli --no-input --no-color")
+    for (const line of ["install", "update", "remove"]) {
+      expect(log).toContain(`teamcity skill ${line} teamcity-cli --no-input --no-color`)
+    }
   })
 
   test("should name why brew failed", async ({ page, setupRepo }) => {
@@ -98,6 +139,8 @@ test.describe("Settings → Tools", () => {
     await expect(tab.getByTestId("setup-dot")).toBeVisible()
     await window.getByTestId("cli-tool-youtrack").getByRole("button", { name: "Update to 0.7.0" }).click()
     await expect(window.locator("[data-slot=toast]", { hasText: "Updated youtrack to 0.7.0" })).toBeVisible()
+    // the status read after the update, which the app follows with \`setup-changed\` itself
+    await expect(window.getByTestId("cli-tool-youtrack").getByRole("button", { name: "Update to 0.7.0" })).toHaveCount(0)
     await emitTauriEvent(window, "setup-changed")
     await expect(tab.getByTestId("setup-dot")).toHaveCount(0)
   })

@@ -142,3 +142,34 @@ fn a_cancel_ends_the_whole_process_group() {
   std::thread::sleep(Duration::from_secs(3));
   assert!(!marker.exists(), "the grandchild survived the cancel");
 }
+
+/// A long child spawned beside a short one may inherit its pipes: the short one ends when it exits, not with the long one
+#[cfg(unix)]
+#[test]
+fn a_child_that_exited_does_not_wait_for_a_neighbour_that_holds_its_pipes() {
+  let dir = tempfile::tempdir().unwrap();
+  let short = fake(&dir, "echo hi");
+  let long = fake_executable(dir.path(), "long", "sleep 4");
+  let worst = std::sync::Mutex::new(Duration::ZERO);
+  std::thread::scope(|scope| {
+    for _ in 0..4 {
+      scope.spawn(|| {
+        let _ = run_child_lines(&mut Command::new(&long), TIMEOUT, &|_| {}, &|| false);
+      });
+    }
+    for _ in 0..8 {
+      scope.spawn(|| {
+        for _ in 0..30 {
+          let started = Instant::now();
+          let output = run_child_lines(&mut Command::new(&short), TIMEOUT, &|_| {}, &|| false).unwrap();
+          assert_eq!(String::from_utf8_lossy(&output.stdout), "hi\n");
+          let took = started.elapsed();
+          let mut worst = worst.lock().unwrap();
+          *worst = (*worst).max(took);
+        }
+      });
+    }
+  });
+  let worst = *worst.lock().unwrap();
+  assert!(worst < Duration::from_secs(2), "a short child took {worst:?}");
+}

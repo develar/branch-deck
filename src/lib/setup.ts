@@ -26,7 +26,7 @@ export function describeSetupItem(entry: SetupEntry): SetupItemWords {
     case "toolUpdate":
       return { title: `${item.tool} ${item.version} is out`, action: "Update", skip: skip("Skip This Version") }
     case "skillUpdate":
-      return { title: `The ${item.tool} skill of the agents is older than ${item.version}`, action: "Update Skill", skip: skip("Skip This Version") }
+      return { title: `The ${item.tool} agent skill ${item.version} is ready to install`, action: "Update Skill", skip: skip("Skip This Version") }
     case "signInExpiring":
       return {
         title: `The ${item.tool} sign-in to ${hostOf(item.server)} expires ${DATE.format(new Date(item.expiresAt * 1000))}`,

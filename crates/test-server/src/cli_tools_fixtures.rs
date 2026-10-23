@@ -156,7 +156,9 @@ pub async fn cli_tools_status(State(state): State<Arc<AppState>>, headers: axum:
   Ok(Json(serde_json::to_value(statuses).expect("the statuses serialize")))
 }
 
+/// The arguments as the page sends them, camelCase as Tauri takes them
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RunCliToolActionRequest {
   tool: CliTool,
   action: CliToolAction,
@@ -164,6 +166,8 @@ pub struct RunCliToolActionRequest {
   latest: Option<String>,
   #[serde(default)]
   server: Option<String>,
+  #[serde(default)]
+  with_skill: bool,
 }
 
 /// The action on the fakes; its lines stay unsent, as the page keeps the progress channel
@@ -184,11 +188,18 @@ pub async fn run_cli_tool_action(
   }
   let repository_id = repository.id.clone();
   drop(repository);
-  let RunCliToolActionRequest { tool, action, latest, server } = request;
+  let RunCliToolActionRequest {
+    tool,
+    action,
+    latest,
+    server,
+    with_skill,
+  } = request;
   let result = tokio::task::spawn_blocking(in_current_span(move || {
     let input = ActionInput {
       latest: latest.as_deref(),
       server: server.as_deref(),
+      with_skill,
     };
     let output = ActionOutput {
       on_line: &|_| {},
@@ -201,7 +212,7 @@ pub async fn run_cli_tool_action(
     repository.cli_tools.running.lock().expect("the running actions").remove(&tool);
   }
   match result {
-    Ok(Ok(done)) => Ok(Json(serde_json::json!({ "title": done.title }))),
+    Ok(Ok(done)) => Ok(Json(serde_json::json!({ "title": done.title, "skill_problem": done.skill_problem }))),
     Ok(Err(error)) => Err(CommandFailure::error("run the action", error)),
     Err(join_error) => {
       tracing::error!("Cannot run the action: it panicked: {join_error}");

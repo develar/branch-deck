@@ -61,26 +61,36 @@ fn an_installed_cli_has_its_version_and_servers_and_offers_its_sign_in_first() {
 }
 
 #[test]
-fn the_teamcity_skill_is_behind_until_the_agents_have_the_bundled_version() {
+fn the_skill_of_each_cli_is_the_oldest_copy_of_the_agents_against_the_bundled_one_beside_the_action() {
   let (_root, fakes, environment) = fakes();
   fakes.install("teamcity", "1.6.0");
   fakes.set("teamcity.auth", SIGNED_IN);
   fakes.set("teamcity.skill", "1.4.0");
   let status = read_status(&environment, CliTool::Teamcity, &latest("1.6.0"));
   let skill = status.skill.unwrap();
-  assert_eq!((skill.installed, skill.bundled.as_deref()), (None, Some("1.4.0")));
-  assert_eq!(status.action, Some(CliToolAction::UpdateSkill));
-
-  let dir = fakes.home().join(".claude/skills/teamcity-cli");
-  std::fs::create_dir_all(&dir).unwrap();
-  std::fs::write(dir.join("SKILL.md"), "---\nname: teamcity-cli\nversion: 1.0.0\n---\n").unwrap();
-  let status = read_status(&environment, CliTool::Teamcity, &latest("1.6.0"));
-  assert_eq!(status.skill.unwrap().installed.as_deref(), Some("1.0.0"));
-  assert_eq!(status.action, Some(CliToolAction::UpdateSkill));
-
-  std::fs::write(dir.join("SKILL.md"), "---\nname: teamcity-cli\nversion: 1.4.0\n---\n").unwrap();
-  let status = read_status(&environment, CliTool::Teamcity, &latest("1.6.0"));
+  assert_eq!(
+    (skill.name.as_str(), skill.installed, skill.bundled.as_deref(), skill.action),
+    ("teamcity-cli", None, Some("1.4.0"), Some(CliToolAction::InstallSkill))
+  );
+  // the skill has a line of its own: no action of the row
   assert_eq!(status.action, None);
+
+  for (dir, version) in [(".claude/skills/teamcity-cli", "1.4.0"), (".agents/skills/teamcity-cli", "1.0.0")] {
+    let dir = fakes.home().join(dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("SKILL.md"), format!("---\nname: teamcity-cli\nversion: {version}\n---\n")).unwrap();
+  }
+  let status = read_status(&environment, CliTool::Teamcity, &latest("1.6.0"));
+  let skill = status.skill.unwrap();
+  assert_eq!((skill.installed.as_deref(), skill.action), (Some("1.0.0"), Some(CliToolAction::UpdateSkill)));
+
+  fakes.install("youtrack", "0.7.0");
+  fakes.set("youtrack.skill", "0.2.0");
+  let youtrack = read_status(&environment, CliTool::Youtrack, &KnownFacts::default()).skill.unwrap();
+  assert_eq!(
+    (youtrack.name.as_str(), youtrack.installed, youtrack.bundled.as_deref()),
+    ("youtrack-cli", None, Some("0.2.0"))
+  );
 }
 
 #[test]

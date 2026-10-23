@@ -54,15 +54,20 @@ pub struct CliToolServer {
   pub expires_at: Option<u32>,
 }
 
-/// The agent skill a CLI bundles (`teamcity skill`)
+/// The agent skill a CLI bundles (`teamcity skill`, `youtrack skill`)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct CliToolSkill {
+  /// e.g. `teamcity-cli`
+  pub name: String,
   /// The `version:` of the installed `SKILL.md`; None while it is not installed
   pub installed: Option<String>,
   /// The version this release of the CLI installs
   pub bundled: Option<String>,
+  /// What the line of the skill offers besides Remove: `InstallSkill` while the agents have none, `UpdateSkill` while
+  /// theirs is older than the bundled one
+  pub action: Option<CliToolAction>,
 }
 
 /// A package manager that installs and updates a CLI
@@ -75,7 +80,7 @@ pub enum PackageManager {
   Scoop,
 }
 
-/// The one thing a row offers next, decided in Rust
+/// The one thing a row offers next, decided in Rust; the skill has a line of its own
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -85,8 +90,12 @@ pub enum CliToolAction {
   SignIn,
   /// A newer release than the installed one
   Update,
-  /// The skill is not installed, or older than the one the CLI bundles
+  /// The agents get the skill the CLI bundles
+  InstallSkill,
+  /// The agents have an older skill than the one the CLI bundles
   UpdateSkill,
+  /// The agents lose the skill
+  RemoveSkill,
 }
 
 /// A CLI as Settings → Tools shows it
@@ -100,7 +109,7 @@ pub struct CliToolStatus {
   /// e.g. `1.6.0`; None when it is not installed or does not tell
   pub version: Option<String>,
   pub servers: Vec<CliToolServer>,
-  /// Only for a CLI that bundles a skill the app installs (`teamcity`)
+  /// The skill the CLI bundles for the agents; without the CLI, the one the agents may have of an earlier install
   pub skill: Option<CliToolSkill>,
   /// The newest release, once known; None before the first check or offline
   pub latest: Option<String>,

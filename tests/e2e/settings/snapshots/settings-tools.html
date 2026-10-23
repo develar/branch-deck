@@ -51,12 +51,12 @@
                 Command-line tools
               </h3>
               <p class="text-xs text-muted-foreground">
-                Agents and Branch Deck run them as you would; each keeps its own sign-in
+                Agents and Branch Deck run them as you would; each keeps its own sign-in, its skill teaches the agents to use it
               </p>
             </div>
-            <div class="flex flex-col gap-1.5" data-settings-focus="teamcity" data-testid="cli-tool-teamcity" tabindex="-1">
+            <div aria-labelledby="[ID]" class="flex flex-col gap-1.5" data-settings-focus="teamcity" data-testid="cli-tool-teamcity" role="group" tabindex="-1">
               <div class="flex min-h-6 items-center gap-2">
-                <span class="font-mono text-sm">
+                <span class="font-mono text-sm" id="[ID]">
                   teamcity
                 </span>
                 <span class="min-w-0 truncate text-xs text-muted-foreground" title="[TEMP_PATH]">
@@ -64,7 +64,7 @@
                 </span>
                 <span class="flex-1" />
                 <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
-                  <svg aria-hidden="true" class="lucide lucide-download" data-icon="inline-start" />
+                  <svg aria-hidden="true" class="lucide lucide-circle-arrow-up" data-icon="inline-start" />
                   Update to 1.7.0
                 </button>
               </div>
@@ -87,10 +87,18 @@
                   Sign In Again
                 </button>
               </p>
+              <p class="flex min-w-0 items-center gap-1 text-xs" data-testid="cli-tool-skill" title="~/.claude/skills, ~/.agents/skills">
+                <span class="min-w-0 truncate">
+                  Agent skill teamcity-cli · not installed
+                </span>
+                <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 text-primary underline-offset-4 hover:underline h-6 gap-1 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3 px-1" data-slot="button" tabindex="0" type="button">
+                  Install Skill
+                </button>
+              </p>
             </div>
-            <div class="flex flex-col gap-1.5" data-settings-focus="youtrack" data-testid="cli-tool-youtrack" tabindex="-1">
+            <div aria-labelledby="[ID]" class="flex flex-col gap-1.5" data-settings-focus="youtrack" data-testid="cli-tool-youtrack" role="group" tabindex="-1">
               <div class="flex min-h-6 items-center gap-2">
-                <span class="font-mono text-sm">
+                <span class="font-mono text-sm" id="[ID]">
                   youtrack
                 </span>
                 <span class="min-w-0 truncate text-xs text-muted-foreground">
@@ -101,6 +109,15 @@
               <p class="text-xs text-muted-foreground">
                 The issues of the commits, for agents
               </p>
+              <label class="flex items-center gap-2 text-xs" data-testid="cli-tool-skill" id="base-ui-[ID]-label">
+                <span aria-checked="true" aria-labelledby="base-ui-[ID]-label" class="peer relative flex size-4 shrink-0 items-center justify-center rounded-sm border border-transparent bg-input/90 transition-shadow outline-none group-has-disabled/field:opacity-50 group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-transparent after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-primary" data-checked="" data-slot="checkbox" id="base-ui-[ID]" role="checkbox" tabindex="0">
+                  <span class="grid place-content-center text-current transition-none [&>svg]:size-3.5" data-checked="" data-slot="checkbox-indicator">
+                    <svg aria-hidden="true" class="lucide lucide-check" />
+                  </span>
+                </span>
+                <input aria-hidden="true" checked="" id="base-ui-[ID]" style="clip-path: inset(50%);  overflow: hidden;  white-space: nowrap;  border: 0px;  padding: 0px;  width: 1px;  height: 1px;  margin: 0px;  position: fixed;  top: 0px;  left: 0px" tabindex="-1" type="checkbox" />
+                Also install the agent skill youtrack-cli
+              </label>
               <div class="flex flex-col gap-1">
                 <p class="text-xs text-muted-foreground">
                   Install it in a terminal:

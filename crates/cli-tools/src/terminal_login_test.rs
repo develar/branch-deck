@@ -23,6 +23,7 @@ fn sign_in(environment: &crate::environment::ToolEnvironment, server: &str) -> (
   let input = ActionInput {
     latest: None,
     server: Some(server),
+    with_skill: false,
   };
   let result = run_action(environment, CliTool::Teamcity, CliToolAction::SignIn, &input, &output, &|| false).map(|done| done.title);
   (result, lines.into_inner(), urls.into_inner())
@@ -82,6 +83,7 @@ fn a_sign_in_needs_the_url_of_the_server() {
     &ActionInput {
       latest: None,
       server: Some("ci.example"),
+      with_skill: false,
     },
     &output,
     &|| false,
