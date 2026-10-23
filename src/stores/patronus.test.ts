@@ -40,6 +40,9 @@ import {
   refreshPatronus,
   resetPatronus,
   setPatronusWindowFocus,
+  findCommentRobot,
+  LATE_ROBOT_INTERVAL_MS,
+  LATE_ROBOT_WAIT_MS,
   startPatronusFromPullRequest,
   startPatronusFromReviewedPullRequest,
   watchRobot,
@@ -902,13 +905,14 @@ describe("merges", () => {
 describe("pull request start", () => {
   const ofPullRequest = robot({ id: "pr", startTime: START / 1000, pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" } })
   const auth = { branchName: "auth" }
+  const COMMENT_URL = "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133"
 
   it("posts the command, waits for the thumbs up and returns the robot of the pull request", async () => {
     patronus.replies = [{ status: "pending" }, { status: "accepted" }]
     patronus.list = available(ofPullRequest)
     const started = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
     await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
-    expect(await started).toEqual(ofPullRequest)
+    expect(await started).toEqual({ robot: ofPullRequest, commentUrl: COMMENT_URL })
     // the merge of an own branch keeps it, in the GitHub repository of the Space mirror; Rust checks the start of the
     // branch before the comment
     expect(patronus.commands).toEqual([
@@ -927,6 +931,44 @@ describe("pull request start", () => {
     expect(getBranchRobot("auth")?.id).toBe("pr")
   })
 
+  it("never takes an earlier robot of the pull request: one listed before the comment or of the other mode, the newest of the rest", async () => {
+    const pullRequest = { number: 7, url: "https://github.com/acme/monorepo/pull/7" }
+    // a Dry Run of #7 canceled a minute ago, listed before the comment
+    const canceledDryRun = robot({ id: "dry", pushMode: "dryRun", status: "canceled", startTime: (START - 60_000) / 1000, pullRequest })
+    patronus.list = available(canceledDryRun)
+    await refreshPatronus("sync")
+    vi.setSystemTime(START + 1000)
+    patronus.replies = [{ status: "accepted" }]
+    const dryRunNotKnown = robot({ id: "dry-2", pushMode: "dryRun", startTime: (START - 30_000) / 1000, pullRequest })
+    const older = robot({ id: "older", startTime: START / 1000, pullRequest })
+    const started = robot({ id: "started", startTime: (START + 2000) / 1000, pullRequest })
+    patronus.list = available(canceledDryRun, dryRunNotKnown, started, older)
+    const asked = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
+    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
+    expect((await asked).robot?.id).toBe("started")
+
+    const known = new Set(["dry"])
+    const robots = { dry: canceledDryRun, "dry-2": dryRunNotKnown, older, started }
+    expect(findCommentRobot(robots, 7, "dryRun", START + 1000, known)?.id).toBe("dry-2")
+    expect(findCommentRobot(robots, 8, "rebaseAutosquash", START + 1000, known)).toBeUndefined()
+  })
+
+  it("resolves an accepted comment without a listed robot as started, and looks for the robot in the background", async () => {
+    patronus.replies = [{ status: "accepted" }]
+    patronus.list = available()
+    const asked = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
+    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
+    expect(await asked).toEqual({ robot: null, commentUrl: COMMENT_URL })
+    const asks = patronus.lists.length
+
+    patronus.list = available(ofPullRequest)
+    await vi.advanceTimersByTimeAsync(LATE_ROBOT_INTERVAL_MS)
+    expect(getBranchRobot("auth")?.id).toBe("pr")
+    // found: no more lists for it
+    await vi.advanceTimersByTimeAsync(LATE_ROBOT_WAIT_MS)
+    expect(patronus.lists).toHaveLength(asks + 1)
+  })
+
   it("throws the reason the bot gave with its thumbs down", async () => {
     patronus.replies = [
       { status: "rejected", reason: null },
@@ -941,7 +983,7 @@ describe("pull request start", () => {
 
   it("gives up after a minute without an answer", async () => {
     const started = startPatronusFromPullRequest(7, "dryRun", auth)
-    const failed = expect(started).rejects.toThrow("Patronus did not start a robot within a minute: see pull request #7")
+    const failed = expect(started).rejects.toThrow("Patronus did not answer the comment within a minute: see pull request #7")
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
     await failed
   })

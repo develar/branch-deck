@@ -483,6 +483,29 @@ fn a_branch_with_an_open_pull_request_starts_from_a_comment() {
   );
 }
 
+/// The robot a comment started is never an earlier one of the same pull request: a Dry Run of #7 canceled a minute ago,
+/// newer than the robot of the comment, is listed before and after the comment, and is of the other mode; the Safe Push
+/// the comment started is the robot
+#[test_log::test]
+fn the_robot_of_a_comment_is_never_an_earlier_robot_of_the_pull_request() {
+  let space = Space::new(&["(auth) Add auth"]);
+  let (_github, url) = fake_github(&space, &[pull_request_json(&[])]);
+  let environment = reviewed_on_github(&space, &url);
+  let mut robots = space.fake.robots.lock().unwrap().clone().unwrap();
+  let mut dry_run = robot_json("canceled-dry-run", "CANCELED", "refs/heads/test-user/virtual/other", &minutes_ago(1));
+  dry_run["pushMode"] = json!("DRY_RUN");
+  dry_run["githubPrUrl"] = json!("https://github.com/acme/monorepo/pull/7");
+  robots.push(dry_run);
+  space.set_robots(robots);
+
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["started_via"].clone(), output["robot"]["id"].clone()),
+    (json!("pull_request"), json!("from-comment"))
+  );
+}
+
 #[test_log::test]
 fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it() {
   let (space, github, environment) = needs_review_on_github();

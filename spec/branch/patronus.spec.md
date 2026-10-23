@@ -808,15 +808,24 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   comment, every 3 s for up to a minute, the app reads the reactions of its comment (`GET
   repos/<owner>/<name>/issues/comments/<id>`, conditional: a poll that sees no change costs no rate limit); after 👎 the first later `⚠️` comment of a bot is the reason, looked for
   once more if it isn't there yet; after 👍 an incremental list (`since` shortly before the comment) finds the robot of
-  the pull request (`githubPrUrl`), which shows at once and is polled. The loading toast says "Asking Patronus on pull
+  the pull request (`githubPrUrl`), which shows at once and is polled: of that pull request, a Dry Run for a Dry Run and
+  a Safe Push for a Safe Push, none the app listed before the comment, the newest (`findCommentRobot`; `bd safe-push`
+  matches it the same way, `comment_robot`, leaving out the robots that had finished and the one it replaces), so a
+  Dry Run of #7 canceled a minute before is never the new robot. The loading toast says "Asking Patronus on pull
   request #7…". A refusal is the error toast "Cannot start the Safe Push" with the bot's reason; no answer within a
-  minute is "Patronus did not start a robot within a minute: see pull request #7".
+  minute is "Patronus did not answer the comment within a minute: see pull request #7". A 👍 is the start: when
+  Patronus lists no robot of it within the minute, the toast is "Safe Push started", "Patronus accepted the comment on
+  #7: the robot shows once Patronus lists it", with "Open Pull Request #7", and the robot is looked for every 15 s for 5
+  minutes more in the background.
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_comment_without_reactions_is_pending_and_a_thumbs_up_is_accepted`)
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_thumbs_down_reads_the_reason_from_the_bot_comment`)
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`the_reason_is_a_later_bot_comment_and_a_user_warning_is_not_one`)
   [@test] ../../src/stores/patronus.test.ts (`posts the command, waits for the thumbs up and returns the robot of the pull request`)
   [@test] ../../src/stores/patronus.test.ts (`throws the reason the bot gave with its thumbs down`)
   [@test] ../../src/stores/patronus.test.ts (`gives up after a minute without an answer`)
+  [@test] ../../src/stores/patronus.test.ts (`never takes an earlier robot of the pull request: one listed before the comment or of the other mode, the newest of the rest`)
+  [@test] ../../src/stores/patronus.test.ts (`resolves an accepted comment without a listed robot as started, and looks for the robot in the background`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_robot_of_a_comment_is_never_an_earlier_robot_of_the_pull_request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say why Patronus refused the comment`)
 - A branch without an open pull request starts through the API, as on Space, without a merge request; that start counts
   no approval, so with approvals required its next step is "Create Pull Request…" ([Next Step](next-step.spec.md)).

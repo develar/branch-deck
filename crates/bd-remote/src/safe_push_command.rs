@@ -68,7 +68,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::github_repository::GitHubRepository;
 use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
-use sync_core::patronus_start::{allows_push_mode, is_push_into_robot_risky, join_names, push_mode_name};
+use sync_core::patronus_start::{allows_push_mode, is_push_into_robot_risky, is_robot_active, join_names, push_mode_name};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
 use sync_core::remote_status::has_work_for_remote;
@@ -409,6 +409,9 @@ struct Plan {
   /// The running Safe Push of an older commit that the start replaces: a push would fail it, and without a push the new
   /// robot would run beside it; canceled first with `--cancel-running`, as the app's form cancels it
   risky_robot: Option<PatronusRobot>,
+  /// The ids of the robots that can't be the one a `/patronus` comment starts: the user's robots that had finished when
+  /// listed before the start, and the robot the start replaces (`risky_robot`)
+  known_robots: HashSet<String>,
   /// The whole stack of a stack that forks: its stack branch, the only branch pushed
   stack: Option<StackPush>,
   /// The replay onto the newest target and what it means; `None` with `--create-pull-request`
@@ -990,6 +993,9 @@ fn plan(
   // what the merged ones landed of it, by content
   let user_robots = list_robots(context, service, &space)?;
   let table = table_of(context, synced);
+  // a robot that had finished before the comment is never the one it starts; one that ran is the replaced one, or the
+  // start was refused
+  let mut known_robots: HashSet<String> = user_robots.iter().filter(|robot| !is_robot_active(robot)).map(|robot| robot.id.clone()).collect();
   let facts = PatronusFacts::read(context, &table, user_robots);
   let landed = landed_branches(&facts);
   let pushes = mode != PatronusPushMode::DryRun;
@@ -1278,6 +1284,10 @@ fn plan(
     refusals,
     alone,
     warnings,
+    known_robots: {
+      known_robots.extend(risky_robot.iter().map(|robot| robot.id.clone()));
+      known_robots
+    },
     risky_robot,
     stack: stack_push,
     target_check,
@@ -1838,11 +1848,20 @@ fn start_from_pull_request(
     context.patronus_new_api,
     Some(posted_at.saturating_sub(COMMENT_CLOCK_SLACK)),
   )?;
-  let robot = robots
+  Ok((start, comment_robot(robots, pull_request.number, plan.mode, &plan.known_robots)))
+}
+
+/// The robot a `/patronus` comment on pull request `number` started in `mode`, as the app matches it
+/// (`findCommentRobot`): of that pull request, a dry run for a dry run and a Safe Push for a Safe Push, and none of
+/// `known` (the robots known before the comment: a canceled Dry Run or the replaced Safe Push of the same pull request a
+/// minute before is never the new robot); the newest of them
+pub(crate) fn comment_robot(robots: Vec<PatronusRobot>, number: u32, mode: PatronusPushMode, known: &HashSet<String>) -> Option<PatronusRobot> {
+  let dry_run = mode == PatronusPushMode::DryRun;
+  robots
     .into_iter()
-    .filter(|robot| robot.pull_request.as_ref().is_some_and(|link| link.number == pull_request.number))
-    .max_by_key(|robot| robot.start_time);
-  Ok((start, robot))
+    .filter(|robot| robot.pull_request.as_ref().is_some_and(|link| link.number == number))
+    .filter(|robot| (robot.push_mode == PatronusPushMode::DryRun) == dry_run && !known.contains(&robot.id))
+    .max_by_key(|robot| robot.start_time)
 }
 
 pub(crate) fn mode_name(mode: PatronusPushMode) -> String {

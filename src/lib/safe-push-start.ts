@@ -9,9 +9,10 @@ import { checkLandingBeforeStart, formatLandingFix } from "@/lib/landing-gate"
 import type { PullRequestStart } from "@/lib/patronus"
 import { canCancelRobot, describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
+import { openPullRequestUrl } from "@/lib/pull-request"
 import { checkTargetBeforeStart } from "@/lib/target-conflict"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
-import { recordRobot } from "@/stores/activity"
+import { recordActivity, recordRobot } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { StartRepository } from "@/stores/patronus"
 import { startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patronus"
@@ -102,12 +103,20 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
       return false
     }
     setStep("starting")
-    const robot =
-      start.fromPullRequest === null
-        ? await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null, allow, admitted)
-        : await startPatronusFromPullRequest(start.fromPullRequest.number, mode, { branchName: root ?? branchName, stack: root !== null, allow }, request)
     const note = [landing.note, target.note].filter(line => line !== null).join(" ")
-    announceStart(`${modeName} started`, robot, start.fromPullRequest === null ? (start.profile?.name ?? null) : null, note === "" ? null : note, repositoryPath)
+    const title = `${modeName} started`
+    if (start.fromPullRequest === null) {
+      const robot = await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null, allow, admitted)
+      announceStart(title, robot, start.profile?.name ?? null, note === "" ? null : note, repositoryPath)
+      return true
+    }
+    const number = start.fromPullRequest.number
+    const started = await startPatronusFromPullRequest(number, mode, { branchName: root ?? branchName, stack: root !== null, allow }, request)
+    if (started.robot === null) {
+      announceCommentStart(title, number, started.commentUrl, note === "" ? null : note, repositoryPath)
+    } else {
+      announceStart(title, started.robot, null, note === "" ? null : note, repositoryPath)
+    }
     return true
   } catch (error) {
     notifyError(errorTitle, error)
@@ -160,6 +169,23 @@ function pushFirst(start: SafePushStart, errorTitle: string, repositoryPath: str
       notifyError(errorTitle, pushed.reason)
     }
     return pushed.pushed
+  })
+}
+
+/**
+ * The toast of a start Patronus accepted on pull request `number` (👍) whose robot it lists not yet: the start is made,
+ * the robot shows once listed (looked for in the background); the toast opens the comment
+ */
+function announceCommentStart(title: string, number: number, commentUrl: string, note: string | null, repositoryPath: string): void {
+  const accepted = `Patronus accepted the comment on #${number}: the robot shows once Patronus lists it`
+  const description = note === null ? accepted : `${accepted}. ${note}`
+  recordActivity({ repositoryPath, kind: "patronus", title, description, details: { type: "pullRequest", url: commentUrl } })
+  toast.add({
+    type: "success",
+    title,
+    description,
+    timeout: ACTION_TOAST_TIMEOUT_MS,
+    actionProps: { children: `Open Pull Request #${number}`, onClick: () => openPullRequestUrl(commentUrl) },
   })
 }
 
