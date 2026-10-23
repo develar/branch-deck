@@ -5,7 +5,7 @@
 //! - `reword_command`, `fold_command`, `move_hunk_command`, `park_command`: `bd reword`, `bd fold`, `bd move-hunk`,
 //!   `bd park` and `bd unpark`
 //! - `check_command`: `bd check`, the trial sync and builds of a plan
-//! - `suggest`: `bd suggest`, the clustering of bd-clustering checked by `bd check`
+//! - `suggest`: `bd suggest`, the clustering of commit-clustering checked by `bd check`
 //! - `commits`, `block_patch`, `symbol_stats`: `bd commits`, its patches and its symbol statistics
 //! - `describe`, `group_plan`: `bd describe`, and the plans and descriptions a rewrite reads
 

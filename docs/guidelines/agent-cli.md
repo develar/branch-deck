@@ -28,7 +28,7 @@ plugin is created. On Windows the app binary is a GUI-subsystem program without 
 console `bd.exe` next to `branch-deck.exe`: the `bd` binary of `crates/bd-cli`, which `scripts/build-bd.mjs` builds
 for the Tauri `externalBin` of `src-tauri/tauri.windows-bd.conf.json` (passed with `--config` by the Windows CI jobs
 only, so other builds don't need the file). The code is in `crates/bd-cli` (the `Cli`, the dispatch, `bd schema`, the help texts) and the crates it
-builds on: `bd-core`, `bd-clustering`, `bd-lease`, `bd-update`, `bd-rewrite` and `bd-remote`; the requirements are in the
+builds on: `bd-core`, `bd-lease`, `bd-update`, `bd-rewrite` and `bd-remote`, and the library `commit-clustering`; the requirements are in the
 [Agent CLI spec](../../spec/cli/agent-cli.spec.md).
 
 ## Invocation
@@ -348,7 +348,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 
 #### Areas
 
-`areas` (`crates/bd-clustering/src/areas.rs`) say where a commit belongs without its file list:
+`areas` (`crates/commit-clustering/src/areas.rs`) say where a commit belongs without its file list:
 
 - The area of a path is its first `--depth` directories (3 by default), or all of them for a shorter path, and `.`
   for a file at the top level: `plugins/air/shared/src/Foo.kt` is in `plugins/air/shared`.
@@ -357,7 +357,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   commit has no other lines.
 - Lock files and generated files don't count without `--include-generated`. Hub files never count: changes in many
   unrelated areas touch them, so they say nothing about where a commit belongs. `HUB_FILES` in
-  `crates/bd-clustering/src/generated.rs` lists them: module and build registries, file lists and top-level docs. It matches
+  `crates/commit-clustering/src/generated.rs` lists them: module and build registries, file lists and top-level docs. It matches
   by file name, and a pattern with a `/` (`.idea/modules.xml`) by the end of the path.
 - `top_dirs` of `bd status --stats` keeps its meaning: the full directories of the files.
 
@@ -375,7 +375,7 @@ Nobody edits them by hand, and they link every commit that touches them, so by d
 generated when:
 
 - its name is a lock file: `Cargo.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `go.sum`,
-  `poetry.lock`, `Gemfile.lock` and the others in `LOCK_FILES` (`crates/bd-clustering/src/generated.rs`);
+  `poetry.lock`, `Gemfile.lock` and the others in `LOCK_FILES` (`crates/commit-clustering/src/generated.rs`);
 - or the attributes of HEAD mark it `linguist-generated` or `-diff` (which `binary` implies). One
   `git check-attr --source=HEAD --stdin -z` process checks all paths.
 
@@ -1008,7 +1008,7 @@ changes, and no repository lock.
 It reads the commits once with a `CheckSession` (`trial_check::check`: the snapshot of a regroup, the baseline and the
 branch tips), their changes from the object cache without lock files, generated files and hub files
 (`read_linked_diffs`), the dependencies of `bd commits` and the fixup targets. The clustering
-(`crates/bd-clustering/src/clustering.rs`) runs no git:
+(`crates/commit-clustering/src/clustering.rs`) runs no git:
 
 1. Hard units, joined with union-find: the dependency edges, a fixup and its target, the commits with the same
    `(prefix)` or of the same issue group (an anchor), and the commits without a prefix that have the same issue key.

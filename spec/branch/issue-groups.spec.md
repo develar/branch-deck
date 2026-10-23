@@ -26,7 +26,7 @@ targets:
   - ../../crates/bd-rewrite/src/rewrite.rs
   - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-rewrite/src/suggest.rs
-  - ../../crates/bd-clustering/src/clustering.rs
+  - ../../crates/commit-clustering/src/clustering.rs
   - ../../crates/domain-types/src/error.rs
   - ../../src-tauri/src/commands/stack_operations.rs
   - ../../src/lib/commit.ts

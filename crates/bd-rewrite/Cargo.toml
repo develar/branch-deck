@@ -7,7 +7,7 @@ description = "The bd commands that read and rewrite the commits ahead of the ba
 publish = false
 
 [dependencies]
-bd-clustering = { path = "../bd-clustering" }
+commit-clustering = { path = "../commit-clustering" }
 bd-core = { path = "../bd-core" }
 code-symbols = { path = "../code-symbols" }
 file-diffs = { path = "../file-diffs" }

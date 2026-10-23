@@ -16,7 +16,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/domain-types/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/sync-utils/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-cli/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/bd-clustering/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/commit-clustering/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-core/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-lease/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-remote/src" isTestSource="false" />

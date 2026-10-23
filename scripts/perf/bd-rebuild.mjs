@@ -183,11 +183,15 @@ function machine() {
   }
 }
 
-/** The workspace packages under `crates/bd-*` */
+/** The library of the bd commands outside `crates/bd-*` (`bd-clustering` until the split of sync-core), so that
+ * `--clean` cleans and builds the same code before and after the rename */
+const BD_LIBRARIES = ["commit-clustering"]
+
+/** The workspace packages under `crates/bd-*` and `BD_LIBRARIES` */
 function bdPackages() {
   const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1"], { cwd: root, encoding: "utf8", maxBuffer: 64 << 20 }))
   return metadata.packages
-    .filter(it => path.relative(root, path.dirname(it.manifest_path)).startsWith(path.join("crates", "bd-")))
+    .filter(it => path.relative(root, path.dirname(it.manifest_path)).startsWith(path.join("crates", "bd-")) || BD_LIBRARIES.includes(it.name))
     .map(it => it.name)
     .sort()
 }
@@ -197,7 +201,11 @@ function sourceFile(name, anchor) {
   const files = git("ls-files", `crates/*/src/${name}`)
     .split("\n")
     .filter(Boolean)
-    .filter(file => readFileSync(path.join(root, file), "utf8").split("\n").some(line => line.trimStart().startsWith(anchor)))
+    .filter(file =>
+      readFileSync(path.join(root, file), "utf8")
+        .split("\n")
+        .some(line => line.trimStart().startsWith(anchor)),
+    )
   if (files.length !== 1) {
     fail(`expected one crates/*/src/${name} with ${anchor}, found ${files.length}`)
   }

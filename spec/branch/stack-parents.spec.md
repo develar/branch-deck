@@ -23,7 +23,7 @@ targets:
   - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-rewrite/src/suggest.rs
   - ../../crates/bd-remote/src/safe_push_command.rs
-  - ../../crates/bd-clustering/src/clustering.rs
+  - ../../crates/commit-clustering/src/clustering.rs
   - ../../crates/domain-types/src/error.rs
   - ../../src/lib/commit.ts
   - ../../src/lib/stack.ts

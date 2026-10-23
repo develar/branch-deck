@@ -25,7 +25,7 @@ lease-pool = { path = "../lease-pool", features = ["schemars"] }
 bd-remote = { path = "../bd-remote" }
 bd-rewrite = { path = "../bd-rewrite" }
 bd-update = { path = "../bd-update" }
-bd-clustering = { path = "../bd-clustering" }
+commit-clustering = { path = "../commit-clustering" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }

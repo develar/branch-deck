@@ -2,11 +2,11 @@
 //! cache misses (one `log --raw` and one `cat-file --batch`), one `diff-tree --stdin` and one `check-attr`
 
 use crate::numstat::NumstatEntry;
-use bd_clustering::areas::DirLines;
-use bd_clustering::generated::generated_paths;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::output::ShortIds;
+use commit_clustering::areas::DirLines;
+use commit_clustering::generated::generated_paths;
 use domain_types::commit::Commit;
 use git_ops::commit_files::read_files_from_base;
 use history_rewrite::commit_grouper::parse_subject;

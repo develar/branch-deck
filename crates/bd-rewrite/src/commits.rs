@@ -1,11 +1,11 @@
 use crate::block_patch::{PatchFile, read_patches};
-use bd_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
-use bd_clustering::generated::generated_paths;
 use bd_core::branch_view::read_grouping;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use clap::builder::RangedU64ValueParser;
+use commit_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
+use commit_clustering::generated::generated_paths;
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
 use history_rewrite::autosquash::{FixupKind, plan_autosquash};

@@ -454,7 +454,6 @@ name = "bd-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bd-clustering",
  "bd-core",
  "bd-lease",
  "bd-remote",
@@ -462,6 +461,7 @@ dependencies = [
  "bd-update",
  "clap",
  "code-symbols",
+ "commit-clustering",
  "dirs",
  "domain-types",
  "file-diffs",
@@ -490,24 +490,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bd-clustering"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "domain-types",
- "git-executor",
- "git-ops",
- "history-rewrite",
- "object-cache",
- "pretty_assertions",
- "schemars 1.2.3",
- "serde",
- "serde_json",
- "sync-utils",
- "tracing",
-]
-
-[[package]]
 name = "bd-core"
 version = "0.1.0"
 dependencies = [
@@ -530,6 +512,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "trial-check",
  "youtrack",
 ]
 
@@ -562,10 +545,9 @@ name = "bd-remote"
 version = "0.1.0"
 dependencies = [
  "bd-cli",
- "bd-clustering",
  "bd-core",
- "bd-rewrite",
  "clap",
+ "commit-clustering",
  "domain-types",
  "git-ops",
  "github",
@@ -597,10 +579,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bd-cli",
- "bd-clustering",
  "bd-core",
  "clap",
  "code-symbols",
+ "commit-clustering",
  "domain-types",
  "file-diffs",
  "git-executor",
@@ -1166,6 +1148,24 @@ checksum = "4356eba6976435498d05a311ee9fc486da3bc81c200d3f0d7dd9703b41913f92"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "commit-clustering"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "domain-types",
+ "git-executor",
+ "git-ops",
+ "history-rewrite",
+ "object-cache",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sync-utils",
+ "tracing",
 ]
 
 [[package]]

@@ -607,12 +607,12 @@ crates/
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
 ├── bd-cli/          # `bd` agent CLI: the `Cli`, the dispatch, `bd schema`, the help texts, the process budgets (docs/guidelines/agent-cli.md)
-├── bd-clustering/   # The clustering of `bd suggest`, the areas of a commit, the generated files; no CLI
-├── bd-core/         # What every `bd` command builds on: the context, the errors, the output, the sync and its summaries
+├── bd-core/         # What every `bd` command builds on: the context, the errors, the output, the sync and its summaries, the summaries of a check that `bd check` and `bd safe-push` print
 ├── bd-lease/        # `bd lease`: the worktrees of the lease pool; its tests run bd through the fixtures of bd-cli
 ├── bd-remote/       # The bd commands of the remote: status, push, safe-push, request-review, robot, the landed branches
 ├── bd-rewrite/      # The bd commands that read and rewrite the commits by their messages: group, reword, fold, check, suggest
 ├── bd-update/       # `bd update`, `bd pick` and `bd undo`; its tests run bd through the fixtures of bd-cli
+├── commit-clustering/ # The clustering of `bd suggest`, the areas of a commit, the generated files; no CLI, a library of bd-rewrite and bd-remote
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
 ├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS/JS file on tree-sitter, no git; the highlighting of the diffs (`highlight/`)
 ├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)

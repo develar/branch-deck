@@ -30,13 +30,13 @@ use crate::push_command::{
 };
 use crate::push_hold::PushHolds;
 use crate::robot_list::list_robots;
+use bd_core::check_summary::{CheckConflict, CheckWarning, dangling_reference_message, dangling_references_in, session_of_sync};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, regroup_error};
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
 use bd_core::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
-use bd_rewrite::check_command::{CheckConflict, CheckWarning, dangling_reference_message, dangling_references_in, session_of_sync};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{LandingFix, LandingRefusal, StackCommit, Subject};

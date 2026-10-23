@@ -2,8 +2,8 @@ use crate::suggest::{kept_and_moved, name_words, plan_of};
 use bd_cli::fixture_test::{
   ACP_HOST, commit_all, commit_changed_declaration, commit_dangling_reference, commit_override_of_overload, git, numbered_lines, repo_with_baseline, run_in, write,
 };
-use bd_clustering::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
 use bd_core::suggest_plan::SuggestPlan;
+use commit_clustering::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
 use git_ops::revs::short_id;
 use history_rewrite::regroup::RegroupPlan;
 use pretty_assertions::assert_eq;

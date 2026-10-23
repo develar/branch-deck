@@ -18,11 +18,11 @@ targets:
   - ../../crates/bd-core/src/branch_view.rs
   - ../../crates/bd-remote/src/branch_stats.rs
   - ../../crates/bd-rewrite/src/commits.rs
-  - ../../crates/bd-clustering/src/areas.rs
+  - ../../crates/commit-clustering/src/areas.rs
   - ../../crates/trial-check/src/diff_scan.rs
   - ../../crates/bd-remote/src/numstat.rs
   - ../../crates/trial-check/src/dependencies.rs
-  - ../../crates/bd-clustering/src/generated.rs
+  - ../../crates/commit-clustering/src/generated.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/bd-core/src/version.rs
   - ../../crates/bd-core/build.rs
@@ -35,6 +35,7 @@ targets:
   - ../../crates/bd-core/src/stack_summary.rs
   - ../../crates/sync-core/src/branch_processor.rs
   - ../../crates/bd-rewrite/src/check_command.rs
+  - ../../crates/bd-core/src/check_summary.rs
   - ../../crates/git-ops/src/tree_archive.rs
   - ../../crates/bd-remote/src/robot_command.rs
   - ../../crates/bd-remote/src/request_review_command.rs
@@ -46,7 +47,7 @@ targets:
   - ../../crates/history-rewrite/src/autosquash.rs
   - ../../crates/bd-rewrite/src/suggest.rs
   - ../../crates/bd-core/src/suggest_plan.rs
-  - ../../crates/bd-clustering/src/clustering.rs
+  - ../../crates/commit-clustering/src/clustering.rs
   - ../../crates/sync-utils/src/issue_pattern.rs
   - ../../crates/sync-utils/src/list_cut.rs
   - ../../crates/bd-remote/src/push_command.rs
@@ -205,7 +206,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   references the refusal of `bd safe-push` describes, the `dropped_commits` of a remote, the failed checks a robot or a
   pull request names), as the app cuts its lists and prompts (`cutList`).
   [@test] ../../crates/sync-utils/src/list_cut_test.rs (`a_list_one_longer_than_its_limit_is_kept_whole_and_a_longer_one_is_cut_at_the_limit`)
-  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
+  [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
   [@test] ../../crates/patronus/src/actions_test.rs (`the_failed_checks_of_a_robot_are_named_whole_when_only_one_is_past_the_limit`)
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`the_failed_checks_of_a_pull_request_are_named_whole_when_only_one_is_past_the_limit`)
@@ -325,8 +326,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`brief_view_with_units_and_areas`, `brief_keeps_a_prefix_that_says_more_than_the_group`)
 - An area must be the first `--depth` directories of a path (default 3; `.` at the top level); a commit must list at
   most three areas by added plus deleted lines, without those under 5 % of its lines except the first, and without
-  the hub files of `HUB_FILES` (`crates/bd-clustering/src/generated.rs`). `--depth` must need `--brief`.
-  [@test] ../../crates/bd-clustering/src/areas_test.rs (`an_area_keeps_at_most_depth_directories`, `hub_files_match_by_name`, `top_areas_by_lines_without_hub_files`)
+  the hub files of `HUB_FILES` (`crates/commit-clustering/src/generated.rs`). `--depth` must need `--brief`.
+  [@test] ../../crates/commit-clustering/src/areas_test.rs (`an_area_keeps_at_most_depth_directories`, `hub_files_match_by_name`, `top_areas_by_lines_without_hub_files`)
 
 ### Generated files
 
@@ -668,13 +669,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Hard units must join the dependencies, a fixup and its target, the commits of one prefix (unless `--fresh`) and the
   commits without a prefix of one issue key. Two prefixes must never join, and a dependency between them must be an
   `anchor_dependency` warning that names `git config branchdeck.stacks true`.
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`hard_units_join_dependencies_fixups_prefixes_and_keys`, `an_edge_between_two_anchors_is_a_warning_and_anchors_never_merge`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`hard_units_join_dependencies_fixups_prefixes_and_keys`, `an_edge_between_two_anchors_is_a_warning_and_anchors_never_merge`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
 - With stacked branches, a prefix must be an anchor by the leaf of its path, and a dependency must join no units: it
   must be an edge between two clusters, and only the dependencies of a cycle of units may join them. A cycle between
   two prefixes must stay an `anchor_dependency` warning. The commits without a prefix of an issue key that a prefix
   names must join that prefix, because they are one branch.
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_follow_up_that_joins_an_issue_branch_stays_there_once_applied`)
 - With stacked branches, each cluster must get a parent so that every cluster it depends on is an ancestor: the parent
   its prefixes declare when that parent covers them; else the deepest cluster it depends on that covers the others;
@@ -689,13 +690,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   and holds no cluster the cluster depends on must be `stacked_without_need`, and the plan must keep it. A cluster of whole issue branches stays an issue
   group, stacked too. The trial applies the plan as `bd group` does, so `rewritten` counts only the commits that need
   a prefix. `why` must name a new parent and its reason.
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `stack_clusters_makes_every_needed_cluster_an_ancestor`, `stack_order_breaks_a_cycle_in_a_source_component`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `stack_clusters_makes_every_needed_cluster_an_ancestor`, `stack_order_breaks_a_cycle_in_a_source_component`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_stored_parent_without_need_is_reported_and_kept`)
 - With `branchdeck.symbols on`, an edge by symbols only must never join two units: with stacked branches it must be an
   edge of the stack outside the join of a cycle, without them it must link only a follow-up without a prefix and an
   issue key; a unit whose names three or more units use must order none of them; a branch the plan doesn't build on
   the branch whose name it uses must be a `symbol_dependency` warning.
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`an_edge_by_symbols_orders_and_never_joins`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`an_edge_by_symbols_orders_and_never_joins`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_the_symbols_on_a_use_of_another_branch_warns_or_stacks`)
 - Soft merges must go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
   `type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the
@@ -704,13 +705,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   whole issue branch must not take the issue in without a second body or shared paths. With stacked branches, a dependency must link a cluster
   without a prefix and an issue key to the cluster it depends on, and no merge may make a cycle of the dependencies
   and the declared parents.
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`a_merge_that_only_adjacency_lifts_over_the_threshold_is_weak`, `the_same_scope_merges_commits_without_keys_and_another_scope_halves_paths`, `a_mention_links_keys_of_one_project_but_hardly_across_projects`, `a_branch_of_a_prefix_takes_in_a_whole_issue_only_by_more_than_one_mention`, `shared_paths_merge_but_a_feature_of_many_units_or_a_peripheral_file_weighs_little`, `the_cap_stops_soft_merges_and_a_tie_goes_to_the_oldest_pair`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`a_merge_that_only_adjacency_lifts_over_the_threshold_is_weak`, `the_same_scope_merges_commits_without_keys_and_another_scope_halves_paths`, `a_mention_links_keys_of_one_project_but_hardly_across_projects`, `a_branch_of_a_prefix_takes_in_a_whole_issue_only_by_more_than_one_mention`, `shared_paths_merge_but_a_feature_of_many_units_or_a_peripheral_file_weighs_little`, `the_cap_stops_soft_merges_and_a_tie_goes_to_the_oldest_pair`)
   [@test] ../../crates/sync-utils/src/issue_pattern.rs (`semantic_prefixes_with_and_without_parentheses`, `issue_keys_anywhere_in_a_text`)
 - With `--fresh`, on the anonymized input of a large monorepo branch, the clusters must match the grouping a human
   made with a pairwise precision of at least 0.95 and a recall of at least 0.85, and keep the issue projects and the
   named pairs of groups apart.
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`golden_monorepo_branch`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`golden_monorepo_branch`)
 - A proven dangling reference must be repaired like a conflict, the removing commit needing `fixed_by` (with stacked
   branches it stacks on its branch); a mutual one must not be stacked but named in an `unresolved_conflict` warning
   that says to move the change into `removed_by`. A possible one is a `possible_dangling_reference` warning (or
@@ -721,13 +722,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   none, also inside an issue group, and cluster again, at most 5 times, never joining two prefixes; the exit code must be 1 when a branch
   still conflicts. With stacked branches, a conflict on a commit of another cluster must first stack the two
   clusters, and join their units only when the same conflict comes again.
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`repair_joins_a_conflicting_commit_to_what_it_needs`, `with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`repair_joins_a_conflicting_commit_to_what_it_needs`, `with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `a_repair_joins_what_the_lines_of_the_conflict_need_not_every_commit_of_the_file`, `whole_issue_branches_become_an_issue_group`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
 - A name must be the cluster's prefix, the branch its commits come from when it holds the most of that branch, its
   single issue key, a scope of at least 60 % of its commits, `<area leaf>-<word>`, its most frequent key or
   `cluster-N`, in this order; a name another cluster, a group now or a virtual branch has, in any case, must get `-2`,
   `-3`, unless the cluster's commits come from it. `kept` must mean one whole branch under its own name.
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`names_in_order_of_preference_with_collisions`, `a_cluster_takes_the_name_of_the_branch_it_holds_most_of`, `changes_against_the_groups_now`, `subject_words_drop_stopwords_and_endings`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`names_in_order_of_preference_with_collisions`, `a_cluster_takes_the_name_of_the_branch_it_holds_most_of`, `changes_against_the_groups_now`, `subject_words_drop_stopwords_and_endings`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`fresh_keeps_the_name_of_a_branch_that_stays_whole`, `stacked_branches_and_an_empty_range`)
 - A cluster of two or more whole issue branches must go into `issue_groups` of the plan, marked `"via": "issue_group"`,
   so that the plan rewrites no commit; `--rewrite-issues` gives the commits a prefix instead. An issue group must be
@@ -736,7 +737,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--dump-input` (hidden) must print the input of the clustering with every name hashed by a keyed hash (SipHash) with
   a random key that is not kept, and without subjects, bodies, ids and authors, so that the dump clusters as the
   repository does; only the module markers of file paths may become one marker.
-  [@test] ../../crates/bd-clustering/src/clustering_test.rs (`anonymize_keeps_the_clustering_and_no_name`)
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`anonymize_keeps_the_clustering_and_no_name`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`the_dump_hides_every_name`)
 
 ### `bd sync`
@@ -1037,7 +1038,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   from three on of the first and "(2 more: bd check)"); `--check` must list it in `refusals`, `--allow-dangling` must
   start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
-  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
+  [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - With `branchdeck.symbols on`, a use by a commit of what lands of a name that a commit outside it adds (a missing

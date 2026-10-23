@@ -24,7 +24,7 @@ members = [
   "crates/bd-remote",
   "crates/bd-rewrite",
   "crates/bd-update",
-  "crates/bd-clustering",
+  "crates/commit-clustering",
   "crates/object-cache",
   "crates/patronus",
   "crates/github",

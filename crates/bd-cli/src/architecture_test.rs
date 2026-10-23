@@ -30,9 +30,6 @@ const FIXTURES: &str = "fixtures";
 /// (`fake`) and the fixtures of bd (`fixtures`). An optional dependency that only they activate is not followed; one
 /// that `default` or any other feature activates is
 const TEST_FEATURES: &[&str] = &["fake", FIXTURES];
-/// The crates named `bd-*` that are libraries below the CLI layer, not families (`bd-clustering` becomes
-/// `commit-clustering` in `s3-crates`)
-const BD_LIBRARIES: &[&str] = &["bd-clustering"];
 /// Tauri and its plugins; a name that ends in `*` is a prefix
 const TAURI: &str = "tauri*";
 
@@ -103,11 +100,6 @@ const ALLOWED: &[Allowed] = &[
     from: "repository-model",
     to: "patronus",
     removed_in: "s9-engine-remote",
-  },
-  Allowed {
-    from: "bd-remote",
-    to: "bd-rewrite",
-    removed_in: "s3-crates",
   },
 ];
 
@@ -269,9 +261,9 @@ fn is_allowed(allowed: &[&Allowed], from: &str, to: &str) -> bool {
   allowed.iter().any(|entry| entry.from == from && entry.to == to)
 }
 
-/// A crate of the CLI layer: `bd-*`, except the libraries
+/// A crate of the CLI layer: `bd-*`; a library below it has another name (`commit-clustering`)
 fn is_layer(name: &str) -> bool {
-  name.starts_with("bd-") && !BD_LIBRARIES.contains(&name)
+  name.starts_with("bd-")
 }
 
 /// A family of the CLI layer: `bd-lease`, `bd-remote`, `bd-rewrite`, `bd-update`, and any new `bd-*`
@@ -399,7 +391,7 @@ fn every_allowed_edge_exists_and_breaks_a_rule() {
 #[test]
 fn the_rules_of_the_architecture_name_crates_of_the_workspace() {
   let graph = workspace_graph();
-  let named = UNREACHABLE.iter().map(|rule| rule.from).chain([APP, BD_CORE, BD_CLI]).chain(BD_LIBRARIES.iter().copied());
+  let named = UNREACHABLE.iter().map(|rule| rule.from).chain([APP, BD_CORE, BD_CLI]);
   let unknown: Vec<&str> = named.filter(|name| !graph.contains_key(*name)).collect();
   assert!(unknown.is_empty(), "the architecture rules name crates the workspace lacks (renamed?): {unknown:?}");
 }
@@ -579,7 +571,7 @@ fn the_architecture_check_follows_an_optional_edge_a_build_feature_enables() {
 fn the_architecture_check_keeps_the_bd_families_apart() {
   let graph = graph_of(&[
     ("bd-lease", "bd-core", Kind::Normal, &[]),
-    ("bd-lease", "bd-clustering", Kind::Normal, &[]),
+    ("bd-lease", "commit-clustering", Kind::Normal, &[]),
     ("bd-lease", "bd-cli", Kind::Dev, &[FIXTURES]),
     ("bd-update", "bd-cli", Kind::Dev, &[]),
     ("bd-update", "bd-lease", Kind::Normal, &[]),

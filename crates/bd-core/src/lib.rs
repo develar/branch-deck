@@ -8,11 +8,14 @@
 //! - `sync_command`: `bd sync`, the repository lock, and the summaries of a sync the other commands print
 //! - `stack_summary`: the whole stack of a branch as the outputs print it
 //! - `branch_view`: the grouping of the commits ahead of the baseline, the placement and the stack problems
+//! - `check_summary`: the summaries of a check that `bd check` and `bd safe-push` print, the dangling references and
+//!   the refusal of a start they fail
 //! - `review_summary`: the code-owner review of a branch as the outputs print it
 //! - `suggest_plan`: the plan of `bd suggest`, read by `bd check --plan` and `bd pick`
 
 pub mod bd_command;
 pub mod branch_view;
+pub mod check_summary;
 pub mod context;
 pub mod error;
 pub mod output;
@@ -23,6 +26,8 @@ pub mod sync_command;
 pub mod text_input;
 pub mod version;
 
+#[cfg(test)]
+mod check_summary_test;
 #[cfg(test)]
 mod context_test;
 #[cfg(test)]
