@@ -509,8 +509,8 @@ Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, 
 `bd move-hunk`, `bd pick` (the moves of both worktrees under one hold) and `bd undo` take it, so does the app's push
 (`push_branch`, `push_branches`: `push_guard`, on the `$GIT_COMMON_DIR` the app keeps, so the push and its checks see
 the branches no other writer moves meanwhile; "App stack push"), and so does Update Project (the app's and `bd update`, which also starts a
-resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes
-none. A holder writes who it is next to the lock (`branch-deck.lock.holder`: the command line, the pid, the start of
+resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` and
+`--continue --dry-run` take none. A holder writes who it is next to the lock (`branch-deck.lock.holder`: the command line, the pid, the start of
 the process and the time, through a temporary file and a rename) once it has the lock, and deletes it before it
 releases it, so the error of a wait names the holder; the lock file itself can't carry it, Windows refuses to read a
 locked file. A record whose process is gone (`process_scan::is_running`) names nobody. A core finds the file with one
@@ -1129,8 +1129,9 @@ agent".
 
 - A later round with an unsupported conflict stops the session: nothing is saved for it, every rerun gives the same
   refusal, and `--abort` drops the earlier rounds too.
-- `--continue --dry-run` writes git objects and a temporary ref, which it deletes with compare-and-swap on the
-  resolved commit. A step whose transaction fails, or whose replay of the rest fails (a later round that can't be
+- `--continue --dry-run` writes git objects and a temporary ref of its own (`unique_temp_ref`), which it deletes with
+  compare-and-swap on the resolved commit; it takes no repository lock, so an agent that checks its resolution in a
+  loop never makes Update Project or a rewrite wait. A step whose transaction fails, or whose replay of the rest fails (a later round that can't be
   resolved), deletes its temporary refs (the state's and the resolved commit's) in one more `update-ref --stdin`
   (`discard_temp_refs`); a killed one leaves them to the sweep.
 - A peer that commits after the finish moved the branch but before the files followed commits on the index of the old

@@ -1,7 +1,9 @@
 use bd_cli::fixture_test::{assert_error, canonical, git, run_in, write};
+use history_rewrite::repository_lock::lock_repository;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
+use std::time::Duration;
 use test_utils::git_test_utils::TestRepo;
 
 const SHARED: &str = "one\ntwo\nthree\n";
@@ -543,6 +545,26 @@ fn a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one() {
 
   let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue"]);
   assert_eq!((exit_code, &done["resolutions"][0]["new_id"], &done["new_head"]), (0, &resolved, &resolved), "{done}");
+}
+
+/// An agent checks its resolution in a loop while the app's Update Project or a rewrite holds the lock: the check
+/// answers at once, and only the real `--continue` waits for the lock
+#[test_log::test]
+fn a_dry_run_of_continue_answers_while_another_process_holds_the_lock() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  let held = lock_repository(clone.git_executor(), clone.path().to_str().unwrap(), Duration::from_millis(100)).unwrap();
+
+  let (exit_code, checked) = run_in(&clone, &["update", "--continue", "--dry-run"]);
+  assert_eq!((exit_code, &checked["dry_run"]), (0, &json!(true)), "{checked}");
+  assert!(checked["resolutions"][0]["new_id"].is_string(), "{checked}");
+  let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&output, exit_code, (3, "locked"));
+
+  drop(held);
+  let (exit_code, done) = run_in(&clone, &["update", "--continue"]);
+  assert_eq!(exit_code, 0, "{done}");
 }
 
 #[test_log::test]

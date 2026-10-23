@@ -777,7 +777,8 @@ repository». Аудит всех функций в тот же день наш�
   push» и AGENTS.md «Repository lock» в том же коммите), с ним push-часть `bd push` и `bd safe-push`; landing
   `bd pick` после unlock; `bd update --continue --dry-run` без lock (AGENTS.md «Repository lock»: `--continue` и
   `--abort` держат lock, dry run — нет; `bd pick` держит его на move обоих worktree, не на отчёт); повтор fetch на
-  `cannot lock ref`.
+  `cannot lock ref`. Сделано (`fix/locks-io`): `--continue --dry-run` без lock
+  (`a_dry_run_of_continue_answers_while_another_process_holds_the_lock`).
 - **Очередь в TS до s11:** `runOperation` ставит rewrite в очередь вместо `onBlocked`; Undo помечается выполненным
   после `Ok`; слот Update Project — только apply (`fetch_baseline`, затем `update_project` без fetch); ⌘T во время
   Fetch присоединяется; push ждёт идущий rewrite. `operations.md` в том же коммите: «Conflicts», «Items» и

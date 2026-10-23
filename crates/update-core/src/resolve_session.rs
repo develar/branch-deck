@@ -312,10 +312,16 @@ pub struct ContinueOptions {
 }
 
 /// `bd update --continue`, under the repository lock: read the `edit` copies of the open round, commit the round,
-/// replay the rest and finish when nothing conflicts. A failed check changes nothing
+/// replay the rest and finish when nothing conflicts. A failed check changes nothing. A dry run takes no lock: it
+/// writes only git objects and a temporary ref of its own (`unique_temp_ref`), which it deletes, so an agent checking
+/// its resolution in a loop never makes an update, a rewrite or another `bd` wait
 #[instrument(skip(git_executor))]
 pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, options: &ContinueOptions, lock_timeout: Duration) -> Result<SessionOutcome> {
-  let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
+  let _lock = if options.dry_run {
+    None
+  } else {
+    Some(lock_repository(git_executor, repo_path, lock_timeout)?)
+  };
   let worktree = current_worktree(git_executor, repo_path)?;
   let session = read_session(git_executor, repo_path, &worktree.id)?.ok_or_else(|| anyhow::Error::new(NoSession { worktree: worktree.id.clone() }))?;
   let previous = session.state().clone();

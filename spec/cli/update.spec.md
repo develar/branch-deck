@@ -269,8 +269,10 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   least 4 characters of its id) drops it (`empty: "dropped"`, `new_id` null, no note). The finish counts a dropped
   commit as `dropped_by_resolution`, never in `dropped_already_upstream` or `landed`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
-- `--continue --dry-run` must run the checks, report the resolution with its `new_id`, exit 0, and move no ref.
-  [@test] ../../crates/bd-update/src/resolve_test.rs (`a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one`)
+- `--continue --dry-run` must run the checks, report the resolution with its `new_id`, exit 0, and move no ref. It
+  must take no repository lock, so a check in a loop never makes an update or a rewrite wait; only the real
+  `--continue` is `locked` while another process holds the lock.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one`, `a_dry_run_of_continue_answers_while_another_process_holds_the_lock`)
 
 ### Finish
 
