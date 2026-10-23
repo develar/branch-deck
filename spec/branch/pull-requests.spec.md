@@ -233,6 +233,11 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   (`src/lib/refresh-gate.ts`), each with its own policy.
   [@test] ../../src/stores/pull-requests.test.ts (`keeps one request in flight; a push during it asks again after it`)
   [@test] ../../src/lib/refresh-gate.test.ts (`runs one task per key; a follow-up reason asks once more after it, with its reason`)
+- A pull request the app wrote (a retarget, a close, the reviewers it asked, one it created) is in the store at once,
+  and an answer of a request that started before the write keeps it as written: a retarget during a refresh never
+  comes back as "Retarget #7", so the next push does not retarget again. A retarget asks GitHub once more, after the
+  request in flight, whose answer then is the truth.
+  [@test] ../../src/stores/pull-requests.test.ts (`keeps a retarget made while a refresh is in flight, then asks GitHub again`)
 - A repository that answered "not on GitHub" is asked again only by the refresh button: a sync or a focus does not run
   `git remote get-url` for it again.
 - After every successful sync, GitHub is asked again if the last request started at least 60 s ago.

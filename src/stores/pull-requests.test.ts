@@ -12,6 +12,7 @@ import {
   refreshPullRequestsAfterPush,
   requestReviewers,
   resetPullRequests,
+  retargetPullRequest,
   createPullRequest,
 } from "@/stores/pull-requests"
 
@@ -34,16 +35,22 @@ vi.mock("@/lib/bindings", () => ({
     getPullRequests: async (params: { repositoryPath: string }) => {
       gh.calls++
       gh.listedIn.push(params.repositoryPath)
+      // what GitHub had when it was asked
+      const result = gh.result
       if (gh.hold) {
         await new Promise<void>(resolve => {
           gh.pending = resolve
         })
       }
-      return { status: "ok", data: gh.result }
+      return { status: "ok", data: result }
     },
     createPullRequest: async (params: { repositoryPath: string; branchPrefix: string; branchName: string }) => {
       gh.writes.push(`create ${params.branchName} in ${params.repositoryPath} (${params.branchPrefix})`)
       return { status: "ok", data: { created: true, pullRequest: { ...pullRequest("tip"), number: 9 }, reviewers: [], assigned: false } }
+    },
+    retargetPullRequest: async (params: { repositoryPath: string; pullRequestNumber: number; base: string }) => {
+      gh.writes.push(`retarget #${params.pullRequestNumber} onto ${params.base} in ${params.repositoryPath}`)
+      return { status: "ok", data: null }
     },
     requestPullRequestReviewers: async (params: { repositoryPath: string; pullRequestNumber: number; reviewers: string[] }) => {
       gh.writes.push(`request ${params.reviewers.join(" ")} on #${params.pullRequestNumber} in ${params.repositoryPath}`)
@@ -145,6 +152,31 @@ describe("refreshPullRequests", () => {
     // the follow-up for both pushes
     expect(gh.calls).toBe(2)
     expect(pullRequestsStore.getState().repositories["/repo\nuser"]?.isRefreshing).toBe(false)
+  })
+
+  it("keeps a retarget made while a refresh is in flight, then asks GitHub again", async () => {
+    gh.result = { ...answer(), pullRequests: { auth: { ...pullRequest("tip"), baseRefName: "user/virtual/core" } } }
+    await refreshPullRequests("manual")
+    gh.hold = true
+    vi.setSystemTime(1_000_000 + MIN_REFRESH_GAP_MS)
+    const held = refreshPullRequests("sync")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(gh.calls).toBe(2)
+    // the search in flight answered before the retarget: its base is the old one
+    await retargetPullRequest("auth", "master")
+    expect(getPullRequest("auth")?.baseRefName).toBe("master")
+    gh.result = { ...answer(), pullRequests: { auth: { ...pullRequest("tip"), baseRefName: "master", title: "retargeted" } } }
+    gh.pending!()
+    await vi.advanceTimersByTimeAsync(0)
+    // the old answer arrived: the retarget stays, and the retarget asked once more after it
+    expect(getPullRequest("auth")?.baseRefName).toBe("master")
+    expect(gh.calls).toBe(3)
+    gh.hold = false
+    gh.pending!()
+    await held
+    // GitHub's answer after the retarget is the truth
+    expect(getPullRequest("auth")).toMatchObject({ baseRefName: "master", title: "retargeted" })
+    expect(gh.writes).toEqual(["retarget #1 onto master in /repo"])
   })
 
   it("keeps the shown pull requests when a refresh fails", async () => {

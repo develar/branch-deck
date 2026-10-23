@@ -813,7 +813,9 @@ repository». Аудит всех функций в тот же день наш�
 - **Захват репозитория:** Safe Push start, toast «Update Project», Create PR и Request Review, Close Landed, undo
   park и regroup, результаты push по (репозиторий, ветка). Сделано (`fix/remote-perf`): повтор Create при отставании
   поиска находит PR через REST `pulls?head=<owner>:<branch>&state=open` и отвечает `created: false`
-  (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`).
+  (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`). Сделано (`fix/remote-perf`): ответ обновления PR,
+  начатого до записи приложения (retarget, close, reviewers), её не перезаписывает (`writeSeq` в
+  `pull-requests.ts`), retarget запускает обновление; факты PR с `seq` в сессии — s7.
 - **Старт:** comment-маршрут за guards; матч ответа бота с этим комментарием; cancel закончившегося заменяемого
   робота. Сделано (`fix/patronus-start`): `check_start_from_pull_request` перед комментарием в обоих хостах;
   `findCommentRobot` / `comment_robot` — mode, «не известный до POST», самый новый, принятый без робота — Started с

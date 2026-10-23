@@ -189,14 +189,18 @@ export function refreshPullRequests(reason: RefreshReason, repository?: VcsReque
   const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
   return gates.refresh(key, reason, entry.fetchedAt, async () => {
     update(key, { isRefreshing: true })
+    // a pull request the app wrote after this point (a retarget, a close, reviewers) is newer than the answer
+    const since = ++writeSeq
     try {
       const result = await commands.getPullRequests({ repositoryPath, branchPrefix })
       if (result.status === "ok") {
         const previous = pullRequestsStore.getState().repositories[key] ?? EMPTY
+        const pullRequests = keepWritten(writtenKey(key, false), since, previous.pullRequests, withCreated(key, result.data.pullRequests, Date.now()))
+        const stackPullRequests = keepWritten(writtenKey(key, true), since, previous.stackPullRequests, withCreated(stackKey(key), result.data.stackPullRequests ?? {}, Date.now()))
         update(key, {
           availability: sameJson(previous.availability, result.data.availability) ? previous.availability : result.data.availability,
-          pullRequests: mergePullRequests(previous.pullRequests, withCreated(key, result.data.pullRequests, Date.now())),
-          stackPullRequests: mergePullRequests(previous.stackPullRequests, withCreated(stackKey(key), result.data.stackPullRequests ?? {}, Date.now())),
+          pullRequests: mergePullRequests(previous.pullRequests, pullRequests),
+          stackPullRequests: mergePullRequests(previous.stackPullRequests, stackPullRequests),
           fetchedAt: Date.now(),
         })
       } else {
@@ -212,6 +216,44 @@ export function refreshPullRequests(reason: RefreshReason, repository?: VcsReque
 }
 
 let recheckTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Counts the refreshes started and the pull requests the app wrote, in order */
+let writeSeq = 0
+/** By `writtenKey`, then branch (or root): the `writeSeq` of the app's last write of the pull request */
+const written = new Map<string, Map<string, number>>()
+
+/** The key of the writes of the pull requests of the branches, or of the stack branches (`stack`), of a repository */
+function writtenKey(key: string, stack: boolean): string {
+  return stack ? stackKey(key) : key
+}
+
+/**
+ * The answer of a refresh started at `since`, with each pull request the app wrote after that kept as the store has it:
+ * the search answered before the write, so its retarget, close or reviewers would come back otherwise, and the next push
+ * would retarget again
+ */
+function keepWritten(
+  writes: string,
+  since: number,
+  current: Readonly<Record<string, PullRequest>>,
+  incoming: Readonly<Record<string, PullRequest>>,
+): Readonly<Record<string, PullRequest>> {
+  let result = incoming
+  for (const [branchName, at] of written.get(writes) ?? []) {
+    const kept = current[branchName]
+    if (at > since && kept !== undefined) {
+      result = { ...result, [branchName]: kept }
+    }
+  }
+  return result
+}
+
+/** The app wrote the pull request of `branchName` (or of the whole stack of a root) now */
+function noteWritten(writes: string, branchName: string): void {
+  const writesOf = written.get(writes) ?? new Map<string, number>()
+  writesOf.set(branchName, ++writeSeq)
+  written.set(writes, writesOf)
+}
 
 /**
  * Right after a push: the pull request of the branch shows the pushed commit. If GitHub still reports the old head,
@@ -253,6 +295,9 @@ export async function retargetPullRequest(branchName: string, base: string): Pro
     throw new Error(result.error.message)
   }
   setPullRequest(key, branchName, { ...pullRequest, baseRefName: base })
+  // the retarget changes what the next step of the branch reads: GitHub is asked after the refresh in flight, if any
+  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  void refreshPullRequests("push", { repositoryPath, branchPrefix })
 }
 
 /**
@@ -401,11 +446,13 @@ export async function createPullRequest(request: NewPullRequestRequest): Promise
 
 function setPullRequest(key: string, branchName: string, pullRequest: PullRequest): void {
   const pullRequests = pullRequestsStore.getState().repositories[key]?.pullRequests ?? {}
+  noteWritten(writtenKey(key, false), branchName)
   update(key, { pullRequests: { ...pullRequests, [branchName]: pullRequest } })
 }
 
 function setStackPullRequest(key: string, root: string, pullRequest: PullRequest): void {
   const stackPullRequests = pullRequestsStore.getState().repositories[key]?.stackPullRequests ?? {}
+  noteWritten(writtenKey(key, true), root)
   update(key, { stackPullRequests: { ...stackPullRequests, [root]: pullRequest } })
 }
 
@@ -413,6 +460,7 @@ function setStackPullRequest(key: string, root: string, pullRequest: PullRequest
 export function resetPullRequests(): void {
   gates.reset()
   created.clear()
+  written.clear()
   clearTimeout(recheckTimer)
   pullRequestsStore.setState({ repositories: {} })
 }
