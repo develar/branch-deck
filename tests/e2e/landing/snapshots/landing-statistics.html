@@ -13,231 +13,1338 @@
       </button>
     </div>
   </div>
-  <div class="grid gap-2 @4xl:grid-cols-2">
-    <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-delivery">
-      <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
-        <h2 class="text-sm font-semibold text-foreground">
-          Into master
-        </h2>
-        <span class="truncate text-xs text-muted-foreground">
-          against everyone else, the median of 5 people
-        </span>
-      </div>
-      <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
-        <div class="grid grid-cols-2 gap-4 @2xl:grid-cols-4">
-          <div class="flex min-w-0 flex-col gap-0.5" data-testid="landing-merged">
-            <span class="text-xs text-muted-foreground">
-              Merged
-            </span>
-            <span class="text-xl font-semibold text-foreground tabular-nums">
-              2
-            </span>
-            <span class="text-xs text-muted-foreground">
-              2 failed · + 1 dry runs
-            </span>
-          </div>
-          <div class="flex min-w-0 flex-col gap-0.5" data-testid="landing-robots-per-merge">
-            <span class="text-xs text-muted-foreground">
-              Robots per merge
-            </span>
-            <span class="text-xl font-semibold text-foreground tabular-nums">
-              2.0
-            </span>
-            <span class="text-xs text-muted-foreground">
-              everyone else 1.0
-            </span>
-          </div>
-          <div class="flex min-w-0 flex-col gap-0.5" data-testid="landing-merge-time">
-            <span class="text-xs text-muted-foreground">
-              Time to merge
-            </span>
-            <span class="text-xl font-semibold text-foreground tabular-nums">
-              1h 20m
-            </span>
-            <span class="text-xs text-muted-foreground">
-              p90 2h · everyone else 1h
-            </span>
-          </div>
-          <div class="flex min-w-0 flex-col gap-0.5" data-testid="landing-first-try">
-            <span class="text-xs text-muted-foreground">
-              First try
-            </span>
-            <span class="text-xl font-semibold text-foreground tabular-nums">
-              50%
-            </span>
-            <span class="text-xs text-muted-foreground">
-              1 of 2 merges, estimated
-            </span>
-          </div>
+  <div class="transition-opacity">
+    <div class="grid gap-2 @4xl:grid-cols-2">
+      <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-delivery">
+        <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
+          <h2 class="text-sm font-semibold text-foreground">
+            Into master
+          </h2>
+          <span class="truncate text-xs text-muted-foreground">
+            against everyone else, the median of 5 people
+          </span>
         </div>
-        <figure class="flex flex-col gap-1">
-          <div class="relative" />
-          <figcaption class="flex justify-between text-xs text-muted-foreground">
-            <span>
-              Oct 30
-            </span>
-            <span>
-              Jan 1
-            </span>
-          </figcaption>
-        </figure>
-      </div>
-    </div>
-    <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-time">
-      <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
-        <h2 class="text-sm font-semibold text-foreground">
-          Where the time went
-        </h2>
-      </div>
-      <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
-        <figure class="flex flex-col gap-2">
-          <div class="relative" />
-          <figcaption>
-            <ul class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-              <li class="flex items-center gap-1.5">
-                <span aria-hidden="true" class="size-2 rounded-sm bg-success" />
-                <span class="text-muted-foreground">
-                  Merged robots
-                </span>
-                <span class="font-medium text-foreground tabular-nums">
-                  3 h
-                </span>
-              </li>
-              <li class="flex items-center gap-1.5">
-                <span aria-hidden="true" class="size-2 rounded-sm bg-destructive" />
-                <span class="text-muted-foreground">
-                  Failed robots
-                </span>
-                <span class="font-medium text-foreground tabular-nums">
-                  2 h
-                </span>
-              </li>
-              <li class="flex items-center gap-1.5">
-                <span aria-hidden="true" class="size-2 rounded-sm bg-muted-foreground/50" />
-                <span class="text-muted-foreground">
-                  Canceled robots
-                </span>
-                <span class="font-medium text-foreground tabular-nums">
-                  0 min
-                </span>
-              </li>
-              <li class="flex items-center gap-1.5">
-                <span aria-hidden="true" class="size-2 rounded-sm bg-warning" />
-                <span class="text-muted-foreground">
-                  Waiting to restart
-                </span>
-                <span class="font-medium text-foreground tabular-nums">
-                  23 h
-                </span>
-              </li>
-            </ul>
-          </figcaption>
-        </figure>
-        <p class="text-xs text-muted-foreground" data-testid="landing-time-lost">
-          Failures and the waits after them took 25 h, 90% of the time on the way into master
-        </p>
-      </div>
-    </div>
-    <div aria-busy="false" class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-failures">
-      <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
-        <h2 class="text-sm font-semibold text-foreground">
-          Why robots failed
-        </h2>
-        <span class="truncate text-xs text-muted-foreground">
-          the last 14 days
-        </span>
-      </div>
-      <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
-        <ul aria-label="Failures by kind" class="flex flex-col gap-1.5">
-          <li class="grid grid-cols-[10rem_1fr_2rem] items-center gap-2 text-xs">
-            <span class="text-muted-foreground">
-              Checks failed
-            </span>
-            <span class="h-2 rounded-sm bg-destructive/70" style="width: 100%" />
-            <span class="text-right font-medium text-foreground tabular-nums">
-              1
-            </span>
-          </li>
-          <li class="grid grid-cols-[10rem_1fr_2rem] items-center gap-2 text-xs">
-            <span class="text-muted-foreground">
-              Unknown
-            </span>
-            <span class="h-2 rounded-sm bg-destructive/70" style="width: 100%" />
-            <span class="text-right font-medium text-foreground tabular-nums">
-              1
-            </span>
-          </li>
-        </ul>
-        <div class="grid gap-4 @2xl:grid-cols-2">
-          <section aria-label="Failed the most" class="flex flex-col gap-1" data-testid="landing-failed-checks">
-            <h3 class="text-xs font-medium text-muted-foreground">
-              Failed the most
-            </h3>
-            <ul class="flex flex-col gap-0.5 text-xs">
-              <li class="flex justify-between gap-2">
-                <span class="truncate text-foreground">
-                  Fast Tests
-                </span>
-                <span class="shrink-0 text-muted-foreground tabular-nums">
-                  1
-                </span>
-              </li>
-            </ul>
-          </section>
-        </div>
-      </div>
-    </div>
-    <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-hours">
-      <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
-        <h2 class="text-sm font-semibold text-foreground">
-          When robots run fastest
-        </h2>
-        <span class="truncate text-xs text-muted-foreground">
-          workdays, by the hour a merged robot started (UTC)
-        </span>
-      </div>
-      <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
-        <figure class="flex flex-col gap-1">
-          <div class="relative">
-            <div aria-label="Median time to merge by start hour: 09:00 · everyone 1h (15), among the fastest" class="flex h-24 items-end gap-0.5 border-b border-border" data-testid="hour-profile" role="img" />
-            <div class="pointer-events-none absolute -top-1 z-10 -translate-x-1/2 -translate-y-full rounded-md bg-popover px-2 py-1 text-xs whitespace-nowrap text-popover-foreground shadow-md ring-1 ring-foreground/10" data-testid="chart-tooltip" role="status" style="left: 39.5833%">
-              09:00 · everyone 1h (15), among the fastest
+        <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
+          <div class="grid grid-cols-2 gap-4 @2xl:grid-cols-4">
+            <div class="flex min-w-0 flex-col gap-1" data-testid="landing-merged">
+              <span class="text-xs text-muted-foreground">
+                Merged
+              </span>
+              <span class="text-2xl font-semibold text-foreground">
+                2
+              </span>
+              <span class="text-xs text-muted-foreground">
+                2 failed · + 1 dry runs
+              </span>
+              <div aria-label="Merges per week" class="flex justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden aspect-auto h-6 w-full max-w-32" data-chart="chart-merged-trend" data-slot="chart" role="img">
+                <style>
+                  [data-chart=chart-merged-trend] {
+  --color-value: var(--muted-foreground);
+}
+
+
+.dark [data-chart=chart-merged-trend] {
+  --color-value: var(--muted-foreground);
+}
+                </style>
+                <div class="recharts-responsive-container" style="width: 100%;  height: 100%;  min-width: 0px" />
+              </div>
+            </div>
+            <div class="flex min-w-0 flex-col gap-1" data-testid="landing-robots-per-merge">
+              <span class="text-xs text-muted-foreground">
+                Robots per merge
+              </span>
+              <span class="text-2xl font-semibold text-foreground">
+                2.0
+              </span>
+              <span class="flex items-center gap-1 text-xs text-destructive" data-testid="landing-robots-per-merge-comparison">
+                <svg aria-hidden="true" class="lucide lucide-arrow-up size-3 shrink-0" />
+                100% more than everyone else
+              </span>
+              <span class="text-xs text-muted-foreground">
+                everyone else 1.0
+              </span>
+              <div aria-label="Robots per merge by week" class="flex justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden aspect-auto h-6 w-full max-w-32" data-chart="chart-robots-per-merge-trend" data-slot="chart" role="img">
+                <style>
+                  [data-chart=chart-robots-per-merge-trend] {
+  --color-value: var(--muted-foreground);
+}
+
+
+.dark [data-chart=chart-robots-per-merge-trend] {
+  --color-value: var(--muted-foreground);
+}
+                </style>
+                <div class="recharts-responsive-container" style="width: 100%;  height: 100%;  min-width: 0px" />
+              </div>
+            </div>
+            <div class="flex min-w-0 flex-col gap-1" data-testid="landing-merge-time">
+              <span class="text-xs text-muted-foreground">
+                Time to merge
+              </span>
+              <span class="text-2xl font-semibold text-foreground">
+                1h 20m
+              </span>
+              <span class="flex items-center gap-1 text-xs text-destructive" data-testid="landing-merge-time-comparison">
+                <svg aria-hidden="true" class="lucide lucide-arrow-up size-3 shrink-0" />
+                33% more than everyone else
+              </span>
+              <span class="text-xs text-muted-foreground">
+                p90 2h · everyone else 1h
+              </span>
+              <div aria-label="Median time to merge by week" class="flex justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden aspect-auto h-6 w-full max-w-32" data-chart="chart-merge-time-trend" data-slot="chart" role="img">
+                <style>
+                  [data-chart=chart-merge-time-trend] {
+  --color-value: var(--muted-foreground);
+}
+
+
+.dark [data-chart=chart-merge-time-trend] {
+  --color-value: var(--muted-foreground);
+}
+                </style>
+                <div class="recharts-responsive-container" style="width: 100%;  height: 100%;  min-width: 0px" />
+              </div>
+            </div>
+            <div class="flex min-w-0 flex-col gap-1" data-testid="landing-first-try">
+              <span class="text-xs text-muted-foreground">
+                First try
+              </span>
+              <span class="text-2xl font-semibold text-foreground">
+                50%
+              </span>
+              <span class="text-xs text-muted-foreground">
+                1 of 2 merges, estimated
+              </span>
             </div>
           </div>
-          <figcaption class="flex flex-col gap-1 text-xs text-muted-foreground">
-            <div class="flex justify-between">
-              <span>
-                00:00
-              </span>
-              <span>
-                06:00
-              </span>
-              <span>
-                12:00
-              </span>
-              <span>
-                18:00
-              </span>
-              <span>
-                23:00
-              </span>
+          <figure class="flex flex-col" data-testid="week-chart">
+            <div class="flex justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden aspect-auto h-44 w-full" data-chart="chart-weeks" data-slot="chart">
+              <style>
+                [data-chart=chart-weeks] {
+  --color-merged: var(--chart-1);
+  --color-failed: var(--chart-2);
+  --color-canceled: var(--chart-3);
+}
+
+
+.dark [data-chart=chart-weeks] {
+  --color-merged: var(--chart-1);
+  --color-failed: var(--chart-2);
+  --color-canceled: var(--chart-3);
+}
+              </style>
+              <div class="recharts-responsive-container" style="width: 100%;  height: 100%;  min-width: 0px">
+                <div style="width: 0px;  height: 0px;  overflow: visible">
+                  <div class="recharts-wrapper" height="176" style="position: relative;  cursor: default;  width: 580px;  height: 176px" width="580">
+                    <div class="recharts-tooltip-wrapper recharts-tooltip-wrapper-left recharts-tooltip-wrapper-top" style="visibility: visible;  position: absolute;  top: 0px;  left: 0px;  transition: transform 400ms;  transform: translate(414.4px, 4px)" tabindex="-1" xmlns="http://www.w3.org/1999/xhtml">
+                      <div class="grid min-w-32 items-start gap-1.5 rounded-xl bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/10">
+                        <div class="font-medium">
+                          Week of Jan 1
+                        </div>
+                        <div class="grid gap-1.5">
+                          <div class="flex w-full flex-wrap gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5 [&>svg]:text-muted-foreground items-center">
+                            <div class="shrink-0 border-(--color-border) bg-(--color-bg) h-2.5 w-2.5" style="--color-bg: var(--color-merged);  --color-border: var(--color-merged)" />
+                            <div class="flex flex-1 justify-between leading-none items-center">
+                              <div class="grid gap-1.5">
+                                <span class="text-muted-foreground">
+                                  Merged
+                                </span>
+                              </div>
+                              <span class="font-mono font-medium text-foreground tabular-nums">
+                                1
+                              </span>
+                            </div>
+                          </div>
+                          <div class="flex w-full flex-wrap gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5 [&>svg]:text-muted-foreground items-center">
+                            <div class="shrink-0 border-(--color-border) bg-(--color-bg) h-2.5 w-2.5" style="--color-bg: var(--color-failed);  --color-border: var(--color-failed)" />
+                            <div class="flex flex-1 justify-between leading-none items-center">
+                              <div class="grid gap-1.5">
+                                <span class="text-muted-foreground">
+                                  Failed
+                                </span>
+                              </div>
+                              <span class="font-mono font-medium text-foreground tabular-nums">
+                                1
+                              </span>
+                            </div>
+                          </div>
+                          <div class="flex w-full flex-wrap gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5 [&>svg]:text-muted-foreground items-center">
+                            <div class="shrink-0 border-(--color-border) bg-(--color-bg) h-2.5 w-2.5" style="--color-bg: var(--color-canceled);  --color-border: var(--color-canceled)" />
+                            <div class="flex flex-1 justify-between leading-none items-center">
+                              <div class="grid gap-1.5">
+                                <span class="text-muted-foreground">
+                                  Canceled
+                                </span>
+                              </div>
+                              <span class="font-mono font-medium text-foreground tabular-nums">
+                                0
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="recharts-legend-wrapper" style="position: absolute;  width: 580px;  height: auto;  left: 0px;  bottom: 0px">
+                      <div class="flex items-center justify-center gap-4 pt-3">
+                        <div class="flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground">
+                          <div class="h-2 w-2 shrink-0" style="background-color: var(--color-merged)" />
+                          Merged
+                        </div>
+                        <div class="flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground">
+                          <div class="h-2 w-2 shrink-0" style="background-color: var(--color-failed)" />
+                          Failed
+                        </div>
+                        <div class="flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground">
+                          <div class="h-2 w-2 shrink-0" style="background-color: var(--color-canceled)" />
+                          Canceled
+                        </div>
+                      </div>
+                    </div>
+                    <svg class="recharts-surface" height="176" role="application" style="width: 100%;  height: 100%;  display: block" tabindex="0" viewBox="0 0 580 176" width="580">
+                      <title />
+                      <desc />
+                      <g class="recharts-zIndex-layer_-100" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_-50" tabindex="-1" />
+                      <defs />
+                      <g class="recharts-zIndex-layer_100" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_200" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_300" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_400" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_500" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_600" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_1000" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_1100" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_1200" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_2000" tabindex="-1">
+                        <g class="recharts-cartesian-axis-tick-labels recharts-xAxis-tick-labels">
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="552" x="55.6" y="130">
+                              <tspan dy="0.71em" x="55.6">
+                                Oct 30
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="552" x="166" y="130">
+                              <tspan dy="0.71em" x="166">
+                                Nov 13
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="552" x="276.40000000000003" y="130">
+                              <tspan dy="0.71em" x="276.40000000000003">
+                                Nov 27
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="552" x="386.80000000000007" y="130">
+                              <tspan dy="0.71em" x="386.80000000000007">
+                                Dec 11
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="552" x="552.4" y="130">
+                              <tspan dy="0.71em" x="552.4">
+                                Jan 1
+                              </tspan>
+                            </text>
+                          </g>
+                        </g>
+                        <g class="recharts-cartesian-axis-tick-labels recharts-yAxis-tick-labels">
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="114" orientation="left" stroke="none" text-anchor="end" width="28" x="20" y="118">
+                              <tspan dy="0.355em" x="20">
+                                0
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="114" orientation="left" stroke="none" text-anchor="end" width="28" x="20" y="89.5">
+                              <tspan dy="0.355em" x="20">
+                                1
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="114" orientation="left" stroke="none" text-anchor="end" width="28" x="20" y="61">
+                              <tspan dy="0.355em" x="20">
+                                2
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="114" orientation="left" stroke="none" text-anchor="end" width="28" x="20" y="32.5">
+                              <tspan dy="0.355em" x="20">
+                                3
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="114" orientation="left" stroke="none" text-anchor="end" width="28" x="20" y="9">
+                              <tspan dy="0.355em" x="20">
+                                4
+                              </tspan>
+                            </text>
+                          </g>
+                        </g>
+                      </g>
+                    </svg>
+                  </div>
+                </div>
+              </div>
             </div>
-            <ul class="flex gap-4">
-              <li class="flex items-center gap-1.5">
-                <span aria-hidden="true" class="size-2 rounded-sm bg-primary" />
-                Everyone else, median
-              </li>
-              <li class="flex items-center gap-1.5">
-                <span aria-hidden="true" class="size-2 rounded-sm bg-success" />
-                The fastest hours
-              </li>
-              <li class="flex items-center gap-1.5">
-                <span aria-hidden="true" class="size-2 rounded-full bg-foreground" />
-                You
-              </li>
-            </ul>
-          </figcaption>
-        </figure>
+            <table class="sr-only">
+              <caption>
+                Robots per week
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    Week of
+                  </th>
+                  <th scope="col">
+                    Merged
+                  </th>
+                  <th scope="col">
+                    Failed
+                  </th>
+                  <th scope="col">
+                    Canceled
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Oct 30
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Nov 6
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Nov 13
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Nov 20
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Nov 27
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Dec 4
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Dec 11
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Dec 18
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Dec 25
+                  </td>
+                  <td>
+                    1
+                  </td>
+                  <td>
+                    1
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Jan 1
+                  </td>
+                  <td>
+                    1
+                  </td>
+                  <td>
+                    1
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </figure>
+        </div>
+      </div>
+      <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-time">
+        <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
+          <h2 class="text-sm font-semibold text-foreground">
+            Where the time went
+          </h2>
+        </div>
+        <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
+          <div class="flex min-w-0 flex-col gap-1" data-testid="landing-time-lost">
+            <span class="text-xs text-muted-foreground">
+              Lost to failures
+            </span>
+            <span class="text-2xl font-semibold text-foreground">
+              25 h
+            </span>
+            <span class="text-xs text-muted-foreground">
+              90% of the robot time on the way into master: failed and canceled robots, and the waits before their restarts
+            </span>
+          </div>
+          <figure class="flex flex-col gap-2" data-testid="time-chart">
+            <div class="flex justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden aspect-auto h-8 w-full" data-chart="chart-time" data-slot="chart">
+              <style>
+                [data-chart=chart-time] {
+  --color-merged: var(--chart-1);
+  --color-failed: var(--chart-2);
+  --color-canceled: var(--chart-3);
+  --color-between: var(--chart-4);
+}
+
+
+.dark [data-chart=chart-time] {
+  --color-merged: var(--chart-1);
+  --color-failed: var(--chart-2);
+  --color-canceled: var(--chart-3);
+  --color-between: var(--chart-4);
+}
+              </style>
+              <div class="recharts-responsive-container" style="width: 100%;  height: 100%;  min-width: 0px" />
+            </div>
+            <figcaption>
+              <ul class="flex flex-wrap gap-x-4 gap-y-1 text-xs" data-testid="time-legend">
+                <li class="flex items-center gap-1.5">
+                  <span aria-hidden="true" class="size-2" style="background-color: var(--chart-1)" />
+                  <span class="text-muted-foreground">
+                    Merged robots
+                  </span>
+                  <span class="font-medium text-foreground tabular-nums">
+                    3 h
+                  </span>
+                  <span class="text-muted-foreground tabular-nums">
+                    10%
+                  </span>
+                </li>
+                <li class="flex items-center gap-1.5">
+                  <span aria-hidden="true" class="size-2" style="background-color: var(--chart-2)" />
+                  <span class="text-muted-foreground">
+                    Failed robots
+                  </span>
+                  <span class="font-medium text-foreground tabular-nums">
+                    2 h
+                  </span>
+                  <span class="text-muted-foreground tabular-nums">
+                    6%
+                  </span>
+                </li>
+                <li class="flex items-center gap-1.5">
+                  <span aria-hidden="true" class="size-2" style="background-color: var(--chart-3)" />
+                  <span class="text-muted-foreground">
+                    Canceled robots
+                  </span>
+                  <span class="font-medium text-foreground tabular-nums">
+                    0 min
+                  </span>
+                  <span class="text-muted-foreground tabular-nums">
+                    0%
+                  </span>
+                </li>
+                <li class="flex items-center gap-1.5">
+                  <span aria-hidden="true" class="size-2" style="background-color: var(--chart-4)" />
+                  <span class="text-muted-foreground">
+                    Waiting to restart
+                  </span>
+                  <span class="font-medium text-foreground tabular-nums">
+                    23 h
+                  </span>
+                  <span class="text-muted-foreground tabular-nums">
+                    85%
+                  </span>
+                </li>
+              </ul>
+            </figcaption>
+            <table class="sr-only">
+              <caption>
+                Robot time
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    Part
+                  </th>
+                  <th scope="col">
+                    Time
+                  </th>
+                  <th scope="col">
+                    Share
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Merged robots
+                  </td>
+                  <td>
+                    3 h
+                  </td>
+                  <td>
+                    10%
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Failed robots
+                  </td>
+                  <td>
+                    2 h
+                  </td>
+                  <td>
+                    6%
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Canceled robots
+                  </td>
+                  <td>
+                    0 min
+                  </td>
+                  <td>
+                    0%
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Waiting to restart
+                  </td>
+                  <td>
+                    23 h
+                  </td>
+                  <td>
+                    85%
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </figure>
+        </div>
+      </div>
+      <div aria-busy="false" class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-failures">
+        <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
+          <h2 class="text-sm font-semibold text-foreground">
+            Why robots failed
+          </h2>
+          <span class="truncate text-xs text-muted-foreground">
+            the last 14 days
+          </span>
+        </div>
+        <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
+          <figure data-testid="kind-chart">
+            <div class="flex justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden aspect-auto w-full" data-chart="chart-kinds" data-slot="chart" style="height: 64px">
+              <style>
+                [data-chart=chart-kinds] {
+  --color-count: var(--chart-2);
+}
+
+
+.dark [data-chart=chart-kinds] {
+  --color-count: var(--chart-2);
+}
+              </style>
+              <div class="recharts-responsive-container" style="width: 100%;  height: 100%;  min-width: 0px">
+                <div style="width: 0px;  height: 0px;  overflow: visible">
+                  <div class="recharts-wrapper" height="64" style="position: relative;  cursor: default;  width: 580px;  height: 64px" width="580">
+                    <svg class="recharts-surface" height="64" role="application" style="width: 100%;  height: 100%;  display: block" tabindex="0" viewBox="0 0 580 64" width="580">
+                      <title />
+                      <desc />
+                      <g class="recharts-zIndex-layer_-100" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_-50" tabindex="-1" />
+                      <defs />
+                      <g class="recharts-zIndex-layer_100" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_200" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_300" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_400" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_500" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_600" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_1000" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_1100" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_1200" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_2000" tabindex="-1">
+                        <g class="recharts-cartesian-axis-tick-labels recharts-yAxis-tick-labels">
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="56" orientation="left" stroke="none" text-anchor="end" width="136" x="128" y="18">
+                              <tspan dy="0.355em" x="128">
+                                Checks failed
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="56" orientation="left" stroke="none" text-anchor="end" width="136" x="128" y="46">
+                              <tspan dy="0.355em" x="128">
+                                Unknown
+                              </tspan>
+                            </text>
+                          </g>
+                        </g>
+                        <g class="recharts-layer recharts-label-list">
+                          <text class="recharts-text fill-foreground" fill="#808080" font-size="12" height="16" offset="5" text-anchor="start" width="27" x="553" y="18">
+                            <tspan dy="0.355em" x="553">
+                              1
+                            </tspan>
+                          </text>
+                          <text class="recharts-text fill-foreground" fill="#808080" font-size="12" height="16" offset="5" text-anchor="start" width="27" x="553" y="46">
+                            <tspan dy="0.355em" x="553">
+                              1
+                            </tspan>
+                          </text>
+                        </g>
+                      </g>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <table class="sr-only">
+              <caption>
+                Failed robots by kind
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    Kind
+                  </th>
+                  <th scope="col">
+                    Robots
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    Checks failed
+                  </td>
+                  <td>
+                    1
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    Unknown
+                  </td>
+                  <td>
+                    1
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </figure>
+          <div class="grid gap-4 @2xl:grid-cols-2">
+            <section aria-label="Failed the most" class="flex flex-col gap-1" data-testid="landing-failed-checks">
+              <h3 class="text-xs font-medium text-muted-foreground">
+                Failed the most
+              </h3>
+              <ul class="flex flex-col gap-0.5 text-xs">
+                <li class="flex justify-between gap-2">
+                  <span class="truncate text-foreground">
+                    Fast Tests
+                  </span>
+                  <span class="shrink-0 text-muted-foreground tabular-nums">
+                    1
+                  </span>
+                </li>
+              </ul>
+            </section>
+          </div>
+        </div>
+      </div>
+      <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-hours">
+        <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
+          <h2 class="text-sm font-semibold text-foreground">
+            When robots run fastest
+          </h2>
+          <span class="truncate text-xs text-muted-foreground">
+            workdays, by the hour a merged robot started (UTC)
+          </span>
+        </div>
+        <div class="flex flex-col gap-4 px-4 pb-4 sm:px-6">
+          <figure class="flex flex-col" data-testid="hour-chart">
+            <div class="flex justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden aspect-auto h-48 w-full" data-chart="chart-hours" data-slot="chart">
+              <style>
+                [data-chart=chart-hours] {
+  --color-everyone: var(--chart-1);
+  --color-mine: var(--chart-2);
+}
+
+
+.dark [data-chart=chart-hours] {
+  --color-everyone: var(--chart-1);
+  --color-mine: var(--chart-2);
+}
+              </style>
+              <div class="recharts-responsive-container" style="width: 100%;  height: 100%;  min-width: 0px">
+                <div style="width: 0px;  height: 0px;  overflow: visible">
+                  <div class="recharts-wrapper" height="192" style="position: relative;  cursor: default;  width: 580px;  height: 192px" width="580">
+                    <div class="recharts-tooltip-wrapper" style="visibility: hidden;  position: absolute;  top: 0px;  left: 0px" tabindex="-1" xmlns="http://www.w3.org/1999/xhtml" />
+                    <svg class="recharts-surface" height="192" role="application" style="width: 100%;  height: 100%;  display: block" tabindex="0" viewBox="0 0 580 192" width="580">
+                      <title />
+                      <desc />
+                      <g class="recharts-zIndex-layer_-100" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_-50" tabindex="-1" />
+                      <defs />
+                      <g class="recharts-zIndex-layer_100" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_200" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_300" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_400" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_500" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_600" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_1000" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_1100" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_1200" tabindex="-1" />
+                      <g class="recharts-zIndex-layer_2000" tabindex="-1">
+                        <g class="recharts-cartesian-axis-tick-labels recharts-xAxis-tick-labels">
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="540" x="51.25" y="174">
+                              <tspan dy="0.71em" x="51.25">
+                                00:00
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="540" x="118.75" y="174">
+                              <tspan dy="0.71em" x="118.75">
+                                03:00
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="540" x="186.25" y="174">
+                              <tspan dy="0.71em" x="186.25">
+                                06:00
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="540" x="253.75" y="174">
+                              <tspan dy="0.71em" x="253.75">
+                                09:00
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="540" x="321.25" y="174">
+                              <tspan dy="0.71em" x="321.25">
+                                12:00
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="540" x="388.75" y="174">
+                              <tspan dy="0.71em" x="388.75">
+                                15:00
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="540" x="456.25" y="174">
+                              <tspan dy="0.71em" x="456.25">
+                                18:00
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="30" orientation="bottom" stroke="none" text-anchor="middle" width="540" x="523.75" y="174">
+                              <tspan dy="0.71em" x="523.75">
+                                21:00
+                              </tspan>
+                            </text>
+                          </g>
+                        </g>
+                        <g class="recharts-cartesian-axis-tick-labels recharts-yAxis-tick-labels">
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="154" orientation="left" stroke="none" text-anchor="end" width="40" x="32" y="162">
+                              <tspan dy="0.355em" x="32">
+                                0
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="154" orientation="left" stroke="none" text-anchor="end" width="40" x="32" y="123.5">
+                              <tspan dy="0.355em" x="32">
+                                15m
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="154" orientation="left" stroke="none" text-anchor="end" width="40" x="32" y="85">
+                              <tspan dy="0.355em" x="32">
+                                30m
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="154" orientation="left" stroke="none" text-anchor="end" width="40" x="32" y="46.5">
+                              <tspan dy="0.355em" x="32">
+                                45m
+                              </tspan>
+                            </text>
+                          </g>
+                          <g class="recharts-layer recharts-cartesian-axis-tick-label">
+                            <text class="recharts-text recharts-cartesian-axis-tick-value" fill="#666" height="154" orientation="left" stroke="none" text-anchor="end" width="40" x="32" y="9">
+                              <tspan dy="0.355em" x="32">
+                                1h
+                              </tspan>
+                            </text>
+                          </g>
+                        </g>
+                      </g>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <figcaption>
+              <ul class="flex flex-wrap justify-center gap-x-4 gap-y-1 pt-2 text-xs text-muted-foreground" data-testid="hour-legend">
+                <li class="flex items-center gap-1.5">
+                  <span aria-hidden="true" class="size-2" style="background-color: var(--chart-1);  opacity: 0.5" />
+                  Everyone else, median
+                </li>
+                <li class="flex items-center gap-1.5">
+                  <span aria-hidden="true" class="size-2" style="background-color: var(--chart-1)" />
+                  The fastest hours
+                </li>
+                <li class="flex items-center gap-1.5">
+                  <span aria-hidden="true" class="size-2 rounded-full" style="background-color: var(--chart-2)" />
+                  You
+                </li>
+              </ul>
+            </figcaption>
+            <table class="sr-only">
+              <caption>
+                Median time to merge by start hour
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    Hour
+                  </th>
+                  <th scope="col">
+                    Everyone else
+                  </th>
+                  <th scope="col">
+                    Robots
+                  </th>
+                  <th scope="col">
+                    You
+                  </th>
+                  <th scope="col">
+                    Your robots
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    00:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    01:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    02:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    03:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    04:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    05:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    06:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    07:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    08:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    09:00
+                  </td>
+                  <td>
+                    1h
+                  </td>
+                  <td>
+                    15
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    10:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    11:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    12:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    13:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    14:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    15:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    16:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    17:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    18:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    19:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    20:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    21:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    22:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    23:00
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                  <td>
+                    –
+                  </td>
+                  <td>
+                    0
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </figure>
+        </div>
       </div>
     </div>
   </div>

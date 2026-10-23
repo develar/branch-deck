@@ -391,9 +391,13 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 
 - **The views of the main window** ([Main Views](../../spec/repository/main-views.spec.md)): the switcher after the
   repository in the toolbar, two `xs` ghost buttons, the shown one soft primary (a tint, no surface on the canvas);
-  each view its own scroller of islands under the toolbar, both kept mounted. Landing's charts are HTML bars in the
-  semantic tokens (merges `bg-primary`, the parts of the time `bg-success`/`bg-destructive`/`bg-muted-foreground`/
-  `bg-warning` with a legend, 2px gaps, rounded data ends), values in the text tokens, every mark with its tooltip.
+  each view its own scroller of islands under the toolbar, both kept mounted.
+- **Charts** (Landing, [Main Views](../../spec/repository/main-views.spec.md#user-experience)): shadcn Charts on
+  Recharts (`src/components/ui/chart.tsx`, lazy), the series in the chart palette `--chart-1…4` (the dataviz reference
+  slots, validated for colour-blind separation on both cards; never the status tokens for a series), one colour per
+  entity across the charts, bars ≤ 24px with a 2px card gap and a 4px rounded data end, hairline solid grid, a legend
+  from two series, values in the text tokens, a table twin per chart. A figure's comparison is the one place for a
+  status colour, with its arrow and words.
 
 ### Branch columns
 

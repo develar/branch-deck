@@ -9,11 +9,14 @@ targets:
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/components/repository/LandingPopover.tsx
   - ../../src/components/landing/LandingView.tsx
-  - ../../src/components/landing/charts/WeekBars.tsx
-  - ../../src/components/landing/charts/SplitBar.tsx
-  - ../../src/components/landing/charts/HourProfile.tsx
-  - ../../src/components/landing/charts/ChartHover.tsx
-  - ../../src/hooks/useChartHover.ts
+  - ../../src/components/landing/charts/WeekChart.tsx
+  - ../../src/components/landing/charts/TimeChart.tsx
+  - ../../src/components/landing/charts/KindChart.tsx
+  - ../../src/components/landing/charts/HourChart.tsx
+  - ../../src/components/landing/charts/Sparkline.tsx
+  - ../../src/components/landing/charts/TableView.tsx
+  - ../../src/components/ui/chart.tsx
+  - ../../src/index.css
   - ../../src/hooks/useRobotStats.ts
   - ../../src/stores/robot-stats.ts
   - ../../src/stores/commit-move.ts
@@ -72,8 +75,10 @@ nothing from the work: the view changes only when the user changes it, and the b
 
 - Landing shows the statistics of the selected repository in four islands: into master (merged, robots per merge, the
   time to merge and the first try against everyone else, the merges per week, what a merge landed), where the time
-  went, why robots failed in the last 14 days, and when robots run fastest by the start hour; every mark names its
-  value in its tooltip and its accessible name.
+  went, why robots failed in the last 14 days, and when robots run fastest by the start hour. A figure says how it
+  compares to everyone else (an arrow and words, success where it is better, destructive where it is worse) and its
+  trend over the weeks; every chart has a table twin with every value, and the keyboard walks its marks with their
+  tooltips.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
 - The statistics are read while Landing shows: when it shows and when the window gets the focus; a hidden Landing
   reads nothing. Refresh asks again whatever the age of the lists, and tells its failure (`notifyError`).
@@ -89,8 +94,13 @@ nothing from the work: the view changes only when the user changes it, and the b
 
 - The switcher is two `xs` ghost buttons on the canvas, the shown view soft primary (no surface on the canvas); the
   names give way to the icons below `@4xl`.
-- The charts are HTML bars in the semantic tokens: merges in primary, the parts of the time in success, destructive,
-  muted and warning with their legend, the fastest hours in success; the text in the text tokens.
+- The charts are shadcn Charts (Recharts, `src/components/ui/chart.tsx`), in a chunk of their own that loads the first
+  time Landing shows. Their series take the chart palette `--chart-1…4` of `src/index.css` (blue, orange, aqua,
+  yellow, the categorical slots of the dataviz reference palette in an order that passes its colour-blind checks on
+  the light and the dark card), each entity one colour in every chart (Failed is orange in the weeks, the time and the
+  kinds); bars of at most 24px with a 2px card gap and a rounded data end, hairline solid grid, the legend for two
+  series or more, the values in the text tokens; the fastest hours in full colour, the others muted (emphasis, not a
+  second hue). A read in progress dims the numbers it replaces, never a skeleton.
 
 ## Testing / Local Run
 

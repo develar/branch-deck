@@ -68,24 +68,50 @@ test.describe("Landing view", () => {
     const view = landingView(page)
     await expect(view.getByTestId("landing-window")).toHaveText("Into master · the last 70 days · UTC")
     // 2 merged of 4 finished robots; the dry run apart; everyone else as the median of the five people
-    await expect(view.getByTestId("landing-merged")).toHaveText("Merged22 failed · + 1 dry runs")
-    await expect(view.getByTestId("landing-robots-per-merge")).toHaveText("Robots per merge2.0everyone else 1.0")
-    // the median of 40 minutes and 2 hours
-    await expect(view.getByTestId("landing-merge-time")).toHaveText("Time to merge1h 20mp90 2h · everyone else 1h")
+    await expect(view.getByTestId("landing-merged")).toContainText("Merged22 failed · + 1 dry runs")
+    await expect(view.getByTestId("landing-robots-per-merge")).toContainText("Robots per merge2.0100% more than everyone elseeveryone else 1.0")
+    // the median of 40 minutes and 2 hours, a third longer than everyone else's hour: worse, in the destructive colour
+    await expect(view.getByTestId("landing-merge-time")).toContainText("Time to merge1h 20m33% more than everyone elsep90 2h · everyone else 1h")
+    await expect(view.getByTestId("landing-merge-time-comparison")).toHaveClass(/text-destructive/)
     await expect(view.getByTestId("landing-delivery")).toContainText("against everyone else, the median of 5 people")
+    // the robots of each week, the table twin of the chart: the week of the day has the merge and the failure
+    const weeks = view.getByRole("table", { name: "Robots per week" }).getByRole("row")
+    await expect(weeks).toHaveCount(11)
+    await expect(weeks.last()).toHaveText("Jan 1110")
     // where the time went: 2 h 40 min in merges, 1 h 30 min in failures, 23 hours from last week's failure of old-work
     // to its merge
-    await expect(view.getByTestId("landing-time").getByRole("listitem")).toHaveText(["Merged robots3 h", "Failed robots2 h", "Canceled robots0 min", "Waiting to restart23 h"])
+    await expect(view.getByTestId("landing-time-lost")).toContainText("Lost to failures25 h90% of the robot time")
+    await expect(view.getByTestId("time-legend").getByRole("listitem")).toHaveText([
+      "Merged robots3 h10%",
+      "Failed robots2 h6%",
+      "Canceled robots0 min0%",
+      "Waiting to restart23 h85%",
+    ])
     // the merge of the day was the first try, the one of old-work came after a failure
     await expect(view.getByTestId("landing-first-try")).toHaveText("First try50%1 of 2 merges, estimated")
     // the failed robot of the day failed Fast Tests; the one of last week answers no check
     const failures = view.getByTestId("landing-failures")
-    await expect(failures.getByRole("list", { name: "Failures by kind" }).getByRole("listitem")).toHaveText(["Checks failed1", "Unknown1"])
+    await expect(failures.getByRole("table", { name: "Failed robots by kind" }).getByRole("row")).toHaveText(["KindRobots", "Checks failed1", "Unknown1"])
     await expect(failures.getByTestId("landing-failed-checks").getByRole("listitem")).toHaveText(["Fast Tests1"])
-    // Monday 09:00 UTC: five people, an hour each
-    await expect(view.getByTestId("hour-9")).toHaveAccessibleName("09:00 · everyone 1h (15), among the fastest")
-    await view.getByTestId("hour-9").hover()
-    await expect(view.getByTestId("chart-tooltip")).toHaveText("09:00 · everyone 1h (15), among the fastest")
+    // Monday 09:00 UTC: five people, an hour each; the user has too few robots at any hour
+    const hours = view.getByRole("table", { name: "Median time to merge by start hour" }).getByRole("row")
+    await expect(hours.filter({ hasText: /^09:00/ })).toHaveText("09:001h15–0")
+    // the keyboard walks the marks of a chart and its tooltip says each (the accessibility layer of the charts): 09:00
+    const hourChart = view.getByTestId("hour-chart")
+    await hourChart.getByRole("application").focus()
+    // the first press shows 00:00
+    for (let hour = 0; hour < 10; hour++) {
+      await page.keyboard.press("ArrowRight")
+    }
+    await page.keyboard.press("ArrowLeft")
+    await expect(hourChart).toContainText("09:00Everyone else, median1h · 15 robots")
+    const weekChart = view.getByTestId("week-chart")
+    await weekChart.getByRole("application").focus()
+    // the tenth week, the current one
+    for (let week = 0; week < 10; week++) {
+      await page.keyboard.press("ArrowRight")
+    }
+    await expect(weekChart).toContainText("Week of Jan 1Merged1Failed1Canceled0")
     await captureHtmlSnapshot(view, "landing-statistics")
 
     // everyone's robots into the target, week by week: no owner, an end

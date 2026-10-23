@@ -60,8 +60,9 @@ it for little.
 - Robots per merge are the finished robots over the merged ones; the time to merge runs from the start to the finish
   of a merged robot (median, 90th percentile by the nearest rank).
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`robots_per_merge_are_the_finished_robots_over_the_merged_ones`)
-- The ten weeks of a delivery are the local weeks from Monday; a robot counts in the week it finished.
-  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`weeks_count_by_the_local_monday_a_robot_finished_in`)
+- The ten weeks of a delivery are the local weeks from Monday; a robot counts in the week it finished, each week with
+  its merged, failed and canceled robots and the median time to merge of its merges.
+  [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`weeks_count_by_the_local_monday_a_robot_finished_in_with_their_median_time_to_merge`)
   [@test] ../../crates/domain-types/src/calendar_test.rs (`a_week_starts_on_the_local_monday`)
 - Everyone else is the median person: the median of each person's robots per merge and time to merge, of the people
   with 3 merges; none while fewer than 5 people have.

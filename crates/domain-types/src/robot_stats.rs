@@ -158,8 +158,12 @@ pub struct WeekCount {
   /// Unix seconds of the local Monday 00:00
   pub start: u32,
   pub merged: u32,
-  /// Finished robots
+  pub failed: u32,
+  pub canceled: u32,
+  /// Finished robots: merged, failed and canceled
   pub robots: u32,
+  /// The median from start to merge of the week's merged robots, seconds; null without one
+  pub merge_time: Option<u32>,
 }
 
 /// Everyone else as the median person: the median of each person's value, of the people with at least `MIN_MERGES`

@@ -105,16 +105,37 @@ fn week_starts(calendar: &Calendar, now: u32) -> Vec<u32> {
 fn delivery(robots: &[&HistoryRobot], weeks: &[u32], calendar: &Calendar) -> Delivery {
   let status_count = |status: PatronusRobotStatus| count_u32(robots.iter().filter(|robot| robot.status == status));
   let merged = status_count(PatronusRobotStatus::Success);
-  let mut week_counts: Vec<WeekCount> = weeks.iter().map(|&start| WeekCount { start, merged: 0, robots: 0 }).collect();
+  let mut week_counts: Vec<WeekCount> = weeks
+    .iter()
+    .map(|&start| WeekCount {
+      start,
+      merged: 0,
+      failed: 0,
+      canceled: 0,
+      robots: 0,
+      merge_time: None,
+    })
+    .collect();
+  let mut week_merges: Vec<Vec<u32>> = vec![Vec::new(); week_counts.len()];
   for robot in robots {
     let Some(finish) = robot.finish else { continue };
     let start = calendar.week_start(finish);
-    if let Some(week) = week_counts.iter_mut().find(|week| week.start == start) {
+    if let Some(index) = week_counts.iter().position(|week| week.start == start) {
+      let week = &mut week_counts[index];
       week.robots += 1;
-      if robot.status == PatronusRobotStatus::Success {
-        week.merged += 1;
+      match robot.status {
+        PatronusRobotStatus::Success => {
+          week.merged += 1;
+          week_merges[index].extend(duration(robot));
+        }
+        PatronusRobotStatus::Failure => week.failed += 1,
+        PatronusRobotStatus::Canceled => week.canceled += 1,
+        _ => {}
       }
     }
+  }
+  for (week, merges) in week_counts.iter_mut().zip(week_merges) {
+    week.merge_time = median(merges);
   }
   Delivery {
     merged,

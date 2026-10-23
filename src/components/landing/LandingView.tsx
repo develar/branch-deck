@@ -1,11 +1,14 @@
+import { useEffect } from "react"
 import type { ReactNode, RefObject } from "react"
-import { RefreshCwIcon } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
-import { HourProfile } from "@/components/landing/charts/HourProfile"
-import { SplitBar } from "@/components/landing/charts/SplitBar"
-import { WeekBars } from "@/components/landing/charts/WeekBars"
+import { HourChart } from "@/components/landing/charts/HourChart"
+import { KindChart } from "@/components/landing/charts/KindChart"
+import { Sparkline } from "@/components/landing/charts/Sparkline"
+import { TimeChart } from "@/components/landing/charts/TimeChart"
+import { WeekChart } from "@/components/landing/charts/WeekChart"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { RelativeTime } from "@/components/shared/RelativeTime"
@@ -16,7 +19,7 @@ import { formatTotalDuration } from "@/lib/duration"
 import { formatSafePushLoginCommand } from "@/lib/patronus"
 import { isWindows } from "@/lib/platform"
 import { formatShortDuration } from "@/lib/robot-eta"
-import { formatFailureKind, formatRatio, formatShare, formatShareCount } from "@/lib/robot-stats"
+import { compareToEveryone, formatRatio, formatShare, formatShareCount } from "@/lib/robot-stats"
 import { useSelectedProjectPath } from "@/stores/repository"
 import type { RobotStatsProgress } from "@/stores/robot-stats"
 
@@ -27,6 +30,12 @@ import type { RobotStatsProgress } from "@/stores/robot-stats"
  */
 export function LandingView({ visible, headingRef }: { visible: boolean; headingRef: RefObject<HTMLHeadingElement | null> }) {
   const { result, partial, progress, loading, error, refresh } = useRobotStats(visible)
+  // the first show loads this chunk after the switch: the focus the hidden branches dropped comes to the heading here
+  useEffect(() => {
+    if (document.activeElement === null || document.activeElement === document.body) {
+      headingRef.current?.focus({ preventScroll: true })
+    }
+  }, [headingRef])
   const stats = result?.stats ?? partial
   return (
     <div className="@container flex flex-col gap-2" data-testid="landing-view" aria-busy={loading}>
@@ -59,7 +68,12 @@ export function LandingView({ visible, headingRef }: { visible: boolean; heading
         </Callout>
       )}
       <LandingState stats={stats} result={result} loading={loading} error={error} />
-      {stats !== null && stats.coverage.robots > 0 && <StatsCards stats={stats} runsLoading={result === null} />}
+      {stats !== null && stats.coverage.robots > 0 && (
+        // the previous numbers stay while the next read runs, dimmed, nothing moves (no skeleton)
+        <div className={loading && result !== null ? "opacity-60 transition-opacity" : "transition-opacity"}>
+          <StatsCards stats={stats} runsLoading={result === null} />
+        </div>
+      )}
     </div>
   )
 }
@@ -149,13 +163,48 @@ function StatsCard({ title, note, testId, busy, children }: { title: string; not
   )
 }
 
-/** A number with its name above and what it compares to below */
-function Figure({ label, value, detail, testId }: { label: string; value: string; detail?: ReactNode; testId: string }) {
+/**
+ * A stat tile: the name, the value (proportional figures, as a standalone number), how it compares to everyone else
+ * (an arrow and words in the status colour of the direction, never the colour alone), the detail and the trend over the
+ * weeks
+ */
+function Figure({
+  label,
+  value,
+  comparison,
+  detail,
+  trend,
+  testId,
+}: {
+  label: string
+  value: string
+  comparison?: ReturnType<typeof compareToEveryone>
+  detail?: ReactNode
+  trend?: ReactNode
+  testId: string
+}) {
+  const Arrow = comparison?.text.includes("more") === true ? ArrowUpIcon : ArrowDownIcon
   return (
-    <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
+    <div className="flex min-w-0 flex-col gap-1" data-testid={testId}>
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-xl font-semibold text-foreground tabular-nums">{value}</span>
+      <span className="text-2xl font-semibold text-foreground">{value}</span>
+      {comparison !== undefined && comparison !== null && (
+        <span
+          className={
+            comparison.better === null
+              ? "text-xs text-muted-foreground"
+              : comparison.better
+                ? "flex items-center gap-1 text-xs text-success"
+                : "flex items-center gap-1 text-xs text-destructive"
+          }
+          data-testid={`${testId}-comparison`}
+        >
+          {comparison.better !== null && <Arrow aria-hidden className="size-3 shrink-0" />}
+          {comparison.text}
+        </span>
+      )}
       {detail !== undefined && <span className="text-xs text-muted-foreground">{detail}</span>}
+      {trend}
     </div>
   )
 }
@@ -171,19 +220,29 @@ function DeliveryCard({ stats }: { stats: RobotStats }) {
   return (
     <StatsCard title="Into master" note={everyone === null ? undefined : `against everyone else, the median of ${everyone.people} people`} testId="landing-delivery">
       <div className="grid grid-cols-2 gap-4 @2xl:grid-cols-4">
-        <Figure label="Merged" value={String(mine.merged)} detail={extras.length > 0 ? extras.join(" · ") : undefined} testId="landing-merged" />
+        <Figure
+          label="Merged"
+          value={String(mine.merged)}
+          detail={extras.length > 0 ? extras.join(" · ") : undefined}
+          trend={<Sparkline id="merged-trend" values={mine.weeks.map(week => week.merged)} label="Merges per week" />}
+          testId="landing-merged"
+        />
         <Figure
           label="Robots per merge"
           value={formatRatio(mine.robots_per_merge)}
+          comparison={compareToEveryone(mine.robots_per_merge, everyone?.robots_per_merge ?? null)}
           detail={everyone === null ? undefined : `everyone else ${formatRatio(everyone.robots_per_merge)}`}
+          trend={<Sparkline id="robots-per-merge-trend" values={mine.weeks.map(week => (week.merged === 0 ? null : week.robots / week.merged))} label="Robots per merge by week" />}
           testId="landing-robots-per-merge"
         />
         <Figure
           label="Time to merge"
           value={mine.merge_time === null ? "–" : formatShortDuration(mine.merge_time.median)}
+          comparison={compareToEveryone(mine.merge_time?.median ?? null, everyone?.merge_time ?? null)}
           detail={[mine.merge_time !== null && `p90 ${formatShortDuration(mine.merge_time.p90)}`, everyone !== null && `everyone else ${formatShortDuration(everyone.merge_time)}`]
             .filter(Boolean)
             .join(" · ")}
+          trend={<Sparkline id="merge-time-trend" values={mine.weeks.map(week => week.merge_time)} label="Median time to merge by week" />}
           testId="landing-merge-time"
         />
         <Figure
@@ -193,7 +252,7 @@ function DeliveryCard({ stats }: { stats: RobotStats }) {
           testId="landing-first-try"
         />
       </div>
-      <WeekBars weeks={mine.weeks} label="Merges per week" />
+      <WeekChart weeks={mine.weeks} />
       {(value.commits_per_merge !== null || value.whole_stack > 0) && (
         <p className="text-xs text-muted-foreground" data-testid="landing-value">
           {[
@@ -214,42 +273,24 @@ function TimeCard({ stats }: { stats: RobotStats }) {
   const total = lost + time.merged
   return (
     <StatsCard title="Where the time went" testId="landing-time">
-      <SplitBar
-        label="Robot time"
-        parts={[
-          { label: "Merged robots", value: time.merged, text: formatTotalDuration(time.merged), fill: "bg-success" },
-          { label: "Failed robots", value: time.failed, text: formatTotalDuration(time.failed), fill: "bg-destructive" },
-          { label: "Canceled robots", value: time.canceled, text: formatTotalDuration(time.canceled), fill: "bg-muted-foreground/50" },
-          { label: "Waiting to restart", value: time.between, text: formatTotalDuration(time.between), fill: "bg-warning" },
-        ]}
-      />
       {total > 0 && (
-        <p className="text-xs text-muted-foreground" data-testid="landing-time-lost">
-          {`Failures and the waits after them took ${formatTotalDuration(lost)}, ${Math.round((lost / total) * 100)}% of the time on the way into master`}
-        </p>
+        <Figure
+          label="Lost to failures"
+          value={formatTotalDuration(lost)}
+          detail={`${Math.round((lost / total) * 100)}% of the robot time on the way into master: failed and canceled robots, and the waits before their restarts`}
+          testId="landing-time-lost"
+        />
       )}
+      <TimeChart time={time} />
     </StatsCard>
   )
 }
 
 function FailuresCard({ stats, busy }: { stats: RobotStats; busy: boolean }) {
   const { failures, coverage } = stats
-  const most = Math.max(1, ...failures.kinds.map(kind => kind.count))
   return (
     <StatsCard title="Why robots failed" note="the last 14 days" testId="landing-failures" busy={busy}>
-      {failures.failed === 0 ? (
-        <p className="text-sm text-muted-foreground">No robot failed</p>
-      ) : (
-        <ul className="flex flex-col gap-1.5" aria-label="Failures by kind">
-          {failures.kinds.map(kind => (
-            <li key={kind.kind} className="grid grid-cols-[10rem_1fr_2rem] items-center gap-2 text-xs">
-              <span className="text-muted-foreground">{formatFailureKind(kind.kind)}</span>
-              <span className="h-2 rounded-sm bg-destructive/70" style={{ width: `${(kind.count / most) * 100}%` }} />
-              <span className="text-right font-medium text-foreground tabular-nums">{kind.count}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {failures.failed === 0 ? <p className="text-sm text-muted-foreground">No robot failed</p> : <KindChart kinds={failures.kinds} />}
       <div className="grid gap-4 @2xl:grid-cols-2">
         <CheckList title="Failed the most" testId="landing-failed-checks" items={failures.checks.map(check => ({ name: check.name, value: String(check.count) }))} />
         <CheckList
@@ -293,7 +334,7 @@ function HoursCard({ stats }: { stats: RobotStats }) {
   const known = stats.start_hours.some(hour => hour.everyone !== null || hour.mine !== null)
   return (
     <StatsCard title="When robots run fastest" note={`workdays, by the hour a merged robot started (${stats.window.time_zone})`} testId="landing-hours">
-      {known ? <HourProfile hours={stats.start_hours} /> : <p className="text-sm text-muted-foreground">Too few merged robots to tell an hour</p>}
+      {known ? <HourChart hours={stats.start_hours} /> : <p className="text-sm text-muted-foreground">Too few merged robots to tell an hour</p>}
     </StatsCard>
   )
 }

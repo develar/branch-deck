@@ -37,3 +37,23 @@ const weekFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "nume
 export function formatWeek(start: number): string {
   return weekFormat.format(new Date(start * 1000))
 }
+
+/** "10:00" */
+export function formatHour(hour: number): string {
+  return `${String(hour).padStart(2, "0")}:00`
+}
+
+/**
+ * How the user's value compares to everyone else's, where lower is better: "22% more", "8% less", "the same"; `better`
+ * says the direction is good. None without both values
+ */
+export function compareToEveryone(mine: number | null, everyone: number | null): { text: string; better: boolean | null } | null {
+  if (mine === null || everyone === null || everyone === 0) {
+    return null
+  }
+  const percent = Math.round(((mine - everyone) / everyone) * 100)
+  if (percent === 0) {
+    return { text: "the same as everyone else", better: null }
+  }
+  return { text: `${Math.abs(percent)}% ${percent > 0 ? "more" : "less"} than everyone else`, better: percent < 0 }
+}

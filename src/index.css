@@ -244,6 +244,10 @@
   --font-mono--font-feature-settings: "calt" 0;
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-success-foreground: var(--success-foreground);
@@ -320,6 +324,12 @@
   --warning-foreground: oklch(1 0 0);
   /* merged, landed, integrated: violet (GitHub merged #8250DF), the blue being the primary */
   --info: oklch(0.563 0.207 295);
+  /* the series of the charts (Landing): the categorical slots of the dataviz reference palette, in their order, which
+     passes the colour-blind checks of adjacent marks (validate_palette.js, light on the card) */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
   --info-foreground: oklch(1 0 0);
   /* separatorColor #E9EAEE */
   --border: oklch(0.937 0.005 275);
@@ -449,6 +459,11 @@
     --warning: oklch(0.719 0.131 73.5);
     --warning-foreground: oklch(0.218 0.004 264.5);
     --info: oklch(0.688 0.178 298.9);
+    /* the same slots stepped for the dark card */
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-4: #c98500;
     --info-foreground: oklch(0.218 0.004 264.5);
     /* separatorColor #33353B, Component.borderColor #40434A */
     --border: oklch(0.329 0.011 271.1);

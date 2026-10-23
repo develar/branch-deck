@@ -4274,8 +4274,12 @@ export type WeekCount = {
 	/**  Unix seconds of the local Monday 00:00 */
 	start: number,
 	merged: number,
-	/**  Finished robots */
+	failed: number,
+	canceled: number,
+	/**  Finished robots: merged, failed and canceled */
 	robots: number,
+	/**  The median from start to merge of the week's merged robots, seconds; null without one */
+	merge_time: number | null,
 };
 
 /**  The whitespace option of a diff view (`IgnorePolicy`) */

@@ -84,7 +84,7 @@ fn dry_runs_emergency_robots_applications_cherry_picks_and_old_robots_do_not_cou
 }
 
 #[test]
-fn weeks_count_by_the_local_monday_a_robot_finished_in() {
+fn weeks_count_by_the_local_monday_a_robot_finished_in_with_their_median_time_to_merge() {
   let stats = stats(&input(vec![
     robot("a", ME, Success, HOUR * 3, 1),
     robot("b", ME, Failure, 8 * DAY, 1),
@@ -95,8 +95,9 @@ fn weeks_count_by_the_local_monday_a_robot_finished_in() {
   let before = stats.mine.weeks[8];
   // Monday 2026-10-19 00:00 UTC
   assert_eq!(last.start, NOW - 4 * DAY - 10 * HOUR);
-  assert_eq!((last.merged, last.robots), (1, 1));
-  assert_eq!((before.merged, before.robots), (1, 2));
+  assert_eq!((last.merged, last.failed, last.robots, last.merge_time), (1, 0, 1, Some(HOUR)));
+  assert_eq!((before.merged, before.failed, before.canceled, before.robots, before.merge_time), (1, 1, 0, 2, Some(HOUR)));
+  assert_eq!(stats.mine.weeks[0].merge_time, None);
   assert_eq!(before.start, last.start - 7 * DAY);
 }
 

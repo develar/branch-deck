@@ -5,7 +5,6 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { BranchCreator } from "@/components/branch/BranchCreator"
 import { DragTargetBar } from "@/components/branch/DragTargetBar"
 import { CommandPalette } from "@/components/command-palette/CommandPalette"
-import { LandingView } from "@/components/landing/LandingView"
 import { Container } from "@/components/layout/Container"
 import { ActivityPanel } from "@/components/repository/ActivityPanel"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
@@ -49,6 +48,9 @@ function openSettingsWindow(target: SettingsTarget): void {
     notifyError("Cannot open Settings", error),
   )
 }
+
+// the statistics and their charts (Recharts): loaded the first time Landing shows, then kept mounted
+const LandingView = lazy(() => import("@/components/landing/LandingView").then(it => ({ default: it.LandingView })))
 
 // loaded on the first open, then kept mounted (a dialog animates and returns the focus when it closes)
 const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePullRequestDialog").then(it => ({ default: it.CreatePullRequestDialog })))
@@ -144,6 +146,10 @@ export function IndexPage() {
   useActivityWindowLink()
   // Branches · Landing (⌘1, ⌘2): the native View menu, ☰ and its keys, the palette
   const { view, branches, landing, landingHeading } = useKeptViewPlace()
+  const [isLandingLoaded, setLandingLoaded] = useState(false)
+  if (view === "landing" && !isLandingLoaded) {
+    setLandingLoaded(true)
+  }
   useAppCommand("show_branches", () => showMainView("branches"))
   useAppCommand("show_landing", () => showMainView("landing"))
   // "Create Pull Request…" of a branch (the review window has its own, `WindowCreatePullRequestDialog`)
@@ -173,7 +179,11 @@ export function IndexPage() {
             <KeepMounted mode={view === "landing" ? "visible" : "hidden"}>
               <main ref={landing} className="h-full overflow-y-auto">
                 <Container className="pb-2">
-                  <LandingView visible={view === "landing"} headingRef={landingHeading} />
+                  {isLandingLoaded && (
+                    <Suspense fallback={null}>
+                      <LandingView visible={view === "landing"} headingRef={landingHeading} />
+                    </Suspense>
+                  )}
                 </Container>
               </main>
             </KeepMounted>
