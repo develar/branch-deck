@@ -48,6 +48,9 @@ const EDITS = {
   lease_pool: ["lease.rs", "pub fn pool_dir("],
 }
 const WAIT_LIMIT_MS = 10 * 60 * 1000
+/** The library of the bd commands outside `crates/bd-*` (`bd-clustering` until the split of sync-core), so that
+ * `--clean` cleans and builds the same code before and after the rename */
+const BD_LIBRARIES = ["commit-clustering"]
 
 const [command, ...rest] = process.argv.slice(2)
 const commands = { measure, summarize, compare }
@@ -182,10 +185,6 @@ function machine() {
     cargo_config: readFileSync(path.join(root, ".cargo/config.toml"), "utf8"),
   }
 }
-
-/** The library of the bd commands outside `crates/bd-*` (`bd-clustering` until the split of sync-core), so that
- * `--clean` cleans and builds the same code before and after the rename */
-const BD_LIBRARIES = ["commit-clustering"]
 
 /** The workspace packages under `crates/bd-*` and `BD_LIBRARIES` */
 function bdPackages() {
