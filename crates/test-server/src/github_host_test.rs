@@ -1,5 +1,5 @@
 use crate::remote_fixtures::fixture_pulls;
-use crate::test_support::{create_repository, post, start_test_server};
+use crate::test_support::{create_repository, delete_repository, post, start_test_server};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -214,7 +214,7 @@ async fn signed_out_and_no_access_are_what_the_real_service_makes_of_the_fake() 
 async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_repository() {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
-  let (id, _) = create_repository(&client, addr).await;
+  let (id, path) = create_repository(&client, addr).await;
   let invoke = |command: &'static str| {
     let request = client
       .post(format!("http://{addr}/invoke/{command}"))
@@ -263,8 +263,7 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
   }
   let started = std::time::Instant::now();
-  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
-  assert_eq!(deleted.status(), 204);
+  delete_repository(&client, addr, &id, &path).await;
   assert!(started.elapsed() < std::time::Duration::from_secs(5), "the deletion waited {:?}", started.elapsed());
   assert_eq!(wait.await.unwrap(), json!({"status": "error", "error": {"message": "canceled"}}));
 }

@@ -291,7 +291,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 pub const REPOSITORY_ID_HEADER: &str = "x-repository-id";
 
 /// Holds the repository named by `X-Repository-Id` while a command of the page runs (`TestRepository::in_flight`), so
-/// `delete_repository` waits for the commands still running for it instead of deleting their files under them.
+/// the deletion (`remove_repository`) waits for the commands still running for it instead of deleting their files under
+/// them.
 ///
 /// The command runs in a task of its own that holds the lock: a test that ends closes its page, the browser aborts the
 /// requests, and the server drops their handlers, but the git work of a command (`spawn_blocking`) cannot be canceled
@@ -835,12 +836,12 @@ pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::
   })))
 }
 
-/// How long a deletion waits for the commands still running for the repository; a command that takes longer is stuck
-const DELETE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long a deletion waits for the commands still running for the repository: a sync of a loaded machine takes tens of
+/// seconds after its test failed; a command that takes longer is stuck
+const DELETE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// Forgets the repository, so no new command starts for it, waits for the running ones (`hold_repository`) and for the
-/// computations of its landing needs (`RepositoryViews::forget`), releases the repository lock a test held, then deletes
-/// its directory; `NO_REPO` has none
+/// Forgets the repository, so no new command starts for it, and answers: its files go in the background
+/// (`remove_repository`), once the commands still running for it ended, which may outlast its test; `NO_REPO` has none
 pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
   let Some((_, repo)) = state.repositories.remove(&id) else {
     return Err(StatusCode::UNPROCESSABLE_ENTITY);
@@ -850,7 +851,13 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   if let Some(host) = repo.existing_remote() {
     host.end_sign_ins();
   }
+  tokio::spawn(remove_repository(state, id, repo).in_current_span());
+  Ok(StatusCode::ACCEPTED)
+}
 
+/// Waits for the commands still running for a deleted repository (`hold_repository`) and for the computations of its
+/// landing needs (`RepositoryViews::forget`), releases the repository lock its test held, then deletes its files
+async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepository) {
   let no_commands = tokio::time::timeout(DELETE_WAIT, Arc::clone(&repo.in_flight).write_owned()).await;
   if no_commands.is_err() {
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
@@ -887,7 +894,6 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   }
 
   tracing::info!("Deleted repository: {}", id);
-  Ok(StatusCode::NO_CONTENT)
 }
 
 // Store API endpoints

@@ -241,12 +241,13 @@ State isolation:
 - **Teardown**: the mock names its repository on every request (`X-Repository-Id`), and the server holds the
   repository while the command runs, in a task of its own: closing a page aborts its requests and drops their
   handlers, but their git work runs on. The `setupRepo` fixture closes the pages of the test first, and
-  `delete_repository` forgets the repository, waits for its running commands (10 s at most) and for the computation
-  of its landing needs that a view started in the background, which no command holds (`RepositoryViews::forget`),
-  releases the repository lock its test held (`holdRepositoryLock`, also when the test failed before it released it),
-  then deletes the directory. Before, a test's cleanup deleted the files under a running sync, file read or note
-  write, and the landing needs ran git in a deleted directory ("Unable to read current working directory", "not a git
-  repository") (`repository_lifecycle_test.rs`)
+  `delete_repository` forgets the repository and answers at once; in the background it waits for the running commands
+  (120 s at most: a sync of a loaded machine still runs tens of seconds after its test failed) and for the computation
+  of the landing needs that a view started, which no command holds (`RepositoryViews::forget`), releases the
+  repository lock its test held (`holdRepositoryLock`, also when the test failed before it released it), then deletes
+  the files. Before, a test's cleanup deleted them under a running sync, file read or note write, and under the
+  landing needs ("not a git repository", "bad object", "Unable to read current working directory"); and a wait of 10 s
+  in the cleanup was too short under load (`repository_lifecycle_test.rs`)
 - **Port**: `E2E_PORT` (default 3030, `tests/e2e/helpers/test-server-url.ts`) sets the port of the server, the
   Playwright `baseURL` and the helpers; the mock script calls its page's origin. `/health` answers the checkout the
   server serves, and global setup refuses a server of another checkout: Playwright reuses whatever listens on the port

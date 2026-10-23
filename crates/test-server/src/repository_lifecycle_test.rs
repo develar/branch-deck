@@ -1,4 +1,4 @@
-use crate::test_support::{capture_warnings, create_repository, post, start_test_server, start_test_server_with_state, sync};
+use crate::test_support::{capture_warnings, create_repository, delete_repository, post, start_test_server, start_test_server_with_state, sync};
 use domain_types::repository_view::{GetRepositoryViewParams, RemoteFacts, RepositoryView, RobotMatch, WaitLandingNeedsParams};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
@@ -53,8 +53,8 @@ async fn a_failed_command_answers_with_its_command_error() {
   );
 }
 
-/// The deletion at the end of a test waits for the command still running for the repository, also when the page has
-/// closed and the browser aborted the request, and refuses a request that comes after it
+/// The deletion at the end of a test removes the files once the command still running for the repository ended, also
+/// when the page has closed and the browser aborted the request, and refuses a request that comes after it
 #[tokio::test]
 async fn deleting_a_repository_waits_for_its_running_command() {
   let addr = start_test_server().await;
@@ -78,10 +78,8 @@ async fn deleting_a_repository_waits_for_its_running_command() {
   .await;
   assert!(aborted.is_err(), "the command answered before its delay");
 
-  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
-  assert_eq!(deleted.status(), 204);
+  delete_repository(&client, addr, &id, &path).await;
   assert!(started.elapsed() >= delay, "deleted after {:?}, before the command ended", started.elapsed());
-  assert!(!std::path::Path::new(&path).exists());
 
   let late = command(&client, addr, &id, "get_commit_files", &json!({ "repositoryPath": path, "commitId": "0".repeat(40) }))
     .send()
@@ -105,8 +103,8 @@ async fn ask_view(state: &std::sync::Arc<crate::state::AppState>, path: &str) ->
   tokio::task::spawn_blocking(move || views.view(&git, &ObjectCache::disabled(), &params)).await.unwrap()
 }
 
-/// The deletion at the end of a test waits for the computation of the landing needs a view started, which no command
-/// holds, and forgets the views of the repository: no git of it runs in the deleted directory
+/// The deletion at the end of a test removes the files once the computation of the landing needs a view started ended,
+/// which no command holds, and forgets the views of the repository: no git of it runs in the deleted directory
 #[tokio::test]
 async fn deleting_a_repository_waits_for_its_landing_needs_and_forgets_its_views() {
   let (addr, state) = start_test_server_with_state().await;
@@ -116,9 +114,7 @@ async fn deleting_a_repository_waits_for_its_landing_needs_and_forgets_its_views
   let view = ask_view(&state, &path).await;
   assert_eq!((view.table_generation > 0, view.landing_generation), (true, 0), "the computation started: {view:?}");
 
-  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
-  assert_eq!(deleted.status(), 204);
-  assert!(!std::path::Path::new(&path).exists());
+  delete_repository(&client, addr, &id, &path).await;
   let wait = WaitLandingNeedsParams {
     repository_path: path.clone(),
     branch_prefix: "user-name".to_string(),
@@ -139,8 +135,6 @@ async fn deleting_a_repository_releases_the_lock_its_test_held_before_the_direct
   post(&client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": true })).await;
   assert!(std::path::Path::new(&path).join(".git/branch-deck.lock.holder").exists(), "the holder record of the lock");
 
-  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
-  assert_eq!(deleted.status(), 204);
-  assert!(!std::path::Path::new(&path).exists());
+  delete_repository(&client, addr, &id, &path).await;
   assert_eq!(String::from_utf8_lossy(&logged.lock().unwrap()), "");
 }

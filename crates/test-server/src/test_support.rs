@@ -37,6 +37,18 @@ pub(crate) async fn create_repository_from(client: &reqwest::Client, addr: Socke
   (created["id"].as_str().unwrap().to_string(), created["path"].as_str().unwrap().to_string())
 }
 
+/// Deletes the repository `id` at `path` as the cleanup of a test does, which answers at once, and waits until the server
+/// removed its files in the background, once the commands still running for it ended
+pub(crate) async fn delete_repository(client: &reqwest::Client, addr: SocketAddr, id: &str, path: &str) {
+  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
+  assert_eq!(deleted.status(), 202, "delete");
+  let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+  while std::path::Path::new(path).exists() {
+    assert!(std::time::Instant::now() < deadline, "{path} is still there");
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+  }
+}
+
 /// POSTs `body` to `path`, which must answer 200: its JSON, null for none
 pub(crate) async fn post(client: &reqwest::Client, addr: SocketAddr, path: &str, body: Value) -> Value {
   let response = client.post(format!("http://{addr}{path}")).json(&body).send().await.unwrap();

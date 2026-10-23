@@ -1,4 +1,4 @@
-use crate::test_support::{create_repository, start_test_server_with_state};
+use crate::test_support::{create_repository, delete_repository, start_test_server_with_state};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -55,7 +55,6 @@ async fn a_global_write_goes_to_the_own_file_of_the_repository() {
   assert_eq!(answer["resolveByWords"]["scope"], "local", "{answer}");
   assert_eq!(answer["resolveByWords"]["fallbackScope"], "global", "{answer}");
 
-  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
-  assert!(deleted.status().is_success(), "{}", deleted.status());
+  delete_repository(&client, addr, &id, &path).await;
   assert!(!global_config.exists());
 }
