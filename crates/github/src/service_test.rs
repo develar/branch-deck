@@ -97,3 +97,48 @@ async fn no_token_is_signed_out() {
   assert_eq!(failure, GitHubFailure::SignedOut);
   assert!(fake.requests().is_empty());
 }
+
+#[tokio::test]
+async fn after_a_rate_limit_no_listing_is_asked_before_its_retry_at() {
+  let (fake, service, repo, _dir) = setup().await;
+  let retry_at = sync_utils::timestamp::unix_now() + 3600;
+  fake.answer_in_turn(
+    "GET",
+    "/repos/acme/monorepo",
+    vec![
+      FakeAnswer::status(403, json!({"message": "API rate limit exceeded"}))
+        .header("x-ratelimit-remaining", "0")
+        .header("x-ratelimit-reset", &retry_at.to_string()),
+      FakeAnswer::ok(json!({"id": 1})),
+    ],
+  );
+  let path = repo.path().to_str().unwrap();
+  let limited = GitHubFailure::Failed {
+    error: GitHubError::RateLimited { retry_at },
+    source: TokenSource::Environment,
+  };
+  assert_eq!(service.ask(path, REPOSITORY, RequestKind::Listing, get_repository).await, Err(limited.clone()));
+  // the refresh after a sync, a push or a focus answers the limit without asking GitHub
+  assert_eq!(service.ask(path, REPOSITORY, RequestKind::Listing, get_repository).await, Err(limited));
+  assert_eq!(fake.requests().len(), 1);
+  // a write the user asked for still goes
+  assert_eq!(service.ask(path, REPOSITORY, RequestKind::Single, get_repository).await, Ok(json!({"id": 1})));
+  assert_eq!(fake.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn a_rate_limit_that_ended_lets_the_listing_ask_again() {
+  let (fake, service, repo, _dir) = setup().await;
+  fake.answer_in_turn(
+    "GET",
+    "/repos/acme/monorepo",
+    vec![
+      FakeAnswer::status(403, json!({"message": "You have exceeded a secondary rate limit."})).header("retry-after", "0"),
+      FakeAnswer::ok(json!({"id": 1})),
+    ],
+  );
+  let path = repo.path().to_str().unwrap();
+  service.ask(path, REPOSITORY, RequestKind::Listing, get_repository).await.unwrap_err();
+  tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+  assert_eq!(service.ask(path, REPOSITORY, RequestKind::Listing, get_repository).await, Ok(json!({"id": 1})));
+}

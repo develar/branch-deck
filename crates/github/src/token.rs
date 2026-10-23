@@ -39,7 +39,7 @@ impl std::fmt::Debug for Token {
 }
 
 impl Token {
-  fn key(&self) -> u64 {
+  pub(crate) fn key(&self) -> u64 {
     let mut hasher = DefaultHasher::new();
     self.value.hash(&mut hasher);
     hasher.finish()

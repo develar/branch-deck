@@ -1,11 +1,13 @@
 //! Asks GitHub with the token chain: a request rejected for its token is asked again with the next token, so a stale
-//! `GH_TOKEN` or a token the organization does not allow does not hide the one that works.
+//! `GH_TOKEN` or a token the organization does not allow does not hide the one that works. A listing refused for the
+//! rate limit is not asked again with that token before GitHub's `retry_at`.
 
 use crate::client::{GitHubClient, GitHubError};
 use crate::token::{Token, TokenChain};
 use domain_types::pull_request::TokenSource;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use sync_utils::timestamp::unix_now;
 
 /// Enough for every source to be tried once
 const MAX_TOKENS: usize = 4;
@@ -35,6 +37,10 @@ pub struct GitHubService {
   /// By repository: why the last listing failed with every token. Repeated while the chain skips them all, instead of
   /// "signed out".
   denied: Mutex<HashMap<String, GitHubFailure>>,
+  /// By token (`Token::key`): until when GitHub's rate limit refused a listing with it (Unix seconds). A listing with
+  /// the token is not asked before then: a refresh after every sync, push and focus would extend the penalty. A
+  /// single request (a write the user asked for) still goes, its limits are GitHub's to tell.
+  rate_limited: Mutex<HashMap<u64, u32>>,
 }
 
 impl GitHubService {
@@ -43,6 +49,7 @@ impl GitHubService {
       client,
       tokens,
       denied: Mutex::new(HashMap::new()),
+      rate_limited: Mutex::new(HashMap::new()),
     }
   }
 
@@ -64,6 +71,14 @@ impl GitHubService {
       if tried.contains(&token) {
         break;
       }
+      if kind == RequestKind::Listing
+        && let Some(retry_at) = self.rate_limited_until(&token, unix_now())
+      {
+        return Err(GitHubFailure::Failed {
+          error: GitHubError::RateLimited { retry_at },
+          source: token.source,
+        });
+      }
       match request(self.client.clone(), token.value.clone()).await {
         Ok(value) => {
           self.tokens.accept(repository, &token);
@@ -79,7 +94,12 @@ impl GitHubService {
           tried.push(token);
           continue;
         }
-        Err(error) => return Err(GitHubFailure::Failed { error, source: token.source }),
+        Err(error) => {
+          if let (RequestKind::Listing, GitHubError::RateLimited { retry_at }) = (kind, &error) {
+            self.rate_limited.lock().unwrap().insert(token.key(), *retry_at);
+          }
+          return Err(GitHubFailure::Failed { error, source: token.source });
+        }
       }
       failure = Some(GitHubFailure::Failed {
         error: GitHubError::Unauthorized,
@@ -88,5 +108,18 @@ impl GitHubService {
       tried.push(token);
     }
     Err(failure.or_else(|| self.denied.lock().unwrap().get(repository).cloned()).unwrap_or(GitHubFailure::SignedOut))
+  }
+
+  /// Until when the rate limit holds listings with `token` back, if it still does at `now`
+  fn rate_limited_until(&self, token: &Token, now: u32) -> Option<u32> {
+    let mut limited = self.rate_limited.lock().unwrap();
+    match limited.get(&token.key()) {
+      Some(&retry_at) if retry_at > now => Some(retry_at),
+      Some(_) => {
+        limited.remove(&token.key());
+        None
+      }
+      None => None,
+    }
   }
 }

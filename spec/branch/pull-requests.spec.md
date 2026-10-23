@@ -191,6 +191,10 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`without_a_token_github_is_not_asked`)
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`classifies_failures`)
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`rejects_output_that_is_not_a_pull_request_list`)
+- After a rate limit, a listing (the pull requests, Your Turn) must not ask GitHub with that token before the reset: the
+  refresh after every sync, push and focus answers "rate limited" at once instead of extending the penalty. A write
+  the user asked for (Create, Retarget, Request Review) still goes.
+  [@test] ../../crates/github/src/service_test.rs (`after_a_rate_limit_no_listing_is_asked_before_its_retry_at`, `a_rate_limit_that_ended_lets_the_listing_ask_again`)
 
 ### Matching pull requests to branches
 
