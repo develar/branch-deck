@@ -51,7 +51,7 @@ impl CliToolsState {
   /// dot
   async fn read(&self, github: &GitHubState, youtrack: &YouTrackState) -> Result<Vec<CliToolStatus>, CommandError> {
     let releases = refresh_releases(&github.service, self.releases_file.as_deref(), unix_now()).await;
-    let signed_in = youtrack.service.status().await;
+    let signed_in = youtrack.service.status();
     let signed_in_youtrack = signed_in.url.filter(|_| signed_in.signed_in_as.is_some() && signed_in.problem.is_none());
     let statuses = run_blocking(move || {
       Ok::<_, CommandError>(read_statuses(&ToolEnvironment::from_process(), &|tool| KnownFacts {
@@ -124,7 +124,7 @@ pub async fn get_setup_items(
       let update = update_state.lock().map_err(|e| CommandError::new(format!("the update state is poisoned: {e}")))?;
       (update.info.is_update_available && update.info.status == UpdateStatus::Downloaded).then(|| update.info.available_version.clone())
     };
-    let youtrack_broken = youtrack.service.status().await.problem.is_some();
+    let youtrack_broken = youtrack.service.status().problem.is_some();
     Ok(setup_entries(&SetupFacts {
       app_update: app_update.as_deref(),
       tools: &statuses,

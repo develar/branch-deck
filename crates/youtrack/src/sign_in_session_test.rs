@@ -53,7 +53,7 @@ async fn the_browser_sign_in_keeps_the_tokens_of_the_hub_and_marks_an_issue_fixe
     stored.refresh.map(|grant| (grant.hub_url, grant.service_id)),
     Some((format!("{url}/hub"), "fake-youtrack-service".to_string()))
   );
-  let status = service.status().await;
+  let status = service.status();
   assert_eq!((status.signed_in_as, status.source), (Some(jane()), Some(YouTrackTokenSource::SignIn)));
 
   let change = service.set_state("ABC-1", "Fixed", None).await;
@@ -101,12 +101,12 @@ async fn a_canceled_sign_in_ends_its_wait_and_a_pasted_token_is_kept_once_youtra
   assert!(read_token(&token_file(dir.path())).is_none());
   fake.accept_token("perm-right");
   assert_eq!(session.save_token(&service, &format!("{url}/issue/ABC-1"), " perm-right ").await, Ok(jane()));
-  let status = service.status().await;
+  let status = service.status();
   assert_eq!((status.url, status.source), (Some(url.clone()), Some(YouTrackTokenSource::PastedToken)));
 
   session.sign_out(&service).await.unwrap();
   assert!(read_token(&token_file(dir.path())).is_none());
-  assert_eq!(service.status().await.signed_in_as, None);
+  assert_eq!(service.status().signed_in_as, None);
 }
 
 #[tokio::test]
@@ -131,7 +131,7 @@ async fn a_sign_in_whose_refresh_token_the_hub_does_not_know_is_expired() {
   assert!(matches!(service.issue("ABC-1").await, YouTrackIssueAnswer::Found { .. }));
 
   write_secret_json(&token_file(dir.path()), &stored("refresh-revoked".to_string())).unwrap();
-  service.forget().await;
+  service.forget();
   assert_eq!(
     service.issue("ABC-1").await,
     YouTrackIssueAnswer::SignInProblem {

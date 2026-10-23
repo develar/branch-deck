@@ -41,18 +41,24 @@ async fn service_with(token: impl FnOnce(&str) -> StoredToken) -> (Arc<FakeGitHu
   (fake, YouTrackService::new(YouTrackClient::new("Branch Deck test"), None, Some(file)), dir)
 }
 
-fn is_found(answer: &YouTrackIssueAnswer) -> bool {
-  matches!(answer, YouTrackIssueAnswer::Found { .. })
-}
-
-#[tokio::test]
-async fn an_expiring_access_token_is_renewed_once_for_parallel_lookups_and_kept() {
+/// A service whose access token expires within the minute, and a Hub that renews it to `access-new`
+async fn expiring_with_renewal() -> (Arc<FakeGitHub>, YouTrackService, tempfile::TempDir) {
   let (fake, service, dir) = service_with(|url| stored(url, Some(unix_now() + 10), true)).await;
   fake.answer(
     "POST",
     "/hub/api/rest/oauth2/token",
     FakeAnswer::ok(json!({"access_token": "access-new", "expires_in": 3600, "refresh_token": "refresh-2"})),
   );
+  (fake, service, dir)
+}
+
+fn is_found(answer: &YouTrackIssueAnswer) -> bool {
+  matches!(answer, YouTrackIssueAnswer::Found { .. })
+}
+
+#[tokio::test]
+async fn an_expiring_access_token_is_renewed_once_for_parallel_lookups_and_kept() {
+  let (fake, service, dir) = expiring_with_renewal().await;
   let (first, second) = tokio::join!(service.issue("ABC-1"), service.issue("ABC-2"));
   assert!(is_found(&first) && is_found(&second), "{first:?} {second:?}");
   assert_eq!(fake.requests_to("POST", "/hub/api/rest/oauth2/token").len(), 1);
@@ -107,14 +113,14 @@ async fn a_refused_refresh_token_is_an_expired_sign_in() {
       problem: YouTrackAuthProblem::Expired
     }
   );
-  let status = service.status().await;
+  let status = service.status();
   assert_eq!((status.source, status.problem), (Some(YouTrackTokenSource::SignIn), Some(YouTrackAuthProblem::Expired)));
   // the refresh token of a Hub built into the YouTrack is listed in the YouTrack's Account Security
   assert_eq!(status.manage_url, Some(format!("{}/users/me?tab=account-security", status.url.unwrap())));
   assert_eq!(status.signed_in_at, Some(1_800_000_000));
   // signing in again forgets it
-  service.forget().await;
-  assert_eq!(service.status().await.problem, None);
+  service.forget();
+  assert_eq!(service.status().problem, None);
 }
 
 #[tokio::test]
@@ -130,7 +136,7 @@ async fn a_rejected_pasted_token_is_not_sent_again() {
     );
   }
   assert_eq!(fake.requests().len(), 1);
-  assert_eq!(service.status().await.source, Some(YouTrackTokenSource::PastedToken));
+  assert_eq!(service.status().source, Some(YouTrackTokenSource::PastedToken));
 }
 
 #[tokio::test]
@@ -151,7 +157,7 @@ async fn the_environment_comes_before_the_token_file() {
   let service = YouTrackService::new(YouTrackClient::new("Branch Deck test"), environment, Some(file));
   assert!(is_found(&service.issue("ABC-1").await));
   assert_eq!(fake.requests()[0].authorization.as_deref(), Some("Bearer perm-env"));
-  let status = service.status().await;
+  let status = service.status();
   assert_eq!((status.source, status.url), (Some(YouTrackTokenSource::Environment), Some(url)));
 }
 
@@ -190,5 +196,51 @@ async fn the_tokens_of_a_sign_in_through_an_external_hub_are_managed_in_the_hub(
     token
   })
   .await;
-  assert_eq!(service.status().await.manage_url.as_deref(), Some("https://hub.example.com/users/me"));
+  assert_eq!(service.status().manage_url.as_deref(), Some("https://hub.example.com/users/me"));
+}
+
+/// A slow Hub holds the renewal of an expiring token: the status (Settings, the popovers) answers at once, the two
+/// lookups that need the renewal share one request to the Hub, and both send the renewed token
+#[tokio::test(flavor = "multi_thread")]
+async fn a_renewal_held_at_the_hub_leaves_the_status_free_and_is_shared_by_the_lookups() {
+  let (fake, service, _dir) = expiring_with_renewal().await;
+  let gate = fake.hold("POST", "/hub/api/rest/oauth2/token");
+  let service = Arc::new(service);
+  let lookups = tokio::spawn({
+    let service = Arc::clone(&service);
+    async move { tokio::join!(service.issue("ABC-1"), service.issue("ABC-2")) }
+  });
+  gate.arrived().await;
+  let status = service.status();
+  assert_eq!(status.signed_in_as.map(|user| user.login).as_deref(), Some("jane"), "while the Hub holds the renewal");
+  gate.open();
+  let (first, second) = lookups.await.unwrap();
+  assert!(is_found(&first) && is_found(&second), "{first:?} {second:?}");
+  assert_eq!(fake.requests_to("POST", "/hub/api/rest/oauth2/token").len(), 1);
+  for key in ["ABC-1", "ABC-2"] {
+    assert_eq!(
+      fake.requests_to("GET", &format!("/api/issues/{key}"))[0].authorization.as_deref(),
+      Some("Bearer access-new")
+    );
+  }
+}
+
+/// A sign-out while the Hub holds a renewal: the sign-out does not wait, and the late answer of the Hub is of a sign-in
+/// that is gone, so the renewed token is neither kept nor written back
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sign_out_during_a_renewal_keeps_nothing_of_the_answer() {
+  let (fake, service, dir) = expiring_with_renewal().await;
+  let gate = fake.hold("POST", "/hub/api/rest/oauth2/token");
+  let service = Arc::new(service);
+  let lookup = tokio::spawn({
+    let service = Arc::clone(&service);
+    async move { service.issue("ABC-1").await }
+  });
+  gate.arrived().await;
+  crate::sign_in_session::YouTrackSignInSession::default().sign_out(&service).await.unwrap();
+  gate.open();
+  assert!(matches!(lookup.await.unwrap(), YouTrackIssueAnswer::NotSignedIn));
+  assert_eq!(read_token(&token_file(dir.path())), None);
+  assert_eq!(service.status().signed_in_as, None);
+  assert!(fake.requests_to("GET", "/api/issues/ABC-1").is_empty());
 }

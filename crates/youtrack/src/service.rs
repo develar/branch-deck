@@ -9,10 +9,10 @@ use crate::url::{is_issue_key, normalize_base_url};
 use domain_types::youtrack::{YouTrackAuthProblem, YouTrackAuthStatus, YouTrackIssue, YouTrackIssueAnswer, YouTrackStateChange, YouTrackTokenSource, YouTrackUser};
 use moka::sync::Cache;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use sync_utils::secret_store::write_secret_json;
 use sync_utils::timestamp::unix_now;
-use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 /// An access token is renewed this long before it expires
@@ -63,6 +63,16 @@ struct Auth {
   loaded: bool,
   stored: Option<StoredToken>,
   problem: Option<YouTrackAuthProblem>,
+  /// One more with every `forget`: a renewal started before a sign-in or a sign-out keeps nothing of its answer
+  generation: u64,
+}
+
+/// What `access` does with the token it read
+enum Access {
+  /// Send it: the YouTrack and the token
+  Send(String, String),
+  /// Renew it first, the stored token as read in `generation`
+  Renew(StoredToken, u64),
 }
 
 /// Why no token can be sent
@@ -77,8 +87,11 @@ pub struct YouTrackService {
   pub client: YouTrackClient,
   environment: Option<EnvironmentToken>,
   token_file: Option<PathBuf>,
-  /// Held across a renewal, so that parallel lookups renew once
+  /// Held only to read or change the state, never across a request: `status` and a sign-out never wait for YouTrack
   auth: Mutex<Auth>,
+  /// The single flight of a renewal: held across the request to the Hub by the one lookup that renews; a lookup that
+  /// waited for it sends the token it brought
+  renewal: tokio::sync::Mutex<()>,
   issues: Cache<String, YouTrackIssue>,
   /// A token that expires is renewed (the app); `false` for `bd`, which only reads
   renews: bool,
@@ -91,6 +104,7 @@ impl YouTrackService {
       environment,
       token_file,
       auth: Mutex::new(Auth::default()),
+      renewal: tokio::sync::Mutex::new(()),
       issues: Cache::builder().max_capacity(ISSUE_CACHE_CAPACITY).time_to_live(ISSUE_TTL).build(),
       renews: true,
     }
@@ -110,14 +124,25 @@ impl YouTrackService {
     self.token_file.as_ref()
   }
 
-  /// After a sign-in or a sign-out: the token file is read again, a rejection is forgotten
-  pub async fn forget(&self) {
-    *self.auth.lock().await = Auth::default();
+  fn auth(&self) -> MutexGuard<'_, Auth> {
+    self.auth.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  /// After a sign-in or a sign-out: the token file is read again, a rejection is forgotten, and a renewal in flight
+  /// keeps nothing of its answer
+  pub fn forget(&self) {
+    let mut auth = self.auth();
+    *auth = Auth {
+      generation: auth.generation + 1,
+      ..Auth::default()
+    };
+    drop(auth);
     self.issues.invalidate_all();
   }
 
-  pub async fn status(&self) -> YouTrackAuthStatus {
-    let mut auth = self.auth.lock().await;
+  /// Never waits for YouTrack or the Hub: a renewal in flight holds no lock this reads
+  pub fn status(&self) -> YouTrackAuthStatus {
+    let mut auth = self.auth();
     let problem = auth.problem;
     let credential = self.credential(&mut auth);
     YouTrackAuthStatus {
@@ -160,68 +185,103 @@ impl YouTrackService {
     })
   }
 
-  /// The YouTrack and a token for it, renewed when it expires within a minute (or `force_renewal`, after a 401)
-  async fn access(&self, force_renewal: bool) -> Result<(String, String), Denied> {
-    let mut auth = self.auth.lock().await;
+  /// The YouTrack and a token for it, renewed when it expires within a minute or when YouTrack rejected it (`rejected`,
+  /// the token sent: a token another lookup renewed meanwhile is sent as it is). One renewal at a time, and the state
+  /// is locked only to be read and changed, never across the request to the Hub
+  async fn access(&self, rejected: Option<&str>) -> Result<(String, String), Denied> {
+    loop {
+      let (stored, generation) = match self.read_access(rejected)? {
+        Access::Send(url, token) => return Ok((url, token)),
+        Access::Renew(stored, generation) => (stored, generation),
+      };
+      if !self.renews {
+        return Err(Denied::Failed("The YouTrack token needs a renewal: the app renews it".to_string()));
+      }
+      let renewal = self.renewal.lock().await;
+      // a lookup that waited for another's renewal, or a sign-in or a sign-out meanwhile: read again
+      if !self.is_current(&stored, generation) {
+        drop(renewal);
+        continue;
+      }
+      let Some(grant) = stored.refresh.clone() else {
+        return Ok((stored.url, stored.access_token));
+      };
+      let answer = refresh(&self.client, &grant.hub_url, &grant.service_id, &grant.refresh_token).await;
+      let mut auth = self.auth();
+      if auth.generation != generation {
+        // signed in or out while the Hub answered: the answer is of a sign-in that is gone
+        drop(auth);
+        drop(renewal);
+        continue;
+      }
+      return match answer {
+        Ok(answer) => {
+          let mut renewed = stored;
+          renewed.access_token = answer.access_token;
+          renewed.access_expires_at = answer.expires_in.map(expires_at);
+          // Hub may hand out a new refresh token; the old one is then no longer valid
+          if let (Some(refresh_token), Some(grant)) = (answer.refresh_token, renewed.refresh.as_mut()) {
+            grant.refresh_token = refresh_token;
+          }
+          // under the state lock, so a sign-out (`forget`, then the removal of the file) never finds it written after
+          if let Some(file) = &self.token_file
+            && let Err(e) = write_secret_json(file, &renewed)
+          {
+            warn!(error = %e, "cannot keep the renewed YouTrack token");
+          }
+          info!("renewed the YouTrack token");
+          let access = (renewed.url.clone(), renewed.access_token.clone());
+          auth.stored = Some(renewed);
+          Ok(access)
+        }
+        Err(RefreshError::Expired(message)) => {
+          warn!(%message, "the YouTrack sign-in expired");
+          auth.problem = Some(YouTrackAuthProblem::Expired);
+          Err(Denied::Problem(YouTrackAuthProblem::Expired))
+        }
+        Err(RefreshError::Failed(error)) => Err(Denied::Failed(error.message())),
+      };
+    }
+  }
+
+  /// The token to send, or the stored token to renew first, from the state as it is now
+  fn read_access(&self, rejected: Option<&str>) -> Result<Access, Denied> {
+    let mut auth = self.auth();
     if let Some(problem) = auth.problem {
       return Err(Denied::Problem(problem));
     }
     let credential = self.credential(&mut auth).ok_or(Denied::NotSignedIn)?;
+    let is_rejected = rejected == Some(credential.access_token.as_str());
     let Some(stored) = credential.stored.filter(|stored| stored.refresh.is_some()) else {
-      if force_renewal {
+      if is_rejected {
         auth.problem = Some(YouTrackAuthProblem::Rejected);
         return Err(Denied::Problem(YouTrackAuthProblem::Rejected));
       }
-      return Ok((credential.url, credential.access_token));
+      return Ok(Access::Send(credential.url, credential.access_token));
     };
     let expires_soon = stored.access_expires_at.is_some_and(|at| at <= unix_now() + RENEW_BEFORE);
-    if !force_renewal && !expires_soon {
-      return Ok((credential.url, credential.access_token));
+    if !is_rejected && !expires_soon {
+      return Ok(Access::Send(credential.url, credential.access_token));
     }
-    if !self.renews {
-      return Err(Denied::Failed("The YouTrack token needs a renewal: the app renews it".to_string()));
-    }
-    let Some(grant) = stored.refresh.clone() else {
-      return Ok((credential.url, credential.access_token));
-    };
-    match refresh(&self.client, &grant.hub_url, &grant.service_id, &grant.refresh_token).await {
-      Ok(answer) => {
-        let mut renewed = stored;
-        renewed.access_token = answer.access_token;
-        renewed.access_expires_at = answer.expires_in.map(expires_at);
-        // Hub may hand out a new refresh token; the old one is then no longer valid
-        if let (Some(refresh_token), Some(grant)) = (answer.refresh_token, renewed.refresh.as_mut()) {
-          grant.refresh_token = refresh_token;
-        }
-        if let Some(file) = &self.token_file
-          && let Err(e) = write_secret_json(file, &renewed)
-        {
-          warn!(error = %e, "cannot keep the renewed YouTrack token");
-        }
-        info!("renewed the YouTrack token");
-        let access = (renewed.url.clone(), renewed.access_token.clone());
-        auth.stored = Some(renewed);
-        Ok(access)
-      }
-      Err(RefreshError::Expired(message)) => {
-        warn!(%message, "the YouTrack sign-in expired");
-        auth.problem = Some(YouTrackAuthProblem::Expired);
-        Err(Denied::Problem(YouTrackAuthProblem::Expired))
-      }
-      Err(RefreshError::Failed(error)) => Err(Denied::Failed(error.message())),
-    }
+    Ok(Access::Renew(stored, auth.generation))
+  }
+
+  /// Whether `stored`, read in `generation`, is still the stored token
+  fn is_current(&self, stored: &StoredToken, generation: u64) -> bool {
+    let auth = self.auth();
+    auth.generation == generation && auth.stored.as_ref().is_some_and(|current| current.access_token == stored.access_token)
   }
 
   /// A request with the token; after a 401 the token is renewed once and the request asked again, and a token that
   /// can't be renewed is not sent any more
   async fn with_token<T, F: Future<Output = Result<T, YouTrackError>>>(&self, request: impl Fn(String, String) -> F) -> Result<T, AskError> {
-    let (url, token) = self.access(false).await.map_err(AskError::Denied)?;
-    match request(url, token).await {
+    let (url, token) = self.access(None).await.map_err(AskError::Denied)?;
+    match request(url, token.clone()).await {
       Err(YouTrackError::Unauthorized) => {
-        let (url, token) = self.access(true).await.map_err(AskError::Denied)?;
+        let (url, token) = self.access(Some(&token)).await.map_err(AskError::Denied)?;
         match request(url, token).await {
           Err(YouTrackError::Unauthorized) => {
-            self.auth.lock().await.problem = Some(YouTrackAuthProblem::Rejected);
+            self.auth().problem = Some(YouTrackAuthProblem::Rejected);
             Err(AskError::Denied(Denied::Problem(YouTrackAuthProblem::Rejected)))
           }
           result => result.map_err(AskError::YouTrack),

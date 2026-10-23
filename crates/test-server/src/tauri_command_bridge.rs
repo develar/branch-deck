@@ -876,7 +876,7 @@ pub async fn search_github_users(State(state): State<Arc<AppState>>, Json(params
 /// The YouTrack sign-in of the requesting page's repository, as the app reads it
 pub async fn get_youtrack_auth_status(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<YouTrackAuthStatus> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  Ok(Json(host.youtrack_service().status().await))
+  Ok(Json(host.youtrack_service().status()))
 }
 
 #[derive(Deserialize)]

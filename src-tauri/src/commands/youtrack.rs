@@ -43,7 +43,7 @@ impl YouTrackState {
 #[instrument(skip(youtrack))]
 #[specta::specta]
 pub async fn get_youtrack_auth_status(youtrack: State<'_, YouTrackState>) -> Result<YouTrackAuthStatus, CommandError> {
-  operation(async move { Ok(youtrack.service.status().await) }).await
+  operation(async move { Ok(youtrack.service.status()) }).await
 }
 
 /// Starts the browser sign-in to the YouTrack at `url`: the Hub page to open. `wait_youtrack_sign_in` waits for the

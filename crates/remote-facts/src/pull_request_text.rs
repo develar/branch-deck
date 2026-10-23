@@ -103,7 +103,7 @@ fn is_autosquash(subject: &str) -> bool {
 pub async fn issue_texts(keys: &[String], links: Option<&IssueNavigationConfig>, youtrack: Option<&YouTrackService>) -> Vec<IssueText> {
   let deadline = tokio::time::Instant::now() + ISSUE_LOOKUP_TIMEOUT;
   let youtrack_url = match youtrack {
-    Some(service) => service.status().await.url,
+    Some(service) => service.status().url,
     None => None,
   };
   let mut issues = Vec::with_capacity(keys.len());

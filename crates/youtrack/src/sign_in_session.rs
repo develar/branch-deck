@@ -195,13 +195,15 @@ impl YouTrackSignInSession {
   #[instrument(skip(self, service))]
   pub async fn sign_out(&self, service: &YouTrackService) -> Result<(), String> {
     self.cancel();
+    // first: a renewal in flight writes no token after the removal
+    service.forget();
     if let Some(file) = service.token_file().cloned() {
       tokio::task::spawn_blocking(in_current_span(move || remove_secret(&file)))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("Cannot remove the YouTrack token: {e}"))?;
     }
-    service.forget().await;
+    service.forget();
     Ok(())
   }
 }
@@ -209,10 +211,12 @@ impl YouTrackSignInSession {
 /// Writes `token` to the token file of `service`, which reads it again
 async fn keep(service: &YouTrackService, token: StoredToken) -> Result<(), String> {
   let file = service.token_file().cloned().ok_or("The app has no data directory to keep the YouTrack token in")?;
+  // first: a renewal in flight of the token before does not overwrite this one
+  service.forget();
   tokio::task::spawn_blocking(in_current_span(move || write_secret_json(&file, &token)))
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| format!("Cannot keep the YouTrack token: {e}"))?;
-  service.forget().await;
+  service.forget();
   Ok(())
 }

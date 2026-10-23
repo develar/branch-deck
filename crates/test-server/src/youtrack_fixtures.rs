@@ -85,7 +85,7 @@ pub async fn set_youtrack(Path(id): Path<String>, State(state): State<Arc<AppSta
       YouTrackSignedIn::Expired => Some(stored("access-expired".to_string(), Some(unix_now() - 60), Some("refresh-revoked".to_string()))),
       YouTrackSignedIn::SignedOut => None,
     };
-    let written = host.set_youtrack_token(token).await;
+    let written = host.set_youtrack_token(token);
     written.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot write the YouTrack token file: {e}")))?;
   }
   Ok(StatusCode::OK)

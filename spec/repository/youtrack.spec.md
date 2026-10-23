@@ -135,6 +135,11 @@ client takes a pasted token.
   `scope`), once for the lookups that need it at the same time; a new refresh token the Hub hands out replaces the old
   one in the file. A 401 renews once and asks again.
   [@test] ../../crates/youtrack/src/service_test.rs (`an_expiring_access_token_is_renewed_once_for_parallel_lookups_and_kept`)
+- A renewal must hold nothing but itself across the request to the Hub: the status (Settings, the popovers), a sign-in,
+  a sign-out and an issue the cache has answer while a slow Hub holds it; the lookups that need it wait for the one
+  renewal and send its token. A sign-in or a sign-out meanwhile makes the late answer of the Hub one of a sign-in that is
+  gone: it is neither kept nor written to the token file.
+  [@test] ../../crates/youtrack/src/service_test.rs (`a_renewal_held_at_the_hub_leaves_the_status_free_and_is_shared_by_the_lookups`, `a_sign_out_during_a_renewal_keeps_nothing_of_the_answer`)
 - `bd` (the issue summaries of the pull request texts it writes) only reads the token: it sends a token that doesn't
   expire within a minute and never renews it (`YouTrackService::without_renewal`). A renewal rotates the refresh token,
   and the app, which keeps the old one in memory, would be signed out by its next renewal; an expiring token gives `bd`

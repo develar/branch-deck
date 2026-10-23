@@ -301,13 +301,13 @@ impl RemoteHost {
   }
 
   /// The token file holds `token` from now on, or none; the service reads it again
-  pub async fn set_youtrack_token(&self, token: Option<YouTrackToken>) -> std::io::Result<()> {
+  pub fn set_youtrack_token(&self, token: Option<YouTrackToken>) -> std::io::Result<()> {
     let file = youtrack::token_store::token_file(&self.app_data);
     match token {
       Some(token) => sync_utils::secret_store::write_secret_json(&file, &token)?,
       None => sync_utils::secret_store::remove_secret(&file)?,
     }
-    self.youtrack_service.forget().await;
+    self.youtrack_service.forget();
     Ok(())
   }
 

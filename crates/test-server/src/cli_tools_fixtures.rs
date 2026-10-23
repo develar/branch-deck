@@ -162,7 +162,7 @@ pub async fn cli_tools_status(State(state): State<Arc<AppState>>, headers: axum:
   // the YouTrack the app is signed in to, of the fake YouTrack a test started
   let signed_in = match remote {
     Some(remote) => {
-      let status = remote.youtrack_service().status().await;
+      let status = remote.youtrack_service().status();
       status.url.filter(|_| status.signed_in_as.is_some() && status.problem.is_none())
     }
     None => None,
@@ -277,7 +277,7 @@ pub async fn get_setup_items(State(state): State<Arc<AppState>>, headers: axum::
     None => host.read().await?,
   };
   let youtrack_broken = match remote {
-    Some(remote) => remote.youtrack_service().status().await.problem.is_some(),
+    Some(remote) => remote.youtrack_service().status().problem.is_some(),
     None => false,
   };
   let entries = setup_entries(&SetupFacts {
