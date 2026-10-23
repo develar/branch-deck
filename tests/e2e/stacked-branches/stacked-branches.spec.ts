@@ -589,7 +589,9 @@ test.describe("Stacked branches", () => {
     await expect(dialog.getByTestId("create-pull-request-includes")).toHaveText("Includes the commits of auth and login, which oauth is built on: 3 branches · 3 commits")
     // its text leaves the commits of the branches it is built on out of its own, and names them
     expect(texts).toEqual([expect.objectContaining({ head: "user-name/virtual/oauth", base: "master", stackAncestors: ["user-name/virtual/auth", "user-name/virtual/login"] })])
-    // GitHub's form, as "Continue on GitHub" opens it, takes the same base
+    // GitHub's form, as "Continue on GitHub" opens it, takes the same base; the text of the commits fills the form
+    // first (under load it comes after the dialog)
+    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add OAuth provider")
     await dialog.getByTestId("create-pull-request-on-github").click()
     const body = "Built+on+auth%2C+then+login%3A+their+commits+are+in+this+pull+request+too.%0A%0A**auth**%0A-+Add+auth+module%0A%0A**login**%0A-+Add+login+form"
     await expect.poll(() => getOpenedUrls(page)).toEqual([`${GITHUB_COMPARE}/master...user-name/virtual/oauth?expand=1&title=Add+OAuth+provider&body=${body}&assignees=user-name`])
