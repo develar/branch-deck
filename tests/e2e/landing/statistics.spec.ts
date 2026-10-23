@@ -89,7 +89,7 @@ test.describe("Landing view", () => {
     await expect(view.getByRole("combobox", { name: "Period" })).toContainText("Last 30 days")
     await expect(view.getByTestId("landing-window")).toHaveText("Into master · UTC")
     // 2 merged of 4 finished robots; the dry run apart; everyone else as the median of the five people
-    await expect(view.getByTestId("landing-merged")).toContainText("Merged22 failed · + 1 dry runs")
+    await expect(view.getByTestId("landing-merged")).toContainText("Merged22 failed+1 dry run")
     await expect(view.getByTestId("landing-robots-per-merge")).toContainText("Robots per merge2.0100% more than everyone elseeveryone else 1.0")
     // the median of 40 minutes and 2 hours, a third longer than everyone else's hour: worse, in the destructive colour
     await expect(view.getByTestId("landing-merge-time")).toContainText("Time to merge1h 20m33% more than everyone elsep90 2h · everyone else 1h")
@@ -252,6 +252,9 @@ test.describe("Landing view", () => {
     await setupHistory(page, setupRepo, syncAndWaitForBranches, [...HISTORY, ...slow])
     await page.getByTestId("main-view-landing").click()
     await expect(landingView(page).getByTestId("landing-fastest-hours")).toHaveText("Robots that start 09:00–10:00 merge fastest: 1h, against 3h at 14:00")
+    // the chart illustrates the sentence: the key names the run, and the two medians stand on their bars
+    await expect(landingView(page).getByTestId("hour-legend").getByRole("listitem")).toHaveText(["Everyone else, median", "Fastest hours 09:00–10:00", "You"])
+    await expect(landingView(page).getByTestId("hour-chart").locator("svg text.tabular-nums")).toHaveText(["1h", "3h"])
   })
 
   test("should say there was no Safe Push in the period", async ({ page, setupRepo, syncAndWaitForBranches }) => {

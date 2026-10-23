@@ -60,6 +60,11 @@ export function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
 }
 
+/** Whether the chart of the time to merge by week has anything to show: two weeks with a value */
+export function hasMergeTimes(weeks: readonly { readonly merge_time: number | null; readonly everyone_merge_time: number | null }[]): boolean {
+  return weeks.filter(week => week.merge_time !== null || week.everyone_merge_time !== null).length >= 2
+}
+
 /** The label of a week in a chart: "Oct 19", "This week" for the current one */
 export function formatChartWeek(week: { readonly start: number; readonly current: boolean }): string {
   return week.current ? "This week" : formatWeek(week.start)
@@ -67,7 +72,21 @@ export function formatChartWeek(week: { readonly start: number; readonly current
 
 /** The ticks of an axis of minutes up to `max`: whole quarters, halves or hours, at most about five */
 export function minuteTicks(max: number): number[] {
-  const step = [15, 30, 60, 120, 240].find(candidate => max / candidate <= 5) ?? 480
+  return ticksBy(max, [15, 30, 60, 120, 240].find(candidate => max / candidate <= 5) ?? 480)
+}
+
+/** The ticks of an axis of counts up to `max`: steps of 1, 2 or 5 times a power of ten, at most about five */
+export function countTicks(max: number): number[] {
+  if (max <= 0) {
+    return [0]
+  }
+  const magnitude = 10 ** (Math.floor(Math.log10(max)) - 1)
+  const step = [1, 2, 5, 10, 20, 50, 100].map(factor => factor * magnitude).find(candidate => max / candidate <= 4) ?? magnitude * 100
+  return ticksBy(max, Math.max(1, step))
+}
+
+/** 0, `step`, 2 × `step`… up to the first tick at or over `max` */
+function ticksBy(max: number, step: number): number[] {
   const ticks = [0]
   while (ticks[ticks.length - 1]! < max) {
     ticks.push(ticks[ticks.length - 1]! + step)

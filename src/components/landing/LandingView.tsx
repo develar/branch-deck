@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { HourChart } from "@/components/landing/charts/HourChart"
 import { KindChart } from "@/components/landing/charts/KindChart"
 import { MergeTimeChart } from "@/components/landing/charts/MergeTimeChart"
+import { RankedList } from "@/components/landing/charts/RankedList"
 import { Sparkline } from "@/components/landing/charts/Sparkline"
 import { TimeChart } from "@/components/landing/charts/TimeChart"
 import { WeekChart } from "@/components/landing/charts/WeekChart"
@@ -18,10 +19,10 @@ import { useRobotStats } from "@/hooks/useRobotStats"
 import type { RobotStats, StatsPeriod } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { formatTotalDuration } from "@/lib/duration"
-import { formatSafePushLoginCommand, openRobotUrl } from "@/lib/patronus"
+import { formatSafePushLoginCommand } from "@/lib/patronus"
 import { isWindows } from "@/lib/platform"
 import { formatShortDuration } from "@/lib/robot-eta"
-import { STATS_PERIODS, compareToEveryone, formatHour, formatRatio, formatShare, formatShareCount, formatStatsPeriod } from "@/lib/robot-stats"
+import { STATS_PERIODS, compareToEveryone, formatHour, formatRatio, formatShare, formatShareCount, formatStatsPeriod, hasMergeTimes } from "@/lib/robot-stats"
 import { useSelectedProjectPath } from "@/stores/repository"
 import type { RobotStatsProgress } from "@/stores/robot-stats"
 
@@ -168,11 +169,24 @@ function StateCard({ children, action }: { children: ReactNode; action?: ReactNo
   )
 }
 
+/**
+ * The islands, each one question: Into master (what landed, what it cost, where the time went) on the full width, then
+ * the two charts by week side by side, then why robots failed beside when they run fastest. Each island is as tall as
+ * its content, so the page holds the default period without a scroll at a usual window
+ */
 function StatsCards({ stats, runsLoading }: { stats: RobotStats; runsLoading: boolean }) {
+  const mergeTimes = hasMergeTimes(stats.mine.weeks)
   return (
     <div className="grid gap-2 @4xl:grid-cols-2">
       <DeliveryCard stats={stats} />
-      <TimeCard stats={stats} />
+      <StatsCard title="Robots per week" testId="landing-weeks" className={mergeTimes ? undefined : "@4xl:col-span-2"}>
+        <WeekChart weeks={stats.mine.weeks} />
+      </StatsCard>
+      {mergeTimes && (
+        <StatsCard title="Time to merge by week" note="you against everyone else's merges of the same week" testId="landing-merge-times">
+          <MergeTimeChart weeks={stats.mine.weeks} />
+        </StatsCard>
+      )}
       <FailuresCard stats={stats} busy={runsLoading} />
       <HoursCard stats={stats} />
     </div>
@@ -180,11 +194,11 @@ function StatsCards({ stats, runsLoading }: { stats: RobotStats; runsLoading: bo
 }
 
 /** An island with its 40px header row */
-function StatsCard({ title, note, testId, busy, children }: { title: string; note?: string; testId: string; busy?: boolean; children: ReactNode }) {
+function StatsCard({ title, note, testId, busy, className, children }: { title: string; note?: string; testId: string; busy?: boolean; className?: string; children: ReactNode }) {
   return (
-    <Card className="gap-0 py-0" data-testid={testId} aria-busy={busy}>
+    <Card className={className === undefined ? "gap-0 py-0" : `gap-0 py-0 ${className}`} data-testid={testId} aria-busy={busy}>
       <div className="flex items-center gap-2 px-4 py-2.5 sm:px-6">
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        <h2 className="shrink-0 text-sm font-semibold whitespace-nowrap text-foreground">{title}</h2>
         {note !== undefined && <span className="truncate text-xs text-muted-foreground">{note}</span>}
         {busy === true && <Spinner className="ml-auto size-3.5 text-muted-foreground" />}
       </div>
@@ -196,7 +210,8 @@ function StatsCard({ title, note, testId, busy, children }: { title: string; not
 /**
  * A stat tile: the name, the value (proportional figures, as a standalone number), how it compares to everyone else
  * (an arrow and words in the status colour of the direction, never the colour alone), the detail and the trend over the
- * weeks
+ * weeks. The tile spans the five rows of the tiles grid, so the values, the comparisons and the trends of the row of
+ * tiles stand on common lines whatever wraps
  */
 function Figure({
   label,
@@ -215,10 +230,12 @@ function Figure({
 }) {
   const Arrow = comparison?.text.includes("more") === true ? ArrowUpIcon : ArrowDownIcon
   return (
-    <div className="flex min-w-0 flex-col gap-1" data-testid={testId}>
+    <div className="row-span-5 grid min-w-0 grid-rows-subgrid" data-testid={testId}>
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="text-2xl font-semibold text-foreground">{value}</span>
-      {comparison !== undefined && comparison !== null && (
+      {comparison === undefined || comparison === null ? (
+        <span />
+      ) : (
         <span
           className={
             comparison.better === null
@@ -233,27 +250,41 @@ function Figure({
           {comparison.text}
         </span>
       )}
-      {detail !== undefined && <span className="text-xs text-muted-foreground">{detail}</span>}
-      {trend}
+      {detail === undefined ? <span /> : <span className="text-xs text-muted-foreground">{detail}</span>}
+      {trend ?? <span />}
     </div>
   )
 }
 
 function DeliveryCard({ stats }: { stats: RobotStats }) {
-  const { mine, everyone, first_try: firstTry, value } = stats
-  const extras = [
-    mine.failed > 0 && `${mine.failed} failed`,
-    mine.canceled > 0 && `${mine.canceled} canceled`,
-    mine.dry_runs > 0 && `+ ${mine.dry_runs} dry runs`,
-    mine.emergency > 0 && `+ ${mine.emergency} emergency`,
+  const { mine, everyone, first_try: firstTry, value, time } = stats
+  const outcomes = [mine.failed > 0 && `${mine.failed} failed`, mine.canceled > 0 && `${mine.canceled} canceled`].filter(Boolean)
+  const apart = [mine.dry_runs > 0 && `+${mine.dry_runs} ${mine.dry_runs === 1 ? "dry run" : "dry runs"}`, mine.emergency > 0 && `+${mine.emergency} emergency`].filter(Boolean)
+  const lost = time.failed + time.canceled + time.between
+  const total = lost + time.merged
+  const lines = [
+    value.commits_per_merge !== null && `${formatRatio(value.commits_per_merge)} commits per merge (the last 14 days)`,
+    value.whole_stack > 0 && `${value.whole_stack} ${value.whole_stack === 1 ? "merge" : "merges"} of a whole stack`,
   ].filter(Boolean)
   return (
-    <StatsCard title="Into master" note={everyone === null ? undefined : `against everyone else, the median of ${everyone.people} people`} testId="landing-delivery">
-      <div className="grid grid-cols-2 gap-4 @2xl:grid-cols-4">
+    <StatsCard
+      title="Into master"
+      note={everyone === null ? undefined : `against everyone else, the median of ${everyone.people} people`}
+      testId="landing-delivery"
+      className="@4xl:col-span-2"
+    >
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 @2xl:grid-cols-3 @4xl:grid-cols-5">
         <Figure
           label="Merged"
           value={String(mine.merged)}
-          detail={extras.length > 0 ? extras.join(" · ") : undefined}
+          detail={
+            outcomes.length + apart.length > 0 ? (
+              <span className="flex flex-col">
+                {outcomes.length > 0 && <span>{outcomes.join(" · ")}</span>}
+                {apart.length > 0 && <span>{apart.join(" · ")}</span>}
+              </span>
+            ) : undefined
+          }
           trend={<Sparkline id="merged-trend" values={fullWeeks(mine.weeks).map(week => week.merged)} label="Merges per week" />}
           testId="landing-merged"
         />
@@ -281,17 +312,25 @@ function DeliveryCard({ stats }: { stats: RobotStats }) {
           detail={firstTry === null ? undefined : `${formatShareCount(firstTry)} merges, estimated`}
           testId="landing-first-try"
         />
+        {total > 0 && (
+          <Figure
+            label="Lost to failures"
+            value={formatTotalDuration(lost)}
+            detail={`${Math.round((lost / total) * 100)}% of the robot time`}
+            trend={<Sparkline id="lost-trend" values={fullWeeks(mine.weeks).map(week => week.lost)} label="Time lost by week" />}
+            testId="landing-time-lost"
+          />
+        )}
       </div>
-      <WeekChart weeks={mine.weeks} />
-      <MergeTimeChart weeks={mine.weeks} />
-      {(value.commits_per_merge !== null || value.whole_stack > 0) && (
+      {total > 0 && (
+        <section aria-label="Where the time went" className="flex flex-col gap-2" data-testid="landing-time">
+          <h3 className="text-xs font-medium text-muted-foreground">Where the time went: failed and canceled robots, and the waits before their restarts</h3>
+          <TimeChart time={time} />
+        </section>
+      )}
+      {lines.length > 0 && (
         <p className="text-xs text-muted-foreground" data-testid="landing-value">
-          {[
-            value.commits_per_merge !== null && `${formatRatio(value.commits_per_merge)} commits per merge (the last 14 days)`,
-            value.whole_stack > 0 && `${value.whole_stack} ${value.whole_stack === 1 ? "merge" : "merges"} of a whole stack`,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+          {lines.join(" · ")}
         </p>
       )}
     </StatsCard>
@@ -303,42 +342,25 @@ function fullWeeks(weeks: RobotStats["mine"]["weeks"]): RobotStats["mine"]["week
   return weeks.filter(week => !week.current)
 }
 
-function TimeCard({ stats }: { stats: RobotStats }) {
-  const { time } = stats
-  const lost = time.failed + time.canceled + time.between
-  const total = lost + time.merged
-  return (
-    <StatsCard title="Where the time went" testId="landing-time">
-      {total > 0 && (
-        <Figure
-          label="Lost to failures"
-          value={formatTotalDuration(lost)}
-          detail={`${Math.round((lost / total) * 100)}% of the robot time on the way into master: failed and canceled robots, and the waits before their restarts`}
-          trend={<Sparkline id="lost-trend" values={fullWeeks(stats.mine.weeks).map(week => week.lost)} label="Time lost by week" />}
-          testId="landing-time-lost"
-        />
-      )}
-      <TimeChart time={time} />
-    </StatsCard>
-  )
-}
-
+/** Why the robots failed, in three ranked lists of one language: what failed, the checks that failed the most, the flaky ones */
 function FailuresCard({ stats, busy }: { stats: RobotStats; busy: boolean }) {
   const { failures, coverage } = stats
   return (
     <StatsCard title="Why robots failed" note="the last 14 days" testId="landing-failures" busy={busy}>
-      {failures.failed === 0 ? <p className="text-sm text-muted-foreground">No robot failed</p> : <KindChart kinds={failures.kinds} />}
-      <div className="grid gap-4 @2xl:grid-cols-2">
-        <CheckList
+      <div className="grid gap-4 @2xl:grid-cols-2 @4xl:grid-cols-3">
+        {failures.failed === 0 ? <p className="text-sm text-muted-foreground">No robot failed</p> : <KindChart kinds={failures.kinds} failed={failures.failed} />}
+        <RankedList
           title="Failed the most"
           testId="landing-failed-checks"
           tone="failed"
+          scale="first"
           items={failures.checks.map(check => ({ name: check.name, count: check.count, value: String(check.count), url: check.robot_url, robot: "failed" }))}
         />
-        <CheckList
+        <RankedList
           title="Passed on a retry"
           testId="landing-flaky-checks"
           tone="merged"
+          scale="first"
           items={failures.flaky.map(check => ({
             name: check.name,
             count: check.count,
@@ -357,50 +379,6 @@ function FailuresCard({ stats, busy }: { stats: RobotStats; busy: boolean }) {
   )
 }
 
-interface CheckItem {
-  readonly name: string
-  readonly count: number
-  readonly value: string
-  /** The newest robot of the check, opened by its row */
-  readonly url: string
-  /** What the check did in that robot: "failed", "passed on a retry" */
-  readonly robot: string
-}
-
-/**
- * The checks, the most first: each row opens the newest robot of its check in Patronus, a thin bar in the colour of its
- * entity (Failed, Merged) beside its name scales its count to the first one
- */
-function CheckList({ title, items, tone, testId }: { title: string; items: readonly CheckItem[]; tone: "failed" | "merged"; testId: string }) {
-  if (items.length === 0) {
-    return null
-  }
-  const most = Math.max(...items.map(item => item.count))
-  return (
-    <section aria-label={title} className="flex flex-col gap-1" data-testid={testId}>
-      <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
-      <ul className="-mx-1 flex flex-col text-xs">
-        {items.map(item => (
-          <li key={item.name}>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-              aria-label={`${item.name}, ${item.value}: open the newest robot where it ${item.robot}`}
-              onClick={() => openRobotUrl(item.url)}
-            >
-              <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
-              <span aria-hidden className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-muted">
-                <span className={tone === "failed" ? "block h-full bg-chart-2" : "block h-full bg-chart-1"} style={{ width: `${(item.count / most) * 100}%` }} />
-              </span>
-              <span className="w-24 shrink-0 text-right text-muted-foreground tabular-nums">{item.value}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
 function HoursCard({ stats }: { stats: RobotStats }) {
   const known = stats.start_hours.some(hour => hour.everyone !== null || hour.mine !== null)
   return (
@@ -410,7 +388,7 @@ function HoursCard({ stats }: { stats: RobotStats }) {
           {`Robots that start ${formatHour(stats.fastest_hours.start)}–${formatHour(stats.fastest_hours.end)} merge fastest: ${formatShortDuration(stats.fastest_hours.median)}, against ${formatShortDuration(stats.fastest_hours.slowest_median)} at ${formatHour(stats.fastest_hours.slowest)}`}
         </p>
       )}
-      {known ? <HourChart hours={stats.start_hours} /> : <p className="text-sm text-muted-foreground">Too few merged robots to tell an hour</p>}
+      {known ? <HourChart hours={stats.start_hours} fastest={stats.fastest_hours} /> : <p className="text-sm text-muted-foreground">Too few merged robots to tell an hour</p>}
     </StatsCard>
   )
 }

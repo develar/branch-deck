@@ -16,6 +16,8 @@ targets:
   - ../../src/components/landing/charts/HourChart.tsx
   - ../../src/components/landing/charts/Sparkline.tsx
   - ../../src/components/landing/charts/TableView.tsx
+  - ../../src/components/landing/charts/ChartKey.tsx
+  - ../../src/components/landing/charts/RankedList.tsx
   - ../../src/components/ui/chart.tsx
   - ../../src/index.css
   - ../../src/hooks/useRobotStats.ts
@@ -80,22 +82,27 @@ nothing from the work: the view changes only when the user changes it, and the b
   the zone of the hours (`Into master · Europe/Berlin`). The failure causes are of the last 14 days in every period.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should count the chosen period: its robots, its weeks, and keep the choice`)
   [@test] ../../src/lib/robot-stats.test.ts (`names every period by its days, the shortest first`)
-- Landing shows the statistics of the selected repository in four islands: into master (merged, robots per merge, the
-  time to merge and the first try against everyone else, the merges per week, the time to merge by week against
-  everyone else's, what a merge landed), where the time went, why robots failed in the last 14 days, and when robots
-  run fastest by the start hour. A figure says how it compares to everyone else (an arrow and words, success where it
-  is better, destructive where it is worse) and its trend over the weeks that ended (the time lost too); every chart
-  has a table twin with every value, and the keyboard walks its marks with their tooltips.
+- Landing shows the statistics of the selected repository in islands, each one question, each as tall as its content:
+  into master on the full width (what landed and what it cost: merged, robots per merge, the time to merge, the first
+  try and the time lost to failures against everyone else, then where the time went as one bar, then what a merge
+  landed), the robots per week beside the time to merge by week against everyone else's, and why robots failed in the
+  last 14 days beside when robots run fastest by the start hour. A figure says how it compares to everyone else (an
+  arrow and words, success where it is better, destructive where it is worse) and its trend over the weeks that ended
+  (the time lost too), the trend from its smallest value to its largest, not from zero; every chart has a table twin
+  with every value, and the keyboard walks its marks with their tooltips.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
 - The week of now is "This week": muted in the chart of the weeks and "so far" in its tooltip and table, so its robots
-  of a few days never read as a drop; the trends of counts end with the week before.
+  of a few days never read as a drop; the trends of counts end with the week before. The share of failed robots stands
+  on the cap of each week while the weeks are 8 or fewer.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
-- A check of "Failed the most" and "Passed on a retry" opens the newest robot it failed or passed on a retry in, in
-  Patronus; a thin bar beside it scales its count to the first one.
+- The failure causes are three ranked lists of one form (the name, a thin bar, the value): "What failed" by kind, its
+  bar the share of the failed robots; "Failed the most" and "Passed on a retry", their bars scaled to the first one. A
+  check opens the newest robot it failed or passed on a retry in, in Patronus.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
 - The start hours say when to start: "Robots that start 09:00–10:00 merge fastest: 1h, against 3h at 14:00", the
-  longest run of the fastest hours against the slowest hour, none while no two hours differ; the chart runs from the
-  first hour with a value to the last.
+  longest run of the fastest hours against the slowest hour, none while no two hours differ; the chart illustrates the
+  sentence: that run in full colour and named in the key, the two medians on their bars, an hour label every third
+  hour; the chart runs from the first hour with a value to the last.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should say when robots merge fastest: the fastest hours against the slowest`)
 - The statistics are read while Landing shows: when it shows and when the window gets the focus; a hidden Landing
   reads nothing; a change of the period reads its numbers. Refresh asks again whatever the age of the lists, and
@@ -118,13 +125,16 @@ nothing from the work: the view changes only when the user changes it, and the b
   yellow: slots 1, 2 and 4 of the dataviz reference palette and a neutral for Canceled, which ended without an
   outcome and in a hue would read as success; in this order the adjacent marks pass the colour-blind and
   normal-vision checks on the light and the dark card), each entity one colour in every chart: Merged blue in the
-  weeks and the time, and everyone else's merges blue in the hours and the time to merge by week; Failed orange in the
-  weeks, the time, the kinds and the bars of the checks; the user in the ink of the text (the dots of the hours, the
-  line of the time to merge), told apart by the shape and the legend, never in the hue of another entity. Bars of at
-  most 24px with a 2px card gap and a rounded data end, 2px lines with a line key, hairline solid grid, the axes of
-  time in whole quarters, halves or hours, the legend for two series or more, the values in the text tokens; the
-  fastest hours in full colour, the others muted (emphasis, not a second hue). A read in progress dims the numbers it replaces, never a skeleton. The Period is a small Select after the
-  heading, in the one row above the islands that it scopes.
+  weeks and the time; Failed orange in the weeks, the time, the kinds and the bars of the checks; the user in the ink
+  of the text (the dots of the hours, the line of the time to merge), told apart by the shape and the key, never in
+  the hue of another entity; everyone else as the context of the user in `--chart-context`, a lighter step of the same
+  blue (the line of the time to merge by week, the hours that are not the fastest), the fastest hours in the full
+  blue (emphasis, not a second hue). Bars of at most 24px with a 2px card gap and a rounded data end, 2px lines, a
+  hairline solid grid, the axes of time in whole quarters, halves or hours and of counts in steps of 1, 2 or 5, one
+  key (`ChartKey`) left-aligned under every chart of two series or more, its marks as the chart's (a rect, a line, a
+  dot), the values in the text tokens; a direct label only where it is the point (the failed share of a week, the two
+  medians of the hours sentence, the name at the end of a line). A read in progress dims the numbers it replaces,
+  never a skeleton. The Period is a small Select after the heading, in the one row above the islands that it scopes.
 
 ## Testing / Local Run
 

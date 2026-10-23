@@ -396,8 +396,11 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   Recharts (`src/components/ui/chart.tsx`, lazy), the series in the chart palette `--chart-1…4` (dataviz reference
   slots and a neutral for an end without an outcome, validated for colour-blind separation on both cards; never the
   status tokens for a series), one colour per entity across the charts (the user in the ink of the text, never in the
-  hue of another entity), the week of now muted and named "This week", bars ≤ 24px with a 2px card gap and a 4px rounded data end, hairline solid grid, a legend
-  from two series, values in the text tokens, a table twin per chart. A figure's comparison is the one place for a
+  hue of another entity; everyone else as context in `--chart-context`, a lighter step of the blue), the week of now
+  muted and named "This week", bars ≤ 24px with a 2px card gap and a 4px rounded data end, hairline solid grid, one
+  key component (`ChartKey`, left-aligned, from two series), values in the text tokens, a table twin per chart, the
+  ranked lists of the failures in one form (`RankedList`). The islands are as tall as their content: the figures on
+  the full width in a subgrid of five rows, the charts in two columns. A figure's comparison is the one place for a
   status colour, with its arrow and words.
 
 ### Branch columns

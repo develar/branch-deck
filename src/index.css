@@ -248,6 +248,7 @@
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
+  --color-chart-context: var(--chart-context);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-success-foreground: var(--success-foreground);
@@ -332,6 +333,9 @@
   --chart-2: #eb6834;
   --chart-3: #9ba1ab;
   --chart-4: #eda100;
+  /* the context of an emphasis chart (everyone else beside the user, the hours that are not the fastest): a lighter
+     step of the blue of slot 1 (the dataviz reference ramp, step 250), so it is no second hue and no second grey */
+  --chart-context: #86b6ef;
   --info-foreground: oklch(1 0 0);
   /* separatorColor #E9EAEE */
   --border: oklch(0.937 0.005 275);
@@ -466,6 +470,8 @@
     --chart-2: #d95926;
     --chart-3: #7d828c;
     --chart-4: #c98500;
+    /* step 550 of the same ramp */
+    --chart-context: #1c5cab;
     --info-foreground: oklch(0.218 0.004 264.5);
     /* separatorColor #33353B, Component.borderColor #40434A */
     --border: oklch(0.329 0.011 271.1);

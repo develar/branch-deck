@@ -1,39 +1,48 @@
 import { CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from "recharts"
 import type { ChartConfig } from "@/components/ui/chart"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { ChartKey } from "@/components/landing/charts/ChartKey"
 import { TableView } from "@/components/landing/charts/TableView"
 import type { WeekCount } from "@/lib/bindings"
 import { formatShortDuration } from "@/lib/robot-eta"
 import { formatAxisMinutes, formatChartWeek, minuteTicks } from "@/lib/robot-stats"
 
-/** The user in the ink of the text, everyone else in the colour of the merged robots, as in the hours */
+/** The user in the ink of the text, the point of the chart; everyone else in the context blue, as in the hours */
 const config = {
   mine: { label: "You", color: "var(--foreground)" },
-  everyone: { label: "Everyone else", color: "var(--chart-1)" },
+  everyone: { label: "Everyone else", color: "var(--chart-context)" },
 } satisfies ChartConfig
 
 const SERIES = ["mine", "everyone"] as const
 type Series = (typeof SERIES)[number]
 
+/** The height of the plot inside the `h-40` chart (its margin and axis taken), and of a name at the end of a line */
+const PLOT_HEIGHT = 114
+const LABEL_HEIGHT = 14
+
 /**
  * The median time to merge of each week, the user's against everyone else's merges of the same week, on one axis of
- * time: a week the user is slow and everyone else is not was the branch, both slow was the queue. 2px lines, a week
- * without a value breaks its line, each line named at its last point and in the legend under it; the crosshair tooltip
- * says both, the table twin every value. Nothing while fewer than two weeks have a value
+ * time: a week the user is slow and everyone else is not was the branch, both slow was the queue. The user's line in the
+ * ink, everyone else's in the context blue (emphasis: one series is the point), 2px each, a week without a value breaks
+ * its line, each line named at its last point while the ends stand apart, and in the key under it; the crosshair tooltip says both, the table twin
+ * every value. Shown only while `hasMergeTimes`
  */
 export function MergeTimeChart({ weeks }: { weeks: readonly WeekCount[] }) {
   const minutes = (seconds: number | null) => (seconds === null ? null : seconds / 60)
   const data = weeks.map(week => ({ week: formatChartWeek(week), mine: minutes(week.merge_time), everyone: minutes(week.everyone_merge_time) }))
-  if (data.filter(week => week.mine !== null || week.everyone !== null).length < 2) {
-    return null
-  }
   const lastOf = (series: Series) => data.findLastIndex(week => week[series] !== null)
   const ticks = minuteTicks(Math.max(0, ...data.flatMap(week => [week.mine ?? 0, week.everyone ?? 0])))
+  const top = ticks.at(-1) ?? 0
+  // the lines are named at their ends while the ends stand apart; two names on one spot are noise, the key says both
+  const endOf = (series: Series) => data[lastOf(series)]?.[series] ?? null
+  const mineEnd = endOf("mine")
+  const everyoneEnd = endOf("everyone")
+  const apart =
+    mineEnd === null || everyoneEnd === null || lastOf("mine") !== lastOf("everyone") || (Math.abs(mineEnd - everyoneEnd) / Math.max(1, top)) * PLOT_HEIGHT >= LABEL_HEIGHT
   return (
-    <figure className="flex flex-col gap-1" data-testid="merge-time-chart">
-      <figcaption className="text-xs font-medium text-muted-foreground">Time to merge by week</figcaption>
+    <figure className="flex flex-col gap-2" data-testid="merge-time-chart">
       <ChartContainer id="merge-time" config={config} className="aspect-auto h-40 w-full">
-        <LineChart data={data} accessibilityLayer margin={{ top: 8, right: 88, bottom: 0, left: 0 }}>
+        <LineChart data={data} accessibilityLayer margin={{ top: 16, right: 88, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="week" tickLine={false} axisLine={false} tickMargin={6} interval="preserveStartEnd" minTickGap={24} />
           <YAxis tickLine={false} axisLine={false} width={40} tickFormatter={formatAxisMinutes} ticks={ticks} domain={[0, ticks.at(-1) ?? 0]} />
@@ -55,8 +64,8 @@ export function MergeTimeChart({ weeks }: { weeks: readonly WeekCount[] }) {
               <LabelList
                 dataKey={series}
                 content={props =>
-                  props.index === lastOf(series) && typeof props.x === "number" && typeof props.y === "number" ? (
-                    <text x={props.x + 6} y={props.y} dy={4} className="fill-foreground text-xs">
+                  apart && props.index === lastOf(series) && typeof props.x === "number" && typeof props.y === "number" ? (
+                    <text x={props.x + 6} y={props.y} dy={4} className={series === "mine" ? "fill-foreground text-xs" : "fill-muted-foreground text-xs"}>
                       {config[series].label}
                     </text>
                   ) : null
@@ -66,15 +75,7 @@ export function MergeTimeChart({ weeks }: { weeks: readonly WeekCount[] }) {
           ))}
         </LineChart>
       </ChartContainer>
-      {/* a line key for a line, in the order of the series */}
-      <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground" data-testid="merge-time-legend">
-        {SERIES.map(series => (
-          <li key={series} className="flex items-center gap-1.5">
-            <span aria-hidden className="h-0.5 w-3" style={{ backgroundColor: config[series].color }} />
-            {config[series].label}
-          </li>
-        ))}
-      </ul>
+      <ChartKey testId="merge-time-legend" items={SERIES.map(series => ({ label: config[series].label, color: config[series].color, mark: "line" }))} />
       <TableView
         caption="Median time to merge by week"
         columns={["Week", "You", "Everyone else"]}
