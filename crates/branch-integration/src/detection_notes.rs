@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_writer::write_notes;
+use git_ops::commit_writer::{write_cache_notes, write_notes};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -226,7 +226,8 @@ impl<'a> CacheOps<'a> {
       .iter()
       .map(|(commit, detection)| Ok((commit.clone(), serialize_for_cache(&detection.info, detection.check.as_ref())?)))
       .collect::<Result<Vec<_>>>()?;
-    write_notes(self.git, self.repo, NOTES_REF, &notes).context("Failed to write notes")?;
+    // a cache: a write that lost to another writer runs once more, then is a warning, never a failure of the sync
+    write_cache_notes("integration", || write_notes(self.git, self.repo, NOTES_REF, &notes).context("Failed to write notes"));
     debug!("Cached detection for {} branches", notes.len());
     Ok(())
   }

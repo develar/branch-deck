@@ -279,7 +279,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
   message; related refs (unapply rename, temp refs) go into the same transaction. The named exceptions: a notes ref
   that `fast-import` writes (`write_notes_to_refs`, `write_commits_with_notes`: `from <ref>^0`, and a tip that does not
-  contain the ref's value fails the run, so a concurrent writer is never overwritten; the resolve notes move in the
+  contain the ref's value fails the run, so a concurrent writer is never overwritten; the cache notes of a sync and of
+  the detection run once more from the new tip, then only warn, `write_cache_notes`; the resolve notes move in the
   session's transaction); the temporary ref of a sync chain's commit writer (`commit_chain.rs`): one per writer
   (`unique_temp_ref`), deleted in its own `fast-import` stream after a `checkpoint` wrote it (`reset` from the null
   id), and a sync deletes the stale temporary refs its listing found (`is_stale_temp_ref`); and the refs of the review

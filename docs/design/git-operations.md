@@ -158,7 +158,11 @@ written, except by Update Project and the finish of its resolve session (their o
    ("not updating … new tip … does not contain …", exit code 1, so the operation fails), and moves the ref with that
    value as the old one. A writer that moved the notes ref meanwhile is therefore never overwritten. The check is a
    fast-forward, not the exact old value of a transaction: a notes ref moved back to an ancestor of the `from` commit
-   meanwhile would be moved forward again.
+   meanwhile would be moved forward again. The notes of a sync and of the detection are only a cache, so their lost
+   write fails nothing (`write_cache_notes`): it runs once more, from the tip the other writer left (its notes kept),
+   and a second loss is a warning; a later sync writes them
+   (`a_sync_that_loses_the_notes_ref_to_another_writer_writes_again_and_finishes`,
+   `a_detection_write_that_loses_its_ref_runs_again_and_never_fails`).
 
    **The stack branches** (`{prefix}/stack/<root>`, see "Stack branch") follow the rule without an exception: a sync
    moves one with CAS on the tip it listed, only when every branch of its stack was built, and deletes the ones of

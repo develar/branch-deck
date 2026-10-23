@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::instrument;
+use tracing::{debug, instrument, warn};
 
 /// A commit object as stored: identity lines verbatim (`Name <email> <seconds> <tz>`) and the message bytes
 #[derive(Debug, Clone)]
@@ -649,6 +649,18 @@ pub fn current_committer(git_executor: &GitCommandExecutor, repo_path: &str) -> 
 /// if it changed meanwhile, so a concurrent writer is not overwritten.
 pub fn write_notes(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref: &str, notes: &[(String, String)]) -> Result<()> {
   write_notes_to_refs(git_executor, repo_path, &[(notes_ref, notes)])
+}
+
+/// A write of notes that only save work (the mapping notes of a sync, the integration detection), which never fails the
+/// operation: a write that lost a ref to another writer (the app's sync beside `bd sync`: `from <ref>^0` was read
+/// before the other moved the ref, so `fast-import` refuses the tip that lacks its notes) runs once more, from the new
+/// tip, and keeps the other's notes; a second failure is a warning, and a later run writes them
+pub fn write_cache_notes(what: &str, write: impl Fn() -> Result<()>) {
+  let Err(first) = write() else { return };
+  debug!(what, error = %format!("{first:#}"), "the notes lost to another writer: once more from its tip");
+  if let Err(second) = write() {
+    warn!(what, error = %format!("{second:#}"), "the notes are not written: a later run writes them");
+  }
 }
 
 /// `write_notes` for several notes refs, `(notes ref, notes)`, with one `git fast-import` run: one notes commit per ref

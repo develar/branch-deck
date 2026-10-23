@@ -30,7 +30,7 @@ use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::commit_list::get_frozen_commit_list_with_handler;
-use git_ops::commit_writer::delete_stale_temp_refs;
+use git_ops::commit_writer::{delete_stale_temp_refs, write_cache_notes};
 use git_ops::notes::write_commit_notes_with;
 use git_ops::revs::current_branch;
 use git_ops::rewrite_guard::find_operation_in_progress;
@@ -827,17 +827,18 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
   // (a copy older than the deterministic dates is kept by checking it against its tree, see `copy_commit`)
   // a stacked branch's base lets the integration detection of its archived branch look at its own commits only
-  let notes_result = tokio::task::spawn_blocking(in_current_span(move || {
+  // a write that lost to another writer (`bd sync` beside the app's) runs once more, then is a warning: never a failure
+  tokio::task::spawn_blocking(in_current_span(move || {
     move_conflict_refs(&context.git_executor, &context.repository_path, &context.conflict_tips, &conflict_refs);
-    write_commit_notes_with(&context.git_executor, &context.repository_path, &notes, Some((STACK_NOTES_REF, &stack_notes)))
+    write_cache_notes("mapping", || {
+      write_commit_notes_with(&context.git_executor, &context.repository_path, &notes, Some((STACK_NOTES_REF, &stack_notes)))
+    });
   }))
   .await
   .map_err(|e| anyhow!("Writing the commit notes failed: {e}"))?;
   match first_error {
     Some(e) => Err(e),
-    None => notes_result
-      .map(|()| ProcessedBranches { tips, failed, moved_elsewhere })
-      .map_err(|e| e.context("Failed to write commit notes")),
+    None => Ok(ProcessedBranches { tips, failed, moved_elsewhere }),
   }
 }
 

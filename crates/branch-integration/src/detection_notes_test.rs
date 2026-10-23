@@ -421,3 +421,63 @@ fn old_and_odd_notes_still_read() {
   deserialize_from_cache(r#"{"v":2,"s":{"k":"z"}}"#).unwrap_err();
   deserialize_from_cache(r#"{"v":2}"#).unwrap_err();
 }
+
+/// A `NotIntegrated` detection, as a sync caches it
+#[cfg(unix)]
+fn not_integrated_detection() -> crate::detection_notes::CachedDetection {
+  crate::detection_notes::CachedDetection {
+    info: BranchIntegrationInfo {
+      name: String::new(),
+      summary: String::new(),
+      status: BranchIntegrationStatus::NotIntegrated {
+        total_commit_count: 1,
+        integrated_count: 0,
+        orphaned_count: 1,
+        integrated_at: None,
+      },
+    },
+    check: None,
+  }
+}
+
+/// Another writer of the detection notes (`bd sync` beside the app's sync) moves the ref while a write runs: the notes are
+/// a cache, so the write runs once more from the new tip and keeps the other's note; a writer that moves the ref before
+/// every write leaves the notes unwritten, a warning, never a failure of the sync
+#[cfg(unix)]
+#[test]
+fn a_detection_write_that_loses_its_ref_runs_again_and_never_fails() {
+  use crate::detection_notes::{CacheOps, NOTES_REF};
+  use test_utils::git_test_utils::TestRepo;
+  use test_utils::wrapped_git::WrappedGit;
+
+  let repo = TestRepo::new();
+  let other = repo.create_commit("Initial commit", "README.md", "# Test");
+  let tip = repo.create_commit("Add auth", "auth.txt", "auth");
+  let path = repo.path().to_str().unwrap();
+  // `moves`: on which writes the other writer moves the ref, while git runs them
+  let wrapped = |moves: &str| {
+    let other = format!("case {moves} in *\"[$n]\"*) git -C '{path}' notes --ref={NOTES_REF} add -f -m \"other $n\" {other};; esac");
+    WrappedGit::new(&format!(
+      "*\" fast-import --quiet --done \") n=$(cat '{{dir}}/count' 2>/dev/null || echo 0); n=$((n + 1)); echo $n > '{{dir}}/count'; {};;",
+      WrappedGit::during_fast_import(&other)
+    ))
+  };
+  let note = |commit: &str| repo.git(&["notes", &format!("--ref={NOTES_REF}"), "list", commit]);
+
+  let first_only = wrapped("'[1]'");
+  CacheOps::new(first_only.executor(), path).write(&tip, &not_integrated_detection()).unwrap();
+  assert!(first_only.marked("count"));
+  assert!(!note(&tip).is_empty(), "the second write has the note");
+  assert_eq!(
+    repo.git(&["notes", &format!("--ref={NOTES_REF}"), "show", &other]).trim(),
+    "other 1",
+    "and keeps the other writer's"
+  );
+
+  let tip = repo.create_commit("Add login", "login.txt", "login");
+  let every = wrapped("'[1][2]'");
+  CacheOps::new(every.executor(), path).write(&tip, &not_integrated_detection()).unwrap();
+  assert_eq!(repo.git(&["notes", &format!("--ref={NOTES_REF}"), "show", &other]).trim(), "other 2");
+  let unwritten = repo.git_executor().execute_command(&["notes", &format!("--ref={NOTES_REF}"), "list", &tip], path);
+  assert!(unwritten.is_err(), "a later run writes it: {unwritten:?}");
+}

@@ -28,6 +28,17 @@ impl WrappedGit {
     Self { directory, executor }
   }
 
+  /// The body of an arm that runs a `fast-import` (its stream on stdin, ending with `done`) with `other` in the middle:
+  /// after git parsed every command but the `done` (a `progress` line it prints once there), before it moves the refs,
+  /// as another writer that moves a ref between the `from <ref>^0` of the stream and its update. The exit code is git's
+  pub fn during_fast_import(other: &str) -> String {
+    format!(
+      "cat > '{{dir}}/stream'; sed '$d' '{{dir}}/stream' > '{{dir}}/body'; rm -f '{{dir}}/in' '{{dir}}/out'; mkfifo '{{dir}}/in'; \
+       git \"$@\" < '{{dir}}/in' > '{{dir}}/out' & pid=$!; exec 3> '{{dir}}/in'; cat '{{dir}}/body' >&3; echo 'progress parsed' >&3; \
+       until grep -q 'parsed' '{{dir}}/out' 2>/dev/null || ! kill -0 $pid 2>/dev/null; do :; done; {other}; echo done >&3; exec 3>&-; wait $pid; exit $?"
+    )
+  }
+
   pub const fn executor(&self) -> &GitCommandExecutor {
     &self.executor
   }

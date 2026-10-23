@@ -926,16 +926,23 @@ async fn a_remembered_conflict_is_the_one_the_analysis_made() -> anyhow::Result<
   Ok(())
 }
 
+/// A repository whose `origin/master` is its initial commit, and that commit
+#[cfg(unix)]
+fn repo_with_origin_at_initial_commit() -> (TestRepo, String) {
+  let test_repo = repo_with_initial_commit();
+  let initial = test_repo.head();
+  test_repo.git(&["remote", "add", "origin", "."]);
+  test_repo.git(&["update-ref", "refs/remotes/origin/master", &initial]);
+  (test_repo, initial)
+}
+
 /// A fetch and a commit while a sync runs, between its facts and its walk of the commits: the sync groups the commits
 /// between the ids it froze at its start (`RepoFacts`), never the names as they are by then, so the branches it builds,
 /// the detection and the update check all see one state
 #[cfg(unix)]
 #[test(tokio::test)]
 async fn a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups() -> anyhow::Result<()> {
-  let test_repo = repo_with_initial_commit();
-  let initial = test_repo.head();
-  test_repo.git(&["remote", "add", "origin", "."]);
-  test_repo.git(&["update-ref", "refs/remotes/origin/master", &initial]);
+  let (test_repo, initial) = repo_with_origin_at_initial_commit();
   let auth = test_repo.create_commit("(auth) Add auth", "auth.txt", "auth");
   test_repo.create_commit("(login) Add login", "login.txt", "login");
   let head = test_repo.head();
@@ -953,5 +960,29 @@ async fn a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups() -
   grouped.sort();
   assert_eq!(grouped, ["auth", "login"]);
   assert_eq!((report.head, report.baseline_commit), (head, initial));
+  Ok(())
+}
+
+/// `bd sync` beside the app's sync writes the mapping notes while the app's sync writes its own: the notes are a cache,
+/// so the sync that lost the ref writes once more from the new tip, finishes, and both writers' notes are there
+#[cfg(unix)]
+#[test(tokio::test)]
+async fn a_sync_that_loses_the_notes_ref_to_another_writer_writes_again_and_finishes() -> anyhow::Result<()> {
+  let (test_repo, initial) = repo_with_origin_at_initial_commit();
+  test_repo.create_commit("(auth) Add auth", "auth.txt", "auth");
+  let path = test_repo.path().to_str().unwrap();
+  sync_events(test_repo.git_executor(), &test_repo).await?;
+  let login = test_repo.create_commit("(auth) Add login", "login.txt", "login");
+  let other = format!("[ -f '{{dir}}/moved' ] || {{ touch '{{dir}}/moved'; git -C '{path}' notes add -f -m 'other writer' {initial}; }}");
+  let wrapped = test_utils::wrapped_git::WrappedGit::new(&format!(
+    "*\" fast-import --quiet --done \") {};;",
+    test_utils::wrapped_git::WrappedGit::during_fast_import(&other)
+  ));
+
+  let report = sync_branches(wrapped.executor(), path, "test", TestReporter::new(), SyncOptions::default()).await?;
+  assert!(wrapped.marked("moved"));
+  assert!(report.not_built.is_empty(), "{:?}", report.not_built);
+  assert_eq!(test_repo.git(&["notes", "show", &initial]).trim(), "other writer");
+  assert!(test_repo.git(&["notes", "show", &login]).starts_with("v-commit-v1:"), "the sync's own note");
   Ok(())
 }
