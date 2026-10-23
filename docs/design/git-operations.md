@@ -504,7 +504,7 @@ options), and the app's squash and its undo, squash fixups (also `bd fold`), ame
 `held_lock` for a caller that holds the lock already, so the core takes none, and `expect_head`, the HEAD the request
 was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`, one check for every core). The app
 shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
-Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, `bd safe-push` (until its push; with
+Branch Deck operation holds … ; retry when it is done". `bd push`, `bd safe-push` (until its push; with
 `--check` only its sync),
 `bd move-hunk`, `bd pick` (the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
 (`push_branch`, `push_branches`: `push_guard`, on the `$GIT_COMMON_DIR` the app keeps, so the push and its checks see
@@ -515,8 +515,9 @@ the process and the time, through a temporary file and a rename) once it has the
 releases it, so the error of a wait names the holder; the lock file itself can't carry it, Windows refuses to read a
 locked file. A record whose process is gone (`process_scan::is_running`) names nobody. A core finds the file with one
 `rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
-directory its context resolved, and a wait for it makes `bd` read the config again (`RepoContext::forget_config`). The app's sync
-never takes it: a sync of a large repository would make every `bd` writer fail with `locked`. Within a window one sync
+directory its context resolved, and a wait for it makes `bd` read the config again (`RepoContext::forget_config`). A sync
+never takes it, the app's, `bd sync` and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large
+repository would make every writer fail with `locked`. Within a window one sync
 runs at a time (`syncBranches`): a request while one runs asks for one follow-up after it, the events of a superseded
 run are dropped, and a focus during a sync checks the inputs once after it. A `bd` write during an app sync changes
 the inputs (the fingerprint is taken when the sync starts), so the next focus syncs again and corrects what the sync
@@ -524,14 +525,16 @@ wrote from the HEAD it read. A fetch never runs under the lock: on a monorepo it
 `locked`.
 
 **One call: rewrite, descriptions, sync.** `bd group` (and `rename`, `restack`, `unstack`) takes the lock itself and
-passes it to the regroup (`RegroupOptions.held_lock`), so the regroup takes no lock of its own and the lock has no gap:
+passes it to the regroup (`RegroupOptions.held_lock`), so the regroup takes no lock of its own and the lock has no gap
+between the rewrite and its descriptions:
 
 1. The current descriptions, when the plan has `descriptions`: those of the command's config (`RepoContext::config`,
    one `git config --get-regexp` read once per command and again after a wait for the lock).
 2. The regroup above. Before it writes, `regroup_commits_accepted` lets bd refuse the result: a description without a
    title of one line, or of a branch that has no commits after the plan, is `invalid_plan`.
 3. After the ref transaction: one `git config` per changed description (the exception of the batch rule).
-4. With `--sync`: the sync of `bd sync` (`sync_locked`).
+4. With `--sync`, after the release of the lock: the sync of `bd sync`, which takes none, so its merges never make the
+   app or another `bd` wait.
 
 A failure in step 3 or 4 leaves the rewrite in place: the output keeps the undo token and has the error as `error`.
 A failed description write stops the later ones and skips step 4. The undo moves HEAD and the issue groups back, not
@@ -1454,8 +1457,8 @@ branches and the tips from the report (`SyncOutput::report`), so a command that 
    cherry-pick takes the parent from the commit list instead of asking git.
 4. A branch is moved with an `update-ref --stdin` transaction, and its `original → new` mapping notes are written as
    one notes commit by one `fast-import` (`N inline <oid>` on the default notes ref, `from <ref>^0`). The transaction
-   is a CAS on the tip the sync listed (`update <ref> <head> <listed tip>`, `create` for a new branch): the app's sync
-   and `bd sync` don't share the repository lock. When it fails, one `rev-parse --verify` reads the ref again: at the
+   is a CAS on the tip the sync listed (`update <ref> <head> <listed tip>`, `create` for a new branch): neither the app's sync
+   nor `bd sync` takes the repository lock. When it fails, one `rev-parse --verify` reads the ref again: at the
    head the sync built, another sync wrote the same deterministic copy, and the branch counts as written; at another
    tip, another process moved it, and the branch keeps that tip and reports `Error` without notes, for the next sync;
    at the listed tip, the failure is not about the old value (a ref of the name in the way) and fails the branch's
@@ -2643,7 +2646,7 @@ lacks, and its pull request showing the parent's commits.
    makes the page's next list ask Patronus and drops a list in flight (`forget_full_lists`, a generation). Then, in a
    blocking step (`push_guarded`), the repository lock
    (`lock_repository_in` on the `$GIT_COMMON_DIR` the host knows, the app per repository from `RepositoryStateCache`:
-   no git process), bounded by `DEFAULT_LOCK_TIMEOUT` ("Nothing was pushed: `bd sync` (…) holds the repository; try
+   no git process), bounded by `DEFAULT_LOCK_TIMEOUT` ("Nothing was pushed: `bd group` (…) holds the repository; try
    again when it is done"), and under it the checks of `bd push` on the table of `RepositoryViews` and the Patronus
    view of the robots (`guard_facts`, through the memo of the views): a branch the table has no row of, a parked
    branch or one built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (its own, of a

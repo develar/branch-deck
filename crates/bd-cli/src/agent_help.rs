@@ -131,7 +131,7 @@ Workflow: the commits into pull requests
    tree).
 3. Apply. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
    `bd status`); replace one only when the user asks. Then `bd group --expect-head <head of bd suggest> --sync --plan
-   plan.json`: one message-only rewrite, the issue groups, the descriptions and a sync, under one repository lock. It
+   plan.json`: one message-only rewrite, the issue groups and the descriptions under one lock, then a sync. It
    prints the new `groups`, `replaced_descriptions` and `sync` (per branch `state`; a `conflict` names the commit, the
    files and the commits it needs). Exit 1, a branch not built: `bd check --fix`, or regroup so that a change and what
    it needs are in one branch or its parent, then `bd sync`. `head_moved`, `groups_moved`, `stacks_moved` or `locked`

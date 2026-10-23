@@ -1,6 +1,6 @@
 //! `bd group`, `bd rename`, `bd restack` and `bd unstack`: message-only history rewrites through
-//! `history_rewrite::regroup`, which validates before it writes. bd holds the repository lock over the rewrite, the
-//! descriptions of a plan and, with --sync, the sync
+//! `history_rewrite::regroup`, which validates before it writes. bd holds the repository lock over the rewrite and the
+//! descriptions of a plan; with --sync, the sync runs after the release, as `bd sync` does
 
 use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use bd_core::branch_view::ParentSourceName;
@@ -8,10 +8,11 @@ use bd_core::context::RepoContext;
 use bd_core::error::regroup_error;
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorBody};
 use bd_core::output::SchemaVersion;
-use bd_core::sync_command::{SyncOutput, lock, sync_locked};
+use bd_core::sync_command::{SyncOutput, lock, sync};
 use bd_core::text_input::read_text;
 use git_ops::branch_description::Description;
 use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, UndoToken, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core};
+use history_rewrite::repository_lock::RepositoryLock;
 use history_rewrite::stack::{StackForest, describe_problem, problem_view};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -25,7 +26,7 @@ pub struct RewriteArgs {
   /// Print the resulting subjects and the stack forest; write nothing
   #[arg(long)]
   pub dry_run: bool,
-  /// Then rebuild the virtual branches as `bd sync` does, under the same repository lock
+  /// Then rebuild the virtual branches as `bd sync` does, after the repository lock is released
   #[arg(long, conflicts_with = "dry_run")]
   pub sync: bool,
   /// Rewrite only if HEAD is still this commit (the `head` that `bd status` printed)
@@ -154,10 +155,11 @@ pub fn after_rewrite_exit_code(error: Option<&ErrorBody>, sync: Option<&SyncOutp
   }
 }
 
-/// `--sync` after a rewrite, under the lock the caller holds: the sync output, or its error, which the rewrite output
-/// carries so that its undo token stays
-pub fn sync_after_rewrite(context: &RepoContext) -> (Option<SyncOutput>, Option<ErrorBody>) {
-  match sync_locked(context) {
+/// `--sync` after a rewrite, which released its lock (`held_lock`, moved in): the sync output, or its error, which the
+/// rewrite output carries so that its undo token stays. The sync takes no lock, so it never makes another writer wait
+pub fn sync_after_rewrite(context: &RepoContext, held_lock: Option<RepositoryLock>) -> (Option<SyncOutput>, Option<ErrorBody>) {
+  drop(held_lock);
+  match sync(context) {
     Ok(sync) => (Some(sync), None),
     Err(error) => (None, Some(error.to_output().error)),
   }
@@ -251,8 +253,8 @@ pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutpu
 }
 
 /// Run `regroup` under the repository lock (none for a dry run), then under the same lock write the changed
-/// `descriptions` and, with --sync, sync. A failure after the rewrite is the `error` of the rewrite output, so the
-/// output keeps the undo token
+/// `descriptions`; with --sync, release the lock and sync. A failure after the rewrite is the `error` of the rewrite
+/// output, so the output keeps the undo token
 pub(crate) fn rewrite(
   context: &RepoContext,
   operation: &str,
@@ -283,7 +285,7 @@ pub(crate) fn rewrite(
     return Ok(output);
   }
   if args.sync {
-    (output.sync, output.after_error) = sync_after_rewrite(context);
+    (output.sync, output.after_error) = sync_after_rewrite(context, held_lock);
   }
   Ok(output)
 }

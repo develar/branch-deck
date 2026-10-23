@@ -1,4 +1,6 @@
 use bd_cli::fixture_test::assert_covered;
+#[cfg(unix)]
+use bd_cli::fixture_test::{LockSpanGit, subcommand};
 use bd_cli::fixture_test::{assert_refused_during, commit_all, git, repo_with_baseline, run_in, start_cherry_pick, sync_statuses, with_header, write};
 use git_ops::revs::short_id;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
@@ -289,6 +291,23 @@ fn issue_groups_plan_and_undo() {
   let written = again["undo_token"].as_str().unwrap().rsplit("..").next().unwrap().to_string();
   let (exit_code, refused) = run_in(&repo, &["undo", &format!("groups:{head}..{written}")]);
   assert_error(&refused, exit_code, 2, "invalid_arguments");
+}
+
+/// The sync of `--sync` runs after the rewrite released the repository lock: its merges and its writes never make the
+/// app or another `bd` wait
+#[cfg(unix)]
+#[test_log::test]
+fn the_sync_of_a_rewrite_runs_after_the_lock() {
+  // a commit before it, so the sync merges the branch's commit onto the baseline
+  let (repo, _) = repo_with(&["Tidy up", "(auth) Add login"]);
+  let wrapped = LockSpanGit::new(&repo, "");
+  let (exit_code, output) = wrapped.run(&["rename", "auth", "login", "--sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(sync_statuses(&output), [(&json!("login"), &json!("created"))]);
+  let commands = wrapped.commands();
+  let renamed = commands.iter().rposition(|(locked, _)| *locked).expect("the rename runs under the lock");
+  let merged = commands.iter().position(|(_, args)| subcommand(args) == "merge-tree").expect("the sync merges");
+  assert!(merged > renamed, "the sync after the lock: {commands:#?}");
 }
 
 #[test_log::test]

@@ -103,7 +103,7 @@ pub fn move_hunk(context: &RepoContext, args: &MoveHunkArgs) -> Result<MoveHunkO
   let result = move_hunk_core(&context.git, &context.repository, &context.cache(), &params, &options).map_err(|error| move_hunk_error(context, error))?;
   let mut output = move_hunk_output(context, args.dry_run, &result);
   if args.sync {
-    (output.sync, output.after_error) = sync_after_rewrite(context);
+    (output.sync, output.after_error) = sync_after_rewrite(context, held_lock);
   }
   Ok(output)
 }

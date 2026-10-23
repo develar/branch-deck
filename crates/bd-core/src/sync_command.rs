@@ -1,6 +1,7 @@
-//! `bd sync`: `sync_core::sync::sync_branches` under the repository lock, its events collected into one compact
-//! summary. It rebuilds the virtual branches, runs the integration detection of archived branches and the update check
-//! of the checked out branch, as the app's sync does
+//! `bd sync`: `sync_core::sync::sync_branches`, its events collected into one compact summary. It rebuilds the virtual
+//! branches, runs the integration detection of archived branches and the update check of the checked out branch, as
+//! the app's sync does, and like it without the repository lock: its refs move by compare-and-swap, so a sync never
+//! makes a rewrite, Update Project or the app wait
 
 use crate::bd_command::shell_word;
 use crate::branch_view::placement;
@@ -375,8 +376,9 @@ impl ProgressReporter for CollectingReporter {
   }
 }
 
+/// `bd sync`, without the repository lock: the app's sync takes none either, and both move each ref only from the tip
+/// they listed
 pub fn sync(context: &RepoContext) -> Result<SyncOutput, CliError> {
-  let _lock = lock(context)?;
   sync_locked(context)
 }
 
@@ -390,7 +392,7 @@ pub fn lock(context: &RepoContext) -> Result<RepositoryLock, CliError> {
   })
 }
 
-/// `bd sync` for a caller that holds the repository lock
+/// The sync of `bd sync`; `bd push` and `bd safe-push` run it under the lock they hold to the end of their push
 pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
   let reporter = CollectingReporter::default();
   let runtime = context.runtime()?;

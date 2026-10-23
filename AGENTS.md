@@ -327,15 +327,15 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   regroup (`regroup.rs`, also `bd reword` and the app's reword through `reword.rs`) and the move of a hunk through their
   options, and the app's squash and its undo, squash fixups (also `bd fold`), amend, unapply and add issue reference
   through `RewriteOptions` (`held_lock`,
-  `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd sync`, `bd push`,
+  `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push`,
   `bd safe-push` (the sync, the checks and the push; the robot start after it), the app's `push_branch` and
   `push_branches` (`repository_model::push_guard`: the user's robots before the lock, the lock, then the refusals of
   unknown, parked, landed, held and not built branches in Rust, then the push), `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), `bd pick` (the moves of both
   worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
-  (bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch. The app's sync never
-  takes it. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
+  (bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch. A sync never takes it:
+  neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
   A sync (the app's and `bd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done

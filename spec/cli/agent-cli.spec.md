@@ -383,11 +383,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `bd describe` does, list the written ones in `described` and the texts they replaced in `replaced_descriptions`;
   a plan of descriptions only rewrites no commit. `bd check` must validate them as well.
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `descriptions_are_validated_with_the_plan`, `a_stacked_branch_is_described_by_its_leaf`)
-- `--sync` must run the sync of `bd sync` after the writes, without releasing the repository lock in between, and add
-  its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write must skip the
+- `--sync` must run the sync of `bd sync` after the writes and the release of the repository lock, so its merges never
+  make the app or another `bd` wait, and add its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write must skip the
   sync; it and a failed sync must keep the rewrite output, with the error as `after_error` and its exit code. `--sync` must not
   go with `--dry-run`.
-  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`, `the_sync_of_a_rewrite_runs_after_the_lock`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`a_held_lock_is_not_taken_again`)
 - `--expect-head` must refuse with `head_moved` (exit 3, retryable) when HEAD is another commit, and the rewrite must
   move the branch only from the HEAD the plan was computed for.
@@ -529,8 +529,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_commit_between_that_shifts_the_lines_still_applies`, `moves_a_file_change_into_an_older_commit`)
 - It must print the moved blocks (`moved.blocks`, as `bd commits --patch` prints them), `commits` (`{commit, new_id}`
   of every recreated commit), `changed` (the commits whose changes differ) and an undo token
-  `<previous head>..<new head>` for `bd undo`; `--sync` must sync under the same lock (`sync`, or `after_error` with
-  the token kept); `--dry-run` must print the blocks and check the rewrite, writing nothing but git objects.
+  `<previous head>..<new head>` for `bd undo`; `--sync` must sync after the release of the lock (`sync`, or `after_error`
+  with the token kept); `--dry-run` must print the blocks and check the rewrite, writing nothing but git objects.
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`the_block_id_is_the_one_of_bd_commits_patch`)
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_dry_run_writes_no_ref_and_no_note`)
 - It must refuse with `invalid_arguments` (exit 2) the same commit twice, a file the commit doesn't change, a file it
@@ -742,12 +742,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd sync`
 
-- `bd sync` must run the app's sync (`sync_branches`) under the repository lock (`locked`, exit 3, when another
-  process holds it) and print per branch its `state` (`created`, `updated`, `unchanged`, `error`, `conflict`, `blocked`),
+- `bd sync` must run the app's sync (`sync_branches`) and, like it, without the repository lock: its refs move by
+  compare-and-swap (below), so it never waits for a rewrite or Update Project, and a rewrite of the app or of `bd`
+  never waits for it. It must print per branch its `state` (`created`, `updated`, `unchanged`, `error`, `conflict`, `blocked`),
   the commit count, the new tip and the remote state, plus the unassigned count. It must refuse, changing nothing,
   while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
   (`detached_head`, exit 4 both): the sync would archive the branches the half-done history lacks.
-  [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`, `waits_while_a_rebase_is_in_progress`)
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `syncs_while_another_process_holds_the_lock`, `a_rewrite_beside_a_running_sync_does_not_wait_for_it`, `waits_while_a_rebase_is_in_progress`)
 - The message of `locked` must name the holder of the lock, its command line, pid and how long it holds it, from the
   record (`<lock>.holder`) a holder writes once it has the lock and deletes before it releases it; a record of a
   process that is gone (or none, of an older Branch Deck) names "Another Branch Deck operation".
@@ -759,7 +760,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   never be pushed ([Whole Stack](../branch/whole-stack.spec.md)).
   [@test] ../../crates/bd-remote/src/status_test.rs (`the_stack_branch_of_a_forking_stack_in_sync_and_status`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
-- A sync (the app's and `bd sync`, which don't share the repository lock) must move a virtual branch only from the tip
+- A sync (the app's and `bd sync`, neither of which takes the repository lock) must move a virtual branch only from the tip
   it listed at its start, or create it only while no ref of its name exists: a branch another process moved to
   another tip meanwhile must keep that tip and be `error` ("Not updated: another process moved …; sync again"), while
   the other branches are written; one moved to the head the sync built (the copies are deterministic) is written.

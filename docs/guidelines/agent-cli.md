@@ -511,8 +511,9 @@ rebuilds the virtual branches, under the same repository lock. The plan is the f
 - `described` lists the branches whose description the plan wrote (with `--dry-run`: would write), and
   `replaced_descriptions` the texts they replaced, by branch. `bd undo` doesn't restore a description; `bd describe`
   can, with the replaced text.
-- `--sync` runs `bd sync` after the writes, without a gap in the lock, so no other rewrite comes between them, and
-  adds its output as `sync`. The exit code is 1 when a branch was not built, as for `bd sync`. `--sync` doesn't go with
+- `--sync` runs `bd sync` after the writes, once the rewrite released the repository lock (the sync takes none, so its
+  merges never make the app or another `bd` wait; a rewrite between them only makes the sync stale, never wrong:
+  every ref moves by compare-and-swap), and adds its output as `sync`. The exit code is 1 when a branch was not built, as for `bd sync`. `--sync` doesn't go with
   `--dry-run` (`invalid_arguments`): a dry run writes nothing, and `bd check` is the trial sync of a plan.
 - `error` (`{code, message, commits, retryable}`, as in an error output) is set when a step after the rewrite fails:
   a description write, which also skips the sync and leaves the later descriptions unwritten, or the sync. The
@@ -882,7 +883,7 @@ HEAD's tree, so the index and the working tree stay as they are
   whole file. `not_ahead_of_baseline` names a commit id.
 - `--expect-head` refuses with `head_moved` unless HEAD is still that commit; a held lock is `locked`.
 - `--dry-run` prints the blocks and checks the rewrite (the merges and the empty commits); it writes only git objects.
-  `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
+  `--sync` syncs after the release of the lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
 ### `bd check [--plan <file | ->] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]] [--allow-dangling] [--allow-missing]`
 

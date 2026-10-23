@@ -82,8 +82,8 @@ enum Command {
   Commits(CommitsArgs),
   /// Move commits between branches by a plan: one rewrite of their subjects
   ///
-  /// The plan comes from --plan (`-` for stdin); one validated rewrite, then the descriptions it names and, with --sync, a
-  /// sync, all under one repository lock
+  /// The plan comes from --plan (`-` for stdin); one validated rewrite, then the descriptions it names, under one
+  /// repository lock, and, with --sync, a sync after it
   Group(GroupArgs),
   /// Rename a branch in every commit prefix, its children included
   Rename(RenameArgs),
