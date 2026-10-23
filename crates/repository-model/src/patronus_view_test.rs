@@ -266,10 +266,8 @@ fn table_in_order(order: &[&str]) -> BranchTable {
   }
 }
 
-/// The robot of the whole stack lands every branch of it a robot of a branch doesn't; it holds the stack branch, a
-/// start of it waits for a robot of a branch of it, and a start of a branch for it
-#[test]
-fn the_robot_of_the_whole_stack_lands_every_branch_of_it() {
+/// login and session on auth, the stack of auth built as `test/stack/auth` at `stack-tip`
+fn forked_stack() -> BranchTable {
   let mut table = table(&[
     ("session", Some("auth"), &[("s1", "vs1")]),
     ("login", Some("auth"), &[("l1", "vl1")]),
@@ -287,6 +285,14 @@ fn the_robot_of_the_whole_stack_lands_every_branch_of_it() {
     error: None,
     remote: None,
   });
+  table
+}
+
+/// The robot of the whole stack lands every branch of it a robot of a branch doesn't; it holds the stack branch, a
+/// start of it waits for a robot of a branch of it, and a start of a branch for it
+#[test]
+fn the_robot_of_the_whole_stack_lands_every_branch_of_it() {
+  let table = forked_stack();
   let whole = stack_robot("w", "auth", "stack-tip");
   let view = view_of(&table, std::slice::from_ref(&whole));
   for name in ["auth", "login", "session"] {
@@ -302,6 +308,49 @@ fn the_robot_of_the_whole_stack_lands_every_branch_of_it() {
   assert_eq!(view.branches["auth"].span.as_ref().map(|span| span.by.clone()), Some(of("login", "l")));
   assert_eq!(view.branches["session"].span.as_ref().map(|span| span.by.whole_stack), Some(true));
   assert_eq!(view.stacks["auth"].landing_member, Some(of("login", "l")));
+}
+
+/// A robot that finished on the last commit of a branch or of the whole stack blocks no start: a failed Safe Push is
+/// started again from the same commit; while it runs, or cancels, the start waits for it
+#[test]
+fn a_finished_robot_on_the_last_commit_blocks_no_start_a_canceling_one_still_does() {
+  let table = chain();
+  let start = |status: PatronusRobotStatus| {
+    let view = view_of(&table, &[robot("r", "oauth", status, "vo1")]);
+    let oauth = view.branches.get("oauth").cloned().unwrap_or_default();
+    (oauth.start_blocked, oauth.start, oauth.dry_run)
+  };
+  let waits = (
+    true,
+    Some(StartRefusal::LastCommit { robot_id: "r".to_string() }),
+    Some(StartRefusal::LastCommit { robot_id: "r".to_string() }),
+  );
+  assert_eq!(start(PatronusRobotStatus::Running), waits);
+  assert_eq!(start(PatronusRobotStatus::Canceling), waits);
+  assert_eq!(start(PatronusRobotStatus::Failure), (false, None, None));
+  assert_eq!(start(PatronusRobotStatus::Canceled), (false, None, None));
+
+  let table = forked_stack();
+  let stack_start = |status: PatronusRobotStatus| {
+    let view = view_of(
+      &table,
+      &[PatronusRobot {
+        status,
+        ..stack_robot("w", "auth", "stack-tip")
+      }],
+    );
+    let stack = view.stacks.get("auth").cloned().unwrap_or_default();
+    (stack.start_blocked, stack.start, stack.dry_run)
+  };
+  let waits = (
+    true,
+    Some(StartRefusal::LastCommit { robot_id: "w".to_string() }),
+    Some(StartRefusal::LastCommit { robot_id: "w".to_string() }),
+  );
+  assert_eq!(stack_start(PatronusRobotStatus::Running), waits);
+  assert_eq!(stack_start(PatronusRobotStatus::Canceling), waits);
+  assert_eq!(stack_start(PatronusRobotStatus::Failure), (false, None, None));
+  assert_eq!(stack_start(PatronusRobotStatus::Canceled), (false, None, None));
 }
 
 /// Of two merged robots that landed a branch, the one that left the fewest commits after it, of equals the first merge;

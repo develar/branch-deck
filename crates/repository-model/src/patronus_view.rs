@@ -70,6 +70,12 @@ fn took_as_is(source: &str, tip: Option<&str>, fact: Option<&RemoteFact>) -> boo
   tip == Some(source) || (tip.is_some() && fact.is_some_and(|fact| fact.up_to_date && fact.remote_tip.as_deref() == Some(source)))
 }
 
+/// A start of the subject waits for its robot: one still running (a cancel included) that took the subject as it is; a
+/// finished one blocks nothing, nor one on a commit the subject built new ones on
+fn start_blocked(robot: Option<&PatronusRobot>, tip: Option<&str>, fact: Option<&RemoteFact>) -> bool {
+  robot.is_some_and(|robot| is_robot_active(robot) && robot.source_revision.as_deref().is_some_and(|source| took_as_is(source, tip, fact)))
+}
+
 /// What the hashes tell of the commit a robot took of its subject: the commits of the branch above it (original ids,
 /// newest first; empty when it took the subject as it is), or None when only the content tells
 fn hashes_tell(table: &BranchTable, remote: &RemoteFacts, subject: &Subject, source: &str) -> Option<Vec<String>> {
@@ -533,13 +539,7 @@ pub fn patronus_view(
         Some(robot) => Some(Subject::Branch { name: ancestor.clone() }.robot_of(&robot.id)),
         None => span_of.get(ancestor).filter(|span| span.by.branch != name).map(|span| span.by.clone()),
       });
-    let start_blocked = robot.is_some_and(|robot| {
-      is_robot_active(robot)
-        && robot
-          .source_revision
-          .as_deref()
-          .is_some_and(|source| took_as_is(source, table.tip_of(name), remote.branches.get(name)))
-    });
+    let start_blocked = start_blocked(robot, table.tip_of(name), remote.branches.get(name));
     let last_commit = start_blocked.then(|| StartRefusal::LastCommit {
       robot_id: robot.map_or_default(|robot| robot.id.clone()),
     });
@@ -570,13 +570,7 @@ pub fn patronus_view(
     let hold_robot_id = robot
       .filter(|robot| holds(robot) && robot.stack_root.as_deref() == Some(root))
       .map(|robot| robot.id.clone());
-    let start_blocked = robot.is_some_and(|robot| {
-      is_robot_active(robot)
-        && robot
-          .source_revision
-          .as_deref()
-          .is_some_and(|source| took_as_is(source, stack.tip.as_deref(), remote.stacks.get(root)))
-    });
+    let start_blocked = start_blocked(robot, stack.tip.as_deref(), remote.stacks.get(root));
     let last_commit = start_blocked.then(|| StartRefusal::LastCommit {
       robot_id: robot.map_or_default(|robot| robot.id.clone()),
     });
