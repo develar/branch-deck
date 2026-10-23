@@ -130,6 +130,9 @@ of every `bd` process never collide and sort by time). `src-tauri/src/command_sc
   span, so a line reads `get_pull_requests{…}:operation{operation_id=…}: message`. A blocking step of the body, git or
   the file system, runs through `run_blocking` on the pool, inside the caller's span; a command whose body is that one
   step needs no `operation`: `run_blocking` alone is the operation then (a task-local tells it whether one is open).
+  Opening the object cache is such a step: its first open runs `rev-parse --git-common-dir` and opens LMDB, so an async
+  command opens it inside `run_blocking` or in a `move ||` closure a core runs off the workers
+  (`an_async_command_opens_the_object_cache_off_the_async_workers`; `get_robot_stats` opened it on the worker).
 - An error leaves with the id: `CommandError.operation_id` (an error that names one keeps it), which the page records
   with its Activity entry (`operationId`) and in its log line of the error. An error raised outside a command has none.
 - A thread starts without a span: `spawn_blocking`, a `JoinSet`, a scoped thread and `tokio::spawn` would log their

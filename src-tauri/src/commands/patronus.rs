@@ -127,7 +127,11 @@ pub async fn get_robot_stats(
     };
     let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
     let reads = patronus.stats_reads.get_with(params.repository_path.clone(), || Arc::new(tokio::sync::Mutex::new(())));
-    let cache = repository_state.object_cache(&git_executor, &params.repository_path);
+    // the first open runs `rev-parse` and opens LMDB: off the async workers
+    let cache = {
+      let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
+      run_blocking(move || anyhow::Ok(repository_state.object_cache(&git, &path))).await?
+    };
     let source = RobotStatsSource {
       service: &patronus.service,
       cache: &cache,

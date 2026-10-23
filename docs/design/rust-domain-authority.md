@@ -746,7 +746,7 @@ repository». Аудит всех функций в тот же день наш�
 | Окно review | range review — два `diff-tree -M --numstat` параллельно (`file-diffs/src/service.rs:509`); prefetch соседей по заголовкам, cores-1 потоков на поток (`CommitReview.tsx:117`); Find — ⌈blobs/64⌉ параллельных `cat-file` (`blob-texts.ts:87`); подсветка шлёт текст в каждом вызове (`backend-syntax.ts:154`); повтор ⌘B — две file view, поздний ответ в другом коммите (`useSymbolNavigation.ts:75`); refresh uncommitted во время чтения теряется, ключ без репозитория (`file-stream.ts:71`) | один кэш списка range с join; соседи после `complete` или с низким приоритетом в общем пуле, join пары; блобы последовательно; текст один раз; одна навигация в полёте с поколением; trailing refresh, ключ с путём | live |
 | Lease pool | повтор `bd lease return` или `clean --free` чистит слот, уже выданный другому (`lease.rs:992`); `worktree prune` соседнего get может удалить admin dir клона (`lease.rs:673`) | `Returning`/`cleaning` под pool lock; `worktree add --lock`, `unlock` после swap | live |
 | Смена репозитория | результаты push, старт, PR-действия, toast и Activity применяются по имени к новому репозиторию (`push.ts:206`, `activity.ts:120`); `pushingBranches` по имени блокирует push одноимённой ветки | всё по `SessionKey`; состояние операций — в сессии | live (захват), s6, s9, s12 |
-| Async-команды Tauri | `get_robot_stats` открывает object cache (`rev-parse`, LMDB) на потоке tokio (`patronus.rs:126`) | блокирующее — только в `run_blocking`, scan-тест | s12 |
+| Async-команды Tauri | `get_robot_stats` открывал object cache (`rev-parse`, LMDB) на потоке tokio (`patronus.rs:126`); сделано (`fix/remote-perf`): открытие в `run_blocking`, scan-тест `an_async_command_opens_the_object_cache_off_the_async_workers` | блокирующее — только в `run_blocking`, scan-тест | live (object cache), s12 |
 
 ### Бюджеты конкурентности
 
@@ -1726,7 +1726,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   (чтения; сессия и операции; окна и приложение); test-server — тонкий хост `app-api` с fakes и `TestClock`.
   `e2e-testing.md` переписан. **Конкурентность:** `api_commands!` требует `SessionKey` у каждой команды сессии и
   intent'а по типу (команда не читает «выбранный» репозиторий); блокирующие вызовы (`object_cache`, `git_common_dir`,
-  `github_repository`) — только внутри `run_blocking` (сегодня `get_robot_stats`, `patronus.rs:126`); записи
+  `github_repository`) — только внутри `run_blocking` (object cache уже проверяет scan-тест команд); записи
   `SetRepositoryConfig` сериализуются на common dir в теле команды, ответы несут `seq`.
 - **Удаляется:** тела `src-tauri/src/commands/*`, ручные маршруты `test-server/src/lib.rs`, `tauri_command_bridge.rs`,
   локальные обработчики `tauri-mocks.ts` (~20), `PAGE_MOCKED` (остаётся явный типизированный список page-local плагинов).

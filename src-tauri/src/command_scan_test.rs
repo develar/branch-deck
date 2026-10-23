@@ -18,6 +18,8 @@ struct Command {
   /// `name: Type` of each argument
   arguments: Vec<(String, String)>,
   fallible: bool,
+  /// `pub async fn`: its body runs on a worker of the async runtime
+  asynchronous: bool,
   body: String,
 }
 
@@ -125,6 +127,7 @@ fn commands_of(path: &Path, text: &str) -> Vec<Command> {
       instrument,
       arguments,
       fallible: returns.starts_with("Result<") && returns.contains("CommandError>"),
+      asynchronous: signature.contains("async fn "),
       body: lines[body_start..end].join("\n"),
     });
     index = end;
@@ -326,6 +329,62 @@ fn the_span_of_a_command_records_no_argument_that_holds_a_collection() {
     report.is_empty(),
     "a line of the log carries the Debug text of every recorded argument, whole:\n{}\nInstead: `#[instrument(skip_all, fields(repository_path = %params.repository_path, robots = params.robots.len()))]`, before `#[specta::specta]`",
     report.join("\n")
+  );
+}
+
+/// The byte ranges of the arguments of each `run_blocking(…)` call of `body`
+fn blocking_spans(body: &str) -> Vec<std::ops::Range<usize>> {
+  body
+    .match_indices("run_blocking(")
+    .filter_map(|(start, call)| {
+      let open = start + call.len() - 1;
+      let mut depth = 0;
+      body[open..].char_indices().find_map(|(offset, c)| {
+        match c {
+          '(' => depth += 1,
+          ')' => depth -= 1,
+          _ => {}
+        }
+        (depth == 0).then_some(open..open + offset)
+      })
+    })
+    .collect()
+}
+
+/// The lines of an async `body` that open the object cache on the worker: neither inside a `run_blocking(…)` nor in a
+/// `move ||` closure a core runs off the workers (`RemoteActions::start_robot`)
+fn object_cache_on_the_worker(body: &str) -> Vec<String> {
+  let spans = blocking_spans(body);
+  let mut offset = 0;
+  let mut lines = Vec::new();
+  for line in body.split_inclusive('\n') {
+    if let Some(at) = line.find("object_cache(")
+      && !line.contains("move ||")
+      && !spans.iter().any(|span| span.contains(&(offset + at)))
+    {
+      lines.push(line.trim().to_owned());
+    }
+    offset += line.len();
+  }
+  lines
+}
+
+#[test]
+fn an_async_command_opens_the_object_cache_off_the_async_workers() {
+  let mut report = Vec::new();
+  for command in commands().iter().filter(|command| command.asynchronous) {
+    for line in object_cache_on_the_worker(&command.body) {
+      report.push(format!("  {} ({}): {line}", command.name, command.place));
+    }
+  }
+  assert!(
+    report.is_empty(),
+    "the first open of the object cache runs `rev-parse` and opens LMDB, which blocks a worker of the async runtime: open it inside `run_blocking(…)` (docs/design/async-patterns.md):\n{}",
+    report.join("\n")
+  );
+  assert_eq!(
+    object_cache_on_the_worker("  let cache = repository_state.object_cache(&git, &path);\n  run_blocking(move || {\n    let cache = state.object_cache(&git, &path);\n  })"),
+    ["let cache = repository_state.object_cache(&git, &path);"]
   );
 }
 
