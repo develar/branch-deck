@@ -3,6 +3,7 @@ import type { PatronusStartOptions } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
 import { closeMenus, openSubmenu } from "./selection-helpers"
+import { animationsEnded } from "./wait-helpers"
 
 /** The merge profiles of master without any: a start runs the default checks */
 export const DEFAULT_CHECKS_ONLY: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
@@ -73,7 +74,7 @@ export async function pathRows(page: Page): Promise<string[]> {
 export async function expectPopoverAtSlot(popover: Locator, slot: Locator): Promise<void> {
   await expect
     .poll(async () => {
-      await popover.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => null))))
+      await animationsEnded(popover)
       const box = (await popover.boundingBox())!
       const anchor = (await slot.boundingBox())!
       return Math.min(Math.abs(box.y - (anchor.y + anchor.height)), Math.abs(box.y + box.height - anchor.y))

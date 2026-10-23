@@ -16,6 +16,21 @@ export async function waitForProcessingComplete(page: Page, element: Locator): P
 }
 
 /**
+ * Resolves once the animations of `elements` and their subtrees ended (an infinite one, a spinner, is left out): a popup
+ * zooms or slides in as it opens, and a pointer put on it meanwhile ends on what the animation moves under it
+ */
+export async function animationsEnded(elements: Locator): Promise<void> {
+  await elements.evaluateAll(nodes =>
+    Promise.all(
+      nodes
+        .flatMap(node => node.getAnimations({ subtree: true }))
+        .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map(animation => animation.finished.catch(() => null)),
+    ),
+  )
+}
+
+/**
  * Holds every call of a Tauri command (e.g. `sync_branches`) in the mock until the returned function releases them, to
  * check the page while the command runs; then it goes on to the routes of the command registered before (a rewrite of
  * its answer), else to the test server

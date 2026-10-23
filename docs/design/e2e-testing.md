@@ -447,7 +447,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   after a sync shows with its own element: the autosquash plan with the fixup count of a row. Sync is enabled while
   the branch prefix still loads: the "Ready to Sync" card says it is loaded. The unassigned commits card is a lazy
   chunk above the table: it can render seconds after the rows and move them away from the pointer of a hover, so
-  `syncBranches` waits until its fallback (`unassigned-commits-loading`) is gone
+  `syncBranches` waits until its fallback (`unassigned-commits-loading`) is gone. A menu zooms in as it opens, late
+  under load: an item hovered meanwhile moves away under the pointer and its leave cancels the hover open, so
+  `openSubmenu` hovers once the animations of the open menus ended (`animationsEnded`)
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The warnings of the Patronus
   and the YouTrack client and service are left out (`patronus::client=error`, `youtrack=error`): each failed request
