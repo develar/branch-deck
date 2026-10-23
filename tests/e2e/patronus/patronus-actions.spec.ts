@@ -135,15 +135,20 @@ async function setupStarts(
 /** What the fake did for a start of JIRA-456 that replaces its running robot `OLDER`: canceled it, started a new one */
 const REPLACED = { cancels: [OLDER.id], restarts: [], starts: [startRequest("JIRA-456").sourceBranch] }
 
-/** A Safe Push of an older commit of JIRA-456 runs; the remote branch has its commits, rebuilt since on a newer baseline */
+/** The next sync finds the commits of JIRA-456 on its remote branch, rebuilt since on a newer baseline: a start pushes nothing */
+async function remoteHasCommitsOfJira(page: Page): Promise<void> {
+  await rewriteNextRemoteStatus(page, status =>
+    status.branchName === "JIRA-456" ? { ...status, remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } : status,
+  )
+}
+
+/** A Safe Push of an older commit of JIRA-456 runs; the remote branch has its commits (`remoteHasCommitsOfJira`) */
 async function setupOlderWithPushedCommits(
   page: Page,
   setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
 ): Promise<TestRepositoryBuilder> {
-  await rewriteNextRemoteStatus(page, status =>
-    status.branchName === "JIRA-456" ? { ...status, remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } : status,
-  )
+  await remoteHasCommitsOfJira(page)
   return setupRobots(page, setupRepo, syncAndWaitForBranches, OLDER)
 }
 
@@ -937,11 +942,10 @@ test.describe("Patronus actions", () => {
     })
 
     test("should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
-      const started = robotOfComment()
-      // the 👍 comes, the robot is listed only later
-      let listed = false
-      await routeCommand(page, "get_patronus_robots", params => (params.since !== null && listed ? availableRobots(started) : availableRobots()))
+      // nothing to push: the start is the comment alone
+      await remoteHasCommitsOfJira(page)
+      const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7))
+      // the 👍 comes, the fake Patronus lists the robot only later
 
       await openSafePushWithKey(page, "JIRA-456")
       await popoverStart(page).click()
@@ -960,7 +964,7 @@ test.describe("Patronus actions", () => {
       expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
 
       // the look in the background finds the robot, which takes the slot of the start ("Starting…" above)
-      listed = true
+      await repo.setPatronus(availableRobots(robotOfComment()))
       await page.clock.fastForward(15_000)
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
       await expect(slotSafePush(page, "JIRA-456")).toHaveCount(0)
