@@ -54,8 +54,11 @@ tree is never written, and the user's other staged work stays staged.
 
 - The Uncommitted Changes card must show the diff of each changed file as the diff engine computes it, the working
   tree against HEAD under the whitespace policy, with the engine's `+N −M` in its header; a new answer of the
-  uncommitted changes reads the diffs again, the shown ones stay meanwhile.
+  uncommitted changes reads the diffs again, the shown ones stay meanwhile. A new answer during a read reads them once
+  more after it (never dropped, however many came). The diffs are of the working tree of their repository: those of
+  another repository are another entry, never shown for this one.
   [@test] ../../src/stores/file-diffs.test.ts (`reads the uncommitted changes again on a refresh, and keeps the loaded ones until the new read ends`)
+  [@test] ../../src/stores/file-diffs.test.ts (`reads the uncommitted changes once more after a refresh asked during a read, never dropping it`, `keeps the uncommitted changes of two repositories apart, each read from its own working tree`)
 
 ### Working tree and index
 

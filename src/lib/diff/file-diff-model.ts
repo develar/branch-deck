@@ -13,8 +13,11 @@ export interface FileDiff extends DiffFileHeader {
   content: DiffContent
 }
 
-/** What a diff shows: a commit, a range, or the uncommitted changes of the working tree */
-export type FileDiffSubject = DiffSubject | { readonly kind: "uncommitted" }
+/**
+ * What a diff shows: a commit, a range, or the uncommitted changes of the working tree of a repository (a commit and a
+ * range are the same diff in every repository that has them, the working trees are not)
+ */
+export type FileDiffSubject = DiffSubject | { readonly kind: "uncommitted"; readonly repositoryPath: string }
 
 /** The source of the backend for a subject */
 export function diffSourceOf(subject: FileDiffSubject): DiffSource {
@@ -28,7 +31,7 @@ export function diffSourceOf(subject: FileDiffSubject): DiffSource {
   }
 }
 
-/** The id of a subject in the stores: the commit id, `<base>..<head>`, or "uncommitted" */
+/** The id of a subject in the stores: the commit id, `<base>..<head>`, or `uncommitted:<repository path>` */
 export function fileDiffSubjectId(subject: FileDiffSubject): string {
   switch (subject.kind) {
     case "commit":
@@ -36,6 +39,6 @@ export function fileDiffSubjectId(subject: FileDiffSubject): string {
     case "range":
       return `${subject.base}..${subject.head}`
     case "uncommitted":
-      return "uncommitted"
+      return `uncommitted:${subject.repositoryPath}`
   }
 }

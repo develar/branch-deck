@@ -25,6 +25,8 @@ function header(path: string): DiffFileHeader {
 
 const BINARY: DiffContent = { kind: "binary" }
 
+const UNCOMMITTED = { kind: "uncommitted", repositoryPath: "/repo" } as const
+
 /** The answer of a subject: its one file, binary, as the backend streams it */
 async function answer(params: GetFileDiffsParams, events: Events) {
   const path = params.source.kind === "commit" ? params.source.id : params.source.kind
@@ -91,7 +93,7 @@ describe("loadFileDiffs", () => {
   })
 
   it("reads the uncommitted changes again on a refresh, and keeps the loaded ones until the new read ends", async () => {
-    loadFileDiffs({ kind: "uncommitted" }, "default")
+    loadFileDiffs(UNCOMMITTED, "default")
     await settle()
     let release = () => {}
     getFileDiffs.mockImplementationOnce(
@@ -104,10 +106,43 @@ describe("loadFileDiffs", () => {
           }
         }),
     )
-    loadFileDiffs({ kind: "uncommitted" }, "default", { refresh: true })
-    expect(entryOf({ kind: "uncommitted" })).toEqual({ kind: "loaded", files: [{ ...header("uncommitted"), content: BINARY }], complete: true })
+    loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
+    expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("uncommitted"), content: BINARY }], complete: true })
     release()
-    await vi.waitFor(() => expect(entryOf({ kind: "uncommitted" })).toEqual({ kind: "loaded", files: [{ ...header("next"), content: BINARY }], complete: true }))
+    await vi.waitFor(() => expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("next"), content: BINARY }], complete: true }))
+  })
+
+  it("reads the uncommitted changes once more after a refresh asked during a read, never dropping it", async () => {
+    let release = () => {}
+    getFileDiffs.mockImplementationOnce(
+      (params: GetFileDiffsParams, events: Events) =>
+        new Promise(resolve => {
+          release = () => resolve(answer(params, events))
+        }),
+    )
+    loadFileDiffs(UNCOMMITTED, "default")
+    // the files change during the read: the form asks again, twice
+    getFileDiffs.mockImplementationOnce(async (_params: GetFileDiffsParams, events: Events) => {
+      events.onmessage({ kind: "files", files: [header("changed")] })
+      events.onmessage({ kind: "content", index: 0, content: BINARY })
+      return { status: "ok", data: null }
+    })
+    loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
+    loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
+    release()
+    await vi.waitFor(() => expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("changed"), content: BINARY }], complete: true }))
+    // one read after the one that ran, for both refreshes
+    expect(getFileDiffs).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps the uncommitted changes of two repositories apart, each read from its own working tree", async () => {
+    const other = { kind: "uncommitted", repositoryPath: "/other" } as const
+    loadFileDiffs(UNCOMMITTED, "default")
+    loadFileDiffs(other, "default")
+    await settle()
+    expect(getFileDiffs.mock.calls.map(([params]) => (params as GetFileDiffsParams).repositoryPath)).toEqual(["/repo", "/other"])
+    expect(fileDiffsKey(UNCOMMITTED, "default")).not.toBe(fileDiffsKey(other, "default"))
+    expect(entryOf(other)?.kind).toBe("loaded")
   })
 
   it("says why a first read failed", async () => {

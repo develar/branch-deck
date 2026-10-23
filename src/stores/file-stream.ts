@@ -34,7 +34,8 @@ export interface FileStream<F extends { path: string }, E> {
   store: StoreApi<FileStreamState<F>>
   /**
    * Reads the files of a key through `open` unless they are loaded or being read; a failed read is tried again. With
-   * `refresh` the loaded files are read again, and they stay shown until the new read ends.
+   * `refresh` the loaded files are read again, and they stay shown until the new read ends; a refresh asked while the
+   * key is read reads once more after that read (the last `open` asked), so a change during a read is never lost.
    */
   load: (key: string, open: (channel: Channel<E>) => Promise<CommandResult<null>>, refresh?: boolean) => void
 }
@@ -51,6 +52,8 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
   const store = createStore<FileStreamState<F>>(() => ({ byKey: new Map() }))
   // the keys whose stream runs: a key is read once at a time
   const reading = new Set<string>()
+  // the refreshes asked while their key is read: the read after it, by the last `open` asked
+  const trailing = new Map<string, (channel: Channel<E>) => Promise<CommandResult<null>>>()
 
   const setEntry = (key: string, entry: FileStreamEntry<F>, evict: boolean) =>
     store.setState(state => {
@@ -69,6 +72,9 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
   const load = (key: string, open: (channel: Channel<E>) => Promise<CommandResult<null>>, refresh = false) => {
     const entry = store.getState().byKey.get(key)
     if (reading.has(key)) {
+      if (refresh) {
+        trailing.set(key, open)
+      }
       return
     }
     if (entry?.kind === "loaded" && !refresh) {
@@ -131,11 +137,22 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
           if (streams) {
             setEntry(key, { kind: "error", message: result.error.message }, true)
           }
+          readTrailing(key)
           return
         }
       }
       flush(true)
+      readTrailing(key)
     })
+  }
+
+  /** The refresh asked while the read of `key` ran, now that it ended */
+  function readTrailing(key: string): void {
+    const open = trailing.get(key)
+    if (open !== undefined) {
+      trailing.delete(key)
+      load(key, open, true)
+    }
   }
 
   return { store, load }

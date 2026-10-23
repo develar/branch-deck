@@ -49,10 +49,11 @@ export interface LoadFileDiffsOptions {
  * tried again. The backend streams them: the files, then the content of each as it is known, the `priorityPaths`
  * first, then the scopes of a text it parsed late. A file appears in the entry with its content; the scopes replace
  * the content of their file, which keeps its fold levels. A commit or a range never changes; the uncommitted changes
- * do, so `refresh` reads them again, and the loaded ones stay shown until the new read ends.
+ * do, so `refresh` reads them again, and the loaded ones stay shown until the new read ends; a refresh asked while a
+ * read runs reads once more after it.
  */
 export function loadFileDiffs(subject: FileDiffSubject, policy: WhitespacePolicy, { refresh = false, priorityPaths = [] }: LoadFileDiffsOptions = {}): void {
-  const repositoryPath = getDiffRepositoryPath()
+  const repositoryPath = subject.kind === "uncommitted" ? subject.repositoryPath : getDiffRepositoryPath()
   if (!repositoryPath) {
     return
   }

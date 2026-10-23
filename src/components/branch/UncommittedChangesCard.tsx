@@ -6,6 +6,7 @@ import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { NestedPanel } from "@/components/shared/NestedPanel"
 import type { UncommittedChangesResult, UncommittedFileChange } from "@/lib/bindings"
 import { parseFileStatus } from "@/lib/commit-files"
+import { useSelectedProjectPath } from "@/stores/repository"
 import { useDiffViewMode } from "@/stores/settings/diff-view-settings"
 
 export interface UncommittedChangesCardProps {
@@ -17,6 +18,8 @@ export interface UncommittedChangesCardProps {
 /** Preview of the uncommitted changes in the amend form, a panel nested in the expanded row. */
 export function UncommittedChangesCard({ diffData, loading, error }: UncommittedChangesCardProps) {
   const diffViewMode = useDiffViewMode()
+  // the working tree of the repository the form shows: another one's uncommitted changes are another entry
+  const repositoryPath = useSelectedProjectPath() ?? ""
   const hasChanges = !loading && !error && diffData?.hasChanges === true
 
   return (
@@ -46,7 +49,7 @@ export function UncommittedChangesCard({ diffData, loading, error }: Uncommitted
           <div className="bd-padding-card">
             {/* a new answer of the uncommitted changes reads their diffs again */}
             <SubjectFileDiffList
-              subject={{ kind: "uncommitted" }}
+              subject={{ kind: "uncommitted", repositoryPath }}
               files={toDiffListFiles(diffData.files)}
               keyPrefix="uncommitted"
               diffViewMode={diffViewMode}
