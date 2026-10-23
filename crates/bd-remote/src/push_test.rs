@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use sync_core::push::{PushBranchParams, PushOutcome, push_branches};
 use tempfile::TempDir;
-use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, pre_receive_hook, refuse_every_push};
 
 const AUTH: &str = "test-user/virtual/auth";
 
@@ -392,6 +392,30 @@ fn a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved() {
   let names: Vec<&Value> = rejected.iter().map(|branch| &branch["name"]).collect();
   assert_eq!(names, [&json!("login")]);
   assert_eq!(dropped_subjects(&rejected[0]["remote"]), ["Someone else"]);
+}
+
+/// `bd push` holds the repository lock while it syncs and decides, not while it pushes: the commits and the leases are
+/// fixed under it, and the network push sends them after it, so another writer never waits for the network. The hook of
+/// the remote, which runs while the push goes, finds no holder record of the lock (`branch-deck.lock.holder`)
+#[test_log::test]
+fn the_network_push_holds_no_repository_lock() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let holder = repo.path().join(".git/branch-deck.lock.holder");
+  let seen = remote.path().join("lock-seen");
+  pre_receive_hook(
+    remote.path(),
+    &format!(
+      "if [ -e '{}' ]; then echo held > '{}'; else echo free > '{}'; fi",
+      holder.display(),
+      seen.display(),
+      seen.display()
+    ),
+  );
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(std::fs::read_to_string(&seen).unwrap(), "free\n");
+  assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
 /// The leases held, yet the remote refused the push (a hook, a protected branch): `push_refused` with what git said,

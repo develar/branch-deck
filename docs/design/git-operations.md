@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-19  
+**Updated:** 2026-10-23  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import, lease]
 
 ## Problem
@@ -230,8 +230,11 @@ written, except by Update Project and the finish of its resolve session (their o
    only the ones that differ are written.
 7. **Git 2.54 or newer**, checked when the executor discovers git, on every platform, so that every command fails
    early with an install or upgrade hint.
-8. **Every push of virtual branches holds the repository lock and decides in Rust what may go**: `bd push` and `bd
-   safe-push` after their sync, the app's `push_branch` and `push_branches` through `repository_model::push_guard`. A
+8. **Every push of virtual branches decides under the repository lock, in Rust, what may go, and pushes after it**:
+   `bd push` and `bd safe-push` after their sync, the app's `push_branch` and `push_branches` through
+   `repository_model::push_guard`. Under the lock the commits and the leases are fixed; the network push sends exactly
+   them (`<commit>:refs/heads/<name>`, `--force-with-lease=refs/heads/<name>:<lease>`) after it, so no writer waits
+   for the network and a branch moved meanwhile changes nothing of what goes. A
    parked branch, one built on parked, one a merged Safe Push landed whole and one a running Safe Push holds are
    refused by the same view of the robots (`patronus_view`) on both sides, whatever the page checked before ("App
    stack push").
@@ -504,11 +507,12 @@ options), and the app's squash and its undo, squash fixups (also `bd fold`), ame
 `held_lock` for a caller that holds the lock already, so the core takes none, and `expect_head`, the HEAD the request
 was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`, one check for every core). The app
 shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
-Branch Deck operation holds … ; retry when it is done". `bd push`, `bd safe-push` (until its push; with
-`--check` only its sync),
+Branch Deck operation holds … ; retry when it is done". `bd push` and `bd safe-push` (until the commits of their
+push are fixed, the network push after it; with `--check` only its sync),
 `bd move-hunk`, `bd pick` (after its check, the witness and the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
-(`push_branch`, `push_branches`: `push_guard`, on the `$GIT_COMMON_DIR` the app keeps, so the push and its checks see
-the branches no other writer moves meanwhile; "App stack push"), and so does Update Project (the app's and `bd update`, which also starts a
+(`push_branch`, `push_branches`: `push_guard`, on the `$GIT_COMMON_DIR` the app keeps, so the checks see the branches
+no other writer moves meanwhile and fix the commits that go; it holds the lock only for that, and pushes those commits
+after it, so the app's pushes run side by side; "App stack push"), and so does Update Project (the app's and `bd update`, which also starts a
 resolve session under it) after its fetch and its check, for the witness, the local changes and the move, and `bd update --continue` and `--abort`; `bd update --status` and
 `--continue --dry-run` take none. A holder writes who it is next to the lock (`branch-deck.lock.holder`: the command line, the pid, the start of
 the process and the time, through a temporary file and a rename) once it has the lock, and deletes it before it
@@ -2262,7 +2266,9 @@ Code: `crates/trial-check/src/conflict_fix.rs`, `src-tauri/src/commands/conflict
 
 #### Agent push (`bd push`)
 
-`bd push` syncs and pushes under the repository lock, so the refs it pushes are the ones it just built. It reads
+`bd push` syncs and fixes the commits and leases of its push under the repository lock, so the refs it pushes are the
+ones it just built, and releases the lock before the network push (`push_locked` drops the lock it is given), which
+sends those commits; the restart of a robot and the texts of the pull requests come after it too. It reads
 nothing the sync read again: the stack (`GroupedBranchInfo::stack`, `StackForest::order`), the tips the sync left,
 the remote tips of `origin`, the remotes and the descriptions come from its `SyncReport`. Besides the push it reads
 only the push URL of `origin`, once per command (`RepoContext::origin_url`: the Space repository of the holds, the
@@ -2323,7 +2329,8 @@ Code: `crates/bd-remote/src/push_command.rs`, `crates/sync-core/src/push.rs`, `c
 #### Agent Safe Push (`bd safe-push`)
 
 `bd safe-push` pushes the branch exactly as `bd push <branch>` does (`push_locked`, the same sync, refusals and
-lease), so its git side adds only reads before the push, all under the repository lock with the sync. `--check` writes
+lease), so its git side adds only reads before the push, all under the repository lock with the sync; the network
+push (also of the stack branch of a whole stack, `push_stack_branch`) and the start run after the lock. `--check` writes
 nothing after its sync and releases the lock then: its trial builds and the questions to Patronus and GitHub keep no
 other `bd` writer waiting. A stacked
 branch lands with its ancestors in one robot ([Landing](landing.md)): the push takes the ancestors with work for the
@@ -2696,16 +2703,25 @@ lacks, and its pull request showing the parent's commits.
    `bd push` reads its holds, and a Patronus that is down holds no push up), read before the lock, as no network
    request runs under it. The kept list serves only the page: a start, a restart, a cancel or a poll that saw a change
    makes the page's next list ask Patronus and drops a list in flight (`forget_full_lists`, a generation). Then, in a
-   blocking step (`push_guarded`), the repository lock
+   blocking step (`push_guarded`), the refs of the push claimed in the process (`PushingRefs`: a push of a ref
+   another push of the app writes, the same branch twice or two whole stacks of one stack branch, waits for it without
+   a bound, since both lease on the head the user saw and the second would find the lease broken; the pushes of other
+   refs run side by side), then the repository lock
    (`lock_repository_in` on the `$GIT_COMMON_DIR` the host knows, the app per repository from `RepositoryStateCache`:
-   no git process), bounded by `DEFAULT_LOCK_TIMEOUT` ("Nothing was pushed: `bd group` (…) holds the repository; try
-   again when it is done"), and under it the checks of `bd push` on the table of `RepositoryViews` and the Patronus
+   no git process), bounded by `DEFAULT_LOCK_TIMEOUT` for another holder (`bd`, a rewrite: "Nothing was pushed: `bd
+   group` (…) holds the repository; try again when it is done"). The lock is held only while the push is decided:
+   under it the checks of `bd push` on the table of `RepositoryViews` and the Patronus
    view of the robots (`guard_facts`, through the memo of the views): a branch the table has no row of, a parked
    branch or one built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (its own, of a
    branch built on it, of its whole stack), the stack branch of a whole stack with a parked member, landed whole, whose
    robot runs on it or that is not `built` (the page decided on a built one; a sync since takes no lock); an unapplied
    branch only takes the lock. The page checks the same before (step 1) and says it in its words; these refuse what
-   raced with a start or came by IPC.
+   raced with a start or came by IPC. Still under it the commits are fixed (`prepare_push_branches`: step 3 up to the
+   push); the network push of step 3 runs after the lock (`PreparedPush::send`), each ref as its fixed commit
+   (`<commit>:refs/heads/<name>`, `PushRef::refspec`) and leased on the remote head the row showed, so a sync or a
+   rewrite that moves a branch meanwhile changes nothing of what goes. Several Safe Pushes pressed one after another
+   push at once; while the push held the lock to its end, one of a branch pressed during a push of another longer than
+   10 s was refused with the app itself as the holder.
 3. `push_branches` first refuses a branch the last sync did not build (`not_built_refusal`, by `SyncReport::not_built`,
    which the Tauri commands take from the table of `RepositoryViews` and `bd` from its own sync): a conflict, an error
    or a ref another process moved leaves the virtual branch at an older build, of commits the branch may no longer

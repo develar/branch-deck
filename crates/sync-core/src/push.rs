@@ -182,10 +182,10 @@ pub enum PushBranchesOutcome {
 }
 
 /// Force-pushes the virtual branches to `origin` in one atomic `git push`, each leased on the remote head the user saw
-/// (`push_lease`): the stack goes whole or not at all. The tips are read once (`prepare_push_expecting`), a branch pushed
+/// (`push_lease`): the stack goes whole or not at all. The tips are read once (`prepare_push_branches`), a branch pushed
 /// up to a commit is checked (`check_push_tip`), and a remote branch that moved meanwhile is fetched, not overwritten:
-/// the outcome names it, with the remote statuses after the fetch. A branch the last sync did not build (`not_built`)
-/// refuses the whole push (`not_built_refusal`). `on_progress` gets how far the push is.
+/// the outcome names it, with the remote statuses after the fetch (`PreparedPush::send`). A branch the last sync did
+/// not build (`not_built`) refuses the whole push (`not_built_refusal`). `on_progress` gets how far the push is.
 #[instrument(skip(git_executor, not_built, on_progress), fields(repository_path = %params.repository_path, branches = params.branches.len()))]
 pub fn push_branches(
   git_executor: &GitCommandExecutor,
@@ -193,11 +193,13 @@ pub fn push_branches(
   not_built: &HashMap<String, BlockReason>,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<PushBranchesOutcome> {
-  if let Some(refusal) = not_built_refusal(not_built, &params.branches) {
-    bail!(refusal);
-  }
-  let repository_path = &params.repository_path;
-  let names = params
+  prepare_push_branches(git_executor, params, not_built)?.send(git_executor, on_progress)
+}
+
+/// The full names of the refs a push of `branches` writes (`{prefix}/virtual/<branch>`, `{prefix}/stack/<root>` of a
+/// whole stack, `{prefix}/unapplied/<branch>`), each with the virtual branch of its parent; no git process
+pub fn push_ref_names(params: &PushBranchesParams) -> Result<Vec<(String, Option<String>)>> {
+  params
     .branches
     .iter()
     .map(|branch| {
@@ -215,7 +217,32 @@ pub fn push_branches(
         .transpose()?;
       Ok((final_name, parent_ref))
     })
-    .collect::<Result<Vec<_>>>()?;
+    .collect()
+}
+
+/// A push whose commits and leases are fixed (`prepare_push_branches`): each ref goes as the commit it was at then
+/// (`<commit>:refs/heads/<name>`), leased on the remote head the user saw, so a branch that moves before `send` changes
+/// nothing of what goes
+#[derive(Debug)]
+pub struct PreparedPush {
+  repository_path: String,
+  baseline: String,
+  my_email: Option<String>,
+  branches: Vec<LeasedBranch>,
+  /// `StackPushBranch::whole_stack` of each branch, in their order
+  whole_stack: Vec<bool>,
+}
+
+/// The local part of `push_branches`, for a caller that checks what goes under the repository lock and pushes after
+/// it: the refusal of a branch the last sync did not build (`not_built_refusal`), the tips read with one `for-each-ref`
+/// (`prepare_push_expecting`), the commit of a push up to it checked (`check_push_tip`). No network
+#[instrument(skip(git_executor, not_built), fields(repository_path = %params.repository_path, branches = params.branches.len()))]
+pub fn prepare_push_branches(git_executor: &GitCommandExecutor, params: &PushBranchesParams, not_built: &HashMap<String, BlockReason>) -> Result<PreparedPush> {
+  if let Some(refusal) = not_built_refusal(not_built, &params.branches) {
+    bail!(refusal);
+  }
+  let repository_path = &params.repository_path;
+  let names = push_ref_names(params)?;
   let expected: Vec<(String, Option<String>)> = names
     .iter()
     .zip(&params.branches)
@@ -239,28 +266,43 @@ pub fn push_branches(
       parent_ref,
     })
     .collect();
-  let target = PushTarget {
-    repository_path,
-    remote: "origin",
-    baseline: &params.baseline_branch,
-    my_email: params.my_email.as_deref(),
-  };
-  // one ref needs no `--atomic`, which a remote may not support
-  let options = PushOptions {
-    atomic: branches.len() > 1,
-    dry_run: false,
-  };
-  match push_leased(git_executor, &target, &branches, options, Some(on_progress))? {
-    LeasedPush::Pushed(_) => Ok(PushBranchesOutcome::Pushed {
-      remote_statuses: leased_statuses(git_executor, &target, &branches).context("Failed to compute remote status")?,
-    }),
-    LeasedPush::RemoteMoved { moved, remote_statuses } => Ok(PushBranchesOutcome::RemoteMoved {
-      branch_name: branches[moved[0]].name.clone(),
-      whole_stack: params.branches[moved[0]].whole_stack,
-      remote_statuses,
-    }),
-    LeasedPush::Refused { summary } => bail!("The remote rejected the push: {summary}"),
-    LeasedPush::WouldReject => bail!("The remote would reject the push"),
+  Ok(PreparedPush {
+    repository_path: repository_path.clone(),
+    baseline: params.baseline_branch.clone(),
+    my_email: params.my_email.clone(),
+    branches,
+    whole_stack: params.branches.iter().map(|branch| branch.whole_stack).collect(),
+  })
+}
+
+impl PreparedPush {
+  /// The network part of `push_branches`: one `git push --porcelain --atomic --progress` of the prepared commits
+  /// (`push_leased`), then the remote statuses of the pushed branches, or, refused, of the fetched ones
+  #[instrument(skip_all, fields(repository_path = %self.repository_path, branches = self.branches.len()))]
+  pub fn send(&self, git_executor: &GitCommandExecutor, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<PushBranchesOutcome> {
+    let target = PushTarget {
+      repository_path: &self.repository_path,
+      remote: "origin",
+      baseline: &self.baseline,
+      my_email: self.my_email.as_deref(),
+    };
+    // one ref needs no `--atomic`, which a remote may not support
+    let options = PushOptions {
+      atomic: self.branches.len() > 1,
+      dry_run: false,
+    };
+    match push_leased(git_executor, &target, &self.branches, options, Some(on_progress))? {
+      LeasedPush::Pushed(_) => Ok(PushBranchesOutcome::Pushed {
+        remote_statuses: leased_statuses(git_executor, &target, &self.branches).context("Failed to compute remote status")?,
+      }),
+      LeasedPush::RemoteMoved { moved, remote_statuses } => Ok(PushBranchesOutcome::RemoteMoved {
+        branch_name: self.branches[moved[0]].name.clone(),
+        whole_stack: self.whole_stack[moved[0]],
+        remote_statuses,
+      }),
+      LeasedPush::Refused { summary } => bail!("The remote rejected the push: {summary}"),
+      LeasedPush::WouldReject => bail!("The remote would reject the push"),
+    }
   }
 }
 

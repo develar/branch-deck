@@ -1,4 +1,4 @@
-use crate::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, push_branches};
+use crate::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, prepare_push_branches, push_branches};
 use crate::remote_status::compute_remote_status_for_branch;
 use crate::transfer_progress::TransferProgress;
 use domain_types::RemoteStatusUpdate;
@@ -144,6 +144,33 @@ fn first_push(remote: &TestRepo, local: &TestRepo) -> String {
   assert_eq!((status.remote_tip.as_deref(), status.commits_behind), (Some(tip.as_str()), 0));
   assert!(status.unpushed_commits.is_empty(), "{:?}", status.unpushed_commits);
   tip
+}
+
+/// A push sends the commit it was prepared for (`<commit>:refs/heads/<branch>`), not what the branch is at when it
+/// goes: the app checks and prepares it under the repository lock and pushes after it, while a sync or a rewrite may
+/// move the branch
+#[test]
+fn a_prepared_push_sends_the_commit_it_was_prepared_for() {
+  let (remote, local) = local_with_bare_remote();
+  let checked = local.create_commit("(feature) Add feature", "feature.txt", "feature");
+  set_branch(&local, &checked);
+  let params = PushBranchParams {
+    repository_path: path(&local).to_string(),
+    branch_prefix: "prefix".to_string(),
+    branch_name: "feature".to_string(),
+    my_email: Some("test@example.com".to_string()),
+    baseline_branch: "master".to_string(),
+    parent_branch: None,
+    expected_remote: None,
+    tip: None,
+  };
+  let prepared = prepare_push_branches(local.git_executor(), &params.as_stack(), &HashMap::new()).unwrap();
+  let moved = local.create_commit("(feature) Change feature", "feature.txt", "changed");
+  set_branch(&local, &moved);
+  let status = stack_pushed(prepared.send(local.git_executor(), &mut |_| {}).unwrap());
+  assert_eq!(remote_tip(&remote), Some(checked.clone()));
+  assert_eq!(status[0].remote_tip.as_deref(), Some(checked.as_str()));
+  assert_eq!(rev_parse(&local, BRANCH), Some(moved));
 }
 
 #[test]

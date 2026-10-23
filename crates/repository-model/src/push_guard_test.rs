@@ -7,6 +7,7 @@ use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState, St
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::lock_repository_in;
 use pretty_assertions::assert_eq;
+use std::sync::mpsc;
 use std::time::Duration;
 use sync_core::push::{NOT_SYNCED_YET, PushBranchesOutcome, PushBranchesParams, StackPushBranch};
 use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
@@ -192,23 +193,35 @@ fn an_unapplied_branch_is_checked_by_nothing_but_the_lock() {
   assert_eq!(check(table, &[running("r", "auth", "va1")], &[unapplied]), Ok(()));
 }
 
-/// `stack_ahead_of_bare_origin` and the push of `alpha` and `beta` built on it, parents first
-fn pushable() -> (TestRepo, PushBranchesParams) {
-  let repo = stack_ahead_of_bare_origin();
-  let params = PushBranchesParams {
+/// `beta` of `stack_ahead_of_bare_origin`, built on `alpha`
+fn beta() -> StackPushBranch {
+  StackPushBranch {
+    parent_branch: Some("alpha".to_string()),
+    ..branch("beta")
+  }
+}
+
+/// The push of `branches` of `repo`
+fn push_of(repo: &TestRepo, branches: Vec<StackPushBranch>) -> PushBranchesParams {
+  PushBranchesParams {
     repository_path: repo.path_str().to_string(),
     branch_prefix: "test".to_string(),
     my_email: None,
     baseline_branch: "origin/master".to_string(),
-    branches: vec![
-      branch("alpha"),
-      StackPushBranch {
-        parent_branch: Some("alpha".to_string()),
-        ..branch("beta")
-      },
-    ],
-  };
+    branches,
+  }
+}
+
+/// `stack_ahead_of_bare_origin` and the push of `alpha` and `beta` built on it, parents first
+fn pushable() -> (TestRepo, PushBranchesParams) {
+  let repo = stack_ahead_of_bare_origin();
+  let params = push_of(&repo, vec![branch("alpha"), beta()]);
   (repo, params)
+}
+
+/// The branches of the bare origin of `stack_ahead_of_bare_origin` under the prefix
+fn remote_branches(repo: &TestRepo) -> String {
+  repo.git(&["--git-dir", ".git/origin.git", "for-each-ref", "--format=%(refname)", "refs/heads/test/"])
 }
 
 /// The table a sync of `stack_ahead_of_bare_origin` leaves: `alpha` and `beta` built on it, as the checks need a row
@@ -239,7 +252,8 @@ fn a_guarded_push_runs_the_processes_of_the_core_push() {
   );
 }
 
-/// Another holder of the repository lock (a rewrite, `bd sync`) refuses the push after the wait, and nothing is pushed
+/// Another holder of the repository lock (a rewrite, `bd sync`: the lock file, not a push of this process) refuses the
+/// push after the bounded wait, and nothing is pushed
 #[test]
 fn a_push_while_another_operation_holds_the_lock_is_refused() {
   let (repo, params) = pushable();
@@ -248,9 +262,109 @@ fn a_push_while_another_operation_holds_the_lock_is_refused() {
   views.keep(repo.path_str(), "test", synced_alpha_beta());
   let held = lock_repository_in(&common_dir, Duration::ZERO, &|| {}).unwrap();
   let git = GitCommandExecutor::new();
-  let refused = push_guarded_within(Duration::from_millis(100), &git, &common_dir, &views, Vec::new(), &params, &mut |_| {}).unwrap_err();
+  let refused = push_guarded_within(Duration::from_millis(100), &|| {}, &git, &common_dir, &views, Vec::new(), &params, &mut |_| {}).unwrap_err();
   assert!(refused.to_string().starts_with("Nothing was pushed: "), "{refused}");
   assert!(refused.to_string().ends_with(" holds the repository; try again when it is done"), "{refused}");
   drop(held);
-  assert_eq!(repo.git(&["--git-dir", ".git/origin.git", "for-each-ref", "--format=%(refname)", "refs/heads/test/"]), "");
+  assert_eq!(remote_branches(&repo), "");
+}
+
+/// The push of `branch` from a thread of `scope`, held in its first progress (the network push, after the lock) until
+/// `go` sends or drops: it says `pushes` on `events` then
+fn held_push<'scope>(
+  scope: &'scope std::thread::Scope<'scope, '_>,
+  fixture: &'scope (TestRepo, std::path::PathBuf, RepositoryViews, GitCommandExecutor),
+  branch: StackPushBranch,
+  events: mpsc::Sender<&'static str>,
+  go: mpsc::Receiver<()>,
+) -> std::thread::ScopedJoinHandle<'scope, anyhow::Result<PushBranchesOutcome>> {
+  let (repo, common_dir, views, git) = fixture;
+  let params = push_of(repo, vec![branch]);
+  scope.spawn(move || {
+    let mut held = Some(go);
+    let mut on_progress = |_| {
+      if let Some(go) = held.take() {
+        events.send("pushes").unwrap();
+        // an error is a dropped sender (a failed step of the test), which ends the hold as well
+        let _released = go.recv_timeout(Duration::from_mins(1));
+      }
+    };
+    push_guarded_within(Duration::from_mins(1), &|| {}, git, common_dir, views, Vec::new(), &params, &mut on_progress)
+  })
+}
+
+/// `stack_ahead_of_bare_origin` synced, with its common dir, its views and an executor
+fn synced_fixture() -> (TestRepo, std::path::PathBuf, RepositoryViews, GitCommandExecutor) {
+  let repo = stack_ahead_of_bare_origin();
+  let common_dir = repo.path().join(".git");
+  let views = RepositoryViews::default();
+  views.keep(repo.path_str(), "test", synced_alpha_beta());
+  (repo, common_dir, views, GitCommandExecutor::new())
+}
+
+fn assert_pushed(pushed: &anyhow::Result<PushBranchesOutcome>) {
+  assert!(
+    matches!(pushed, Ok(PushBranchesOutcome::Pushed { remote_statuses }) if remote_statuses.len() == 1),
+    "{pushed:?}"
+  );
+}
+
+/// Two Safe Pushes of the app of different branches run side by side: the lock is held only while a push is decided,
+/// so while the first one pushes (held in its progress) the lock is free, and the second one, which waits for no holder
+/// at all (`Duration::ZERO`), decides, pushes and ends before the first does. A bound of a minute only ends a broken run
+#[test]
+fn the_pushes_of_two_branches_run_side_by_side() {
+  let fixture = synced_fixture();
+  let (repo, common_dir, views, git) = &fixture;
+  let (events, event) = mpsc::channel();
+  std::thread::scope(|scope| {
+    let (go, gone) = mpsc::channel::<()>();
+    let first = held_push(scope, &fixture, branch("alpha"), events.clone(), gone);
+    assert_eq!(event.recv_timeout(Duration::from_mins(1)).unwrap(), "pushes");
+    drop(lock_repository_in(common_dir, Duration::ZERO, &|| {}).expect("the lock is free while the first one pushes"));
+
+    let params = push_of(repo, vec![beta()]);
+    let second = push_guarded_within(
+      Duration::ZERO,
+      &|| panic!("beta waits for nobody"),
+      git,
+      common_dir,
+      views,
+      Vec::new(),
+      &params,
+      &mut |_| {},
+    );
+    assert_pushed(&second);
+    assert!(!first.is_finished());
+    go.send(()).unwrap();
+    assert_pushed(&first.join().unwrap());
+  });
+  assert_eq!(remote_branches(repo), "refs/heads/test/virtual/alpha\nrefs/heads/test/virtual/beta");
+}
+
+/// Two pushes of one branch (a second Safe Push of it, two whole stacks of one stack branch) don't run side by side:
+/// both lease on the head the user saw, so the second waits for the first, without a bound, and then finds the remote
+/// at its commit instead of a lease the first broke. Both push
+#[test]
+fn the_pushes_of_one_ref_wait_for_each_other_and_both_push() {
+  let fixture = synced_fixture();
+  let (repo, common_dir, views, git) = &fixture;
+  let (events, event) = mpsc::channel();
+  let next_event = || event.recv_timeout(Duration::from_mins(1)).unwrap();
+  std::thread::scope(|scope| {
+    let (go, gone) = mpsc::channel::<()>();
+    let first = held_push(scope, &fixture, branch("alpha"), events.clone(), gone);
+    assert_eq!(next_event(), "pushes");
+
+    let params = push_of(repo, vec![branch("alpha")]);
+    let second = scope.spawn(move || {
+      let on_wait = || events.send("waits").unwrap();
+      push_guarded_within(Duration::ZERO, &on_wait, git, common_dir, views, Vec::new(), &params, &mut |_| {})
+    });
+    assert_eq!(next_event(), "waits");
+    go.send(()).unwrap();
+    assert_pushed(&first.join().unwrap());
+    assert_pushed(&second.join().unwrap());
+  });
+  assert_eq!(remote_branches(repo), "refs/heads/test/virtual/alpha");
 }

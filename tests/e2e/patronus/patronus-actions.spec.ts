@@ -261,6 +261,24 @@ test.describe("Patronus actions", () => {
     await expect(chip(page, "JIRA-456")).toHaveText("Canceling")
   })
 
+  test("should start the Safe Pushes of two branches pressed one after the other, side by side", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const pushes = await recordCommand(page, "push_branch")
+    // both pushes go to the backend, which holds the repository lock only while it decides each one: the second never
+    // waits for the network push of the first, nor is it refused with the app as the holder of the lock
+    await slotSafePush(page, "JIRA-456").click()
+    await slotSafePush(page, "ABC-123").click()
+    await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+    await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
+    // the two starts run side by side: either push may reach the backend first
+    expect(pushes.map(push => push.branchName)).toEqual(expect.arrayContaining(["JIRA-456", "ABC-123"]))
+    expect(pushes).toHaveLength(2)
+    const starts = (await repo.getPatronusLog()).starts
+    expect(starts).toHaveLength(2)
+    expect(starts).toEqual(expect.arrayContaining([startRequest("JIRA-456"), startRequest("ABC-123")]))
+    await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
+  })
+
   test("should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const { repo, pushes, starts } = await setupStart(page, setupRepo, syncAndWaitForBranches)
     // the target moved after the last sync with a change of the lines a commit of the branch changes

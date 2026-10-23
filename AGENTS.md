@@ -328,9 +328,12 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   options, and the app's squash and its undo, squash fixups (also `bd fold`), amend, unapply and add issue reference
   through `RewriteOptions` (`held_lock`,
   `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push`,
-  `bd safe-push` (the sync, the checks and the push; the robot start after it), the app's `push_branch` and
-  `push_branches` (`repository_model::push_guard`: the user's robots before the lock, the lock, then the refusals of
-  unknown, parked, landed, held and not built branches in Rust, then the push), `bd move-hunk`, `bd undo`,
+  `bd safe-push` (the sync, the checks and the commits of the push; the network push and the robot start after it),
+  the app's `push_branch` and
+  `push_branches` (`repository_model::push_guard`: the user's robots before the lock, the refusals of unknown, parked,
+  landed, held and not built branches in Rust and the commits that go fixed under it, the network push of those
+  commits after it, side by side with the app's other pushes; only a push of the same remote ref waits, `PushingRefs`),
+  `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`: after the fetch and the check, for the witness, the local changes and
   the move, also when it starts a resolve session; the landed report after the release), `bd pick` (after its check:
   the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold

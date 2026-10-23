@@ -92,8 +92,13 @@ pub fn stack_ahead_of_bare_origin() -> TestRepo {
 
 /// A `pre-receive` hook in the bare repository at `bare_path` that refuses every push, as a protected branch does
 pub fn refuse_every_push(bare_path: &Path) {
+  pre_receive_hook(bare_path, "echo 'protected branch' >&2\nexit 1");
+}
+
+/// The `pre-receive` hook `script` (sh) in the bare repository at `bare_path`: it runs while a push to it goes
+pub fn pre_receive_hook(bare_path: &Path, script: &str) {
   let hook = bare_path.join("hooks/pre-receive");
-  fs::write(&hook, "#!/bin/sh\necho 'protected branch' >&2\nexit 1\n").unwrap();
+  fs::write(&hook, format!("#!/bin/sh\n{script}\n")).unwrap();
   #[cfg(unix)]
   {
     use std::os::unix::fs::PermissionsExt;

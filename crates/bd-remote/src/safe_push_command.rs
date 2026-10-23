@@ -18,8 +18,9 @@
 //! (`target_conflict`), and `bd update` resolves it locally. A failed fetch doesn't stop the check: it replays onto the
 //! last fetched tip and says so (`target_check`).
 //!
-//! The sync, the checks before the push and the push run under the repository lock; the start, which can wait up to a
-//! minute for the answer to a pull request comment, after it.
+//! The sync, the checks before the push and the commits and leases of the push run under the repository lock; the
+//! network push of those commits (`<commit>:refs/heads/<name>`, leased) and the start, which can wait up to a minute for
+//! the answer to a pull request comment, after it.
 
 use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
 use crate::patronus_facts::{PatronusFacts, table_of};
@@ -50,6 +51,7 @@ use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
 use github::token::TokenChain;
+use history_rewrite::repository_lock::RepositoryLock;
 use patronus::client::PatronusClient;
 use patronus::review_readiness::evaluates_pull_request;
 use patronus::service::PatronusService;
@@ -504,7 +506,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let lock = lock(context)?;
   let synced = sync_locked(context)?;
   // a check writes nothing after its sync: the trial builds and Patronus don't keep the other bd writers waiting
-  let lock = (!args.check).then_some(lock);
+  let mut lock = (!args.check).then_some(lock);
   let whole_stack = whole_stack_arg(args, &synced)?;
   let start = start_of(args, whole_stack.as_ref());
   let plan = plan(context, args, &service, &github, runtime, &synced, mode, &start, target_fetch)?;
@@ -563,7 +565,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let draft = match (&plan.stack, plan.push_needed) {
     // the whole stack: only its stack branch, leased; its members stay as they are on the remote
     (Some(stack), true) => {
-      output.pushed = vec![push_stack_branch(context, &synced, &plan.name, stack)?];
+      output.pushed = vec![push_stack_branch(context, &synced, &plan.name, stack, &mut lock)?];
       stack.draft.clone()
     }
     (Some(stack), false) => stack.draft.clone(),
@@ -579,6 +581,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
         &PushHolds::default(),
         &HashSet::new(),
         Some(&youtrack),
+        &mut lock,
       )?;
       output.pushed = pushed.branches;
       output
@@ -1420,8 +1423,9 @@ fn original_commit<'a>(synced: &'a SyncOutput, conflict: &'a TargetConflict) -> 
 }
 
 /// Pushes the stack branch alone, leased on the remote head its remote status compared with, as `bd push` pushes a
-/// branch (`push_leased`): its members stay as they are on the remote
-fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, stack: &StackPush) -> Result<PushedBranch, CliError> {
+/// branch (`push_leased`): its members stay as they are on the remote. `lock` is released before the network push, which
+/// sends the tip the sync left
+fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, stack: &StackPush, lock: &mut Option<RepositoryLock>) -> Result<PushedBranch, CliError> {
   let tip = stack
     .tip
     .clone()
@@ -1443,6 +1447,7 @@ fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, sta
     push: push.clone(),
     parent_ref: None,
   }];
+  drop(lock.take());
   let pushed =
     push_leased(&context.git, &target, &leased, PushOptions { atomic: true, dry_run: false }, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
   let statuses = match pushed {

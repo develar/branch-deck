@@ -9,9 +9,15 @@
 //! robot the page canceled before Push and Restart is canceling and holds nothing.
 //!
 //! `RemoteActions::push_branches` (`actions`) is the whole sequence of both hosts: the user's robots (one full list asked
-//! now, best effort), then, in a blocking step, the lock, the checks and the core push. The words of the holds are
-//! `bd`'s too (`bd push`, `bd safe-push`):
+//! now, best effort), then, in a blocking step, the lock, the checks and the commits of the push fixed
+//! (`prepare_push_branches`), and after the lock the network push of those commits (`PreparedPush::send`). The words of
+//! the holds are `bd`'s too (`bd push`, `bd safe-push`):
 //! `landed_words`, `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`.
+//!
+//! The lock is held only while the push is decided: the pushes of the app run side by side, each sending the commits it
+//! checked (`<commit>:refs/heads/<name>`, leased on the remote head the user saw), whatever moves the local branches
+//! meanwhile. Only the pushes of this process that write one remote ref wait for each other (`PushingRefs`), without a
+//! bound, as the one before will finish: the second then finds the remote at its commit, not a lease the first broke.
 
 use crate::actions::RemoteActions;
 use crate::branch_table::BranchTable;
@@ -25,15 +31,16 @@ use domain_types::repository_view::{Carried, HoldKind, PatronusView};
 use domain_types::stack::StackBranchState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository_in};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use sync_core::parked::parked_state;
 use sync_core::patronus_start::{carried_ids, carried_words, join_names, push_mode_name};
-use sync_core::push::{NOT_SYNCED_YET, PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, push_branches};
+use sync_core::push::{NOT_SYNCED_YET, PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, prepare_push_branches, push_ref_names};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::span::in_current_span;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 /// What the app's own robot hold offers instead of a push: its Push and Restart
 const APP_OWN_HOLD_REMEDY: &str = "restart it on the current branch";
@@ -222,9 +229,11 @@ pub fn stack_hold_words(root: &str, robot: &PatronusRobot) -> String {
   )
 }
 
-/// The app's push of a stack: the repository lock (`$GIT_COMMON_DIR/branch-deck.lock`, no git process), then the checks
-/// on the kept table with `robots` (`check_push`), then the core push (`push_branches`, which refuses a branch the last
-/// sync did not build). A held lock refuses the push; so does a repository not synced yet
+/// The app's push of a stack: its refs claimed against the pushes of this process that write one of them
+/// (`PushingRefs`), then, under the repository lock (`$GIT_COMMON_DIR/branch-deck.lock`, no git process), the checks on
+/// the kept table with `robots` (`check_push`) and the commits of the push fixed (`prepare_push_branches`, which refuses
+/// a branch the last sync did not build), then, after the lock, the network push of those commits. A lock another
+/// holder keeps past `DEFAULT_LOCK_TIMEOUT` refuses the push; so does a repository not synced yet
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
 pub fn push_guarded(
   git_executor: &GitCommandExecutor,
@@ -234,12 +243,16 @@ pub fn push_guarded(
   params: &PushBranchesParams,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<PushBranchesOutcome> {
-  push_guarded_within(DEFAULT_LOCK_TIMEOUT, git_executor, git_common_dir, views, robots, params, on_progress)
+  let on_wait = || debug!(git_common_dir = %git_common_dir.display(), "the push waits for a push of its refs or another holder of the lock");
+  push_guarded_within(DEFAULT_LOCK_TIMEOUT, &on_wait, git_executor, git_common_dir, views, robots, params, on_progress)
 }
 
-/// `push_guarded`, waiting at most `lock_timeout` for another holder of the lock
+/// `push_guarded`, waiting as long as it takes for the pushes of this process that write one of its refs, then at most
+/// `lock_timeout` for another holder of the lock; `on_wait` is called when either wait starts
+#[expect(clippy::too_many_arguments, reason = "push_guarded and the waits its tests control")]
 fn push_guarded_within(
   lock_timeout: Duration,
+  on_wait: &dyn Fn(),
   git_executor: &GitCommandExecutor,
   git_common_dir: &Path,
   views: &RepositoryViews,
@@ -247,23 +260,28 @@ fn push_guarded_within(
   params: &PushBranchesParams,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<PushBranchesOutcome> {
-  let _lock = lock_repository_in(git_common_dir, lock_timeout, &|| {}).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
-    Some(locked) => anyhow!(locked_refusal(locked)),
-    None => error,
-  })?;
-  let facts = views
-    .guard_facts(git_executor, &params.repository_path, &params.branch_prefix, robots)
-    .ok_or_else(|| anyhow!(NOT_SYNCED_YET))?;
-  if let Err(refusal) = check_push(&facts, &params.branches) {
-    bail!(refusal);
-  }
-  push_branches(git_executor, params, &facts.table().not_built, on_progress)
+  let names: Vec<String> = push_ref_names(params)?.into_iter().map(|(name, _)| name).collect();
+  let _claim = PUSHING_REFS.claim(git_common_dir, &names, on_wait);
+  let prepared = {
+    let _lock = lock_repository_in(git_common_dir, lock_timeout, on_wait).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
+      Some(locked) => anyhow!(locked_refusal(locked)),
+      None => error,
+    })?;
+    let facts = views
+      .guard_facts(git_executor, &params.repository_path, &params.branch_prefix, robots)
+      .ok_or_else(|| anyhow!(NOT_SYNCED_YET))?;
+    if let Err(refusal) = check_push(&facts, &params.branches) {
+      bail!(refusal);
+    }
+    prepare_push_branches(git_executor, params, &facts.table().not_built)?
+  };
+  prepared.send(git_executor, on_progress)
 }
 
 impl RemoteActions<'_> {
-  /// The app's push of a stack: the user's robots (`robots_for_checks`), then, in a blocking step, `push_guarded` under
-  /// the repository lock of `git_common_dir` (`$GIT_COMMON_DIR` of the repository, which the host knows), its progress
-  /// sent to `on_progress`
+  /// The app's push of a stack: the user's robots (`robots_for_checks`), then, in a blocking step, `push_guarded`, its
+  /// checks under the repository lock of `git_common_dir` (`$GIT_COMMON_DIR` of the repository, which the host knows),
+  /// its progress sent to `on_progress`
   #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
   pub async fn push_branches(
     &self,
@@ -279,6 +297,65 @@ impl RemoteActions<'_> {
   /// The app's push of one branch, as `push_branches` pushes the stack of it alone
   pub async fn push_branch(&self, git_common_dir: PathBuf, params: &PushBranchParams, on_progress: impl FnMut(TransferProgress) + Send + 'static) -> Result<PushOutcome> {
     PushOutcome::of_stack(self.push_branches(git_common_dir, params.as_stack(), on_progress).await?)
+  }
+}
+
+/// The refs the guarded pushes of this process are writing
+static PUSHING_REFS: PushingRefs = PushingRefs::new();
+
+/// The remote refs the pushes of a process are writing, by `$GIT_COMMON_DIR` and full name: a push of a ref another
+/// push writes (the same branch twice, two whole stacks of one stack branch) waits until that one ended, since both
+/// lease on the head the user saw and the second would find the lease broken by the first; a push of other refs runs
+/// beside it. The lock file can't do it: it is held only while a push is decided, and its wait is bounded
+struct PushingRefs {
+  refs: Mutex<BTreeSet<(PathBuf, String)>>,
+  released: Condvar,
+}
+
+/// The refs of a push (`PushingRefs::claim`), released when dropped
+struct PushClaim<'a> {
+  pushing: &'a PushingRefs,
+  refs: Vec<(PathBuf, String)>,
+}
+
+impl PushingRefs {
+  const fn new() -> Self {
+    Self {
+      refs: Mutex::new(BTreeSet::new()),
+      released: Condvar::new(),
+    }
+  }
+
+  /// The set changes in a few lines that don't panic, so a poisoned one is still in order
+  fn lock(&self) -> MutexGuard<'_, BTreeSet<(PathBuf, String)>> {
+    self.refs.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  /// Claims all of `names` of `git_common_dir` at once, waiting without a bound while another push writes one of them;
+  /// `on_wait` is called once when it waits
+  fn claim(&self, git_common_dir: &Path, names: &[String], on_wait: &dyn Fn()) -> PushClaim<'_> {
+    let refs: Vec<(PathBuf, String)> = names.iter().map(|name| (git_common_dir.to_path_buf(), name.clone())).collect();
+    let busy = |pushing: &BTreeSet<(PathBuf, String)>| refs.iter().any(|key| pushing.contains(key));
+    let mut pushing = self.lock();
+    if busy(&pushing) {
+      drop(pushing);
+      on_wait();
+      pushing = self.released.wait_while(self.lock(), |pushing| busy(pushing)).unwrap_or_else(PoisonError::into_inner);
+    }
+    pushing.extend(refs.iter().cloned());
+    drop(pushing);
+    PushClaim { pushing: self, refs }
+  }
+}
+
+impl Drop for PushClaim<'_> {
+  fn drop(&mut self) {
+    let mut pushing = self.pushing.lock();
+    for key in &self.refs {
+      pushing.remove(key);
+    }
+    drop(pushing);
+    self.pushing.released.notify_all();
   }
 }
 

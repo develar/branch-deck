@@ -822,8 +822,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - `bd push <branch>…` must sync first under the repository lock, then push the branches in one atomic
   `git push --porcelain` through the remote command policy, parents first, with an explicit lease per ref; `--all`
-  must need `--yes`.
+  must need `--yes`. The commits and the leases are fixed under the lock and the network push sends exactly them
+  after it (`<commit>:refs/heads/<name>`): no other writer waits for the network.
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`the_network_push_holds_no_repository_lock`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
 - It must not read again what its sync read: the stack, the tips, the remote tips, the remotes and the descriptions
   come from the sync of the same run; besides the push only the push URL of `origin`, once, and the Space settings
@@ -930,8 +932,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd safe-push <branch>` must start a Patronus Safe Push of the virtual branch (with `--patronus-dry-run` a Dry Run: no
   `--dry-run`, which means "write nothing" for every other command) as the
   app's start does (`startSafePush` after `getSafePushDecision`, [Patronus](../branch/patronus.spec.md)): sync, then push the branch as `bd push <branch>`
-  pushes it, under the repository lock, then start the robot on `refs/heads/<prefix>/virtual/<branch>` after the
-  lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
+  pushes it, its commits fixed under the repository lock and the network push after it, then start the robot on
+  `refs/heads/<prefix>/virtual/<branch>` after the lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
   would fail with; it must hold the repository lock for its sync only, so its trial builds and the questions to
   Patronus and GitHub keep no other `bd` writer waiting.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it`)

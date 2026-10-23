@@ -29,6 +29,7 @@ use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
 use history_rewrite::baseline::detect_baseline_branch;
+use history_rewrite::repository_lock::RepositoryLock;
 use remote_facts::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
 use remote_facts::pull_requests::list_pull_requests;
 use remote_facts::stack_pull_request::{StackMemberText, stack_pull_request_text};
@@ -39,7 +40,7 @@ use std::collections::{HashMap, HashSet};
 use sync_core::github_repository::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
 use sync_core::issue_navigation::load_issue_navigation_config;
 use sync_core::parked::parked_state;
-use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, not_built_reason, push_branches, push_leased};
+use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, not_built_reason, prepare_push_branches, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, has_work_for_remote};
 use sync_core::sync::SyncReport;
@@ -218,7 +219,7 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     return push_unapplied(context, args);
   }
 
-  let repository_lock = lock(context)?;
+  let mut repository_lock = Some(lock(context)?);
   let synced = sync_locked(context)?;
   let holds = read_push_holds(context, environment, &synced);
   let github = github_service(context, environment);
@@ -232,7 +233,7 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
   };
   let open_stack_pull_requests = listed.as_ref().map_or_default(open_stack_pull_requests);
   let youtrack = youtrack_service(environment);
-  let mut output = push_locked(context, args, &synced, &holds, &open_stack_pull_requests, Some(&youtrack))?;
+  let mut output = push_locked(context, args, &synced, &holds, &open_stack_pull_requests, Some(&youtrack), &mut repository_lock)?;
   drop(repository_lock);
 
   // GitHub after the lock: the pull requests of the pushed branches go into the baseline
@@ -284,7 +285,10 @@ fn base_on_remote<'a>(baseline: &'a str, remote: &str) -> &'a str {
 /// `--restart-running` and the robot on the branch itself, its robot is canceled before the push and restarted after it;
 /// an ancestor taken along that a robot holds stays as it is, unless that robot is the one restarted.
 /// `open_stack_pull_requests`: the roots whose pull request of the whole stack is open, for `--with-children`;
-/// `youtrack`: where the texts of the pull requests take the summaries of their issues from.
+/// `youtrack`: where the texts of the pull requests take the summaries of their issues from. `repository_lock`: the lock
+/// the caller holds, released once the commits and the leases of the push are fixed, before the network push, which
+/// sends exactly them (`<commit>:refs/heads/<name>`, leased), so another writer moving a branch meanwhile changes nothing
+/// of what goes.
 pub fn push_locked(
   context: &RepoContext,
   args: &PushArgs,
@@ -292,6 +296,7 @@ pub fn push_locked(
   holds: &PushHolds,
   open_stack_pull_requests: &HashSet<String>,
   youtrack: Option<&YouTrackService>,
+  repository_lock: &mut Option<RepositoryLock>,
 ) -> Result<PushOutput, CliError> {
   let report = &synced.report;
   let remote = match &args.remote {
@@ -569,6 +574,8 @@ pub fn push_locked(
     atomic: true,
     dry_run: args.dry_run,
   };
+  // the commits and the leases are fixed: the network push and what comes after it hold no lock
+  drop(repository_lock.take());
   let pushed = push_leased(&context.git, &target, &leased, options, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
   let statuses = match pushed {
     LeasedPush::Pushed(statuses) => statuses,
@@ -726,14 +733,15 @@ const fn state_word(state: StackBranchState) -> &'static str {
   }
 }
 
-/// `bd push --unapplied <name>`: the unapplied branch to `origin` under its own name, under the repository lock, leased
-/// on the remote head of the last fetch (or `--expect-remote`); no sync, since it is no group of HEAD
+/// `bd push --unapplied <name>`: the unapplied branch to `origin` under its own name, leased on the remote head of the
+/// last fetch (or `--expect-remote`), its commit and lease fixed under the repository lock and pushed after it; no sync,
+/// since it is no group of HEAD
 fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliError> {
   let [name] = args.branches.as_slice() else {
     return Err(CliError::new(ErrorCode::InvalidArguments, "--unapplied pushes one unapplied branch: name exactly one"));
   };
   let full_name = qualified_branch_name(&context.prefix, BranchKind::Unapplied, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-  let _lock = lock(context)?;
+  let repository_lock = lock(context)?;
   let tip = resolve_commit(&context.git, &context.repository, &format!("refs/heads/{full_name}"))?
     .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("No unapplied branch {full_name}: `unapplied` of `bd status` lists them")))?;
   let expected = match &args.expect_remote {
@@ -758,7 +766,9 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
   };
   let short = context.short_ids(std::iter::once(tip.as_str()).chain(expected.as_deref()));
   // an unapplied branch is no group of HEAD: no sync built it
-  match push_branches(&context.git, &params, &HashMap::new(), &mut |_| {})? {
+  let prepared = prepare_push_branches(&context.git, &params, &HashMap::new())?;
+  drop(repository_lock);
+  match prepared.send(&context.git, &mut |_| {})? {
     PushBranchesOutcome::Pushed { .. } => Ok(PushOutput {
       schema: SchemaVersion,
       repository: context.repository.clone(),

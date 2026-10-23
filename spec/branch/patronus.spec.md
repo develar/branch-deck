@@ -1323,6 +1323,19 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/patronus/src/service_test.rs (`the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere`, `the_checks_send_nothing_while_the_requests_back_off`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push nothing into a branch whose Safe Push started after the page's list: Rust refuses it, and the toast says why`)
+- The app's push must hold the repository lock only while it decides: the checks above and the commits that go,
+  fixed under it; the network push after it sends those commits (`<commit>:refs/heads/<name>`), each leased on the
+  remote head the row showed, so a sync or a rewrite that moves a branch meanwhile changes nothing of what goes. Safe
+  Pushes (or pushes) pressed on several branches one after another push side by side; none waits for another one's
+  network push, and none is refused with the app itself as the holder ("`branch-deck` (pid …, for 10 s) holds the
+  repository"). Only the pushes of one remote ref (the same branch twice, two whole stacks of one stack branch) wait
+  for each other, without a bound, and the second then finds the remote at its commit. Another holder of the lock
+  (`bd`, a rewrite of the app) refuses the push after the bounded wait of 10 s: "Nothing was pushed: `bd sync` (…)
+  holds the repository; try again when it is done".
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`the_pushes_of_two_branches_run_side_by_side`, `the_pushes_of_one_ref_wait_for_each_other_and_both_push`)
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_push_while_another_operation_holds_the_lock_is_refused`)
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_prepared_push_sends_the_commit_it_was_prepared_for`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start the Safe Pushes of two branches pressed one after the other, side by side`)
 - The one push into a held branch is a robot action: "Restart Safe Push" of a running robot whose branch
   changed since (the menu, the robot details, the landing overview; "Cancels the run on 1a2b3c4, pushes auth and starts
   it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit. The restart is the action: its
