@@ -149,6 +149,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   against what the last push saw, then check again and apply a clean result. A failed fetch changes nothing.
   [@test] ../../crates/update-core/src/update_project_test.rs (`parses_the_forced_update_line_of_fetch`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`a_failed_fetch_is_fetch_failed`)
+- A fetch beside another fetch of the same tracking ref (`bd update` in a lease while the app updates or fetches: one
+  common dir) must not fail on the other's ref lock: a fetch that git refuses with `cannot lock ref` is run once more,
+  any other failure is not.
+  [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`a_fetch_beside_another_fetch_of_the_tracking_ref_succeeds`, `a_fetch_that_fails_otherwise_is_not_repeated`)
 - After the fetch, the update must check (the replay, the resolution by words, the landed candidates) without the
   repository lock, on the HEAD and the upstream it read once, then take the lock only for the witness, the local
   changes on the paths it writes and the move, so the app, `bd update` and the rewrites of either never interleave

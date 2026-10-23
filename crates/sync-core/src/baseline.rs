@@ -110,26 +110,39 @@ fn remote_of<'a>(baseline_branch: &'a str, remote: &str) -> Option<&'a str> {
 /// push lease of the virtual branches (`--force-with-lease`) still compares against what the last push saw.
 /// Returns the tip before the fetch if the fetch was a forced update (the upstream was force-pushed).
 /// `on_progress` gets how far the fetch is.
+///
+/// Another fetch of the same tracking ref (`bd update` in a lease beside the app's Update Project or Fetch: one common
+/// dir, one `refs/remotes/origin/master`) may hold the ref's lock when this one writes it, and git fails with `cannot
+/// lock ref` (C locale, `remote_command`). The other fetch moved the ref by then, so this one is run once more, which
+/// finds it up to date. The `fetch.lock` of the operations registry (s10 of `rust-domain-authority.md`) replaces the
+/// repeat with a wait.
 #[instrument(skip(git_executor, on_progress))]
 pub fn fetch_baseline(git_executor: &GitCommandExecutor, repo_path: &str, upstream: &BaselineUpstream, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<Option<String>> {
   let refspec = format!("+{}:{}", upstream.remote_ref, upstream.tracking_ref);
-  let output = execute_remote_command_with_progress(
-    git_executor,
-    &[
-      "fetch",
-      "--porcelain",
-      "--no-tags",
-      "--no-write-fetch-head",
-      "--no-recurse-submodules",
-      "--no-auto-maintenance",
-      &upstream.remote,
-      &refspec,
-    ],
-    repo_path,
-    &[],
-    on_progress,
-  )?;
+  let args = [
+    "fetch",
+    "--porcelain",
+    "--no-tags",
+    "--no-write-fetch-head",
+    "--no-recurse-submodules",
+    "--no-auto-maintenance",
+    &upstream.remote,
+    &refspec,
+  ];
+  let output = match execute_remote_command_with_progress(git_executor, &args, repo_path, &[], on_progress) {
+    Err(e) if is_ref_lock_failure(&e) => {
+      warn!(error = %format!("{e:#}"), "another fetch held the tracking ref, fetching once more");
+      execute_remote_command_with_progress(git_executor, &args, repo_path, &[], on_progress)?
+    }
+    output => output?,
+  };
   Ok(previous_tip_of_forced_update(&output, &upstream.tracking_ref))
+}
+
+/// A fetch that failed because another process held the lock of a ref it writes (git's `cannot lock ref`, untranslated
+/// under the C locale of every remote command)
+fn is_ref_lock_failure(error: &anyhow::Error) -> bool {
+  format!("{error:#}").contains("cannot lock ref")
 }
 
 /// The old id from the `fetch --porcelain` line of `tracking_ref` if that line is a forced update:

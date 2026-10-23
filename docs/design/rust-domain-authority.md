@@ -802,7 +802,8 @@ repository». Аудит всех функций в тот же день наш�
   (`a_commit_on_the_target_during_the_replay_of_a_pick_is_kept_and_the_pick_checks_again`,
   `a_target_that_moves_during_every_check_is_checked_under_the_lock_at_last`). На APFS-копии idea-1 (load average 36–57) lock span
   115 с → 59 и 15 с (два замера), процессов под lock 49 → 30: под lock остались два `read-tree -m -u` (около 7 с CPU
-  каждый, 5–37 с wall при этой нагрузке) и около 3 с witness и локальных изменений.
+  каждый, 5–37 с wall при этой нагрузке) и около 3 с witness и локальных изменений. Сделано (`fix/remote-perf`):
+  повтор fetch на `cannot lock ref` (`a_fetch_beside_another_fetch_of_the_tracking_ref_succeeds`), до `fetch.lock` s10.
 - **Очередь в TS до s11:** `runOperation` ставит rewrite в очередь вместо `onBlocked`; Undo помечается выполненным
   после `Ok`; слот Update Project — только apply (`fetch_baseline`, затем `update_project` без fetch); ⌘T во время
   Fetch присоединяется; push ждёт идущий rewrite. `operations.md` в том же коммите: «Conflicts», «Items» и
