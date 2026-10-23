@@ -258,7 +258,11 @@ test.describe("Landing view", () => {
     // the 2 Mondays of 14 days from Tuesday, and Patronus asked for the 3 UTC weeks that cover them, two at once
     await expect(view.getByRole("table", { name: "Robots per week" }).getByRole("row")).toHaveCount(3)
     const lists = (await statisticsLists(repo)).slice(before)
-    expect(lists.map(query => query.start).sort()).toEqual([weekStart(ROBOTS_NOW - 14 * DAY), weekStart(ROBOTS_NOW - 7 * DAY), weekStart(ROBOTS_NOW)])
+    expect(lists.map(query => query.start ?? "").toSorted((a, b) => a.localeCompare(b))).toEqual([
+      weekStart(ROBOTS_NOW - 14 * DAY),
+      weekStart(ROBOTS_NOW - 7 * DAY),
+      weekStart(ROBOTS_NOW),
+    ])
 
     // the choice outlives the window
     await waitForStorePersistence(page, "appSettings", settings => (settings as { statsPeriod?: string } | undefined)?.statsPeriod === "14d")
