@@ -34,7 +34,8 @@ let flushQueued = false
 /**
  * Reads the texts of these blobs unless they are loaded or being read; a failed read is tried again. A blob of the
  * working tree names its path, a blob of git none (a plain id). The ids of one task go out together, in batches of
- * `BLOB_TEXT_BATCH`. A loaded text moves to the end, so the shown texts are evicted last.
+ * `BLOB_TEXT_BATCH`, one batch in flight at a time (a Find over a review of a thousand files starts no 16 `cat-file`
+ * processes at once). A loaded text moves to the end, so the shown texts are evicted last.
  */
 export function requestBlobTexts(requests: readonly (string | BlobRequest)[]): void {
   const blobs = requests.map(request => (typeof request === "string" ? { id: request, path: null } : request))
@@ -69,6 +70,10 @@ export function putDerivedText(id: string, text: string): void {
   blobTextsStore.setState(state => ({ byId: evict(withEntries(state.byId, [[id, { kind: "loaded", blob: { kind: "text", id, text } }]]), new Set([id])) }))
 }
 
+/** The batches to read, each with its repository: one is read at a time, so a Find over a large review is one process */
+const batches: { repositoryPath: string; blobs: BlobRequest[] }[] = []
+let reading = false
+
 function flush(): void {
   flushQueued = false
   const blobs = [...pending].map(([id, path]): BlobRequest => ({ id, path }))
@@ -84,9 +89,25 @@ function flush(): void {
       ids.map(id => [id, { kind: "loading" }]),
     ),
   }))
-  for (let start = 0; start < ids.length; start += BLOB_TEXT_BATCH) {
-    const batch = ids.slice(start, start + BLOB_TEXT_BATCH)
-    void invokeCommand(() => commands.getBlobTexts({ repositoryPath, blobs: blobs.slice(start, start + BLOB_TEXT_BATCH) })).then(result => {
+  for (let start = 0; start < blobs.length; start += BLOB_TEXT_BATCH) {
+    batches.push({ repositoryPath, blobs: blobs.slice(start, start + BLOB_TEXT_BATCH) })
+  }
+  readNext()
+}
+
+/** Reads the next batch unless one is being read: at most one `get_blob_texts` in flight, the batches in order */
+function readNext(): void {
+  if (reading) {
+    return
+  }
+  const next = batches.shift()
+  if (next === undefined) {
+    return
+  }
+  reading = true
+  const batch = next.blobs.map(blob => blob.id)
+  void invokeCommand(() => commands.getBlobTexts(next))
+    .then(result => {
       if (result.status === "error") {
         logError("Cannot read the texts of a diff", result.error)
       }
@@ -97,7 +118,10 @@ function flush(): void {
       })
       blobTextsStore.setState(state => ({ byId: evict(withEntries(state.byId, entries), new Set(batch)) }))
     })
-  }
+    .finally(() => {
+      reading = false
+      readNext()
+    })
 }
 
 function withEntries(byId: ReadonlyMap<string, BlobTextEntry>, entries: readonly [string, BlobTextEntry][]): Map<string, BlobTextEntry> {

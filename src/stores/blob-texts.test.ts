@@ -25,6 +25,8 @@ function calls(): string[][] {
 }
 
 async function settle() {
+  // the requests of the task go out in a microtask: before it, nothing is loading yet
+  await new Promise(resolve => setTimeout(resolve, 0))
   await vi.waitFor(() => {
     expect([...blobTextsStore.getState().byId.values()].some(entry => entry.kind === "loading")).toBe(false)
   })
@@ -46,6 +48,27 @@ describe("requestBlobTexts", () => {
     requestBlobTexts(Array.from({ length: BLOB_TEXT_BATCH + 1 }, (_, index) => `id${index}`))
     await settle()
     expect(calls().map(ids => ids.length)).toEqual([BLOB_TEXT_BATCH, 1])
+  })
+
+  it("reads the batches of a large Find one after another, at most one call in flight", async () => {
+    let inFlight = 0
+    let most = 0
+    getBlobTexts.mockImplementation(async (params: { blobs: BlobRequest[] }) => {
+      inFlight++
+      most = Math.max(most, inFlight)
+      await new Promise(resolve => setTimeout(resolve, 1))
+      inFlight--
+      return answer(params)
+    })
+    const ids = Array.from({ length: 200 }, (_, index) => `id${index}`)
+    requestBlobTexts(ids)
+    // a second task while the first reads: its batch waits in the queue too
+    await new Promise(resolve => setTimeout(resolve, 0))
+    requestBlobTexts(["late"])
+    await settle()
+    expect(most).toBe(1)
+    expect(calls().flat()).toEqual([...ids, "late"])
+    expect(calls().map(batch => batch.length)).toEqual([BLOB_TEXT_BATCH, BLOB_TEXT_BATCH, BLOB_TEXT_BATCH, 200 - 3 * BLOB_TEXT_BATCH, 1])
   })
 
   it("keeps a failed read as an error and reads it again on the next request", async () => {
