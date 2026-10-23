@@ -16,7 +16,7 @@ pub const PREFIX: &str = "test-user";
 pub fn environment(cwd: &Path) -> Environment {
   Environment {
     cwd: cwd.to_path_buf(),
-    settings_file: None,
+    settings: domain_types::settings::AppSettings::default(),
     git: None,
     lock_timeout: std::time::Duration::from_millis(200),
     server_stop_timeout: std::time::Duration::from_secs(30),
@@ -27,7 +27,6 @@ pub fn environment(cwd: &Path) -> Environment {
     path: None,
     // nothing to answer: a test of `bd safe-push` starts its own Patronus
     patronus_url: "http://127.0.0.1:9".to_string(),
-    patronus_new_api: false,
     space_token: None,
     // nothing to answer and no token: a test of a GitHub pull request starts its own GitHub
     github_api_url: "http://127.0.0.1:9".to_string(),

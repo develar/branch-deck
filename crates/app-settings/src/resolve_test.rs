@@ -58,7 +58,7 @@ fn the_prefix_of_the_command_line_is_taken_as_it_is_named() {
 }
 
 #[test]
-fn the_source_is_written_in_camel_case() {
+fn the_source_is_written_in_snake_case() {
   let json = serde_json::to_value(resolved("jane", PrefixSource::RepositoryConfig)).unwrap();
-  assert_eq!(json, serde_json::json!({ "prefix": "jane", "source": "repositoryConfig" }));
+  assert_eq!(json, serde_json::json!({ "prefix": "jane", "source": "repository_config" }));
 }

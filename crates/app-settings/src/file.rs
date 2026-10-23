@@ -11,6 +11,10 @@ use std::io::Write as _;
 use std::path::Path;
 use tracing::warn;
 
+/// The name of the settings file in the app data directory (the bundle identifier's): the app's writer opens it there,
+/// `bd` reads it there
+pub const SETTINGS_FILE_NAME: &str = "settings.json";
+
 /// Why the text of a settings file is no settings
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {

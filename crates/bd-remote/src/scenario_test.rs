@@ -540,7 +540,7 @@ fn add_profile_details(space: &Space, environment: &mut Environment, listed: &Va
     None => json!({}),
   };
   if profile.is_some_and(|profile| profile.new_api) {
-    environment.patronus_new_api = true;
+    environment.settings.patronus_new_api = true;
     space.fake.list_profiles.store(true, Ordering::SeqCst);
   }
   space.fake.details.lock().unwrap().insert("older".to_string(), details);

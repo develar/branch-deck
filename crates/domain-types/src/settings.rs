@@ -152,11 +152,11 @@ pub struct GitBranchPrefix {
   pub repository_scoped: bool,
 }
 
-/// Where the prefix of the branches came from
+/// Where the prefix of the branches came from; snake case, as every value of a `bd` output
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum PrefixSource {
   /// `--prefix` of `bd`
   Cli,

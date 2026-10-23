@@ -141,6 +141,9 @@ sequenceDiagram
   (`init_script`) and sends the changes (`emit_change`); `src-tauri/src/commands/settings.rs` has `set_setting` (origin:
   the calling window's label) and `get_settings_changes`. The window builders (the zoom), the title bar and the menu
   read their settings from the writer's `AppSettings` (`zoom.rs`, `title_bar.rs`, `menu.rs`), with its defaults.
+- `bd`: reads the file once as it starts, by the same loader (`app_settings_of` in `crates/bd-core/src/context.rs`,
+  `SettingsFile::load`), so it runs with the same values and defaults without the app; it resolves the branch prefix
+  with `resolve_branch_prefix` and names its source in `bd status` (`prefix_source`).
 - Page: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`; one
   `settings_changed` listener per page, started with the first store. Stores: `appSettings.ts`, `aiSettings.ts`,
   `diff-view-settings.ts`, `repositorySettings.ts` in `src/stores/settings/`, the Activity log `src/stores/activity.ts`

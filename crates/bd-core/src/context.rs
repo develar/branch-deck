@@ -1,9 +1,10 @@
 use crate::bd_command::bd_command;
 use crate::error::CliError;
 use crate::output::ShortIds;
+use app_settings::file::{SETTINGS_FILE_NAME, SettingsFile};
 use app_settings::resolve::{cli_branch_prefix, resolve_branch_prefix};
 use domain_types::error::ErrorCode;
-use domain_types::settings::PrefixSource;
+use domain_types::settings::{AppSettings, PrefixSource};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
@@ -17,27 +18,26 @@ use patronus::token::TOKEN_ENV;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::{SpaceRepository, parse_space_repository};
 use sync_core::remote_url::origin_push_url;
 use tokio::runtime::Runtime;
-use tracing::{debug, warn};
 use youtrack::service::EnvironmentToken;
 use youtrack::token_store::token_file;
 
-/// The settings file of the app (`app_settings::service::SettingsService`, opened by `src-tauri/src/settings.rs`), in the
-/// app data directory of the bundle identifier (`tauri.conf.json`)
+/// The bundle identifier of the app (`tauri.conf.json`): its data directory holds its settings file
+/// (`app_settings::file::SETTINGS_FILE_NAME`) and the tokens of its sign-ins
 const APP_IDENTIFIER: &str = "org.develar.branch-deck";
-const SETTINGS_FILE_NAME: &str = "settings.json";
 
 /// What the CLI takes from its process, injectable for tests
 pub struct Environment {
   /// The directory `-C` defaults to
   pub cwd: PathBuf,
-  /// The app settings file; `None` skips the app setting
-  pub settings_file: Option<PathBuf>,
+  /// The settings of the app (`app_settings`), read once as `bd` starts (`app_settings_of`): General → Branch prefix
+  /// (`globalUserBranchPrefix`) and Settings → Patronus (`patronusNewApi`), with the defaults the app has without them
+  pub settings: AppSettings,
   /// The git executable from `BD_GIT`
   pub git: Option<String>,
   /// How long a rewrite waits for the repository lock
@@ -57,9 +57,6 @@ pub struct Environment {
   /// The Patronus instance `bd safe-push` starts robots on: `SAFEPUSH_PATRONUS_URL` (as for the Safe Push CLI), else
   /// the production one
   pub patronus_url: String,
-  /// Settings → Patronus of the app (`appSettings.patronusNewApi`): the progress of a running robot in one
-  /// request and the merge profile from the list, as the app reads them; off without the setting
-  pub patronus_new_api: bool,
   /// `SPACE_TOKEN`, the Space token when the Safe Push CLI has not logged in (`home` has its token file)
   pub space_token: Option<String>,
   /// The GitHub API the pull requests are read and written through: github.com, a fake one in the tests
@@ -77,11 +74,9 @@ pub struct Environment {
 
 impl Environment {
   pub fn from_process() -> Self {
-    let settings_file = app_data_dir().map(|dir| dir.join(SETTINGS_FILE_NAME));
     Self {
       cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-      patronus_new_api: settings_file.as_deref().is_some_and(read_app_patronus_new_api),
-      settings_file,
+      settings: app_settings_of(app_data_dir().map(|dir| dir.join(SETTINGS_FILE_NAME)).as_deref()),
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
       server_stop_timeout: Duration::from_secs(30),
@@ -106,6 +101,14 @@ fn app_data_dir() -> Option<PathBuf> {
   dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER))
 }
 
+/// The settings of the app in `settings_file`, read as the app reads them (`SettingsFile::load`): the defaults without
+/// the file, or when it does not parse. The app writes the file only by a rename (`SettingsService`), so a read beside
+/// its write gets the old or the new settings, never a cut file
+#[must_use]
+pub fn app_settings_of(settings_file: Option<&Path>) -> AppSettings {
+  settings_file.map_or_default(SettingsFile::load).app
+}
+
 /// The global options that select the repository and how it is read
 pub struct RepoOptions<'a> {
   pub repo: Option<&'a Path>,
@@ -120,6 +123,8 @@ pub struct RepoContext {
   /// The top level of the working tree
   pub repository: String,
   pub prefix: String,
+  /// Where `prefix` came from (`app_settings::resolve`): `cli` for `--prefix`; never `none`, which is an error
+  pub prefix_source: PrefixSource,
   pub short_ids: bool,
   /// `git rev-parse --git-common-dir`, shared by all worktrees: the cache lives there
   pub git_common_dir: PathBuf,
@@ -127,7 +132,8 @@ pub struct RepoContext {
   pub lock_timeout: Duration,
   /// This bd in this repository, quoted for the shell (`bd -C <repository>`), for the next commands an output names
   pub bd: String,
-  /// `Environment::patronus_new_api`: the progress of a robot in one request, the merge profile from the list
+  /// Settings → Patronus of the app (`patronusNewApi`): the progress of a running robot in one request and the merge
+  /// profile from the list, as the app reads them; off without the setting
   pub patronus_new_api: bool,
   /// The object cache, opened by the first that asks: opening reads the database names of every environment
   cache: OnceLock<ObjectCache>,
@@ -181,7 +187,7 @@ impl RepoContext {
       let snapshot = ConfigSnapshot::read(&git, &repository)?;
       let git_prefix = snapshot.branch_prefix();
       config = Some(snapshot);
-      resolve_branch_prefix(&git_prefix, environment.settings_file.as_deref().and_then(read_app_branch_prefix).as_deref())
+      resolve_branch_prefix(&git_prefix, environment.settings.global_user_branch_prefix.as_deref())
     };
     if prefix.source == PrefixSource::None {
       return Err(CliError::new(
@@ -194,11 +200,12 @@ impl RepoContext {
     Ok(Self {
       git,
       prefix: prefix.prefix,
+      prefix_source: prefix.source,
       short_ids: !options.full_ids,
       git_common_dir,
       use_cache: !options.no_cache,
       lock_timeout: environment.lock_timeout,
-      patronus_new_api: environment.patronus_new_api,
+      patronus_new_api: environment.settings.patronus_new_api,
       bd: bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&repository)),
       repository,
       cache: OnceLock::new(),
@@ -289,45 +296,4 @@ impl RepoContext {
   pub fn short_ids<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> ShortIds {
     if self.short_ids { ShortIds::new(ids) } else { ShortIds::full() }
   }
-}
-
-/// How long a settings file that does not parse is read again: the app rewrites it in place (the store plugin truncates,
-/// then writes), so a read during the write sees an empty or a cut file for well under a millisecond
-const SETTINGS_REWRITE_WAIT: Duration = Duration::from_millis(200);
-
-/// `appSettings` of the app settings file; `None` if the file or the key is missing, or the file does not parse. A file
-/// that does not parse is read again for up to `SETTINGS_REWRITE_WAIT`, so a read while the app rewrites it gets the
-/// prefix of the app, not silently the git one; one that stays unreadable (the app stopped in its write) is logged and
-/// ignored until the app writes it again
-fn read_app_settings(settings_file: &Path) -> Option<serde_json::Value> {
-  let deadline = Instant::now() + SETTINGS_REWRITE_WAIT;
-  loop {
-    let text = std::fs::read_to_string(settings_file).ok()?;
-    match serde_json::from_str::<serde_json::Value>(&text) {
-      Ok(settings) => return settings.get("appSettings").cloned(),
-      Err(e) if Instant::now() >= deadline => {
-        warn!(error = %e, file = %settings_file.display(), "ignoring unreadable app settings");
-        return None;
-      }
-      Err(e) => {
-        debug!(error = %e, file = %settings_file.display(), "app settings do not parse, reading them again");
-        std::thread::sleep(Duration::from_millis(2));
-      }
-    }
-  }
-}
-
-/// `appSettings.globalUserBranchPrefix` of the app settings file; `None` if the file, the key or a non-blank value is
-/// missing
-pub(crate) fn read_app_branch_prefix(settings_file: &Path) -> Option<String> {
-  let settings = read_app_settings(settings_file)?;
-  let prefix = settings.get("globalUserBranchPrefix")?.as_str()?.trim();
-  (!prefix.is_empty()).then(|| prefix.to_string())
-}
-
-/// `appSettings.patronusNewApi` of the app settings file: off without the file, the key or a boolean
-pub(crate) fn read_app_patronus_new_api(settings_file: &Path) -> bool {
-  read_app_settings(settings_file)
-    .and_then(|settings| settings.get("patronusNewApi")?.as_bool())
-    .unwrap_or(false)
 }

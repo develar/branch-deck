@@ -10,6 +10,7 @@ use bd_core::stack_summary::StackSummary;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use domain_types::landing::{LandingFix, LandingRefusal};
 use domain_types::repository_view::{LandingNeeds, RemoteFact, RemoteFacts};
+use domain_types::settings::PrefixSource;
 use domain_types::stack::ParentState;
 use domain_types::{BranchOrigin, GroupedBranchInfo};
 use history_rewrite::store_lines::StoreLineProblem;
@@ -57,6 +58,9 @@ pub struct StatusOutput {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
+  /// Where `prefix` came from: `cli` (`--prefix`), `repository_config` (this repository's `branchdeck.branchPrefix`),
+  /// `app_setting` (General → Branch prefix of the app), `global_config` (the global or system `branchdeck.branchPrefix`)
+  pub prefix_source: PrefixSource,
   pub head: Head,
   /// The branch the commits are ahead of, e.g. `origin/master`
   pub baseline: String,
@@ -177,6 +181,8 @@ pub struct StatusBrief {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
+  /// As in `bd status`
+  pub prefix_source: PrefixSource,
   pub head: Head,
   pub baseline: String,
   pub branch_count: usize,
@@ -605,6 +611,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
     schema: SchemaVersion,
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
+    prefix_source: context.prefix_source,
     head: Head {
       id: short.get(head_id).to_string(),
       branch: head_branch,
@@ -690,6 +697,7 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs, environment: &Envi
     schema: SchemaVersion,
     repository: full.repository,
     prefix: full.prefix,
+    prefix_source: full.prefix_source,
     head: full.head,
     baseline: full.baseline,
     branch_count: full.branch_count,

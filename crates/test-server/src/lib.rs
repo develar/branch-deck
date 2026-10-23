@@ -673,7 +673,7 @@ fn set_fixture_value(store: &app_settings::service::SettingsService, key: &str, 
 
 fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, serde_json::Value)]) -> Result<(), StatusCode> {
   let app_data = state.app_data_of(id);
-  let store = app_settings::service::SettingsService::open(app_data.join("settings.json")).map_err(|e| {
+  let store = app_settings::service::SettingsService::open(app_data.join(app_settings::file::SETTINGS_FILE_NAME)).map_err(|e| {
     tracing::error!(error = %e, "cannot start the writer of the settings");
     StatusCode::INTERNAL_SERVER_ERROR
   })?;

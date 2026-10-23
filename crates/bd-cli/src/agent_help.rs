@@ -70,7 +70,8 @@ Rules
 - Ids are abbreviated per output: compare them by prefix, or pass --full-ids.
 
 Global options: -C <repo>, --prefix <p> (else `branchdeck.branchPrefix` of this repository's git config, else the app
-setting, else the global `branchdeck.branchPrefix`), --full-ids, --no-cache, -v.
+setting, else the global `branchdeck.branchPrefix`; `prefix_source` of `bd status` names which: `cli`,
+`repository_config`, `app_setting`, `global_config`), --full-ids, --no-cache, -v.
 ",
   read_only!(),
   "

@@ -10,6 +10,7 @@
 //!   sub-window starts with them;
 //! - a save that fails reaches the main window as `settings_save_failed`, which says so.
 
+use app_settings::file::SETTINGS_FILE_NAME;
 use app_settings::service::SettingsService;
 use app_settings::windows::{MAIN_WINDOW, is_main_only, window_snapshot};
 use domain_types::settings::SettingsChange;
@@ -25,7 +26,7 @@ pub const SETTINGS_SAVE_FAILED_EVENT: &str = "settings_save_failed";
 
 /// The writer of `settings.json` in `app_data_dir`, loaded now (a missing or broken file is the defaults)
 pub fn open_settings(app_data_dir: &Path) -> std::io::Result<SettingsService> {
-  SettingsService::open(app_data_dir.join("settings.json"))
+  SettingsService::open(app_data_dir.join(SETTINGS_FILE_NAME))
 }
 
 /// Tell the main window of a failed save, once per streak of failures (`SettingsService::on_save_error`)

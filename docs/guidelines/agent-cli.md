@@ -44,9 +44,12 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   repository's local or worktree config (`git config branchdeck.branchPrefix <p>` in the repository) or `git -c`, else the app
   setting `globalUserBranchPrefix`, read from `settings.json` in the app data directory
   (`~/Library/Application Support/org.develar.branch-deck/` on macOS, `%APPDATA%\org.develar.branch-deck\` on
-  Windows; a file that does not parse, as while the app rewrites it, is read again for up to 200 ms), else the global or
-  system `branchdeck.branchPrefix` (`resolve_branch_prefix`). An empty prefix is the error
-  `no_branch_prefix`. Every output echoes the prefix.
+  Windows), else the global or system `branchdeck.branchPrefix` (`resolve_branch_prefix`). An empty prefix is the error
+  `no_branch_prefix`. Every output echoes the prefix, and `bd status` names where it came from (`prefix_source`:
+  `cli`, `repository_config`, `app_setting`, `global_config`).
+- The settings of the app are read once as bd starts, by the app's own loader (`app_settings::file::SettingsFile`),
+  with its defaults: without the file, or when it does not parse, bd runs with the defaults (no prefix of the app,
+  `patronusNewApi` off). The app writes the file only by a rename, so bd never reads a cut file.
 - `--full-ids` prints full commit ids. By default an id is cut to 8 characters, as in Branch Deck's messages
   (`git_ops::revs::short_id`). When two ids of one output share that prefix, all ids in it get longer.
 - `--no-cache` neither reads nor writes the object cache (see below).
@@ -167,8 +170,8 @@ started since and polls the running ones, as the app does; `bd push`, `bd safe-p
 what they listed.
 
 ```json
-{"schema":2,"repository":"/repo","prefix":"develar","head":{"id":"ff366ae0","branch":"master"},
- "baseline":"origin/master","branch_count":2,"unassigned_count":1,
+{"schema":2,"repository":"/repo","prefix":"develar","prefix_source":"global_config",
+ "head":{"id":"ff366ae0","branch":"master"},"baseline":"origin/master","branch_count":2,"unassigned_count":1,
  "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","latest_time":1700000400,"commit_count":2,
    "tip":"2c1d0e93","commits":[{"id":"9f3a2b1c","subject":"Add logout"},{"id":"41c7d00e","subject":"Add login"}]},
   {"name":"ABC-12","ref":"refs/heads/develar/virtual/ABC-12","issue_key":"ABC-12", "...": "..."}],

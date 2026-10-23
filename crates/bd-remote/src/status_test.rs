@@ -1,7 +1,9 @@
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_subjects, environment, git, numbered_lines, repo_with_baseline, repository, run_in, run_json, with_header, write};
+use bd_core::context::{Environment, app_settings_of};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
 /// Two prefixed commits, an issue-key commit and an unassigned one, at fixed times
@@ -38,6 +40,7 @@ fn status_shape() {
     with_header(
       &repo,
       json!({
+      "prefix_source": "cli",
       "head": { "id": short_id(&ids[3]), "branch": "master" },
       "baseline": "origin/master",
       "branch_count": 2,
@@ -115,7 +118,7 @@ fn prefix_from_app_settings() {
   let settings = tempfile::NamedTempFile::new().unwrap();
   std::fs::write(settings.path(), r#"{"appSettings": {"globalUserBranchPrefix": "from-app"}}"#).unwrap();
   let mut environment = environment(repo.path());
-  environment.settings_file = Some(settings.path().to_path_buf());
+  environment.settings = app_settings_of(Some(settings.path()));
 
   let (exit_code, output) = run_json(&environment, &["status", "--unassigned"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -129,6 +132,30 @@ fn prefix_from_app_settings() {
   repo.set_config("branchdeck.branchPrefix", "from-git").unwrap();
   let (_, output) = run_json(&environment, &["status", "--unassigned"]);
   assert_eq!(output["prefix"], json!("from-git"));
+}
+
+/// `prefix_source` names where the prefix came from, so that a fallback to the global git config is explicit: `cli`,
+/// `repository_config`, `app_setting`, `global_config`; `bd status --brief` names it too
+#[test_log::test]
+fn prefix_source_names_where_the_prefix_came_from() {
+  let (repo, _) = grouped_repo();
+  let global = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(global.path(), "[branchdeck]\n\tbranchPrefix = from-global\n").unwrap();
+  let _global = EnvVars::set(&[("GIT_CONFIG_GLOBAL", global.path())]);
+  let mut environment = environment(repo.path());
+  let source = |environment: &Environment, args: &[&str]| {
+    let (exit_code, output) = run_json(environment, args);
+    assert_eq!(exit_code, 0, "{output}");
+    (output["prefix"].clone(), output["prefix_source"].clone())
+  };
+
+  assert_eq!(source(&environment, &["status", "--unassigned"]), (json!("from-global"), json!("global_config")));
+  environment.settings.global_user_branch_prefix = Some("from-app/".to_string());
+  assert_eq!(source(&environment, &["status", "--unassigned"]), (json!("from-app"), json!("app_setting")));
+  assert_eq!(source(&environment, &["status", "--brief"]), (json!("from-app"), json!("app_setting")));
+  repo.set_config("branchdeck.branchPrefix", "from-git").unwrap();
+  assert_eq!(source(&environment, &["status", "--unassigned"]), (json!("from-git"), json!("repository_config")));
+  assert_eq!(source(&environment, &["--prefix", "explicit", "status", "--unassigned"]), (json!("explicit"), json!("cli")));
 }
 
 #[test_log::test]

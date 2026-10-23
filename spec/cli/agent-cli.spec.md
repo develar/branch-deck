@@ -12,6 +12,7 @@ targets:
   - ../../crates/bd-core/src/context.rs
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/app-settings/src/resolve.rs
+  - ../../crates/app-settings/src/file.rs
   - ../../crates/bd-core/src/error.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-core/src/output.rs
@@ -144,13 +145,17 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The branch prefix must come from `--prefix`, else the specific one first: `branchdeck.branchPrefix` of the
   repository's local or worktree config or `git -c`, else the app setting `globalUserBranchPrefix`, else the global or system
   `branchdeck.branchPrefix` (`app_settings::resolve`), each named as the branches are (`jane/` is `jane`); every
-  output must echo it. The app rewrites its settings file in
-  place: a read beside that write must still get the app's prefix (a file that does not parse is read again for up to
-  200 ms), and only a file that stays cut is ignored.
-  [@test] ../../crates/bd-remote/src/status_test.rs (`prefix_from_app_settings`, `prefix_from_git_config`)
-  [@test] ../../crates/bd-core/src/context_test.rs (`the_prefix_of_the_app_is_read_while_the_app_rewrites_its_settings_file`, `a_settings_file_that_stays_cut_gives_no_prefix`)
+  output must echo it, and `bd status` must name its source (`prefix_source`: `cli`, `repository_config`,
+  `app_setting`, `global_config`), so that a fallback to the global config is explicit.
+  [@test] ../../crates/bd-remote/src/status_test.rs (`prefix_from_app_settings`, `prefix_from_git_config`, `prefix_source_names_where_the_prefix_came_from`)
   [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_of_the_command_line_is_taken_as_it_is_named`)
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`)
+- The settings of the app (its prefix, `patronusNewApi`) must be read once as `bd` starts, through the loader of the
+  app (`app_settings::file::SettingsFile::load`), with the same defaults: a missing file, one that does not parse and a
+  field of the wrong type are the defaults. The app writes the file only by a rename, so a read beside that write gets
+  the old or the new settings, never a cut file.
+  [@test] ../../crates/bd-core/src/context_test.rs (`the_new_patronus_api_setting_of_the_app_is_read_from_its_settings_file`, `the_prefix_of_the_app_is_read_from_its_settings_file`, `a_settings_file_that_is_cut_gives_the_defaults`)
+  [@test] ../../crates/app-settings/src/service_test.rs (`a_reader_of_the_file_never_sees_a_missing_prefix_while_the_service_writes_it`)
 - Git must come from `BD_GIT`, else `git` on `PATH`, else Homebrew's git, never from a login shell, and be 2.54 or newer.
   [@test] ../../crates/git-executor/src/git_info.rs (`minimum_version`, `a_missing_explicit_git_is_not_found_with_the_hint`)
 - Logs must go to stderr, and only with `-v` (debug) or `-vv` (trace). Every line of a run must name its operation,
@@ -243,7 +248,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd status`
 
-- It must print HEAD, the baseline, the prefix, the branches newest first (name, ref, issue key, latest time, commit
+- It must print HEAD, the baseline, the prefix and its source (`prefix_source`), the branches newest first (name, ref, issue key, latest time, commit
   count, the tip of the synced virtual branch or `null`, commits newest first without the prefix) and the unassigned
   commits.
   [@test] ../../crates/bd-remote/src/status_test.rs (`status_shape`)

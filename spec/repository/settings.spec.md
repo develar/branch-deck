@@ -412,9 +412,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   `src/stores/repository.ts`): the repository's own `branchdeck.branchPrefix` (its local or worktree git config, or `git -c` and `GIT_CONFIG_*`),
   else the app's prefix (General, `globalUserBranchPrefix`), else the one of the global or system git config. Each is
   named as the branches are (trimmed, no trailing slash), and one that nothing is left of counts as unset. The
-  resolved prefix names its source (`ResolvedBranchPrefix { prefix, source }`: `cli`, `repositoryConfig`,
-  `appSetting`, `globalConfig`, or `none` exactly when there is no prefix).
-  [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_is_named_as_the_branches_are_and_one_of_slashes_only_is_unset`, `the_source_is_written_in_camel_case`)
+  resolved prefix names its source (`ResolvedBranchPrefix { prefix, source }`: `cli`, `repository_config`,
+  `app_setting`, `global_config`, or `none` exactly when there is no prefix), as `prefix_source` of `bd status` does.
+  [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_is_named_as_the_branches_are_and_one_of_slashes_only_is_unset`, `the_source_is_written_in_snake_case`)
 - The prefix of git is read with its scope (`get_branch_prefix_from_git_config`: `GitBranchPrefix { prefix,
   repositoryScoped }`, one `git config --show-scope`).
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`, `a_prefix_of_git_c_is_repository_scoped`)
