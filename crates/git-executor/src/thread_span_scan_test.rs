@@ -29,8 +29,8 @@ const EXEMPT: [Exemption; 7] = [
   },
   Exemption {
     path: "crates/test-server/src/lib.rs",
-    hits: 3,
-    reason: "the tasks of the mock server itself: its handler, the templates, the deletion of a repository",
+    hits: 2,
+    reason: "the tasks of the mock server itself: its handler, the deletion of a repository",
   },
   Exemption {
     path: "crates/test-server/src/test_support.rs",

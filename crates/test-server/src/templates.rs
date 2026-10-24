@@ -12,6 +12,7 @@ use sync_utils::fs_retry;
 use sync_utils::span::in_current_span;
 use test_utils::repo_template::templates;
 use tokio::sync::OnceCell;
+use tracing::Instrument;
 
 /// How a template is built
 type TemplateBuild = fn(&Path) -> anyhow::Result<()>;
@@ -112,11 +113,14 @@ impl Templates {
   pub fn build_all_in_background(self: &Arc<Self>) {
     for name in self.names() {
       let templates = Arc::clone(self);
-      tokio::spawn(async move {
-        if let Err(e) = templates.path(name).await {
-          tracing::error!("Failed to create the template {name}: {e:#}");
+      tokio::spawn(
+        async move {
+          if let Err(e) = templates.path(name).await {
+            tracing::error!("Failed to create the template {name}: {e:#}");
+          }
         }
-      });
+        .in_current_span(),
+      );
     }
   }
 
