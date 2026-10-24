@@ -133,6 +133,9 @@ Template system:
   template of a stopped server removed after 10 minutes. A template is built into `.<name>.<pid>.building` and renamed
   into place once whole, so two servers of one build never copy half a template. A route test: its temporary directory
 - **Usage**: cloned (macOS) or copied into a directory of its own per test, in a blocking task
+- **Guard**: `every_template_builds` (`templates_test.rs`) builds all of them in one test process: the route tests
+  build only the templates they ask for, and a change of the fixture code once broke two templates (a branch
+  description with lines in `append_config`) that only the E2E tests copy
 - **Git**: fixture code runs git through `git_command` (`crates/test-utils/src/git_test_utils.rs`), which removes the
   repository-local variables (`git rev-parse --local-env-vars`). Under `git rebase --exec` or a hook, an inherited
   `GIT_DIR` would otherwise send every template command into the developer's clone; `git_command_test` scans the test

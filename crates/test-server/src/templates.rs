@@ -110,7 +110,7 @@ impl Templates {
   /// Builds every template that is not there yet, all at once, in the background: the server serves meanwhile, and a
   /// repository waits only for its own template
   pub fn build_all_in_background(self: &Arc<Self>) {
-    for &(name, _) in TEMPLATES {
+    for name in self.names() {
       let templates = Arc::clone(self);
       tokio::spawn(async move {
         if let Err(e) = templates.path(name).await {
@@ -118,6 +118,11 @@ impl Templates {
         }
       });
     }
+  }
+
+  /// The names of every template
+  pub fn names(&self) -> impl Iterator<Item = &'static str> {
+    TEMPLATES.iter().map(|&(name, _)| name)
   }
 
   /// The template `name`, built now when it is missing, or once the build in progress ends

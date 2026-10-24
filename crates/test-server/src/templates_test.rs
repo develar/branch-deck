@@ -31,3 +31,25 @@ async fn the_repositories_that_ask_at_once_wait_for_one_build() {
   assert_eq!(a.unwrap(), b.unwrap());
   templates.path("no-such-template").await.unwrap_err();
 }
+
+/// Every template builds and has its directory: a route test builds only the ones it asks for, so a change of a
+/// template or of the fixture code under it would otherwise break only the E2E tests that copy it
+#[tokio::test]
+async fn every_template_builds() {
+  let cache = tempfile::tempdir().unwrap();
+  let templates = std::sync::Arc::new(Templates::on_demand(cache.path().to_path_buf()));
+  let mut builds = tokio::task::JoinSet::new();
+  for name in templates.names() {
+    let templates = std::sync::Arc::clone(&templates);
+    builds.spawn(async move { (name, templates.path(name).await.map_err(|e| format!("{e:#}"))) });
+  }
+  let mut failed = Vec::new();
+  while let Some(built) = builds.join_next().await {
+    match built.unwrap() {
+      (_, Ok(path)) => assert!(path.is_dir(), "{path:?}"),
+      (name, Err(e)) => failed.push(format!("{name}: {e}")),
+    }
+  }
+  failed.sort();
+  assert_eq!(failed, Vec::<String>::new());
+}

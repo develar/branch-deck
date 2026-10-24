@@ -79,10 +79,14 @@ pub fn append_config(repo_path: &Path, entries: &[(&str, &str)]) {
   for (key, value) in entries {
     let (section, name) = key.rsplit_once('.').unwrap_or_else(|| panic!("not a config key: {key}"));
     let header = match section.split_once('.') {
-      Some((section, subsection)) => format!("[{section} \"{}\"]", quoted(subsection)),
+      Some((section, subsection)) => {
+        assert!(!subsection.contains('\n'), "a config subsection with a newline: {subsection:?}");
+        format!("[{section} \"{}\"]", quoted(subsection))
+      }
       None => format!("[{section}]"),
     };
-    let _ = writeln!(text, "{header}\n\t{name} = \"{}\"", quoted(value));
+    // a value may have lines (a branch description): `\n` inside the quotes, as `git config` writes it
+    let _ = writeln!(text, "{header}\n\t{name} = \"{}\"", quoted(value).replace('\n', "\\n"));
   }
   let mut config = fs::OpenOptions::new()
     .append(true)
@@ -91,9 +95,8 @@ pub fn append_config(repo_path: &Path, entries: &[(&str, &str)]) {
   std::io::Write::write_all(&mut config, text.as_bytes()).unwrap_or_else(|e| panic!("cannot write {}: {e}", file.display()));
 }
 
-/// `text` inside the double quotes of a config value or subsection
+/// `text` inside the double quotes of a config value or subsection, its backslashes and quotes escaped
 fn quoted(text: &str) -> String {
-  assert!(!text.contains('\n'), "a config value with a newline: {text:?}");
   text.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
