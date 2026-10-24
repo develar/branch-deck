@@ -32,6 +32,13 @@ export const SetupRepoOptionsSchema = z.object({
   syncedAgoMs: z.number().optional(),
 
   /**
+   * How many branches that last sync had (`lastBranchCount` of `repositoryState`), with `syncedAgoMs`: the table loads in
+   * their room until the first sync's rows come
+   * Default: undefined - not recorded, the loading table is one row tall
+   */
+  syncedBranchCount: z.number().optional(),
+
+  /**
    * Additional store values to inject into the test
    * Default: empty object - Only used for specific test scenarios
    */

@@ -1,4 +1,4 @@
-use crate::commands::window_management::{Reopen, SubWindowLoaded, SubWindowOpen, SubWindowState, SubWindowUpdate};
+use crate::commands::window_management::{BuiltPage, Reopen, SubWindowLoaded, SubWindowOpen, SubWindowState, SubWindowUpdate};
 use app_settings::service::SettingsService;
 use domain_types::settings::SettingsPatch;
 use serde_json::json;
@@ -33,7 +33,7 @@ fn update(state: &SubWindowState, data: &str) -> SubWindowUpdate {
 
 fn build(state: &SubWindowState, label: &str) -> SubWindowOpen {
   let open = state.next_open(0.0);
-  state.built(label, open, 0);
+  state.built(label, open, BuiltPage::Sub { settings_version: 0 });
   open
 }
 
@@ -54,7 +54,7 @@ fn an_open_while_the_page_loads_waits_for_the_page() {
         update: Some(third.clone()),
         settings: Vec::new()
       },
-      Some(first.id)
+      Some((first.id, Duration::from_millis(300)))
     )
   );
   // taken once
@@ -71,7 +71,7 @@ fn a_loaded_hidden_page_takes_an_open_and_shows_for_it() {
   let state = SubWindowState::default();
   let first = build(&state, "branch-review");
   let dir = tempfile::tempdir().unwrap();
-  assert_eq!(state.loaded("branch-review", &settings(&dir)).1, Some(first.id));
+  assert_eq!(state.loaded("branch-review", &settings(&dir)).1.map(|(build, _)| build), Some(first.id));
   let next = update(&state, "next");
   assert_eq!(state.reopened("branch-review", next.clone()), Reopen::Hidden);
   assert!(!state.ready("branch-review", first.id));
@@ -113,7 +113,13 @@ fn a_page_that_loads_takes_the_changes_after_the_snapshot_of_its_build() {
   let state = SubWindowState::default();
   let before = set_app_field(&settings, "zoom", json!(1.1));
   // built with the snapshot at `before`; Actual Size and the Activity panel of the main window while its page loads
-  state.built("commit-review", state.next_open(0.0), settings.snapshot().0);
+  state.built(
+    "commit-review",
+    state.next_open(0.0),
+    BuiltPage::Sub {
+      settings_version: settings.snapshot().0,
+    },
+  );
   set_app_field(&settings, "zoom", json!(null));
   let last = set_app_field(&settings, "activityPanel", json!(true));
   assert!(last > before);
@@ -135,11 +141,58 @@ fn a_page_that_loads_takes_no_change_older_than_its_snapshot_nor_a_key_only_the_
   let settings = settings(&dir);
   let state = SubWindowState::default();
   set_app_field(&settings, "zoom", json!(1.25));
-  state.built("branch-review", state.next_open(0.0), settings.snapshot().0);
+  state.built(
+    "branch-review",
+    state.next_open(0.0),
+    BuiltPage::Sub {
+      settings_version: settings.snapshot().0,
+    },
+  );
   let activity = SettingsPatch::Value {
     key: "activity".to_owned(),
     value: json!([{ "id": "1" }]),
   };
   settings.set(activity, "main").unwrap();
   assert_eq!(state.loaded("branch-review", &settings).0.settings, Vec::new());
+}
+
+#[test]
+fn the_main_window_waits_for_its_first_rows_longer_and_takes_no_settings_with_its_load() {
+  let dir = tempfile::tempdir().unwrap();
+  let settings = settings(&dir);
+  let state = SubWindowState::default();
+  let open = state.next_open(0.0);
+  state.built("main", open, BuiltPage::Main);
+  // a change while the page loads: the main window's page asks for it itself (`get_settings_changes`)
+  set_app_field(&settings, "zoom", json!(1.1));
+  assert_eq!(
+    state.loaded("main", &settings),
+    (
+      SubWindowLoaded {
+        update: None,
+        settings: Vec::new()
+      },
+      Some((open.id, Duration::from_secs(1)))
+    )
+  );
+  // its first rows show it, once
+  assert!(state.ready("main", open.id));
+  assert!(!state.ready("main", open.id));
+  // a reload of its page: on screen, its budget and its ready do nothing
+  state.loaded("main", &settings);
+  assert!(!state.budget_passed("main", open.id));
+  assert!(!state.ready("main", open.id));
+}
+
+#[test]
+fn the_budget_shows_a_main_window_whose_page_drew_no_rows() {
+  let state = SubWindowState::default();
+  let open = state.next_open(0.0);
+  state.built("main", open, BuiltPage::Main);
+  let dir = tempfile::tempdir().unwrap();
+  state.loaded("main", &settings(&dir));
+  // the first sync is slow: the budget shows the title row and the loading table
+  assert!(state.budget_passed("main", open.id));
+  // the rows that come later show nothing again
+  assert!(!state.ready("main", open.id));
 }

@@ -13,6 +13,7 @@ import { BranchPatronusSection } from "@/components/branch/PatronusChip"
 import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
 import { StackIslandCard } from "@/components/branch/StackIslandCard"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
+import { LoadingLine } from "@/components/shared/LoadingLine"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { useFilteredBranches, useRevealClearsFilter } from "@/hooks/useBranchFilter"
 import { prefetchBranchRowReview, reviewBranchRow, useBranchRowKeys } from "@/hooks/useBranchRowKeys"
@@ -20,6 +21,7 @@ import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import type { PreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useStackPathPointer } from "@/hooks/useStackPathPointer"
+import { FILTER_BAR_MIN_BRANCHES } from "@/lib/branch-filter"
 import { pruneSelection } from "@/lib/branch-selection"
 import { copyText, isCopyKey } from "@/lib/clipboard"
 import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
@@ -31,7 +33,7 @@ import { useBranchSync, useFoundCommits, useParkedTableRows } from "@/stores/bra
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { useInlineRowAction } from "@/stores/inline-row-action"
 import { useLandingSpans } from "@/stores/patronus"
-import { getFullBranchName } from "@/stores/repository"
+import { getFullBranchName, useSelectedRepositoryState } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 import { expandStackOf, useShownBranchTables } from "@/stores/stack-collapse"
 import { setStackPathRows } from "@/stores/stack-view"
@@ -52,7 +54,7 @@ const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreview
  * Shift-click select branch rows: M or Enter opens "Move to…" for them, Cmd+A selects the rows the filter matched, Escape
  * clears.
  */
-export function BranchTableCard() {
+export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
   const visible = useFilteredBranches()
   // without a filter, a collapsed stack shows as its root alone and a collapsed island as its header
   const { table, tableAll, islands } = useShownBranchTables(visible)
@@ -149,6 +151,9 @@ export function BranchTableCard() {
   const laneCount = laneCountOf(tableAll.map(row => (row.kind === "branch" ? row.lanes : null)))
 
   if (branchCount === 0) {
+    if (isLoadingRows) {
+      return <BranchTableLoading />
+    }
     // with no branch yet, the form of commits dropped on the new branch zone of the drag bar is the card
     return hasNewBranchDrop ? (
       <Card className="gap-0 py-0">
@@ -242,25 +247,7 @@ export function BranchTableCard() {
               style={laneCount > 0 ? ({ "--bd-lane-count": laneCount } as CSSProperties) : undefined}
               onKeyDown={onTableKeyDown}
             >
-              <thead className="border-b border-border">
-                <tr>
-                  <TableHeader>
-                    <span className="inline-flex items-center gap-1">
-                      Branch Name
-                      <BranchGraphHelpPopover />
-                    </span>
-                  </TableHeader>
-                  <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">
-                    <ColumnTrack track="commits">Commits</ColumnTrack>
-                  </TableHeader>
-                  <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">
-                    <ColumnLabel group="status">Status</ColumnLabel>
-                  </TableHeader>
-                  <TableHeader className="w-px px-4 whitespace-nowrap">
-                    <ColumnLabel group="actions">Actions</ColumnLabel>
-                  </TableHeader>
-                </tr>
-              </thead>
+              <BranchTableHead />
               <tbody className="bd-branch-rows" {...pathPointer}>
                 {table.rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
                 {renderRows(table.rows, null)}
@@ -393,5 +380,64 @@ function NewBranchForm() {
         onSuccess={() => setNewBranchDrop(null)}
       />
     </div>
+  )
+}
+
+/** The column heads of the branch table */
+function BranchTableHead() {
+  return (
+    <thead className="border-b border-border">
+      <tr>
+        <TableHeader>
+          <span className="inline-flex items-center gap-1">
+            Branch Name
+            <BranchGraphHelpPopover />
+          </span>
+        </TableHeader>
+        <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">
+          <ColumnTrack track="commits">Commits</ColumnTrack>
+        </TableHeader>
+        <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">
+          <ColumnLabel group="status">Status</ColumnLabel>
+        </TableHeader>
+        <TableHeader className="w-px px-4 whitespace-nowrap">
+          <ColumnLabel group="actions">Actions</ColumnLabel>
+        </TableHeader>
+      </tr>
+    </thead>
+  )
+}
+
+/**
+ * The table while the first sync of a repository synced before brings its rows: the filter bar's room where the rows of
+ * the last sync had one, the column heads and a body as tall as those rows (`lastBranchCount`), so the rows fill it
+ * without moving what is below; the loading line after its delay. The main window shows it only when the rows take
+ * longer than its budget (`MAIN_CONTENT_BUDGET`); before, the window is hidden.
+ */
+function BranchTableLoading() {
+  const rowCount = Math.max(1, useSelectedRepositoryState("lastBranchCount") ?? 0)
+  return (
+    <BranchColumnsRoot>
+      <Card className="gap-0 py-0" aria-busy="true" data-testid="branch-table-loading">
+        {rowCount >= FILTER_BAR_MIN_BRANCHES && (
+          <div className="border-b border-border px-4 py-2">
+            <div className="h-7" />
+          </div>
+        )}
+        <table className="w-full">
+          <BranchTableHead />
+          <tbody>
+            {Array.from({ length: rowCount }, (_, index) => (
+              <tr key={index}>
+                {/* as tall as a branch row: its cell padding around a line of 24px */}
+                <td colSpan={4} className="px-6 py-(--bd-cell-y)">
+                  <div className="flex h-6 items-center">{index === 0 && <LoadingLine>Syncing branches…</LoadingLine>}</div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </BranchColumnsRoot>
   )
 }

@@ -41,19 +41,19 @@ vi.mock("@/lib/bindings", () => ({
 
 const page = { __SUB_WINDOW_OPEN__: { id: 7, openedAt: Date.now() }, addEventListener: () => {}, dispatchEvent: () => true }
 
-let markSubWindowContentReady: () => void
+let markWindowContentReady: () => void
 
 beforeAll(async () => {
   // a hidden WKWebView runs no animation frames: nothing on the path to the show may wait for one
   vi.stubGlobal("requestAnimationFrame", () => 0)
   vi.stubGlobal("window", page)
-  ;({ markSubWindowContentReady } = await import("@/lib/sub-window"))
+  ;({ markWindowContentReady } = await import("@/lib/sub-window"))
 })
 
 describe("the show of a sub-window", () => {
   it("takes the settings changed while the page loaded once it listens, before it says its content settled", async () => {
     // the content settles before the page listens: the load and the show wait for the listener
-    markSubWindowContentReady()
+    markWindowContentReady()
     await Promise.resolve()
     expect(calls.loaded).toBe(0)
     expect(calls.ready).toEqual([])
@@ -66,12 +66,12 @@ describe("the show of a sub-window", () => {
 
   it("says the page loaded and its content settled without an animation frame, once per open", async () => {
     expect(calls.loaded).toBe(1)
-    markSubWindowContentReady()
+    markWindowContentReady()
     expect(calls.lines).toHaveLength(1)
     expect(calls.lines[0]).toMatch(/^commit-review open \d+ ms: loaded \d+$/)
     // the next open of the window settles on its own
     page.__SUB_WINDOW_OPEN__ = { id: 8, openedAt: Date.now() }
-    markSubWindowContentReady()
+    markWindowContentReady()
     await vi.waitFor(() => expect(calls.ready).toEqual([7, 8]))
     expect(calls.loaded).toBe(1)
   })

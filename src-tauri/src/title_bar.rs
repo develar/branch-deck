@@ -354,9 +354,9 @@ pub fn title_bar_script() -> String {
 }
 
 /// A window whose page draws the title bar (`title_bar`): the main window and every sub-window. It is built hidden:
-/// `prepare_title_bar` sets the empty titlebar of Linux before GTK realizes the window, then the window shows
-/// (`finish_title_bar` for the main window, `sub_window_ready` once the page of a sub-window settled its content). The native title
-/// stays set (`title`, `set_title`): the Window menu, Mission Control and screen readers read it.
+/// `prepare_title_bar` sets the empty titlebar of Linux before GTK realizes the window, then the window shows once its
+/// page settled its content (`sub_window_ready`; the main window's page on its first rows, `show_when_settled`). The
+/// native title stays set (`title`, `set_title`): the Window menu, Mission Control and screen readers read it.
 pub fn with_title_bar<R: Runtime, M: Manager<R>>(builder: WebviewWindowBuilder<'_, R, M>) -> WebviewWindowBuilder<'_, R, M> {
   let builder = builder.visible(false);
   // centred in the 40 px top row, 14 px from the left as from the top. wry takes y as the height of the button container
@@ -401,23 +401,6 @@ pub fn prepare_title_bar<R: Runtime>(window: &WebviewWindow<R>) {
 /// Elsewhere a window shows as it is built
 #[cfg(not(target_os = "linux"))]
 pub const fn prepare_title_bar<R: Runtime>(_window: &WebviewWindow<R>) {}
-
-/// Prepares the main window (`prepare_title_bar`) and shows it
-pub fn finish_title_bar<R: Runtime>(window: &WebviewWindow<R>) {
-  prepare_title_bar(window);
-  let target = window.clone();
-  let result = window.run_on_main_thread(move || {
-    if let Err(e) = target.show() {
-      tracing::error!(error = ?e, window = target.label(), "cannot show the window");
-    }
-    if let Err(e) = target.set_focus() {
-      tracing::warn!(error = ?e, window = target.label(), "cannot focus the window");
-    }
-  });
-  if let Err(e) = result {
-    tracing::error!(error = ?e, window = window.label(), "cannot show the window on the main thread");
-  }
-}
 
 #[cfg(target_os = "linux")]
 thread_local! {

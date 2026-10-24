@@ -66,7 +66,7 @@ export async function setupTestRepository(page: Page, templateName: string, opti
 
   // what the last sync recorded of the repository: the writer keeps it in repository-state.json, not in the recent projects
   if (parsedOptions.syncedAgoMs !== undefined && repoBuilder.id && repoBuilder.path) {
-    const repositoryState = { [repoBuilder.path]: { lastSyncTime: Date.now() - parsedOptions.syncedAgoMs } }
+    const repositoryState = { [repoBuilder.path]: { lastSyncTime: Date.now() - parsedOptions.syncedAgoMs, lastBranchCount: parsedOptions.syncedBranchCount } }
     const response = await fetch(`${TEST_SERVER_URL}/store/${repoBuilder.id}/repositoryState`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

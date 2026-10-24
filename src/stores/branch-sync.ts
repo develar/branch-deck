@@ -3,6 +3,7 @@ import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
+import { batchTimer } from "@/lib/batch-timer"
 import type {
   AutosquashPlan,
   BranchError,
@@ -1532,10 +1533,7 @@ export function resetBranchSync(): void {
   // the events of a sync of the previous repository not applied yet, and those still on their way
   syncGeneration++
   queuedSyncEvents = []
-  if (flushTimer !== null) {
-    clearTimeout(flushTimer)
-    flushTimer = null
-  }
+  flushTimer.cancel()
   branchSyncStore.setState({
     syncError: null,
     syncedRepositoryPath: null,
@@ -1570,7 +1568,8 @@ interface QueuedSyncEvent {
 }
 
 let queuedSyncEvents: QueuedSyncEvent[] = []
-let flushTimer: ReturnType<typeof setTimeout> | null = null
+// on the next task until the window showed: the main window waits hidden for the rows of its first sync
+const flushTimer = batchTimer(flushSyncEvents, SYNC_EVENT_FLUSH_MS)
 
 function queueSyncEvent(event: SyncEvent, repositoryPath: string, options: SyncOptions | undefined): void {
   // decided on arrival, not at the flush: the push result is authoritative, and a push that ends before the flush
@@ -1580,7 +1579,7 @@ function queueSyncEvent(event: SyncEvent, repositoryPath: string, options: SyncO
     return
   }
   queuedSyncEvents.push({ event, repositoryPath, options })
-  flushTimer ??= setTimeout(flushSyncEvents, SYNC_EVENT_FLUSH_MS)
+  flushTimer.schedule()
 }
 
 /**
@@ -1599,10 +1598,7 @@ interface SyncDraft {
  * archived and landed branches) run during it, before the commit.
  */
 function flushSyncEvents(): void {
-  if (flushTimer !== null) {
-    clearTimeout(flushTimer)
-    flushTimer = null
-  }
+  flushTimer.cancel()
   const events = queuedSyncEvents
   if (events.length === 0) {
     return

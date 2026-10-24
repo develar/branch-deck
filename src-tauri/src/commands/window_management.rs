@@ -15,11 +15,15 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State, Webview, WebviewUrl, WebviewWindowBuilder};
 use tracing::{Instrument, instrument, warn};
 
-/// How long a new sub-window stays hidden at most when its page never loads (a broken page still shows)
+/// How long a new window stays hidden at most when its page never loads (a broken page still shows)
 const SHOW_FALLBACK: Duration = Duration::from_secs(3);
-/// How long a loaded page may take to settle its content (`sub_window_ready`) before its window shows with what it has:
-/// a slow git shows the tree and the headers, not nothing
+/// How long a loaded page of a sub-window may take to settle its content (`sub_window_ready`) before its window shows
+/// with what it has: a slow git shows the tree and the headers, not nothing
 const CONTENT_BUDGET: Duration = Duration::from_millis(300);
+/// How long the loaded page of the main window may take to draw its first rows (`sub_window_ready`) before the window
+/// shows its title row and the loading table: in the release app on the IntelliJ monorepo the rows of the first sync
+/// came about 0.6 s after the page loaded, so a sync that takes longer is slow (a cold cache), not one to wait for
+const MAIN_CONTENT_BUDGET: Duration = Duration::from_secs(1);
 
 /// The canvas of the light and the dark theme (`--canvas` of `src/index.css` in sRGB): the colour behind the first frame
 /// that the webview paints after `show()`, never white
@@ -71,6 +75,26 @@ pub struct SubWindowLoaded {
   pub settings: Vec<SettingsChange>,
 }
 
+/// How the page of a window built hidden starts
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltPage {
+  /// A sub-window, from the snapshot of the settings at `settings_version`, which its init script has
+  /// (`__TAURI_STORE_VERSION__`): its load takes the changes after it, and its content settles within `CONTENT_BUDGET`
+  Sub { settings_version: u32 },
+  /// The main window: its page catches up with the settings itself (`get_settings_changes`, which a reload asks again)
+  /// and settles on the first rows of a sync, within `MAIN_CONTENT_BUDGET`
+  Main,
+}
+
+impl BuiltPage {
+  const fn content_budget(self) -> Duration {
+    match self {
+      Self::Sub { .. } => CONTENT_BUDGET,
+      Self::Main => MAIN_CONTENT_BUDGET,
+    }
+  }
+}
+
 /// What an open of an existing window does
 #[derive(Debug, PartialEq, Eq)]
 pub enum Reopen {
@@ -85,9 +109,8 @@ pub enum Reopen {
 struct SubWindowEntry {
   /// The open that built the window: a timer of an earlier window of the label leaves this one alone
   build: u32,
-  /// The version of the settings the window's init script has (`__TAURI_STORE_VERSION__`): its page takes the changes
-  /// after it when it loads
-  settings_version: u32,
+  /// How its page starts: the settings it takes when it loads, the budget of its content
+  page: BuiltPage,
   /// The page loaded (`sub_window_loaded`): an open reaches it by `eval`
   loaded: bool,
   /// The latest open that came while the page still loaded: an `eval` before the load is lost, the page takes it
@@ -97,9 +120,10 @@ struct SubWindowEntry {
   shown: bool,
 }
 
-/// The sub-windows by label. A window is built hidden and shows once its page settled the content of the latest open
-/// (no blank frame, never the subject of an earlier open), at most `CONTENT_BUDGET` after its page loaded and
-/// `SHOW_FALLBACK` after the build; an open of a window whose page still loads is kept for the page.
+/// The windows built hidden, by label: every sub-window and the main window. A window shows once its page settled the
+/// content of the latest open (no blank frame, never the subject of an earlier open), at most the content budget of its
+/// page after the page loaded and `SHOW_FALLBACK` after the build; an open of a window whose page still loads is kept
+/// for the page. The main window has one open, its build at the start of the app.
 #[derive(Default)]
 pub struct SubWindowState {
   /// one open at a time: two opens of a label never both build it (`open_sub_window` is async, opens run in parallel)
@@ -121,14 +145,13 @@ impl SubWindowState {
     }
   }
 
-  /// A window of `label` is built for `open` with the snapshot of the settings at `settings_version`: its page loads
-  /// with the data of the build
-  pub fn built(&self, label: &str, open: SubWindowOpen, settings_version: u32) {
+  /// A window of `label` is built for `open`, its page starting as `page` says: it loads with the data of the build
+  pub fn built(&self, label: &str, open: SubWindowOpen, page: BuiltPage) {
     self.windows().insert(
       label.to_string(),
       SubWindowEntry {
         build: open.id,
-        settings_version,
+        page,
         loaded: false,
         pending: None,
         showing_for: open.id,
@@ -157,9 +180,10 @@ impl SubWindowState {
   }
 
   /// The page of `label` loaded: the open that came while it loaded, if any, and the changes of `settings` after the
-  /// snapshot of the build that its window gets; with the build the content budget is for. A page loaded again (a
-  /// reload) takes them again from the same snapshot, which its init script sets again
-  pub fn loaded(&self, label: &str, settings: &SettingsService) -> (SubWindowLoaded, Option<u32>) {
+  /// snapshot of the build that its window gets (none for the main window, which asks for them itself); with the build
+  /// and the content budget its window waits for. A page loaded again (a reload) takes them again from the same
+  /// snapshot, which its init script sets again
+  pub fn loaded(&self, label: &str, settings: &SettingsService) -> (SubWindowLoaded, Option<(u32, Duration)>) {
     let mut windows = self.windows();
     let Some(entry) = windows.get_mut(label) else {
       return (
@@ -172,10 +196,13 @@ impl SubWindowState {
     };
     entry.loaded = true;
     let update = entry.pending.take();
-    let (build, settings_version) = (entry.build, entry.settings_version);
+    let (build, page) = (entry.build, entry.page);
     drop(windows);
-    let settings = window_changes_since(settings, label, settings_version);
-    (SubWindowLoaded { update, settings }, Some(build))
+    let settings = match page {
+      BuiltPage::Sub { settings_version } => window_changes_since(settings, label, settings_version),
+      BuiltPage::Main => Vec::new(),
+    };
+    (SubWindowLoaded { update, settings }, Some((build, page.content_budget())))
   }
 
   /// The page of `label` settled the content of the open `open_id`: true when the window shows now (the latest open,
@@ -281,26 +308,21 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
       None => builder.center(),
     };
     // known before the page can load and ask for the changes after its snapshot
-    state.built(&params.window_id, open, settings_version);
+    state.built(&params.window_id, open, BuiltPage::Sub { settings_version });
     let window = with_title_bar(with_canvas(builder, &app_handle)).build().map_err(tauri_error)?;
     apply_zoom(&window, zoom);
     // the empty GTK titlebar of a custom title bar on Linux, before the page paints and the window shows
     prepare_title_bar(&window);
-    show_after(
-      app_handle,
-      params.window_id,
-      open.id,
-      SHOW_FALLBACK,
-      Some("the page of the sub-window did not load, showing it"),
-    );
+    show_when_settled(app_handle, params.window_id, open.id);
     Ok(())
   })
   .await
 }
 
-/// The page of the calling sub-window loaded and listens to the settings: it gets the data of an open that came while
-/// it loaded and the changes of the settings after the snapshot its window was built with, and the window shows once
-/// the page settled its content, at most `CONTENT_BUDGET` from now
+/// The page of the calling window loaded and listens to the settings: a sub-window gets the data of an open that came
+/// while it loaded and the changes of the settings after the snapshot its window was built with, and the window shows
+/// once the page settled its content, at most its content budget from now (`CONTENT_BUDGET`, the main window's
+/// `MAIN_CONTENT_BUDGET`)
 #[tauri::command]
 #[instrument(skip(app_handle, webview, state, settings))]
 #[specta::specta]
@@ -313,16 +335,16 @@ pub async fn sub_window_loaded(
   operation(async move {
     let label = webview.label().to_string();
     let (loaded, build) = state.loaded(&label, &settings);
-    if let Some(build) = build {
-      show_after(app_handle, label, build, CONTENT_BUDGET, None);
+    if let Some((build, budget)) = build {
+      show_after(app_handle, label, build, budget, None);
     }
     Ok(loaded)
   })
   .await
 }
 
-/// The page of the calling sub-window settled the content of the open `open_id`: the window shows if that is the latest
-/// open and the window is still hidden
+/// The page of the calling window settled the content of the open `open_id` (the main window: drew its first rows or
+/// the state without rows): the window shows if that is the latest open and the window is still hidden
 #[tauri::command]
 #[instrument(skip(webview, state))]
 #[specta::specta]
@@ -336,6 +358,13 @@ pub async fn sub_window_ready(webview: Webview, state: State<'_, SubWindowState>
     Ok(())
   })
   .await
+}
+
+/// Shows the window `build` of `label`, built hidden, once its page settled its content (`sub_window_ready`), at most
+/// the content budget after its page loaded (`sub_window_loaded`) and `SHOW_FALLBACK` from now when its page never
+/// loads. The main window as a sub-window: `prepare_title_bar` first, then this
+pub fn show_when_settled(app_handle: AppHandle, label: String, build: u32) {
+  show_after(app_handle, label, build, SHOW_FALLBACK, Some("the page of the window did not load, showing it"));
 }
 
 /// Shows the window `build` of `label` after `delay` unless it showed by then, logging `warning` if it does
@@ -352,11 +381,25 @@ fn show_after(app_handle: AppHandle, label: String, build: u32, delay: Duration,
       if let Some(window) = app_handle.get_webview_window(&label)
         && let Err(e) = window.show().and_then(|()| window.set_focus())
       {
-        warn!(label, error = %e, "cannot show the sub-window");
+        warn!(label, error = %e, "cannot show the window");
       }
     }
     .in_current_span(),
   );
+}
+
+/// The line of the main window's init script that names its open (`__SUB_WINDOW_OPEN__`, its build): its page settles
+/// it when it drew its first rows (`markMainWindowContentReady`)
+pub fn open_script(open: &SubWindowOpen) -> String {
+  // two numbers: their JSON is never an error
+  format!("window.__SUB_WINDOW_OPEN__ = {};", to_json(open).unwrap_or_else(|_| "undefined".to_owned()))
+}
+
+/// Now in ms since the epoch, as the page's `Date.now()`: when the main window was asked for (`SubWindowOpen::opened_at`)
+pub fn epoch_millis() -> f64 {
+  std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
 }
 
 fn to_json(open: &SubWindowOpen) -> Result<String, ApiError> {

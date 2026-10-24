@@ -1,7 +1,7 @@
 # Rendering Performance
 
 **Status:** Implemented  
-**Updated:** 2026-10-21  
+**Updated:** 2026-10-24  
 **Tags:** [frontend, react, zustand, performance]
 
 ## Problem
@@ -185,11 +185,19 @@ used to download and compile the main window's tree before its own page: 61 modu
 - The commit preview (`CommitList`) loads on first open too. It pulls in the file tree; the commit review and the
   resizable panels load only in the review window.
 - A sub-window is built hidden, on the canvas colour of the theme, and shows once its page settled the content of the
-  latest open (`markSubWindowContentReady`: `WindowPage` on its render, a review once `DiffView` painted its first
+  latest open (`markWindowContentReady`: `WindowPage` on its render, a review once `DiffView` painted its first
   screen), at most 300 ms after the page loaded (`sub_window_loaded`, the budget kept by the backend, because a
   hidden page's timers are throttled). Nothing on that path waits for an animation frame: a hidden WKWebView runs
   none, and a show from `requestAnimationFrame` waited 3 s for the fallback. The painter of `DiffView` paints in its
   effects and its scroll events, never on an animation frame ([Diff View](diff-view.md)).
+- The main window is built hidden too and shows the same way (`show_when_settled`, `sub_window_ready`), on its first
+  frame with content: the title row with the first rows of its sync, or with a state that has no rows (no repository,
+  Welcome, Ready to Sync, an error), said by `BranchCreator` ([Title Bar](../../spec/repository/title-bar.spec.md#main-window)).
+  It used to show right after its build: a bare canvas for about 0.3 s, then the title row over an empty body for
+  0.5 s, then the rows. Its budget is 1 s after the page loaded (the rows of the IntelliJ monorepo came about 0.6 s
+  after it), then the title row and the loading table show; 3 s after the build when the page never loads. Until the
+  window showed, the sync events apply on the next task (`batchTimer`): their 16 ms timer would wait for WebKit's
+  throttle of a hidden page, up to a second. The log has its timing from the build ("main open 812 ms: loaded 240").
 - The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
   its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
   starts the highlight worker when its module loads, beside the reads of the files and the diffs.

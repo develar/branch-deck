@@ -231,7 +231,8 @@ Mock implementation:
   lone Alt tap of the main menu is on. `emit` and `emit_to` are recorded in `__e2eEmittedEvents`, not delivered
 - **Sub-windows**: `open_sub_window` is answered in the page and recorded in `__e2eSubWindows` (the label, the URL, the
   title, the parsed data and the settings it starts from, `store`); `getOpenedSubWindows` reads them; `sub_window_ready` (the page painted) is answered in
-  the page too. Two ways show a sub-window:
+  the page too, recorded in `__e2eSubWindowReady` (the open) and `__e2eWindowReadyRows` (the branch rows the page had
+  then: the main window, whose open the mock sets as its init script does, says it on its first rows). Two ways show a sub-window:
   - in the same page, with the recorded data as `__INIT_DATA__` (`openSubWindowPage` in `sub-window-helpers.ts`), under
     the label `main`: for a window that only reads (the commit review, the branch review, the conflict windows); the
     main window's page is gone then;

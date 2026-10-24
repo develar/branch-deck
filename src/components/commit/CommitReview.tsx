@@ -20,7 +20,7 @@ import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/l
 import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
 import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPosition } from "@/lib/review-position"
-import { markSubWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
+import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { setReviewSidebar, useAppSettings } from "@/stores/settings/appSettings"
@@ -190,7 +190,7 @@ export function CommitReview({
   const settledWithoutDiffs = message !== null && shownFiles !== undefined
   useEffect(() => {
     if (settledWithoutDiffs || filesFailed === subjectId) {
-      markSubWindowContentReady()
+      markWindowContentReady()
     }
   })
   return (
@@ -368,7 +368,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   }, [diffs, diffsComplete, files])
   const showWindow = useCallback(() => {
     markSubWindowOpenPhase("painted")
-    markSubWindowContentReady()
+    markWindowContentReady()
   }, [])
 
   const toggleDirectory = useCallback((key: string) => setSelection(previous => ({ ...previous, collapsed: toggleInSet(previous.collapsed, key) })), [])

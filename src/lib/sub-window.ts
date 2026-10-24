@@ -37,29 +37,33 @@ function installEscapeToClose(): void {
 
 installEscapeToClose()
 
-function subWindowLabel(): string | null {
+/** The label of the page's window, null without one (a unit test of another module) */
+function currentLabel(): string | null {
   try {
-    const label = getCurrentWindow().label
-    return label === "main" ? null : label
+    return getCurrentWindow().label
   } catch {
     return null
   }
 }
 
-/** The open the page shows (`__SUB_WINDOW_OPEN__`, set by the backend with the data of each open) */
+/**
+ * The open the page shows (`__SUB_WINDOW_OPEN__`, set by the backend with the data of each open of a sub-window; the
+ * main window's is its build)
+ */
 function currentOpen(): SubWindowOpen | undefined {
   return typeof window === "undefined" ? undefined : window.__SUB_WINDOW_OPEN__
 }
 
 /**
- * The page of a sub-window loaded and listens to the settings: the backend counts the content budget from now and hands
+ * The page of a window loaded and listens to the settings: the backend counts the content budget from now and hands
  * over the data of an open that came while the page loaded and the changes of the settings after the snapshot the
  * window was built with, which reached no listener; the page applies them by their versions before it says its content
- * settled (`markSubWindowContentReady`), so a zoom changed meanwhile is the window's when it shows. Once per page load,
- * at its start; nothing in the main window. No animation frame waits on this path: a hidden window runs none.
+ * settled (`markWindowContentReady`), so a zoom changed meanwhile is the window's when it shows. Once per page load, at
+ * its start; the main window gets neither (it has one open and asks for the changes itself, `get_settings_changes`),
+ * only its budget. No animation frame waits on this path: a hidden window runs none.
  */
-function announceSubWindowLoaded(): Promise<void> {
-  if (subWindowLabel() === null) {
+function announceWindowLoaded(): Promise<void> {
+  if (currentLabel() === null) {
     return Promise.resolve()
   }
   markOpenPhase(currentOpen(), "loaded")
@@ -84,9 +88,9 @@ function announceSubWindowLoaded(): Promise<void> {
 }
 
 /** Resolves once the backend answered the load of the page and the page applied what it handed over */
-const pageLoaded = announceSubWindowLoaded()
+const pageLoaded = announceWindowLoaded()
 
-/** Records a phase of the open the page shows, for its timing line (`markSubWindowContentReady`) */
+/** Records a phase of the open the page shows, for its timing line (`markWindowContentReady`) */
 export function markSubWindowOpenPhase(phase: Exclude<OpenPhase, "loaded" | "ready">): void {
   markOpenPhase(currentOpen(), phase)
 }
@@ -97,10 +101,11 @@ let lastReadyOpen: number | null = null
  * The page settled the content of the open it shows: the backend shows the window, built hidden so it never shows a
  * blank frame, if that open is the latest. Once per open, and logs how long the open took, by phase ("commit-review
  * open 96 ms: loaded 41, files 44, diffs 47"). A page whose content is its data calls it on render (`WindowPage`), a
- * review once its first diffs are prepared. Nothing in the main window.
+ * review once its first diffs are prepared, the main window once it drew its first rows or the state without rows
+ * (`BranchCreator`; "main open 812 ms: loaded 240", from the build of the window).
  */
-export function markSubWindowContentReady(): void {
-  const label = subWindowLabel()
+export function markWindowContentReady(): void {
+  const label = currentLabel()
   const open = currentOpen()
   if (label === null || open === undefined || open.id === lastReadyOpen) {
     return

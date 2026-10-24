@@ -1,7 +1,7 @@
 # Checking the Real App (macOS, Peekaboo)
 
 **Status:** Active  
-**Updated:** 2026-10-19  
+**Updated:** 2026-10-24  
 **Tags:** [macos, release, screenshots, timing]
 
 ## Summary
@@ -23,4 +23,6 @@ the `peekaboo` CLI.
   and change, so a blank or "Loading" frame before the content shows.
 - **Timings**: every sub-window open logs its phases in `~/Library/Logs/org.develar.branch-deck/BranchDeck.log`
   ("commit-review open 258 ms: loaded 91, files 187, diffs 187, painted 235"), the backend the source of
-  each patch (memory, disk, git) at debug level.
+  each patch (memory, disk, git) at debug level. The main window logs its start from its build ("main open 812 ms:
+  loaded 240"): it shows on its first rows, so the frames of a start begin with the rows (or with the title row and
+  the loading table when the first sync took longer than 1 s after the page loaded), never with a bare canvas.

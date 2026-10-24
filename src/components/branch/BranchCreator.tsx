@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useEffect } from "react"
 import { CircleXIcon, GitBranchIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
@@ -9,6 +9,7 @@ import { LandedCard } from "@/components/repository/LandedCard"
 import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { YourTurnCard } from "@/components/repository/YourTurnCard"
+import { markWindowContentReady } from "@/lib/sub-window"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
 import { useEffectiveBranchPrefix, useIsLoadingBranchPrefix, useRepository, useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
@@ -24,6 +25,8 @@ export function BranchCreator() {
   const isSyncing = useBranchSync(state => state.isSyncing)
   const syncError = useBranchSync(state => state.syncError)
   const syncedRepositoryPath = useBranchSync(state => state.syncedRepositoryPath)
+  // a sync of the window ended: also one that git deferred (a rebase in progress), which leaves no rows
+  const hasSyncEnded = useBranchSync(state => state.syncCount > 0)
   const branchCount = useBranchSync(state => state.branchOrder.length)
   const unassignedCommits = useUnassignedCommits()
   const unassignedCommitCount = unassignedCommits.length
@@ -52,6 +55,17 @@ export function BranchCreator() {
   })
   // a repository synced before syncs when the window opens it (useSyncOnOpen): only the first sync needs the card
   const showReadyToSync = hasRepository && neverSynced && hasBranchPrefix && !isLoadingBranchPrefix && pathValidation.valid && !hasSynced && !hasError
+
+  // the window shows on its first frame with content: the first rows of a sync, or a state without rows (no repository,
+  // Welcome, Ready to Sync, an error, a sync that ended without rows)
+  const hasContent = !hasRepository || showWelcomeCard || showReadyToSync || hasError || hasSynced || hasSyncEnded || branchCount > 0 || unassignedCommitCount > 0
+  useEffect(() => {
+    if (hasContent) {
+      markWindowContentReady()
+    }
+  }, [hasContent])
+  // a repository synced before syncs when the window opens it: until its rows come, the table loads where it will be
+  const isLoadingRows = hasRepository && !neverSynced && !hasContent
 
   // a message of several lines (git with its install hint) is a title and its details
   const [errorTitle, ...errorLines] = error?.split("\n") ?? []
@@ -103,7 +117,7 @@ export function BranchCreator() {
         </Suspense>
       )}
 
-      <BranchTableCard />
+      <BranchTableCard isLoadingRows={isLoadingRows} />
 
       <UnappliedBranchTableCard />
 

@@ -18,7 +18,7 @@ import { branchGoneReason, reviewCommitKey } from "@/lib/branch-review"
 import type { MenuItemGroups } from "@/lib/menu"
 import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
-import { markSubWindowContentReady } from "@/lib/sub-window"
+import { markWindowContentReady } from "@/lib/sub-window"
 import type { BranchReviewMenuItem, ReviewedBranch, WholeStackScope } from "@/types/sub-window"
 
 /*
@@ -108,7 +108,7 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
   const failed = state.status === "error"
   useEffect(() => {
     if (failed) {
-      markSubWindowContentReady()
+      markWindowContentReady()
     }
   }, [failed])
   if (state.status === "error") {

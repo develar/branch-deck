@@ -34,13 +34,16 @@ targets:
   - ../../src/components/settings/AppearancePage.tsx
   - ../../src-tauri/capabilities/settings.json
   - ../../src/pages/IndexPage.tsx
+  - ../../src/components/branch/BranchCreator.tsx
+  - ../../src/components/branch/BranchTableCard.tsx
+  - ../../src/lib/batch-timer.ts
   - ../../tests/e2e/setup/tauri-mocks.ts
 ---
 
 # Title Bar
 
 Status: Implemented
-Date: 2026-10-15, sub-windows and Linux 2026-10-17
+Date: 2026-10-15, sub-windows and Linux 2026-10-17, the first frame of the main window 2026-10-24
 
 ## Summary
 
@@ -110,8 +113,8 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   draws client-side decorations without a title, as GNOME apps with a header bar have: the shadow, the resize edges in
   it, the tiled, maximized and fullscreen states and the frame extents snapping needs. Every window is built hidden,
   the window-state plugin doesn't show it (no `StateFlags::VISIBLE`), and the main thread sets the titlebar before the
-  window shows (`prepare_title_bar`): the main window right after (`finish_title_bar`), a sub-window once its page
-  settled its content (`sub_window_ready`).
+  window shows (`prepare_title_bar`), then the window shows once its page settled its content (`sub_window_ready`,
+  [Main window](#main-window)).
   [@test] ../../src-tauri/src/title_bar_test.rs (`the_window_state_restores_neither_the_decorations_nor_the_visibility`)
 - The window buttons are those of GTK's `gtk-decoration-layout` (GNOME's `button-layout` through XSETTINGS or the
   portal, KDE's through kde-gtk-config), the start before `:` and the end after it, by GTK's rules: `icon`, `menu`,
@@ -215,12 +218,37 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   double click, the window buttons, the title, the minimum size); a test checks that every sub-window label has it.
   [@test] ../../src-tauri/src/title_bar_test.rs (`every_window_gets_the_permissions_of_the_title_bar`)
 - The window-state plugin restores sizes and positions, never the decorations (a saved `decorated` would bring the
-  native caption back on Windows) nor the visibility (`finish_title_bar` shows a window once its title bar is set).
+  native caption back on Windows) nor the visibility (a window shows once its title bar is set and its page settled
+  its content, `show_when_settled`).
 - The toolbar keeps its size at any page zoom, as window chrome does ([Zoom](zoom.spec.md)).
   [@test] ../../tests/e2e/repository/zoom.spec.ts (`should zoom the islands but not the toolbar, the title bar of the window`)
 - Every control stays on the one 40px line down to the 960px minimum width of the window, beside the traffic lights.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the toolbar after the traffic lights of an overlay title bar, and not in fullscreen`)
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
+
+### Main window
+
+- The main window is built hidden and shows on its first frame with content, the way a sub-window does (one
+  `SubWindowState`, `show_when_settled`, `sub_window_ready`), never as a bare canvas nor as a title row over an empty
+  body. Its first frame is the title row with the first rows of the window's sync (`branchesGrouped`), or with a
+  state that has no rows: no repository, Welcome, Ready to Sync, an error, a sync that ended without rows (none found,
+  or deferred by git) (`BranchCreator`, `markWindowContentReady`). Its open is its build (`__SUB_WINDOW_OPEN__` of its init script); its
+  load (`sub_window_loaded`) hands it no settings, it asks for them itself (`get_settings_changes`).
+  [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window on the first rows of its sync, the table loading where they come until then`)
+  [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window without rows where the window has none to wait for`)
+  [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window on Ready to Sync, which waits for the user, not for a sync`)
+  [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window when git defers its first sync, without a table that loads for ever`)
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_main_window_waits_for_its_first_rows_longer_and_takes_no_settings_with_its_load`)
+- It shows at most 1 s after its page loaded (`MAIN_CONTENT_BUDGET`; the rows of the first sync of the IntelliJ
+  monorepo came about 0.6 s after the page loaded) and 3 s after the build when its page never loads: a slow sync
+  shows the title row and the loading table, a broken page still shows. The loading table stands where the rows come:
+  the filter bar's room where the last sync had enough branches for it, the column heads and as many rows as the last
+  sync had (`lastBranchCount`), "Syncing branches…" after its delay; the rows take its room, nothing below moves.
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_budget_shows_a_main_window_whose_page_drew_no_rows`)
+- While the window never showed, a batch of sync events applies on the next task, not on its 16 ms timer: WebKit
+  throttles the timers of a hidden page to a second (`batchTimer`).
+  [@test] ../../src/lib/batch-timer.test.ts (`runs a batch on the next task, no timer, while the window never showed, then on its timer once it showed`)
+- The page logs how long the window took, from its build ("main open 812 ms: loaded 240").
 
 ### Sub-windows
 

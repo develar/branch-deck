@@ -71,7 +71,7 @@ use commands::sync_inputs::get_sync_inputs_fingerprint;
 use commands::unapply_branch::{reapply_branch, unapply_branch, undo_reapply_branch, undo_unapply_branch};
 use commands::uncommitted_changes::get_uncommitted_changes;
 use commands::update_project::{dismiss_landed, update_project};
-use commands::window_management::{SubWindowState, open_sub_window, sub_window_loaded, sub_window_ready};
+use commands::window_management::{BuiltPage, SubWindowState, epoch_millis, open_script, open_sub_window, show_when_settled, sub_window_loaded, sub_window_ready};
 use commands::window_menu::show_window_menu;
 use commands::youtrack::{
   YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, set_youtrack_issue_state, sign_out_of_youtrack,
@@ -87,7 +87,7 @@ use repository_state::RepositoryStateCache;
 use sync_core::branch_review::BranchReviewMemo;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
-use title_bar::{finish_title_bar, init_title_bar, restart_app, title_bar_script, with_title_bar};
+use title_bar::{init_title_bar, prepare_title_bar, restart_app, title_bar_script, with_title_bar};
 use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width};
 // The log plugin is replaced by the devtools plugin in devtools builds; keep the dependency referenced.
 #[cfg(feature = "devtools")]
@@ -253,7 +253,7 @@ const LOG_FILES_KEPT: usize = 3;
 const LOG_PLUGIN_VERSION: &str = "2.10.1";
 
 /// What the window-state plugin restores: the size, the position, maximized and fullscreen; not the decorations (the page
-/// draws the title bar) and not the visibility (`finish_title_bar` shows a window)
+/// draws the title bar) and not the visibility (a window shows once its page drew its content, `show_when_settled`)
 fn window_state_flags() -> StateFlags {
   StateFlags::all() - StateFlags::DECORATIONS - StateFlags::VISIBLE
 }
@@ -293,8 +293,8 @@ pub fn run() {
   let builder = builder
     .plugin(tauri_plugin_dialog::init())
     // not the decorations: the page draws the title bar (`with_title_bar`), a saved `decorated` would bring the native
-    // one back on Windows; not the visibility: a window shows once its title bar is set (`finish_title_bar`, GTK takes
-    // the titlebar of a custom one only before it is shown) and a sub-window once its page painted (`sub_window_ready`)
+    // one back on Windows; not the visibility: a window shows once its title bar is set (`prepare_title_bar`, GTK takes
+    // the titlebar of a custom one only before it is shown) and its page drew its content (`sub_window_ready`)
     .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(window_state_flags()).build())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_notification::init())
@@ -364,7 +364,10 @@ pub fn run() {
       // the main window's page catches up from the version of this snapshot itself (`get_settings_changes`): a reload
       // runs this script again
       let (settings_script, _) = settings::init_script(&settings_service, app_settings::windows::MAIN_WINDOW);
-      let init_script = format!("{settings_script} {}", title_bar_script());
+      // the open of the window, which its page settles once it drew its first rows (`sub_window_ready`)
+      let windows = app.state::<SubWindowState>();
+      let open = windows.next_open(epoch_millis());
+      let init_script = format!("{settings_script} {} {}", open_script(&open), title_bar_script());
       app.manage(settings_service);
 
       let zoom = app_settings.zoom;
@@ -379,9 +382,14 @@ pub fn run() {
           // the native file drop handler would swallow the HTML5 drag and drop of commits (on Windows)
           .disable_drag_drop_handler(),
       );
+      // known before the page can load and say it drew its first rows
+      windows.built(app_settings::windows::MAIN_WINDOW, open, BuiltPage::Main);
       let window = builder.build()?;
       apply_zoom(&window, zoom);
-      finish_title_bar(&window);
+      // built hidden (`with_title_bar`), it shows on its first frame with content, as a sub-window does: never a grey
+      // canvas, nor a title row over an empty body
+      prepare_title_bar(&window);
+      show_when_settled(app.handle().clone(), app_settings::windows::MAIN_WINDOW.to_owned(), open.id);
 
       Ok(())
     })

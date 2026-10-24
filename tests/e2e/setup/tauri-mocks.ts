@@ -31,6 +31,11 @@ export const tauriMockScript = () => {
   // the version of the snapshot of the settings the page starts from, as the backend remembers it for the window it
   // built (`SubWindowState::built`): the load of a sub-window takes the changes after it (`sub_window_loaded`)
   const startStoreVersion: number = (window as any).__TAURI_STORE_VERSION__ ?? 0
+  // the main window's open, its build, as its init script names it (`open_script`): its page settles it on its first
+  // rows (`markWindowContentReady`); a sub-window's page gets its open from the test (`openLinkedSubWindow`)
+  if (windowLabel === "main") {
+    ;(window as any).__SUB_WINDOW_OPEN__ ??= { id: 1, openedAt: Date.now() }
+  }
 
   /**
    * A change of the settings this page heard (`settings_changed`), as the writer of the app holds it: a reload starts
@@ -538,12 +543,14 @@ export const tauriMockScript = () => {
       })
       return null
     },
-    // the page of a sub-window loaded (`announceSubWindowLoaded`): no data of a later open, and the changes of the
-    // settings after the snapshot the page started from, which the test server's writer has
+    // the page of a window loaded (`announceWindowLoaded`): no data of a later open, and the changes of the settings
+    // after the snapshot the page started from, which the test server's writer has (none for the main window)
     sub_window_loaded: async (cmd: string) => proxyToTestServer(cmd, { since: startStoreVersion, origin: windowLabel }),
-    // the page settled the content of an open (`markSubWindowContentReady`): the backend would show the window
+    // the page settled the content of an open (`markWindowContentReady`): the backend would show the window; with the
+    // branch rows the page had then, which the main window waits for
     sub_window_ready: (_cmd: string, payload: any) => {
       ;(window as any).__e2eSubWindowReady = payload?.openId ?? null
+      ;(window as any).__e2eWindowReadyRows = document.querySelectorAll("[data-testid=branch-row]").length
       return null
     },
     // the window manager's window menu of a right click on the title bar: recorded with the window calls

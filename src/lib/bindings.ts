@@ -307,14 +307,15 @@ export const commands = {
 	 */
 	openSubWindow: (params: OpenSubWindowParams) => typedError<null, ApiError>(__TAURI_INVOKE("open_sub_window", { params })),
 	/**
-	 *  The page of the calling sub-window loaded and listens to the settings: it gets the data of an open that came while
-	 *  it loaded and the changes of the settings after the snapshot its window was built with, and the window shows once
-	 *  the page settled its content, at most `CONTENT_BUDGET` from now
+	 *  The page of the calling window loaded and listens to the settings: a sub-window gets the data of an open that came
+	 *  while it loaded and the changes of the settings after the snapshot its window was built with, and the window shows
+	 *  once the page settled its content, at most its content budget from now (`CONTENT_BUDGET`, the main window's
+	 *  `MAIN_CONTENT_BUDGET`)
 	 */
 	subWindowLoaded: () => typedError<SubWindowLoaded, ApiError>(__TAURI_INVOKE("sub_window_loaded")),
 	/**
-	 *  The page of the calling sub-window settled the content of the open `open_id`: the window shows if that is the latest
-	 *  open and the window is still hidden
+	 *  The page of the calling window settled the content of the open `open_id` (the main window: drew its first rows or
+	 *  the state without rows): the window shows if that is the latest open and the window is still hidden
 	 */
 	subWindowReady: (openId: number) => typedError<null, ApiError>(__TAURI_INVOKE("sub_window_ready", { openId })),
 	/**
