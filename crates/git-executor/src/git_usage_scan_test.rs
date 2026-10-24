@@ -226,6 +226,24 @@ fn listed_paths_are_nul_terminated() {
   );
 }
 
+/// An operation reads a repository fact once: the baseline and its upstream come from one read (`read_baseline` of
+/// `sync_core::repo_facts`: `symbolic-ref`, `remote`, one `for-each-ref`), never from `detect_baseline_branch` and then
+/// `resolve_baseline_upstream`, which list the remotes twice and read the branch and its upstream again (six processes)
+#[test]
+fn the_baseline_and_its_upstream_are_read_once() {
+  check("a file finds the baseline, then its upstream", "sync_core::repo_facts::read_baseline", &[], |source| {
+    let calls = |name: &str| -> Vec<usize> {
+      source
+        .code_lines()
+        .filter(|(_, line)| line.contains(&format!("{name}(")) && !line.contains(&format!("fn {name}")))
+        .map(|(number, _)| number)
+        .collect()
+    };
+    let detect = calls("detect_baseline_branch");
+    if detect.is_empty() { Vec::new() } else { calls("resolve_baseline_upstream") }
+  });
+}
+
 #[test]
 fn network_commands_run_through_remote_command() {
   check(

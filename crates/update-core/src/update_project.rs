@@ -14,15 +14,15 @@ use git_ops::update_branch::{
   check_update_undo, finish_pending_update, pending_update, recheck_update,
 };
 use git_ops::word_resolve::ResolveMode;
-use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{LockWait, lock_repository};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::path::Path;
 use std::time::Duration;
-use sync_core::baseline::{fetch_baseline, last_fetch_time, read_check_inputs, resolve_baseline_upstream};
+use sync_core::baseline::{fetch_baseline, last_fetch_time, read_check_inputs};
 use sync_core::landed::{LandedQuery, find_landed, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
+use sync_core::repo_facts::{Baseline, read_baseline};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument, warn};
@@ -174,12 +174,8 @@ pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, op
 
 /// `update_project_with`; with `Resolve::Yes`, a conflict starts a resolve session
 fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress), resolve: Resolve<'_>) -> Result<BdUpdate> {
-  let baseline_branch = detect_baseline_branch(git_executor, repo_path)?;
-  let upstream = resolve_baseline_upstream(git_executor, repo_path, &baseline_branch)?.ok_or_else(|| {
-    anyhow::Error::new(NoUpstream {
-      baseline: baseline_branch.clone(),
-    })
-  })?;
+  let Baseline { name, upstream } = read_baseline(git_executor, repo_path)?;
+  let upstream = upstream.ok_or_else(|| anyhow::Error::new(NoUpstream { baseline: name }))?;
   // refuse before the network: the check would refuse after it anyway
   check_update_guards(git_executor, repo_path)?;
 

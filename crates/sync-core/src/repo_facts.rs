@@ -11,7 +11,7 @@ use anyhow::{Result, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, TEMP_REF_PREFIX, is_stale_temp_ref};
-use git_ops::revs::resolve_commit;
+use git_ops::revs::{current_branch, resolve_commit};
 use history_rewrite::baseline::{NoBaseline, baseline_candidates, no_baseline};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -98,7 +98,13 @@ pub(crate) struct BaselineListing {
 /// two namespaces, and with `sync_refs` the refs of the conflicting branches and the temporary refs. An upstream the
 /// listing lacks (not a candidate) costs one `rev-parse` more. The listing reads refs only, no commit
 /// (`LISTED_BRANCH_ATOMS`)
-pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path: &str, branch: Option<&str>, branch_prefix: &str, sync_refs: bool) -> Result<BaselineListing> {
+pub(crate) fn read_baseline_listing(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  branch: Option<&str>,
+  branch_prefix: Option<&str>,
+  sync_refs: bool,
+) -> Result<BaselineListing> {
   let remotes: Vec<String> = git_executor
     .execute_command_lines(&["remote"], repo_path)?
     .into_iter()
@@ -108,14 +114,18 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
   let first_remote = remotes.first().map(String::as_str);
   let candidates = baseline_candidates(first_remote);
 
-  let prefix = branch_prefix.trim_end_matches('/');
   let current_ref = branch.map(|branch| format!("refs/heads/{branch}"));
-  let local_prefix = format!("refs/heads/{prefix}/");
-  let remote_prefix = format!("refs/remotes/origin/{prefix}/");
+  // without a prefix no branch of it is listed: an empty prefix matches no ref
+  let (local_prefix, remote_prefix) = branch_prefix.map_or_default(|prefix| {
+    let prefix = prefix.trim_end_matches('/');
+    (format!("refs/heads/{prefix}/"), format!("refs/remotes/origin/{prefix}/"))
+  });
   let format = format!("--format={FORMAT_PREFIX}{LISTED_BRANCH_ATOMS}");
   let mut args = vec!["for-each-ref", format.as_str()];
   args.extend(current_ref.as_deref());
-  args.extend([local_prefix.as_str(), remote_prefix.as_str()]);
+  if branch_prefix.is_some() {
+    args.extend([local_prefix.as_str(), remote_prefix.as_str()]);
+  }
   args.extend(candidates.iter().map(|(full_ref, _)| full_ref.as_str()));
   if sync_refs {
     args.extend([CONFLICT_REFS, TEMP_REF_PREFIX]);
@@ -142,9 +152,10 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
       tracked = Some(TrackedUpstream { upstream, remote, remote_ref });
       tracked_short = upstream_short;
     }
-    if name.starts_with(&local_prefix) {
+    if branch_prefix.is_some() && name.starts_with(&local_prefix) {
       branches.extend(ListedBranch::parse(&format!("{name}\0{rest}")));
     } else if let Some(full_name) = name.strip_prefix("refs/remotes/origin/")
+      && branch_prefix.is_some()
       && name.starts_with(&remote_prefix)
     {
       remote_tips.insert(full_name.to_string(), tip.to_string());
@@ -182,6 +193,31 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
   })
 }
 
+/// The baseline of the checked out branch, as `detect_baseline_branch` names it, and the remote branch behind it, as
+/// `resolve_baseline_upstream` finds it (`None` for a local baseline)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Baseline {
+  pub name: String,
+  pub upstream: Option<BaselineUpstream>,
+}
+
+/// The baseline of the checked out branch and its upstream from one read: `symbolic-ref`, `remote` and one
+/// `for-each-ref` (`read_baseline_listing`), a `rev-parse` more when HEAD's branch tracks a branch that is no candidate.
+/// `detect_baseline_branch` and `resolve_baseline_upstream` one after the other read the remotes twice, the branch, its
+/// upstream and the candidates in six processes
+///
+/// # Errors
+/// A `NoBaseline` error when no baseline exists, as `detect_baseline_branch`'s
+#[instrument(skip(git_executor))]
+pub fn read_baseline(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Baseline> {
+  let branch = current_branch(git_executor, repo_path)?;
+  let listing = read_baseline_listing(git_executor, repo_path, branch.as_deref(), None, false)?;
+  Ok(Baseline {
+    name: listing.baseline,
+    upstream: listing.upstream,
+  })
+}
+
 /// Read the facts of a sync of `branch_prefix` on the checked out `branch`: the baseline and the branches of
 /// `read_baseline_listing`, and one `rev-parse` of HEAD, the baseline, `FETCH_HEAD` and the landed state
 #[instrument(skip(git_executor))]
@@ -195,7 +231,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     remote_tips,
     conflict_tips,
     stale_temp_refs,
-  } = read_baseline_listing(git_executor, repo_path, Some(branch), branch_prefix, true)?;
+  } = read_baseline_listing(git_executor, repo_path, Some(branch), Some(branch_prefix), true)?;
   let baseline_rev = format!("{baseline_ref}^{{commit}}");
   let (output, exit_code) = git_executor.execute_command_with_status(
     &[

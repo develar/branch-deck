@@ -95,7 +95,7 @@ fn a_detached_head_tracks_nothing() {
   repo.git(&["checkout", "-q", "--detach"]);
 
   let git = GitCommandExecutor::new().with_process_stats("test");
-  let listing = read_baseline_listing(&git, repo.path_str(), None, "test", false).unwrap();
+  let listing = read_baseline_listing(&git, repo.path_str(), None, Some("test"), false).unwrap();
   // the upstream of master is not HEAD's: the first candidate, as `detect_baseline_branch` says
   assert_eq!(listing.baseline, detect_baseline_branch(repo.git_executor(), repo.path_str()).unwrap());
   assert_eq!((listing.baseline.as_str(), listing.baseline_ref.as_str()), ("origin/master", "refs/remotes/origin/master"));

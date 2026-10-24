@@ -36,9 +36,10 @@ headers of `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `cr
   `crates/sync-core/src/<op>.rs`: the sync, the pushes and the other cores, which reach no remote service but through
   git): `<op>_core(git, params, …)`, the one entry of every caller. A rewrite
   of the checked-out branch takes `&RewriteOptions`: `options.lock(..)` before it reads anything, then the expected
-  HEAD (`ensure_head`, `expected_full_head`), then git-ops. A step of a sync, or of a `bd` command after its sync, takes
-  the facts `RepoFacts`, `ConfigSnapshot`, `Snapshot` or the `SyncReport` hold instead of reading them again; a remote
-  only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
+  HEAD (`ensure_head`, `expected_full_head`), then git-ops. An operation reads a repository fact once and passes it
+  down: a step of a sync, or of a `bd` command after its sync, takes the facts `RepoFacts`, `ConfigSnapshot`,
+  `Snapshot` or the `SyncReport` hold instead of reading them again, and the baseline with its upstream comes from one
+  `read_baseline`; only HEAD and the guards are read again under the lock. A remote only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
 - **bd** (usually `<op>_command.rs` in the crate of its area, e.g. `crates/bd-rewrite/src/`, and a variant of `Command`
   in `crates/bd-cli/src/lib.rs`): clap arguments, one JSON object with
   `schema` (`bd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
@@ -80,7 +81,7 @@ Reuse one of these before writing a parser or a process of your own.
 | `resolve_by_words`, `RESOLVE_VERSION` | `git_ops::word_resolve` | a conflicting cherry-pick that its words resolve, all or nothing: the files and the tree |
 | `read_descriptions`, `write_description`, `clear_description` | `git_ops::branch_description` | the pull request text of a branch |
 | `to_final_branch_name`, `qualified_branch_name`, `strip_branch_namespace`, `sanitize_branch_name` | `domain_types::branch_names` | `{prefix}/virtual/<name>` and the other namespaces under the prefix; a group name valid in a ref |
-| `RepoFacts`, `read_baseline_listing` | `sync_core::repo_facts` | the baseline, HEAD, upstream and the branches under the prefix, read once per sync |
+| `RepoFacts`, `read_baseline_listing`; `read_baseline` | `sync_core::repo_facts` | the baseline, HEAD, upstream and the branches under the prefix, read once per sync; the baseline and its upstream outside a sync, in one read (a fetch, Update Project) |
 | `resolve_baseline_upstream`, `fetch_baseline`, `check_baseline_update`, `baseline_tracking_ref` | `sync_core::baseline` | the remote branch the baseline tracks, its fetch, the update check every sync runs |
 | `resolve_github_repository`, `parse_github_repository` | `sync_core::github_repository` | the GitHub repository of the branches from the config, `origin` or the Space mirror, without HTTP |
 | `read_commit_diffs_cached`, `read_commit_changes` | `trial_check::diff_scan` | the changes of many commits from one `log --raw -z`; only a trial check or a pick reads diffs, never a sync |

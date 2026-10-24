@@ -2,11 +2,11 @@
 //! an update brings the branch in. Only the baseline's remote branch is fetched (as Update Project does); the branch,
 //! the index and the working tree stay as they are.
 
-use crate::baseline::{fetch_baseline, resolve_baseline_upstream};
+use crate::baseline::fetch_baseline;
+use crate::repo_facts::{Baseline, read_baseline};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::baseline::detect_baseline_branch;
 use serde::{Deserialize, Serialize};
 use sync_utils::timestamp::unix_now;
 use tracing::instrument;
@@ -33,9 +33,8 @@ pub struct FetchBaselineResult {
 #[instrument(skip(git_executor, params, on_progress), fields(repository_path = %params.repository_path))]
 pub fn fetch_baseline_core(git_executor: &GitCommandExecutor, params: &FetchBaselineParams, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<FetchBaselineResult> {
   let repo_path = &params.repository_path;
-  let baseline_branch = detect_baseline_branch(git_executor, repo_path)?;
-  let upstream =
-    resolve_baseline_upstream(git_executor, repo_path, &baseline_branch)?.ok_or_else(|| anyhow!("The baseline {baseline_branch} is a local branch: there is nothing to fetch"))?;
+  let Baseline { name, upstream } = read_baseline(git_executor, repo_path)?;
+  let upstream = upstream.ok_or_else(|| anyhow!("The baseline {name} is a local branch: there is nothing to fetch"))?;
   // a forced update needs no note: the next update check excludes the old tip by the fork point of the reflog
   fetch_baseline(git_executor, repo_path, &upstream, on_progress).map_err(|e| anyhow!("Failed to fetch {}: {e:#}", upstream.name))?;
   Ok(FetchBaselineResult {

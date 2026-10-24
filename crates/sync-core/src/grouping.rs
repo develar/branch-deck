@@ -79,7 +79,7 @@ pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, r
     branches: listed,
     remote_tips,
     ..
-  } = read_baseline_listing(git_executor, repository_path, head_branch.as_deref(), branch_prefix, false)?;
+  } = read_baseline_listing(git_executor, repository_path, head_branch.as_deref(), Some(branch_prefix), false)?;
   let commits = get_commit_list(git_executor, repository_path, &baseline_branch)?;
   let grouping = read_grouping_inputs_with(git_executor, repository_path, stacks)?;
   let mut grouper = CommitGrouper::new_with(&grouping);

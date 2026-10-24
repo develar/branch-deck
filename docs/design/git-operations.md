@@ -227,7 +227,12 @@ written, except by Update Project and the finish of its resolve session (their o
      so the sync leaves their branches as they are. Only the two commits and those between whose diff of the file
      changed get the current user as committer.
    - Signatures are stripped because they would no longer be valid.
-6. **Batch**: one process per operation phase, not one per item. Never parse translated text; rely on exit codes and
+6. **Batch**: one process per operation phase, not one per item. **An operation reads a repository fact once** and
+   passes it down: the baseline and its upstream come from `read_baseline` (`symbolic-ref`, `remote` and one
+   `for-each-ref`, as `read_baseline_listing` reads them for a sync), never from `detect_baseline_branch` and then
+   `resolve_baseline_upstream` (six processes; `the_baseline_and_its_upstream_are_read_once`); a step of a sync takes
+   `RepoFacts`, `ConfigSnapshot` or the `SyncReport`. Only HEAD and the guards are read again, under the lock, where
+   they may have moved since the check (the witness). Never parse translated text; rely on exit codes and
    on `--porcelain` and `-z` output. **One named exception:** a branch description (`branch.<name>.description`,
    `bd describe` and the `descriptions` of a `bd group` plan) costs one `git config` process per branch, because git
    has no batch writer for config. The current descriptions are still read with one `git config --get-regexp`, and

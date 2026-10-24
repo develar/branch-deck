@@ -7,6 +7,7 @@
 use crate::config_snapshot::ConfigSnapshot;
 use crate::landed::{find_landing, landed_candidates};
 use crate::remote_command::execute_remote_command_with_progress;
+use crate::repo_facts::{Baseline, read_baseline};
 use crate::transfer_progress::TransferProgress;
 use anyhow::Result;
 use domain_types::landed::LandedBranch;
@@ -15,7 +16,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::current_branch;
 use git_ops::update_branch::{CheckPurpose, CheckedHead, LandedScope, UpdatePlan, UpstreamRef, check_update, check_update_of};
 use git_ops::word_resolve::ResolveMode;
-use history_rewrite::baseline::{NoBaseline, detect_baseline_branch};
+use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::snapshot::read_grouping_inputs_with;
 use std::path::{Path, PathBuf};
@@ -268,11 +269,9 @@ fn with_landing(git_executor: &GitCommandExecutor, repo_path: &str, plan: Update
 
 /// The target's baseline and its remote-tracking ref; `None` for no baseline, the ref `None` for a local baseline
 pub fn baseline_tracking_ref(git_executor: &GitCommandExecutor, target: &str) -> Result<(Option<String>, Option<String>)> {
-  let baseline = match detect_baseline_branch(git_executor, target) {
-    Ok(baseline) => baseline,
-    Err(e) if e.downcast_ref::<NoBaseline>().is_some() => return Ok((None, None)),
-    Err(e) => return Err(e),
-  };
-  let upstream = resolve_baseline_upstream(git_executor, target, &baseline)?.map(|upstream| upstream.tracking_ref);
-  Ok((Some(baseline), upstream))
+  match read_baseline(git_executor, target) {
+    Ok(Baseline { name, upstream }) => Ok((Some(name), upstream.map(|upstream| upstream.tracking_ref))),
+    Err(e) if e.downcast_ref::<NoBaseline>().is_some() => Ok((None, None)),
+    Err(e) => Err(e),
+  }
 }

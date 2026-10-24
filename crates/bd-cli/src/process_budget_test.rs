@@ -452,14 +452,14 @@ fn a_pick() {
       ("cat-file", 1),
       ("config", 1),
       ("diff-tree", 2),
-      ("for-each-ref", 2),
+      ("for-each-ref", 1),
       ("log", 4),
       ("merge-base", 4),
       ("read-tree", 4),
-      ("remote", 2),
+      ("remote", 1),
       ("replay", 1),
       ("rev-list", 1),
-      ("rev-parse", 26),
+      ("rev-parse", 25),
       ("symbolic-ref", 9),
       ("update-index", 6),
       ("update-ref", 4),
@@ -576,13 +576,13 @@ fn a_pick_into_a_branch_the_target_has() {
       ("cat-file", 2),
       ("config", 1),
       ("diff-tree", 1),
-      ("for-each-ref", 2),
+      ("for-each-ref", 1),
       ("log", 4),
       ("merge-base", 4),
       ("read-tree", 1),
-      ("remote", 2),
+      ("remote", 1),
       ("rev-list", 1),
-      ("rev-parse", 8),
+      ("rev-parse", 7),
       ("symbolic-ref", 2),
       ("update-index", 1),
     ],
@@ -590,9 +590,9 @@ fn a_pick_into_a_branch_the_target_has() {
 }
 
 /// The processes of the target conflict check of `bd safe-push`: before the lock, the fetch of the target reads the
-/// baseline and its upstream (`remote`, `for-each-ref`, `symbolic-ref`, `rev-parse`), then fetches it (`fetch`); after
-/// the sync, one `replay` of the branch onto the target tip that the sync read
-const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 2), ("remote", 2), ("replay", 1), ("rev-parse", 1), ("symbolic-ref", 1)];
+/// baseline and its upstream once (`read_baseline`: `symbolic-ref`, `remote`, one `for-each-ref`), then fetches it
+/// (`fetch`); after the sync, one `replay` of the branch onto the target tip that the sync read
+const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 1), ("remote", 1), ("replay", 1), ("symbolic-ref", 1)];
 
 /// What `bd safe-push auth --check` runs besides the target conflict check (`a_safe_push_check`)
 const SAFE_PUSH_CHECK: &[(&str, u32)] = &[

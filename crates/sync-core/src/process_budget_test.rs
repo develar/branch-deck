@@ -517,14 +517,14 @@ async fn a_reapply() {
       ("config", 1),
       ("diff-tree", 1),
       ("fast-import", 1),
-      ("for-each-ref", 3),
+      ("for-each-ref", 2),
       ("log", 4),
       ("merge-base", 1),
       ("read-tree", 2),
-      ("remote", 2),
+      ("remote", 1),
       ("replay", 1),
       ("rev-list", 2),
-      ("rev-parse", 10), // the repository lock: 1
+      ("rev-parse", 9), // the repository lock: 1
       ("symbolic-ref", 4),
       ("update-index", 3),
       ("update-ref", 2),
