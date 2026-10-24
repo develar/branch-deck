@@ -230,7 +230,9 @@ written, except by Update Project and the finish of its resolve session (their o
 6. **Batch**: one process per operation phase, not one per item. **An operation reads a repository fact once** and
    passes it down: the baseline and its upstream come from `read_baseline` (`symbolic-ref`, `remote` and one
    `for-each-ref`, as `read_baseline_listing` reads them for a sync), never from `detect_baseline_branch` and then
-   `resolve_baseline_upstream` (six processes; `the_baseline_and_its_upstream_are_read_once`); the directories come from
+   `resolve_baseline_upstream` (six processes; `the_baseline_and_its_upstream_are_read_once`); a check session and
+   `bd move-hunk` take the baseline with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`
+   (`remote` and one `for-each-ref`) and walk the commits between the two ids; the directories come from
    the executor ([Executor](#executor); `the_directories_of_an_operation_are_read_once`); a step of a sync takes
    `RepoFacts`, `ConfigSnapshot` or the `SyncReport`. Only HEAD and the guards are read again, under the lock, where
    they may have moved since the check (the witness). Never parse translated text; rely on exit codes and
@@ -2312,8 +2314,11 @@ Code: `crates/sync-core/src/review_fetch.rs`, `crates/sync-core/src/remote_comma
    `gc` has not pruned it (see "Object cache"), or conflict, and a conflict is reported light (its files), without the
    conflict analysis.
 
-A `CheckSession` reads the snapshot (the guards, HEAD, the stack setting, the baseline and one `log`) and the branch
-tips once; `check_plan` is one session with one check. `bd suggest` checks up to 6 plans with one session, one per
+A `CheckSession` reads the config once (`ConfigSnapshot`: the stack setting, the symbol and resolve modes; `bd check`
+and `bd suggest` pass the one their context read, `open_on`), then the snapshot: the guards, HEAD, the stores of the grouping, the baseline with its commit and the branch tips from one
+listing (`read_listed_baseline`), and one `log` from that commit to HEAD (`Snapshot::read_with`); a regroup reads the
+baseline by `detect_baseline_branch` (`Snapshot::read`), which in `history-rewrite` cannot take the listing of
+`sync-core`. `check_plan` is one session with one check. `bd suggest` checks up to 6 plans with one session, one per
 repair round, and the conflict fix up to 24, so the checks of a session share what a plan doesn't change: the states
 of the declared parents without commits (`empty_parent_states`: the detection notes, the baseline and the detection
 of a parent whose virtual branch lost its commits) are read once for each set of such parents, since a plan changes

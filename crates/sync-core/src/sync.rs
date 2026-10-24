@@ -30,7 +30,7 @@ use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, GroupedBranchInf
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
-use git_ops::commit_list::get_frozen_commit_list_with_handler;
+use git_ops::commit_list::{get_frozen_commit_list_with_handler, on_local_baseline};
 use git_ops::commit_writer::{delete_stale_temp_refs, write_cache_notes};
 use git_ops::notes::write_commit_notes_with;
 use git_ops::revs::{current_branch, with_dirs_of};
@@ -285,7 +285,7 @@ impl SyncReport {
   /// Whether HEAD is the local baseline branch itself, as the sync walked the commits (`is_on_local_baseline`)
   #[must_use]
   pub fn is_on_local_baseline(&self) -> bool {
-    !self.baseline.contains('/') && self.branch == self.baseline
+    on_local_baseline(&self.baseline, &self.branch)
   }
 }
 

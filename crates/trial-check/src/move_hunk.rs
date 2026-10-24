@@ -7,15 +7,17 @@ use crate::diff_scan::{Renames, blob_pair, read_commit_changes};
 use file_diffs::patch::BlockPatch;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_list::{get_frozen_commit_list, on_local_baseline};
 use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, move_hunk};
 use git_ops::revs::{DetachedHead, current_branch, short_id};
 use git_ops::rewrite_guard::ensure_no_operation_in_progress;
+use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_ids::{IdMatch, match_commit_id};
 use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, ensure_expected_head, lock_repository};
-use history_rewrite::snapshot::CommitsAhead;
 use object_cache::cache::ObjectCache;
 use std::time::Duration;
+use sync_core::repo_facts::{ListedBaseline, read_listed_baseline};
 use text_diff::apply::{BlockId, LineBlock};
 use tracing::instrument;
 
@@ -119,8 +121,10 @@ pub fn move_hunk_core(
   } else {
     Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
   };
-  let CommitsAhead { baseline, commits } = CommitsAhead::read(git_executor, repository_path)?;
-  let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repository_path)?;
+  // the baseline with its commit and HEAD's tip from one listing, the commits between them from one `log`
+  let ListedBaseline { name: baseline, commit, head, .. } = read_listed_baseline(git_executor, repository_path, &branch, None)?;
+  let head = head.ok_or_else(|| anyhow::Error::new(NoBaseline::NoCommits))?;
+  let commits = get_frozen_commit_list(git_executor, repository_path, &commit, &head, on_local_baseline(&baseline, &branch))?;
   ensure_expected_head(options.expect_head.as_deref(), &head, || branch).map_err(RegroupError::HeadMoved)?;
 
   let resolve = |id: &str| match match_commit_id(id, commits.iter().map(|commit| commit.id.as_str())) {

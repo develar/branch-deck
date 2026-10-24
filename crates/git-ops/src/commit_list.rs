@@ -48,6 +48,16 @@ where
   walk_commits_ahead(git_executor, repo_path, baseline_branch, on_local_baseline, head, commit_handler)
 }
 
+/// `get_frozen_commit_list_with_handler`, collected
+pub fn get_frozen_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_commit: &str, head: &str, on_local_baseline: bool) -> Result<Vec<Commit>> {
+  let mut commits = Vec::new();
+  walk_commits_ahead(git_executor, repo_path, baseline_commit, on_local_baseline, head, |commit| {
+    commits.push(commit);
+    Ok(())
+  })?;
+  Ok(commits)
+}
+
 /// The commits of a sync: from `baseline_commit` to `head`, the ids its facts froze at its start, never the names, so a
 /// fetch or a commit during the sync changes nothing of what it groups. `on_local_baseline`: HEAD is the local baseline
 /// branch itself (`is_on_local_baseline`, which the caller knows from the checked out branch it read), and every commit
@@ -136,7 +146,12 @@ pub fn is_on_local_baseline(git_executor: &GitCommandExecutor, repo_path: &str, 
   if baseline_branch.contains('/') {
     return Ok(false);
   }
-  Ok(current_branch(git_executor, repo_path)?.as_deref() == Some(baseline_branch))
+  Ok(current_branch(git_executor, repo_path)?.is_some_and(|branch| on_local_baseline(baseline_branch, &branch)))
+}
+
+/// `is_on_local_baseline` of the checked out `branch` a caller read already: no process
+pub fn on_local_baseline(baseline_branch: &str, branch: &str) -> bool {
+  !baseline_branch.contains('/') && branch == baseline_branch
 }
 
 /// Separator between commit records in the `git log` output (`%x1e`)

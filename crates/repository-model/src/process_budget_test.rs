@@ -34,8 +34,9 @@ async fn the_landing_check_of_a_start_reuses_the_check_of_its_popover() {
     (check, git)
   };
 
-  // the inputs, the session (the snapshot, the config, the tips) and the trial, which reuses the copies of the sync
-  const SESSION: [(&str, u32); 6] = [("cat-file", 2), ("config", 3), ("for-each-ref", 3), ("log", 5), ("remote", 1), ("rev-parse", 4)];
+  // the inputs, the session (the config, the snapshot with the baseline and the tips of one listing) and the trial,
+  // which reuses the copies of the sync
+  const SESSION: [(&str, u32); 6] = [("cat-file", 2), ("config", 2), ("for-each-ref", 2), ("log", 5), ("remote", 1), ("rev-parse", 2)];
   let (popover, git) = check(&HashSet::new());
   assert_processes(&git, &SESSION);
 

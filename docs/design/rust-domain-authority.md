@@ -1719,8 +1719,11 @@ rewrites между процессами через файл `s10`; `s12` ждё
   знает `git_common_dir` и передаёт его в `RewriteOptions` и `UpdateOptions`, так что lock не стартует `rev-parse`.
   Факты репозитория одной операции уже читаются один раз на её входе и передаются вниз (`RepoFacts` sync,
   `ConfigSnapshot`, `read_baseline` для fetch и Update Project, каталоги репозитория — на executor операции,
-  `with_dirs_of`, без `rev-parse` у guards и lock; правило «Batch» в git-operations.md); сессия становится их
-  владельцем, и операция берёт их у неё.
+  `with_dirs_of`, без `rev-parse` у guards и lock; сессия проверки и `bd move-hunk` берут базу, её коммит, HEAD и
+  вершины веток из одного листинга, `read_listed_baseline`, а сессия после sync — из `SyncReport`; правило «Batch» в
+  git-operations.md); сессия становится их владельцем, и операция берёт их у неё. Rewrites в `history-rewrite`
+  (regroup, squash, park) пока читают базу через `detect_baseline_branch`: листинг живёт в `sync-core`, и сессия
+  отдаст им его.
 - **Факт без ответа** (правило приложения с 2026-10-24, `fix/first-frame-truth`): каждое семейство — `Loading` с
   открытия сессии и смены репозитория до первого ответа, сегодня это `isPatronusPending` (Patronus не ответил или вид
   роботов первого ответа списка не посчитан), `isPullRequestsLoading`, `isRobotProblemsPending` и readiness без

@@ -295,7 +295,7 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   let started = Instant::now();
   let plan = read_plan(args.plan.as_ref())?;
   let cache = context.cache();
-  let session = CheckSession::open(&context.git, &context.repository, &context.prefix, &cache)
+  let session = CheckSession::open_on(&context.git, &context.repository, &context.prefix, &cache, &context.config()?)
     .map_err(regroup_error)?
     .verifying_mapping_notes(!context.use_cache);
   let report = session.check(plan.as_ref().map(|plan| &plan.regroup)).map_err(regroup_error)?;

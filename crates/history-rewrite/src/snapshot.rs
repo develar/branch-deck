@@ -57,13 +57,28 @@ pub struct Snapshot {
 impl Snapshot {
   /// The snapshot after the guards every regroup, dry run included, passes: no operation in progress, HEAD on a branch
   pub fn read(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Self, RegroupError> {
+    let (snapshot, ()) = Self::read_with(git_executor, repository_path, None, |_, _| Ok((CommitsAhead::read(git_executor, repository_path)?, ())))?;
+    Ok(snapshot)
+  }
+
+  /// `read` with the stack setting a caller read already (`None`: one `git config`) and the commits ahead of the
+  /// baseline from `commits_ahead` of HEAD and the checked out branch, after the guards; with what else it read
+  pub fn read_with<T>(
+    git_executor: &GitCommandExecutor,
+    repository_path: &str,
+    stacks: Option<bool>,
+    commits_ahead: impl FnOnce(&str, &str) -> Result<(CommitsAhead, T), RegroupError>,
+  ) -> Result<(Self, T), RegroupError> {
     ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
     let (head, branch) = read_head(git_executor, repository_path)?.ok_or_else(|| anyhow::Error::new(NoBaseline::NoCommits))?;
     let branch = branch.ok_or_else(|| RegroupError::DetachedHead(DetachedHead.to_string()))?;
-    let grouping = read_grouping_inputs(git_executor, repository_path)?;
-    let CommitsAhead { baseline, commits } = CommitsAhead::read(git_executor, repository_path)?;
+    let grouping = match stacks {
+      Some(stacks) => read_grouping_inputs_with(git_executor, repository_path, stacks)?,
+      None => read_grouping_inputs(git_executor, repository_path)?,
+    };
+    let (CommitsAhead { baseline, commits }, read) = commits_ahead(&head, &branch)?;
     let Grouped { groups, forest, .. } = group_commits(&commits, &grouping);
-    Ok(Self {
+    let snapshot = Self {
       head,
       branch,
       grouping,
@@ -71,7 +86,8 @@ impl Snapshot {
       commits,
       groups,
       forest,
-    })
+    };
+    Ok((snapshot, read))
   }
 }
 

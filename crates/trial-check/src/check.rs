@@ -22,15 +22,14 @@ use domain_types::{BranchError, ProgressReporter, SyncEvent};
 use file_diffs::service::FileDiffs;
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::get_frozen_commit_list_with_handler;
-use git_ops::revs::resolve_commit;
+use git_ops::commit_list::{get_frozen_commit_list, on_local_baseline};
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::autosquash::plan_autosquash;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use history_rewrite::commit_ids::{IdMatch, match_commit_id};
 use history_rewrite::regroup::{RegroupError, RegroupOutcome, RegroupPlan, plan_in_memory};
-use history_rewrite::snapshot::{Grouped, Snapshot, group_commits};
+use history_rewrite::snapshot::{CommitsAhead, Grouped, Snapshot, group_commits};
 use history_rewrite::stack::{PendingDetection, empty_parent_states, place_branches, read_only_detection};
 use history_rewrite::stack::{StackForest, describe_problem};
 use object_cache::cache::ObjectCache;
@@ -45,6 +44,7 @@ use sync_core::commit_owners::CommitOwners;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::config_snapshot::SymbolMode;
 use sync_core::grouping::branch_tips;
+use sync_core::repo_facts::{ListedBaseline, read_listed_baseline};
 use sync_core::sync::{BuildBase, SyncReport, seeded_tree_cache};
 use sync_utils::span::in_current_span;
 use tracing::instrument;
@@ -253,9 +253,9 @@ pub struct CheckSession {
   /// The commits of the existing virtual branches down to a base, read by the first check that builds on it, shared
   /// with the sessions of `with_rewrite`: a plan never changes the branch tips, so one `log` serves every check
   existing_commits: Arc<Mutex<HashMap<String, Arc<ExistingCommits>>>>,
-  /// The commit of the baseline, resolved by the first that asks: the detection of each set of parents without commits
-  /// and the dangling-reference checks compare with it; `None` when it does not resolve (the local baseline branch)
-  baseline_commit: Arc<OnceLock<Option<String>>>,
+  /// The commit of the baseline, as the opener read it with the snapshot: the detection of each set of parents without
+  /// commits and the dangling-reference checks compare with it
+  baseline_commit: String,
 }
 
 /// Parent -> its state, of the declared parents without commits (`empty_parent_states`)
@@ -298,14 +298,42 @@ impl LineGraph {
 type DanglingFacts = (HashMap<String, Vec<FileLines>>, Option<String>);
 
 impl CheckSession {
-  /// Read the snapshot after the guards of a regroup (no operation in progress, HEAD on a branch) and the branch tips
+  /// Read the snapshot after the guards of a regroup (no operation in progress, HEAD on a branch): the config once, HEAD,
+  /// the grouping, the baseline with its commit and the branch tips from one listing (`read_listed_baseline`), and the
+  /// commits from that commit to HEAD
   #[instrument(skip(git_executor, cache))]
   pub fn open(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache) -> Result<Self, RegroupError> {
-    let snapshot = Snapshot::read(git_executor, repository_path)?;
     let config = ConfigSnapshot::read(git_executor, repository_path).map_err(RegroupError::from)?;
+    Self::open_on(git_executor, repository_path, branch_prefix, cache, &config)
+  }
+
+  /// `open` with the config its command read already (the one `git config` of a `bd` command)
+  #[instrument(skip(git_executor, cache, config))]
+  pub fn open_on(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache, config: &ConfigSnapshot) -> Result<Self, RegroupError> {
     let symbols = config.symbol_mode().map_err(RegroupError::from)?;
     let resolve = config.resolve_mode().map_err(RegroupError::from)?;
-    Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, (symbols, resolve))
+    let stacks = config.stacks().map_err(RegroupError::from)?;
+    let (snapshot, baseline) = Snapshot::read_with(git_executor, repository_path, Some(stacks), |head, branch| {
+      let baseline = read_listed_baseline(git_executor, repository_path, branch, Some(branch_prefix))?;
+      let commits = get_frozen_commit_list(git_executor, repository_path, &baseline.commit, head, on_local_baseline(&baseline.name, branch))?;
+      Ok((
+        CommitsAhead {
+          baseline: baseline.name.clone(),
+          commits,
+        },
+        baseline,
+      ))
+    })?;
+    let ListedBaseline { commit, tips, .. } = baseline;
+    Ok(Self::open_with(
+      git_executor,
+      repository_path,
+      branch_prefix,
+      cache,
+      snapshot,
+      (tips, commit),
+      (symbols, resolve),
+    ))
   }
 
   /// The session after the sync of `report`, on what it read (`snapshot_of_sync`, its config): the commits with the
@@ -315,29 +343,38 @@ impl CheckSession {
     let symbols = report.config.symbol_mode().map_err(RegroupError::from)?;
     let resolve = report.config.resolve_mode().map_err(RegroupError::from)?;
     let snapshot = snapshot_of_sync(git_executor, repository_path, report)?;
-    let session = Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, (symbols, resolve))?;
-    // the commit the sync built on and the baseline commit it grouped against: no check reads them again
+    let tips = if snapshot.commits.is_empty() {
+      HashMap::new()
+    } else {
+      branch_tips(git_executor, repository_path, branch_prefix)?
+    };
+    // the baseline commit it grouped against and the commit it built on: no check reads them again
+    let session = Self::open_with(
+      git_executor,
+      repository_path,
+      branch_prefix,
+      cache,
+      snapshot,
+      (tips, report.baseline_commit.clone()),
+      (symbols, resolve),
+    );
     Ok(Self {
       base_facts: Arc::new(Mutex::new(report.base.clone())),
-      baseline_commit: Arc::new(OnceLock::from(Some(report.baseline_commit.clone()))),
       ..session
     })
   }
 
+  /// The session on `snapshot` with the branch tips and the baseline commit its opener read
   fn open_with(
     git_executor: &GitCommandExecutor,
     repository_path: &str,
     branch_prefix: &str,
     cache: &ObjectCache,
     snapshot: Snapshot,
+    (tips, baseline_commit): (HashMap<String, String>, String),
     (symbols, resolve): (SymbolMode, ResolveMode),
-  ) -> Result<Self, RegroupError> {
-    let tips = if snapshot.commits.is_empty() {
-      HashMap::new()
-    } else {
-      branch_tips(git_executor, repository_path, branch_prefix)?
-    };
-    Ok(Self {
+  ) -> Self {
+    Self {
       git_executor: git_executor.clone(),
       repository_path: repository_path.to_string(),
       branch_prefix: branch_prefix.to_string(),
@@ -358,8 +395,8 @@ impl CheckSession {
       parent_states: Arc::default(),
       base_facts: Arc::default(),
       existing_commits: Arc::default(),
-      baseline_commit: Arc::default(),
-    })
+      baseline_commit,
+    }
   }
 
   /// Check every mapping note of the trial builds against the tree of its virtual commit, as a sync with
@@ -429,7 +466,7 @@ impl CheckSession {
       line_graph: OnceLock::new(),
       parent_states: Arc::clone(&self.parent_states),
       existing_commits: Arc::clone(&self.existing_commits),
-      baseline_commit: Arc::clone(&self.baseline_commit),
+      baseline_commit: self.baseline_commit.clone(),
       base_facts: Arc::clone(&self.base_facts),
     }
   }
@@ -739,7 +776,7 @@ impl CheckSession {
       return Ok(states.clone());
     }
     let detection = PendingDetection {
-      baseline_commit: self.baseline_commit(),
+      baseline_commit: Some(&self.baseline_commit),
       ..read_only_detection(&self.snapshot.baseline)
     };
     let states = empty_parent_states(&self.git_executor, &self.repository_path, &self.branch_prefix, &self.tips, forest, detection)?;
@@ -747,21 +784,12 @@ impl CheckSession {
     Ok(states)
   }
 
-  /// The commit of the baseline, one `rev-parse` per session (and the sessions of `with_rewrite`); `None` when it does
-  /// not resolve
-  fn baseline_commit(&self) -> Option<&str> {
-    self
-      .baseline_commit
-      .get_or_init(|| resolve_commit(&self.git_executor, &self.repository_path, &self.snapshot.baseline).ok().flatten())
-      .as_deref()
-  }
-
   /// The changed lines of the commits ahead of the baseline and the baseline tip, read once per session
   fn dangling_facts(&self) -> Result<&DanglingFacts, RegroupError> {
     let commits: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
     let read = self.dangling_input.get_or_init(|| {
       let lines = read_commit_lines(&self.git_executor, &self.repository_path, &commits, &self.cache, &self.file_diffs).map_err(|e| format!("{e:#}"))?;
-      Ok((lines, self.baseline_commit().map(str::to_string)))
+      Ok((lines, Some(self.baseline_commit.clone())))
     });
     read.as_ref().map_err(|e| RegroupError::Other(anyhow::anyhow!("Cannot read the changed lines: {e}")))
   }
@@ -1164,18 +1192,7 @@ impl ProgressReporter for CollectingReporter {
 /// baseline): one `log` of the commits ahead of the baseline, for the mapping notes the sync wrote. Under the
 /// repository lock the sync and the checks after it hold, no rewrite moved HEAD since
 fn snapshot_of_sync(git_executor: &GitCommandExecutor, repository_path: &str, report: &SyncReport) -> anyhow::Result<Snapshot> {
-  let mut commits = Vec::new();
-  get_frozen_commit_list_with_handler(
-    git_executor,
-    repository_path,
-    &report.baseline_commit,
-    &report.head,
-    report.is_on_local_baseline(),
-    |commit| {
-      commits.push(commit);
-      Ok(())
-    },
-  )?;
+  let commits = get_frozen_commit_list(git_executor, repository_path, &report.baseline_commit, &report.head, report.is_on_local_baseline())?;
   let Grouped { groups, forest, .. } = group_commits(&commits, &report.grouping);
   Ok(Snapshot {
     head: report.head.clone(),

@@ -87,25 +87,25 @@ fn run_check(repo: &TestRepo, build: Option<&str>, build_paths: &[&str]) -> Repo
 /// The processes of `bd check` of the current grouping of `repo_with_branches` after a check wrote the object cache
 const WARM_CHECK: [(&str, u32); 7] = [
   ("cat-file", 2),
-  ("config", 2),
+  ("config", 1),
   ("fast-import", 2),
-  ("for-each-ref", 2),
+  ("for-each-ref", 1),
   ("log", 2),
   ("remote", 1),
-  ("rev-parse", 4),
+  ("rev-parse", 2),
 ];
 
 /// The processes of `bd check` of the current grouping of `repo_with_branches`, with an empty object cache: one
 /// `cat-file` reads the blobs of the commits' blocks
 const CHECK: [(&str, u32); 8] = [
   ("cat-file", 2),
-  ("config", 2),
+  ("config", 1),
   ("fast-import", 2),
-  ("for-each-ref", 2),
+  ("for-each-ref", 1),
   ("log", 4),
   ("merge-tree", 2),
   ("remote", 1),
-  ("rev-parse", 4),
+  ("rev-parse", 2),
 ];
 
 /// `processes` with the counts of `changes` set, sorted by subcommand
@@ -120,6 +120,18 @@ fn changed<'a>(processes: &[(&'a str, u32)], changes: &[(&'a str, u32)]) -> Vec<
 fn a_check() {
   let repo = repo_with_branches();
   let context = run_check(&repo, None, &[]);
+  assert_processes(&context, &CHECK);
+}
+
+/// `bd check` with the branch prefix of the repository's config (no `--prefix`): the one `git config` of the context
+/// names the prefix, and the session takes the settings from it (`CheckSession::open_on`), so the check runs the
+/// processes of `a_check`
+#[test]
+fn a_check_with_the_prefix_of_the_config() {
+  let repo = repo_with_branches();
+  let context = context_with_the_config_prefix(&repo);
+  let output = check(&context, &CheckArgs::default()).unwrap();
+  assert!(output.ok, "{output:?}");
   assert_processes(&context, &CHECK);
 }
 
@@ -379,8 +391,8 @@ fn a_reword() {
 }
 
 /// `bd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the
-/// file: its processes by subcommand
-fn move_hunk_processes(between: usize) -> Vec<(String, u32)> {
+/// file: its context, which counted its processes
+fn move_hunk_context(between: usize) -> RepoContext {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   let first = commit_subjects(&repo, &["(auth) Add a"])[0].clone();
   for index in 0..between {
@@ -401,20 +413,33 @@ fn move_hunk_processes(between: usize) -> Vec<(String, u32)> {
   };
   move_hunk(&context, &args).unwrap();
   context
-    .git
-    .process_stats()
-    .unwrap()
-    .by_command()
-    .into_iter()
-    .map(|(subcommand, stats)| (subcommand, stats.count))
-    .collect()
 }
 
-/// `bd move-hunk`: a fixed number of processes, whatever the number of commits between the two
+/// `bd move-hunk`: a fixed number of processes, whatever the number of commits between the two. The baseline with its
+/// commit and HEAD come from one listing (`read_listed_baseline`: `remote`, `for-each-ref`), the commits ahead from one
+/// `log` between the two ids
 #[test]
 fn a_move_hunk() {
-  assert_eq!(move_hunk_processes(1), move_hunk_processes(6));
+  for between in [1, 6] {
+    assert_processes(&move_hunk_context(between), &MOVE_HUNK);
+  }
 }
+
+/// The processes of `bd move-hunk` (`a_move_hunk`)
+const MOVE_HUNK: [(&str, u32); 12] = [
+  ("cat-file", 2),
+  ("diff-tree", 2),
+  ("fast-import", 2),
+  ("for-each-ref", 1),
+  ("log", 3),
+  ("merge-tree", 1),
+  ("patch-id", 1),
+  ("remote", 1),
+  ("rev-parse", 2),
+  ("symbolic-ref", 2),
+  ("update-ref", 1),
+  ("var", 1),
+];
 
 /// `bd pick --from <lane>` with the options `options` sets, in a counting context
 fn pick_from(repo: &TestRepo, lane: TestWorktree, options: impl FnOnce(&mut PickArgs)) -> (RepoContext, PickOutput) {

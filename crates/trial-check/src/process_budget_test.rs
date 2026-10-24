@@ -38,13 +38,13 @@ fn a_check() {
     &counted_check(&repo, &cache),
     &[
       ("cat-file", 1),
-      ("config", 2),
+      ("config", 1),
       ("fast-import", 2),
-      ("for-each-ref", 2),
+      ("for-each-ref", 1),
       ("log", 3),
       ("merge-tree", 2),
       ("remote", 1),
-      ("rev-parse", 4),
+      ("rev-parse", 2),
     ],
   );
 
@@ -52,12 +52,12 @@ fn a_check() {
     &counted_check(&repo, &cache),
     &[
       ("cat-file", 2),
-      ("config", 2),
+      ("config", 1),
       ("fast-import", 2),
-      ("for-each-ref", 2),
+      ("for-each-ref", 1),
       ("log", 2),
       ("remote", 1),
-      ("rev-parse", 4),
+      ("rev-parse", 2),
     ],
   );
 }
@@ -71,7 +71,7 @@ async fn a_check_of_synced_branches() {
   let (_dir, cache) = empty_cache();
   assert_processes(
     &counted_check(&repo, &cache),
-    &[("cat-file", 1), ("config", 2), ("for-each-ref", 2), ("log", 4), ("remote", 1), ("rev-parse", 4)],
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 4), ("remote", 1), ("rev-parse", 2)],
   );
 }
 
@@ -90,10 +90,10 @@ async fn the_landing_needs_of_every_branch() {
   };
   let git = counting();
   landing(&git);
-  assert_processes(&git, &[("cat-file", 4), ("config", 2), ("for-each-ref", 2), ("log", 5), ("remote", 1), ("rev-parse", 4)]);
+  assert_processes(&git, &[("cat-file", 4), ("config", 1), ("for-each-ref", 1), ("log", 5), ("remote", 1), ("rev-parse", 2)]);
   let git = counting();
   landing(&git);
-  assert_processes(&git, &[("cat-file", 2), ("config", 2), ("for-each-ref", 2), ("log", 3), ("remote", 1), ("rev-parse", 4)]);
+  assert_processes(&git, &[("cat-file", 2), ("config", 1), ("for-each-ref", 1), ("log", 3), ("remote", 1), ("rev-parse", 2)]);
 }
 
 /// A check session of `repo` on a counting executor
@@ -125,7 +125,7 @@ async fn the_second_check_of_a_session() {
   let first = processes_of(&git, || {
     session.check(None).unwrap();
   });
-  assert_eq!(first, [("log".to_string(), 3), ("rev-parse".to_string(), 1)]);
+  assert_eq!(first, [("log".to_string(), 3)]);
   let second = processes_of(&git, || {
     session.check(None).unwrap();
   });
@@ -182,7 +182,7 @@ fn the_checks_of_a_session_on_sources() {
 
 /// The processes of the first check of a branch that removes a declaration of a source file: the blobs of the search
 /// and the summaries
-const FIRST_SOURCES_CHECK: [(&str, u32); 6] = [("cat-file", 4), ("diff-tree", 1), ("fast-import", 2), ("log", 3), ("merge-tree", 1), ("rev-parse", 1)];
+const FIRST_SOURCES_CHECK: [(&str, u32); 5] = [("cat-file", 4), ("diff-tree", 1), ("fast-import", 2), ("log", 3), ("merge-tree", 1)];
 
 /// `expected` as `processes_of` gives it
 fn counts(expected: &[(&str, u32)]) -> Vec<(String, u32)> {

@@ -161,7 +161,7 @@ struct Reading {
 
 impl Reading {
   fn read(context: &RepoContext) -> Result<Self, CliError> {
-    let session = CheckSession::open(&context.git, &context.repository, &context.prefix, &context.cache())
+    let session = CheckSession::open_on(&context.git, &context.repository, &context.prefix, &context.cache(), &context.config()?)
       .map_err(regroup_error)?
       .verifying_mapping_notes(!context.use_cache);
     let snapshot = session.snapshot();

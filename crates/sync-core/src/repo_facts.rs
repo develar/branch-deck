@@ -7,9 +7,10 @@
 use crate::baseline::{BaselineUpstream, KnownBaseline, TrackedUpstream, baseline_upstream_of, modified_time};
 use crate::conflict_chain::CONFLICT_REFS;
 use crate::landed::STATE_FILE;
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_list::on_local_baseline;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, TEMP_REF_PREFIX, is_stale_temp_ref};
 use git_ops::revs::{current_branch, known_dirs, resolve_commit};
 use history_rewrite::baseline::{NoBaseline, baseline_candidates, no_baseline};
@@ -50,7 +51,7 @@ pub(crate) struct RepoFacts {
 impl RepoFacts {
   /// Whether HEAD is the local baseline branch itself (`commit_list::is_on_local_baseline`), from the facts: no process
   pub(crate) fn is_on_local_baseline(&self) -> bool {
-    !self.baseline.contains('/') && self.branch == self.baseline
+    on_local_baseline(&self.baseline, &self.branch)
   }
 
   /// What the update check of the sync needs; `None` for a local baseline, which has nothing to update from
@@ -228,6 +229,46 @@ pub fn read_baseline(git_executor: &GitCommandExecutor, repo_path: &str) -> Resu
     name: listing.baseline,
     upstream: listing.upstream,
     branch,
+  })
+}
+
+/// The baseline of the checked out branch with its commit, the tip of the branch, and the branches under the prefix:
+/// what a trial session and `bd move-hunk` walk the commits ahead from and compare with (`CheckSession::open`)
+#[derive(Debug, Clone)]
+pub struct ListedBaseline {
+  /// As `detect_baseline_branch` names it, e.g. `origin/master`
+  pub name: String,
+  /// The commit of the baseline, as the listing found it
+  pub commit: String,
+  /// The tip of the checked out branch; `None` for a branch without commits
+  pub head: Option<String>,
+  /// Full name (without `refs/heads/`) -> tip, of the branches under the prefix (`grouping::branch_tips`); empty
+  /// without a prefix
+  pub tips: HashMap<String, String>,
+}
+
+/// The baseline of the checked out `branch` with its commit, the tip of the branch and the tips of the branches under
+/// `branch_prefix`, from one read: `remote` and one `for-each-ref` (`read_baseline_listing`), a `rev-parse` more when
+/// the branch tracks a branch that is no candidate. `detect_baseline_branch`, a `rev-parse` of HEAD or of the baseline
+/// and `branch_tips` read them in four or five
+///
+/// # Errors
+/// A `NoBaseline` error when no baseline exists, as `detect_baseline_branch`'s
+#[instrument(skip(git_executor))]
+pub fn read_listed_baseline(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, branch_prefix: Option<&str>) -> Result<ListedBaseline> {
+  let BaselineListing {
+    baseline,
+    baseline_tip,
+    head_tip,
+    branches,
+    ..
+  } = read_baseline_listing(git_executor, repo_path, Some(branch), branch_prefix, false)?;
+  let commit = baseline_tip.ok_or_else(|| anyhow!("Cannot resolve the baseline {baseline}"))?;
+  Ok(ListedBaseline {
+    name: baseline,
+    commit,
+    head: head_tip,
+    tips: branches.into_iter().map(|branch| (branch.name, branch.tip)).collect(),
   })
 }
 
