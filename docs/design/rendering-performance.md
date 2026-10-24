@@ -163,6 +163,20 @@ and the page indexes the answer (`factsOf` in `src/stores/patronus.ts`):
 A sync that changes nothing cost little before and costs the same now. The rest of the per-row work
 (`getNextStepFacts` of each row on every change of a store) is not part of it.
 
+| 2026-10-24 | first sync, script / task | sync that changes nothing, script / task |
+|---|---|---|
+| `sync_branches`, its events sent once the sync was done (the mock before) | 235–245 / 412–464 ms | 32–55 / 72–119 ms |
+| `sync_branches`, its events sent as the sync runs (as the app's channel sends them) | 387–465 / 749–908 ms | 66 / 112–142 ms |
+| the patches of the session | 345–395 / 779–967 ms | 31–50 / 71–97 ms |
+
+The rows before 2026-10-24 measured less than the app spent: the mock server answered `sync_branches` with the events
+of the sync once it was done, so the page applied its 432 events in one or two batches and rendered the rows once,
+1.1 s after the click, while the app's channel sent them as the sync ran. The session sends its patches as the run
+goes in the mock too (at most one per `PATCH_INTERVAL`, 16 ms, `runtime.rs`), so the first sync now includes about 40
+renders of the progress of the rows, which show 0.3 s after the click instead of at the end. Measured in turns against
+master with its events sent the same way (a throwaway change of its mock), the first sync costs the same task time and
+less script, and a sync that changes nothing about half.
+
 ### The IPC of the branch view
 
 `pnpm perf:table` counts the IPC of the page on the same template too, in every engine, from the counters of the Tauri
@@ -172,17 +186,25 @@ patches of the session on the channel of `subscribe_view`, before 2026-10-24 the
 `firstSyncInvokes`), the bytes of a sync that changes nothing (`resyncIpcBytes`: parameters, answers and channel
 messages), and the commands of a rest of the pointer on a row (`hoverIpc`, past the dwell of the intent,
 `page.clock.fastForward`), of its "⋯" menu opened by a right click (`menuIpc`) and of its robot's popover
-(`popoverIpc`). The counts are exact, the same in every run. What the session sends, its patches and their bytes
+(`popoverIpc`). The counts are exact, the same in every run, except the patches: the session sends at most one per
+16 ms of the run, so their number follows how long the sync took. What the session sends, its patches and their bytes
 without the page, prints an ignored test of the mock server (`patch_bytes_test.rs`):
 `cargo nextest run -p test-server --run-ignored only -E 'test(/patch_bytes/)' --no-capture`.
 
-| 2026-10-22 | first sync: events / invokes | sync that changes nothing: bytes | hover / menu / popover |
+| 141 rows, robots on ten | first sync: messages / invokes | sync that changes nothing: bytes | hover / menu / popover |
 |---|---|---|---|
-| 141 rows, robots on ten | 432 / 8 | 201670 | 1 / 0 / 0 |
+| 2026-10-22, the events of `sync_branches` | 432 / 8 | 201670 | 1 / 0 / 0 |
+| 2026-10-24, `sync_branches` on master | 432 / 11 | 201890 | 1 / 0 / 0–1 |
+| 2026-10-24, the patches of the session, Chromium | 65–77 / 10 | 24784 | 1 / 0 / 0 |
+| 2026-10-24, the patches of the session, WebKit | 49–71 / 10 | 24657–24784 | 1 / 0 / 0 |
 
-A sync sends every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and `remoteStatusUpdate`
-per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). The rest of a row (its menu,
-its robot's popover) reads the stores; its hover reads ahead the review of the branch (`prefetch_branch_review`).
+A sync of `sync_branches` sent every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and
+`remoteStatusUpdate` per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). A patch
+carries only the parts of a branch that changed (`TableState`, [Git Operations](git-operations.md#repository-view)):
+a sync that changes nothing sends the state of the run and the build and copies of each branch, no commit, 24 KB in
+5 patches by the mock server's own count (`patch_bytes_test.rs`: the first sync 46 patches, 195 KB, the snapshot
+177 KB). The rest of a row (its menu, its robot's popover) reads the stores; its hover reads ahead the review of the
+branch (`prefetch_branch_review`).
 
 ### Loading
 
