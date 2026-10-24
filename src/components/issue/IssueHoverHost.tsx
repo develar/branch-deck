@@ -30,6 +30,7 @@ export function IssueHoverHost() {
   const youTrackUrl = useYouTrackUrl()
   const [shown, setShown] = useState<Shown | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const popup = useRef<HTMLDivElement>(null)
 
   const clearTimer = () => {
     if (timer.current !== null) {
@@ -68,6 +69,9 @@ export function IssueHoverHost() {
       return
     }
     const linkOf = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>("a[data-issue-key]") : null)
+    // the pointer or the focus that goes from a link into the popover keeps it: React tells the popover of the pointer
+    // before this listener hears the link left, so a leave scheduled then closed the popover under the pointer
+    const intoPopup = (target: EventTarget | null) => target instanceof Node && popup.current?.contains(target) === true
     const over = (event: PointerEvent) => {
       const link = linkOf(event.target)
       if (link !== null) {
@@ -76,7 +80,7 @@ export function IssueHoverHost() {
     }
     const out = (event: PointerEvent) => {
       const link = linkOf(event.target)
-      if (link !== null && !link.contains(event.relatedTarget as Node | null)) {
+      if (link !== null && !link.contains(event.relatedTarget as Node | null) && !intoPopup(event.relatedTarget)) {
         onLeave()
       }
     }
@@ -87,7 +91,7 @@ export function IssueHoverHost() {
       }
     }
     const focusOut = (event: FocusEvent) => {
-      if (linkOf(event.target) !== null) {
+      if (linkOf(event.target) !== null && !intoPopup(event.relatedTarget)) {
         onLeave()
       }
     }
@@ -134,6 +138,7 @@ export function IssueHoverHost() {
   return (
     <Popover open onOpenChange={open => !open && close()}>
       <PopoverContent
+        ref={popup}
         anchor={shown.anchor}
         container={shown.container}
         align="start"

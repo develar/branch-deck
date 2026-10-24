@@ -123,9 +123,11 @@ test.describe("YouTrack issue popover", () => {
 
     await preview.getByRole("link", { name: "JIRA-456" }).first().hover()
     const popover = preview.getByTestId("issue-popover")
+    // one move takes the pointer from the link onto Mark Fixed: the popover stays past the delay of a leave
     await popover.getByTestId("issue-action-mark-fixed").click()
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Marked JIRA-456 Fixed" })).toBeVisible()
     expect((await repo.getYouTrack()).commands).toHaveLength(1)
+    await page.clock.fastForward(1000)
     await expect(preview).toBeVisible()
     // Escape closes the popover only, then the preview
     await popover.hover()
