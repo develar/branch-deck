@@ -1494,9 +1494,11 @@ pub(crate) fn patronus_service(environment: &Environment) -> Result<PatronusServ
     ));
   }
   let user_agent = cli_user_agent();
-  Ok(PatronusService::new(PatronusClient::new(environment.patronus_url.clone(), &user_agent), move |now| {
-    find_token(home.as_deref(), space_token.clone(), now)
-  }))
+  let mut client = PatronusClient::new(environment.patronus_url.clone(), &user_agent);
+  if let Some(delay) = environment.remote_retry_delay {
+    client = client.with_retry_delay(delay);
+  }
+  Ok(PatronusService::new(client, move |now| find_token(home.as_deref(), space_token.clone(), now)))
 }
 
 fn unix_now() -> u32 {
@@ -1584,10 +1586,11 @@ pub(crate) fn youtrack_service(environment: &Environment) -> YouTrackService {
 /// The GitHub service of `bd`: the token of `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token` or the git credentials
 pub(crate) fn github_service(context: &RepoContext, environment: &Environment) -> GitHubService {
   let user_agent = cli_user_agent();
-  GitHubService::new(
-    GitHubClient::with_urls(environment.github_api_url.clone(), GITHUB_URL, &user_agent),
-    TokenChain::new(environment.github_tokens.clone(), context.git.clone()),
-  )
+  let mut client = GitHubClient::with_urls(environment.github_api_url.clone(), GITHUB_URL, &user_agent);
+  if let Some(delay) = environment.remote_retry_delay {
+    client = client.with_retry_delay(delay);
+  }
+  GitHubService::new(client, TokenChain::new(environment.github_tokens.clone(), context.git.clone()))
 }
 
 /// A failed GitHub write of `sync_core`

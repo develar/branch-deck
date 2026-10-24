@@ -148,6 +148,8 @@ pub struct GitHubClient {
   web_url: String,
   /// By token and URL: the `ETag` and the body of the last answer
   etags: Cache<(u64, String), (String, Vec<u8>)>,
+  /// The wait before a read is asked again after a transient failure (`RETRY_DELAY`; a test of the failure waits none)
+  retry_delay: Duration,
 }
 
 impl GitHubClient {
@@ -167,7 +169,16 @@ impl GitHubClient {
       api_url: api_url.into(),
       web_url: web_url.into(),
       etags: Cache::new(ETAG_CACHE_CAPACITY),
+      retry_delay: RETRY_DELAY,
     }
+  }
+
+  /// The client with another wait before a read is asked again after a transient failure: a test that fakes a failure
+  /// of GitHub does not wait the second of the app
+  #[must_use]
+  pub const fn with_retry_delay(mut self, retry_delay: Duration) -> Self {
+    self.retry_delay = retry_delay;
+    self
   }
 
   pub fn web_url(&self) -> &str {
@@ -184,7 +195,10 @@ impl GitHubClient {
   #[instrument(skip(self, token, query, variables))]
   pub async fn graphql<T: DeserializeOwned>(&self, token: &str, query: &str, variables: &serde_json::Value) -> Result<GraphQlResponse<T>, GitHubError> {
     let url = format!("{}/graphql", self.api_url);
-    let response = read_with_retry(|| self.request(Method::POST, &url, token).json(&GraphQlRequest { query, variables }).send()).await?;
+    let response = read_with_retry(self.retry_delay, || {
+      self.request(Method::POST, &url, token).json(&GraphQlRequest { query, variables }).send()
+    })
+    .await?;
     let body: GraphQlBody<T> = serde_json::from_slice(&response.body).map_err(|e| GitHubError::InvalidResponse(e.to_string()))?;
     let errors = body.errors.unwrap_or_default();
     if errors.iter().any(|error| error.kind.as_deref() == Some("RATE_LIMITED")) {
@@ -205,7 +219,7 @@ impl GitHubClient {
   pub async fn get<T: DeserializeOwned>(&self, token: &str, path: &[&str], query: &[(&str, &str)]) -> Result<T, GitHubError> {
     let url = self.rest_url(path, query)?;
     let key = (token_key(token), url.to_string());
-    let response = read_with_retry(|| {
+    let response = read_with_retry(self.retry_delay, || {
       let mut request = self.request(Method::GET, url.as_str(), token);
       if let Some((etag, _)) = self.etags.get(&key) {
         request = request.header(IF_NONE_MATCH, etag);
@@ -290,11 +304,11 @@ struct ReadResponse {
 }
 
 /// The answer of a read, asked again once after a transient failure
-async fn read_with_retry<R: Future<Output = reqwest::Result<reqwest::Response>>>(send: impl Fn() -> R) -> Result<ReadResponse, GitHubError> {
+async fn read_with_retry<R: Future<Output = reqwest::Result<reqwest::Response>>>(retry_delay: Duration, send: impl Fn() -> R) -> Result<ReadResponse, GitHubError> {
   match read_response(send().await).await {
     Err(e) if e.is_transient() => {
       debug!(error = ?e, "asking GitHub again");
-      tokio::time::sleep(RETRY_DELAY).await;
+      tokio::time::sleep(retry_delay).await;
       read_response(send().await).await
     }
     result => result,

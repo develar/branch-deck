@@ -577,6 +577,9 @@ pub struct PatronusClient {
   base_url: String,
   /// The host of the web UI, the one of the REST API but for a fake (`with_web_url`)
   web_url: String,
+  /// The wait before a GET is asked again after a transient failure (`GET_RETRY_DELAY`; a test of the failure waits
+  /// none)
+  retry_delay: Duration,
 }
 
 impl PatronusClient {
@@ -592,7 +595,16 @@ impl PatronusClient {
       http,
       web_url: base_url.clone(),
       base_url,
+      retry_delay: GET_RETRY_DELAY,
     }
+  }
+
+  /// The client with another wait before a GET is asked again after a transient failure: a test that fakes a failure
+  /// of Patronus does not wait the second of the app
+  #[must_use]
+  pub const fn with_retry_delay(mut self, retry_delay: Duration) -> Self {
+    self.retry_delay = retry_delay;
+    self
   }
 
   /// The client with the robot pages on `web_url`: a fake serves only the REST API, while the pages are where Patronus
@@ -845,7 +857,7 @@ impl PatronusClient {
     match read_json(request().timeout(timeout).send().await).await {
       Err(e) if e.is_transient() => {
         debug!(error = ?e, "asking Patronus again");
-        tokio::time::sleep(GET_RETRY_DELAY).await;
+        tokio::time::sleep(self.retry_delay).await;
         read_json(request().timeout(timeout).send().await).await
       }
       result => result,

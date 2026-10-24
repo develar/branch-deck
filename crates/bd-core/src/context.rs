@@ -70,6 +70,9 @@ pub struct Environment {
   /// `YOUTRACK_TOKEN`, else the token of the app's sign-in (`youtrack_token_file`); only read, never renewed
   pub youtrack_environment: Option<EnvironmentToken>,
   pub youtrack_token_file: Option<PathBuf>,
+  /// The wait of a read of GitHub or Patronus before it asks again after a transient failure: `None` keeps the app's
+  /// (one second); a test that fakes the failure waits none
+  pub remote_retry_delay: Option<Duration>,
   /// The `teamcity` CLI of `bd robot --full`; `None` looks it up as the app does (`known_tools::TEAMCITY`), and only then
   pub teamcity: Option<PathBuf>,
 }
@@ -93,6 +96,7 @@ impl Environment {
       github_tokens: TokenSources::from_process(app_data_dir().as_deref()),
       youtrack_environment: EnvironmentToken::from_process(),
       youtrack_token_file: app_data_dir().as_deref().map(token_file),
+      remote_retry_delay: None,
       teamcity: None,
     }
   }

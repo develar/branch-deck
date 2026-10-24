@@ -39,6 +39,8 @@ pub fn environment(cwd: &Path) -> Environment {
     // no YouTrack: the text of a pull request names its issues without their summaries
     youtrack_environment: None,
     youtrack_token_file: None,
+    // a failure the fakes answer is asked again at once, not after the app's second
+    remote_retry_delay: Some(std::time::Duration::ZERO),
     // no `teamcity` CLI: a test of `bd robot --full` writes a fake one
     teamcity: Some(cwd.join("no-teamcity")),
   }
