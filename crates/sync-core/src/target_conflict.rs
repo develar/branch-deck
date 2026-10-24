@@ -18,7 +18,6 @@ use tracing::{instrument, warn};
 #[serde(rename_all = "camelCase")]
 pub struct TargetConflictParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// As the sync detected it, e.g. `origin/master`: the robot pushes into the branch it tracks
   pub baseline_branch: String,
   /// The virtual branch the robot starts from, without the `{prefix}/virtual/` namespace; with `stack`, the root of the
@@ -155,16 +154,16 @@ pub fn check_target(git_executor: &GitCommandExecutor, repository_path: &str, ba
 
 /// The check of the app's Safe Push start: the fetch of the target, then `check_branch_target`
 #[instrument(skip(git_executor))]
-pub fn target_conflict_core(git_executor: &GitCommandExecutor, params: &TargetConflictParams) -> TargetCheck {
+pub fn target_conflict_core(git_executor: &GitCommandExecutor, branch_prefix: &str, params: &TargetConflictParams) -> TargetCheck {
   let fetch_error = fetch_target(git_executor, &params.repository_path).into_error();
-  check_branch_target(git_executor, params, fetch_error)
+  check_branch_target(git_executor, branch_prefix, params, fetch_error)
 }
 
 /// The check of the branch the robot starts from against the baseline as it is now (one `rev-parse`, then
-/// `check_target`); a branch or a baseline that does not resolve is `NotRun`
-pub fn check_branch_target(git_executor: &GitCommandExecutor, params: &TargetConflictParams, fetch_error: Option<String>) -> TargetCheck {
+/// `check_target`), the branch named under `branch_prefix`; a branch or a baseline that does not resolve is `NotRun`
+pub fn check_branch_target(git_executor: &GitCommandExecutor, branch_prefix: &str, params: &TargetConflictParams, fetch_error: Option<String>) -> TargetCheck {
   let baseline = params.baseline_branch.as_str();
-  match resolve_tips(git_executor, params) {
+  match resolve_tips(git_executor, branch_prefix, params) {
     Ok((target_tip, tip)) => check_target(git_executor, &params.repository_path, baseline, &target_tip, &tip, fetch_error),
     Err(error) => TargetCheck {
       baseline: baseline.to_string(),
@@ -175,11 +174,11 @@ pub fn check_branch_target(git_executor: &GitCommandExecutor, params: &TargetCon
 }
 
 /// The commits of the baseline and of the branch the robot starts from
-fn resolve_tips(git_executor: &GitCommandExecutor, params: &TargetConflictParams) -> Result<(String, String)> {
+fn resolve_tips(git_executor: &GitCommandExecutor, branch_prefix: &str, params: &TargetConflictParams) -> Result<(String, String)> {
   let source = if params.stack {
-    to_stack_branch_name(&params.branch_prefix, &params.branch_name)?
+    to_stack_branch_name(branch_prefix, &params.branch_name)?
   } else {
-    to_final_branch_name(&params.branch_prefix, &params.branch_name)?
+    to_final_branch_name(branch_prefix, &params.branch_name)?
   };
   let baseline = format!("{}^{{commit}}", params.baseline_branch);
   let branch = format!("refs/heads/{source}^{{commit}}");

@@ -77,11 +77,13 @@ impl ReadinessInputs {
 
 /// The inputs of `branch_review_readiness` for `params`, with the Space and GitHub repositories the caller resolved:
 /// every tip is a commit id (the page sends what it holds), and the target is the branch of origin the baseline
-/// tracks (one git process; a local baseline is refused, Patronus pushes into a branch of origin)
+/// tracks (one git process; a local baseline is refused, Patronus pushes into a branch of origin); the branches are
+/// named under `branch_prefix`, which the host resolved
 pub fn prepare_review_readiness(
   git: &GitCommandExecutor,
   space: SpaceRepository,
   github: Option<GitHubRepository>,
+  branch_prefix: &str,
   params: &GetBranchReviewReadinessParams,
 ) -> anyhow::Result<ReadinessInputs> {
   if let Some(branch) = params.branches.iter().find(|branch| !is_object_id(&branch.tip)) {
@@ -93,7 +95,7 @@ pub fn prepare_review_readiness(
     github,
     target,
     baseline: params.baseline_branch.clone(),
-    branch_prefix: params.branch_prefix.clone(),
+    branch_prefix: branch_prefix.to_owned(),
   })
 }
 

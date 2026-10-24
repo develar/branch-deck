@@ -4,7 +4,7 @@ import { createStore } from "zustand/vanilla"
 import type { StackIndependence } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { useBranchTip } from "@/stores/branch-sync"
-import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
+import { getSelectedProject } from "@/stores/repository"
 
 export type StackIndependenceState = { status: "idle" } | { status: "loading" } | { status: "loaded"; independence: StackIndependence } | { status: "error"; message: string }
 
@@ -45,7 +45,7 @@ export function useStackIndependence(branchName: string, enabled: boolean): Stac
         setAnswer({ key, state })
       }
     }
-    commands.getStackIndependence({ repositoryPath: getSelectedProject()?.path ?? "", branchPrefix: getEffectiveBranchPrefix(), branchName }).then(
+    commands.getStackIndependence({ repositoryPath: getSelectedProject()?.path ?? "", branchName }).then(
       result => answerWith(result.status === "ok" ? { status: "loaded", independence: result.data } : { status: "error", message: result.error.message }),
       (error: unknown) => answerWith({ status: "error", message: error instanceof Error ? error.message : String(error) }),
     )

@@ -379,7 +379,6 @@ pub struct Coverage {
 pub struct GetRobotStatsParams {
   pub repository_path: String,
   pub baseline_branch: String,
-  pub branch_prefix: String,
   pub period: StatsPeriod,
   /// Asked by the user (Refresh): the lists of the last minutes are asked again
   pub refresh: bool,

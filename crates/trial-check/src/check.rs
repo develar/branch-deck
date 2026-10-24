@@ -179,22 +179,16 @@ pub fn stack_independence(
 #[serde(rename_all = "camelCase")]
 pub struct StackIndependenceParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// A stacked branch
   pub branch_name: String,
 }
 
 /// Whether a stacked branch builds on the baseline without its parent, and else which commits of its ancestors it
-/// needs: a trial build of the branch as a root (`stack_independence`), objects only, without the repository lock
+/// needs: a trial build of the branch as a root (`stack_independence`), objects only, without the repository lock; the
+/// branches are named under `branch_prefix`, which the host resolved
 #[instrument(skip(git_executor, cache, params), fields(branch = %params.branch_name))]
-pub fn get_stack_independence(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &StackIndependenceParams) -> anyhow::Result<StackIndependence> {
-  Ok(stack_independence(
-    git_executor,
-    &params.repository_path,
-    &params.branch_prefix,
-    &params.branch_name,
-    cache,
-  )?)
+pub fn get_stack_independence(git_executor: &GitCommandExecutor, cache: &ObjectCache, branch_prefix: &str, params: &StackIndependenceParams) -> anyhow::Result<StackIndependence> {
+  Ok(stack_independence(git_executor, &params.repository_path, branch_prefix, &params.branch_name, cache)?)
 }
 
 /// Check `plan` (or the current grouping without one): would every branch build?

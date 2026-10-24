@@ -29,7 +29,6 @@ export async function pushUnappliedBranch(name: string): Promise<void> {
         commands.pushBranches(
           {
             repositoryPath: request.repositoryPath,
-            branchPrefix: request.branchPrefix,
             myEmail: null,
             baselineBranch: branchSyncStore.getState().baselineBranch ?? "",
             branches: [{ branchName: branch.branch, expectedRemote: branch.remoteStatus?.remoteTip ?? null, unapplied: true }],

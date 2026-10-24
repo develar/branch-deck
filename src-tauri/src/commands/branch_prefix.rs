@@ -61,6 +61,17 @@ impl PrefixInputs {
     Ok(self.prefixes.resolve(&self.settings, repository_path, read_git)?.prefix)
   }
 
+  /// `branch_prefix` for an async command, in a blocking step
+  pub async fn resolve(self, repository_path: &str) -> Result<String, ApiError> {
+    let path = repository_path.to_owned();
+    run_blocking(move || self.branch_prefix(&path)).await
+  }
+
+  /// Settings → Patronus, the new API, of the settings when the command started
+  pub const fn patronus_new_api(&self) -> bool {
+    self.settings.patronus_new_api
+  }
+
   /// The prefix under the git prefix a read of the repository's config found now (the config snapshot of a sync), kept
   /// for the commands after it
   pub fn refreshed(&self, repository_path: &str, git_prefix: GitBranchPrefix) -> ResolvedBranchPrefix {

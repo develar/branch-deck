@@ -38,7 +38,6 @@ fn the_text_of_a_new_pull_request_of_the_whole_stack() {
   };
   let params = GetNewStackPullRequestParams {
     repository_path: path(&repo),
-    branch_prefix: PREFIX.to_string(),
     root: "alpha".to_string(),
     members: vec![
       member("alpha", None, &["Alpha"]),
@@ -48,7 +47,7 @@ fn the_text_of_a_new_pull_request_of_the_whole_stack() {
     target: "master".to_string(),
   };
   let git = counting();
-  let text = read_new_stack_pull_request(&git, &params).unwrap();
+  let text = read_new_stack_pull_request(&git, PREFIX, &params).unwrap();
   assert_eq!(text.title, "Alpha, with the 2 branches built on it");
   assert!(text.body.contains("## beta: IJPL-2 Beta"), "{}", text.body);
   assert_processes(&git, &[("config", 1)]);

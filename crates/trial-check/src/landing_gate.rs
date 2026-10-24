@@ -274,7 +274,6 @@ impl Landing<'_> {
 #[serde(rename_all = "camelCase")]
 pub struct LandingGateParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// The branch that starts; with `stack` the root of the whole stack
   pub branch_name: String,
   #[serde(default)]
@@ -312,10 +311,16 @@ pub struct LandingRefused {
 
 /// The check of the start `params` asks, in a session of the current grouping; `landed` are the commits (original ids)
 /// merged Safe Pushes landed as the repository view names them (`repository_model::patronus_view::landed_commits`, on the
-/// robots Rust reads), whose names the target has
+/// robots Rust reads), whose names the target has; the branches are named under `branch_prefix`
 #[instrument(skip(git_executor, cache, landed), fields(landed = landed.len()))]
-pub fn landing_check(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &LandingGateParams, landed: &HashSet<String>) -> anyhow::Result<LandingCheck> {
-  let session = CheckSession::open(git_executor, &params.repository_path, &params.branch_prefix, cache)?;
+pub fn landing_check(
+  git_executor: &GitCommandExecutor,
+  cache: &ObjectCache,
+  branch_prefix: &str,
+  params: &LandingGateParams,
+  landed: &HashSet<String>,
+) -> anyhow::Result<LandingCheck> {
+  let session = CheckSession::open(git_executor, &params.repository_path, branch_prefix, cache)?;
   let gate = check_landing_gate(&session, &params.subject(), landed)?;
   Ok(LandingCheck {
     refusals: gate.blocking(&session, params.allow),
@@ -324,8 +329,14 @@ pub fn landing_check(git_executor: &GitCommandExecutor, cache: &ObjectCache, par
 
 /// `landing_check`, refused as `LandingRefused` when a refusal holds the start back: the start of the app runs it before
 /// it asks Patronus
-pub fn ensure_landing_starts(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &LandingGateParams, landed: &HashSet<String>) -> anyhow::Result<()> {
-  let check = landing_check(git_executor, cache, params, landed)?;
+pub fn ensure_landing_starts(
+  git_executor: &GitCommandExecutor,
+  cache: &ObjectCache,
+  branch_prefix: &str,
+  params: &LandingGateParams,
+  landed: &HashSet<String>,
+) -> anyhow::Result<()> {
+  let check = landing_check(git_executor, cache, branch_prefix, params, landed)?;
   if check.refusals.is_empty() {
     return Ok(());
   }

@@ -39,7 +39,6 @@ function update(repositoryPath: string, change: (entry: RobotStatsEntry) => Robo
 export interface RobotStatsSubject {
   readonly repositoryPath: string
   readonly baselineBranch: string
-  readonly branchPrefix: string
   readonly period: StatsPeriod
 }
 
@@ -60,7 +59,7 @@ export function readRobotStats(subject: RobotStatsSubject, refresh: boolean): vo
       update(repositoryPath, entry => (event.type === "progress" ? { ...entry, progress: event.data } : { ...entry, partial: event.data }))
     }
   }
-  const params = { repository_path: repositoryPath, baseline_branch: subject.baselineBranch, branch_prefix: subject.branchPrefix, period: subject.period, refresh }
+  const params = { repository_path: repositoryPath, baseline_branch: subject.baselineBranch, period: subject.period, refresh }
   void commands.getRobotStats(params, events).then(answer => {
     if (!isCurrent()) {
       return

@@ -136,7 +136,7 @@ async function askRobotCoverage(): Promise<void> {
   if (Object.keys(maps).some(it => !needed.has(it))) {
     robotCoverageStore.setState({ maps: Object.fromEntries(Object.entries(maps).filter(([it]) => needed.has(it))) })
   }
-  const { repositoryPath, branchPrefix } = patronusRequest()
+  const { repositoryPath } = patronusRequest()
   const baselineBranch = state.baselineBranch
   await Promise.all(
     [...needed]
@@ -147,7 +147,6 @@ async function askRobotCoverage(): Promise<void> {
           const result = await commands
             .getRobotCommitMap({
               repositoryPath,
-              branchPrefix,
               branchName: robot.branchName,
               stackRoot: robot.stackRoot ?? null,
               sourceRevision: robot.sourceRevision ?? "",

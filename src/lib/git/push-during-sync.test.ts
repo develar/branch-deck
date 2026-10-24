@@ -49,7 +49,7 @@ vi.mock("@/lib/bindings", () => ({
 
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: "/repo" }),
-  vcsRequestFactory: { createRequest: () => ({ repositoryPath: "/repo", branchPrefix: "user" }) },
+  vcsRequestFactory: { createRequest: () => ({ repositoryPath: "/repo" }) },
   getSelectedRepositoryPath: () => "/repo",
   isSelectedRepository: (path: string) => path === "/repo",
   getRepositorySwitchReason: () => null,

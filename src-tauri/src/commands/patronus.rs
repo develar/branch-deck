@@ -1,8 +1,11 @@
+use crate::commands::branch_prefix::PrefixInputs;
 use crate::commands::github::{GitHubState, app_user_agent};
 use crate::commands::pull_requests::github_repository;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::{api_error, patronus_error};
+use app_settings::branch_prefixes::BranchPrefixes;
+use app_settings::service::SettingsService;
 use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
@@ -108,16 +111,19 @@ async fn target_branch(git_executor: &GitCommandExecutor, repository_path: &str,
 /// the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
 /// before the runs are read
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, patronus, events))]
+#[instrument(skip(git_executor, repository_state, patronus, settings, prefixes, events))]
 #[specta::specta]
 pub async fn get_robot_stats(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: GetRobotStatsParams,
   events: Channel<RobotStatsEvent>,
 ) -> Result<RobotStatsResult, ApiError> {
   operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let Some(repository) = patronus.space_repository(&git_executor, &params.repository_path).await? else {
       return Ok(RobotStatsResult {
         availability: PatronusAvailability::NotPatronus,
@@ -127,6 +133,7 @@ pub async fn get_robot_stats(
       });
     };
     let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
+    let branch_prefix = inputs.resolve(&params.repository_path).await?;
     let reads = patronus.stats_reads.get_with(params.repository_path.clone(), || Arc::new(tokio::sync::Mutex::new(())));
     // the first open runs `rev-parse` and opens LMDB: off the async workers
     let cache = {
@@ -138,7 +145,7 @@ pub async fn get_robot_stats(
       cache: &cache,
       repository: &repository.name,
       target: &target,
-      branch_prefix: &params.branch_prefix,
+      branch_prefix: &branch_prefix,
       reads: Some(&reads),
     };
     let calendar = Calendar::from_zone(jiff::tz::TimeZone::system());
@@ -153,24 +160,28 @@ pub async fn get_robot_stats(
 }
 
 /// The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
-/// `since`. When Patronus can't be asked, the availability says why.
+/// `since`. When Patronus can't be asked, the availability says why. With the new API of Settings → Patronus the list
+/// names the merge profile of each robot (`mergeProfile`, behind the `robot.list.merge.profile.enabled` flag of
+/// Patronus); off, it leaves the profile unknown.
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, patronus))]
+#[instrument(skip(git_executor, repository_state, patronus, settings, prefixes))]
 #[specta::specta]
 pub async fn get_patronus_robots(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: GetPatronusRobotsParams,
 ) -> Result<PatronusRobotsResult, ApiError> {
   operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let Some(repository) = patronus.space_repository(&git_executor, &params.repository_path).await? else {
       return Ok(PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
     };
-    let mut result = patronus
-      .service
-      .robots(&repository.name, &params.branch_prefix, params.since, params.background, params.new_api)
-      .await;
+    let new_api = inputs.patronus_new_api();
+    let branch_prefix = inputs.resolve(&params.repository_path).await?;
+    let mut result = patronus.service.robots(&repository.name, &branch_prefix, params.since, params.background, new_api).await;
     result.github_repository = github_repository(&git_executor, &repository_state, &params.repository_path, None)
       .await?
       .map(|github| github.full_name());
@@ -181,23 +192,42 @@ pub async fn get_patronus_robots(
 
 /// The robots of `params.robots` whose status changed since the app saw it; the others are not in the result
 #[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_prefix = %params.branch_prefix, robots = params.robots.len()))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, robots = params.robots.len()))]
 #[specta::specta]
-pub async fn poll_patronus_robots(patronus: State<'_, PatronusState>, params: PollPatronusRobotsParams) -> Result<PatronusRobotsResult, ApiError> {
-  operation(async move { Ok(patronus.service.poll(&params.branch_prefix, &params.robots).await) }).await
+pub async fn poll_patronus_robots(
+  git_executor: State<'_, GitCommandExecutor>,
+  patronus: State<'_, PatronusState>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
+  params: PollPatronusRobotsParams,
+) -> Result<PatronusRobotsResult, ApiError> {
+  operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    let branch_prefix = inputs.resolve(&params.repository_path).await?;
+    Ok(patronus.service.poll(&branch_prefix, &params.robots).await)
+  })
+  .await
 }
 
-/// The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover
+/// The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover. With the
+/// new API of Settings → Patronus the progress of a running robot comes in one request (`GET /robots/progress`, behind
+/// the `robot.progress.enabled` flag of Patronus) instead of one per running check; the builds are asked as before
+/// while Patronus answers 404
 #[tauri::command]
-#[instrument(skip(patronus))]
+#[instrument(skip(git_executor, patronus, settings, prefixes))]
 #[specta::specta]
-pub async fn get_patronus_robot_details(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotDetails, ApiError> {
+pub async fn get_patronus_robot_details(
+  git_executor: State<'_, GitCommandExecutor>,
+  patronus: State<'_, PatronusState>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
+  params: PatronusRobotParams,
+) -> Result<PatronusRobotDetails, ApiError> {
   operation(async move {
-    patronus
-      .service
-      .robot_details(&params.branch_prefix, &params.robot_id, params.new_api)
-      .await
-      .map_err(patronus_error)
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    let new_api = inputs.patronus_new_api();
+    let branch_prefix = inputs.resolve(&params.repository_path).await?;
+    patronus.service.robot_details(&branch_prefix, &params.robot_id, new_api).await.map_err(patronus_error)
   })
   .await
 }
@@ -210,18 +240,22 @@ pub async fn get_patronus_robot_details(patronus: State<'_, PatronusState>, para
 pub async fn get_robot_failure(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: GetRobotFailureParams,
 ) -> Result<RobotFailureReport, ApiError> {
   operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    let branch_prefix = inputs.resolve(&params.repository_path).await?;
     let failure = if params.full {
       let teamcity = patronus.teamcity().await;
-      patronus.service.robot_failure_full(&params.branch_prefix, &params.robot_id, teamcity.as_ref()).await
+      patronus.service.robot_failure_full(&branch_prefix, &params.robot_id, teamcity.as_ref()).await
     } else {
-      patronus.service.robot_failure(&params.branch_prefix, &params.robot_id).await
+      patronus.service.robot_failure(&branch_prefix, &params.robot_id).await
     }
     .map_err(patronus_error)?;
     let git = git_executor.inner().clone();
-    run_blocking(move || robot_failure_report(&git, &params.repository_path, &params.branch_prefix, &params.ancestors, &params.baseline_branch, failure)).await
+    run_blocking(move || robot_failure_report(&git, &params.repository_path, &branch_prefix, &params.ancestors, &params.baseline_branch, failure)).await
   })
   .await
 }
@@ -231,17 +265,23 @@ pub async fn get_robot_failure(
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = ?params.branch_name, stack_root = ?params.stack_root, ancestors = params.ancestors.len()))]
 #[specta::specta]
-pub async fn get_robot_commit_map(git_executor: State<'_, GitCommandExecutor>, params: GetRobotCommitMapParams) -> Result<RobotCommitMap, ApiError> {
-  let git = git_executor.inner().clone();
+pub async fn get_robot_commit_map(
+  git_executor: State<'_, GitCommandExecutor>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
+  params: GetRobotCommitMapParams,
+) -> Result<RobotCommitMap, ApiError> {
+  let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
   run_blocking(move || {
+    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
     let subject = RobotSubject {
       branch_name: params.branch_name.as_deref(),
       stack_root: params.stack_root.as_deref(),
     };
     robot_subject_commit_map(
-      &git,
+      &inputs.git,
       &params.repository_path,
-      &params.branch_prefix,
+      &branch_prefix,
       subject,
       &params.source_revision,
       &params.baseline_branch,
@@ -254,25 +294,22 @@ pub async fn get_robot_commit_map(git_executor: State<'_, GitCommandExecutor>, p
 
 /// The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default
 #[tauri::command]
-#[instrument(skip(git_executor, patronus))]
+#[instrument(skip(git_executor, patronus, settings))]
 #[specta::specta]
 pub async fn get_patronus_start_options(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
+  settings: State<'_, SettingsService>,
   params: GetPatronusStartOptionsParams,
 ) -> Result<PatronusStartOptions, ApiError> {
   operation(async move {
+    // the profile the list named is the default only with the new API, which named it
+    let last_profile = params.last_robot_profile.filter(|_| settings.app().patronus_new_api);
     let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
     let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
     patronus
       .service
-      .start_options(
-        &repository.project_key,
-        &repository.name,
-        &target,
-        params.last_robot_id.as_deref(),
-        params.last_robot_profile,
-      )
+      .start_options(&repository.project_key, &repository.name, &target, params.last_robot_id.as_deref(), last_profile)
       .await
       .map_err(patronus_error)
   })
@@ -292,26 +329,32 @@ pub async fn start_patronus_robot(
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: StartPatronusRobotParams,
 ) -> Result<PatronusRobot, ApiError> {
   operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    let branch_prefix = inputs.resolve(&params.repository_path).await?;
     let space = patronus.space_repository(&git_executor, &params.repository_path).await?;
     let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
-    let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views);
+    let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views, &branch_prefix);
     actions.start_robot(move || repository_state.object_cache(&git, &path), &params).await.map_err(api_error)
   })
   .await
 }
 
 /// What the app's actions on the remote run on (`repository_model::actions`): the one service of the app and the Space
-/// repository of the repository (none off Space: a robot action is refused, a push holds nothing)
+/// repository of the repository (none off Space: a robot action is refused, a push holds nothing), and the prefix the
+/// command resolved for it (`PrefixInputs`)
 pub(crate) fn remote_actions<'a>(
   patronus: &'a PatronusState,
   space: Option<&'a SpaceRepository>,
   git_executor: &'a GitCommandExecutor,
   views: &'a RepositoryViews,
+  branch_prefix: &'a str,
 ) -> RemoteActions<'a> {
-  RemoteActions::new(space.map(|space| (&patronus.service, space)), git_executor, views)
+  RemoteActions::new(space.map(|space| (&patronus.service, space)), git_executor, views, branch_prefix)
 }
 
 /// What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`trial_check::landing_gate`): the
@@ -326,14 +369,18 @@ pub async fn check_landing_gate(
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: LandingGateParams,
 ) -> Result<LandingCheck, ApiError> {
   operation(async {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    let branch_prefix = inputs.resolve(&params.repository_path).await?;
     let space = patronus.space_repository(&git_executor, &params.repository_path).await.unwrap_or_else(|error| {
       warn!(error = ?error, "no robots for the landing check: the Space repository is unknown");
       None
     });
-    let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views);
+    let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views, &branch_prefix);
     let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
     actions.check_landing(move || repository_state.object_cache(&git, &path), &params).await.map_err(api_error)
   })
@@ -343,39 +390,63 @@ pub async fn check_landing_gate(
 /// Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
 /// of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
 #[tauri::command]
-#[instrument(skip(git_executor))]
+#[instrument(skip(git_executor, settings, prefixes))]
 #[specta::specta]
-pub async fn check_target_conflict(git_executor: State<'_, GitCommandExecutor>, params: TargetConflictParams) -> Result<TargetCheck, ApiError> {
-  let git = git_executor.inner().clone();
-  run_blocking(move || Ok::<_, ApiError>(target_conflict_core(&git, &params))).await
+pub async fn check_target_conflict(
+  git_executor: State<'_, GitCommandExecutor>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
+  params: TargetConflictParams,
+) -> Result<TargetCheck, ApiError> {
+  let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+  run_blocking(move || {
+    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
+    anyhow::Ok(target_conflict_core(&inputs.git, &branch_prefix, &params))
+  })
+  .await
 }
 
+// jscpd:ignore-start: the restart and the cancel are two commands of the page with the same states, one action apart
 /// Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
 /// a start (`RemoteActions::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
 #[tauri::command]
-#[instrument(skip(git_executor, patronus, views))]
+#[instrument(skip(git_executor, patronus, views, settings, prefixes))]
 #[specta::specta]
 pub async fn restart_patronus_robot(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: PatronusRobotParams,
 ) -> Result<PatronusRobot, ApiError> {
-  operation(act_on_robot(&git_executor, &patronus, &views, &params, RobotAction::Restart)).await
+  operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    act_on_robot(inputs, &patronus, &views, &params, RobotAction::Restart).await
+  })
+  .await
 }
 
 /// Asks Patronus to cancel a running robot of the user's list (`RemoteActions::cancel_robot`); it answers it canceling
 #[tauri::command]
-#[instrument(skip(git_executor, patronus, views))]
+#[instrument(skip(git_executor, patronus, views, settings, prefixes))]
 #[specta::specta]
 pub async fn cancel_patronus_robot(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: PatronusRobotParams,
 ) -> Result<PatronusRobot, ApiError> {
-  operation(act_on_robot(&git_executor, &patronus, &views, &params, RobotAction::Cancel)).await
+  operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    act_on_robot(inputs, &patronus, &views, &params, RobotAction::Cancel).await
+  })
+  .await
 }
+
+// jscpd:ignore-end
 
 /// What the user does with a robot of the list
 enum RobotAction {
@@ -385,14 +456,16 @@ enum RobotAction {
 
 /// The restart or the cancel of the robot of `params` on the Space repository of the repository (`start_guard`)
 async fn act_on_robot(
-  git_executor: &GitCommandExecutor,
+  inputs: PrefixInputs,
   patronus: &PatronusState,
   views: &RepositoryViews,
   params: &PatronusRobotParams,
   action: RobotAction,
 ) -> Result<PatronusRobot, ApiError> {
-  let space = patronus.space_repository(git_executor, &params.repository_path).await?;
-  let actions = remote_actions(patronus, space.as_ref(), git_executor, views);
+  let git_executor = inputs.git.clone();
+  let branch_prefix = inputs.resolve(&params.repository_path).await?;
+  let space = patronus.space_repository(&git_executor, &params.repository_path).await?;
+  let actions = remote_actions(patronus, space.as_ref(), &git_executor, views, &branch_prefix);
   match action {
     RobotAction::Restart => actions.restart_robot(params).await,
     RobotAction::Cancel => actions.cancel_robot(params).await,
@@ -437,15 +510,19 @@ pub async fn get_branch_review_readiness(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: GetBranchReviewReadinessParams,
 ) -> Result<Vec<BranchReviewReadiness>, ApiError> {
   operation(async move {
+    let prefix_inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let space = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
     let github = github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
     let (inputs, cache, params) = {
       let (git, repository_state) = ((*git_executor).clone(), (*repository_state).clone());
       run_blocking(move || {
-        let inputs = prepare_review_readiness(&git, space, github, &params)?;
+        let branch_prefix = prefix_inputs.branch_prefix(&params.repository_path)?;
+        let inputs = prepare_review_readiness(&git, space, github, &branch_prefix, &params)?;
         let cache = repository_state.object_cache(&git, &params.repository_path);
         anyhow::Ok((inputs, cache, params))
       })
@@ -471,24 +548,29 @@ pub async fn get_branch_review_readiness(
 /// comes after the checks of `start_patronus_robot` (`RemoteActions::check_start_from_pull_request`), which the test
 /// server runs too. The posted comment; the bot answers with a reaction (`read_patronus_command_reply`).
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, github, patronus, views))]
+#[instrument(skip(git_executor, repository_state, github, patronus, views, settings, prefixes))]
 #[specta::specta]
+#[expect(clippy::too_many_arguments, reason = "the states of the app a Tauri command takes one by one")]
 pub async fn post_patronus_command(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: PostPatronusCommandParams,
 ) -> Result<PatronusCommandComment, ApiError> {
   operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
       .await?
       .ok_or_else(unknown_github_repository)?;
     if params.subject == PatronusCommandSubject::OwnBranch {
+      let branch_prefix = inputs.resolve(&params.repository_path).await?;
       let space = patronus.space_repository(&git_executor, &params.repository_path).await?;
       let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
-      remote_actions(&patronus, space.as_ref(), &git_executor, &views)
+      remote_actions(&patronus, space.as_ref(), &git_executor, &views, &branch_prefix)
         .check_start_from_pull_request(move || repository_state.object_cache(&git, &path), &params)
         .await
         .map_err(api_error)?;

@@ -54,7 +54,6 @@ import type { ReadinessEntry } from "@/stores/review-readiness"
 import { demandReviewReadiness, freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useDemandReviewReadiness } from "@/stores/review-readiness"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { getSafePushStarting, openSafePushPopover, safePushStore, setSafePushStarting } from "@/stores/safe-push"
-import { appSettingsStore } from "@/stores/settings/appSettings"
 import { getShownBranchTableOrder } from "@/stores/stack-collapse"
 
 /** How long a click waits for the facts its decision needs (the review, the rules) before the popover says what it waits for */
@@ -142,9 +141,9 @@ function lastRobotOf(branchName: string): PatronusRobot | undefined {
   return root === null ? getBranchRobot(branchName) : getStackRobot(root)
 }
 
-/** With the new API of Patronus, the profile the list named for the last robot: the default without reading the robot */
+/** The profile the list named for the last robot: with the new API (Rust reads the setting) the default without reading the robot */
 function lastRobotProfile(robot: PatronusRobot | undefined): PatronusRobotProfile | null {
-  return appSettingsStore.getState().patronusNewApi ? (robot?.profile ?? null) : null
+  return robot?.profile ?? null
 }
 
 /** By repository, baseline and the branch's last robot (whose profile is the default), and what the list says of it */

@@ -1,7 +1,10 @@
+use crate::commands::branch_prefix::PrefixInputs;
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::operation::run_blocking;
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::undo_error;
+use app_settings::branch_prefixes::BranchPrefixes;
+use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::move_commits::MoveCommitsResult;
@@ -45,17 +48,20 @@ pub async fn restack_branch(
 /// through the object cache of the repository.
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(git_executor, repository_state))]
+#[instrument(skip(git_executor, repository_state, settings, prefixes))]
 pub async fn get_stack_independence(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: StackIndependenceParams,
 ) -> Result<StackIndependence, ApiError> {
-  let git = (*git_executor).clone();
+  let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
   let repository_state = (*repository_state).clone();
   run_blocking(move || {
-    let cache = repository_state.object_cache(&git, &params.repository_path);
-    get_stack_independence_core(&git, &cache, &params)
+    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
+    let cache = repository_state.object_cache(&inputs.git, &params.repository_path);
+    get_stack_independence_core(&inputs.git, &cache, &branch_prefix, &params)
   })
   .await
 }

@@ -21,7 +21,6 @@ use tracing::{instrument, warn};
 #[serde(rename_all = "camelCase")]
 pub struct GetPullRequestsParams {
   pub repository_path: String,
-  pub branch_prefix: String,
 }
 
 /// The search of the user's pull requests, newest first: the virtual branches under review are among the 50 most

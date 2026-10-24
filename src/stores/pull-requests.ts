@@ -4,6 +4,7 @@ import type { CreatedPullRequest, PullRequest, PullRequestAvailability, Requeste
 import { commands } from "@/lib/bindings"
 import { isLogin } from "@/lib/create-pull-request"
 import { commandFailure } from "@/lib/errors"
+import { storeKeyOf } from "@/lib/git/vcs-request"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
@@ -143,6 +144,11 @@ function currentKey(): string | null {
   return repositoryPath === "" || branchPrefix === "" ? null : repositoryKey(repositoryPath, branchPrefix)
 }
 
+/** The key the pull requests of `repositoryPath` are stored under (`storeKeyOf`); null for one never read */
+function pullRequestsKeyOf(repositoryPath: string): string | null {
+  return storeKeyOf(repositoryPath, currentKey(), Object.keys(pullRequestsStore.getState().repositories))
+}
+
 function update(key: string, patch: Partial<RepositoryPullRequests>): void {
   pullRequestsStore.setState(state => ({
     repositories: { ...state.repositories, [key]: { ...(state.repositories[key] ?? EMPTY), ...patch } },
@@ -179,7 +185,7 @@ export function mergePullRequests(previous: RepositoryPullRequests["pullRequests
  * GitHub is asked again only by the refresh button.
  */
 export function refreshPullRequests(reason: RefreshReason, repository?: VcsRequest): Promise<void> {
-  const key = repository === undefined ? currentKey() : repositoryKey(repository.repositoryPath, repository.branchPrefix)
+  const key = repository === undefined ? currentKey() : pullRequestsKeyOf(repository.repositoryPath)
   if (key === null) {
     return Promise.resolve()
   }
@@ -187,13 +193,13 @@ export function refreshPullRequests(reason: RefreshReason, repository?: VcsReque
   if (entry.availability?.status === "notGitHub" && reason !== "manual") {
     return Promise.resolve()
   }
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const [repositoryPath] = key.split("\n") as [string, string]
   return gates.refresh(key, reason, entry.fetchedAt, async () => {
     update(key, { isRefreshing: true })
     // a pull request the app wrote after this point (a retarget, a close, reviewers) is newer than the answer
     const since = ++writeSeq
     try {
-      const result = await commands.getPullRequests({ repositoryPath, branchPrefix })
+      const result = await commands.getPullRequests({ repositoryPath })
       if (result.status === "ok") {
         const previous = pullRequestsStore.getState().repositories[key] ?? EMPTY
         const pullRequests = keepWritten(writtenKey(key, false), since, previous.pullRequests, withCreated(key, result.data.pullRequests, Date.now()))
@@ -270,7 +276,8 @@ export async function refreshPullRequestsAfterPush(branchName: string, pushedTip
  */
 export async function refreshPullRequestsAfterPushes(pushed: readonly (readonly [string, string | undefined])[], repository: VcsRequest): Promise<void> {
   await refreshPullRequests("push", repository)
-  const pullRequests = pullRequestsStore.getState().repositories[repositoryKey(repository.repositoryPath, repository.branchPrefix)]?.pullRequests ?? {}
+  const key = pullRequestsKeyOf(repository.repositoryPath)
+  const pullRequests = (key === null ? undefined : pullRequestsStore.getState().repositories[key])?.pullRequests ?? {}
   const stale = pushed.some(([branchName, pushedTip]) => {
     const pullRequest = pullRequests[branchName]
     return pullRequest !== undefined && pushedTip !== undefined && pullRequest.headRefOid !== pushedTip
@@ -297,8 +304,8 @@ export async function retargetPullRequest(branchName: string, base: string): Pro
   }
   setPullRequest(key, branchName, { ...pullRequest, baseRefName: base })
   // the retarget changes what the next step of the branch reads: GitHub is asked after the refresh in flight, if any
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
-  void refreshPullRequests("push", { repositoryPath, branchPrefix })
+  const [repositoryPath] = key.split("\n") as [string, string]
+  void refreshPullRequests("push", { repositoryPath })
 }
 
 /**
@@ -343,10 +350,10 @@ async function closeOnGitHub(key: string, pullRequest: PullRequest, comment: str
  */
 export async function requestReviewers(branchName: string, logins: readonly string[], repository: VcsRequest): Promise<RequestedReviewers> {
   // the repository the request was asked in: its pull request, also once the main window shows another repository
-  const key = repositoryKey(repository.repositoryPath, repository.branchPrefix)
+  const key = pullRequestsKeyOf(repository.repositoryPath)
   const root = stackRootOfReadinessKey(branchName)
   const pullRequestOf = () => {
-    const entry = pullRequestsStore.getState().repositories[key]
+    const entry = key === null ? undefined : pullRequestsStore.getState().repositories[key]
     return root === null ? entry?.pullRequests[branchName] : entry?.stackPullRequests[root]
   }
   const pullRequest = pullRequestOf()
@@ -365,7 +372,9 @@ export async function requestReviewers(branchName: string, logins: readonly stri
       reviewers.push({ login, state: "requested", requested: true })
     }
   }
-  if (root === null) {
+  if (key === null) {
+    // the repository's pull requests left the store meanwhile: the next refresh reads them
+  } else if (root === null) {
     setPullRequest(key, branchName, { ...current, reviewers })
   } else {
     setStackPullRequest(key, root, { ...current, reviewers })
@@ -404,9 +413,8 @@ function withCreated(key: string, incoming: Readonly<Record<string, PullRequest>
 
 /** What the "Create pull request" dialog asks for */
 export interface NewPullRequestRequest {
-  /** The repository and branch prefix the dialog was opened in: the pull request goes there, whichever is selected now */
+  /** The repository the dialog was opened in: the pull request goes there, whichever is selected now */
   repositoryPath: string
-  branchPrefix: string
   /** The branch, or the root of the whole stack (`wholeStack`) */
   branchName: string
   /** The pull request of the stack branch of the whole stack whose root `branchName` is */
@@ -426,20 +434,23 @@ export interface NewPullRequestRequest {
  * the row's chip and the Safe Push popover read it before the next refresh, which follows. Throws what GitHub said.
  */
 export async function createPullRequest(request: NewPullRequestRequest): Promise<CreatedPullRequest> {
-  const key = repositoryKey(request.repositoryPath, request.branchPrefix)
+  const key = pullRequestsKeyOf(request.repositoryPath)
   const { wholeStack = false, ...params } = request
   const result = await commands.createPullRequest(params)
   if (result.status === "error") {
     throw commandFailure(result.error)
   }
-  const createdKey = wholeStack ? stackKey(key) : key
-  const pending = created.get(createdKey) ?? new Map()
-  pending.set(request.branchName, { pullRequest: result.data.pullRequest, until: Date.now() + CREATED_KEEP_MS })
-  created.set(createdKey, pending)
-  if (wholeStack) {
-    setStackPullRequest(key, request.branchName, result.data.pullRequest)
-  } else {
-    setPullRequest(key, request.branchName, result.data.pullRequest)
+  // a repository whose pull requests the store never read gets the new one from its first refresh
+  if (key !== null) {
+    const createdKey = wholeStack ? stackKey(key) : key
+    const pending = created.get(createdKey) ?? new Map()
+    pending.set(request.branchName, { pullRequest: result.data.pullRequest, until: Date.now() + CREATED_KEEP_MS })
+    created.set(createdKey, pending)
+    if (wholeStack) {
+      setStackPullRequest(key, request.branchName, result.data.pullRequest)
+    } else {
+      setPullRequest(key, request.branchName, result.data.pullRequest)
+    }
   }
   void refreshPullRequests("push")
   return result.data

@@ -236,19 +236,33 @@ pub fn stack_hold_words(root: &str, robot: &PatronusRobot) -> String {
 /// process (or a rewrite of this one) holds the lock, the push waits as long as the holder lives, its progress naming
 /// it ("Waiting for `bd pick` (pid 4242, for 12 s)", `TransferProgress::waiting_for`), until `canceled` says the user
 /// stopped waiting (Stop Waiting: `LockWaitCanceled`, nothing pushed); a lock whose holder no record names refuses it
-/// after `DEFAULT_LOCK_TIMEOUT`, and so does a repository not synced yet
+/// after `DEFAULT_LOCK_TIMEOUT`, and so does a repository not synced yet. The branches are named under `branch_prefix`,
+/// which keys the kept table too
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
+#[expect(clippy::too_many_arguments, reason = "the push, its checks, its progress and its cancel")]
 pub fn push_guarded(
   git_executor: &GitCommandExecutor,
   git_common_dir: &Path,
   views: &RepositoryViews,
   robots: Vec<PatronusRobot>,
+  branch_prefix: &str,
   params: &PushBranchesParams,
   on_progress: &mut dyn FnMut(TransferProgress),
   canceled: &dyn Fn() -> bool,
 ) -> Result<PushBranchesOutcome> {
   let on_wait = || debug!(git_common_dir = %git_common_dir.display(), "the push waits for a push of its refs");
-  push_guarded_within(DEFAULT_LOCK_TIMEOUT, &on_wait, canceled, git_executor, git_common_dir, views, robots, params, on_progress)
+  push_guarded_within(
+    DEFAULT_LOCK_TIMEOUT,
+    &on_wait,
+    canceled,
+    git_executor,
+    git_common_dir,
+    views,
+    robots,
+    branch_prefix,
+    params,
+    on_progress,
+  )
 }
 
 /// `push_guarded`, waiting as long as it takes for the pushes of this process that write one of its refs, then for a live
@@ -263,10 +277,11 @@ fn push_guarded_within(
   git_common_dir: &Path,
   views: &RepositoryViews,
   robots: Vec<PatronusRobot>,
+  branch_prefix: &str,
   params: &PushBranchesParams,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<PushBranchesOutcome> {
-  let names: Vec<String> = push_ref_names(params)?.into_iter().map(|(name, _)| name).collect();
+  let names: Vec<String> = push_ref_names(branch_prefix, params)?.into_iter().map(|(name, _)| name).collect();
   let _claim = PUSHING_REFS.claim(git_common_dir, &names, on_wait);
   let prepared = {
     let mut on_holder = |holder: &_| on_progress(TransferProgress::waiting_for(holder));
@@ -275,12 +290,12 @@ fn push_guarded_within(
       None => error,
     })?;
     let facts = views
-      .guard_facts(git_executor, &params.repository_path, &params.branch_prefix, robots)
+      .guard_facts(git_executor, &params.repository_path, branch_prefix, robots)
       .ok_or_else(|| anyhow!(NOT_SYNCED_YET))?;
     if let Err(refusal) = check_push(&facts, &params.branches) {
       bail!(refusal);
     }
-    prepare_push_branches(git_executor, params, &facts.table().not_built)?
+    prepare_push_branches(git_executor, branch_prefix, params, &facts.table().not_built)?
   };
   prepared.send(git_executor, on_progress)
 }
@@ -297,10 +312,10 @@ impl RemoteActions<'_> {
     mut on_progress: impl FnMut(TransferProgress) + Send + 'static,
     canceled: impl Fn() -> bool + Send + 'static,
   ) -> Result<PushBranchesOutcome> {
-    let robots = self.robots_for_checks(&params.branch_prefix).await;
-    let (git, views) = (self.git_executor.clone(), self.views.clone());
+    let robots = self.robots_for_checks().await;
+    let (git, views, branch_prefix) = (self.git_executor.clone(), self.views.clone(), self.branch_prefix.to_owned());
     tokio::task::spawn_blocking(in_current_span(move || {
-      push_guarded(&git, &git_common_dir, &views, robots, &params, &mut on_progress, &canceled)
+      push_guarded(&git, &git_common_dir, &views, robots, &branch_prefix, &params, &mut on_progress, &canceled)
     }))
     .await?
   }

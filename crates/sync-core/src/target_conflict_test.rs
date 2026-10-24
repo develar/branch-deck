@@ -32,7 +32,6 @@ fn land_on_target(upstream: &TestRepo, subject: &str, file: &str, content: &str)
 fn params(clone: &TestRepo) -> TargetConflictParams {
   TargetConflictParams {
     repository_path: clone.path_str().to_string(),
-    branch_prefix: PREFIX.to_string(),
     baseline_branch: "origin/master".to_string(),
     branch_name: "auth".to_string(),
     stack: false,
@@ -67,7 +66,7 @@ async fn a_target_that_moved_with_a_conflicting_change_after_the_last_sync_confl
   let target_commit = land_on_target(&upstream, "Change shared upstream", "shared.txt", "theirs\n");
   let head = clone.head();
 
-  let check = target_conflict_core(clone.git_executor(), &params(&clone));
+  let check = target_conflict_core(clone.git_executor(), PREFIX, &params(&clone));
   // the fetch moved the target: the commit of another branch on it is named, the one that changes other files is not
   assert_eq!(
     check,
@@ -89,7 +88,7 @@ async fn a_target_that_moved_without_a_conflict_is_clean() {
   let (upstream, clone, _) = synced_clone().await;
   let target_commit = land_on_target(&upstream, "Change other upstream", "other.txt", "two\n");
 
-  let check = target_conflict_core(clone.git_executor(), &params(&clone));
+  let check = target_conflict_core(clone.git_executor(), PREFIX, &params(&clone));
   assert_eq!((check.fetch_error, check.outcome), (None, TargetOutcome::Clean));
   assert_eq!(clone.rev_parse("origin/master").unwrap(), target_commit);
 }
@@ -102,7 +101,7 @@ async fn a_failed_fetch_checks_the_last_fetched_target_and_says_so() {
   clone.git(&["fetch", "--quiet", "origin", "master"]);
   clone.git(&["remote", "set-url", "origin", &format!("{}/missing", upstream.path_str())]);
 
-  let check = target_conflict_core(clone.git_executor(), &params(&clone));
+  let check = target_conflict_core(clone.git_executor(), PREFIX, &params(&clone));
   assert!(
     check.fetch_error.as_deref().is_some_and(|error| error.contains("Failed to fetch origin/master")),
     "{check:?}"
@@ -117,6 +116,6 @@ async fn a_branch_that_does_not_resolve_is_not_checked() {
     branch_name: "missing".to_string(),
     ..params(&clone)
   };
-  let check = check_branch_target(clone.git_executor(), &params, None);
+  let check = check_branch_target(clone.git_executor(), PREFIX, &params, None);
   assert!(matches!(check.outcome, TargetOutcome::NotRun { .. }), "{check:?}");
 }

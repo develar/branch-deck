@@ -228,7 +228,7 @@ export function CreatePullRequestForm({
     const read =
       stack === null
         ? commands.getNewPullRequest({ repositoryPath, head, base, stackAncestors: JSON.parse(ancestorsText) as string[] })
-        : commands.getNewStackPullRequest({ repositoryPath, branchPrefix: stack.branchPrefix, root: branchName, members: [...stack.members], target: base })
+        : commands.getNewStackPullRequest({ repositoryPath, root: branchName, members: [...stack.members], target: base })
     read.then(
       result => {
         if (!current) {

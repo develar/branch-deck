@@ -53,7 +53,6 @@ import {
   whenRepositoryViewCurrent,
 } from "@/stores/patronus"
 import { robotCoverageStore, watchRobotCoverage } from "@/stores/robot-coverage"
-import { appSettingsStore } from "@/stores/settings/appSettings"
 import { testRemoteStatus } from "@/stores/test-branch"
 import { branchFacts, landedWhole, robotOf } from "@/test-support/patronus-repository"
 
@@ -569,7 +568,7 @@ describe("watchRobotCoverage", () => {
     const stop = watchRobotCoverage()
     await vi.waitFor(() => expect(Object.keys(robotCoverageStore.getState().maps)).toHaveLength(1))
     expect(patronus.commitMapCalls).toEqual([
-      { repositoryPath: "/repo", branchPrefix: "user", branchName: "auth", stackRoot: null, sourceRevision: "tip", ancestors: [], baselineBranch: "origin/master" },
+      { repositoryPath: "/repo", branchName: "auth", stackRoot: null, sourceRevision: "tip", ancestors: [], baselineBranch: "origin/master" },
     ])
     // the same tip is not asked again
     vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
@@ -603,22 +602,13 @@ describe("watchRobotCoverage", () => {
 describe("refreshPatronus", () => {
   it("lists the last days first, then only the robots started since shortly before the last list", async () => {
     await refreshPatronus("sync")
-    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", since: null, background: true, newApi: false }])
+    // the page names the repository only: Rust resolves the prefix and reads the new API of the settings
+    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", since: null, background: true }])
     expect(getBranchRobot("auth")?.status).toBe("failure")
 
     vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
     await refreshPatronus("sync")
     expect(patronus.lists[1]?.since).toBe(Math.floor((START - LIST_OVERLAP_MS) / 1000))
-  })
-
-  it("asks the list with the New Patronus API when the setting is on", async () => {
-    appSettingsStore.setState({ patronusNewApi: true })
-    try {
-      await refreshPatronus("sync")
-      expect(patronus.lists.map(params => params.newApi)).toEqual([true])
-    } finally {
-      appSettingsStore.setState({ patronusNewApi: false })
-    }
   })
 
   it("asks after a sync every five minutes at most, on focus when older than two minutes, never after a push", async () => {
@@ -670,7 +660,7 @@ describe("polling", () => {
     expect(patronus.polls).toHaveLength(0)
 
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(patronus.polls).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", robots: [{ id: "r1", status: "running" }] }])
+    expect(patronus.polls).toEqual([{ repositoryPath: "/repo", robots: [{ id: "r1", status: "running" }] }])
 
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
@@ -948,12 +938,12 @@ describe("pull request start", () => {
         mode: "rebaseAutosquash",
         subject: "ownBranch",
         githubRepository: null,
-        start: { branchName: "auth", branchPrefix: "user" },
+        start: { branchName: "auth" },
       },
     ])
     expect(patronus.replyCalls).toBe(2)
     // an incremental list from shortly before the comment
-    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", since: Math.floor((START - LIST_OVERLAP_MS) / 1000), background: false }])
+    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", since: Math.floor((START - LIST_OVERLAP_MS) / 1000), background: false }])
     expect(getBranchRobot("auth")?.id).toBe("pr")
   })
 
@@ -1032,7 +1022,7 @@ describe("pull request start", () => {
     expect((await asked).robot?.id).toBe("pr")
     expect(patronus.commands).toHaveLength(1)
     // the robots listed from shortly before the comment
-    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", since: Math.floor((commented - LIST_OVERLAP_MS) / 1000), background: false }])
+    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", since: Math.floor((commented - LIST_OVERLAP_MS) / 1000), background: false }])
   })
 
   it("throws the reason the bot gave with its thumbs down", async () => {

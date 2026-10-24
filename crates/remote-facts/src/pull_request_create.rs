@@ -45,7 +45,6 @@ pub struct GetNewPullRequestParams {
 #[serde(rename_all = "camelCase")]
 pub struct CreatePullRequestParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// The virtual branch name, e.g. `feature-auth`, or the root of the whole stack: named when a pull request that already
   /// exists is not listed yet (it is found by `head`)
   pub branch_name: String,

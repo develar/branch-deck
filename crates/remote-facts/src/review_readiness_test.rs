@@ -318,13 +318,12 @@ async fn the_inputs_of_the_readiness_are_composed_once_for_the_app_and_the_test_
   };
   let params = |baseline: &str, tip: &str| GetBranchReviewReadinessParams {
     repository_path: path.to_string(),
-    branch_prefix: "me".to_string(),
     baseline_branch: baseline.to_string(),
     branches: vec![branch(tip, ReviewStart::Rest, Vec::new())],
     recheck: false,
   };
 
-  let inputs = prepare_review_readiness(git, space.clone(), Some(github.clone()), &params("origin/master", &setup.tip)).unwrap();
+  let inputs = prepare_review_readiness(git, space.clone(), Some(github.clone()), "me", &params("origin/master", &setup.tip)).unwrap();
   assert_eq!(
     inputs,
     ReadinessInputs {
@@ -340,8 +339,8 @@ async fn the_inputs_of_the_readiness_are_composed_once_for_the_app_and_the_test_
     ("master", Some("acme"))
   );
 
-  let refused = prepare_review_readiness(git, space.clone(), None, &params("origin/master", "HEAD")).unwrap_err();
+  let refused = prepare_review_readiness(git, space.clone(), None, "me", &params("origin/master", "HEAD")).unwrap_err();
   assert_eq!(refused.to_string(), "Not a commit id: HEAD");
-  let local = prepare_review_readiness(git, space, None, &params("baseline", &setup.tip)).unwrap_err();
+  let local = prepare_review_readiness(git, space, None, "me", &params("baseline", &setup.tip)).unwrap_err();
   assert!(local.to_string().contains("not a branch of origin"), "{local}");
 }

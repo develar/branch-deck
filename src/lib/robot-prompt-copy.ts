@@ -11,6 +11,7 @@ import { stackAncestors } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { patronusRequest } from "@/stores/patronus"
+import { getEffectiveBranchPrefix } from "@/stores/repository"
 
 /** How long the "Copied" toast stays: the default of a toast without an action; the loading one had none */
 const COPIED_TOAST_TIMEOUT_MS = 5000
@@ -50,10 +51,12 @@ async function readAgentCliCommand(repositoryPath: string): Promise<AgentCliComm
  * builds, their tests and logs.
  */
 export async function readRobotPrompt(robot: PatronusRobot, full: boolean): Promise<RobotPrompt> {
-  const { repositoryPath, branchPrefix } = patronusRequest()
+  const { repositoryPath } = patronusRequest()
+  // the prompt names the branches as the page shows them
+  const branchPrefix = getEffectiveBranchPrefix()
   const baselineBranch = branchSyncStore.getState().baselineBranch ?? ""
   const [result, bd] = await Promise.all([
-    commands.getRobotFailure({ repositoryPath, branchPrefix, robotId: robot.id, branchName: robot.branchName, ancestors: robotAncestors(robot), baselineBranch, full }),
+    commands.getRobotFailure({ repositoryPath, robotId: robot.id, branchName: robot.branchName, ancestors: robotAncestors(robot), baselineBranch, full }),
     readAgentCliCommand(repositoryPath),
   ])
   if (result.status === "error") {

@@ -15,7 +15,7 @@ vi.mock("@/lib/bindings", () => ({
   },
 }))
 
-const params = { repositoryPath: "/repo", branchPrefix: "user", baselineBranch: "origin/master", chain: ["auth", "login"] }
+const params = { repositoryPath: "/repo", baselineBranch: "origin/master", chain: ["auth", "login"] }
 
 describe("readBranchReview", () => {
   it("gives the first read of the page the read its load started, once, and only for the same review", async () => {

@@ -148,16 +148,10 @@ pub enum PatronusAvailability {
 #[serde(rename_all = "camelCase")]
 pub struct GetPatronusRobotsParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// Unix seconds: only the robots started since then (an incremental refresh); null = the last 7 days
   pub since: Option<u32>,
   /// Asked by a timer or an event, not by the user: skipped while Patronus is backing off after failures
   pub background: bool,
-  /// Settings → Patronus, the new API: the list names the merge profile of each robot (`mergeProfile`, behind
-  /// the `robot.list.merge.profile.enabled` flag of Patronus); off, a list leaves the profile unknown as before
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub new_api: bool,
 }
 
 /// A running robot whose status the app knows
@@ -174,7 +168,6 @@ pub struct KnownRobotStatus {
 #[serde(rename_all = "camelCase")]
 pub struct PollPatronusRobotsParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   pub robots: Vec<KnownRobotStatus>,
 }
 
@@ -280,14 +273,7 @@ pub struct PatronusStartOptions {
 #[serde(rename_all = "camelCase")]
 pub struct PatronusRobotParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   pub robot_id: String,
-  /// Settings → Patronus, the new API: the progress of a running robot in one request
-  /// (`GET /robots/progress`, behind the `robot.progress.enabled` flag of Patronus) instead of one per running check;
-  /// the builds are asked as before while Patronus answers 404
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub new_api: bool,
   /// The cancel of the robot a start or a push replaces or restarts (`start_guard::check_cancel`): a robot that finished
   /// meanwhile is answered as it is, already finished, instead of "not running", and the start or the push goes on
   #[serde(default)]
@@ -313,8 +299,8 @@ pub struct GetPatronusStartOptionsParams {
   pub baseline_branch: String,
   /// The last robot of the branch: its profile is the default
   pub last_robot_id: Option<String>,
-  /// The profile of the last robot as the list named it (the new API): the default without reading the robot; null or
-  /// without an id, the robot is read for it
+  /// The profile of the last robot as the list named it: with the new API of Settings → Patronus (Rust reads the setting)
+  /// the default without reading the robot; null, without an id or with the new API off, the robot is read for it
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub last_robot_profile: Option<PatronusRobotProfile>,
@@ -325,7 +311,6 @@ pub struct GetPatronusStartOptionsParams {
 #[serde(rename_all = "camelCase")]
 pub struct StartPatronusRobotParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   pub baseline_branch: String,
   /// The virtual branch, without the `{prefix}/virtual/` namespace; it must be pushed. With `stack`, the root of the
   /// stack
@@ -629,7 +614,6 @@ impl ReviewReadinessBranch {
 #[serde(rename_all = "camelCase")]
 pub struct GetBranchReviewReadinessParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// As the sync detected it, e.g. `origin/master`
   pub baseline_branch: String,
   pub branches: Vec<ReviewReadinessBranch>,
@@ -696,7 +680,6 @@ pub struct PostPatronusCommandParams {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestStartBranch {
-  pub branch_prefix: String,
   /// The virtual branch, without the `{prefix}/virtual/` namespace; with `stack`, the root of the whole stack
   pub branch_name: String,
   #[serde(default)]

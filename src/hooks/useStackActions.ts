@@ -11,7 +11,7 @@ import type { RewriteSpec } from "@/lib/rewrite"
 import { formatMoveUnstackAction } from "@/lib/stack"
 import { requestReveal } from "@/stores/commit-move"
 import { branchSubject } from "@/stores/operations"
-import { getEffectiveBranchPrefix, getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
+import { getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
 import { forgetCollapsedStack, renameCollapsedStack } from "@/stores/stack-collapse"
 
 export interface StackOperationOptions {
@@ -130,9 +130,8 @@ export async function undoRegroup(repositoryPath: string, token: string | null |
  */
 export async function offerUnstackAfterMove(toastId: string, branches: readonly string[], moveTarget: string | null): Promise<void> {
   const repositoryPath = getSelectedProject()?.path ?? ""
-  const branchPrefix = getEffectiveBranchPrefix()
   for (const branchName of branches) {
-    const result = await invokeCommand(() => commands.getStackIndependence({ repositoryPath, branchPrefix, branchName }))
+    const result = await invokeCommand(() => commands.getStackIndependence({ repositoryPath, branchName }))
     if (result.status === "ok" && result.data.kind === "builds") {
       const parent = result.data.parent
       toast.update(toastId, {

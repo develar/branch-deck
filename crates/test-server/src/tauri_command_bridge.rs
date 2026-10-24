@@ -250,6 +250,20 @@ fn prefix_inputs(state: &AppState, repository_path: &str) -> Result<TestPrefixIn
   })
 }
 
+/// The prefix a command of the repository at `repository_path` names its branches with, as the app's commands resolve it
+/// (`TestPrefixInputs::branch_prefix`, in a blocking step); an error for an unknown repository
+async fn branch_prefix_of(state: &AppState, repository_path: &str) -> Result<String, Rejection> {
+  let inputs = prefix_inputs(state, repository_path)?;
+  let path = repository_path.to_owned();
+  Ok(run_command("read the branch prefix", move || inputs.branch_prefix(&path)).await?.0)
+}
+
+/// Settings → Patronus, the new API, of the settings of the test repository at `repository_path`, as the app's commands
+/// read it from the writer (a test sets it with `initialStoreValues` or through the page's `set_setting`)
+fn patronus_new_api_of(state: &AppState, repository_path: &str) -> Result<bool, Rejection> {
+  Ok(repository_by_path(state, repository_path)?.store.app().patronus_new_api)
+}
+
 /// `branchdeck.branchPrefix` of the repository's local config (the git read of `resolve_branch_prefix`)
 pub fn read_local_branch_prefix(git_executor: &git_executor::git_command_executor::GitCommandExecutor, repo_path: &str) -> anyhow::Result<GitBranchPrefix> {
   let (output, exit_code) = git_executor.execute_command_with_status(&["config", "--local", "branchdeck.branchPrefix"], repo_path)?;
@@ -559,10 +573,8 @@ pub async fn check_landing_gate(
   State(state): State<Arc<AppState>>,
   Json(params): Json<trial_check::landing_gate::LandingGateParams>,
 ) -> CommandResult<trial_check::landing_gate::LandingCheck> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let space = space_of(&state, &params.repository_path)?;
-  let service = space.as_ref().map(|(host, _)| host.patronus_service());
-  let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
+  let actions = inputs.actions(&state);
   let check = actions.check_landing(ObjectCache::disabled, &params).await;
   check.map(Json).map_err(|e| failed("check the landing gate", e))
 }
@@ -572,10 +584,10 @@ pub async fn get_stack_independence(
   State(state): State<Arc<AppState>>,
   Json(params): Json<trial_check::check::StackIndependenceParams>,
 ) -> CommandResult<trial_check::check::StackIndependence> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let git_executor = state.git_executor.clone();
   run_command("check the stack independence", move || {
-    trial_check::check::get_stack_independence(&git_executor, &ObjectCache::disabled(), &params)
+    trial_check::check::get_stack_independence(&git_executor, &ObjectCache::disabled(), &branch_prefix, &params)
   })
   .await
 }
@@ -585,7 +597,7 @@ pub async fn get_robot_commit_map(
   State(state): State<Arc<AppState>>,
   Json(params): Json<domain_types::robot_failure::GetRobotCommitMapParams>,
 ) -> CommandResult<domain_types::robot_failure::RobotCommitMap> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let git_executor = state.git_executor.clone();
   run_command("read the commit map of the robot", move || {
     let subject = sync_core::robot_commits::RobotSubject {
@@ -595,7 +607,7 @@ pub async fn get_robot_commit_map(
     sync_core::robot_commits::robot_subject_commit_map(
       &git_executor,
       &params.repository_path,
-      &params.branch_prefix,
+      &branch_prefix,
       subject,
       &params.source_revision,
       &params.baseline_branch,
@@ -796,10 +808,10 @@ pub async fn check_target_conflict(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::target_conflict::TargetConflictParams>,
 ) -> CommandResult<sync_core::target_conflict::TargetCheck> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let git_executor = state.git_executor.clone();
   run_command("check the target", move || {
-    anyhow::Ok(sync_core::target_conflict::check_branch_target(&git_executor, &params, None))
+    anyhow::Ok(sync_core::target_conflict::check_branch_target(&git_executor, &branch_prefix, &params, None))
   })
   .await
 }
@@ -829,8 +841,9 @@ async fn guarded_push<T: serde::Serialize + Send + 'static>(
   let channel = progress_channel(headers);
   answer_with_progress(channel, move |progress| async move {
     let (common_dir, space) = push_inputs(&state, &params.repository_path, operation).await?;
+    let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
     let service = space.as_ref().map(|(host, _)| host.patronus_service());
-    let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+    let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space), &branch_prefix);
     let ticket = register_wait(&state.lock_waits, channel, |_| {});
     let canceled = canceled_by(&ticket);
     let pushed = actions
@@ -864,8 +877,30 @@ async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> R
 
 /// What the app's actions on the remote run on (`repository_model::actions`), as the app's commands have it: the fake's
 /// service with the Space repository (none while no Patronus fixture put the repository on Space), the views of the server
-fn remote_actions<'a>(state: &'a AppState, service: Option<&'a PatronusService>, space: Option<&'a SpaceRepository>) -> RemoteActions<'a> {
-  RemoteActions::new(service.zip(space), &state.git_executor, &state.repository_views)
+fn remote_actions<'a>(state: &'a AppState, service: Option<&'a PatronusService>, space: Option<&'a SpaceRepository>, branch_prefix: &'a str) -> RemoteActions<'a> {
+  RemoteActions::new(service.zip(space), &state.git_executor, &state.repository_views, branch_prefix)
+}
+
+/// What the `RemoteActions` of a command on the test repository are built of, owned by the command: the prefix resolved
+/// for it (`branch_prefix_of`), the fake's service and its Space repository (none while no Patronus fixture put it on
+/// Space)
+struct RemoteInputs {
+  branch_prefix: String,
+  space: Option<(Arc<RemoteHost>, SpaceRepository)>,
+  service: Option<Arc<PatronusService>>,
+}
+
+impl RemoteInputs {
+  async fn of(state: &AppState, repository_path: &str) -> Result<Self, Rejection> {
+    let branch_prefix = branch_prefix_of(state, repository_path).await?;
+    let space = space_of(state, repository_path)?;
+    let service = space.as_ref().map(|(host, _)| host.patronus_service());
+    Ok(Self { branch_prefix, space, service })
+  }
+
+  fn actions<'a>(&'a self, state: &'a AppState) -> RemoteActions<'a> {
+    remote_actions(state, self.service.as_deref(), self.space.as_ref().map(|(_, space)| space), &self.branch_prefix)
+  }
 }
 
 /// `$GIT_COMMON_DIR` of the repository at `path`, where the repository lock lives
@@ -902,9 +937,8 @@ pub async fn get_pull_requests(State(state): State<Arc<AppState>>, Json(params):
   let Some(repository) = repository else {
     return Ok(Json(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)));
   };
-  Ok(Json(
-    list_pull_requests(&host.github_service(), &params.repository_path, &repository, &params.branch_prefix).await,
-  ))
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
+  Ok(Json(list_pull_requests(&host.github_service(), &params.repository_path, &repository, &branch_prefix).await))
 }
 
 /// What the rules of a branch do to the pull requests into it, as the app reads them
@@ -1222,10 +1256,10 @@ pub async fn get_new_stack_pull_request(
   State(state): State<Arc<AppState>>,
   Json(params): Json<remote_facts::stack_pull_request::GetNewStackPullRequestParams>,
 ) -> CommandResult<NewPullRequest> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let (git_executor, path, request) = (state.git_executor.clone(), params.repository_path.clone(), params);
   let Json(pull_request) = run_command("read the text of the stack's pull request", move || {
-    remote_facts::stack_pull_request::read_new_stack_pull_request(&git_executor, &request)
+    remote_facts::stack_pull_request::read_new_stack_pull_request(&git_executor, &branch_prefix, &request)
   })
   .await?;
   with_viewer(&state, &path, pull_request).await
@@ -1235,9 +1269,12 @@ pub async fn get_branch_review(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::branch_review::GetBranchReviewParams>,
 ) -> CommandResult<sync_core::branch_review::BranchReview> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let git_executor = state.git_executor.clone();
-  run_command("read the review of a branch", move || sync_core::branch_review::get_branch_review(&git_executor, &params)).await
+  run_command("read the review of a branch", move || {
+    sync_core::branch_review::get_branch_review(&git_executor, &branch_prefix, &params)
+  })
+  .await
 }
 
 pub async fn get_file_owners(State(state): State<Arc<AppState>>, Json(params): Json<git_ops::ownership::GetFileOwnersParams>) -> CommandResult<Vec<git_ops::ownership::FileOwner>> {
@@ -1267,10 +1304,11 @@ pub async fn get_patronus_robots(State(state): State<Arc<AppState>>, Json(params
   let Some((host, space)) = space_of(&state, &params.repository_path)? else {
     return Ok(Json(PatronusRobotsResult::from(PatronusAvailability::NotPatronus)));
   };
-  let mut result = host
-    .patronus_service()
-    .robots(&space.name, &params.branch_prefix, params.since, params.background, params.new_api)
-    .await;
+  let (branch_prefix, new_api) = (
+    branch_prefix_of(&state, &params.repository_path).await?,
+    patronus_new_api_of(&state, &params.repository_path)?,
+  );
+  let mut result = host.patronus_service().robots(&space.name, &branch_prefix, params.since, params.background, new_api).await;
   let git = config_git(&state, &params.repository_path)?;
   let Json(github) = run_command("resolve the GitHub repository", move || resolve_github_repository(&git, &params.repository_path)).await?;
   result.github_repository = github.map(|github| github.full_name());
@@ -1289,6 +1327,7 @@ pub async fn get_robot_stats(State(state): State<Arc<AppState>>, Json(params): J
       stats: None,
     }));
   };
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let git = state.git_executor.clone();
   let (path, baseline) = (params.repository_path.clone(), params.baseline_branch.clone());
   let Json(target) = run_command("read the target branch", move || required_target_branch(&git, &path, &baseline)).await?;
@@ -1299,7 +1338,7 @@ pub async fn get_robot_stats(State(state): State<Arc<AppState>>, Json(params): J
     cache: &cache,
     repository: &space.name,
     target: &target,
-    branch_prefix: &params.branch_prefix,
+    branch_prefix: &branch_prefix,
     reads: None,
   };
   Ok(Json(
@@ -1311,36 +1350,35 @@ pub async fn get_robot_stats(State(state): State<Arc<AppState>>, Json(params): J
 pub async fn poll_patronus_robots(State(state): State<Arc<AppState>>, Json(params): Json<PollPatronusRobotsParams>) -> CommandResult<PatronusRobotsResult> {
   repository_by_path(&state, &params.repository_path)?.patronus_poll_calls.fetch_add(1, Ordering::SeqCst);
   let host = remote_of(&state, &params.repository_path)?;
-  Ok(Json(host.patronus_service().poll(&params.branch_prefix, &params.robots).await))
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
+  Ok(Json(host.patronus_service().poll(&branch_prefix, &params.robots).await))
 }
 
 /// The robot with its profile, checks, problems and progress, as the app reads them
 pub async fn get_patronus_robot_details(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobotDetails> {
   repository_by_path(&state, &params.repository_path)?.patronus_detail_calls.fetch_add(1, Ordering::SeqCst);
   let host = remote_of(&state, &params.repository_path)?;
-  let details = host.patronus_service().robot_details(&params.branch_prefix, &params.robot_id, params.new_api).await;
+  let (branch_prefix, new_api) = (
+    branch_prefix_of(&state, &params.repository_path).await?,
+    patronus_new_api_of(&state, &params.repository_path)?,
+  );
+  let details = host.patronus_service().robot_details(&branch_prefix, &params.robot_id, new_api).await;
   details.map(Json).map_err(|e| failed("read the Patronus robot", patronus_error(e)))
 }
 
 /// Why the robot failed, with the commit map of its branch, as the app reads it; there is no `teamcity` CLI
 pub async fn get_robot_failure(State(state): State<Arc<AppState>>, Json(params): Json<GetRobotFailureParams>) -> CommandResult<RobotFailureReport> {
   let service = remote_of(&state, &params.repository_path)?.patronus_service();
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let failure = if params.full {
-    service.robot_failure_full(&params.branch_prefix, &params.robot_id, None).await
+    service.robot_failure_full(&branch_prefix, &params.robot_id, None).await
   } else {
-    service.robot_failure(&params.branch_prefix, &params.robot_id).await
+    service.robot_failure(&branch_prefix, &params.robot_id).await
   }
   .map_err(|e| failed("read the failure of the Patronus robot", patronus_error(e)))?;
   let git_executor = state.git_executor.clone();
   run_command("read the failure of the Patronus robot", move || {
-    robot_failure_report(
-      &git_executor,
-      &params.repository_path,
-      &params.branch_prefix,
-      &params.ancestors,
-      &params.baseline_branch,
-      failure,
-    )
+    robot_failure_report(&git_executor, &params.repository_path, &branch_prefix, &params.ancestors, &params.baseline_branch, failure)
   })
   .await
 }
@@ -1379,10 +1417,11 @@ pub async fn get_branch_review_readiness(
   }
   let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
   let (_, github) = github_of(&state, &params.repository_path, None).await?;
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let Json((inputs, params)) = {
     let git_executor = state.git_executor.clone();
     run_command(operation, move || {
-      prepare_review_readiness(&git_executor, space, github, &params).map(|inputs| (inputs, params))
+      prepare_review_readiness(&git_executor, space, github, &branch_prefix, &params).map(|inputs| (inputs, params))
     })
     .await?
   };
@@ -1406,9 +1445,8 @@ pub async fn post_patronus_command(State(state): State<Arc<AppState>>, Json(para
   let operation = "post the Patronus command";
   let (host, repository) = commented_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
   if params.subject == PatronusCommandSubject::OwnBranch {
-    let space = space_of(&state, &params.repository_path)?;
-    let service = space.as_ref().map(|(host, _)| host.patronus_service());
-    let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+    let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
+    let actions = inputs.actions(&state);
     let checked = actions.check_start_from_pull_request(ObjectCache::disabled, &params).await;
     checked.map_err(|e| failed(operation, e))?;
   }
@@ -1449,12 +1487,14 @@ fn required_space_of(state: &AppState, path: &str, operation: &str) -> Result<(A
 pub async fn get_patronus_start_options(State(state): State<Arc<AppState>>, Json(params): Json<GetPatronusStartOptionsParams>) -> CommandResult<PatronusStartOptions> {
   let operation = "read the Safe Push options";
   let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
+  let new_api = patronus_new_api_of(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   let (path, baseline) = (params.repository_path.clone(), params.baseline_branch.clone());
   let Json(target) = run_command(operation, move || required_target_branch(&git_executor, &path, &baseline)).await?;
+  let last_profile = params.last_robot_profile.filter(|_| new_api);
   let options = host
     .patronus_service()
-    .start_options(&space.project_key, &space.name, &target, params.last_robot_id.as_deref(), params.last_robot_profile)
+    .start_options(&space.project_key, &space.name, &target, params.last_robot_id.as_deref(), last_profile)
     .await;
   options.map(Json).map_err(|e| failed(operation, patronus_error(e)))
 }
@@ -1474,10 +1514,8 @@ pub async fn get_patronus_target_branch(State(state): State<Arc<AppState>>, Json
 /// and logs the request (`GET …/patronus`)
 pub async fn start_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<StartPatronusRobotParams>) -> CommandResult<PatronusRobot> {
   let operation = "start the Patronus robot";
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let space = space_of(&state, &params.repository_path)?;
-  let service = space.as_ref().map(|(host, _)| host.patronus_service());
-  let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
+  let actions = inputs.actions(&state);
   let robot = actions.start_robot(ObjectCache::disabled, &params).await;
   robot.map(Json).map_err(|e| failed(operation, e))
 }
@@ -1505,10 +1543,8 @@ async fn act_on_robot(state: &AppState, params: &PatronusRobotParams, action: Ro
     RobotAction::Restart => "restart the Patronus robot",
     RobotAction::Cancel => "cancel the Patronus robot",
   };
-  ensure_repository_exists(state, &params.repository_path)?;
-  let space = space_of(state, &params.repository_path)?;
-  let service = space.as_ref().map(|(host, _)| host.patronus_service());
-  let actions = remote_actions(state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let inputs = RemoteInputs::of(state, &params.repository_path).await?;
+  let actions = inputs.actions(state);
   let robot = match action {
     RobotAction::Restart => actions.restart_robot(params).await,
     RobotAction::Cancel => actions.cancel_robot(params).await,

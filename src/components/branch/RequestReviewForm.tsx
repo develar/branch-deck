@@ -19,7 +19,7 @@ import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { runOperation, useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 import { requestReviewers } from "@/stores/pull-requests"
-import { getRepositorySwitchReason, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
+import { getRepositorySwitchReason, useSelectedProjectPath } from "@/stores/repository"
 
 export interface RequestReviewFormProps {
   /**
@@ -62,7 +62,6 @@ async function pushFirst(name: string, errorTitle: string, repositoryPath: strin
  */
 export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: RequestReviewFormProps) {
   const repositoryPath = useSelectedProjectPath() ?? ""
-  const branchPrefix = useEffectiveBranchPrefix()
   const candidates = getRequestReviewCandidates(readiness, pullRequest)
   // null until the user changes the choice: the suggested ones of the readiness as it is now
   const [choice, setChoice] = useState<readonly string[] | null>(null)
@@ -106,7 +105,7 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
     }
     const errorTitle = `Cannot request a review on #${number}`
     // the repository of the click: the push and the request go there, whichever the main window shows meanwhile
-    const repository = { repositoryPath, branchPrefix }
+    const repository = { repositoryPath }
     const run = async () => {
       if (pushes && !(await pushFirst(branch.name, errorTitle, repositoryPath))) {
         return

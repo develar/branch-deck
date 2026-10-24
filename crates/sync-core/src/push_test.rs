@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
 
+/// The prefix the pushed branches are named under
+const PREFIX: &str = "prefix";
 const BRANCH: &str = "prefix/virtual/feature";
 
 /// The push of one branch, as the app's push of one branch pushes the stack of it alone (`PushOutcome::of_stack`)
@@ -17,7 +19,7 @@ fn push_branch(
   not_built: &HashMap<String, BlockReason>,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> anyhow::Result<PushOutcome> {
-  PushOutcome::of_stack(push_branches(git_executor, &params.as_stack(), not_built, on_progress)?)
+  PushOutcome::of_stack(push_branches(git_executor, PREFIX, &params.as_stack(), not_built, on_progress)?)
 }
 
 fn path(repo: &TestRepo) -> &str {
@@ -101,7 +103,6 @@ fn push(local: &TestRepo, expected: Option<&str>) -> PushOutcome {
 fn push_reporting(local: &TestRepo, expected: Option<&str>, on_progress: &mut dyn FnMut(TransferProgress)) -> PushOutcome {
   let params = PushBranchParams {
     repository_path: path(local).to_string(),
-    branch_prefix: "prefix".to_string(),
     branch_name: "feature".to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "master".to_string(),
@@ -156,7 +157,6 @@ fn a_prepared_push_sends_the_commit_it_was_prepared_for() {
   set_branch(&local, &checked);
   let params = PushBranchParams {
     repository_path: path(&local).to_string(),
-    branch_prefix: "prefix".to_string(),
     branch_name: "feature".to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "master".to_string(),
@@ -164,7 +164,7 @@ fn a_prepared_push_sends_the_commit_it_was_prepared_for() {
     expected_remote: None,
     tip: None,
   };
-  let prepared = prepare_push_branches(local.git_executor(), &params.as_stack(), &HashMap::new()).unwrap();
+  let prepared = prepare_push_branches(local.git_executor(), PREFIX, &params.as_stack(), &HashMap::new()).unwrap();
   let moved = local.create_commit("(feature) Change feature", "feature.txt", "changed");
   set_branch(&local, &moved);
   let status = stack_pushed(prepared.send(local.git_executor(), &mut |_| {}).unwrap());
@@ -202,7 +202,6 @@ fn a_push_fails_without_the_local_branch() {
 
   let params = PushBranchParams {
     repository_path: path(&local).to_string(),
-    branch_prefix: "prefix".to_string(),
     branch_name: "missing".to_string(),
     my_email: None,
     baseline_branch: "master".to_string(),
@@ -331,7 +330,6 @@ fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
 
   let params = PushBranchParams {
     repository_path: path(&local).to_string(),
-    branch_prefix: "prefix".to_string(),
     branch_name: "feature".to_string(),
     my_email: None,
     baseline_branch: "master".to_string(),
@@ -349,7 +347,6 @@ fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
 fn push_up_to(local: &TestRepo, expected: Option<&str>, tip: &str) -> anyhow::Result<PushOutcome> {
   let params = PushBranchParams {
     repository_path: path(local).to_string(),
-    branch_prefix: "prefix".to_string(),
     branch_name: "feature".to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "origin/master".to_string(),
@@ -415,17 +412,16 @@ fn push_stack(local: &TestRepo, expected: [Option<&str>; 2], tips: [Option<&str>
   };
   let params = PushBranchesParams {
     repository_path: path(local).to_string(),
-    branch_prefix: "prefix".to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "origin/master".to_string(),
     branches: vec![branch("auth", None, expected[0], tips[0]), branch("login", Some("auth"), expected[1], tips[1])],
   };
-  push_branches(local.git_executor(), &params, &HashMap::new(), &mut |_| {}).unwrap()
+  push_branches(local.git_executor(), PREFIX, &params, &HashMap::new(), &mut |_| {}).unwrap()
 }
 
 /// The remote statuses of a push of `params` that no sync refuses and whose remote branches are where it expects them
 fn stack_pushed_as_is(local: &TestRepo, params: &PushBranchesParams) -> Vec<RemoteStatusUpdate> {
-  stack_pushed(push_branches(local.git_executor(), params, &HashMap::new(), &mut |_| {}).unwrap())
+  stack_pushed(push_branches(local.git_executor(), PREFIX, params, &HashMap::new(), &mut |_| {}).unwrap())
 }
 
 fn stack_pushed(outcome: PushBranchesOutcome) -> Vec<RemoteStatusUpdate> {
@@ -452,7 +448,6 @@ fn a_push_of_a_branch_the_last_sync_did_not_build_is_refused() {
   stack(&local);
   let params = PushBranchesParams {
     repository_path: path(&local).to_string(),
-    branch_prefix: "prefix".to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "origin/master".to_string(),
     branches: ["auth", "login"]
@@ -468,14 +463,13 @@ fn a_push_of_a_branch_the_last_sync_did_not_build_is_refused() {
   };
   let not_built = HashMap::from([("auth".to_string(), BlockReason::Conflict), ("login".to_string(), BlockReason::Blocked)]);
 
-  let error = push_branches(local.git_executor(), &params, &not_built, &mut |_| {}).unwrap_err();
+  let error = push_branches(local.git_executor(), PREFIX, &params, &not_built, &mut |_| {}).unwrap_err();
   assert_eq!(
     error.to_string(),
     "Nothing was pushed: auth is not synced (a merge conflict), login is not synced (its parent is not built)"
   );
   let one = PushBranchParams {
     repository_path: path(&local).to_string(),
-    branch_prefix: "prefix".to_string(),
     branch_name: "login".to_string(),
     my_email: None,
     baseline_branch: "origin/master".to_string(),
@@ -501,7 +495,6 @@ fn the_whole_stack_pushes_its_stack_branch() {
   set_branch_of(&local, "prefix/stack/auth", &login);
   let params = |expected: Option<String>| PushBranchesParams {
     repository_path: path(&local).to_string(),
-    branch_prefix: "prefix".to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "origin/master".to_string(),
     branches: vec![StackPushBranch {
@@ -525,7 +518,7 @@ fn the_whole_stack_pushes_its_stack_branch() {
 
   // its lease holds as a virtual branch's: a rebuilt stack branch pushed as if it had no remote branch is refused
   set_branch_of(&local, "prefix/stack/auth", &auth);
-  let moved = push_branches(local.git_executor(), &params(None), &HashMap::new(), &mut |_| {}).unwrap();
+  let moved = push_branches(local.git_executor(), PREFIX, &params(None), &HashMap::new(), &mut |_| {}).unwrap();
   assert!(
     matches!(moved, PushBranchesOutcome::RemoteMoved { ref branch_name, whole_stack: true, .. } if branch_name == "auth"),
     "{moved:?}"
@@ -551,7 +544,6 @@ fn the_stack_branch_goes_with_the_branches_and_a_moved_one_is_named_as_the_stack
   };
   let params = |stack_lease: Option<&str>| PushBranchesParams {
     repository_path: path(&local).to_string(),
-    branch_prefix: "prefix".to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "origin/master".to_string(),
     branches: vec![
@@ -566,7 +558,7 @@ fn the_stack_branch_goes_with_the_branches_and_a_moved_one_is_named_as_the_stack
     branch_name,
     whole_stack,
     remote_statuses,
-  } = push_branches(local.git_executor(), &params(None), &HashMap::new(), &mut |_| {}).unwrap()
+  } = push_branches(local.git_executor(), PREFIX, &params(None), &HashMap::new(), &mut |_| {}).unwrap()
   else {
     panic!("pushed over the remote stack branch");
   };
@@ -671,7 +663,6 @@ fn an_unapplied_branch_is_pushed_under_its_own_name() {
   set_branch_of(&local, "prefix/unapplied/docs", &tip);
   let params = |expected: Option<&str>| PushBranchesParams {
     repository_path: path(&local).to_string(),
-    branch_prefix: "prefix".to_string(),
     my_email: None,
     baseline_branch: "origin/master".to_string(),
     branches: vec![StackPushBranch {
@@ -696,7 +687,7 @@ fn an_unapplied_branch_is_pushed_under_its_own_name() {
   let more = local.create_commit("More docs", "more.md", "more");
   set_branch_of(&local, "prefix/unapplied/docs", &more);
   assert!(matches!(
-    push_branches(local.git_executor(), &params(None), &HashMap::new(), &mut |_| {}).unwrap(),
+    push_branches(local.git_executor(), PREFIX, &params(None), &HashMap::new(), &mut |_| {}).unwrap(),
     PushBranchesOutcome::RemoteMoved { .. }
   ));
   stack_pushed_as_is(&local, &params(Some(&tip)));

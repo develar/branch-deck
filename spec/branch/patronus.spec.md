@@ -166,6 +166,14 @@ reports in it and closes it once merged.
   [@test] ../../crates/patronus/src/service_test.rs (`lists_the_robots_newest_first_and_names_the_virtual_branch`)
   [@test] ../../src/lib/patronus.test.ts (`matches a robot started on the branch, and a Safe Push of a temporary ref by the local or the pushed tip`)
   [@test] ../../src/lib/patronus.test.ts (`prefers a running robot over a canceling one over a finished one, then the newest`)
+- Every command of Patronus, of a push and of a pull request names the repository only: Rust resolves the prefix
+  `{prefix}` of its branches for the command, as the sync does (`BranchPrefixes`, no git process while it knows the
+  repository's git prefix), and the actions on the remote (`RemoteActions`: the push, the start, the restart, the
+  cancel, the landing check) take that prefix, never one from the page. The page keeps its stores by the prefix it
+  shows ([Settings](../repository/settings.spec.md)).
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_robots_of_the_fixture_come_through_the_real_service`, `a_start_restart_and_cancel_run_the_real_service_against_the_fake`)
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_guarded_push_runs_the_processes_of_the_core_push`)
+  [@test] ../../src/stores/patronus.test.ts (`lists the last days first, then only the robots started since shortly before the last list`)
 - The pushed tip comes with the remote status of the branch: the `rev-parse` that checks the remote branch exists
   returns it, so it costs no extra git process.
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`)
@@ -230,8 +238,8 @@ reports in it and closes it once merged.
   "read the build progress" with its duration).
   [@test] ../../crates/patronus/src/actions_test.rs (`details_of_a_running_robot_have_the_estimate_of_its_running_checks`, `the_progress_of_a_build_is_asked_once_a_minute_and_never_for_a_finished_robot`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
-- With Settings → Patronus, "New Patronus API" (`appSettings.patronusNewApi`, off by default, passed to the
-  commands as `newApi`), the same estimate comes from one request, `GET /robots/progress?robotId=…`, which Patronus
+- With Settings → Patronus, "New Patronus API" (`appSettings.patronusNewApi`, off by default; Rust reads it from the
+  settings writer for each command, the page sends nothing), the same estimate comes from one request, `GET /robots/progress?robotId=…`, which Patronus
   folds from the same cache of a minute: the latest estimated finish over the running checks (`estimatedFinishAt`,
   the time left or the overtime against now), the check that ends last and its fraction done, the queued checks (also
   a running check whose build waits for an agent or for its next attempt), whether one probably hangs; a robot
@@ -240,7 +248,7 @@ reports in it and closes it once merged.
   for the user, then the builds are asked as above and the endpoint rests for 10 minutes. `bd robot` reads the setting
   from the app's settings file ([Agent CLI](../../docs/guidelines/agent-cli.md)).
   [@test] ../../crates/patronus/src/actions_test.rs (`with_the_new_api_the_progress_of_a_running_robot_is_one_request_kept_for_a_minute`, `while_patronus_has_no_progress_of_robots_the_builds_are_asked_and_the_endpoint_rests`, `the_progress_patronus_folded_reads_as_the_one_from_the_builds`)
-  [@test] ../../src/stores/patronus.test.ts (`asks the list with the New Patronus API when the setting is on`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
   [@test] ../../crates/bd-core/src/context_test.rs (`the_new_patronus_api_setting_of_the_app_is_read_from_its_settings_file`)
 - One HTTP client with a kept-alive connection (connect timeout 5 s, list, poll and details 15 s, the review pre-check
   20 s, actions and merge requests 30 s) and the user agent
@@ -583,8 +591,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   the push into the target is left out.
   [@test] ../../src/lib/patronus.test.ts (`pushes before a start only what the remote lacks by content, and waits for the remote status`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a branch whose remote branch has its commits under other hashes without a push`, `should wait to start until the remote status of the branch is loaded`)
-- A start belongs to the repository it was asked in: the click freezes the repository, its branch prefix and its
-  baseline, and every step names them (the landing gate, the target conflict check, the cancel of the robot it
+- A start belongs to the repository it was asked in: the click freezes the repository and its baseline (Rust resolves
+  the branch prefix of that repository for each step), and every step names them (the landing gate, the target conflict check, the cancel of the robot it
   replaces, the start or the comment on the pull request, Activity), so a switch of the repository during the start
   starts nothing in the other one, and its robot lands in the store of its own repository, which shows it on return.
   The step of a start shows only in its repository: the branch of the same name in the other one shows no step and

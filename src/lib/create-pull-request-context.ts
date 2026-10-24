@@ -32,8 +32,10 @@ import { getEffectiveBranchPrefix, getFullBranchName, getFullStackBranchName, ge
  */
 export interface CreatePullRequestContext {
   /**
-   * The repository and branch prefix the dialog was opened in: the push, the pull request and Activity go there, also
-   * once the main window shows another repository (whose branches of the same name are other branches: the push refuses)
+   * The repository the dialog was opened in: the push, the pull request and Activity go there, also once the main window
+   * shows another repository (whose branches of the same name are other branches: the push refuses). With the prefix
+   * the page showed then, which keys the stacks it remembers landed (`forgetLandedStackRoot`); Rust resolves the
+   * prefix of every command itself
    */
   readonly repositoryPath: string
   readonly branchPrefix: string
@@ -45,7 +47,7 @@ export interface CreatePullRequestContext {
    * The pull request of the whole stack: its stack branch `{prefix}/stack/<root>` holds the commits of every branch of
    * the stack (`members`, as their rows show them); null for a branch
    */
-  readonly wholeStack: { readonly branchPrefix: string; readonly members: readonly StackMemberSubjects[] } | null
+  readonly wholeStack: { readonly members: readonly StackMemberSubjects[] } | null
   /** The remote branch, as GitHub takes it */
   readonly head: string
   /** The base: the baseline as the remote names it (`master`), for every branch, stacked or not */
@@ -152,7 +154,6 @@ export function toStackPullRequestContext(root: string, stack: StackBranch | und
     branchName: root,
     label,
     wholeStack: {
-      branchPrefix: getEffectiveBranchPrefix(),
       members: members.map(({ branch, parent }) => ({
         name: branch.name,
         parent,
@@ -268,7 +269,6 @@ async function createPullRequestOf(context: CreatePullRequestContext, input: Cre
   await pushForPullRequest(context)
   const request = {
     repositoryPath: context.repositoryPath,
-    branchPrefix: context.branchPrefix,
     branchName: context.branchName,
     wholeStack: context.wholeStack !== null,
     head: context.head,

@@ -29,7 +29,6 @@ import type { BranchReviewGroup } from "@/types/sub-window"
 /** What the review reads: the chain of the branch in its repository */
 export interface BranchReviewSource {
   readonly repositoryPath: string
-  readonly branchPrefix: string
   readonly baselineBranch: string
   /** The reviewed branch last, its stack parents before it, root first */
   readonly chain: readonly string[]
@@ -137,14 +136,14 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     setReadTips(tipsKey)
   }
 
-  const { repositoryPath, branchPrefix, baselineBranch, chain } = source
+  const { repositoryPath, baselineBranch, chain } = source
   const wholeStack = source.wholeStack === true
   const chainKey = chain.join("\n")
   // the focus of the first read only: a later read keeps what the user chose
   const initialFocus = useRef(focus)
   useEffect(() => {
     let current = true
-    void readBranchReview({ repositoryPath, branchPrefix, baselineBranch, chain: chainKey.split("\n"), wholeStack }).then(result => {
+    void readBranchReview({ repositoryPath, baselineBranch, chain: chainKey.split("\n"), wholeStack }).then(result => {
       if (!current) {
         return
       }
@@ -157,7 +156,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     return () => {
       current = false
     }
-  }, [repositoryPath, branchPrefix, baselineBranch, chainKey, wholeStack, readTips])
+  }, [repositoryPath, baselineBranch, chainKey, wholeStack, readTips])
 
   // a move to a commit of the chain: once the review is read, not under an open dialog
   const [movedAt, setMovedAt] = useState(move?.openedAt)

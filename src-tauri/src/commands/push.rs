@@ -1,8 +1,11 @@
+use crate::commands::branch_prefix::PrefixInputs;
 use crate::commands::patronus::{PatronusState, remote_actions};
 use crate::lock_wait::{canceled_by, canceled_code, register};
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::api_error;
+use app_settings::branch_prefixes::BranchPrefixes;
+use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::lock_wait::LockWaits;
@@ -22,18 +25,25 @@ use tracing::{instrument, warn};
 /// far the push is, and whom it waits for while another holder has the repository lock (as long as it lives);
 /// `cancel_lock_wait` of the channel's id ends that wait, with nothing pushed.
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, patronus, views, lock_waits, progress))]
+#[instrument(skip(git_executor, repository_state, patronus, views, lock_waits, settings, prefixes, progress))]
 #[specta::specta]
+#[expect(clippy::too_many_arguments, reason = "the states of the app a Tauri command takes one by one")]
 pub async fn push_branch(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
   lock_waits: State<'_, LockWaits>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: PushBranchParams,
   progress: Channel<TransferProgress>,
 ) -> Result<PushOutcome, ApiError> {
-  operation(PushHost::of(&git_executor, &repository_state, &patronus, &views, &lock_waits).push(params.as_stack(), progress, PushOutcome::of_stack)).await
+  operation(async move {
+    let host = PushHost::of(&repository_state, &patronus, &views, &lock_waits, PrefixInputs::new(&git_executor, &settings, &prefixes));
+    host.push(params.as_stack(), progress, PushOutcome::of_stack).await
+  })
+  .await
 }
 
 /// Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
@@ -43,51 +53,51 @@ pub async fn push_branch(
 /// not built; an unapplied branch takes only the lock. `progress` receives how far the push is, and whom it waits for
 /// while another holder has the lock, until `cancel_lock_wait` of its id.
 #[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_prefix = %params.branch_prefix, branches = params.branches.len()))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
 #[specta::specta]
+#[expect(clippy::too_many_arguments, reason = "the states of the app a Tauri command takes one by one")]
 pub async fn push_branches(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
   lock_waits: State<'_, LockWaits>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: PushBranchesParams,
   progress: Channel<TransferProgress>,
 ) -> Result<PushBranchesOutcome, ApiError> {
-  operation(PushHost::of(&git_executor, &repository_state, &patronus, &views, &lock_waits).push(params, progress, Ok)).await
+  operation(PushHost::of(&repository_state, &patronus, &views, &lock_waits, PrefixInputs::new(&git_executor, &settings, &prefixes)).push(params, progress, Ok)).await
 }
 
-/// The state of the app a push needs
+/// The state of the app a push needs, with what it resolves the branch prefix of the repository with (and its git)
 struct PushHost<'a> {
-  git_executor: &'a GitCommandExecutor,
   repository_state: &'a RepositoryStateCache,
   patronus: &'a PatronusState,
   views: &'a RepositoryViews,
   lock_waits: &'a LockWaits,
+  prefix_inputs: PrefixInputs,
 }
 
 impl<'a> PushHost<'a> {
-  const fn of(
-    git_executor: &'a GitCommandExecutor,
-    repository_state: &'a RepositoryStateCache,
-    patronus: &'a PatronusState,
-    views: &'a RepositoryViews,
-    lock_waits: &'a LockWaits,
-  ) -> Self {
+  const fn of(repository_state: &'a RepositoryStateCache, patronus: &'a PatronusState, views: &'a RepositoryViews, lock_waits: &'a LockWaits, prefix_inputs: PrefixInputs) -> Self {
     Self {
-      git_executor,
       repository_state,
       patronus,
       views,
       lock_waits,
+      prefix_inputs,
     }
   }
 
-  /// The guarded push of `params` (`RemoteActions::push_branches`), its progress and its wait for another holder of the
-  /// lock sent to `progress`, the wait registered by the channel's id (`cancel_lock_wait`); `outcome` makes the answer
+  /// The guarded push of `params` (`RemoteActions::push_branches`) under the prefix resolved for its repository, its
+  /// progress and its wait for another holder of the lock sent to `progress`, the wait registered by the channel's id
+  /// (`cancel_lock_wait`); `outcome` makes the answer
   async fn push<T>(self, params: PushBranchesParams, progress: Channel<TransferProgress>, outcome: fn(PushBranchesOutcome) -> anyhow::Result<T>) -> Result<T, ApiError> {
-    let (common_dir, space) = push_inputs(self.git_executor, self.repository_state, self.patronus, &params.repository_path).await?;
-    let actions = remote_actions(self.patronus, space.as_ref(), self.git_executor, self.views);
+    let git_executor = self.prefix_inputs.git.clone();
+    let branch_prefix = self.prefix_inputs.resolve(&params.repository_path).await?;
+    let (common_dir, space) = push_inputs(&git_executor, self.repository_state, self.patronus, &params.repository_path).await?;
+    let actions = remote_actions(self.patronus, space.as_ref(), &git_executor, self.views, &branch_prefix);
     let ticket = register(self.lock_waits, progress.id(), |_| {});
     let canceled = canceled_by(&ticket);
     let pushed = actions

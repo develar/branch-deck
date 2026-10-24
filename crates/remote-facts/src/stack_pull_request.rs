@@ -144,7 +144,6 @@ pub struct StackMemberSubjects {
 #[serde(rename_all = "camelCase")]
 pub struct GetNewStackPullRequestParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// The root of the stack, which names its stack branch `{prefix}/stack/<root>`
   pub root: String,
   /// The branches of the stack, the root first, each after its parent (`StackBranchUpdate::members`)
@@ -155,19 +154,19 @@ pub struct GetNewStackPullRequestParams {
 
 /// The text of the pull request of the whole stack for the app's form (`stack_pull_request_text`): the descriptions of
 /// the stack branch and of its members from one `git config`, the subjects as the rows show them. The viewer is left to
-/// the caller, who asks GitHub.
+/// the caller, who asks GitHub. The branches are named under `branch_prefix`, which the host resolved.
 #[instrument(skip(git, params), fields(root = %params.root))]
-pub fn read_new_stack_pull_request(git: &GitCommandExecutor, params: &GetNewStackPullRequestParams) -> Result<NewPullRequest> {
+pub fn read_new_stack_pull_request(git: &GitCommandExecutor, branch_prefix: &str, params: &GetNewStackPullRequestParams) -> Result<NewPullRequest> {
   let descriptions = read_descriptions(git, &params.repository_path)?;
   let description_of = |full_name: Result<String>| full_name.ok().and_then(|name| descriptions.get(&format!("refs/heads/{name}")));
-  let own = description_of(to_stack_branch_name(&params.branch_prefix, &params.root));
+  let own = description_of(to_stack_branch_name(branch_prefix, &params.root));
   let members: Vec<StackMemberText<'_>> = params
     .members
     .iter()
     .map(|member| StackMemberText {
       name: &member.name,
       parent: member.parent.as_deref(),
-      description: description_of(to_final_branch_name(&params.branch_prefix, &member.name)),
+      description: description_of(to_final_branch_name(branch_prefix, &member.name)),
       subjects: member.subjects.iter().map(String::as_str).collect(),
     })
     .collect();

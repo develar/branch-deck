@@ -262,8 +262,8 @@ test.describe("Pull request chip", () => {
     await expect(dialog).toHaveCount(0)
     expect(creates).toEqual([
       {
+        // the repository only: Rust resolves the prefix of its branches
         repositoryPath: expect.any(String),
-        branchPrefix: "user-name",
         branchName: "feature-auth",
         head: "user-name/virtual/feature-auth",
         base: "master",

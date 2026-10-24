@@ -171,7 +171,7 @@ fn running_on(branch: &str) -> serde_json::Value {
 async fn the_robots_of_the_fixture_come_through_the_real_service() {
   let (addr, client, id, repository_path, tip) = repository_with_branch("feature", "HEAD~1").await;
 
-  let params = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "since": null, "background": false});
+  let params = json!({"repositoryPath": repository_path, "since": null, "background": false});
   let before = post(&client, addr, "/invoke/get_patronus_robots", params.clone()).await;
   assert_eq!(before["availability"], json!({"status": "notPatronus"}));
 
@@ -184,6 +184,32 @@ async fn the_robots_of_the_fixture_come_through_the_real_service() {
   let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
   assert_eq!(log["listCalls"], 2);
   assert_eq!(log["requests"]["list"], 1);
+}
+
+/// Settings → Patronus, the new API, is read in Rust from the settings of the repository, never sent by the page: the
+/// details of a running robot ask Patronus for its folded progress (`robots/progress`) only once the setting is on
+#[tokio::test]
+async fn the_details_ask_the_folded_progress_only_with_the_new_api_of_the_settings() {
+  let (addr, client, id, repository_path, _) = repository_with_branch("feature", "HEAD~1").await;
+  post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("feature")).await;
+  let details = json!({"repositoryPath": repository_path, "robotId": "r1"});
+  let progress_calls = || async {
+    let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
+    log["requests"]["progress"].clone()
+  };
+
+  assert_eq!(post(&client, addr, "/invoke/get_patronus_robot_details", details.clone()).await["robot"]["id"], "r1");
+  assert_eq!(progress_calls().await, json!([]));
+
+  let saved = client
+    .post(format!("http://{addr}/store/{id}/appSettings"))
+    .json(&json!({ "patronusNewApi": true }))
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(saved.status(), 200);
+  assert_eq!(post(&client, addr, "/invoke/get_patronus_robot_details", details).await["robot"]["id"], "r1");
+  assert_eq!(progress_calls().await, json!(["r1"]));
 }
 
 /// A server with a repository of the simple template on Space (a Patronus fixture without robots), its branches parked
@@ -212,7 +238,7 @@ async fn synced_on_space(parked: &[(&str, &str)]) -> (std::net::SocketAddr, reqw
 #[tokio::test]
 async fn a_start_of_a_parked_branch_is_refused_before_patronus_is_asked() {
   let (addr, client, id, repository_path) = synced_on_space(&[("test-branch", "IJPL-1")]).await;
-  let start = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "baselineBranch": "origin/master", "branchName": "test-branch",
+  let start = json!({"repositoryPath": repository_path, "baselineBranch": "origin/master", "branchName": "test-branch",
     "mode": "rebaseAutosquash", "profileId": null, "mergeRequest": null});
   let answer = post(&client, addr, "/invoke/start_patronus_robot", start).await;
   assert_eq!(answer["status"], "error");
@@ -273,14 +299,14 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
     ("master", vec![lsc], vec![emergency])
   );
 
-  let start = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "baselineBranch": "origin/master", "branchName": "test-branch",
+  let start = json!({"repositoryPath": repository_path, "baselineBranch": "origin/master", "branchName": "test-branch",
     "mode": "rebaseAutosquash", "profileId": "lsc", "mergeRequest": null});
   let started: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/start_patronus_robot", start).await).unwrap();
   assert_eq!(
     (started.id.as_str(), started.status, started.branch_name.as_deref(), started.source_revision.as_deref()),
     ("started-1", PatronusRobotStatus::Running, Some("test-branch"), Some(tip.as_str()))
   );
-  let robot = |robot_id: &str| json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "robotId": robot_id});
+  let robot = |robot_id: &str| json!({"repositoryPath": repository_path, "robotId": robot_id});
   let restarted: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/restart_patronus_robot", robot("started-1")).await).unwrap();
   assert_eq!((restarted.id.as_str(), restarted.branch_name.as_deref()), ("restarted-1", Some("test-branch")));
   let canceled: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/cancel_patronus_robot", robot("started-1")).await).unwrap();
@@ -313,7 +339,7 @@ async fn a_start_from_the_pull_request_runs_the_checks_of_a_start_before_the_com
     json!({"repositoryPath": repository_path, "pullRequestNumber": 7, "mode": "rebaseAutosquash", "subject": "ownBranch",
       "githubRepository": "acme/monorepo", "start": start})
   };
-  let test_branch = json!({"branchPrefix": "user-name", "branchName": "test-branch"});
+  let test_branch = json!({"branchName": "test-branch"});
   let refusal = |answer: serde_json::Value| {
     assert_eq!(answer["status"], "error", "{answer}");
     answer["error"]["message"].as_str().unwrap().to_string()
@@ -365,18 +391,12 @@ async fn a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel() {
   failed["robots"][0]["finishTime"] = json!(1_704_142_800);
   post(&client, addr, &fixture, failed).await;
 
-  let cancel = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "robotId": "r1", "replaced": true});
+  let cancel = json!({"repositoryPath": repository_path, "robotId": "r1", "replaced": true});
   let replaced: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/cancel_patronus_robot", cancel).await).unwrap();
   assert_eq!((replaced.id.as_str(), replaced.status), ("r1", PatronusRobotStatus::Failure));
   start_safe_push_of_test_branch(&client, addr, &repository_path).await;
 
-  let explicit = post(
-    &client,
-    addr,
-    "/invoke/cancel_patronus_robot",
-    json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "robotId": "r1"}),
-  )
-  .await;
+  let explicit = post(&client, addr, "/invoke/cancel_patronus_robot", json!({"repositoryPath": repository_path, "robotId": "r1"})).await;
   assert_eq!(explicit["status"], "error", "{explicit}");
   let refusal = explicit["error"]["message"].as_str().unwrap();
   assert!(refusal.contains("Nothing was canceled: the Safe Push is not running ("), "{refusal}");
@@ -386,7 +406,7 @@ async fn a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel() {
 
 /// A Safe Push of `test-branch` started through `start_patronus_robot`, as the popover starts it: running
 async fn start_safe_push_of_test_branch(client: &reqwest::Client, addr: std::net::SocketAddr, repository_path: &str) {
-  let start = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "baselineBranch": "origin/master", "branchName": "test-branch",
+  let start = json!({"repositoryPath": repository_path, "baselineBranch": "origin/master", "branchName": "test-branch",
     "mode": "rebaseAutosquash", "profileId": null, "mergeRequest": null});
   let started: PatronusRobot = serde_json::from_value(post(client, addr, "/invoke/start_patronus_robot", start).await).unwrap();
   assert_eq!(started.status, PatronusRobotStatus::Running);
@@ -399,7 +419,7 @@ async fn a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes(
   let (addr, client, id, repository_path) = synced_on_space(&[]).await;
   post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("test-branch")).await;
 
-  let push = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "test-branch", "myEmail": null,
+  let push = json!({"repositoryPath": repository_path, "branchName": "test-branch", "myEmail": null,
     "baselineBranch": "origin/master", "parentBranch": null, "expectedRemote": null, "tip": null});
   let answer = post(&client, addr, "/invoke/push_branch", push).await;
   assert_eq!(answer["status"], "error");
@@ -452,7 +472,7 @@ async fn synced_landing_needs(patronus: serde_json::Value) -> (std::net::SocketA
   let fixture = format!("/repositories/{id}/patronus");
   post(&client, addr, &fixture, patronus).await;
   sync(&client, addr, &repository_path).await;
-  let check = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "lane-run"});
+  let check = json!({"repositoryPath": repository_path, "branchName": "lane-run"});
   (addr, client, fixture, check)
 }
 
@@ -505,9 +525,9 @@ async fn a_landing_check_without_the_robots_fails_instead_of_refusing() {
 #[tokio::test]
 async fn a_start_from_the_popover_asks_three_full_lists() {
   let (addr, client, id, repository_path) = synced_on_space(&[]).await;
-  let check = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "test-branch"});
+  let check = json!({"repositoryPath": repository_path, "branchName": "test-branch"});
   assert_eq!(post(&client, addr, "/invoke/check_landing_gate", check).await, json!({"refusals": []}));
-  let push = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "test-branch", "myEmail": null,
+  let push = json!({"repositoryPath": repository_path, "branchName": "test-branch", "myEmail": null,
     "baselineBranch": "origin/master", "parentBranch": null, "expectedRemote": null, "tip": null});
   let pushed = post(&client, addr, "/invoke/push_branch", push).await;
   assert_ne!(pushed["status"], "error", "{pushed}");

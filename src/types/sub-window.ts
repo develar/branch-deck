@@ -161,7 +161,6 @@ export type BranchReviewFeedback =
 /** `__INIT_DATA__` of the `branch-review` sub-window (opened by `openBranchReviewWindow`) */
 export interface BranchReviewWindowData {
   repositoryPath: string
-  branchPrefix: string
   baselineBranch: string
   /** The reviewed branch last, its stack parents before it, root first */
   chain: string[]

@@ -742,14 +742,13 @@ fn an_atomic_push_of_a_stack() {
   };
   let params = PushBranchesParams {
     repository_path: path(&repo),
-    branch_prefix: PREFIX.to_string(),
     my_email: None,
     baseline_branch: "origin/master".to_string(),
     branches: vec![branch("alpha", None), branch("beta", Some("alpha"))],
   };
 
   let git = counting();
-  let outcome = push_branches(&git, &params, &HashMap::new(), &mut |_| {}).unwrap();
+  let outcome = push_branches(&git, PREFIX, &params, &HashMap::new(), &mut |_| {}).unwrap();
   assert!(
     matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses } if remote_statuses.len() == 2),
     "{outcome:?}"
@@ -839,7 +838,6 @@ async fn a_target_conflict_check() {
   sync(&GitCommandExecutor::new(), &repo).await;
   let params = TargetConflictParams {
     repository_path: path(&repo),
-    branch_prefix: PREFIX.to_string(),
     baseline_branch: "origin/master".to_string(),
     branch_name: "alpha".to_string(),
     stack: false,
@@ -853,11 +851,11 @@ async fn a_target_conflict_check() {
 
   move_target("other.md");
   let git = counting();
-  assert_eq!(check_branch_target(&git, &params, None).outcome, TargetOutcome::Clean);
+  assert_eq!(check_branch_target(&git, PREFIX, &params, None).outcome, TargetOutcome::Clean);
   assert_processes(&git, &[("replay", 1), ("rev-parse", 1)]);
 
   move_target("README.md");
   let git = counting();
-  assert!(matches!(check_branch_target(&git, &params, None).outcome, TargetOutcome::Conflict(_)));
+  assert!(matches!(check_branch_target(&git, PREFIX, &params, None).outcome, TargetOutcome::Conflict(_)));
   assert_processes(&git, &[("log", 2), ("merge-base", 1), ("merge-tree", 1), ("replay", 1), ("rev-parse", 1)]);
 }

@@ -20,6 +20,7 @@ import type {
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure } from "@/lib/errors"
+import { storeKeyOf } from "@/lib/git/vcs-request"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-stack"
 import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
@@ -53,7 +54,6 @@ import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
-import { appSettingsStore } from "@/stores/settings/appSettings"
 import { getRecentProjects } from "@/stores/settings/repositorySettings"
 import { runFetchBaseline, runUpdateProjectOf } from "@/stores/update-project"
 
@@ -1107,7 +1107,7 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
   if (entry.availability?.status === "notPatronus" && reason !== "manual") {
     return Promise.resolve()
   }
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const [repositoryPath] = key.split("\n") as [string, string]
   const listed = listGates.refresh(key, reason, entry.fetchedAt, async current => {
     const listedFrom = patronusStore.getState().repositories[key]?.listedFrom ?? 0
     const full = current === "manual" || listedFrom === 0
@@ -1115,8 +1115,7 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
     update(key, () => ({ isRefreshing: true }))
     try {
       const since = full ? null : Math.floor((listedFrom - LIST_OVERLAP_MS) / 1000)
-      const newApi = appSettingsStore.getState().patronusNewApi
-      const answered = await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: current !== "manual", newApi }), full, true)
+      const answered = await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, since, background: current !== "manual" }), full, true)
       if (answered) {
         update(key, () => ({ listedFrom: startedAt }))
         loadRobotFacts(key)
@@ -1174,7 +1173,7 @@ async function loadFailingRobots(key: string): Promise<void> {
  * them too), to name a robot that failed for missing approvals "Needs review".
  */
 async function loadReviewProblems(key: string): Promise<void> {
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const [repositoryPath] = key.split("\n") as [string, string]
   const entry = patronusStore.getState().repositories[key]
   if (entry === undefined) {
     return
@@ -1191,7 +1190,7 @@ async function loadReviewProblems(key: string): Promise<void> {
     }
     problemsInFlight.add(robot.id)
     try {
-      const result = await commands.getPatronusRobotProblems({ repositoryPath, branchPrefix, robotId: robot.id })
+      const result = await commands.getPatronusRobotProblems({ repositoryPath, robotId: robot.id })
       if (result.status === "ok") {
         const needsReview = result.data.some(problem => problem.subsystem === REVIEW_APPROVAL_SUBSYSTEM)
         update(key, previous => ({ needsReview: { ...previous.needsReview, [robot.id]: needsReview } }))
@@ -1273,10 +1272,10 @@ export function pollPatronus(): Promise<void> {
   if (known.length === 0) {
     return Promise.resolve()
   }
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const [repositoryPath] = key.split("\n") as [string, string]
   return pollGates.refresh(key, "poll", 0, async () => {
     try {
-      if (await applyAnswer(key, commands.pollPatronusRobots({ repositoryPath, branchPrefix, robots: known }), false, false)) {
+      if (await applyAnswer(key, commands.pollPatronusRobots({ repositoryPath, robots: known }), false, false)) {
         loadRobotFacts(key)
       }
     } finally {
@@ -1287,14 +1286,19 @@ export function pollPatronus(): Promise<void> {
 
 // ---- actions ----
 
-/** The repository and the branch prefix of the selected repository; throws without one */
-export function patronusRequest(): { repositoryPath: string; branchPrefix: string } {
+/** The selected repository, whose robots the page shows; throws without one. Rust resolves the branch prefix */
+export function patronusRequest(): VcsRequest {
   const key = currentKey()
   if (key === null) {
     throw new Error("No repository is selected")
   }
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
-  return { repositoryPath, branchPrefix }
+  const [repositoryPath] = key.split("\n") as [string, string]
+  return { repositoryPath }
+}
+
+/** The key the robots of `repositoryPath` are stored under (`storeKeyOf`); null for one whose robots were never read */
+function robotsKeyOf(repositoryPath: string): string | null {
+  return storeKeyOf(repositoryPath, currentKey(), Object.keys(patronusStore.getState().repositories))
 }
 
 /** Patronus answers for the selected repository (it is on Space): the start actions are offered */
@@ -1375,8 +1379,9 @@ export async function startPatronusRobot(
   repository: StartRepository | null = null,
 ): Promise<PatronusRobot> {
   const request = repository?.request ?? patronusRequest()
+  const key = robotsKeyOf(request.repositoryPath)
   const result = await commands.startPatronusRobot({
-    ...request,
+    repositoryPath: request.repositoryPath,
     baselineBranch: repository?.baselineBranch ?? branchSyncStore.getState().baselineBranch ?? "",
     branchName,
     ...(stack && { stack: true }),
@@ -1393,7 +1398,7 @@ export async function startPatronusRobot(
     result.data.profile?.name == null && profileId !== null
       ? { ...result.data, profile: { id: profileId, name: profileName, skipsReview: result.data.profile?.skipsReview ?? null } }
       : result.data
-  upsertPatronusRobot(robot, repositoryKey(request.repositoryPath, request.branchPrefix))
+  upsertPatronusRobot(robot, key)
   return robot
 }
 
@@ -1404,7 +1409,7 @@ export interface StartRepository {
 }
 
 /** The branch of the user a comment on its pull request starts, checked in Rust before the comment as a start is */
-export type OwnPullRequestStart = Omit<PullRequestStartBranch, "branchPrefix">
+export type OwnPullRequestStart = PullRequestStartBranch
 
 /** A start from a pull request the bot accepted: its robot, or null while Patronus lists none yet; the posted comment */
 export interface CommentStart {
@@ -1507,21 +1512,21 @@ async function askPatronusOnPullRequest(
   start: OwnPullRequestStart | null = null,
 ): Promise<CommentStart> {
   // the repository the start was asked in: the answer of the bot applies there, also after a switch
-  const { repositoryPath, branchPrefix } = request ?? patronusRequest()
-  const key = repositoryKey(repositoryPath, branchPrefix)
-  const late = lateStartKey(key, pullRequestNumber, mode)
+  const { repositoryPath } = request ?? patronusRequest()
+  const key = robotsKeyOf(repositoryPath)
+  const late = lateStartKey(key ?? repositoryPath, pullRequestNumber, mode)
   const joined = start === null ? undefined : lateCommentStarts.get(late)
   if (joined !== undefined) {
     return joined
   }
-  const known = new Set(Object.keys(patronusStore.getState().repositories[key]?.robots ?? {}))
+  const known = new Set(Object.keys((key === null ? undefined : patronusStore.getState().repositories[key])?.robots ?? {}))
   const posted = await commands.postPatronusCommand({
     repositoryPath,
     pullRequestNumber,
     mode,
     subject,
     githubRepository,
-    start: start === null ? null : { ...start, branchPrefix },
+    start,
   })
   if (posted.status === "error") {
     throw commandFailure(posted.error)
@@ -1532,7 +1537,10 @@ async function askPatronusOnPullRequest(
   const replyParams = { repositoryPath, pullRequestNumber, commentId: posted.data.id, githubRepository }
   const lookUp = async (): Promise<PatronusRobot | undefined> => {
     const since = Math.floor((postedAt - LIST_OVERLAP_MS) / 1000)
-    await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: false }), false, false)
+    if (key === null) {
+      return undefined
+    }
+    await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, since, background: false }), false, false)
     const robot = findCommentRobot(patronusStore.getState().repositories[key]?.robots ?? {}, pullRequestNumber, mode, postedAt, known)
     if (robot !== undefined) {
       schedulePoll(false)
@@ -1611,12 +1619,13 @@ export async function readPatronusTargetBranch(): Promise<string | null> {
 }
 
 async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot, request: VcsRequest | null = null, replaced = false): Promise<PatronusRobot> {
-  const { repositoryPath, branchPrefix } = request ?? patronusRequest()
-  const result = await command({ repositoryPath, branchPrefix, robotId: robot.id, replaced })
+  const { repositoryPath } = request ?? patronusRequest()
+  const key = robotsKeyOf(repositoryPath)
+  const result = await command({ repositoryPath, robotId: robot.id, replaced })
   if (result.status === "error") {
     throw commandFailure(result.error)
   }
-  upsertPatronusRobot(result.data, repositoryKey(repositoryPath, branchPrefix))
+  upsertPatronusRobot(result.data, key)
   return result.data
 }
 

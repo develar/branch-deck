@@ -405,7 +405,6 @@ async function sendTogether(
     const result = await commands.pushBranches(
       {
         repositoryPath: request.repositoryPath,
-        branchPrefix: request.branchPrefix,
         myEmail: branches[0]?.myEmail ?? null,
         baselineBranch,
         branches: [
@@ -685,7 +684,6 @@ async function sendStackBranch(request: VcsRequest, sent: StackBranchToSend, rep
     const result = await commands.pushBranches(
       {
         repositoryPath: request.repositoryPath,
-        branchPrefix: request.branchPrefix,
         myEmail: sent.myEmail,
         baselineBranch: sent.baselineBranch,
         branches: [{ branchName: root, wholeStack: true, expectedRemote: stack.remoteStatus?.remoteTip ?? null }],

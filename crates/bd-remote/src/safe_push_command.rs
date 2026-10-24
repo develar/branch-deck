@@ -1729,7 +1729,6 @@ fn create_pull_request(
   let (title, body) = (draft.title.clone(), draft.body.clone().unwrap_or_default());
   let params = CreatePullRequestParams {
     repository_path: context.repository.clone(),
-    branch_prefix: context.prefix.clone(),
     branch_name: plan.name.clone(),
     head: draft.head.clone(),
     base: draft.base.clone(),

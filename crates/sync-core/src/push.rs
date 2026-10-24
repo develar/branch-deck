@@ -21,7 +21,6 @@ use tracing::{info, instrument};
 #[serde(rename_all = "camelCase")]
 pub struct PushBranchParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   pub branch_name: String,
   pub my_email: Option<String>,
   pub baseline_branch: String,
@@ -91,7 +90,6 @@ impl PushBranchParams {
   pub fn as_stack(&self) -> PushBranchesParams {
     PushBranchesParams {
       repository_path: self.repository_path.clone(),
-      branch_prefix: self.branch_prefix.clone(),
       my_email: self.my_email.clone(),
       baseline_branch: self.baseline_branch.clone(),
       branches: vec![StackPushBranch {
@@ -153,7 +151,6 @@ pub struct StackPushBranch {
 #[serde(rename_all = "camelCase")]
 pub struct PushBranchesParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   pub my_email: Option<String>,
   pub baseline_branch: String,
   /// Parents first: the order of the refspecs and of the remote statuses of the outcome
@@ -185,36 +182,35 @@ pub enum PushBranchesOutcome {
 /// (`push_lease`): the stack goes whole or not at all. The tips are read once (`prepare_push_branches`), a branch pushed
 /// up to a commit is checked (`check_push_tip`), and a remote branch that moved meanwhile is fetched, not overwritten:
 /// the outcome names it, with the remote statuses after the fetch (`PreparedPush::send`). A branch the last sync did
-/// not build (`not_built`) refuses the whole push (`not_built_refusal`). `on_progress` gets how far the push is.
+/// not build (`not_built`) refuses the whole push (`not_built_refusal`). The branches are named under `branch_prefix`;
+/// `on_progress` gets how far the push is.
 #[instrument(skip(git_executor, not_built, on_progress), fields(repository_path = %params.repository_path, branches = params.branches.len()))]
 pub fn push_branches(
   git_executor: &GitCommandExecutor,
+  branch_prefix: &str,
   params: &PushBranchesParams,
   not_built: &HashMap<String, BlockReason>,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<PushBranchesOutcome> {
-  prepare_push_branches(git_executor, params, not_built)?.send(git_executor, on_progress)
+  prepare_push_branches(git_executor, branch_prefix, params, not_built)?.send(git_executor, on_progress)
 }
 
 /// The full names of the refs a push of `branches` writes (`{prefix}/virtual/<branch>`, `{prefix}/stack/<root>` of a
-/// whole stack, `{prefix}/unapplied/<branch>`), each with the virtual branch of its parent; no git process
-pub fn push_ref_names(params: &PushBranchesParams) -> Result<Vec<(String, Option<String>)>> {
+/// whole stack, `{prefix}/unapplied/<branch>`, under `branch_prefix`), each with the virtual branch of its parent; no git
+/// process
+pub fn push_ref_names(branch_prefix: &str, params: &PushBranchesParams) -> Result<Vec<(String, Option<String>)>> {
   params
     .branches
     .iter()
     .map(|branch| {
       if branch.whole_stack {
-        return Ok((to_stack_branch_name(&params.branch_prefix, &branch.branch_name)?, None));
+        return Ok((to_stack_branch_name(branch_prefix, &branch.branch_name)?, None));
       }
       if branch.unapplied {
-        return Ok((qualified_branch_name(&params.branch_prefix, BranchKind::Unapplied, &branch.branch_name)?, None));
+        return Ok((qualified_branch_name(branch_prefix, BranchKind::Unapplied, &branch.branch_name)?, None));
       }
-      let final_name = to_final_branch_name(&params.branch_prefix, &branch.branch_name)?;
-      let parent_ref = branch
-        .parent_branch
-        .as_deref()
-        .map(|parent| to_final_branch_name(&params.branch_prefix, parent))
-        .transpose()?;
+      let final_name = to_final_branch_name(branch_prefix, &branch.branch_name)?;
+      let parent_ref = branch.parent_branch.as_deref().map(|parent| to_final_branch_name(branch_prefix, parent)).transpose()?;
       Ok((final_name, parent_ref))
     })
     .collect()
@@ -237,12 +233,17 @@ pub struct PreparedPush {
 /// it: the refusal of a branch the last sync did not build (`not_built_refusal`), the tips read with one `for-each-ref`
 /// (`prepare_push_expecting`), the commit of a push up to it checked (`check_push_tip`). No network
 #[instrument(skip(git_executor, not_built), fields(repository_path = %params.repository_path, branches = params.branches.len()))]
-pub fn prepare_push_branches(git_executor: &GitCommandExecutor, params: &PushBranchesParams, not_built: &HashMap<String, BlockReason>) -> Result<PreparedPush> {
+pub fn prepare_push_branches(
+  git_executor: &GitCommandExecutor,
+  branch_prefix: &str,
+  params: &PushBranchesParams,
+  not_built: &HashMap<String, BlockReason>,
+) -> Result<PreparedPush> {
   if let Some(refusal) = not_built_refusal(not_built, &params.branches) {
     bail!(refusal);
   }
   let repository_path = &params.repository_path;
-  let names = push_ref_names(params)?;
+  let names = push_ref_names(branch_prefix, params)?;
   let expected: Vec<(String, Option<String>)> = names
     .iter()
     .zip(&params.branches)

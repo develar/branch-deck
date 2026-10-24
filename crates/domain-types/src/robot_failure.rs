@@ -216,7 +216,6 @@ pub struct RobotFailureReport {
 #[serde(rename_all = "camelCase")]
 pub struct GetRobotCommitMapParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// The virtual branch of the robot, without the `{prefix}/virtual/` namespace; null for the robot of a whole stack
   pub branch_name: Option<String>,
   /// The root of the stack whose stack branch the robot tests; null for the robot of a branch
@@ -234,7 +233,6 @@ pub struct GetRobotCommitMapParams {
 #[serde(rename_all = "camelCase")]
 pub struct GetRobotFailureParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   pub robot_id: String,
   /// The virtual branch of the robot, without the `{prefix}/virtual/` namespace; null without a row
   pub branch_name: Option<String>,

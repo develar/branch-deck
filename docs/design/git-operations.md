@@ -2694,7 +2694,9 @@ no operation.
   own (`GIT_CONFIG_GLOBAL`, `AppState::global_config_of`), which its config reads and writes use, so that no test
   reads or changes the config of the developer, and two tests that run at once share none.
 - **Branch prefix**: the backend's order (`resolve_branch_prefix` of `crates/app-settings/src/resolve.rs`, used by
-  `bd` and by every command of the app's sync family) puts the specific prefix first: the repository's own (local,
+  `bd` and by every command of the app that names branches: the sync family, Patronus, the push, the pull requests,
+  the branch review and the stack independence, which take the repository path alone, `PrefixInputs` in
+  `src-tauri/src/commands/branch_prefix.rs`; the actions on the remote get it through `RemoteActions::new`) puts the specific prefix first: the repository's own (local,
   worktree or command scope), then the app's `globalUserBranchPrefix`, then the global or system one, and names where
   the prefix came from (`ResolvedBranchPrefix`). `get_branch_prefix_from_git_config_sync` reads the value with its scope
   in one `git config -z --show-scope --get`, for the page's `resolve_branch_prefix` and for the first command of a

@@ -13,6 +13,9 @@ use sync_core::push::{NOT_SYNCED_YET, PushBranchesOutcome, PushBranchesParams, S
 use sync_core::transfer_progress::TransferProgress;
 use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
 
+/// The prefix of the branches of `stack_ahead_of_bare_origin`, which the host resolved for the push
+const PREFIX: &str = "test";
+
 fn branch(name: &str) -> StackPushBranch {
   StackPushBranch {
     branch_name: name.to_string(),
@@ -206,7 +209,6 @@ fn beta() -> StackPushBranch {
 fn push_of(repo: &TestRepo, branches: Vec<StackPushBranch>) -> PushBranchesParams {
   PushBranchesParams {
     repository_path: repo.path_str().to_string(),
-    branch_prefix: "test".to_string(),
     my_email: None,
     baseline_branch: "origin/master".to_string(),
     branches,
@@ -238,11 +240,11 @@ fn a_guarded_push_runs_the_processes_of_the_core_push() {
   let common_dir = repo.path().join(".git");
   let views = RepositoryViews::default();
   let git = GitCommandExecutor::new().with_process_stats("test");
-  let refused = push_guarded(&git, &common_dir, &views, Vec::new(), &params, &mut |_| {}, &|| false).unwrap_err();
+  let refused = push_guarded(&git, &common_dir, &views, Vec::new(), PREFIX, &params, &mut |_| {}, &|| false).unwrap_err();
   assert_eq!(refused.to_string(), NOT_SYNCED_YET);
 
   views.keep(repo.path_str(), "test", synced_alpha_beta());
-  let outcome = push_guarded(&git, &common_dir, &views, Vec::new(), &params, &mut |_| {}, &|| false).unwrap();
+  let outcome = push_guarded(&git, &common_dir, &views, Vec::new(), PREFIX, &params, &mut |_| {}, &|| false).unwrap();
   assert!(
     matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses } if remote_statuses.len() == 2),
     "{outcome:?}"
@@ -284,6 +286,7 @@ fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
         &common_dir,
         &views,
         Vec::new(),
+        PREFIX,
         &params,
         &mut on_progress,
       )
@@ -309,7 +312,19 @@ fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
 fn a_push_whose_wait_is_stopped_pushes_nothing() {
   let (repo, params, common_dir, views, held) = pushable_while_locked();
   let git = GitCommandExecutor::new();
-  let stopped = push_guarded_within(Duration::from_mins(1), &|| {}, &|| true, &git, &common_dir, &views, Vec::new(), &params, &mut |_| {}).unwrap_err();
+  let stopped = push_guarded_within(
+    Duration::from_mins(1),
+    &|| {},
+    &|| true,
+    &git,
+    &common_dir,
+    &views,
+    Vec::new(),
+    PREFIX,
+    &params,
+    &mut |_| {},
+  )
+  .unwrap_err();
   assert!(stopped.downcast_ref::<LockWaitCanceled>().is_some(), "{stopped:#}");
   assert_eq!(remote_branches(&repo), "");
   drop(held);
@@ -322,7 +337,19 @@ fn a_push_while_a_holder_no_record_names_holds_the_lock_is_refused() {
   let (repo, params, common_dir, views, held) = pushable_while_locked();
   std::fs::remove_file(common_dir.join("branch-deck.lock.holder")).unwrap();
   let git = GitCommandExecutor::new();
-  let refused = push_guarded_within(Duration::from_millis(100), &|| {}, &|| false, &git, &common_dir, &views, Vec::new(), &params, &mut |_| {}).unwrap_err();
+  let refused = push_guarded_within(
+    Duration::from_millis(100),
+    &|| {},
+    &|| false,
+    &git,
+    &common_dir,
+    &views,
+    Vec::new(),
+    PREFIX,
+    &params,
+    &mut |_| {},
+  )
+  .unwrap_err();
   assert_eq!(
     refused.to_string(),
     "Nothing was pushed: another Branch Deck operation holds the repository; try again when it is done"
@@ -351,7 +378,18 @@ fn held_push<'scope>(
         let _released = go.recv_timeout(Duration::from_mins(1));
       }
     };
-    push_guarded_within(Duration::from_mins(1), &|| {}, &|| false, git, common_dir, views, Vec::new(), &params, &mut on_progress)
+    push_guarded_within(
+      Duration::from_mins(1),
+      &|| {},
+      &|| false,
+      git,
+      common_dir,
+      views,
+      Vec::new(),
+      PREFIX,
+      &params,
+      &mut on_progress,
+    )
   })
 }
 
@@ -394,6 +432,7 @@ fn the_pushes_of_two_branches_run_side_by_side() {
       common_dir,
       views,
       Vec::new(),
+      PREFIX,
       &params,
       &mut |_| {},
     );
@@ -422,7 +461,7 @@ fn the_pushes_of_one_ref_wait_for_each_other_and_both_push() {
     let params = push_of(repo, vec![branch("alpha")]);
     let second = scope.spawn(move || {
       let on_wait = || events.send("waits").unwrap();
-      push_guarded_within(Duration::ZERO, &on_wait, &|| false, git, common_dir, views, Vec::new(), &params, &mut |_| {})
+      push_guarded_within(Duration::ZERO, &on_wait, &|| false, git, common_dir, views, Vec::new(), PREFIX, &params, &mut |_| {})
     });
     assert_eq!(next_event(), "waits");
     go.send(()).unwrap();

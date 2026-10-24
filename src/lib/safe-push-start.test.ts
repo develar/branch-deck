@@ -19,7 +19,7 @@ const { calls, selection, pushGate, errors, errorActions, target } = vi.hoisted(
 }))
 
 vi.mock("@/stores/repository", () => ({
-  vcsRequestFactory: { createRequest: () => ({ repositoryPath: selection.path, branchPrefix: "user" }) },
+  vcsRequestFactory: { createRequest: () => ({ repositoryPath: selection.path }) },
   getSelectedRepositoryPath: () => selection.path,
   useSelectedProjectPath: () => selection.path,
   getRepositorySwitchReason: (path: string) => (path === selection.path ? null : `${path} is no longer the open repository`),

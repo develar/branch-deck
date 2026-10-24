@@ -297,8 +297,8 @@ function askNow(key: string, inputs: readonly ReadinessInput[], recheck: boolean
  */
 async function ask(key: string, batch: readonly ReadinessInput[], recheck: boolean): Promise<void> {
   const call = ++lastCall
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
-  const params = { repositoryPath, branchPrefix, baselineBranch: branchSyncStore.getState().baselineBranch ?? "", branches: batch.map(input => input.branch), recheck }
+  const [repositoryPath] = key.split("\n") as [string, string]
+  const params = { repositoryPath, baselineBranch: branchSyncStore.getState().baselineBranch ?? "", branches: batch.map(input => input.branch), recheck }
   let answers: { input: ReadinessInput; readiness: ReviewReadiness; requirement: PatronusReviewRequirement | null }[]
   try {
     const result = await commands.getBranchReviewReadiness(params)

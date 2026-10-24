@@ -23,12 +23,12 @@ export function useRobotStats(visible: boolean): RobotStatsView {
   const branchPrefix = useEffectiveBranchPrefix()
   const baselineBranch = useBranchSync(state => state.baselineBranch)
   const period = useAppSettings(state => state.statsPeriod)
-  const subject: RobotStatsSubject | null =
-    repositoryPath === null || baselineBranch === null || branchPrefix === "" ? null : { repositoryPath, baselineBranch, branchPrefix, period }
+  const subject: RobotStatsSubject | null = repositoryPath === null || baselineBranch === null || branchPrefix === "" ? null : { repositoryPath, baselineBranch, period }
   const entry = useRobotStatsEntry(repositoryPath)
   useEffect(() => {
     if (visible && repositoryPath !== null && baselineBranch !== null && branchPrefix !== "") {
-      readRobotStats({ repositoryPath, baselineBranch, branchPrefix, period }, false)
+      // Rust names the user's robots by the prefix it resolves; a new prefix reads them again
+      readRobotStats({ repositoryPath, baselineBranch, period }, false)
     }
   }, [visible, repositoryPath, baselineBranch, branchPrefix, period])
   useWindowFocus(() => {

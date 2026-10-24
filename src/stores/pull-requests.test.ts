@@ -44,8 +44,8 @@ vi.mock("@/lib/bindings", () => ({
       }
       return { status: "ok", data: result }
     },
-    createPullRequest: async (params: { repositoryPath: string; branchPrefix: string; branchName: string }) => {
-      gh.writes.push(`create ${params.branchName} in ${params.repositoryPath} (${params.branchPrefix})`)
+    createPullRequest: async (params: { repositoryPath: string; branchName: string }) => {
+      gh.writes.push(`create ${params.branchName} in ${params.repositoryPath}`)
       return { status: "ok", data: { created: true, pullRequest: { ...pullRequest("tip"), number: 9 }, reviewers: [], assigned: false } }
     },
     retargetPullRequest: async (params: { repositoryPath: string; pullRequestNumber: number; base: string }) => {
@@ -203,7 +203,7 @@ describe("refreshPullRequests", () => {
 })
 
 describe("refreshPullRequestsAfterPush", () => {
-  const selected = { repositoryPath: "/repo", branchPrefix: "user" }
+  const selected = { repositoryPath: "/repo" }
 
   it("looks again a little later while GitHub still shows the old head", async () => {
     gh.result = answer("old")
@@ -224,7 +224,11 @@ describe("refreshPullRequestsAfterPush", () => {
 
   it("refreshes the repository the push went to, after a switch too, never the selected one", async () => {
     gh.result = answer("old")
-    await refreshPullRequestsAfterPush("auth", "new", { repositoryPath: "/other", branchPrefix: "them" })
+    // the pull requests of /other were kept under the prefix the page showed while it was selected
+    pullRequestsStore.setState(state => ({
+      repositories: { ...state.repositories, "/other\nthem": { availability: null, pullRequests: {}, stackPullRequests: {}, fetchedAt: 0, isRefreshing: false } },
+    }))
+    await refreshPullRequestsAfterPush("auth", "new", { repositoryPath: "/other" })
     await vi.advanceTimersByTimeAsync(PUSH_RECHECK_DELAY_MS)
     // its pull request still showed the old head: the second look goes there too
     expect(gh.listedIn).toEqual(["/other", "/other"])
@@ -248,13 +252,15 @@ describe("mergePullRequests", () => {
 })
 
 describe("the writes of a pull request asked in another repository than the selected one", () => {
-  const other = { repositoryPath: "/other", branchPrefix: "them" }
+  const other = { repositoryPath: "/other" }
 
   it("creates the pull request in the repository the dialog was opened in", async () => {
     await refreshPullRequests("manual")
+    // the pull requests of /other, kept under the prefix the page showed while it was selected
+    pullRequestsStore.setState(state => ({ repositories: { ...state.repositories, "/other\nthem": { ...state.repositories["/repo\nuser"]!, pullRequests: {} } } }))
     const request = { ...other, branchName: "auth", head: "them/virtual/auth", base: "master", title: "t", body: "", reviewers: [], assignSelf: false, waitForMirror: false }
     await createPullRequest(request)
-    expect(gh.writes).toEqual(["create auth in /other (them)"])
+    expect(gh.writes).toEqual(["create auth in /other"])
     // the selected repository's auth keeps its own pull request; the new one is the other repository's
     expect(getPullRequest("auth")?.number).toBe(1)
     expect(pullRequestsStore.getState().repositories["/other\nthem"]?.pullRequests.auth?.number).toBe(9)

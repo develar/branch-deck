@@ -19,7 +19,6 @@ const REVIEWERS: &str = "/repos/acme/monorepo/pulls/12/requested_reviewers";
 fn params(reviewers: &[&str], assign_self: bool) -> CreatePullRequestParams {
   CreatePullRequestParams {
     repository_path: ".".to_string(),
-    branch_prefix: "me".to_string(),
     branch_name: "auth".to_string(),
     head: "me/virtual/auth".to_string(),
     base: "master".to_string(),

@@ -118,7 +118,7 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   }
   let tip = git_command().args(["rev-parse", "HEAD"]).current_dir(&repository_path).output().unwrap();
   let tip = String::from_utf8(tip.stdout).unwrap().trim().to_string();
-  let list = json!({"repositoryPath": repository_path, "branchPrefix": "user-name"});
+  let list = json!({"repositoryPath": repository_path});
   assert_eq!(
     post(&client, addr, "/invoke/get_pull_requests", list.clone()).await["availability"],
     json!({"status": "notGitHub"})
@@ -132,7 +132,7 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   assert_eq!(listed["availability"], json!({"status": "available", "owner": "acme", "name": "monorepo"}));
   assert_eq!(listed["pullRequests"]["login"]["headRefOid"], tip.as_str());
 
-  let create = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "auth", "head": "user-name/virtual/auth",
+  let create = json!({"repositoryPath": repository_path, "branchName": "auth", "head": "user-name/virtual/auth",
     "base": "master", "title": "Add auth", "body": "b", "reviewers": ["bob", "user-name"], "assignSelf": true});
   let created = post(&client, addr, "/invoke/create_pull_request", create).await;
   assert_eq!((created["created"].clone(), created["assignees"].clone()), (json!(true), json!(["user-name"])));
@@ -175,7 +175,7 @@ async fn signed_out_and_no_access_are_what_the_real_service_makes_of_the_fake() 
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository(&client, addr).await;
-  let list = json!({"repositoryPath": repository_path, "branchPrefix": "user-name"});
+  let list = json!({"repositoryPath": repository_path});
   let status = || async {
     let response = client
       .post(format!("http://{addr}/invoke/get_github_auth_status"))

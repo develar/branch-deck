@@ -60,7 +60,6 @@ describe("branchReviewBlocker", () => {
 describe("the review window of a branch", () => {
   const plain: BranchReviewWindowData = {
     repositoryPath: "/repo",
-    branchPrefix: "user",
     baselineBranch: "origin/master",
     chain: ["auth", "login"],
     groups: [],

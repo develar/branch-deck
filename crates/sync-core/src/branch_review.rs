@@ -28,7 +28,6 @@ pub const MAX_BRANCH_REVIEW_COMMITS: usize = 2000;
 #[serde(rename_all = "camelCase")]
 pub struct GetBranchReviewParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// As the sync detected it, e.g. `origin/master`
   pub baseline_branch: String,
   /// The branches from the root of the stack to the reviewed branch, without the `{prefix}/virtual/` namespace; one
@@ -65,9 +64,10 @@ pub struct BranchReviewSegment {
 /// `-z`: a NUL ends each commit, as NULs separate its fields; the message may hold any other byte
 const LOG_FORMAT: &str = "--format=%H%x00%P%x00%an%x00%at%x00%ct%x00%s%x00%B";
 
+/// The review of the chain of `params`, its branches named under `branch_prefix` (the host resolved it)
 #[instrument(skip(git), fields(chain = ?params.chain))]
-pub fn get_branch_review(git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result<BranchReview> {
-  let tips = read_tips(git, params)?;
+pub fn get_branch_review(git: &GitCommandExecutor, branch_prefix: &str, params: &GetBranchReviewParams) -> Result<BranchReview> {
+  let tips = read_tips(git, branch_prefix, params)?;
   review_from_tips(git, params, &tips.tips)
 }
 
@@ -91,15 +91,15 @@ fn ref_candidates(name: &str) -> Vec<String> {
     .collect()
 }
 
-fn read_tips(git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result<BranchTips> {
+fn read_tips(git: &GitCommandExecutor, branch_prefix: &str, params: &GetBranchReviewParams) -> Result<BranchTips> {
   if params.whole_stack && params.chain.len() != 1 {
     bail!("The whole stack is reviewed by its root alone");
   }
   let full_name = |name: &str| {
     if params.whole_stack {
-      to_stack_branch_name(&params.branch_prefix, name)
+      to_stack_branch_name(branch_prefix, name)
     } else {
-      to_final_branch_name(&params.branch_prefix, name)
+      to_final_branch_name(branch_prefix, name)
     }
   };
   let refs: Vec<String> = params
@@ -195,14 +195,14 @@ impl BranchReviewMemo {
   /// `get_branch_review`, whose `log` runs only for tips and a baseline not seen before; a baseline that names no
   /// ref is never memoised
   #[instrument(skip(self, git), fields(chain = ?params.chain))]
-  pub fn get(&self, git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result<Arc<BranchReview>> {
-    let BranchTips { tips, baseline } = read_tips(git, params)?;
+  pub fn get(&self, git: &GitCommandExecutor, branch_prefix: &str, params: &GetBranchReviewParams) -> Result<Arc<BranchReview>> {
+    let BranchTips { tips, baseline } = read_tips(git, branch_prefix, params)?;
     if baseline.is_empty() {
       return review_from_tips(git, params, &tips).map(Arc::new);
     }
     let key = BranchReviewKey {
       repository_path: params.repository_path.clone(),
-      branch_prefix: params.branch_prefix.clone(),
+      branch_prefix: branch_prefix.to_owned(),
       baseline_branch: params.baseline_branch.clone(),
       chain: params.chain.clone(),
       whole_stack: params.whole_stack,

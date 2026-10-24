@@ -1,7 +1,10 @@
+use crate::commands::branch_prefix::PrefixInputs;
 use crate::commands::github::GitHubState;
 use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use app_settings::branch_prefixes::BranchPrefixes;
+use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -21,22 +24,26 @@ use sync_core::github_repository::{GitHubRepository, parse_known_github_reposito
 use tauri::State;
 use tracing::instrument;
 
-/// The GitHub pull requests of the virtual branches, one GraphQL search; when GitHub can't answer, the availability says
-/// why
+/// The GitHub pull requests of the virtual branches (their heads under the prefix resolved for the repository), one
+/// GraphQL search; when GitHub can't answer, the availability says why
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
+#[instrument(skip(git_executor, repository_state, github, settings, prefixes))]
 #[specta::specta]
 pub async fn get_pull_requests(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: GetPullRequestsParams,
 ) -> Result<PullRequestsResult, ApiError> {
   operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, None).await? else {
       return Ok(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
     };
-    Ok(list_pull_requests(&github.service, &params.repository_path, &repository, &params.branch_prefix).await)
+    let branch_prefix = inputs.resolve(&params.repository_path).await?;
+    Ok(list_pull_requests(&github.service, &params.repository_path, &repository, &branch_prefix).await)
   })
   .await
 }
@@ -192,12 +199,18 @@ pub async fn get_new_stack_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: GetNewStackPullRequestParams,
 ) -> Result<NewPullRequest, ApiError> {
   operation(async move {
-    let git = git_executor.inner().clone();
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let request = params.clone();
-    let pull_request = run_blocking(move || read_new_stack_pull_request(&git, &request).map_err(|e| ApiError::internal(e.to_string()))).await?;
+    let pull_request = run_blocking(move || {
+      let branch_prefix = inputs.branch_prefix(&request.repository_path)?;
+      read_new_stack_pull_request(&inputs.git, &branch_prefix, &request)
+    })
+    .await?;
     with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
   })
   .await

@@ -752,7 +752,6 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
   };
   let params = PushBranchesParams {
     repository_path: context.repository.clone(),
-    branch_prefix: context.prefix.clone(),
     my_email: None,
     baseline_branch: detect_baseline_branch(&context.git, &context.repository)?,
     branches: vec![StackPushBranch {
@@ -766,7 +765,7 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
   };
   let short = context.short_ids(std::iter::once(tip.as_str()).chain(expected.as_deref()));
   // an unapplied branch is no group of HEAD: no sync built it
-  let prepared = prepare_push_branches(&context.git, &params, &HashMap::new())?;
+  let prepared = prepare_push_branches(&context.git, &context.prefix, &params, &HashMap::new())?;
   drop(repository_lock);
   match prepared.send(&context.git, &mut |_| {})? {
     PushBranchesOutcome::Pushed { .. } => Ok(PushOutput {

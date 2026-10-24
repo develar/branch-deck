@@ -68,7 +68,7 @@ async fn the_readiness_comes_from_the_fake_patronus_through_the_real_core() {
   )
   .await;
   let params = json!({
-    "repositoryPath": repository_path, "branchPrefix": "user-name", "baselineBranch": "origin/master",
+    "repositoryPath": repository_path, "baselineBranch": "origin/master",
     "branches": [{"branchName": "IJPL-1", "tip": tip, "start": {"kind": "pullRequest", "number": 7}, "author": "user-name",
       "reviewers": [{"login": "junie-jetbrains", "state": "approved", "requested": false}, {"login": "ikorennoy", "state": "requested", "requested": true}]}],
   });
@@ -134,7 +134,7 @@ async fn a_branch_without_an_answer_is_reviewed_by_the_owners_of_its_paths() {
   )
   .await;
   let params = json!({
-    "repositoryPath": repository_path, "branchPrefix": "user-name", "baselineBranch": "origin/master",
+    "repositoryPath": repository_path, "baselineBranch": "origin/master",
     "branches": [{"branchName": "IJPL-1", "tip": tip, "start": {"kind": "rest"}}],
   });
   let answer = post(&client, addr, "/invoke/get_branch_review_readiness", params).await;

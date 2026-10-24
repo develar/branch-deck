@@ -29,7 +29,7 @@ import { requestCommitForm, requestReveal } from "@/stores/commit-move"
 import type { CommitFormRequest, RevealRequest } from "@/stores/commit-move"
 import { getOperations } from "@/stores/operations"
 import { getStackPullRequest } from "@/stores/pull-requests"
-import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
+import { getSelectedProject } from "@/stores/repository"
 import { demandReviewReadiness, showReviewReadiness } from "@/stores/review-readiness"
 import type {
   BranchReviewFeedback,
@@ -107,7 +107,6 @@ function getBranchReviewSource(branchName: string, focus: BranchReviewFocus): Br
   }
   return {
     repositoryPath,
-    branchPrefix: getEffectiveBranchPrefix(),
     baselineBranch,
     chain: [...stackAncestors(branchName, getBranch).map(branch => branch.name), branchName],
     groups: focus.groups ?? reviewGroupsOf(branchName),
@@ -133,13 +132,13 @@ export function prefetchBranchReview(branchName: string, focus: BranchReviewFocu
   if (source === null || part === null) {
     return
   }
-  const { repositoryPath, branchPrefix, baselineBranch, chain } = source
+  const { repositoryPath, baselineBranch, chain } = source
   const key = [repositoryPath, part, ...chain.map(name => `${name}@${getBranch(name)?.commits[0]?.hash ?? ""}`)].join("\n")
   if (prefetched.has(key)) {
     return
   }
   prefetched.add(key)
-  void commands.prefetchBranchReview({ review: { repositoryPath, branchPrefix, baselineBranch, chain: [...chain] }, part }).then(result => {
+  void commands.prefetchBranchReview({ review: { repositoryPath, baselineBranch, chain: [...chain] }, part }).then(result => {
     if (result.status === "error") {
       prefetched.delete(key)
       logError("Cannot read the review of a branch ahead", result.error)

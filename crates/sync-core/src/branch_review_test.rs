@@ -3,10 +3,12 @@ use domain_types::review_request::ReviewCommit;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
 
+/// The prefix of the branches of `stacked_repo`, which the host resolved
+const PREFIX: &str = "user";
+
 fn params(repo: &TestRepo, chain: &[&str]) -> GetBranchReviewParams {
   GetBranchReviewParams {
     repository_path: repo.path().to_str().unwrap().to_string(),
-    branch_prefix: "user".to_string(),
     baseline_branch: "baseline".to_string(),
     chain: chain.iter().map(ToString::to_string).collect(),
     whole_stack: false,
@@ -33,7 +35,7 @@ fn stacked_repo() -> (TestRepo, [String; 4]) {
 #[test]
 fn splits_a_stack_at_the_heads_of_the_parents() {
   let (repo, [base, c1, c2, c3]) = stacked_repo();
-  let review = get_branch_review(repo.git_executor(), &params(&repo, &["auth", "ui"])).unwrap();
+  let review = get_branch_review(repo.git_executor(), PREFIX, &params(&repo, &["auth", "ui"])).unwrap();
   let segments: Vec<(&str, &str, &str, Vec<&str>)> = review
     .segments
     .iter()
@@ -58,7 +60,7 @@ fn splits_a_stack_at_the_heads_of_the_parents() {
 #[test]
 fn a_branch_outside_a_stack_is_one_segment_from_the_baseline() {
   let (repo, [base, _, _, c3]) = stacked_repo();
-  let review = get_branch_review(repo.git_executor(), &params(&repo, &["ui"])).unwrap();
+  let review = get_branch_review(repo.git_executor(), PREFIX, &params(&repo, &["ui"])).unwrap();
   assert_eq!(review.segments.len(), 1);
   assert_eq!((review.segments[0].base.as_str(), review.segments[0].head.as_str()), (base.as_str(), c3.as_str()));
   assert_eq!(review.segments[0].commits.len(), 3);
@@ -72,9 +74,9 @@ fn a_child_not_built_on_the_head_of_its_parent_needs_a_sync() {
     .git_executor()
     .execute_command(&["update-ref", "refs/heads/user/virtual/auth", "refs/heads/baseline"], repo.path().to_str().unwrap())
     .unwrap();
-  let error = get_branch_review(repo.git_executor(), &params(&repo, &["auth", "ui"])).unwrap_err();
+  let error = get_branch_review(repo.git_executor(), PREFIX, &params(&repo, &["auth", "ui"])).unwrap_err();
   assert_eq!(error.to_string(), "ui isn't built on the head of auth: sync first");
-  let error = get_branch_review(repo.git_executor(), &params(&repo, &["missing", "ui"])).unwrap_err();
+  let error = get_branch_review(repo.git_executor(), PREFIX, &params(&repo, &["missing", "ui"])).unwrap_err();
   assert_eq!(error.to_string(), "missing has no virtual branch yet: sync first");
 }
 
@@ -84,7 +86,7 @@ fn git(repo: &TestRepo, args: &[&str]) -> String {
 
 fn commit_count(memo: &BranchReviewMemo, repo: &TestRepo, chain: &[&str]) -> usize {
   memo
-    .get(repo.git_executor(), &params(repo, chain))
+    .get(repo.git_executor(), PREFIX, &params(repo, chain))
     .unwrap()
     .segments
     .iter()
@@ -96,13 +98,16 @@ fn commit_count(memo: &BranchReviewMemo, repo: &TestRepo, chain: &[&str]) -> usi
 fn a_memoised_review_runs_no_log_for_the_same_tips() {
   let (repo, [_, _, c2, c3]) = stacked_repo();
   let memo = BranchReviewMemo::new();
-  let first = memo.get(repo.git_executor(), &params(&repo, &["auth", "ui"])).unwrap();
-  assert_eq!(*first, get_branch_review(repo.git_executor(), &params(&repo, &["auth", "ui"])).unwrap());
+  let first = memo.get(repo.git_executor(), PREFIX, &params(&repo, &["auth", "ui"])).unwrap();
+  assert_eq!(*first, get_branch_review(repo.git_executor(), PREFIX, &params(&repo, &["auth", "ui"])).unwrap());
 
   // a replacement changes what the log reads but no tip: the memo answers without running it
   git(&repo, &["replace", &c3, &c2]);
-  assert_eq!(get_branch_review(repo.git_executor(), &params(&repo, &["ui"])).unwrap().segments[0].commits.len(), 2);
-  let again = memo.get(repo.git_executor(), &params(&repo, &["auth", "ui"])).unwrap();
+  assert_eq!(
+    get_branch_review(repo.git_executor(), PREFIX, &params(&repo, &["ui"])).unwrap().segments[0].commits.len(),
+    2
+  );
+  let again = memo.get(repo.git_executor(), PREFIX, &params(&repo, &["auth", "ui"])).unwrap();
   assert!(std::sync::Arc::ptr_eq(&first, &again));
   // another chain of the same branches is another review
   assert_eq!(commit_count(&memo, &repo, &["ui"]), 2);
@@ -129,9 +134,9 @@ fn a_moved_tip_or_baseline_is_read_again() {
     baseline_branch: "origin/main".to_string(),
     ..params(&repo, &["ui"])
   };
-  assert_eq!(memo.get(repo.git_executor(), &remote).unwrap().segments[0].commits.len(), 3);
+  assert_eq!(memo.get(repo.git_executor(), PREFIX, &remote).unwrap().segments[0].commits.len(), 3);
   git(&repo, &["update-ref", "refs/remotes/origin/main", &c3]);
-  assert_eq!(memo.get(repo.git_executor(), &remote).unwrap().segments[0].commits.len(), 1);
+  assert_eq!(memo.get(repo.git_executor(), PREFIX, &remote).unwrap().segments[0].commits.len(), 1);
 }
 
 /// The whole stack is its stack branch, one part named by the root: every commit of the stack on the baseline. Without
@@ -143,11 +148,11 @@ fn the_whole_stack_is_one_part_of_its_stack_branch() {
     whole_stack: true,
     ..params(&repo, &[root])
   };
-  let error = get_branch_review(repo.git_executor(), &whole("auth")).unwrap_err();
+  let error = get_branch_review(repo.git_executor(), PREFIX, &whole("auth")).unwrap_err();
   assert!(error.to_string().contains("no stack branch"), "{error:#}");
 
   repo.create_branch_at("user/stack/auth", &c3).unwrap();
-  let review = get_branch_review(repo.git_executor(), &whole("auth")).unwrap();
+  let review = get_branch_review(repo.git_executor(), PREFIX, &whole("auth")).unwrap();
   let [segment] = review.segments.as_slice() else { panic!("{review:?}") };
   assert_eq!((segment.name.as_str(), segment.base.as_str(), segment.head.as_str()), ("auth", base.as_str(), c3.as_str()));
   assert_eq!(ids(&segment.commits), [c3.as_str(), c2.as_str(), c1.as_str()]);
@@ -157,5 +162,5 @@ fn the_whole_stack_is_one_part_of_its_stack_branch() {
     whole_stack: true,
     ..params(&repo, &["auth", "ui"])
   };
-  get_branch_review(repo.git_executor(), &chain).unwrap_err();
+  get_branch_review(repo.git_executor(), PREFIX, &chain).unwrap_err();
 }

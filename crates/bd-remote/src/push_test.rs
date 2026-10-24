@@ -515,7 +515,6 @@ fn app_push(repo: &TestRepo, branch: &str) {
     .unwrap();
   let params = PushBranchParams {
     repository_path: repo.path().to_str().unwrap().to_string(),
-    branch_prefix: PREFIX.to_string(),
     branch_name: branch.to_string(),
     my_email: None,
     baseline_branch: "origin/master".to_string(),
@@ -524,7 +523,7 @@ fn app_push(repo: &TestRepo, branch: &str) {
     tip: None,
   };
   assert!(matches!(
-    PushOutcome::of_stack(push_branches(repo.git_executor(), &params.as_stack(), &HashMap::new(), &mut |_| {}).unwrap()).unwrap(),
+    PushOutcome::of_stack(push_branches(repo.git_executor(), PREFIX, &params.as_stack(), &HashMap::new(), &mut |_| {}).unwrap()).unwrap(),
     PushOutcome::Pushed { .. }
   ));
 }

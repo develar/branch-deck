@@ -121,16 +121,14 @@ export function formatFailedRobotToast(
  * no second time: its Activity entry says it finished.
  */
 async function announceFailed(key: string, robot: PatronusRobot, needsReview: boolean, label: string | undefined): Promise<void> {
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const [repositoryPath] = key.split("\n") as [string, string]
   if (announced.has(robot.id)) {
     const { title, description } = formatFailedRobotToast(robot, needsReview, null, label)
     recordRobot(title, description, robot, repositoryPath)
     return
   }
   // the failure also warms the backend's cache of the details, so the prompt copies at once
-  const [failedChecks, kind] = needsReview
-    ? [null, null]
-    : await Promise.all([readFailedChecks(repositoryPath, branchPrefix, robot.id), readFailureKind(repositoryPath, branchPrefix, robot)])
+  const [failedChecks, kind] = needsReview ? [null, null] : await Promise.all([readFailedChecks(repositoryPath, robot.id), readFailureKind(repositoryPath, robot)])
   const { title, description } = formatFailedRobotToast(robot, needsReview, failedChecks, label, kind)
   recordRobot(title, description, robot, repositoryPath)
   announce("patronusFailures", { title, body: description }, () => showFailedToast(robot, needsReview, kind, title, description))
@@ -162,9 +160,9 @@ export function formatFailingRobotToast(robot: PatronusRobot, failedChecks: stri
 }
 
 async function announceFailing(key: string, robot: PatronusRobot, label: string | undefined): Promise<void> {
-  const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
+  const [repositoryPath] = key.split("\n") as [string, string]
   // the warning names no check: the details do (cached by the backend for a minute, so the popover reuses them)
-  const failedChecks = await readFailedChecks(repositoryPath, branchPrefix, robot.id)
+  const failedChecks = await readFailedChecks(repositoryPath, robot.id)
   const { title, description } = formatFailingRobotToast(robot, failedChecks, label)
   recordRobot(title, description, robot, repositoryPath)
   announce("patronusFailures", { title, body: description }, () => showFailingToast(robot, title, description))
@@ -300,12 +298,11 @@ export function formatStaleRobotStep(
 }
 
 /** What failed, which decides the step of the toast; null when Patronus can't tell */
-async function readFailureKind(repositoryPath: string, branchPrefix: string, robot: PatronusRobot): Promise<RobotFailureKind | null> {
+async function readFailureKind(repositoryPath: string, robot: PatronusRobot): Promise<RobotFailureKind | null> {
   try {
     const baselineBranch = branchSyncStore.getState().baselineBranch ?? ""
     const result = await commands.getRobotFailure({
       repositoryPath,
-      branchPrefix,
       robotId: robot.id,
       branchName: robot.branchName,
       // the members of the whole stack for its robot
@@ -321,9 +318,9 @@ async function readFailureKind(repositoryPath: string, branchPrefix: string, rob
 }
 
 /** The checks of a robot that failed ("Fast Tests"), from its details; null without them */
-async function readFailedChecks(repositoryPath: string, branchPrefix: string, robotId: string): Promise<string | null> {
+async function readFailedChecks(repositoryPath: string, robotId: string): Promise<string | null> {
   try {
-    const details = await commands.getPatronusRobotDetails({ repositoryPath, branchPrefix, robotId })
+    const details = await commands.getPatronusRobotDetails({ repositoryPath, robotId })
     return details.status === "ok" && details.data.checks !== null ? formatFailedCheckNames(details.data.checks) : null
   } catch {
     // the toast says it without the names

@@ -1,4 +1,7 @@
+use crate::commands::branch_prefix::PrefixInputs;
 use crate::operation::{operation, run_blocking};
+use app_settings::branch_prefixes::BranchPrefixes;
+use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use file_diffs::range_files::RangeFilesCache;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -37,11 +40,17 @@ pub struct PrefetchBranchReviewParams {
 pub async fn get_branch_review(
   git_executor: State<'_, GitCommandExecutor>,
   memo: State<'_, BranchReviewMemo>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: GetBranchReviewParams,
 ) -> Result<Arc<BranchReview>, ApiError> {
-  let git = (*git_executor).clone();
+  let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
   let memo = memo.inner().clone();
-  run_blocking(move || memo.get(&git, &params)).await
+  run_blocking(move || {
+    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
+    memo.get(&inputs.git, &branch_prefix, &params)
+  })
+  .await
 }
 
 /// The code owners of paths by the `OWNERSHIP` files of the baseline, from one `cat-file --batch`; a path without an
@@ -64,15 +73,21 @@ pub async fn prefetch_branch_review(
   git_executor: State<'_, GitCommandExecutor>,
   memo: State<'_, BranchReviewMemo>,
   range_files: State<'_, RangeFilesCache>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
   params: PrefetchBranchReviewParams,
 ) -> Result<(), ApiError> {
   operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let git = (*git_executor).clone();
     let memo = memo.inner().clone();
     let range_files = (*range_files).clone();
     // in the background: the window tells a failure
     tokio::task::spawn_blocking(in_current_span(move || {
-      let review = match memo.get(&git, &params.review) {
+      let review = match inputs
+        .branch_prefix(&params.review.repository_path)
+        .and_then(|branch_prefix| memo.get(&git, &branch_prefix, &params.review))
+      {
         Ok(review) => review,
         Err(e) => {
           debug!(error = %e, "cannot prefetch the review of a branch");

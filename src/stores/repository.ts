@@ -142,7 +142,7 @@ export function getFullStackBranchName(root: string): string {
   return `${getEffectiveBranchPrefix()}/stack/${root}`
 }
 
-export const vcsRequestFactory = new VcsRequestFactory(() => getSelectedProject()?.path ?? "", getEffectiveBranchPrefix)
+export const vcsRequestFactory = new VcsRequestFactory(() => getSelectedProject()?.path ?? "")
 
 // ---- actions ----
 

@@ -30,8 +30,8 @@ export const commands = {
 	 */
 	cancelLockWait: (channel: number) => __TAURI_INVOKE<boolean>("cancel_lock_wait", { channel }),
 	/**
-	 *  The GitHub pull requests of the virtual branches, one GraphQL search; when GitHub can't answer, the availability says
-	 *  why
+	 *  The GitHub pull requests of the virtual branches (their heads under the prefix resolved for the repository), one
+	 *  GraphQL search; when GitHub can't answer, the availability says why
 	 */
 	getPullRequests: (params: GetPullRequestsParams) => typedError<PullRequestsResult, ApiError>(__TAURI_INVOKE("get_pull_requests", { params })),
 	/**
@@ -163,7 +163,9 @@ export const commands = {
 	prefetchBranchReview: (params: PrefetchBranchReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("prefetch_branch_review", { params })),
 	/**
 	 *  The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
-	 *  `since`. When Patronus can't be asked, the availability says why.
+	 *  `since`. When Patronus can't be asked, the availability says why. With the new API of Settings → Patronus the list
+	 *  names the merge profile of each robot (`mergeProfile`, behind the `robot.list.merge.profile.enabled` flag of
+	 *  Patronus); off, it leaves the profile unknown.
 	 */
 	getPatronusRobots: (params: GetPatronusRobotsParams) => typedError<PatronusRobotsResult, ApiError>(__TAURI_INVOKE("get_patronus_robots", { params })),
 	/**
@@ -174,7 +176,12 @@ export const commands = {
 	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, ApiError>(__TAURI_INVOKE("get_robot_stats", { params, events })),
 	/**  The robots of `params.robots` whose status changed since the app saw it; the others are not in the result */
 	pollPatronusRobots: (params: PollPatronusRobotsParams) => typedError<PatronusRobotsResult, ApiError>(__TAURI_INVOKE("poll_patronus_robots", { params })),
-	/**  The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover */
+	/**
+	 *  The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover. With the
+	 *  new API of Settings → Patronus the progress of a running robot comes in one request (`GET /robots/progress`, behind
+	 *  the `robot.progress.enabled` flag of Patronus) instead of one per running check; the builds are asked as before
+	 *  while Patronus answers 404
+	 */
 	getPatronusRobotDetails: (params: PatronusRobotParams) => typedError<PatronusRobotDetails, ApiError>(__TAURI_INVOKE("get_patronus_robot_details", { params })),
 	/**  The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default */
 	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, ApiError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
@@ -1117,7 +1124,6 @@ export type Coverage = {
 
 export type CreatePullRequestParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**
 	 *  The virtual branch name, e.g. `feature-auth`, or the root of the whole stack: named when a pull request that already
 	 *  exists is not listed yet (it is found by `head`)
@@ -1862,7 +1868,6 @@ export type GetBranchPrefixParams = {
 
 export type GetBranchReviewParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  As the sync detected it, e.g. `origin/master` */
 	baselineBranch: string,
 	/**
@@ -1879,7 +1884,6 @@ export type GetBranchReviewParams = {
 
 export type GetBranchReviewReadinessParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  As the sync detected it, e.g. `origin/master` */
 	baselineBranch: string,
 	branches: ReviewReadinessBranch[],
@@ -1943,7 +1947,6 @@ export type GetNewPullRequestParams = {
 
 export type GetNewStackPullRequestParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  The root of the stack, which names its stack branch `{prefix}/stack/<root>` */
 	root: string,
 	/**  The branches of the stack, the root first, each after its parent (`StackBranchUpdate::members`) */
@@ -1954,16 +1957,10 @@ export type GetNewStackPullRequestParams = {
 
 export type GetPatronusRobotsParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  Unix seconds: only the robots started since then (an incremental refresh); null = the last 7 days */
 	since: number | null,
 	/**  Asked by a timer or an event, not by the user: skipped while Patronus is backing off after failures */
 	background: boolean,
-	/**
-	 *  Settings → Patronus, the new API: the list names the merge profile of each robot (`mergeProfile`, behind
-	 *  the `robot.list.merge.profile.enabled` flag of Patronus); off, a list leaves the profile unknown as before
-	 */
-	newApi?: boolean,
 };
 
 export type GetPatronusStartOptionsParams = {
@@ -1973,8 +1970,8 @@ export type GetPatronusStartOptionsParams = {
 	/**  The last robot of the branch: its profile is the default */
 	lastRobotId: string | null,
 	/**
-	 *  The profile of the last robot as the list named it (the new API): the default without reading the robot; null or
-	 *  without an id, the robot is read for it
+	 *  The profile of the last robot as the list named it: with the new API of Settings → Patronus (Rust reads the setting)
+	 *  the default without reading the robot; null, without an id or with the new API off, the robot is read for it
 	 */
 	lastRobotProfile?: PatronusRobotProfile | null,
 };
@@ -1993,7 +1990,6 @@ export type GetPullRequestHeadParams = {
 
 export type GetPullRequestsParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 };
 
 /**  Two commits of the repository to diff, `base..head` */
@@ -2030,7 +2026,6 @@ export type GetReviewRequestsParams = {
 /**  The commit map of a running robot, for the commit rows of the branches it tests: which commits it covers */
 export type GetRobotCommitMapParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  The virtual branch of the robot, without the `{prefix}/virtual/` namespace; null for the robot of a whole stack */
 	branchName: string | null,
 	/**  The root of the stack whose stack branch the robot tests; null for the robot of a branch */
@@ -2047,7 +2042,6 @@ export type GetRobotCommitMapParams = {
 
 export type GetRobotFailureParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	robotId: string,
 	/**  The virtual branch of the robot, without the `{prefix}/virtual/` namespace; null without a row */
 	branchName: string | null,
@@ -2065,7 +2059,6 @@ export type GetRobotFailureParams = {
 export type GetRobotStatsParams = {
 	repository_path: string,
 	baseline_branch: string,
-	branch_prefix: string,
 	period: StatsPeriod,
 	/**  Asked by the user (Refresh): the lists of the last minutes are asked again */
 	refresh: boolean,
@@ -2282,7 +2275,6 @@ export type LandingFix =
 /**  What the app asks before a start (`check_landing_gate`), and the start itself (`start_patronus_robot`) */
 export type LandingGateParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  The branch that starts; with `stack` the root of the whole stack */
 	branchName: string,
 	stack?: boolean,
@@ -2854,14 +2846,7 @@ export type PatronusRobotDetails = {
 /**  A robot of the selected repository */
 export type PatronusRobotParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	robotId: string,
-	/**
-	 *  Settings → Patronus, the new API: the progress of a running robot in one request
-	 *  (`GET /robots/progress`, behind the `robot.progress.enabled` flag of Patronus) instead of one per running check;
-	 *  the builds are asked as before while Patronus answers 404
-	 */
-	newApi?: boolean,
 	/**
 	 *  The cancel of the robot a start or a push replaces or restarts (`start_guard::check_cancel`): a robot that finished
 	 *  meanwhile is answered as it is, already finished, instead of "not running", and the start or the push goes on
@@ -2974,7 +2959,6 @@ export type PlannedGroup = {
 
 export type PollPatronusRobotsParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	robots: KnownRobotStatus[],
 };
 
@@ -3082,7 +3066,6 @@ export type PullRequestReviewEvent = "approve" |
 
 /**  The branch of the user a `/patronus` comment on its pull request starts, as `start_patronus_robot` names it */
 export type PullRequestStartBranch = {
-	branchPrefix: string,
 	/**  The virtual branch, without the `{prefix}/virtual/` namespace; with `stack`, the root of the whole stack */
 	branchName: string,
 	stack?: boolean,
@@ -3105,7 +3088,6 @@ export type PullRequestsResult = {
 
 export type PushBranchParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	branchName: string,
 	myEmail: string | null,
 	baselineBranch: string,
@@ -3142,7 +3124,6 @@ export type PushBranchesOutcome =
 
 export type PushBranchesParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	myEmail: string | null,
 	baselineBranch: string,
 	/**  Parents first: the order of the refspecs and of the remote statuses of the outcome */
@@ -4122,7 +4103,6 @@ movable: boolean };
 
 export type StackIndependenceParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  A stacked branch */
 	branchName: string,
 };
@@ -4239,7 +4219,6 @@ export type StartHour = {
 
 export type StartPatronusRobotParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	baselineBranch: string,
 	/**
 	 *  The virtual branch, without the `{prefix}/virtual/` namespace; it must be pushed. With `stack`, the root of the
@@ -4491,7 +4470,6 @@ export type TargetConflict = {
 
 export type TargetConflictParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  As the sync detected it, e.g. `origin/master`: the robot pushes into the branch it tracks */
 	baselineBranch: string,
 	/**

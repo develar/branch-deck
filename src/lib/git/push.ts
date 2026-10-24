@@ -339,7 +339,6 @@ async function pushWithProgress(
     const result = await commands.pushBranch(
       {
         repositoryPath: request.repositoryPath,
-        branchPrefix: request.branchPrefix,
         branchName,
         myEmail: branch.myEmail,
         baselineBranch,
