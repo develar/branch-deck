@@ -80,14 +80,20 @@ fn a_patch_applies_only_to_the_view_at_its_base_in_its_epoch() {
   assert_ne!(new_epoch(), new_epoch(), "each session has its own epoch");
 }
 
-/// A sync that groups and builds the table as it was sends only the toggles of the sync state, also with a patch after
-/// every event; a branch the sync drops leaves the view
-#[test]
-fn an_unchanged_resync_sends_only_the_sync_state() {
+/// A table synced once with every commit and branch unchanged, and the view of a window that has it
+fn synced_unchanged() -> (TableState, View) {
   let mut state = TableState::new();
   let mut view = View::new(1);
   run_sync(&mut state, sync_events(CommitSyncStatus::Unchanged, BranchSyncStatus::Unchanged));
   view.diff(&state).unwrap();
+  (state, view)
+}
+
+/// A sync that groups and builds the table as it was sends only the toggles of the sync state, also with a patch after
+/// every event; a branch the sync drops leaves the view
+#[test]
+fn an_unchanged_resync_sends_only_the_sync_state() {
+  let (mut state, mut view) = synced_unchanged();
 
   let mut patches = Vec::new();
   state.begin_sync();
@@ -123,10 +129,7 @@ fn an_unchanged_resync_sends_only_the_sync_state() {
 /// before, so no patch carries them again (141 branches of commits were 53 KB of each second sync); another subject does
 #[test]
 fn a_grouping_that_reads_the_notes_of_the_copies_resends_no_commit() {
-  let mut state = TableState::new();
-  let mut view = View::new(1);
-  run_sync(&mut state, sync_events(CommitSyncStatus::Unchanged, BranchSyncStatus::Unchanged));
-  view.diff(&state).unwrap();
+  let (mut state, mut view) = synced_unchanged();
 
   let with_notes = |mut branch: domain_types::GroupedBranchInfo| {
     for commit in &mut branch.commits {
