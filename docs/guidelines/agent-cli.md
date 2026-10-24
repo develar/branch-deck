@@ -870,8 +870,9 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 - The return applies the clean rules of `.branchdeck.toml` (`[lease] clean`: `cargo`, the stale units of a target
   dir; `delete`, a path or a link, with `except` the entries of a directory but the named ones) of the source
   checkout before it frees the slot: a `delete` moves its paths into the trash (`$GIT_COMMON_DIR/branch-deck/trash`),
-  and they are deleted and counted once the slot is free: `cleaned` [{`rule`, `freed_bytes`, `ms`, `error`}],
-  `trash_left`. A rule with an unsafe path (out of the slot, `.git`, tracked, a symlink on its way, a `delete` of a
+  a `cargo` rule each stale unit as a whole, and they are deleted and counted once the slot is free: `cleaned`
+  [{`rule`, `freed_bytes`, `ms`, `error`}], `trash_left`. What a process keeps (on Windows: works in it, has a file of
+  it open) stays whole, and the rule's `error` names it and the processes. A rule with an unsafe path (out of the slot, `.git`, tracked, a symlink on its way, a `delete` of a
   cargo rule's dir) is skipped with its `error`; `clean_error` when the file does not parse, the return succeeds
   anyway; `--no-clean` applies none. A get leaves out of a cloned slot what the `delete` rules delete.
   `bd lease clean [--free] [--dry-run] [<dir>...]` applies the rules now to the free slots, the given worktrees, or
@@ -879,7 +880,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   counts blocks an APFS clone shares too, `volume_freed_bytes` is what the volume gained; a slot with a
   lease or a process is `skipped`; a file that does not parse is `invalid_arguments`. On both commands `--keep <n>`
   and `--age <duration>` set `keep` and `age` of every cargo rule for that call.
-- `processes_checked: false`: the platform has no process scan (Windows), and nothing was refused for a process.
+- `processes_checked: false`: the platform has no process scan (one other than macOS, Linux and Windows), and nothing
+  was refused for a process.
 
 ### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`
 

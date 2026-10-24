@@ -8,7 +8,7 @@
 
 use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::available_bytes;
-use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, parse_size, read_clean_rules};
+use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, parse_size, read_clean_rules, remove_together};
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
@@ -26,6 +26,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sync_core::baseline::baseline_tracking_ref;
 use sync_utils::atomic_file::{AtomicWrite, write_atomically};
+use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
 use tracing::{debug, instrument, warn};
@@ -618,7 +619,7 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
           Err(Added::NotRegistered(error)) => {
             // the number directory, when the add left it empty
             if let Some(parent) = path.parent() {
-              let _ = std::fs::remove_dir(parent);
+              let _ = fs_retry::remove_dir(parent);
             }
             return Err(give_back(&pool, params.lock_timeout, &text, &lease.id, true, error));
           }
@@ -843,12 +844,12 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
   let cloned = clone_directory(Path::new(request.template), &cloning, request.skips);
   release_template();
   if let Err(error) = cloned {
-    let _ = std::fs::remove_dir_all(&cloning);
+    let _ = fs_retry::remove_dir_all(&cloning);
     return Err(Cloned::Unavailable(error));
   }
   debug!(template = %request.template, elapsed_ms = started.elapsed().as_millis(), "cloned the template");
   let failed = |error: anyhow::Error| {
-    let _ = std::fs::remove_dir_all(&cloning);
+    let _ = fs_retry::remove_dir_all(&cloning);
     Cloned::Failed(Added::NotRegistered(error))
   };
   let repository = &request.source.top_level;
@@ -862,7 +863,7 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
   // directory while `path` was away; a slot left as a free one must be prunable again once its directory is gone
   let unlocked = request.pool.worktree_command(request.lock_timeout, || unlock_slot(git_executor, repository, path));
   swapped.map_err(|error| {
-    let _ = std::fs::remove_dir_all(&cloning);
+    let _ = fs_retry::remove_dir_all(&cloning);
     registered(error)
   })?;
   unlocked.map_err(registered)?;
@@ -900,13 +901,13 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
 fn swap_git_link(path: &Path, cloning: &Path) -> Result<()> {
   let cloned_git = cloning.join(".git");
   match cloned_git.symlink_metadata() {
-    Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(&cloned_git)?,
-    Ok(_) => std::fs::remove_file(&cloned_git)?,
+    Ok(metadata) if metadata.is_dir() => fs_retry::remove_dir_all(&cloned_git)?,
+    Ok(_) => fs_retry::remove_file(&cloned_git)?,
     Err(_) => {}
   }
-  std::fs::rename(path.join(".git"), &cloned_git).with_context(|| format!("Cannot move the .git file of {}", path.display()))?;
-  std::fs::remove_dir(path).with_context(|| format!("Cannot remove the empty {}", path.display()))?;
-  std::fs::rename(cloning, path).with_context(|| format!("Cannot move the clone to {}", path.display()))?;
+  fs_retry::rename(path.join(".git"), &cloned_git).with_context(|| format!("Cannot move the .git file of {}", path.display()))?;
+  fs_retry::remove_dir(path).with_context(|| format!("Cannot remove the empty {}", path.display()))?;
+  fs_retry::rename(cloning, path).with_context(|| format!("Cannot move the clone to {}", path.display()))?;
   Ok(())
 }
 
@@ -1091,19 +1092,19 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
   Ok(())
 }
 
-/// Remove the seeded `paths` from `slot`, a directory with what is in it; a path that is gone already is no error.
-/// Returns the paths removed
-fn remove_seeded(slot: &Path, paths: &[String]) -> Result<Vec<String>> {
+/// Remove the seeded `paths` from `slot`, each a file or a directory with what is in it, moved into `trash` as a whole
+/// (`remove_together`): what a process keeps stays and fails the return, never half removed. A path that is gone
+/// already is no error. Returns the paths removed
+fn remove_seeded(slot: &Path, paths: &[String], trash: &Trash) -> Result<Vec<String>> {
   let mut removed = Vec::new();
   for path in paths.iter().filter(|path| is_relative_path(path)) {
     let target = slot.join(path);
-    let Ok(metadata) = target.symlink_metadata() else { continue };
-    if metadata.is_dir() {
-      std::fs::remove_dir_all(&target)
-    } else {
-      std::fs::remove_file(&target)
+    if target.symlink_metadata().is_err() {
+      continue;
     }
-    .with_context(|| format!("Cannot remove the seeded {}", target.display()))?;
+    let mut moved = Vec::new();
+    remove_together(std::slice::from_ref(&target), CleanMode::Trash(trash), &mut moved).with_context(|| format!("Cannot remove the seeded {}", target.display()))?;
+    trash.adopt(moved);
     removed.push(path.clone());
   }
   Ok(removed)
@@ -1430,6 +1431,8 @@ fn return_once(
       if let Err(restore_error) = restored {
         warn!(slot = %path, error = %format!("{restore_error:#}"), "cannot give the lease back after a failed return");
       }
+      // what went into the trash before the error goes for good (the seeded paths)
+      trash.empty(&mut []);
       return Err(error);
     }
   };
@@ -1524,7 +1527,7 @@ fn finish_return(git_executor: &GitCommandExecutor, path: &str, lease: &Lease, c
   if !changes.is_empty() {
     discard_slot_changes(git_executor, path)?;
   }
-  let removed = remove_seeded(Path::new(path), &lease.seeded)?;
+  let removed = remove_seeded(Path::new(path), &lease.seeded, trash)?;
   let detached_branch = read_head(git_executor, path)?.and_then(|(_, branch)| branch);
   if detached_branch.is_some() {
     detach_waiting_for_head_lock(git_executor, path)?;
@@ -1902,7 +1905,7 @@ fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptPa
     }
     if let Err(error) = pool.worktree_command(params.lock_timeout, || move_slot(git_executor, params.repository, path, &target)) {
       if let Some(parent) = target.parent() {
-        let _ = std::fs::remove_dir(parent);
+        let _ = fs_retry::remove_dir(parent);
       }
       return Ok(Err(cannot_move(format!("{error:#}"))));
     }
@@ -1923,7 +1926,7 @@ fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptPa
   };
   if let Some(parent) = Path::new(path).parent() {
     // only an empty one goes
-    let _ = std::fs::remove_dir(parent);
+    let _ = fs_retry::remove_dir(parent);
   }
   Ok(Ok((slot, Some(path.to_string()))))
 }

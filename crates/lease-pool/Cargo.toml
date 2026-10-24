@@ -36,6 +36,8 @@ schemars = ["dep:schemars"]
 [dev-dependencies]
 pretty_assertions = { workspace = true }
 tempfile.workspace = true
+# a git that works in a unit or an entry the clean rules remove (`git_in_directory`)
+test-utils = { path = "../test-utils" }
 
 [lints]
 workspace = true

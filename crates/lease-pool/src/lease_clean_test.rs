@@ -1,13 +1,10 @@
-#[cfg(unix)]
-use crate::lease_clean::{CleanMode, Trash, apply_clean_rules};
-use crate::lease_clean::{CleanRule, describe_size, parse_clean_rules, parse_size};
-#[cfg(unix)]
+use crate::lease_clean::{CleanMode, CleanRule, Trash, apply_clean_rules, describe_size, parse_clean_rules, parse_size};
 use git_executor::git_command_executor::GitCommandExecutor;
-#[cfg(unix)]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 #[cfg(unix)]
 use std::time::SystemTime;
+use test_utils::git_in_directory::GitInDirectory;
 
 #[test]
 fn the_rules_are_cargo_and_delete_with_their_defaults() {
@@ -130,7 +127,6 @@ fn unit(dir: &Path, built: Duration) {
 }
 
 /// An empty repository to clean, and the git of the rules
-#[cfg(unix)]
 fn git_checkout() -> (tempfile::TempDir, GitCommandExecutor) {
   let checkout = tempfile::tempdir().unwrap();
   let git = GitCommandExecutor::new();
@@ -215,6 +211,18 @@ fn a_classic_unit_is_its_name_and_its_hash() {
 /// the test executable and its `.dSYM`; the fingerprint dir and the build dir of the build script
 #[cfg(unix)]
 fn classic_unit(profile: &Path, hash: &str, built: Duration) {
+  for path in classic_unit_files(profile, hash) {
+    // the file and every dir up to the profile's own
+    let mut current = path.as_path();
+    while current != profile {
+      age(current, built);
+      current = current.parent().unwrap();
+    }
+  }
+}
+
+/// The files of a classic unit (`classic_unit`), built now
+fn classic_unit_files(profile: &Path, hash: &str) -> Vec<PathBuf> {
   let files = [
     format!("deps/libaho_corasick-{hash}.rlib"),
     format!("deps/libaho_corasick-{hash}.rmeta"),
@@ -225,17 +233,15 @@ fn classic_unit(profile: &Path, hash: &str, built: Duration) {
     format!(".fingerprint/aho-corasick-{hash}/lib-aho_corasick"),
     format!("build/aho-corasick-{hash}/out/generated.rs"),
   ];
-  for file in &files {
-    let path = profile.join(file);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(&path, vec![0u8; 4096]).unwrap();
-    // the file and every dir up to the profile's own
-    let mut current = path.as_path();
-    while current != profile {
-      age(current, built);
-      current = current.parent().unwrap();
-    }
-  }
+  files
+    .iter()
+    .map(|file| {
+      let path = profile.join(file);
+      std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+      std::fs::write(&path, vec![0u8; 4096]).unwrap();
+      path
+    })
+    .collect()
 }
 
 /// The classic layout: three hashes of one crate across `deps/`, `.fingerprint/` and `build/`, keep 1: the old units go
@@ -364,4 +370,53 @@ fn nested_deletes_keep_only_the_whitelist() {
   assert_eq!(left, [".mark", "dev-run"]);
   assert_eq!(std::fs::read_dir(root.join("out/dev-run")).unwrap().count(), 1);
   assert!(root.join("out/dev-run/jar-cache/j").exists());
+}
+
+/// A process that works in a stale unit or in an entry of a `delete` (a shell or a build of an agent) keeps it: on Windows
+/// no rename moves it, so the unit (its files moved before put back) and the entry stay whole in the checkout, the error
+/// of the rule names them and the processes, and the rest goes through the trash; elsewhere the rename moves them from
+/// under the process, and everything goes
+#[test]
+fn a_held_unit_and_a_held_entry_stay_whole_and_the_rest_goes_through_the_trash() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = root.join("target/debug");
+  std::fs::create_dir_all(&profile).unwrap();
+  std::fs::write(profile.join(".cargo-lock"), "").unwrap();
+  let (held, free) = ("1111111111111111", "2222222222222222");
+  let held_files = classic_unit_files(&profile, held);
+  let free_files = classic_unit_files(&profile, free);
+  for file in ["out/kept/k", "out/held/h", "out/free/f"] {
+    std::fs::create_dir_all(root.join(file).parent().unwrap()).unwrap();
+    std::fs::write(root.join(file), "x").unwrap();
+  }
+  // the fingerprint dir of the unit comes after its files in `deps/`, which go back
+  let holders = [
+    GitInDirectory::start(&profile.join(format!(".fingerprint/aho-corasick-{held}"))),
+    GitInDirectory::start(&root.join("out/held")),
+  ];
+  let rules = parse_clean_rules("[lease]\nclean = [\n  { cargo = \"target\", keep = 0, age = \"0s\" },\n  { delete = \"out\", except = [\"kept\"] },\n]\n").unwrap();
+  let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
+  let trash = Trash::new(trash_root.path());
+
+  let mut cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Trash(&trash));
+
+  assert!(free_files.iter().all(|file| !file.exists()) && !root.join("out/free").exists(), "{cleaned:?}");
+  assert!(root.join("out/kept/k").exists());
+  if cfg!(windows) {
+    assert!(held_files.iter().all(|file| file.exists()), "the held unit is not whole: {cleaned:?}");
+    assert!(root.join("out/held/h").exists());
+    let (unit, entry) = (cleaned[0].error.clone().unwrap_or_default(), cleaned[1].error.clone().unwrap_or_default());
+    assert!(unit.contains("cannot move") && unit.contains(&format!("aho-corasick-{held}")), "{unit}");
+    assert!(entry.contains("cannot move") && entry.contains("held"), "{entry}");
+    for (error, holder) in [(&unit, &holders[0]), (&entry, &holders[1])] {
+      assert!(error.contains(&format!("git ({}: git hash-object --stdin-paths)", holder.pid())), "{error}");
+    }
+  } else {
+    assert!(held_files.iter().all(|file| !file.exists()) && !root.join("out/held").exists(), "{cleaned:?}");
+    assert!(cleaned.iter().all(|rule| rule.error.is_none()), "{cleaned:?}");
+  }
+  drop(holders);
+  assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
+  assert!(cleaned.iter().all(|rule| rule.freed_bytes > 0), "{cleaned:?}");
 }

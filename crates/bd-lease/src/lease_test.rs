@@ -7,6 +7,7 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use test_utils::git_in_directory::GitInDirectory;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 
 /// A repository with a commit on master, the home directory its pool lives in and the global git config of bd
@@ -175,6 +176,34 @@ fn a_dirty_free_slot_is_skipped_and_a_new_slot_is_added() {
   let third = fixture.get(&[]);
   assert_eq!((path_of(&third), &third["reused"]), (first, &json!(true)));
   assert_eq!(fixture.status()["slots"][0].get("dirty"), None);
+}
+
+/// A git in a slot (the shell or the build of an agent) keeps it busy on every platform, Windows too, where the scan
+/// reads the working directory of each process from its PEB: its return is refused and names the git, with nothing
+/// changed; once free, a get passes it over and a clean skips it
+#[test_log::test]
+fn a_git_in_a_slot_keeps_it_busy_on_every_platform() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let git = GitInDirectory::start(Path::new(&path));
+  let (exit_code, output) = fixture.run(&["lease", "return", "--workspace", &path]);
+  assert_error(&output, exit_code, (4, "slot_busy"));
+  let named = |git: &GitInDirectory| format!("git ({}: git hash-object --stdin-paths)", git.pid());
+  assert!(output["error"]["message"].as_str().unwrap().contains(&named(&git)), "{output}");
+  assert_eq!(states(&fixture.status())[0].1, "ready");
+  drop(git);
+  fixture.give_back(&path);
+
+  let git = GitInDirectory::start(Path::new(&path));
+  let got = fixture.get(&[]);
+  let (exit_code, cleaned) = fixture.run(&["lease", "clean", "--free"]);
+  let named = named(&git);
+  drop(git);
+  assert_ne!(path_of(&got), path);
+  assert_eq!((&got["skipped"][0]["path"], &got["skipped"][0]["reason"]), (&json!(path), &json!("busy")), "{got}");
+  // the one free slot
+  assert_eq!((exit_code, cleaned["targets"].as_array().map(Vec::len)), (0, Some(1)), "{cleaned}");
+  assert!(cleaned["targets"][0]["skipped"].as_str().is_some_and(|reason| reason.contains(&named)), "{cleaned}");
 }
 
 /// A free slot with a process in it is skipped as busy, and the get adds a new slot
@@ -1328,7 +1357,7 @@ fn lease_outputs_match_the_schema() {
   assert_covered(&outputs["lease_get"], &outputs["lease_get"], &got, "lease_get");
 
   let (_, status) = fixture.run(&["lease", "status", "--processes"]);
-  assert_eq!(status["processes_checked"], json!(cfg!(unix)), "{status}");
+  assert_eq!(status["processes_checked"], json!(true), "{status}");
   assert_covered(&outputs["lease_status"], &outputs["lease_status"], &status, "lease_status");
 
   // on a branch with a local change: `discarded` and `detached_branch`

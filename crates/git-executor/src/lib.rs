@@ -20,6 +20,8 @@ pub mod process_stats;
 mod process_tree;
 
 #[cfg(test)]
+mod fs_retry_scan_test;
+#[cfg(test)]
 mod git_usage_scan_test;
 #[cfg(test)]
 mod source_scan_test;

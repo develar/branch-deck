@@ -202,19 +202,19 @@ pub fn remove_round(state: &SessionState, round: u32, conflict: &RoundConflict) 
   }
   let round_name = format!("r{round}");
   let Some(dir) = real_dir(state, &[&round_name]) else { return };
-  let _ = fs::remove_file(dir.join(PATCH_FILE));
+  let _ = sync_utils::fs_retry::remove_file(dir.join(PATCH_FILE));
   for side in SIDES {
     let Some(side_dir) = real_dir(state, &[&round_name, side]) else { continue };
     for file in &conflict.files {
       let path = side_dir.join(file.copy_name());
       // never a directory that someone put there
       if fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_dir()) {
-        let _ = fs::remove_file(&path);
+        let _ = sync_utils::fs_retry::remove_file(&path);
       }
     }
-    let _ = fs::remove_dir(side_dir);
+    let _ = sync_utils::fs_retry::remove_dir(side_dir);
   }
-  let _ = fs::remove_dir(&dir);
+  let _ = sync_utils::fs_retry::remove_dir(&dir);
 }
 
 /// Remove the marker file and, when bd created it and it is empty, the session directory; only in a directory whose
@@ -224,9 +224,9 @@ pub fn remove_root(state: &SessionState) {
     return;
   }
   let Some(root) = real_dir(state, &[]) else { return };
-  let _ = fs::remove_file(root.join(MARKER_FILE));
+  let _ = sync_utils::fs_retry::remove_file(root.join(MARKER_FILE));
   if state.dir.is_none() || state.dir_created {
-    let _ = fs::remove_dir(root);
+    let _ = sync_utils::fs_retry::remove_dir(root);
   }
 }
 
@@ -270,7 +270,7 @@ pub fn prepare_dir(git_executor: &GitCommandExecutor, repo_path: &str, dir: &Pat
   };
   let refuse = |message: String| {
     if created {
-      let _ = fs::remove_dir(dir);
+      let _ = sync_utils::fs_retry::remove_dir(dir);
     }
     Err(invalid(message))
   };

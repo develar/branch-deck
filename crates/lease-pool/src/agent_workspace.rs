@@ -170,7 +170,7 @@ pub(crate) fn unwritable_dir(dir: &Path) -> Option<String> {
   let probe = existing.join(format!(".bd-workspace-probe-{}", std::process::id()));
   match std::fs::File::create_new(&probe) {
     Ok(_) => {
-      let _ = std::fs::remove_file(&probe);
+      let _ = sync_utils::fs_retry::remove_file(&probe);
       None
     }
     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,

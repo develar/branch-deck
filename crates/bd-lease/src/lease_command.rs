@@ -209,7 +209,7 @@ pub struct LeaseGetOutput {
   /// whether to return them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub idle_leases: Vec<IdleLeaseOutput>,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where bd can't see them (no scan on the platform)
   pub processes_checked: bool,
 }
 
@@ -409,8 +409,8 @@ pub struct LeaseReturnOutput {
   /// The branch HEAD was on; HEAD is detached now, the branch stays
   #[serde(skip_serializing_if = "Option::is_none")]
   pub detached_branch: Option<String>,
-  /// Whether the processes were checked; false where bd can't see them (Windows) and for a `joined` return that
-  /// checked nothing
+  /// Whether the processes were checked; false where bd can't see them (no scan on the platform) and for a `joined`
+  /// return that checked nothing
   pub processes_checked: bool,
 }
 
@@ -533,7 +533,7 @@ pub struct LeaseStatusOutput {
   /// next return or clean deletes it
   #[serde(default, skip_serializing_if = "is_zero_bytes")]
   pub trash_bytes: u64,
-  /// With --processes: whether the processes were checked; false where bd can't see them (Windows)
+  /// With --processes: whether the processes were checked; false where bd can't see them (no scan on the platform)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub processes_checked: Option<bool>,
 }
@@ -652,7 +652,7 @@ pub struct LeaseAdoptOutput {
   /// The worktrees refused, each with the code of its refusal; any refused one makes the exit code 4
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refused: Vec<RefusedOutput>,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where bd can't see them (no scan on the platform)
   pub processes_checked: bool,
 }
 
@@ -744,7 +744,7 @@ pub struct LeaseCleanOutput {
   /// freed in truth, without the blocks APFS clones still share; omitted for a dry run and where bd can't tell
   #[serde(skip_serializing_if = "Option::is_none")]
   pub volume_freed_bytes: Option<u64>,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where bd can't see them (no scan on the platform)
   pub processes_checked: bool,
 }
 

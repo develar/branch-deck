@@ -54,7 +54,6 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - A fetch: the slot moves to the HEAD of the source as it is.
 - A reset of a returned slot to master: the next get moves it.
 - A walk of the tree for `.worktreeinclude`: only literal paths and globs in one directory are seeded.
-- The process scan on Windows: there it is reported as not checked, and a lease never waits for it.
 
 ## Requirements
 
@@ -162,16 +161,17 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/lease-pool/src/lease_test.rs (`the_seed_candidates_are_literal_paths_and_globs_of_one_directory`, `a_glob_matches_by_stars_question_marks_and_classes`)
 - A get that fails after it recorded the lease must give the slot back (free, or dropped when it was never added) and
   say so in the message; it must never leave the lease `preparing`. A `preparing` lease whose process (its pid and
-  start time) is gone must be taken as free by the next get, on Windows too, which has no process scan but tells the
-  start of a process.
+  start time) is gone must be taken as free by the next get, on Windows too.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_failed_get_rolls_the_lease_back`, `a_preparing_lease_of_a_gone_process_is_taken_by_the_next_get`)
 - A get of a free slot must run a fixed number of git processes: the repository, the source HEAD, the pool config,
   one `status` and one `checkout` of the slot.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_and_return`)
 - The process scan must find a process by its working directory, compared by path components, or by the
-  `--workspace_directory` of a Bazel server, and leave out the session that runs `bd`: `bd`, its ancestors and every
-  process of a process group one of them is in (the `jq` of `bd lease return | jq`, the `caffeinate` of the agent;
-  not the group of the init process). A background task of the agent leads a group of its own and still counts.
+  `--workspace_directory` of a Bazel server, on macOS, Linux and Windows (there from the PEB of each process this user
+  may read, its working directory canonical, as the 8.3 names and the case of a path differ), and leave out the
+  session that runs `bd`: `bd`, its ancestors and every process of a process group one of them is in (the `jq` of
+  `bd lease return | jq`, the `caffeinate` of the agent; not the group of the init process; Windows has no groups).
+  A background task of the agent leads a group of its own and still counts.
   Two more never work in a slot: git's background maintenance (a `git maintenance` or a `git gc --auto` and every git
   below it in the parent chain, told by argv), which writes only the shared object store, and `caffeinate`, which
   holds a power assertion and opens no file (a command it wraps is a process of its own and counts). A recorded start
@@ -179,12 +179,14 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_process_in_a_directory_is_inside_it_and_this_process_and_its_group_are_left_out`, `a_process_runs_only_with_the_start_time_it_was_recorded_with`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`the_session_is_the_ancestors_and_their_groups`, `git_maintenance_and_caffeinate_do_not_work_in_a_directory`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_process_of_the_group_of_bd_does_not_keep_the_slot_busy`)
+  [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_git_in_a_directory_is_inside_it_with_its_arguments`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_git_in_a_slot_keeps_it_busy_on_every_platform`)
 
 ### Return
 
 - `bd lease return` must free the lease of the worktree of `--workspace` (default: of `-C`, else of the current
-  directory): remove the seeded paths (`removed`), detach HEAD when it is on a branch (`detached_branch`, the branch
-  stays) and leave the slot at its commit.
+  directory): remove the seeded paths (`removed`, each moved into the trash as a whole), detach HEAD when it is on a
+  branch (`detached_branch`, the branch stays) and leave the slot at its commit.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_seed_copies_the_included_ignored_files_and_the_return_removes_them`, `a_lease_on_a_new_branch_keeps_the_branch_after_the_return`)
 - `--lease-id` without `--workspace` must return the slot that holds that lease when the worktree of `-C` (or of the
   current directory) holds no lease or another one, so a coordinator returns the lease of another session from the
@@ -285,15 +287,22 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `freed_bytes`, `ms`, `error`?}]. A file that can't be read or parsed (`clean_error`) and a failed rule never fail
   the return.
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`the_return_applies_the_clean_rules_of_the_source`, `a_bad_file_does_not_fail_the_return`)
-- What a `delete` removes must go into the trash first, a rename into `$GIT_COMMON_DIR/branch-deck/trash/<pid>-<start
-  time>-<uuid>/` (in place on another volume), so a return frees the slot before the long delete of a build output
-  and a timeout of the caller never leaves a lease `returning` while files go. Once the slot is free the return, and
-  `bd lease clean` once every slot it marked is free again, delete their trash, counting `freed_bytes` in the same
-  walk, and the trash of a run whose process is gone; a path that can't be deleted stays and is named in
-  `trash_left`. `freed_bytes` counts the blocks an APFS clone shares with another checkout too; `bd lease clean`
+- What a rule removes must go into the trash first, a rename into `$GIT_COMMON_DIR/branch-deck/trash/<pid>-<start
+  time>-<uuid>/` (in place on another volume): the paths of a `delete`, and a stale unit of a `cargo` rule as a whole,
+  so a return frees the slot before the long delete of a build output and a timeout of the caller never leaves a lease
+  `returning` while files go. What a process keeps must stay whole in the checkout, never be deleted in place: on
+  Windows a rename fails while a process works in the path or has a file of it open; after a retry of about a second
+  (`sync_utils::fs_retry`, which every removal and rename of the app goes through) the files of the unit moved before
+  it go back, and the `error` of the rule names the path and the processes that work in it. The other paths of the
+  rule go on. Once the slot is free the return, and `bd lease clean` once every slot it marked is free again, delete
+  their trash, counting `freed_bytes` in the same walk, and the trash of a run whose process is gone; a path that
+  can't be deleted stays and is named in `trash_left`. `freed_bytes` counts the blocks an APFS clone shares with another checkout too; `bd lease clean`
   also prints `volume_freed_bytes`, what the volume gained (`statfs` before and after).
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_return_deletes_through_the_trash_and_what_a_gone_run_left_there`)
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_held_unit_and_a_held_entry_stay_whole_and_the_rest_goes_through_the_trash`)
+  [@test] ../../crates/sync-utils/src/fs_retry_test.rs (`a_process_whose_current_directory_is_in_the_directory_delays_its_removal_until_it_exits`, `a_program_that_keeps_a_file_open_fails_the_removal_on_windows_after_a_second`)
+  [@test] ../../crates/git-executor/src/fs_retry_scan_test.rs (`every_removal_and_rename_waits_out_a_holder_on_windows`)
 - `bd lease clean [--free] [--dry-run] [--keep <n>] [--age <duration>] [<dir>...]` must apply the rules of the checkout
   it runs in, read once, to the free slots (`--free`), to the given worktrees, or to that checkout. A slot of the pool
   with a lease or with a process in it is skipped (`skipped`); a checkout that is no slot is cleaned as asked. A free
@@ -365,7 +374,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   be copied half written, and the checkout and the clean keep ignored files. A free slot is the preferred template
   for this reason; the source checkout, where the user and the IDE write, is the last one.
 
-- On Windows the scan of the processes is not available: a slot with a shell in it can be leased.
+- On Windows the scan reads no working directory of a 32-bit process (WOW64) or of a process of another user: a slot
+  with one in it can be leased.
 - A seeded path that a later commit tracks is removed by the return, and the slot shows a deletion; the next get skips
   it as dirty.
 - A free slot left dirty stays in the pool, and each get that needs it pays one `status` of it.

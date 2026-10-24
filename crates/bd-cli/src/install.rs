@@ -14,6 +14,7 @@ use lease_pool::agent_workspace::{AgentDefaults, agent_defaults};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use sync_utils::fs_retry;
 
 /// The skill directories under the home directory: Claude Code's, and the one Codex and other agents read
 pub const SKILL_DIRS: [&str; 2] = [".claude/skills", ".agents/skills"];
@@ -57,9 +58,9 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     let mut removed = Vec::new();
     for file in &skill_files {
       if file.exists() {
-        std::fs::remove_file(file).map_err(|e| io_error(file, &e))?;
+        fs_retry::remove_file(file).map_err(|e| io_error(file, &e))?;
         // the directory is the skill's own
-        let _ = std::fs::remove_dir(file.parent().unwrap_or(file));
+        let _ = fs_retry::remove_dir(file.parent().unwrap_or(file));
         removed.push(display(file));
       }
     }
@@ -145,7 +146,7 @@ fn install_command(home: &Path, target: &Path) -> Result<PathBuf, CliError> {
     return Ok(link);
   }
   match std::fs::symlink_metadata(&link) {
-    Ok(metadata) if metadata.file_type().is_symlink() => std::fs::remove_file(&link).map_err(|e| io_error(&link, &e))?,
+    Ok(metadata) if metadata.file_type().is_symlink() => fs_retry::remove_file(&link).map_err(|e| io_error(&link, &e))?,
     Ok(_) => {
       return Err(CliError::new(
         ErrorCode::InstallRefused,
@@ -171,7 +172,7 @@ fn uninstall_command(home: &Path, target: &Path) -> Result<PathBuf, CliError> {
   let link = home.join(LINK_DIR).join("bd");
   let ours = links_to(&link, target) || std::fs::read_link(&link).is_ok_and(|points_to| !points_to.exists() && points_to.file_name().is_some_and(|name| name == "branch-deck"));
   if ours {
-    std::fs::remove_file(&link).map_err(|e| io_error(&link, &e))?;
+    fs_retry::remove_file(&link).map_err(|e| io_error(&link, &e))?;
   }
   Ok(link)
 }

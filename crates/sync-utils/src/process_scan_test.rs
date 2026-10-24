@@ -1,4 +1,5 @@
-use crate::process_scan::{ProcessScan, is_running, process_started};
+use crate::process_scan::{ProcessInfo, ProcessScan, is_running, process_started};
+use test_utils::git_in_directory::GitInDirectory;
 
 /// A child that sleeps in a directory in a process group of its own is inside it; this process, the parent of the
 /// child, never is, and neither is a child in its group (the other commands of a pipeline that runs `bd`)
@@ -21,6 +22,27 @@ fn a_process_in_a_directory_is_inside_it_and_this_process_and_its_group_are_left
   assert!(scan.is_available());
   assert_eq!(inside, [child.id()]);
   assert_eq!(nested, Vec::<u32>::new());
+  assert!(!own);
+}
+
+/// A git in a directory is inside it, with its arguments, on every platform (on Windows from its PEB: the git of PATH is
+/// a launcher there, which runs the real one in the same directory); a directory below it holds none of them, and this
+/// process is never inside its own working directory
+#[test]
+fn a_git_in_a_directory_is_inside_it_with_its_arguments() {
+  let dir = tempfile::tempdir().unwrap();
+  let git = GitInDirectory::start(dir.path());
+  let scan = ProcessScan::scan();
+  let inside: Vec<&ProcessInfo> = scan.inside(dir.path());
+  let nested = scan.inside(&dir.path().join("missing"));
+  let own = scan.inside(&std::env::current_dir().unwrap()).iter().any(|process| process.pid == std::process::id());
+  assert!(scan.is_available());
+  assert!(inside.iter().any(|process| process.pid == git.pid()), "{inside:?}");
+  assert!(
+    inside.iter().all(|process| process.is_git() && process.argv[1..] == ["hash-object", "--stdin-paths"]),
+    "{inside:?}"
+  );
+  assert!(nested.is_empty(), "{nested:?}");
   assert!(!own);
 }
 
@@ -64,8 +86,8 @@ fn the_argv_comes_from_the_procargs_buffer_without_the_environment() {
 }
 
 /// A process of the scan with `argv` and `parent`, in the group of its own pid
-fn process(pid: u32, parent: u32, argv: &[&str]) -> crate::process_scan::ProcessInfo {
-  crate::process_scan::ProcessInfo {
+fn process(pid: u32, parent: u32, argv: &[&str]) -> ProcessInfo {
+  ProcessInfo {
     pid,
     parent,
     group: pid,
@@ -104,7 +126,7 @@ fn git_maintenance_is_the_maintenance_and_the_gits_it_starts() {
 #[test]
 fn git_maintenance_and_caffeinate_do_not_work_in_a_directory() {
   let dir = tempfile::tempdir().unwrap();
-  let in_dir = |mut process: crate::process_scan::ProcessInfo| {
+  let in_dir = |mut process: ProcessInfo| {
     process.cwd = Some(std::fs::canonicalize(dir.path()).unwrap());
     process
   };

@@ -1549,9 +1549,15 @@ return must not run arbitrary code. A path is normalized and relative, stays in 
 symlink on its way, and git tracks nothing under it (one `ls-files -z` of all paths): a rule that breaks one is
 reported and skipped, and so is a `delete` that would remove the dir of a `cargo` rule. A rule error never fails the
 return. A `delete` moves its paths into the trash, a rename into `$GIT_COMMON_DIR/branch-deck/trash/<pid>-<start
-time>-<uuid>/`, and the trash is deleted once the slot is free, counting its bytes in the same walk: the first return
-of a slot cloned from the idea-1 main checkout deleted 760,000 files, longer than the tool call of an agent, and the
-lease must not stay `returning` meanwhile. The next return or clean deletes the trash of a run whose process is gone.
+time>-<uuid>/`, a `cargo` rule each stale unit as a whole, the return its seeded paths, and the trash is deleted once
+the slot is free, counting its bytes in the same walk: the first return of a slot cloned from the idea-1 main checkout
+deleted 760,000 files, longer than the tool call of an agent, and the lease must not stay `returning` meanwhile. The
+next return or clean deletes the trash of a run whose process is gone. Only another volume deletes in place: on
+Windows a rename fails while a process works in the path or has a file of it open (a shell, a test binary, an
+indexer), and a delete in place there stopped at the held file and left half a directory, or half a unit whose
+fingerprint cargo then trusted. A path that stays held after the retry of `sync_utils::fs_retry` (about a second,
+the helper of every removal and rename, `fs_retry_scan_test.rs`) stays whole, the files of its unit moved before it
+go back, and the rule's `error` names it and the processes the scan finds in it.
 `freed_bytes` counts blocks an APFS clone still shares with another checkout; `bd lease clean` adds
 `volume_freed_bytes`, the gain of the volume by `statfs`. `bd lease clean` applies the rules on
 demand, skipping a slot with a lease or a process; a free slot it cleans carries a `cleaning` marker under the pool
@@ -1570,9 +1576,15 @@ The process scan (`crates/sync-utils/src/process_scan.rs`) reads the working dir
 the user: on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`) and
 `sysctl(KERN_PROCARGS2)`, on Linux from `/proc/<pid>/cwd` and `/proc/<pid>/cmdline`, with the process group
 (`pbi_pgid`, field 5 of `/proc/<pid>/stat`). It leaves out the session of `bd` (above), and compares canonical paths by
-components. Windows has no scan: the outputs say `processes_checked: false`, and a lease never waits for it. It does
-tell the start of a process by its pid (`OpenProcess`, `GetProcessTimes`; one that exited while a handle keeps its pid
-has an exit code), so a lease, a trash directory or a lock record of a gone process is told apart there too.
+components. On Windows it reads a toolhelp snapshot (the pid, the parent, the executable) and the PEB of each process
+this user may read (`NtQueryInformationProcess`, `ReadProcessMemory`: `ProcessParameters.CurrentDirectory`, at the
+offset that winternl.h leaves reserved, and `CommandLine`, split by `CommandLineToArgvW`), as psutil does; the working
+directory is canonicalized, as the canonical slot path is compared with it, a 32-bit process under WOW64 has none,
+and Windows has no process groups, so the session is `bd` and its ancestors (a parent pid given to a process that
+started after the child is no parent). Before it, Windows had no scan: a return there never saw a shell in the slot,
+and a clean rule removed what it held halfway. It tells the start of a process by its pid (`OpenProcess`,
+`GetProcessTimes`; one that exited while a handle keeps its pid has an exit code), so a lease, a trash directory or a
+lock record of a gone process is told apart there too.
 
 Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/clone_dir.rs`,
 `crates/lease-pool/src/free_space.rs`, `crates/sync-utils/src/process_scan.rs`, `crates/bd-lease/src/lease_command.rs`.

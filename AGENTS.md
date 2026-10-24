@@ -528,6 +528,10 @@ The checklist:
 - **A platform branch in a test** asserts on every platform: an `if cfg!(target_os = "macos")` has an `else` that
   checks what the other platforms do (a `worktree add` where no APFS clone is), never a branch that asserts nothing.
   A helper or import that only `#[cfg(unix)]` tests use carries `#[cfg(unix)]` too, or Windows clippy fails on it.
+- **Removals and renames** of the file system go through `sync_utils::fs_retry` (`remove_dir_all`, `remove_dir`,
+  `remove_file`, `rename`), never `std::fs`: on Windows a git or a shell whose current directory is in the path, or a
+  scanner with a file open, fails them at once (`fs_retry_scan_test.rs`). A process that works in a test's directory is
+  `test_utils::git_in_directory::GitInDirectory`.
 - **Rust imports** ([Import Guidelines](docs/guidelines/imports.md)): never `pub use` re-exports (except for internal
   module organization); make modules public with `pub mod`; every import uses the full module path, so it shows where
   a type or function comes from:

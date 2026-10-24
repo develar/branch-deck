@@ -5,6 +5,7 @@ pub mod fake_cli_tools;
 pub mod fake_executable;
 #[cfg(feature = "http")]
 pub mod fake_server;
+pub mod git_in_directory;
 pub mod git_test_utils;
 pub mod process_budget;
 pub mod repo_template;

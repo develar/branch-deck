@@ -14,16 +14,21 @@
 //! A path of a rule is relative and normalized, stays inside the slot, never names `.git`, has no symlink on its way
 //! (a `delete` may name a symlink itself, and removes the link), and git tracks nothing under it (one `ls-files` for
 //! all rules); a rule that breaks one of these is skipped and reported, never applied. The walk follows no symlink. A
-//! return and `bd lease clean` move what a `delete` removes into a trash directory first, a rename, and delete it once
-//! the slot is free again (`Trash`).
+//! return and `bd lease clean` move what a rule removes into a trash directory first, a rename (a stale unit of a
+//! `cargo` rule as a whole), and delete it once the slot is free again (`Trash`). What a process keeps (on Windows one
+//! that works in it or has a file of it open, which no rename moves) stays whole in the checkout and is named in the
+//! error of its rule, never half deleted.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::tracked_under;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
-use sync_utils::process_scan::{is_running, process_started};
+use sync_utils::fs_retry;
+use sync_utils::process_scan::{ProcessScan, is_running, process_started};
 use tracing::{debug, warn};
 
 /// The file of the rules, at the root of a checkout
@@ -310,7 +315,7 @@ pub enum CleanMode<'a> {
   Measure,
   /// Delete in place
   Delete,
-  /// Move what a `delete` removes into the trash, a rename (in place on another volume); `Trash::empty` deletes it
+  /// Move what a rule removes into the trash, a rename (in place on another volume); `Trash::empty` deletes it
   Trash(&'a Trash),
 }
 
@@ -348,7 +353,7 @@ pub fn apply_clean_rules(git_executor: &GitCommandExecutor, checkout: &str, rule
             Ok(tracked) => check_path(Path::new(checkout), rule, tracked).and_then(|target| run_rule(rule, &target, mode, &mut trashed)),
           };
           let (freed_bytes, error) = match result {
-            Ok(freed) => (freed, None),
+            Ok(removals) => (removals.freed, removals.error()),
             Err(error) => (0, Some(format!("{error:#}"))),
           };
           Cleaned {
@@ -385,58 +390,116 @@ fn check_path(checkout: &Path, rule: &CleanRule, tracked: &[String]) -> Result<P
   Ok(target)
 }
 
-fn run_rule(rule: &CleanRule, target: &Path, mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<u64> {
-  let Ok(metadata) = target.symlink_metadata() else { return Ok(0) };
+/// What the removals of one rule freed, and the ones that failed: a failed one never stops the next
+#[derive(Default)]
+struct Removals {
+  freed: u64,
+  failed: Vec<String>,
+}
+
+impl Removals {
+  fn add(&mut self, removal: Result<u64>) {
+    match removal {
+      Ok(freed) => self.freed += freed,
+      Err(error) => self.failed.push(format!("{error:#}")),
+    }
+  }
+
+  /// The error of the rule: every removal that failed
+  fn error(&self) -> Option<String> {
+    (!self.failed.is_empty()).then(|| self.failed.join("; "))
+  }
+}
+
+fn run_rule(rule: &CleanRule, target: &Path, mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<Removals> {
+  let mut removals = Removals::default();
+  let Ok(metadata) = target.symlink_metadata() else { return Ok(removals) };
   match rule {
     CleanRule::Delete { except, .. } => {
       if except.is_empty() || !metadata.is_dir() {
-        return remove_entry(target, mode, trashed);
+        removals.add(remove_together(&[target.to_path_buf()], mode, trashed));
+        return Ok(removals);
       }
       let entries = std::fs::read_dir(target).map_err(|error| anyhow!("cannot read {}: {error}", target.display()))?;
-      let mut freed = 0;
       for entry in entries.flatten() {
         if !except.iter().any(|kept| entry.file_name() == kept.as_str()) {
-          freed += remove_entry(&entry.path(), mode, trashed)?;
+          removals.add(remove_together(&[entry.path()], mode, trashed));
         }
       }
-      Ok(freed)
     }
     CleanRule::Cargo { keep, age, .. } => {
       if !metadata.is_dir() {
-        return Ok(0);
+        return Ok(removals);
       }
       let cutoff = SystemTime::now().checked_sub(*age).unwrap_or(SystemTime::UNIX_EPOCH);
-      let mut freed = 0;
       for profile in profile_dirs(target, PROFILE_DEPTH) {
         let mut groups = classic_units(&profile);
         add_build_dir_units(&mut groups, &profile.join("build"));
         add_incremental_units(&mut groups, &profile.join("incremental"));
-        freed += remove_stale(groups, *keep, cutoff, mode.applies())?;
+        for unit in stale_units(groups, *keep, cutoff) {
+          removals.add(remove_together(&unit.paths, mode, trashed));
+        }
       }
-      Ok(freed)
     }
   }
+  Ok(removals)
 }
 
-/// Remove `path` (a file, a symlink, a directory with what is in it) as `mode` says: measure it, delete it in place, or
-/// move it into the trash, where its bytes are counted once it is deleted. On another volume than the trash it is
-/// deleted in place
-fn remove_entry(path: &Path, mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<u64> {
-  match mode {
-    CleanMode::Measure => Ok(disk_size(path)),
-    CleanMode::Delete => remove_measured(path).map_err(|error| anyhow!("cannot remove {}: {error}", path.display())),
-    CleanMode::Trash(trash) => match trash.move_in(path) {
-      Ok(moved) => {
-        trashed.push(moved);
-        Ok(0)
+/// Remove `paths` (files, symlinks, directories with what is in them) together, as `mode` says: measure them, delete
+/// them in place, or move them into the trash, where their bytes are counted once it is deleted. A path that can't be
+/// moved (on Windows a process works in it or has a file of it open) puts back the ones moved before it, so what a
+/// holder keeps stays whole in the checkout and is named in the error, never half deleted; on another volume than the
+/// trash they are deleted in place
+pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<u64> {
+  let delete = || {
+    paths.iter().try_fold(0, |freed, path| {
+      Ok(freed + remove_measured(path).map_err(|error| anyhow!("cannot remove {}: {error}", path.display()))?)
+    })
+  };
+  let trash = match mode {
+    CleanMode::Measure => return Ok(paths.iter().map(|path| disk_size(path)).sum()),
+    CleanMode::Delete => return delete(),
+    CleanMode::Trash(trash) => trash,
+  };
+  let mut moved: Vec<(&PathBuf, PathBuf)> = Vec::new();
+  for path in paths {
+    match trash.move_in(path) {
+      Ok(target) => moved.push((path, target)),
+      Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+      Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices && moved.is_empty() => {
+        debug!(path = %path.display(), error = %error, "the trash is on another volume, deleting in place");
+        return delete();
       }
       Err(error) => {
-        debug!(path = %path.display(), error = %error, "no move into the trash, deleting in place");
-        remove_measured(path).map_err(|error| anyhow!("cannot remove {}: {error}", path.display()))
+        for (path, target) in moved.into_iter().rev() {
+          if let Err(back) = fs_retry::rename(&target, path) {
+            warn!(path = %path.display(), trash = %target.display(), error = %back, "cannot move a path back from the trash");
+          }
+        }
+        return Err(anyhow!("cannot move {} into the trash: {error}{}", path.display(), holders_of(path)));
       }
-    },
+    }
   }
+  trashed.extend(moved.into_iter().map(|(_, target)| target));
+  Ok(0)
 }
+
+/// The processes that work in `path`, as the error of a path they keep names them; nothing where no scan tells them
+fn holders_of(path: &Path) -> String {
+  let scan = ProcessScan::scan();
+  let holders = scan.inside(path);
+  if holders.is_empty() {
+    return String::new();
+  }
+  let named: Vec<String> = holders
+    .iter()
+    .map(|process| format!("{} ({}: {})", process.name, process.pid, process.command_line(HOLDER_COMMAND_LIMIT)))
+    .collect();
+  format!("; processes work in it: {}", named.join(", "))
+}
+
+/// How much of the command line of a holder the error names
+const HOLDER_COMMAND_LIMIT: usize = 200;
 
 /// Delete `path` and everything below it, symlinks as themselves, in one walk that counts the bytes on disk it freed
 pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
@@ -447,14 +510,14 @@ pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
   };
   let own = allocated(&metadata);
   if !metadata.is_dir() {
-    std::fs::remove_file(path)?;
+    fs_retry::remove_file(path)?;
     return Ok(own);
   }
   let mut freed = own;
   for entry in std::fs::read_dir(path)? {
     freed += remove_measured(&entry?.path())?;
   }
-  std::fs::remove_dir(path)?;
+  fs_retry::remove_dir(path)?;
   Ok(freed)
 }
 
@@ -464,6 +527,10 @@ pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
 pub struct Trash {
   root: PathBuf,
   dir: PathBuf,
+  /// The name of the next path moved in: a path moved back out never frees its name for another
+  next: AtomicUsize,
+  /// What was moved in for no rule (`adopt`)
+  adopted: Mutex<Vec<PathBuf>>,
 }
 
 impl Trash {
@@ -474,21 +541,28 @@ impl Trash {
     Self {
       root: root.to_path_buf(),
       dir: root.join(format!("{pid}-{started}-{}", uuid::Uuid::new_v4())),
+      next: AtomicUsize::new(0),
+      adopted: Mutex::default(),
     }
   }
 
-  /// Move `path` into the trash, under a number of its own
+  /// The paths `remove_together` moved in for no rule (the seeded paths of a return): `empty` deletes them too
+  pub(crate) fn adopt(&self, moved: Vec<PathBuf>) {
+    self.adopted.lock().unwrap_or_else(PoisonError::into_inner).extend(moved);
+  }
+
+  /// Move `path` into the trash, under a number of its own (`fs_retry::rename`: a holder that lets go soon is waited
+  /// for)
   fn move_in(&self, path: &Path) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(&self.dir)?;
-    let count = std::fs::read_dir(&self.dir)?.count();
-    let target = self.dir.join(count.to_string());
-    std::fs::rename(path, &target)?;
+    let target = self.dir.join(self.next.fetch_add(1, Ordering::Relaxed).to_string());
+    fs_retry::rename(path, &target)?;
     Ok(target)
   }
 
-  /// Delete what `cleaned` moved into the trash, counting the bytes of each rule, then the directories of runs whose
-  /// process is gone. A path that can't be deleted stays in the trash and is named in the error of its rule, and in the
-  /// paths returned
+  /// Delete what `cleaned` moved into the trash, counting the bytes of each rule, then what it adopted (`adopt`), then
+  /// the directories of runs whose process is gone. A path that can't be deleted stays in the
+  /// trash and is named in the error of its rule, and in the paths returned
   pub fn empty(&self, cleaned: &mut [Cleaned]) -> Vec<String> {
     let mut left = Vec::new();
     for rule in cleaned.iter_mut() {
@@ -502,8 +576,15 @@ impl Trash {
         }
       }
     }
+    let adopted = std::mem::take(&mut *self.adopted.lock().unwrap_or_else(PoisonError::into_inner));
+    for path in adopted {
+      if let Err(error) = remove_measured(&path) {
+        warn!(path = %path.display(), error = %error, "cannot delete a path in the trash");
+        left.push(path.display().to_string());
+      }
+    }
     if left.is_empty() {
-      let _ = std::fs::remove_dir(&self.dir);
+      let _ = fs_retry::remove_dir(&self.dir);
     }
     self.sweep();
     left
@@ -643,24 +724,16 @@ fn add_incremental_units(groups: &mut Groups, incremental: &Path) {
   }
 }
 
-/// Remove the stale units of `groups`: a unit stays when it is among the `keep` last built of its group or was built
-/// after `cutoff`, since a slot builds a dozen variants an hour and age alone keeps all. The files of a unit go together
-fn remove_stale(groups: Groups, keep: usize, cutoff: SystemTime, apply: bool) -> Result<u64> {
-  let mut freed = 0;
+/// The stale units of `groups`: a unit stays when it is among the `keep` last built of its group or was built after
+/// `cutoff`, since a slot builds a dozen variants an hour and age alone keeps all. The files of a unit go together
+fn stale_units(groups: Groups, keep: usize, cutoff: SystemTime) -> Vec<Unit> {
+  let mut stale = Vec::new();
   for units in groups.into_values() {
     let mut units: Vec<Unit> = units.into_values().collect();
     units.sort_by_key(|unit| std::cmp::Reverse(unit.built));
-    for unit in units.iter().skip(keep).filter(|unit| unit.built.is_some_and(|built| built < cutoff)) {
-      for path in &unit.paths {
-        freed += disk_size(path);
-        if apply {
-          let is_dir = path.symlink_metadata().is_ok_and(|metadata| metadata.is_dir());
-          if is_dir { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) }.map_err(|error| anyhow!("cannot remove {}: {error}", path.display()))?;
-        }
-      }
-    }
+    stale.extend(units.into_iter().skip(keep).filter(|unit| unit.built.is_some_and(|built| built < cutoff)));
   }
-  Ok(freed)
+  stale
 }
 
 /// When a file or a dir of a unit was last built: a rebuild rewrites its fingerprint files (`build/`) or adds a

@@ -8,19 +8,29 @@
 use std::path::Path;
 
 /// `std::fs::rename`, tried again while a holder of `to` blocks it
-pub fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
+pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> std::io::Result<()> {
+  let (from, to) = (from.as_ref(), to.as_ref());
   retry_while_shared(|| std::fs::rename(from, to))
 }
 
 /// `std::fs::remove_dir_all`, tried again while a holder of a file in it, or a process whose current directory is in
 /// it, blocks it; each try removes what the one before left
-pub fn remove_dir_all(path: &Path) -> std::io::Result<()> {
+pub fn remove_dir_all(path: impl AsRef<Path>) -> std::io::Result<()> {
+  let path = path.as_ref();
   retry_while_shared(|| std::fs::remove_dir_all(path))
 }
 
 /// `std::fs::remove_file`, tried again while a holder of the file blocks it
-pub fn remove_file(path: &Path) -> std::io::Result<()> {
+pub fn remove_file(path: impl AsRef<Path>) -> std::io::Result<()> {
+  let path = path.as_ref();
   retry_while_shared(|| std::fs::remove_file(path))
+}
+
+/// `std::fs::remove_dir` of an empty directory, tried again while a process whose current directory it is blocks it; a
+/// directory that is not empty fails at once
+pub fn remove_dir(path: impl AsRef<Path>) -> std::io::Result<()> {
+  let path = path.as_ref();
+  retry_while_shared(|| std::fs::remove_dir(path))
 }
 
 #[cfg(not(windows))]

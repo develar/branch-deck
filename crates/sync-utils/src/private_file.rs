@@ -38,7 +38,7 @@ pub fn write_private(path: &Path, content: &[u8]) -> std::io::Result<()> {
 
 /// Removes the file; none is fine
 pub fn remove_private(path: &Path) -> std::io::Result<()> {
-  match std::fs::remove_file(path) {
+  match crate::fs_retry::remove_file(path) {
     Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
     _ => Ok(()),
   }

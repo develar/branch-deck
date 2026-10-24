@@ -10,7 +10,7 @@ pub fn remove_legacy_model_cache(app_cache_dir: &Path) {
   if !models.exists() {
     return;
   }
-  match std::fs::remove_dir_all(&models) {
+  match sync_utils::fs_retry::remove_dir_all(&models) {
     Ok(()) => info!(path = %models.display(), "removed the cache of the on-device model"),
     Err(e) => warn!(path = %models.display(), error = %e, "can't remove the cache of the on-device model"),
   }

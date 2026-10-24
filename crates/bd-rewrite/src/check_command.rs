@@ -591,7 +591,7 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
     drop(archive);
     let archive = std::fs::File::open(&archive_path).map_err(|e| io_error("read the archive", e))?;
     tar::Archive::new(archive).unpack(&tree).map_err(|e| io_error("extract the tree", e))?;
-    std::fs::remove_file(&archive_path).map_err(|e| io_error("remove the archive", e))?;
+    sync_utils::fs_retry::remove_file(&archive_path).map_err(|e| io_error("remove the archive", e))?;
   }
 
   let mut shell = shell(command);

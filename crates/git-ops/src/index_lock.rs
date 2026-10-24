@@ -269,7 +269,7 @@ fn remove_if_same(path: &Path, identity: &Identity) -> bool {
   if Identity::of(path).as_ref() != Some(identity) {
     return false;
   }
-  match std::fs::remove_file(path) {
+  match sync_utils::fs_retry::remove_file(path) {
     Ok(()) => true,
     Err(e) => {
       warn!(path = %path.display(), error = %e, "cannot remove an index lock that no process owns");

@@ -1,9 +1,7 @@
 use crate::fs_retry::remove_dir_all;
-use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::{Duration, Instant};
-use test_utils::git_test_utils::git_command;
+use test_utils::git_in_directory::GitInDirectory;
 
 /// `ERROR_SHARING_VIOLATION`: what Windows answers a removal under a holder
 const SHARING_VIOLATION: i32 = 32;
@@ -38,31 +36,15 @@ fn held_open(path: &Path) -> std::fs::File {
 /// waits it out and then removes the rest; elsewhere it removes the directory under the process at once
 #[test]
 fn a_process_whose_current_directory_is_in_the_directory_delays_its_removal_until_it_exits() {
-  /// How long the git lives: its stdin closes then
+  /// How long the git lives once it runs
   const LIFE: Duration = Duration::from_millis(500);
   let dir = tempfile::tempdir().unwrap();
   let (removed, _) = tree(&dir);
-  // `hash-object --stdin-paths` hashes each path it reads until its stdin closes
-  let mut git = git_command()
-    .args(["hash-object", "--stdin-paths"])
-    .env("GIT_FLUSH", "1")
-    .current_dir(&removed)
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::null())
-    .spawn()
-    .unwrap();
-  let mut stdin = git.stdin.take().unwrap();
-  // the hash of a path relative to its current directory: the git runs there now (a process that Windows has only
-  // created opens its current directory as it starts, and a removal before that does not see it)
-  writeln!(stdin, "{HELD}").unwrap();
-  let mut hash = String::new();
-  std::io::BufReader::new(git.stdout.take().unwrap()).read_line(&mut hash).unwrap();
-  assert!(!hash.trim().is_empty(), "no hash of {HELD}");
+  let git = GitInDirectory::start(&removed.join("nested"));
   let started = Instant::now();
-  let closer = std::thread::spawn(move || {
+  let exit = std::thread::spawn(move || {
     std::thread::sleep(LIFE);
-    drop(stdin);
+    drop(git);
   });
 
   remove_dir_all(&removed).unwrap();
@@ -74,8 +56,7 @@ fn a_process_whose_current_directory_is_in_the_directory_delays_its_removal_unti
   } else {
     assert!(waited < LIFE, "the removal waited for the process: {waited:?}");
   }
-  closer.join().unwrap();
-  git.wait().unwrap();
+  exit.join().unwrap();
 }
 
 /// A program that keeps a file of the directory open without sharing delete fails its removal on Windows after about a

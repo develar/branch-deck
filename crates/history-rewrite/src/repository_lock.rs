@@ -140,7 +140,7 @@ impl Drop for RepositoryLock {
   /// The record goes first: once the lock is free, the next holder writes its own, which a later delete would take
   fn drop(&mut self) {
     if let Some(holder) = &self.holder
-      && let Err(e) = std::fs::remove_file(holder)
+      && let Err(e) = sync_utils::fs_retry::remove_file(holder)
     {
       warn!(path = %holder.display(), error = %e, "cannot delete the holder record of the lock");
     }

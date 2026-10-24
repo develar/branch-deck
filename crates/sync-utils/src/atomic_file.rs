@@ -41,7 +41,7 @@ pub fn write_atomically(path: &Path, content: &[u8], options: AtomicWrite) -> st
   // closed before the rename: Windows renames an open file only when it was opened to share delete
   drop(file);
   if let Err(error) = written.and_then(|()| crate::fs_retry::rename(&temporary, path)) {
-    let _ = std::fs::remove_file(&temporary);
+    let _ = crate::fs_retry::remove_file(&temporary);
     return Err(error);
   }
   Ok(())
