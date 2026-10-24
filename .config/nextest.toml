@@ -8,6 +8,13 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 # a git process that outlives its test fails the test
 leak-timeout = { period = "500ms", result = "fail" }
 
+# The binaries whose tests take longest start first (their mean test took 3–8 s in a run on the Studio, the others under
+# 3 s), so the end of a run is the short tests of the rest and not one of these started last. A test's time follows its
+# git processes (docs/guidelines/rust-tests.md)
+[[profile.default.overrides]]
+filter = 'binary_id(bd-remote) | binary_id(bd-update) | binary_id(update-core) | binary_id(bd-rewrite) | binary_id(bd-lease)'
+priority = 10
+
 [profile.ci]
 fail-fast = false
 failure-output = "immediate-final"
