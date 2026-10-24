@@ -99,7 +99,7 @@ export interface CliToolsFixture {
  * What the next sync of the repository reports differently (`POST /repositories/{id}/sync-overrides`, which the run of
  * its session that starts next takes, `crates/test-server/src/sync_overrides.rs`): what the server can't compute from a
  * template, which has no remote of its own. The table of the session, its patches and the table Rust keeps for the
- * checks are what a sync of such a repository makes; the syncs after it are the server's again
+ * checks are what a sync of such a repository makes; the syncs after it are the server's again, unless `every`
  */
 export interface SyncOverrides {
   /**
@@ -112,6 +112,8 @@ export interface SyncOverrides {
   stacks?: Record<string, Partial<StackBranchUpdate>>
   /** The issue links the sync reports instead of the repository's (`.idea/vcs.xml`) */
   issueLinks?: IssueNavigationConfig
+  /** Every sync from now on reports them, not only the next: a test of several starts, until it sets others */
+  every?: boolean
 }
 
 export class TestRepositoryBuilder {
@@ -192,7 +194,7 @@ export class TestRepositoryBuilder {
     return data.commitId
   }
 
-  /** The next sync of the repository reports `overrides` (`SyncOverrides`), replacing the ones no sync took yet */
+  /** The next sync of the repository reports `overrides` (`SyncOverrides`; each sync, with `every`), replacing the ones no sync took yet */
   async setSyncOverrides(overrides: SyncOverrides): Promise<void> {
     await this.setFixture("sync-overrides", overrides)
   }

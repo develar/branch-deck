@@ -4,7 +4,7 @@
 //! a repository of a YouTrack user. The next run of the repository's session takes them
 //! (`TestSessionEnvironment::reporter` puts `OverridingReporter` around the run's reporter), so the table of the
 //! session, its patches to the page and the table of the views are what a sync of such a repository makes; the runs
-//! after it are the server's as they are. `GET /repositories/{id}/revision?name=<rev>` answers the commit a ref of the
+//! after it are the server's as they are, unless `every` keeps the overrides for each of them. `GET /repositories/{id}/revision?name=<rev>` answers the commit a ref of the
 //! repository is at, which such a test compares with what the page shows (the copy of a commit the sync built).
 //! `POST /repositories/{id}/rebase-in-progress` (`{"inProgress": bool}`) leaves the repository as an interrupted rebase
 //! does (`.git/rebase-merge`), so its syncs are deferred (`SyncDeferred`) by the real check, until it is set back
@@ -23,7 +23,7 @@ use std::sync::Arc;
 use sync_utils::span::in_current_span;
 
 /// The overrides of the next sync; a branch or a root not named is reported as the sync computed it
-#[derive(Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SyncOverrides {
   /// Branch -> the fields of its `RemoteStatusUpdate` that replace the computed ones; null: the sync reports no remote
@@ -36,10 +36,14 @@ pub struct SyncOverrides {
   /// The issue links the sync reports instead of the repository's (`.idea/vcs.xml`)
   #[serde(default)]
   issue_links: Option<IssueNavigationConfig>,
+  /// Every run from now on takes them, not only the next: a test of several starts, whatever syncs run between them,
+  /// until a test sets others
+  #[serde(default)]
+  pub every: bool,
 }
 
 /// The remote status of a branch as a test sets it
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RemoteOverride {
   /// Only the newest `n` of the commits the sync found the remote lacking stay unpushed: the remote has the others, ids
@@ -99,7 +103,8 @@ impl ProgressReporter for OverridingReporter {
   }
 }
 
-/// Sets the overrides the next sync of the repository takes, replacing the ones it hasn't taken yet
+/// Sets the overrides the next sync of the repository takes (each one, with `every`), replacing the ones it hasn't taken
+/// yet
 pub async fn set_sync_overrides(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(overrides): Json<SyncOverrides>) -> StatusCode {
   let Some(repository) = state.repositories.get(&id) else {
     return StatusCode::UNPROCESSABLE_ENTITY;

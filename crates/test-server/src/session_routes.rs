@@ -45,11 +45,17 @@ impl SessionEnvironment for TestSessionEnvironment {
     api_error(error)
   }
 
-  /// The overrides a test set for the next sync of the repository, taken by this run (`sync_overrides`)
+  /// The overrides a test set for the next sync of the repository, taken by this run (`sync_overrides`); those of every
+  /// sync stay for the next run
   fn reporter(&self, key: &SessionKey, reporter: Arc<dyn ProgressReporter>) -> Arc<dyn ProgressReporter> {
     let overrides = self.state.upgrade().and_then(|state| {
       let repository = repository_by_path(&state, &key.worktree).ok()?;
-      repository.sync_overrides.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+      let mut set = repository.sync_overrides.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+      if set.as_ref().is_some_and(|overrides| overrides.every) {
+        set.clone()
+      } else {
+        set.take()
+      }
     });
     match overrides {
       Some(overrides) => Arc::new(OverridingReporter { inner: reporter, overrides }),

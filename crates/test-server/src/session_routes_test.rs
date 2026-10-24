@@ -73,9 +73,10 @@ async fn a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app(
 
 /// The next sync reports what a test set for it (`sync-overrides`): the remote status of a branch with the fields given
 /// and the newest of its unpushed commits kept, the issue links of a YouTrack user; the one after it leaves out a status set to null, so the branch keeps the one it
-/// had; the sync after that reports the server's own status again
+/// had; the sync after that reports the server's own status again. Overrides set for every sync stay for each run, until
+/// a test sets others
 #[tokio::test]
-async fn the_next_sync_takes_the_overrides_of_its_repository_and_the_syncs_after_it_do_not() {
+async fn the_next_sync_takes_the_overrides_of_its_repository_and_the_syncs_after_it_do_not_unless_set_for_every_sync() {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
@@ -115,6 +116,14 @@ async fn the_next_sync_takes_the_overrides_of_its_repository_and_the_syncs_after
 
   let third = sync_with(Value::Null).await;
   assert_eq!(remote_of(&third), (json!(false), Value::Null), "the template has no remote: {third}");
+
+  let every = json!({ "remote": { "test-branch": { "remoteExists": true, "remoteTip": "test-branch-pushed" } }, "every": true });
+  let fourth = sync_with(every).await;
+  let fifth = sync_with(Value::Null).await;
+  assert_eq!(remote_of(&fourth), (json!(true), json!("test-branch-pushed")), "{fourth}");
+  assert_eq!(remote_of(&fifth), remote_of(&fourth), "the run after it takes them too: {fifth}");
+  let replaced = sync_with(json!({})).await;
+  assert_eq!(remote_of(&replaced), (json!(false), Value::Null), "others set: the server's own status again");
 }
 
 /// A ref of the repository answers the commit it is at; an unknown one is not found

@@ -11,7 +11,7 @@ import { AWAITING_CODE_OWNER, availableRobots, robot } from "../helpers/patronus
 import { availablePullRequests, pullRequest, reviewer } from "../helpers/pull-request-helpers"
 import { availableReviewRequests, getYourTurnCard, reviewRequest } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
-import { pushedOnEverySync, pushedOnNextSync } from "../helpers/sync-helpers"
+import { pushedRemote } from "../helpers/sync-helpers"
 import { animationsEnded, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
@@ -41,12 +41,12 @@ test.describe("Late facts", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    // pushed in both starts, whatever syncs run between them
-    await pushedOnEverySync(page, BRANCH)
     const awaited = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "requested")] })
     const repo = await setupRepo("issue_links", {
       patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
       pullRequests: { ...availablePullRequests(awaited), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }] },
+      // pushed in both starts, whatever syncs run between them
+      syncOverrides: { ...pushedRemote(BRANCH), every: true },
     })
     await repo.setReviewAnswers({ answers: { [BRANCH]: AWAITING_CODE_OWNER } })
     await repo.setReviewRequests(availableReviewRequests([reviewRequest("review-me", 101, 30)]))
@@ -85,10 +85,10 @@ test.describe("Late facts", () => {
 
   test("should keep the sections and the push of the preview in their places while Patronus and GitHub answer", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // ABC-123 pushed, with a pull request and a failed Safe Push; JIRA-456 not pushed yet
-    await pushedOnNextSync(page, "ABC-123")
     const repo = await setupRepo("issue_links", {
       patronus: { ...availableRobots(robot("ABC-123", "failed-robot", { status: "failure", finishTime: 1704142800 })), githubRepository: "acme/monorepo" },
       pullRequests: availablePullRequests(pullRequest("ABC-123", 7)),
+      syncOverrides: pushedRemote("ABC-123"),
     })
     await repo.holdRemoteAnswers({ hold: ["pullRequests", "robots"] })
     await syncAndWaitForBranches()

@@ -9,7 +9,7 @@ import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, availableRobots, failedFas
 import { availablePullRequests, createPullRequestDialog, gitHubRequests, pullRequest, reviewer, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { hoverStatusChip, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
-import { oneCommitUnpushedOnNextSync, pushedOnNextSync } from "../helpers/sync-helpers"
+import { oneCommitUnpushedRemote, pushedRemote } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 
 const BRANCH = "JIRA-456"
@@ -21,21 +21,20 @@ const APPROVED = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "
 const SAFE_PUSH_ITEM = { name: /^Safe Push( S)?$/ }
 
 /**
- * issue_links mirrored to `acme/monorepo`, JIRA-456 pushed, with these pull requests, Patronus answering the review
- * pre-check of JIRA-456 with `answer`; the answers `held` are held at the fakes from before the first sync, so the
- * rows come before them
+ * issue_links mirrored to `acme/monorepo`, JIRA-456 pushed (the remote status of its syncs), with these pull requests,
+ * Patronus answering the review pre-check of JIRA-456 with `answer`; the answers `held` are held at the fakes from
+ * before the first sync, so the rows come before them
  */
 async function setupHeld(
-  page: Page,
   setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
   answer: PatronusReviewRequirement,
   pullRequests: PullRequest[],
   held: HeldAnswer[],
 ): Promise<TestRepositoryBuilder> {
-  await pushedOnNextSync(page, BRANCH)
   const repo = await setupRepo("issue_links", {
     patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
     pullRequests: { ...availablePullRequests(...pullRequests), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }] },
+    syncOverrides: pushedRemote(BRANCH),
   })
   await repo.setReviewAnswers({ answers: { [BRANCH]: answer } })
   await repo.holdRemoteAnswers({ hold: held })
@@ -140,7 +139,7 @@ test.describe("Next step before the answers", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupHeld(page, setupRepo, APPROVED_BY_CODE_OWNER, [APPROVED], ["pullRequests", "readiness"])
+    const repo = await setupHeld(setupRepo, APPROVED_BY_CODE_OWNER, [APPROVED], ["pullRequests", "readiness"])
     await syncAndWaitForBranches()
 
     // GitHub hasn't listed the pull requests: no pull request is known, which is no "no pull request"
@@ -176,7 +175,7 @@ test.describe("Next step before the answers", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupHeld(page, setupRepo, AWAITING_CODE_OWNER, [], ["pullRequests"])
+    const repo = await setupHeld(setupRepo, AWAITING_CODE_OWNER, [], ["pullRequests"])
     // GitHub fails its first answer
     await repo.setPullRequests(unavailablePullRequests({ status: "error", message: "offline" }))
     await syncAndWaitForBranches()
@@ -219,7 +218,7 @@ test.describe("Next step before the answers", () => {
   })
 
   test("should preselect the code owners in Create Pull Request… from the answer that comes after the dialog opened", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupHeld(page, setupRepo, AWAITING_CODE_OWNER, [], ["readiness"])
+    const repo = await setupHeld(setupRepo, AWAITING_CODE_OWNER, [], ["readiness"])
     await syncAndWaitForBranches()
     await expectHeld(repo, "readiness")
     await expectChecking(page, "Waits for Patronus to check the approvals")
@@ -242,10 +241,10 @@ test.describe("Next step before the answers", () => {
     syncAndWaitForBranches,
   }) => {
     // a commit the remote lacks and a pull request someone approved: the request pushes into it, so the rules matter
-    await oneCommitUnpushedOnNextSync(page, BRANCH)
     const repo = await setupRepo("issue_links", {
       patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
       pullRequests: availablePullRequests(pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")], baseRefName: "master" })),
+      syncOverrides: oneCommitUnpushedRemote(BRANCH),
     })
     await repo.holdRemoteAnswers({ hold: ["readiness"], fail: ["branchRules"] })
     await syncAndWaitForBranches()
@@ -308,10 +307,10 @@ test.describe("Next step before the answers", () => {
   })
 
   test("should leave the Safe Push without review to the user while GitHub is signed out, from the pull request dialog", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await pushedOnNextSync(page, BRANCH)
     await setupRepo("issue_links", {
       patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
       pullRequests: unavailablePullRequests({ status: "signedOut" }),
+      syncOverrides: pushedRemote(BRANCH),
     })
     await syncAndWaitForBranches()
     // no pull request is known and the approvals may be missing (row 7): the start without review stays possible
@@ -330,7 +329,7 @@ test.describe("Next step before the answers", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupHeld(page, setupRepo, APPROVED_BY_CODE_OWNER, [APPROVED], [])
+    const repo = await setupHeld(setupRepo, APPROVED_BY_CODE_OWNER, [APPROVED], [])
     await repo.holdRemoteAnswers({ fail: ["repositoryView"] })
     await syncAndWaitForBranches()
 
