@@ -143,9 +143,10 @@ of every `bd` process never collide and sort by time). `src-tauri/src/command_sc
   argument read across lines as rustfmt lays a long future out, and exempts a file only with its reason and its number
   of hits (the pipe threads of a git process, `SyncTask::spawn`, which wraps the task itself, the mock server). So the
   branch builds of a sync, the integration detection, the file diff workers and the requests of a robot's progress log
-  inside the operation of the command or the `bd` run. The one root of its own is the actor of a session
-  (`repository_model::runtime::spawn_actor`): it outlives the command that opened it and serves every window, so it
-  logs in `session{worktree prefix}` with no parent, and the checks and syncs it starts carry that span.
+  inside the operation of the command or the `bd` run. Two roots of their own outlive what started them and serve every
+  window: the actor of a session (`repository_model::runtime::spawn_actor`) logs in `session{worktree prefix}` with no
+  parent, and the checks and syncs it starts carry that span; the app's timer that sweeps the idle sessions
+  (`Sessions::sweep_every`) logs in `session_sweep` with no parent.
 - `tracing_log` (`src-tauri/src/tracing_log.rs`) makes the spans reach the log at all: without a subscriber the `log`
   feature of `tracing` hands an event to `log` without its spans. The subscriber formats each event with its spans,
   plus a line when a span starts (`FmtSpan::NEW`, as `tracing` wrote one per span before), and gives the line to `log`

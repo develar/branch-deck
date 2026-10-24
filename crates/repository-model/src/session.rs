@@ -24,6 +24,7 @@ use sync_core::sync::SyncReport;
 use sync_utils::clock::Clock;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
+use tracing::Instrument;
 
 /// How long a session without subscribers and operations stays before `sweep` removes it
 pub const IDLE_LIMIT: Duration = Duration::from_mins(2);
@@ -315,23 +316,29 @@ impl Sessions {
   }
 
   /// Sweeps the sessions every `every` (wall time; what is idle is decided on the session clock) while the registry
-  /// lives: the app's timer. The E2E server sweeps after it moved its clock instead
+  /// lives: the app's timer. The E2E server sweeps after it moved its clock instead. The timer logs in the span
+  /// `session_sweep`, a root like the span of an actor: it outlives whatever started it and serves no one operation
   pub fn sweep_every(self: &Arc<Self>, every: Duration) {
     let sessions = Arc::downgrade(self);
-    self.runtime.spawn(async move {
-      let mut ticks = tokio::time::interval(every);
-      ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-      loop {
-        ticks.tick().await;
-        let Some(sessions) = sessions.upgrade() else {
-          break;
-        };
-        let removed = sessions.sweep();
-        if !removed.is_empty() {
-          tracing::debug!(?removed, "Removed the idle sessions");
+    let span = tracing::info_span!(parent: None, "session_sweep");
+    let _entered = span.enter();
+    self.runtime.spawn(
+      async move {
+        let mut ticks = tokio::time::interval(every);
+        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+          ticks.tick().await;
+          let Some(sessions) = sessions.upgrade() else {
+            break;
+          };
+          let removed = sessions.sweep();
+          if !removed.is_empty() {
+            tracing::debug!(?removed, "Removed the idle sessions");
+          }
         }
       }
-    });
+      .in_current_span(),
+    );
   }
 
   fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<SessionKey, Entry>> {
