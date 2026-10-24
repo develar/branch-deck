@@ -1,7 +1,7 @@
 # Running Operations
 
 **Status:** Implemented  
-**Updated:** 2026-10-23  
+**Updated:** 2026-10-24  
 **Tags:** [frontend, actions, ux, concurrency]
 
 ## Problem
@@ -92,7 +92,8 @@ that is the move of a row, its `move` ([Moves](#moves)).
    sync itself and pushes what it leaves.
 
 A sync is no operation: a rewrite started during one still runs (an Undo in a toast during the auto-sync on focus), the
-backend lock orders them and the sync chain reads the result again. Only the menus disable the rewrites during a sync
+backend lock orders them and the session's scheduler runs one more sync after it (`AfterRewrite`), which reads the
+result. Only the menus disable the rewrites during a sync
 (`getRewriteBlocker`, "Wait for the sync to finish"), as they did.
 
 ### Items

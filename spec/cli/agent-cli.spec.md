@@ -774,7 +774,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd sync`
 
-- `bd sync` must run the app's sync (`sync_branches`) and, like it, without the repository lock: its refs move by
+- `bd sync` must run the app's sync (`sync_core::sync::sync_branches`) and, like it, without the repository lock: its refs move by
   compare-and-swap (below), so it never waits for a rewrite or Update Project, and a rewrite of the app or of `bd`
   never waits for it. It must print per branch its `state` (`created`, `updated`, `unchanged`, `error`, `conflict`, `blocked`),
   the commit count, the new tip and the remote state, plus the unassigned count. It must refuse, changing nothing,

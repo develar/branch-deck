@@ -236,7 +236,8 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
   the element was never there. Anchor it: assert the thing existed first, or assert on the recorded list
   (`getOpenedSubWindows` is `[]` after the press), or follow it with a positive step the same press would have blocked.
 - **Wait for the state, never for time**: wait for the element or the event a state comes with (`runAndWaitForSync`,
-  `data-sync-count`, an `aria-busy` that clears); an app timer runs with `page.clock.fastForward`, a debounced
+  `data-sync-count`, the patch of a version a command answered by `data-view-version`, `waitForViewVersion`, an
+  `aria-busy` that clears); an app timer runs with `page.clock.fastForward`, a debounced
   settings change with `waitForStorePersistence` (the key as the writer answered it, as a reload reads it). No
   `waitForTimeout`: under load
   (several checkouts running e2e and cargo) any fixed wait is too short; Oxlint refuses it in `tests/`, and a
@@ -559,6 +560,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 
 | Feature | Specs | Entry code |
 |---|---|---|
+| Repository session: the table, the syncs and the remote tips of a worktree and branch prefix live in Rust; a window subscribes to its snapshot and patches, asks `sync` and tells its focus; `bd sync` folds its sync through the same `TableState` | `repository/onboarding`, `branch/branch-review` ([Repository view](docs/design/git-operations.md#repository-view), [Rendering Performance](docs/design/rendering-performance.md)) | `crates/repository-model/src/session.rs`, `crates/repository-model/src/table.rs`, `src-tauri/src/commands/session.rs`, `src/model/store.ts` |
 | Integration status: archive the branches the baseline has (by default rebase/cherry-pick detection only; merge and squash by an environment variable) | `branch/branch-row` ([Integration Detection](docs/design/integration-detection.md)) | `crates/branch-integration/` |
 | Context menus (the "⋯" menu on right-click, acting on the selection) | `branch/branch-row`, `commit/commit-row` | `src/components/shared/ContextMenuItems.tsx`, `src/hooks/useBranchContextActions.ts` |
 | AI branch naming (`claude -p --model haiku`, after consent) | `branch/branch-name-suggestions` | `src/components/ai/` |
@@ -603,7 +605,7 @@ The rows and the menus of the main window: `branch/branch-row`, `commit/commit-r
 - [Distributed Settings Architecture](docs/design/distributed-settings.md) - One writer of `settings.json` and `repository-state.json` in Rust (`SettingsService`): the windows send patches, apply changes by version, start from the snapshot of their init script; `bd` reads the same file; the branch prefix resolved per command
 - [Running Operations](docs/design/operations.md) - One registry of the actions that run: a second start joins, a rewrite waits for a rewrite, the spinner where it started, a rewrite lasts until its sync
 - [Rust as the Domain Authority](docs/design/rust-domain-authority.md) - The rework plan (Draft, in Russian): one Rust session owns the table, the facts and the running operations, `domain-policy` holds every rule in one file, every mutation is an intent through `prepare`/`execute`, bd and the app are two adapters; the stages and their progress
-- [Rendering Performance](docs/design/rendering-performance.md) - React Compiler, narrow selectors, sync events applied in batches, derived structure cached, lazy main page
+- [Rendering Performance](docs/design/rendering-performance.md) - React Compiler, narrow selectors, the patches of the Rust session (16 ms, by part) applied in one update, derived structure cached, lazy main page
 - [E2E Testing Architecture](docs/design/e2e-testing.md) - E2E test infrastructure with mock Tauri API
 - [Git Operations](docs/design/git-operations.md) - Working-tree safety, exact-metadata rewrites, `git replay`, batching and the Git 2.54 minimum
 - [Landing Work into Master](docs/design/landing.md) - The product model: everything lands into master, stacks cut it into pieces, every pull request into master, a whole stack in one robot
@@ -646,6 +648,7 @@ src/
 │   ├── command-palette/ # The command palette of the main window (⌘K)
 │   └── settings/    # The pages of the Settings window and their rows
 ├── hooks/           # React hooks (useX.ts)
+├── model/           # The window's side of its repository session: the view and the patches it applies (store.ts, patch.ts)
 ├── stores/          # zustand stores; settings/ holds persisted, cross-window settings
 ├── lib/             # Utilities and the generated bindings.ts
 ├── pages/           # Route components (index, the sub-windows: reviews, conflict windows, settings, activity)
@@ -668,7 +671,7 @@ crates/
 ├── update-core/     # Update Project, `bd pick` and the resolve sessions of a conflicting `bd update`, and their undo
 ├── lease-pool/      # The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`)
 ├── remote-facts/    # What GitHub and Patronus know of the branches, over HTTP: pull requests, review requests, branch rules, review readiness, the Patronus command, the Safe Push statistics
-├── repository-model/ # The model of a repository for the page and bd: the table of the last sync, the Patronus section (one rule), the guards of the app's push and robot actions
+├── repository-model/ # The model of a repository for the page and bd: the sessions (the table state, its syncs and patches), the table of the last sync, the Patronus section (one rule), the guards of the app's push and robot actions
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
 ├── app-settings/    # The settings of the app for the app and bd: the one writer of `settings.json` and `repository-state.json` (`SettingsService`: patches, versions, a debounced atomic save), the tolerant load, the keys of each window, the order of the branch prefixes with its source (`resolve_branch_prefix`, `BranchPrefixes`); no Tauri, no git

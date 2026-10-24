@@ -768,7 +768,7 @@ repository». Аудит всех функций в тот же день наш�
 | C1 | процессы под repository lock на push приложения | вся операция, `git push` тоже | заморозка (`for-each-ref`), больше ничего | lock span в `push_guard_test.rs` | live, s9 |
 | C2 | старт Safe Push из поповера | 3 полных списка (`a_start_from_the_popover_asks_three_full_lists`), 2 trial session | 1 список, 1 trial session | `remote_fixtures_test.rs`, HTTP-бюджет | s9 |
 | C3 | push только unapplied | 1 список, 1 полный sync | 0 списков, 0 sync | HTTP-бюджет, `data-sync-count` | s6, s9 |
-| C4 | фокус после своего push | полный sync | 0 sync | e2e `data-sync-count` | s6 |
+| C4 | фокус после своего push | полный sync | 0 sync | e2e `data-sync-count` | s7 (из s6) |
 | C5 | конец sync или фокус при N работающих роботах | N запросов `/problems` | 0 без нового ответа списка | `patronus.test.ts` | live, s7 |
 | C6 | 5 одновременных первых запросов GitHub одного репозитория | до 5 `gh auth token` подряд | 1 | `crates/github` `service_test.rs` | live |
 | C7 | открытие range review | 2 `diff-tree` | 1 | process-бюджет `file-diffs` | live |
@@ -1239,7 +1239,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
     её remote-фактов и роботов, которых Rust читает сам; `GetRepositoryViewParams.remote` страницы остаётся до s7.
     Сделано (s1-4): `BranchTable::remote` и `remote_facts` в `branch_table.rs`; `has_work_for_remote` — в
     `sync_core::remote_status`; статусы собирает `RemoteStatusCollector` (там же), обёртка репортёра у
-    `sync_branches` приложения и маршрута test-server, у `bd` — `SyncOutput::remote_statuses`; `PatronusFacts::read`
+    `sync_branches` приложения и маршрута test-server (с s6 — у `GitSessionHost` сессии), у `bd` —
+    `SyncOutput::remote_statuses` (с s6 — статусы его `TableState`); `PatronusFacts::read`
     берёт `table.remote`, отдельного параметра нет.
   - D10, push: `push_branch(es)` приложения и маршруты test-server идут через одну последовательность `repository-view`
     (`RemoteActions::push_branches`): список роботов (один запрос в фоновом режиме, best effort как `bd push`: не на Space, без токена,
@@ -1672,6 +1673,13 @@ rewrites между процессами через файл `s10`; `s12` ждё
     (`TableState::stacks`; вид держит их по корню, а `stacks` `bd sync` идут в порядке sync), и коммиты, которые ветка
     оставила без копии (`blocked_commits` из `CommitsBlocked`; строки их не отмечают). `CollectingReporter` с
     `Vec<SyncEvent>` и разбор событий в `summarize` удалены; процессов git не прибавилось.
+  - Итог (s6-9, по коду): из списка «Удаляется» остались `structureOf`, `branchTableRowsIn` и `stackDescendantsIn`
+    (`branch-sync.ts`): они раскладывают строки по дереву стеков и parked (`collectParkedStates` из `parked.ts`), то
+    есть по правилам, которые переносит s8, и уходят вместе с ними; `items` и `menus` реле под-окон — тоже s8 (см.
+    выше). C4 не сделан (см. s6-6) и переходит в s7, где remote tips становятся фактом сессии. `branch-sync.ts` —
+    1168 строк вместо 1921 (push, строки, поиск), applier — `src/model/store.ts` (733) и `src/model/patch.ts` (74).
+    Мёртвый `batchTimer` (`src/lib/batch-timer.ts`, flush TS для скрытого окна) удалён: патчи сливает часы сессии в
+    Rust, страница применяет каждый при доставке (требование `title-bar.spec.md`).
 
 ### s7-session-facts
 
@@ -1713,7 +1721,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   C5, C9 (lock без `rev-parse`), C10; пути: поздний поиск PR после retarget, reviewers и close не откатывает их;
   demand во время batch отвечает после не более одного pre-check; смена репозитория во время batch не ждёт его;
   после ответа rate limit ни один запрос до `retry_at` (счётчик fake GitHub), ручное обновление спрашивает; ответ
-  `INSUFFICIENT_SCOPES` запомнен: два обновления — 3 GraphQL, не 4.
+  `INSUFFICIENT_SCOPES` запомнен: два обновления — 3 GraphQL, не 4; C4 (из s6): отпечаток входов по частям — хэш
+  остального и remote-ветки префикса списком, в котором сессия заменяет то, что записал её push, без процесса git.
 - **Критерий выхода:** страница не отправляет Rust ни одного вывода; `GetRepositoryViewParams` не существует.
 
 ### s8-policy
@@ -1783,7 +1792,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
   и проверки parked stack branch в `push_command.rs:692`, `safe_push_command.rs:914`; TS-половина таблицы сценариев
   (`scenario-case.ts`, `scenario-facts.ts`, `scenario-cases.test.ts`) и то, что служило только ей: `cases/facts/*.json`,
   `Situation::facts`, `assert_facts_kept`, `no_facts_file_is_of_a_case_that_is_gone`, `UPDATE_SCENARIO_FACTS` и его
-  упоминание в AGENTS.md; решающая половина `plan()` в `safe_push_command.rs`; `stack_summary::whole_stack_of`.
+  упоминание в AGENTS.md; решающая половина `plan()` в `safe_push_command.rs`; `stack_summary::whole_stack_of`; из s6 —
+  `structureOf`, `branchTableRowsIn`, `stackDescendantsIn` (`branch-sync.ts`): раскладку строк по стекам и parked
+  присылает вид.
 - **Проверки:** таблица сценариев с одним ожиданием на случай — D3b, D4 (правило), D5 (кандидаты), D8, D11, D12
   (правило), D13, D14, D15 сходятся;
   табличные тесты покрывают каждую строку `next-step.spec.md`; e2e каждой поверхности next step и Safe Push; B3, B4,
@@ -2270,7 +2281,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s3-crates | приземлён |
 | s4-errors | приземлён |
 | s5-settings | приземлён: один писатель `SettingsService` (`app-settings`) для `settings.json` и `repository-state.json`, окна шлют патчи через `set_setting` и применяют версии, снимок в init script каждого окна, `restart_app` и выход через писателя, `bd` читает через `app-settings`; префикс разрешает Rust на каждую команду (`BranchPrefixes`, `PrefixInputs`) у семейств sync, Patronus, push, pull request, обзора ветки, независимости стека, unapply, reapply и поиска исправления конфликта; `lastFetchTime` и `landedHiddenUntil` — в `repositoryState`; defaults Rust-полей `appSettings` страница берёт из bindings. Осталось: Real App Check первого кадра ждёт владельца (агенты его не выполняли) |
-| s6-session-table | не начат |
+| s6-session-table | приземлён: `TableState` (`repository-model::table`, `state`, `patch`) сворачивает события sync в части вида (`TableView`: у ветки head, commits, sync, copies, remote; стеки по корню; секции) и шлёт `ViewPatch { base, next, changes }` только изменившихся частей не чаще раза в 16 мс, `Version { epoch, seq }`, чужая эпоха или пропуск — снимок; сессии процесса (`session.rs`, актор `runtime.rs`, `SyncScheduler`) по `SessionKey` (worktree и префикс, разрешённый Rust): билеты `sync(reason)`, повтор по `SyncReport.retry`, отложенный и неудачный sync сохраняют таблицу, без подписчиков ничего не запускается, удаление через 2 мин по `Clock`; хосты — команды `open_session`, `get_snapshot`, `subscribe_view`, `unsubscribe_view`, `set_window_focus`, `sync` приложения и маршруты test-server (патчи через SSE); страница — `src/model/store.ts` применяет вид и патчи за прежними селекторами, `data-view-version`; `sync_branches`, `Channel<SyncEvent>`, очередь, flush и applier TS, глобальный `AtomicU32`, `GetRepositoryViewParams.revision` и `batchTimer` удалены; фикстура `sync-overrides` вместо перезаписи потока в странице; outcome push и удаление archived и unapplied ветки — патч сессии без sync после (C3, C12); фокус — `set_window_focus`, `autoSyncOnFocus` читает Rust; окно review подписано на сессию своего репозитория (tips, baseline, stack commits); `bd sync` сворачивает события тем же `TableState`, JSON `bd sync` и `bd status` прежний. Остаётся: s7 — факты (remote tips как `Fact` с `seq`, роботы, PR, readiness; `get_repository_view` с `remote` и `matched` страницы), факты `one_shot` у `bd`, `Demand` и C4 (отпечаток входов по частям); s8 — `structureOf`, `branchTableRowsIn`, `stackDescendantsIn` и `items`/`menus` реле под-окон (их строят правила TS) |
 | s7-session-facts | не начат |
 | s8-policy | не начат |
 | s9-engine-remote | не начат |

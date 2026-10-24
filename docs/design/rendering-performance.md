@@ -109,13 +109,16 @@ flowchart LR
    Safe Push the pull request no longer allowed). The "⋯" of an island opened before the pull requests loaded showed
    "Create Pull Request of the Stack…" and never the items of #12.
 
-4. **Decision**: a batch of about 16 ms, by `setTimeout`, not `requestAnimationFrame`.
-   **Rationale**: no animation frames run in a hidden window, and the sync's own end flushes anyway. Within a sync, a
-   reader of the store sees it at most one batch late.
+4. **Decision**: the batch of about 16 ms is the session's, in Rust (`PATCH_INTERVAL` of `runtime.rs`, wall time), not
+   a timer of the page; the page applies each patch as its channel delivers it.
+   **Rationale**: no animation frames run in a hidden window, and WebKit throttles the timers of a hidden page to a
+   second; the start of a run, its step to detection and its end send at once anyway. Within a sync, a reader of the
+   store sees it at most one patch late.
 
 5. **Decision**: unchanged answers keep their identity:
    - `updateProject` with values equal to the stored ones (`stableStringify` for objects);
-   - a remote status with the same fields;
+   - a part of the session's view equal to the one it sent last (`View::diff`, by `PartialEq`): no patch names it, so
+     the page keeps its record (a remote status, the commits of a branch whose state alone changed);
    - the same issue groups;
    - the pull requests a refresh answers unchanged (`mergePullRequests`, as `mergeRobots` does for robots);
    - an archived branch whose integration info is the same.
@@ -165,12 +168,12 @@ A sync that changes nothing cost little before and costs the same now. The rest 
 
 | 2026-10-24 | first sync, script / task | sync that changes nothing, script / task |
 |---|---|---|
-| `sync_branches`, its events sent once the sync was done (the mock before) | 235–245 / 412–464 ms | 32–55 / 72–119 ms |
-| `sync_branches`, its events sent as the sync runs (as the app's channel sends them) | 387–465 / 749–908 ms | 66 / 112–142 ms |
+| the `SyncEvent` channel, its events sent once the sync was done (the mock before) | 235–245 / 412–464 ms | 32–55 / 72–119 ms |
+| the `SyncEvent` channel, its events sent as the sync ran (as the app's channel sent them) | 387–465 / 749–908 ms | 66 / 112–142 ms |
 | the patches of the session | 345–395 / 779–967 ms | 31–50 / 71–97 ms |
 
-The rows before 2026-10-24 measured less than the app spent: the mock server answered `sync_branches` with the events
-of the sync once it was done, so the page applied its 432 events in one or two batches and rendered the rows once,
+The rows before 2026-10-24 measured less than the app spent: the mock server answered the sync command before the session
+with its `SyncEvent`s once the sync was done, so the page applied its 432 events in one or two batches and rendered the rows once,
 1.1 s after the click, while the app's channel sent them as the sync ran. The session sends its patches as the run
 goes in the mock too (at most one per `PATCH_INTERVAL`, 16 ms, `runtime.rs`), so the first sync now includes about 40
 renders of the progress of the rows, which show 0.3 s after the click instead of at the end. Measured in turns against
@@ -182,7 +185,7 @@ less script, and a sync that changes nothing about half.
 `pnpm perf:table` counts the IPC of the page on the same template too, in every engine, from the counters of the Tauri
 mock (`window.__ipcStats`, [E2E Testing](e2e-testing.md)), each read once the page shows its state and no command is
 pending: the messages of the first sync and the commands invoked until its rows and chips (`firstSyncPatches`, the
-patches of the session on the channel of `subscribe_view`, before 2026-10-24 the events of `sync_branches`;
+patches of the session on the channel of `subscribe_view`, before 2026-10-24 the `SyncEvent`s of the sync command;
 `firstSyncInvokes`), the bytes of a sync that changes nothing (`resyncIpcBytes`: parameters, answers and channel
 messages), and the commands of a rest of the pointer on a row (`hoverIpc`, past the dwell of the intent,
 `page.clock.fastForward`), of its "⋯" menu opened by a right click (`menuIpc`) and of its robot's popover
@@ -193,12 +196,12 @@ without the page, prints an ignored test of the mock server (`patch_bytes_test.r
 
 | 141 rows, robots on ten | first sync: messages / invokes | sync that changes nothing: bytes | hover / menu / popover |
 |---|---|---|---|
-| 2026-10-22, the events of `sync_branches` | 432 / 8 | 201670 | 1 / 0 / 0 |
-| 2026-10-24, `sync_branches` on master | 432 / 11 | 201890 | 1 / 0 / 0–1 |
+| 2026-10-22, the `SyncEvent` channel | 432 / 8 | 201670 | 1 / 0 / 0 |
+| 2026-10-24, the `SyncEvent` channel on master | 432 / 11 | 201890 | 1 / 0 / 0–1 |
 | 2026-10-24, the patches of the session, Chromium | 65–77 / 10 | 24784 | 1 / 0 / 0 |
 | 2026-10-24, the patches of the session, WebKit | 49–71 / 10 | 24657–24784 | 1 / 0 / 0 |
 
-A sync of `sync_branches` sent every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and
+A sync on the `SyncEvent` channel sent every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and
 `remoteStatusUpdate` per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). A patch
 carries only the parts of a branch that changed (`TableState`, [Git Operations](git-operations.md#repository-view)):
 a sync that changes nothing sends the state of the run and the build and copies of each branch, no commit, 24 KB in
@@ -231,9 +234,9 @@ used to download and compile the main window's tree before its own page: 61 modu
   the page commits no shell, 3 s after the build when it never loads. The budget counted from the load once: at load
   60–96 the first render may come long after it, and the budget showed a bare canvas. Each deadline holds only until
   the page gets a stage further: the fallback of the build once showed a page that had loaded 2.26 s after the build,
-  0.74 s later, before its budget and with the warning that it did not load. Until the window showed, the sync events
-  apply on the next task (`batchTimer`): their 16 ms timer would wait for WebKit's throttle of a hidden page, up to a
-  second. The deadlines run on the backend's clock (`wait_for_deadline`), never on a timer of the hidden page. The
+  0.74 s later, before its budget and with the warning that it did not load. Until the window showed, no patch waits for a timer
+  of the page, which WebKit throttles in a hidden page up to a second: the session merges them on its clock in Rust,
+  and the page applies each as it comes. The deadlines run on the backend's clock (`wait_for_deadline`), never on a timer of the hidden page. The
   log has the time of the first rows from the build ("main open 812 ms: loaded 240, shell 300") and, from the backend,
   what showed the window. A cold first start after an install on the monorepo ("main open 6199 ms: loaded 1506"): the
   budget showed the title row and the loading table 1.0 s after the load (WebKit's `window visible 1` 2.5 s after the

@@ -329,6 +329,14 @@ describe("a sync of the session", () => {
 })
 
 describe("the table of the view", () => {
+  it("applies a patch as its channel delivers it, on no timer of the page: a window not shown yet, whose timers WebKit throttles, holds it at once", async () => {
+    await open()
+    const { next } = fakeSessions.send("/repo", grouping("a"))
+    // no await: neither a timer nor a microtask lies between the message and the store
+    expect(branchSyncStore.getState().viewVersion).toEqual(next)
+    expect(branchSyncStore.getState().branchOrder).toEqual(["a"])
+  })
+
   it("keeps the records of the branches a patch leaves alone, and of the commits of a branch whose state alone changed", async () => {
     await open()
     await send(grouping("a", "b"))

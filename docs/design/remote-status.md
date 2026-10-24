@@ -1,7 +1,7 @@
 # Remote Status for Virtual Branches
 
 **Status:** Implemented  
-**Updated:** 2026-10-18  
+**Updated:** 2026-10-24  
 **Tags:** [git, remote-status, virtual-branches]
 
 ## Problem
@@ -197,8 +197,8 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   behind commit matches nothing of the branch: one `git rev-list ^baseline <parent>` (`AncestorCommits::ReadWhenNeeded`);
   the parent's virtual branch contains the commits of every ancestor.
 - **A failed status**: the sync logs it as a warning with the branch and the error, and sends nothing for the branch,
-  which keeps the status it had (the store keeps the last remote status across syncs, so a push label doesn't
-  flicker); the next sync computes it again.
+  which keeps the status it had (the table of the session keeps the last remote status across syncs, `TableState`,
+  so a push label doesn't flicker); the next sync computes it again.
 - **Fast-forward**: the walk of the commits behind lists no line at all, not even a `=` one: the remote side of
   `<remote tip>...local` is empty, so the remote tip is the branch's tip or one of its ancestors. A rebased branch
   lists its remote commits as `=`, nothing behind, and is no fast-forward: the push replaces them with their copies.

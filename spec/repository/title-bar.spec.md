@@ -36,10 +36,11 @@ targets:
   - ../../src/pages/IndexPage.tsx
   - ../../src/components/branch/BranchCreator.tsx
   - ../../src/components/branch/BranchTableCard.tsx
-  - ../../src/lib/batch-timer.ts
   - ../../crates/sync-core/src/repo_facts.rs
   - ../../crates/branch-integration/src/common.rs
   - ../../tests/e2e/setup/tauri-mocks.ts
+  - ../../src/model/store.ts
+  - ../../crates/repository-model/src/runtime.rs
 ---
 
 # Title Bar
@@ -277,9 +278,10 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   with their notes, after the rows, and keeps the archived branches newest tip first.
   [@test] ../../crates/sync-core/src/repo_facts_test.rs (`the_listing_reads_no_commit_of_the_branches_it_lists`)
   [@test] ../../crates/sync-core/src/detection_archive_step_test.rs (`the_archived_branches_come_newest_tip_first_with_their_subjects_from_the_log_of_their_notes`)
-- While the window never showed, a batch of sync events applies on the next task, not on its 16 ms timer: WebKit
-  throttles the timers of a hidden page to a second (`batchTimer`).
-  [@test] ../../src/lib/batch-timer.test.ts (`runs a batch on the next task, no timer, while the window never showed, then on its timer once it showed`)
+- While the window never showed, the rows of a sync wait for no timer of the page, which WebKit throttles in a hidden
+  page to a second: the session merges its patches on its own 16 ms clock in Rust, and the page applies each as its
+  channel delivers it.
+  [@test] ../../src/model/store.test.ts (`applies a patch as its channel delivers it, on no timer of the page: a window not shown yet, whose timers WebKit throttles, holds it at once`)
 - The page logs when its first frame with content came, from the build, with its load and its shell ("main open 812
   ms: loaded 240, shell 300"), which is not when the window showed: the backend logs what showed it, the page ("the
   page settled its content, showing the window") or a deadline ("the page settled no content within its budget,

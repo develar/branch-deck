@@ -36,6 +36,7 @@ flowchart TB
         G[State Isolation]
         H[Command Handlers]
         L[Remote Host: the real services on fake Patronus, GitHub, YouTrack]
+        S[Sessions: the syncs of a repository, its patches as SSE]
     end
     
     subgraph "Test Resources"
@@ -56,6 +57,8 @@ flowchart TB
     D --> H
     H --> I
     H --> L
+    D -->|subscribe_view, sync, set_window_focus| S
+    S --> I
     B -->|fixtures, logs| L
 ```
 
@@ -162,11 +165,13 @@ Mock implementation:
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
   entry with its reason (a page handler for the windows and the window menu), never both; a stale entry, or a route
-  or a handler without its command, fails; the eight
-  handlers over a route (`get_file_diffs` and `get_file_merges` adapt a channel;
+  or a handler without its command, fails; the thirteen
+  handlers over a route (`get_file_diffs` and `get_file_merges` adapt a channel; `cancel_lock_wait` names the channel
+  of its wait by the key the mock gave it; `set_setting`, `get_settings_changes`, `sub_window_loaded` and
+  `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
   `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
   and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (127) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
+  bytes). The number of commands (128) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no

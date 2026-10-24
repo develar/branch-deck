@@ -606,9 +606,10 @@ whom for nowhere, and refuse after 10 s. A core finds the file with one
 directory its context resolved, and a wait for it makes `bd` read the config again (`RepoContext::forget_config`). A sync
 never waits for it, the app's, `bd sync` and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large
 repository would make every writer fail with `locked`; only its drop of store lines takes it, while it is free (see
-"Regroup"). Within a window one sync
-runs at a time (`syncBranches`): a request while one runs asks for one follow-up after it, the events of a superseded
-run are dropped, and a focus during a sync checks the inputs once after it. A `bd` write during an app sync changes
+"Regroup"). Within a session one sync
+runs at a time (`SyncScheduler`, [Repository view](#repository-view)): a request while one runs asks for one follow-up
+after it, the events of a run that is not in flight are dropped, and a focus during a sync checks the inputs once after
+it. A `bd` write during an app sync changes
 the inputs (the fingerprint is taken when the sync starts), so the next focus syncs again and corrects what the sync
 wrote from the HEAD it read. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
 `locked`.
@@ -3164,8 +3165,8 @@ from a grouping, with the remote tips only). The app keeps the table of the last
 answers `get_repository_view`
 from it, under the prefix it resolves for the repository as the sync did (`BranchPrefixes`, the page sends none), with
 the robots, their matches and the remote facts the page sends: a push moves a remote branch without a
-sync, the page knows it, the table doesn't, so the page's view reads the page's facts; `bd` reads the table's
-(`PatronusFacts::read`). The E2E server keeps it the same way from the syncs of its sessions. The page asks the view
+sync, the session's view has its outcome (below) and this table of the last sync doesn't, so the page sends the remote
+facts of the view it holds; `bd` reads the table's (`PatronusFacts::read`). The E2E server keeps it the same way from the syncs of its sessions. The page asks the view
 again only when the table changed (`tableRevision` of its store, which counts the patches that changed more than the
 state of a run), so no counter of the backend numbers the tables.
 
@@ -3285,8 +3286,8 @@ processes: none for a robot at its tip or under new commits, one `cat-file --bat
 restack, none for the same state again.
 
 The page asks (`askRepositoryView` in `src/stores/patronus.ts`) only when an input changed: the robots (their record,
-which a poll that changed nothing keeps), the matches, the remote facts, or what the last sync read (the fingerprint of
-its inputs, `syncedInputs`: a sync of the same inputs left the same table, so it asks nothing). During a sync only a
+which a poll that changed nothing keeps), the matches, the remote facts, or the table of the session (`tableRevision`,
+above: a sync that left the table as it was asks nothing). During a sync only a
 change of the robots asks, from the table of the sync before. An answer equal to the view the page has changes no
 store, so no row reads it again.
 
