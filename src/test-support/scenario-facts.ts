@@ -345,6 +345,8 @@ function seedGitHub(given: Given, facts: ScenarioFacts): void {
         pullRequests: pullRequest === undefined ? {} : { [branch]: pullRequest },
         stackPullRequests: given.stackPullRequest === true && listed ? { [root]: stackPullRequestOf(facts, root) } : {},
         fetchedAt: 1,
+        // the error of an unlisted case is GitHub's first answer: no listing before it
+        listedAt: listed ? 1 : 0,
         isRefreshing: false,
       },
     },

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { getErrorDetails } from "@/lib/errors"
 import type { ReviewPatronus } from "@/lib/pull-request-review"
 import { readPatronusTargetBranch, usePatronusAvailable } from "@/stores/patronus"
 import { useSelectedProjectPath } from "@/stores/repository"
@@ -10,21 +11,29 @@ import { useSelectedProjectPath } from "@/stores/repository"
 export function useReviewPatronus(active: boolean): ReviewPatronus {
   const available = usePatronusAvailable()
   const repositoryPath = useSelectedProjectPath()
-  // undefined while it is read
-  const [target, setTarget] = useState<{ repositoryPath: string | undefined; branch: string | null } | undefined>(undefined)
+  // undefined while it is read; a failed read says why
+  const [target, setTarget] = useState<{ repositoryPath: string | undefined; branch: string | null | undefined; error?: string } | undefined>(undefined)
   useEffect(() => {
     if (!active || !available) {
       return
     }
     let current = true
-    void readPatronusTargetBranch().then(branch => {
-      if (current) {
-        setTarget({ repositoryPath, branch })
-      }
-    })
+    readPatronusTargetBranch().then(
+      branch => {
+        if (current) {
+          setTarget({ repositoryPath, branch })
+        }
+      },
+      (error: unknown) => {
+        if (current) {
+          setTarget({ repositoryPath, branch: undefined, error: getErrorDetails(error) })
+        }
+      },
+    )
     return () => {
       current = false
     }
   }, [active, available, repositoryPath])
-  return { available, target: target !== undefined && target.repositoryPath === repositoryPath ? target.branch : undefined }
+  const own = target !== undefined && target.repositoryPath === repositoryPath ? target : undefined
+  return { available, target: own?.branch, ...(own?.error !== undefined && { targetError: own.error }) }
 }

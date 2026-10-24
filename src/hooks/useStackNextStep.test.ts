@@ -105,6 +105,7 @@ function setPullRequests(stack: PullRequest | null): void {
         pullRequests: {},
         stackPullRequests: stack === null ? {} : { air: stack },
         fetchedAt: 1,
+        listedAt: 1,
         isRefreshing: false,
       },
     },

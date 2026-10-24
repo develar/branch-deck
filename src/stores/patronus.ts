@@ -1393,6 +1393,21 @@ export function isPatronusAvailable(): boolean {
   return status !== undefined && status !== "notPatronus"
 }
 
+/**
+ * The starts of Patronus are offered for the selected repository: it answers for it, or it hasn't answered yet (each
+ * start disabled with "Waits for the answer of Patronus" meanwhile); not once it says the repository is not on Space
+ */
+export function usePatronusOffered(): boolean {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => state.repositories[key]?.availability?.status !== "notPatronus")
+}
+
+/** Non-hook variant of `usePatronusOffered`, for menus built on open */
+export function isPatronusOffered(): boolean {
+  const key = currentKey()
+  return key === null || patronusStore.getState().repositories[key]?.availability?.status !== "notPatronus"
+}
+
 /** Patronus answered whether the selected repository is on Space: before that, nothing says how its branches land */
 export function isPatronusKnown(): boolean {
   const key = currentKey()
@@ -1698,7 +1713,10 @@ async function lookUpLate(lookUp: () => Promise<PatronusRobot | undefined>): Pro
   return null
 }
 
-/** The branch Patronus pushes into for the baseline of the selected repository; null when the baseline is no branch of origin */
+/**
+ * The branch Patronus pushes into for the baseline of the selected repository; null when the baseline is no branch of
+ * origin. Throws what failed: a failed read is no "the baseline is none"
+ */
 export async function readPatronusTargetBranch(): Promise<string | null> {
   const { repositoryPath } = patronusRequest()
   const baselineBranch = branchSyncStore.getState().baselineBranch
@@ -1706,7 +1724,10 @@ export async function readPatronusTargetBranch(): Promise<string | null> {
     return null
   }
   const result = await commands.getPatronusTargetBranch({ repositoryPath, baselineBranch })
-  return result.status === "ok" ? result.data : null
+  if (result.status === "error") {
+    throw commandFailure(result.error)
+  }
+  return result.data
 }
 
 async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot, request: VcsRequest | null = null, replaced = false): Promise<PatronusRobot> {

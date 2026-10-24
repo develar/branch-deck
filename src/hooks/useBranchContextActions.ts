@@ -97,8 +97,7 @@ import {
   getPatronusGitHubRepository,
   getPushHold,
   getStackBranchHoldReason,
-  isPatronusAvailable,
-  isPatronusKnown,
+  isPatronusOffered,
 } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, isPullRequestsLoading } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
@@ -143,7 +142,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const rewrite = (items: MenuItem[]): MenuItem[] => items.map(item => rewriteItem(branch, item, operations, rewriteBlocker))
 
   // until Patronus answers its starts are offered, disabled with what they wait for: hidden only off Space
-  const patronus = isPatronusAvailable() || !isPatronusKnown()
+  const patronus = isPatronusOffered()
   const landingActions: MenuItem[] = []
   // the build of what its Safe Push lands needs a branch outside it: the fix first ("Stack lane-run on stills-codec")
   if (nextStep.landingFix !== null) {
@@ -573,7 +572,8 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   items.push(...getCreatePullRequestItems(branch))
   // as the push button of the row: only a branch that synced without an error has something to push
   const hasPush = !branch.hasError && branch.commitCount > 0
-  if (hasPush && isPatronusAvailable()) {
+  // offered until Patronus says the repository is not on Space: disabled with what it waits for before its answer
+  if (hasPush && isPatronusOffered()) {
     items.push(getSafePushMenuItem(branch))
   }
   // the first push of a branch is a step of Safe Push and Create Pull Request: "⋯" offers it

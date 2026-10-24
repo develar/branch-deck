@@ -42,7 +42,15 @@ import {
   isRobotProblemsPending,
   patronusStore,
 } from "@/stores/patronus"
-import { getPullRequest, getPullRequestAvailability, getStackPullRequest, isPullRequestsLoading, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
+import {
+  getPullRequest,
+  getPullRequestAvailability,
+  getPullRequestListing,
+  getStackPullRequest,
+  isPullRequestsLoading,
+  pullRequestsStore,
+  retargetPullRequest,
+} from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useShowReviewReadiness } from "@/stores/review-readiness"
@@ -221,8 +229,9 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,
-    pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
-    pullRequestsUnlisted: formatAvailabilityHint(getPullRequestAvailability()),
+    // a refresh that failed for a while keeps the last listing: its pull requests are known as of then
+    pullRequestsAvailable: getPullRequestListing() === "listed",
+    pullRequestsUnlisted: getPullRequestListing() === "unlisted" ? formatAvailabilityHint(getPullRequestAvailability()) : null,
     pullRequest: pullRequestFact,
     target,
     // the ancestors a merged Safe Push landed are in the target: the robot lands the others

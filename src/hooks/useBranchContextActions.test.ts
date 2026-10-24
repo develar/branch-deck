@@ -2,7 +2,7 @@
 // @spec spec/branch/stacked-branches.spec.md
 // @spec spec/branch/branch-row.spec.md
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
-import { getBranchContextMenuItems, getSafePushBlocker } from "@/hooks/useBranchContextActions"
+import { getBranchContextMenuItems, getBranchReviewItems, getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem } from "@/lib/menu"
 import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
@@ -21,7 +21,9 @@ const KEY = "/repo\nuser"
 /** GitHub listed the pull requests of the repository: none */
 function setPullRequestsListed(): void {
   pullRequestsStore.setState({
-    repositories: { [KEY]: { availability: { status: "available", owner: "acme", name: "air" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, isRefreshing: false } },
+    repositories: {
+      [KEY]: { availability: { status: "available", owner: "acme", name: "air" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, listedAt: 1, isRefreshing: false },
+    },
   })
 }
 
@@ -41,7 +43,7 @@ describe("getSafePushBlocker", () => {
     // the readiness of a branch is asked by its row; nothing else holds the start back
     expect(getSafePushBlocker(testBranch("login", null))).toBe("Waits for Patronus to check the approvals")
     pullRequestsStore.setState({
-      repositories: { [KEY]: { availability: { status: "notGitHub" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, isRefreshing: false } },
+      repositories: { [KEY]: { availability: { status: "notGitHub" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, listedAt: 1, isRefreshing: false } },
     })
     expect(getSafePushBlocker(testBranch("login", null))).toBeNull()
     expect(getSafePushBlocker(testBranch("login", null, { hasError: true }))).toBe("The branch failed to sync")
@@ -342,6 +344,11 @@ describe("the order of the branch menu", () => {
   it("offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests", () => {
     setBranches(synced("auth", null, unpushed))
     expect(menuOf("auth").find(item => item.id === "safe-push")).toMatchObject({ disabled: true, description: "Waits for the answer of Patronus" })
+    // the review window and the preview offer it as the menu does
+    expect(getBranchReviewItems(branchSyncStore.getState().branches["auth"]!).find(item => item.id === "safe-push")).toMatchObject({
+      disabled: true,
+      description: "Waits for the answer of Patronus",
+    })
     setPatronus()
     expect(menuOf("auth").find(item => item.id === "safe-push")).toMatchObject({ disabled: true, description: "Waits for GitHub to list the pull requests" })
     expect(

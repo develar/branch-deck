@@ -1,7 +1,7 @@
 // @spec spec/repository/review-requests.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { PullRequestReviewWindowData } from "@/lib/pull-request-review"
-import { pullRequestReviewWindowKey } from "@/lib/pull-request-review"
+import { getReviewSafePush, pullRequestReviewWindowKey } from "@/lib/pull-request-review"
 import { reviewRequest } from "@/test-support/review-request"
 
 function data(patch: Partial<PullRequestReviewWindowData>): PullRequestReviewWindowData {
@@ -27,5 +27,16 @@ describe("the review window of a pull request", () => {
     const withIntent = data({ intent: "requestChanges", openedAt: 3 })
     expect(pullRequestReviewWindowKey(withIntent)).not.toBe(shown)
     expect(pullRequestReviewWindowKey({ ...withIntent, openedAt: 4 })).not.toBe(pullRequestReviewWindowKey(withIntent))
+  })
+
+  it("says why Approve and Safe Push waits for the branch Patronus pushes into, and a read that failed as a failure", () => {
+    const request = reviewRequest(7)
+    expect(getReviewSafePush(request, { available: true, target: undefined })).toEqual({ blocked: "Reading the branch Patronus pushes into…" })
+    // a failed read is no "the baseline is none"
+    expect(getReviewSafePush(request, { available: true, target: undefined, targetError: "Patronus answered 503" })).toEqual({
+      blocked: "Cannot read the branch Patronus pushes into: Patronus answered 503",
+    })
+    expect(getReviewSafePush(request, { available: true, target: null })).toEqual({ blocked: "Patronus pushes into a branch of origin: the baseline is none" })
+    expect(getReviewSafePush(request, { available: true, target: "master" })).toEqual({ blocked: null })
   })
 })

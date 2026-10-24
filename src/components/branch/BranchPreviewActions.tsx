@@ -21,7 +21,7 @@ import type { Branch } from "@/stores/branch-sync"
 import { useIsBranchPushing } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { branchSubject, operationLabel, stopWaitingItem, useUnclaimedOperation } from "@/stores/operations"
-import { usePatronusAvailable, usePushHold } from "@/stores/patronus"
+import { usePatronusOffered, usePushHold } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
 /**
@@ -35,7 +35,8 @@ import { usePullRequest } from "@/stores/pull-requests"
  */
 export function BranchPreviewActions({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
-  const patronusAvailable = usePatronusAvailable()
+  // until Patronus answers, its Safe Push waits there, disabled with why
+  const patronusOffered = usePatronusOffered()
   const closePreview = useContext(ClosePreviewContext)
   // the menu's item: "Create Pull Request…" of a branch without a live pull request, on GitHub; disabled with the reason
   // of the next step once nothing of it is left to land
@@ -80,7 +81,7 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
           <TooltipContent>{createItem.description}</TooltipContent>
         </Tooltip>
       )}
-      {patronusAvailable && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
+      {patronusOffered && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
       {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}
     </>
   )

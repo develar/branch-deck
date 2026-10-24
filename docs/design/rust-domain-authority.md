@@ -1678,13 +1678,15 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `actions` каждой поверхности `Disabled{Pending(fact)}`, узел ждёт и не считается ходом; Dry Run ждёт только Patronus;
   причина ветки (строка 1, робот предка, блок, parked, операция) и известная landing need (строка 1′) перекрывают
   её; landing needs не ждутся — gate старта проверяет их сам. Неудачный ответ — не «нет»: `Unavailable` PR оставляет
-  PR неизвестным (строки 5–10 не применяются, Safe Push подтверждается и называет причину). `Stale` readiness
+  PR неизвестным (строки 5–10 не применяются, Safe Push подтверждается и называет причину), а временная неудача после
+  листинга (ошибка, rate limit) — `Stale` последнего листинга, по которому шаги и решают. `Stale` readiness
   сохраняет шаг и его подпись, действие — `Disabled{Pending(readiness)}`, тихий шаг остаётся. Табличные тесты s8
   покрывают каждую строку `next-step.spec.md` с каждым входным фактом не `Fresh` (`Loading`, `Stale`, `Unavailable`,
   `Unknown`): ни один вход не отвечает действием, которое тот же вход с `Fresh` заменил бы другим. Rust-версия держит
   зелёными: `tests/e2e/next-step/facts-without-answer.spec.ts` (`should wait with Checking… for the pull requests and
   the approvals, S and the menu saying why, then start the Safe Push they allow`, `should never offer Create Pull
-  Request… before GitHub lists the pull requests, and show a failed listing, not a missing pull request`),
+  Request… before GitHub lists the pull requests, say a failed listing, and keep the last listing through a failed
+  refresh`),
   `tests/e2e/repository/header.spec.ts` (`should keep its controls in place when Patronus answers after the sync`),
   `tests/e2e/branch-row-layout/late-facts.spec.ts` (`should keep the rows and the columns where the last start left
   them while Your Turn, the pull requests and the approvals come back`) и кейс `row-11-not-asked-yet` таблицы

@@ -34,6 +34,8 @@ export interface RepositoryPullRequests {
   readonly stackPullRequests: Readonly<Record<string, PullRequest>>
   /** `Date.now()` of the last answer, 0 = never */
   readonly fetchedAt: number
+  /** `Date.now()` of the last answer that listed the pull requests (`available`), 0 = never */
+  readonly listedAt: number
   readonly isRefreshing: boolean
 }
 
@@ -44,7 +46,29 @@ export interface PullRequestsState {
 
 export const pullRequestsStore = createStore<PullRequestsState>(() => ({ repositories: {} }))
 
-const EMPTY: RepositoryPullRequests = { availability: null, pullRequests: {}, stackPullRequests: {}, fetchedAt: 0, isRefreshing: false }
+const EMPTY: RepositoryPullRequests = { availability: null, pullRequests: {}, stackPullRequests: {}, fetchedAt: 0, listedAt: 0, isRefreshing: false }
+
+/**
+ * Whether the pull requests of a repository are known: `loading` before GitHub's first answer (after a start or a
+ * switch); `listed` while GitHub lists them, and through a refresh that failed for a while after a listing (offline, an
+ * error, the rate limit: the pull requests are the last listing's); `unlisted` while GitHub can't list them (no token,
+ * a rejected one, SSO, no access, not on GitHub, a failure before any listing). Neither of the others is "no pull
+ * request"
+ */
+export type PullRequestListing = "loading" | "listed" | "unlisted"
+
+/** The availabilities after which the last listing stays: GitHub is to answer again, nothing of the user changed */
+function isTransientFailure(availability: PullRequestAvailability): boolean {
+  return availability.status === "error" || availability.status === "rateLimited"
+}
+
+function listingOf(entry: RepositoryPullRequests | undefined): PullRequestListing {
+  const availability = entry?.availability ?? null
+  if (availability === null) {
+    return "loading"
+  }
+  return availability.status === "available" || (isTransientFailure(availability) && (entry?.listedAt ?? 0) > 0) ? "listed" : "unlisted"
+}
 
 function repositoryKey(repositoryPath: string, branchPrefix: string): string {
   return `${repositoryPath}\n${branchPrefix}`
@@ -121,6 +145,12 @@ export function getPullRequestAvailability(): PullRequestAvailability | null {
  */
 export function isPullRequestsLoading(): boolean {
   return currentKey() !== null && getPullRequestAvailability() === null
+}
+
+/** Whether the pull requests of the selected repository are known (`PullRequestListing`); `loading` without one */
+export function getPullRequestListing(): PullRequestListing {
+  const key = currentKey()
+  return key === null ? "loading" : listingOf(pullRequestsStore.getState().repositories[key])
 }
 
 // ---- refresh ----
@@ -208,15 +238,20 @@ export function refreshPullRequests(reason: RefreshReason, repository?: VcsReque
     const since = ++writeSeq
     try {
       const result = await commands.getPullRequests({ repositoryPath })
-      if (result.status === "ok") {
-        const previous = pullRequestsStore.getState().repositories[key] ?? EMPTY
+      const previous = pullRequestsStore.getState().repositories[key] ?? EMPTY
+      if (result.status === "ok" && isTransientFailure(result.data.availability) && previous.listedAt > 0) {
+        // GitHub failed for a while (an error, the rate limit): the last listing stays, as a failed command keeps it
+        update(key, { availability: sameJson(previous.availability, result.data.availability) ? previous.availability : result.data.availability, fetchedAt: Date.now() })
+      } else if (result.status === "ok") {
         const pullRequests = keepWritten(writtenKey(key, false), since, previous.pullRequests, withCreated(key, result.data.pullRequests, Date.now()))
         const stackPullRequests = keepWritten(writtenKey(key, true), since, previous.stackPullRequests, withCreated(stackKey(key), result.data.stackPullRequests ?? {}, Date.now()))
+        const now = Date.now()
         update(key, {
           availability: sameJson(previous.availability, result.data.availability) ? previous.availability : result.data.availability,
           pullRequests: mergePullRequests(previous.pullRequests, pullRequests),
           stackPullRequests: mergePullRequests(previous.stackPullRequests, stackPullRequests),
-          fetchedAt: Date.now(),
+          fetchedAt: now,
+          ...(result.data.availability.status === "available" && { listedAt: now }),
         })
       } else {
         // keep what was shown: a failed refresh does not make the pull requests go away

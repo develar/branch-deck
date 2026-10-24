@@ -186,8 +186,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/branch-next-step.test.ts (`words the notice of S as a short title naming the branch, the reason below; a reason of the branch first`)
   [@test] ../../src/lib/branch-next-step.test.ts (`disables the action of the slot while an operation on the row runs, never the quiet steps nor a write of another field of its pull request; its own runs`, `disables the Safe Push of a branch a robot of its ancestor lands, its slot says why`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should retarget a pull request while a review is requested in it: both reach GitHub, neither refuses the other`)
-- The pull requests are a fact of their own: until GitHub lists them (not configured, signed out, SSO, not loaded),
-  the readiness counts as `unavailable` and rows 5 to 10 don't apply: the table never offers a Create Pull Request… for
+- The pull requests are a fact of their own: while GitHub doesn't list them (not configured, signed out, SSO; before
+  its first answer the step is row 0), the readiness counts as `unavailable` and rows 5 to 10 don't apply: the table never offers a Create Pull Request… for
   a branch that may have one; the start then holds nothing back either, and confirms first: "GitHub doesn't list the
   pull requests of the repository: Patronus checks the approvals when the robot starts." A repository only on
   Space (no GitHub) never asks; its Safe Push stays possible, its
@@ -250,23 +250,26 @@ branch from all the facts (the branch, its robots, its pull request and the read
 - Every surface waits the same way: the slot shows a muted "Checking…" with its spinner, disabled, the fact on hover
   ("Waits for GitHub to list the pull requests", "Waits for the answer of Patronus", "Waits for Patronus to tell why
   the Safe Push failed", "Waits for Patronus to check the approvals"); "⋯" keeps Safe Push and "Patronus ›" disabled
-  with the same words, also before Patronus answers whether it lands the repository (hidden only once it says it
-  doesn't); "Create Pull Request…" of "⋯" is disabled with "Waits for GitHub to list the pull requests" while the
+  with the same words, and so do the footer of the preview and the title bar of the review window, also before
+  Patronus answers whether it lands the repository (hidden only once it says it doesn't, `isPatronusOffered`); "Create Pull Request…" of "⋯" is disabled with "Waits for GitHub to list the pull requests" while the
   branch may have one; S says it in an `info` notice ("Safe Push of JIRA-456 waits for GitHub"); the node of the row
   waits too and the header counts no move of it ([Landing Overview](../repository/landing-overview.spec.md#indicator)).
   A Dry Run waits only for Patronus: approvals and pull requests never hold it back. The readiness store asks for the
   answer the step waits for (`needsReadiness`). The step of a start reads the facts of the start: it waits for a
   readiness without an answer and for GitHub's first answer itself (`getSafePushDecision`, its review `loading`, never
   `unlisted` before that answer), so neither holds it back there.
-  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should wait with Checking… for the pull requests and the approvals, S and the menu saying why, then start the Safe Push they allow`, `should never offer Create Pull Request… before GitHub lists the pull requests, and show a failed listing, not a missing pull request`)
+  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should wait with Checking… for the pull requests and the approvals, S and the menu saying why, then start the Safe Push they allow`, `should never offer Create Pull Request… before GitHub lists the pull requests, say a failed listing, and keep the last listing through a failed refresh`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push, in the words of every surface that offers it`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests`)
-- A failed answer is an answer, never "no": a listing GitHub failed (signed out, offline, SSO; `pullRequestsUnlisted`,
-  `formatAvailabilityHint`) leaves the pull requests unknown, so rows 5 to 10 don't apply and the Safe Push stays, its
-  hover saying it ("Lands JIRA-456 into master once the checks pass · GitHub: offline: Patronus checks the approvals
-  when the robot starts", the node the same), and its start confirms first; a view or problems Patronus didn't give
-  leave the step to the rows below.
+- A failed answer is an answer, never "no": a listing GitHub can't give (signed out, SSO, no access, or a failure
+  before any listing; `getPullRequestListing` `unlisted`, `pullRequestsUnlisted`, `formatAvailabilityHint`) leaves the
+  pull requests unknown, so rows 5 to 10 don't apply and the Safe Push stays, its hover saying it ("Lands JIRA-456 into
+  master once the checks pass · GitHub: offline: Patronus checks the approvals when the robot starts", the node the
+  same), and its start confirms first. A refresh GitHub fails for a while after a listing (an error, offline, the rate
+  limit) keeps that listing (`listed`): the steps read its pull requests as of then, so a failed refresh never turns a
+  wait back into a Safe Push. A view or problems Patronus didn't give leave the step to the rows below.
+  [@test] ../../src/stores/pull-requests.test.ts (`keeps the last listing through a refresh GitHub failed for a while, never once its token is gone`)
   [@test] ../../src/lib/branch-next-step.test.ts (`treats the readiness as unavailable without the pull requests: never a duplicate Create Pull Request…`)
-  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should never offer Create Pull Request… before GitHub lists the pull requests, and show a failed listing, not a missing pull request`)
+  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should never offer Create Pull Request… before GitHub lists the pull requests, say a failed listing, and keep the last listing through a failed refresh`)
 - A stale answer of the readiness (the branch moved on: a new tip, a new review, Check Approvals Again) keeps its step
   while the new one loads, so the row doesn't flicker, but its action waits for the new answer, which may decide
   another step: Safe Push, Restart, Create Pull Request… and Request Review… disabled with "Waits for Patronus to check

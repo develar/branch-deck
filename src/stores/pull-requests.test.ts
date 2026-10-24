@@ -6,6 +6,7 @@ import {
   PUSH_RECHECK_DELAY_MS,
   getGitHubRepository,
   getPullRequest,
+  getPullRequestListing,
   isPullRequestsLoading,
   mergePullRequests,
   pullRequestsStore,
@@ -198,6 +199,31 @@ describe("refreshPullRequests", () => {
     expect(isPullRequestsLoading()).toBe(false)
   })
 
+  it("keeps the last listing through a refresh GitHub failed for a while, never once its token is gone", async () => {
+    // a failure before any listing lists nothing: the pull requests are unknown
+    gh.result = { availability: { status: "error", message: "offline" }, pullRequests: {} }
+    await refreshPullRequests("sync")
+    expect(getPullRequestListing()).toBe("unlisted")
+    gh.result = answer()
+    await refreshPullRequests("manual")
+    expect(getPullRequestListing()).toBe("listed")
+    // the rate limit, an error of GitHub: the pull requests are the last listing's, still known
+    for (const availability of [
+      { status: "rateLimited", retryAt: 2_000 },
+      { status: "error", message: "502" },
+    ] as const) {
+      gh.result = { availability, pullRequests: {} }
+      await refreshPullRequests("manual")
+      expect(getPullRequestListing(), availability.status).toBe("listed")
+      expect(getPullRequest("auth")?.number, availability.status).toBe(1)
+    }
+    // signed out: GitHub can't list them any more, what was listed goes
+    gh.result = { availability: { status: "signedOut" }, pullRequests: {} }
+    await refreshPullRequests("manual")
+    expect(getPullRequestListing()).toBe("unlisted")
+    expect(getPullRequest("auth")).toBeUndefined()
+  })
+
   it("keeps the shown pull requests when a refresh fails", async () => {
     await refreshPullRequests("sync")
     gh.result = null
@@ -245,7 +271,7 @@ describe("refreshPullRequestsAfterPush", () => {
     gh.result = answer("old")
     // the pull requests of /other were kept under the prefix the page showed while it was selected
     pullRequestsStore.setState(state => ({
-      repositories: { ...state.repositories, "/other\nthem": { availability: null, pullRequests: {}, stackPullRequests: {}, fetchedAt: 0, isRefreshing: false } },
+      repositories: { ...state.repositories, "/other\nthem": { availability: null, pullRequests: {}, stackPullRequests: {}, fetchedAt: 0, listedAt: 0, isRefreshing: false } },
     }))
     await refreshPullRequestsAfterPush("auth", "new", { repositoryPath: "/other" })
     await vi.advanceTimersByTimeAsync(PUSH_RECHECK_DELAY_MS)

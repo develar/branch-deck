@@ -425,8 +425,11 @@ Safe Push it allows.
   Patronus pushes into for the baseline (`get_patronus_target_branch`); another base is disabled with "#103 merges into
   release/253: Patronus would merge it there, not into master" (a stacked pull request would land in its parent). The
   row's menu decides alike (`getReviewSafePush`, the target read once for the card), never enabled where the review
-  refuses.
+  refuses. While the target is read it is disabled with "Reading the branch Patronus pushes into…"; a read that failed
+  says it ("Cannot read the branch Patronus pushes into: …", read again by the next open of a review window), never "the
+  baseline is none".
   [@test] ../../src/lib/review-request-actions.test.ts (`offers Approve and Safe Push where Patronus merges into the base, the Safe Push alone once approved`)
+  [@test] ../../src/lib/pull-request-review.test.ts (`says why Approve and Safe Push waits for the branch Patronus pushes into, and a read that failed as a failure`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation`)
 - It opens a confirmation below its button: "Approves 1a2b3c4d, then comments /patronus merge on #101: Patronus rebases
   alice/feature onto master, runs the checks, merges it and deletes the branch. It reports in the pull request.", with

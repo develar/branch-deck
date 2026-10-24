@@ -1,5 +1,5 @@
 import type { ReviewRequest } from "@/lib/bindings"
-import { logError, notifyError, recordError } from "@/lib/errors"
+import { getErrorDetails, logError, notifyError, recordError } from "@/lib/errors"
 import { PULL_REQUEST_REVIEW_WINDOW, reviewWindowTitle } from "@/lib/pull-request-review"
 import type {
   PullRequestReviewWindowData,
@@ -42,6 +42,8 @@ const link = createWindowLink<{ repositoryPath: string; number: number }, Review
 })
 /** The branch Patronus pushes into, by repository, once read */
 const patronusTargets = new Map<string, string | null>()
+/** Why the read of the target of a repository failed: said until the next open of a review window reads it again */
+const patronusTargetErrors = new Map<string, string>()
 /** The reads of `patronusTargets` in flight */
 const patronusReads = new Map<string, Promise<void>>()
 
@@ -67,7 +69,8 @@ export async function openPullRequestReviewWindow(repositoryPath: string, reques
   link.setShown(shown)
   noteReviewRefsWritten(repositoryPath)
   markReviewRequestRead(repositoryPath, request)
-  // the window opens knowing whether Patronus merges the request
+  // the window opens knowing whether Patronus merges the request; a read that failed before is tried again
+  patronusTargetErrors.delete(repositoryPath)
   await readPatronusTarget(repositoryPath)
   const state = link.takeState()!
   const data: PullRequestReviewWindowData = { repositoryPath, number: request.number, request, index, intent, openedAt: Date.now(), state }
@@ -97,6 +100,10 @@ function reviewPatronus(repositoryPath: string): ReviewPatronus {
   if (!isPatronusAvailable()) {
     return { available: false, target: null }
   }
+  const targetError = patronusTargetErrors.get(repositoryPath)
+  if (targetError !== undefined) {
+    return { available: true, target: undefined, targetError }
+  }
   if (!patronusTargets.has(repositoryPath)) {
     void readPatronusTarget(repositoryPath).then(broadcastReviewWindowState)
   }
@@ -113,7 +120,10 @@ function readPatronusTarget(repositoryPath: string): Promise<void> {
     read = readPatronusTargetBranch()
       .then(
         target => void patronusTargets.set(repositoryPath, target),
-        (error: unknown) => logError("Cannot read the branch Patronus pushes into", error),
+        (error: unknown) => {
+          logError("Cannot read the branch Patronus pushes into", error)
+          patronusTargetErrors.set(repositoryPath, getErrorDetails(error))
+        },
       )
       .finally(() => patronusReads.delete(repositoryPath))
     patronusReads.set(repositoryPath, read)

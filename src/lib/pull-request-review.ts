@@ -19,6 +19,8 @@ export interface ReviewPatronus {
   readonly available: boolean
   /** The branch Patronus pushes into for the baseline; undefined while it is read, null when the baseline is none */
   readonly target: string | null | undefined
+  /** Why the target couldn't be read (`target` undefined then): no "the baseline is none" */
+  readonly targetError?: string
 }
 
 export interface ReviewWindowState {
@@ -110,7 +112,7 @@ export function getReviewSafePush(request: ReviewRequest, patronus: ReviewPatron
     return null
   }
   if (patronus.target === undefined) {
-    return { blocked: "Reading the branch Patronus pushes into…" }
+    return { blocked: patronus.targetError === undefined ? "Reading the branch Patronus pushes into…" : `Cannot read the branch Patronus pushes into: ${patronus.targetError}` }
   }
   if (patronus.target === null) {
     return { blocked: "Patronus pushes into a branch of origin: the baseline is none" }

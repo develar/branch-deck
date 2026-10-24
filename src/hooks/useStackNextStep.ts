@@ -40,7 +40,7 @@ import {
   isRobotFailing,
   isRobotNeedingReview,
 } from "@/stores/patronus"
-import { getPullRequestAvailability, getStackPullRequest } from "@/stores/pull-requests"
+import { getPullRequestAvailability, getPullRequestListing, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, useShowReviewReadiness } from "@/stores/review-readiness"
 
@@ -219,8 +219,9 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,
-    pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
-    pullRequestsUnlisted: formatAvailabilityHint(getPullRequestAvailability()),
+    // a refresh that failed for a while keeps the last listing: its pull requests are known as of then
+    pullRequestsAvailable: getPullRequestListing() === "listed",
+    pullRequestsUnlisted: getPullRequestListing() === "unlisted" ? formatAvailabilityHint(getPullRequestAvailability()) : null,
     pullRequest: stackPullRequestFactOf(stack, target),
     target,
     // what merged Safe Pushes landed of it is in the target: the robot lands the rest

@@ -70,6 +70,14 @@ async function expectMenuSafePushDisabled(page: Page, reason: string): Promise<v
   await expect(page.getByRole("menu")).toHaveCount(0)
 }
 
+/** Check Approvals Again of the row's "Patronus ›": GitHub is asked for the pull requests, then Patronus again */
+async function checkApprovalsAgain(page: Page): Promise<void> {
+  await findBranchRow(page, BRANCH).click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Patronus" }).hover()
+  await page.getByRole("menuitem", { name: "Check Approvals Again" }).click()
+  await expect(page.getByRole("menu")).toHaveCount(0)
+}
+
 /** S on the row says what the step waits for, as an `info` notice: no popover, no start */
 async function expectNoticeOnS(page: Page, title: string, description: string): Promise<void> {
   await findBranchRow(page, BRANCH).focus()
@@ -118,12 +126,14 @@ test.describe("Next step before the answers", () => {
     await expect.poll(() => gitHubRequests(repo, "POST", "issues", 1078, "comments")).toEqual([{ body: "/patronus merge --keep-source-branch" }])
   })
 
-  test("should never offer Create Pull Request… before GitHub lists the pull requests, and show a failed listing, not a missing pull request", async ({
+  test("should never offer Create Pull Request… before GitHub lists the pull requests, say a failed listing, and keep the last listing through a failed refresh", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
     const repo = await setupHeld(page, setupRepo, AWAITING_CODE_OWNER, [], ["pullRequests"])
+    // GitHub fails its first answer
+    await repo.setPullRequests(unavailablePullRequests({ status: "error", message: "offline" }))
     await syncAndWaitForBranches()
 
     // the branch may have a pull request: neither the step nor the menu creates one
@@ -136,16 +146,8 @@ test.describe("Next step before the answers", () => {
     await expect(page.getByRole("tooltip", { name: "Waits for GitHub to list the pull requests" })).toBeVisible()
     await page.keyboard.press("Escape")
 
-    // GitHub lists none, Patronus needs the code owner: the pull request is the step
+    // GitHub failed: the pull requests are unknown, the start counts no approval of one and says why
     await repo.holdRemoteAnswers({ release: ["pullRequests"] })
-    await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
-    await expect(slot(page).getByTestId("next-step")).toHaveText("Create Pull Request…")
-
-    // GitHub fails the next listing: the pull requests are unknown, the start counts no approval of one and says why
-    await repo.setPullRequests(unavailablePullRequests({ status: "error", message: "offline" }))
-    await findBranchRow(page, BRANCH).click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Patronus" }).hover()
-    await page.getByRole("menuitem", { name: "Check Approvals Again" }).click()
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
     await expect(slot(page).getByTestId("next-step")).toHaveCount(0)
     await slotSafePush(page, BRANCH).hover()
@@ -153,5 +155,21 @@ test.describe("Next step before the answers", () => {
       `Lands ${BRANCH} into master once the checks pass · GitHub: offline: Patronus checks the approvals when the robot startsS`,
     )
     await expect(getLandingNode(findBranchRow(page, BRANCH))).toHaveAttribute("data-kind", "yourStep")
+
+    // GitHub lists none now, Patronus needs the code owner: the pull request is the step
+    await repo.setPullRequests(availablePullRequests())
+    await checkApprovalsAgain(page)
+    await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
+    await expect(slot(page).getByTestId("next-step")).toHaveText("Create Pull Request…")
+
+    // a refresh GitHub fails keeps the last listing: the step stays, never a Safe Push the approvals refuse
+    const rechecks = async () => (await repo.getReviewReadinessCalls()).filter(call => call.recheck).length
+    const before = await rechecks()
+    await repo.setPullRequests(unavailablePullRequests({ status: "error", message: "offline" }))
+    await checkApprovalsAgain(page)
+    // Patronus is asked again once the failed answer of GitHub is in
+    await expect.poll(rechecks).toBeGreaterThan(before)
+    await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
+    await expect(slot(page).getByTestId("next-step")).toBeEnabled()
   })
 })

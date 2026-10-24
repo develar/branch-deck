@@ -48,7 +48,7 @@ import {
   patronusRequest,
   patronusStore,
 } from "@/stores/patronus"
-import { getPullRequest, getPullRequestAvailability, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
+import { getPullRequest, getPullRequestListing, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
 import { getRepositorySwitchReason } from "@/stores/repository"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { demandReviewReadiness, freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useDemandReviewReadiness } from "@/stores/review-readiness"
@@ -220,12 +220,13 @@ function reviewFactOf(checksReview: boolean, entry: ReadinessEntry | null): Revi
     return entry.requirement === null ? { kind: "loaded", readiness: entry.readiness } : { kind: "space", required: entry.requirement.required }
   }
   // before GitHub's first answer the start is not known yet: the start waits for it, never "unlisted"
-  const availability = getPullRequestAvailability()
-  if (availability === null) {
+  const listing = getPullRequestListing()
+  if (listing === "loading") {
     return { kind: "loading" }
   }
-  // GitHub doesn't list the pull requests (no token, SSO): the start is not known, the robot decides
-  if (availability.status !== "available") {
+  // GitHub doesn't list the pull requests (no token, SSO): the start is not known, the robot decides; a refresh that
+  // failed for a while keeps the last listing, whose pull request the start comments on
+  if (listing === "unlisted") {
     return { kind: "unlisted" }
   }
   return entry === null ? { kind: "loading" } : { kind: "loaded", readiness: entry.readiness }
