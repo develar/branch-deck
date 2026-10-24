@@ -722,6 +722,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   (`min-w-(--bd-track-<kind>)`), the Status and Actions items in a `flex` at least as wide as the label of their column.
 - The table header is quiet: `text-xs font-medium text-muted-foreground` on the card, with a bottom border and no fill.
 - An expanded row fades its commits in (150ms, opacity only).
+- Under reduced motion (`prefers-reduced-motion: reduce`, `src/index.css`) nothing animates in or out: the expanded
+  rows, nor the menus, popovers, tooltips and dialogs, which zoom and slide by a variant of `animate-in` and
+  `animate-out` (`data-open:animate-in`, `data-closed:animate-out`). The progress indicators keep running.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should close the branch menu without its zoom under reduced motion`)
 - The folder button is a ghost `icon-xs` button in `text-muted-foreground`, `text-foreground` while expanded: it
   repeats on every row, so it carries no accent. The name is `text-sm font-medium`, the summary
   `text-xs text-muted-foreground`, the prefix of a subject `font-mono`, muted as the summary.

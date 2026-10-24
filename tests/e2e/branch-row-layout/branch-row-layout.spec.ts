@@ -95,6 +95,36 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(page.getByRole("menuitem", { name: "Copy Full Branch Name" })).toBeVisible()
   })
 
+  test("should close the branch menu without its zoom under reduced motion", async ({ page }) => {
+    const branchRow = findBranchRow(page, "test-branch")
+    await waitForBranchSyncComplete(page, "test-branch")
+    // the animation of each menu as it starts to close
+    await page.evaluate(() => {
+      const target = window as unknown as { __closingAnimations: string[] }
+      target.__closingAnimations = []
+      new MutationObserver(records => {
+        for (const record of records) {
+          if (record.target instanceof Element && record.target.matches("[data-slot=context-menu-content][data-closed]")) {
+            target.__closingAnimations.push(getComputedStyle(record.target).animationName)
+          }
+        }
+      }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["data-closed"] })
+    })
+    const openAndClose = async () => {
+      await openContextMenu(page, branchRow)
+      await expect(page.getByRole("menu")).toBeVisible()
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("menu")).toHaveCount(0)
+      return page.evaluate(() => (window as unknown as { __closingAnimations: string[] }).__closingAnimations)
+    }
+
+    // the menu zooms out as it closes
+    expect(await openAndClose()).toEqual(["exit"])
+    // the OS asks for reduced motion: it goes without
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    expect(await openAndClose()).toEqual(["exit", "none"])
+  })
+
   test("should copy branch name via context menu", async ({ page }) => {
     const branchRow = findBranchRow(page, "test-branch")
 

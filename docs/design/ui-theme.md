@@ -300,7 +300,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     keeps `px-6` or `px-4`.
 - **Motion**: an expanded branch row and an open `CollapsibleCard` fade their content in (`animate-in fade-in-0
   duration-150`, opacity only, so nothing a test measures moves). Under `prefers-reduced-motion` the enter and exit
-  animations and the transitions are off; the progress indicators (`animate-spin`, `animate-carousel`,
+  animations and the transitions are off, those of the popups too: a menu, a popover, a tooltip or a dialog zooms by a
+  variant (`data-open:animate-in`, `data-closed:animate-out`), a class `.animate-in` does not match, so the rule takes
+  every class that names `animate-in` or `animate-out`. The progress indicators (`animate-spin`, `animate-carousel`,
   `animate-robot-ring` of a running Patronus robot, `animate-pulse`) keep running.
 - **Live counters are `tabular-nums`** ("Pushing 45%", the fetch percent, "syncing 3/10", download bytes, "3 / 12", the
   time of a running robot "18m · ~22m"), so

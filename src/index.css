@@ -588,11 +588,13 @@ html[data-window-rounded] body::before {
 
 /*
  * Reduced motion: no enter and exit animations or transitions. The progress indicators (animate-spin, animate-carousel,
- * animate-robot-ring, animate-pulse) stay, they say that something runs.
+ * animate-robot-ring, animate-pulse) stay, they say that something runs. A popup zooms and slides in by a variant
+ * (`data-open:animate-in`, `data-closed:animate-out`, `data-[state=delayed-open]:animate-in`), a class `.animate-in`
+ * does not match: the selector takes every class that names either.
  */
 @media (prefers-reduced-motion: reduce) {
-  .animate-in,
-  .animate-out {
+  [class*="animate-in"],
+  [class*="animate-out"] {
     animation: none !important;
   }
 
