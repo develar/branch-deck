@@ -923,8 +923,9 @@ export const tauriMockScript = () => {
     for (const attr of element.attributes) {
       let value = attr.value
       const name = attr.name
-      // the number of finished syncs depends on timing, not on what the UI shows (`waitForSyncComplete` reads it)
-      if (name === "data-sync-count") continue
+      // the number of finished syncs depends on timing, not on what the UI shows (`waitForSyncComplete` reads it), and
+      // the version of the session's view on a random epoch
+      if (name === "data-sync-count" || name === "data-view-version") continue
       // the offsets and the heights of a diff view come from the metrics of the font
       if (name === "style" && element.closest(".dv-document") !== null) continue
 

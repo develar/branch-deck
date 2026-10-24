@@ -84,6 +84,13 @@ export const SetupRepoOptionsSchema = z.object({
   reviewAnswers: z.any().optional(),
 
   /**
+   * The repository is in the middle of a rebase (`TestRepositoryBuilder.setRebaseInProgress`) when the page opens: its
+   * syncs are deferred
+   * Default: false
+   */
+  rebaseInProgress: z.boolean().default(false),
+
+  /**
    * What the first sync reports differently (a `SyncOverrides`, see `TestRepositoryBuilder.setSyncOverrides`), set
    * before the page opens
    * Default: undefined - the first sync reports what the server computes

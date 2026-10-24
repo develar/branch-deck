@@ -25,6 +25,7 @@ import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNa
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore, isBranchSending, toRemoteStatus } from "@/stores/branch-sync"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 import { updateRepositoryState } from "@/stores/settings/repositoryState"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
@@ -38,8 +39,8 @@ interface Session {
   early: ViewPatch[]
   /** The id of the subscription, for `unsubscribe_view`; null until it answered */
   id: number | null
-  /** The subscription failed (no branch prefix, the session went away): no patch comes */
-  failed: boolean
+  /** Why the subscription failed (no branch prefix, the repository went away): no patch comes; null while it holds */
+  failure: string | null
   closed: boolean
   /** A snapshot is asked (`get_snapshot`): the patches wait for it */
   refreshing: boolean
@@ -84,6 +85,16 @@ export function openSession(repositoryPath: string): void {
   subscribe(repositoryPath)
 }
 
+/**
+ * Subscribes the window to the session of `repositoryPath` unless its subscription to it holds: the window opens the
+ * session of the selected repository at once (the prefix is Rust's), and a sync asked before that opens it itself
+ */
+export function ensureSession(repositoryPath: string): void {
+  if (session === null || session.repositoryPath !== repositoryPath || session.failure !== null) {
+    openSession(repositoryPath)
+  }
+}
+
 /** Ends the subscription of the window and forgets its table: no repository is shown */
 export function closeSession(): void {
   const closed = session
@@ -104,7 +115,7 @@ export function whenSessionReady(): Promise<void> {
 }
 
 function subscribe(repositoryPath: string): void {
-  const opened: Session = { repositoryPath, view: null, early: [], id: null, failed: false, closed: false, refreshing: false, pending: 0, ready: Promise.resolve() }
+  const opened: Session = { repositoryPath, view: null, early: [], id: null, failure: null, closed: false, refreshing: false, pending: 0, ready: Promise.resolve() }
   const channel = new Channel<ViewPatch>()
   channel.onmessage = patch => receive(opened, patch)
   session = opened
@@ -126,9 +137,10 @@ function subscribe(repositoryPath: string): void {
 }
 
 function fail(failed: Session, error: unknown): void {
-  failed.failed = true
+  const message = typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error)
+  failed.failure = message || "Cannot subscribe to the branches of the repository"
   if (failed === session) {
-    console.warn("Cannot subscribe to the branches of the repository", error)
+    console.error("Cannot subscribe to the branches of the repository", error)
     notifyViewListeners()
   }
 }
@@ -172,7 +184,7 @@ function refresh(target: Session): void {
       return
     }
     if (result.status === "error") {
-      console.warn("Cannot read the branches of the repository", result.error)
+      console.error("Cannot read the branches of the repository", result.error)
       return
     }
     if (result.data === null) {
@@ -477,7 +489,8 @@ function resetTable(): void {
 
 /** Resolves once the view of `target` is at `version` or past it, or `target` is no longer the window's session */
 function whenViewAt(target: Session, version: Version): Promise<void> {
-  const reached = () => target !== session || target.failed || (target.view !== null && (target.view.version.epoch !== version.epoch || target.view.version.seq >= version.seq))
+  const reached = () =>
+    target !== session || target.failure !== null || (target.view !== null && (target.view.version.epoch !== version.epoch || target.view.version.seq >= version.seq))
   if (reached()) {
     return Promise.resolve()
   }
@@ -507,17 +520,27 @@ function countRequest(target: Session, delta: 1 | -1): void {
  * last successful sync is recorded for the repository (its time, the branch count, how long it took)
  */
 export async function requestSessionSync(reason: SyncReason): Promise<SyncAnswer | null> {
-  const target = session
-  if (target === null) {
+  // the request is for the selected repository: one before the window subscribed (a click while the page still loads
+  // the prefix), or after its subscription failed (no prefix then, an IPC failure), subscribes to its session first
+  const selectedPath = getSelectedRepositoryPath()
+  if (selectedPath === "") {
     requestError = "Please enter a repository path"
     branchSyncStore.setState({ syncError: requestError })
     return null
   }
+  ensureSession(selectedPath)
+  const target = session!
   const startedAt = Date.now()
   requestError = null
   countRequest(target, 1)
   try {
     await target.ready
+    if (target.failure !== null) {
+      if (target === session) {
+        requestError = target.failure
+      }
+      return null
+    }
     const result = await commands.sync({ repositoryPath: target.repositoryPath, reason })
     if (result.status === "error") {
       const { code, message } = result.error
@@ -536,7 +559,7 @@ export async function requestSessionSync(reason: SyncReason): Promise<SyncAnswer
       return null
     }
     await whenViewAt(target, result.data.version)
-    if (target === session) {
+    if (target === session && target.failure === null) {
       recordSync(target.repositoryPath, result.data, reason, startedAt)
     }
     return result.data

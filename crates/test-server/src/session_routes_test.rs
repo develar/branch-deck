@@ -128,3 +128,21 @@ async fn a_revision_of_the_repository_answers_its_commit() {
   assert_eq!(head["id"].as_str().map(str::len), Some(40), "{head}");
   assert_eq!(revision("no-such-branch").await.unwrap().status(), 404);
 }
+
+/// An interrupted rebase defers the syncs of the session, its table as it was; once the rebase is gone it syncs
+#[tokio::test]
+async fn a_rebase_in_progress_defers_the_sync_until_it_is_gone() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  let mut messages = subscribe(&client, addr, &id, &path, 10).await;
+  subscription(&mut messages).await;
+  let rebase = format!("/repositories/{id}/rebase-in-progress");
+
+  post(&client, addr, &rebase, json!({ "inProgress": true })).await;
+  let deferred = post_error(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
+  assert_eq!(deferred["code"], "operation_in_progress", "{deferred}");
+  post(&client, addr, &rebase, json!({ "inProgress": false })).await;
+  let synced = post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
+  assert_eq!(synced["outcome"], "synced", "{synced}");
+}

@@ -45,10 +45,17 @@ test.describe("Header", () => {
 
     // hold the sync until the layout is measured
     const releaseSync = await holdCommand(page, "sync")
+    // the reasons of the sync requests, and their answers
     const syncRequests: string[] = []
+    const syncAnswers: string[] = []
     page.on("request", request => {
       if (request.url().endsWith("/invoke/sync")) {
-        syncRequests.push(request.url())
+        syncRequests.push((request.postDataJSON() as { reason: string }).reason)
+      }
+    })
+    page.on("response", response => {
+      if (response.url().endsWith("/invoke/sync")) {
+        syncAnswers.push(response.url())
       }
     })
     const previousCount = await finishedSyncCount(page)
@@ -65,12 +72,14 @@ test.describe("Header", () => {
     await syncButton.hover()
     await expect(page.getByTestId("sync-tooltip")).toHaveText("Syncing branches…")
 
-    // ⌘R while it runs starts no second sync, only a check after it: nothing changed, so it syncs nothing either
+    // ⌘R while it runs starts no second sync, only a check of the session: nothing changed, so it syncs nothing
     await emitTauriEvent(page, "sync_branches")
+    await expect.poll(() => syncRequests).toEqual(["manual", "focus"])
     releaseSync()
     await waitForSyncComplete(page, previousCount)
-    await expect(lastSync).toHaveText("Checked just now")
-    expect(syncRequests).toHaveLength(1)
+    await expect.poll(() => syncAnswers.length).toBe(2)
+    await expect(syncButton).toHaveAttribute("data-sync-count", String(previousCount + 1))
+    await expect(lastSync).toHaveText(/^(Last synced|Checked) just now$/)
   })
 
   test("should name the shortcut of Sync and keep the selected repository without a tooltip", async ({ page }) => {

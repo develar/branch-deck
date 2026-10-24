@@ -102,6 +102,8 @@ export class FakeSessions {
   holdSubscriptions = false
   /** What `get_snapshot` answers instead of the view, once (`null`: the session went away) */
   snapshotAnswer: TableView | null | undefined = undefined
+  /** The error each `subscribe_view` answers instead of a subscription while set (a repository without a prefix) */
+  subscribeFailure: ApiError | null = null
   private heldSubscriptions: (() => void)[] = []
   private nextId = 1
 
@@ -114,6 +116,7 @@ export class FakeSessions {
     this.holdSubscriptions = false
     this.heldSubscriptions = []
     this.snapshotAnswer = undefined
+    this.subscribeFailure = null
   }
 
   view(repositoryPath: string): TableView {
@@ -157,6 +160,9 @@ export class FakeSessions {
   readonly commands = {
     subscribeView: (params: { repositoryPath: string }, channel: { onmessage: (patch: ViewPatch) => void }): Promise<Result<ViewSubscription>> => {
       this.subscribeCalls.push(params)
+      if (this.subscribeFailure !== null) {
+        return Promise.resolve({ status: "error", error: this.subscribeFailure })
+      }
       const subscription = { id: this.nextId++, repositoryPath: params.repositoryPath, channel }
       this.subscriptions.push(subscription)
       const answer = (): Result<ViewSubscription> => ({ status: "ok", data: { id: subscription.id, view: this.view(params.repositoryPath) } })

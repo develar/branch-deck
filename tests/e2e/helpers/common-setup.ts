@@ -39,6 +39,9 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   if (parsedOptions.patronusDetails !== undefined) {
     await repoBuilder.setPatronusDetails(parsedOptions.patronusDetails)
   }
+  if (parsedOptions.rebaseInProgress) {
+    await repoBuilder.setRebaseInProgress(true)
+  }
   if (parsedOptions.syncOverrides !== undefined) {
     await repoBuilder.setSyncOverrides(parsedOptions.syncOverrides)
   }

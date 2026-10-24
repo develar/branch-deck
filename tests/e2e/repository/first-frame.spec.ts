@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { getSubWindowReadyOpen, getWindowShell } from "../helpers/sub-window-helpers"
-import { holdCommand, routeCommandError } from "../helpers/wait-helpers"
+import { holdCommand } from "../helpers/wait-helpers"
 
 /** The repository was synced an hour ago: the window syncs it by itself when it opens it */
 const SYNCED_AN_HOUR_AGO = 60 * 60 * 1000
@@ -66,8 +66,7 @@ test.describe("The first frame of the main window", () => {
 
   test("should show the main window when git defers its first sync, without a table that loads for ever", async ({ page, setupRepo }) => {
     // a rebase in progress: the sync on open ends without rows (`SyncDeferred`)
-    await routeCommandError(page, "sync", { code: "operation_in_progress", message: "Not synced: a rebase is in progress" })
-    await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO, syncedBranchCount: 1 })
+    await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO, syncedBranchCount: 1, rebaseInProgress: true })
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
     await expect.poll(() => getSubWindowReadyOpen(page)).toBe(1)
     expect(await rowsWhenReady(page)).toBe(0)

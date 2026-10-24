@@ -197,6 +197,11 @@ export class TestRepositoryBuilder {
     await this.setFixture("sync-overrides", overrides)
   }
 
+  /** Leaves the repository as an interrupted rebase does (`.git/rebase-merge`), or takes it back: a sync is deferred */
+  async setRebaseInProgress(inProgress: boolean): Promise<void> {
+    await this.setFixture("rebase-in-progress", { inProgress })
+  }
+
   /** The commit a ref of the repository is at, e.g. the copy of a branch a sync built (`user-name/virtual/<branch>`) */
   async revision(name: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/repositories/${this.id}/revision?name=${encodeURIComponent(name)}`)

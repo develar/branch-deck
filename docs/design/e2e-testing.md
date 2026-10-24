@@ -258,8 +258,11 @@ Mock implementation:
   so the session's table, its patches to the page and the table of the views are what a sync of such a repository
   makes, never a rewrite of the page's stream; the runs after it are the server's again. `GET
   /repositories/{id}/revision?name=<rev>` answers the commit a ref is at (`repo.revision`), the copy a sync built.
+  `POST /repositories/{id}/rebase-in-progress` (`setRebaseInProgress`, the `rebaseInProgress` option of `setupRepo`)
+  leaves the repository as an interrupted rebase does, so its syncs are deferred by the real check.
   [@test] ../../crates/test-server/src/session_routes_test.rs (`the_next_sync_takes_the_overrides_of_its_repository_and_the_syncs_after_it_do_not`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_revision_of_the_repository_answers_its_commit`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_rebase_in_progress_defers_the_sync_until_it_is_gone`)
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
   functions; Patronus and GitHub are asked through the app's own services behind fakes
   ([Remote services](#remote-services)); an answer that claude would give, and the review requests, come from a

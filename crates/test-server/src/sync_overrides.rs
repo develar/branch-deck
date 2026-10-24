@@ -5,7 +5,9 @@
 //! (`TestSessionEnvironment::reporter` puts `OverridingReporter` around the run's reporter), so the table of the
 //! session, its patches to the page and the table of the views are what a sync of such a repository makes; the runs
 //! after it are the server's as they are. `GET /repositories/{id}/revision?name=<rev>` answers the commit a ref of the
-//! repository is at, which such a test compares with what the page shows (the copy of a commit the sync built)
+//! repository is at, which such a test compares with what the page shows (the copy of a commit the sync built).
+//! `POST /repositories/{id}/rebase-in-progress` (`{"inProgress": bool}`) leaves the repository as an interrupted rebase
+//! does (`.git/rebase-merge`), so its syncs are deferred (`SyncDeferred`) by the real check, until it is set back
 
 use crate::state::AppState;
 use axum::Json;
@@ -128,6 +130,34 @@ pub async fn get_revision(Path(id): Path<String>, Query(query): Query<RevisionQu
     Err(error) => {
       tracing::warn!("Cannot resolve the revision: {error:#}");
       Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+  }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RebaseRequest {
+  in_progress: bool,
+}
+
+/// Creates or removes `.git/rebase-merge` of the repository: git's mark of a rebase it stopped in
+pub async fn set_rebase_in_progress(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(request): Json<RebaseRequest>) -> StatusCode {
+  let Some(path) = state.repositories.get(&id).map(|repository| repository.path.clone()) else {
+    return StatusCode::UNPROCESSABLE_ENTITY;
+  };
+  let marker = std::path::Path::new(&path).join(".git/rebase-merge");
+  let changed = if request.in_progress {
+    std::fs::create_dir_all(&marker)
+  } else if marker.exists() {
+    sync_utils::fs_retry::remove_dir_all(&marker)
+  } else {
+    Ok(())
+  };
+  match changed {
+    Ok(()) => StatusCode::OK,
+    Err(error) => {
+      tracing::warn!("Cannot change the rebase of the repository: {error}");
+      StatusCode::INTERNAL_SERVER_ERROR
     }
   }
 }

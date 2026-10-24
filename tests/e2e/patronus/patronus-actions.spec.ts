@@ -58,7 +58,7 @@ import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { nextAnswer, runAndWaitForAnswer, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
+import { nextAnswer, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { PatronusLog, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
@@ -677,8 +677,8 @@ test.describe("Patronus actions", () => {
     await expect(toastWith(page, "Safe Push started")).toBeVisible()
     await expect.poll(async () => (await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
     await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
-    // back in it, the branch is landing: its row shows with the sync of the switch
-    await runAndWaitForSync(page, () => switchRepository(page, repo.path))
+    // back in it, the branch is landing: its session kept the table, which the window shows again at once
+    await switchRepository(page, repo.path)
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
   })
 

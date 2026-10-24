@@ -225,6 +225,28 @@ describe("a sync of the session", () => {
     expect(branchSyncStore.getState()).toMatchObject({ syncError: "Cannot read HEAD", branchOrder: ["a"], syncCount: 1 })
   })
 
+  it("subscribes first when asked before the window subscribed, and again after a failed subscription, whose failure it names", async () => {
+    // a click while the page still loads the prefix: no subscription yet
+    const synced = requestSessionSync("manual")
+    await vi.waitFor(() => expect(fakeSessions.subscribeCalls).toEqual([{ repositoryPath: "/repo" }]))
+    ;(await nextSync(1)).answer()
+    expect(await synced).not.toBeNull()
+    // a repository without a prefix then: its subscription fails, the request says why and syncs nothing
+    fakeSessions.subscribeFailure = { ...internalError("Cannot sync without a branch prefix"), code: "no_branch_prefix" }
+    openSession("/repo")
+    await whenSessionReady()
+    expect(await requestSessionSync("manual")).toBeNull()
+    expect(fakeSessions.syncs).toHaveLength(1)
+    expect(branchSyncStore.getState().syncError).toBe("Cannot sync without a branch prefix")
+    // the prefix is set: the next request subscribes again and syncs
+    fakeSessions.subscribeFailure = null
+    const again = requestSessionSync("manual")
+    ;(await nextSync(2)).answer()
+    expect(await again).not.toBeNull()
+    expect(fakeSessions.subscribeCalls).toHaveLength(4)
+    expect(branchSyncStore.getState().syncError).toBeNull()
+  })
+
   it("leaves a request of the session the window left to it: Sync of the next one is not busy, nothing of it is recorded", async () => {
     await open()
     const old = requestSessionSync("manual")
