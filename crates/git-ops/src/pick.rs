@@ -7,6 +7,7 @@
 //! with `option no-deref`. The check needs no lock: its caller checks before the repository lock and, under it, only
 //! the witness (`recheck_pick`) before the moves.
 
+use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
 use crate::paths::{COMMIT_FORMAT, ChangedPath, changed_paths, parse_commits};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
@@ -145,6 +146,8 @@ pub struct PickPlan {
   /// The paths the move of the target changes; empty when its files stay
   changed: Vec<ChangedPath>,
   follow: Option<Follow>,
+  /// The git dirs of the target and the source, as the check of a worktree read them: where their index locks are
+  git_dirs: Option<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -159,6 +162,23 @@ impl PickPlan {
   /// moves nothing applies without git, so it needs no lock
   pub fn moves_anything(&self) -> bool {
     self.check.new_head != self.check.head || (self.follow.is_some() && self.check.follow.as_ref().is_some_and(|follow| follow.head != self.check.new_head))
+  }
+
+  /// Wait, at most `INDEX_LOCK_WAIT` each, until no other process holds the index lock of a worktree whose files the
+  /// plan moves: before the repository lock, so another writer never waits for the lock while this one waits for git's.
+  /// Only with the git dirs of a worktree's check; the moves wait again (`IndexLock::retry`), so this only moves the wait
+  /// before the lock. `IndexLocked` when one stays
+  pub fn wait_for_index_locks(&self, git_executor: &GitCommandExecutor, target: &str) -> Result<()> {
+    let Some((target_git_dir, source_git_dir)) = &self.git_dirs else { return Ok(()) };
+    if !self.changed.is_empty() {
+      IndexLock::at(git_executor, target, target_git_dir).wait_while_locked(INDEX_LOCK_WAIT)?;
+    }
+    if let (Some(follow), Some(follow_check)) = (&self.follow, &self.check.follow)
+      && !follow.changed.is_empty()
+    {
+      IndexLock::at(git_executor, &follow_check.worktree, source_git_dir).wait_while_locked(INDEX_LOCK_WAIT)?;
+    }
+    Ok(())
   }
 }
 
@@ -204,9 +224,11 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
     Some(upstream) => resolve_commit(git_executor, target, upstream)?,
     None => None,
   };
+  let mut git_dirs = None;
   let (source_head, base, follow) = match request.source {
     PickSource::Worktree(dir) => {
-      let source = source_worktree(git_executor, target, dir)?;
+      let (source, target_dirs) = source_worktree(git_executor, target, dir)?;
+      git_dirs = Some((target_dirs.git_dir, source.git_dir.clone()));
       let head_ref = if request.follow { Some(HeadRef::read(git_executor, &source.top_level)?) } else { None };
       let source_head = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], &source.top_level)?;
       let base = worktree_base(git_executor, target, &branch, &head, &source_head, upstream_head.as_deref(), dir)?;
@@ -285,6 +307,7 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
           upstream_head,
           changed: Vec::new(),
           follow: None,
+          git_dirs,
         });
       };
       tip = new_tip;
@@ -336,6 +359,7 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
     upstream_head,
     changed,
     follow,
+    git_dirs,
   })
 }
 
@@ -380,8 +404,8 @@ pub fn recheck_pick(git_executor: &GitCommandExecutor, target: &str, plan: &mut 
   Ok(true)
 }
 
-/// The source worktree that holds `dir`: another worktree of the target's repository
-fn source_worktree(git_executor: &GitCommandExecutor, target: &str, dir: &str) -> Result<RepositoryDirs> {
+/// The source worktree that holds `dir`, another worktree of the target's repository, and the dirs of the target
+fn source_worktree(git_executor: &GitCommandExecutor, target: &str, dir: &str) -> Result<(RepositoryDirs, RepositoryDirs)> {
   let invalid = |message: String| anyhow::Error::new(PickRefusal::InvalidSource(message));
   let source = repository_dirs(git_executor, dir)?.ok_or_else(|| invalid(format!("{dir} is not inside a git working tree")))?;
   let target_dirs = repository_dirs(git_executor, target)?.ok_or_else(|| anyhow!("{target} is not inside a git working tree"))?;
@@ -393,7 +417,7 @@ fn source_worktree(git_executor: &GitCommandExecutor, target: &str, dir: &str) -
       "{dir} is the worktree of {target}: --from names the other worktree, the one whose commits land here"
     )));
   }
-  Ok(source)
+  Ok((source, target_dirs))
 }
 
 /// The commit the range of the source worktree starts after: the fork point of `source_head` in the reflog of the

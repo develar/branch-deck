@@ -95,8 +95,10 @@ tree is never written, and the user's other staged work stays staged.
 
 ## Open Questions / Risks
 
-- If the index update fails after the branch moved (e.g. a concurrent `git add` holds the index lock), the error
-  suggests `git reset -q`.
+- The index update after the branch moved waits for the index lock of another process (at most 30 s) and removes one
+  that no process owns, as the moves do ([Index lock](../../docs/design/git-operations.md#index-lock),
+  `the_index_of_a_rewrite_follows_past_a_lock_that_no_process_owns`). If it still fails, the error suggests
+  `git reset -q` and is not retryable: the branch was rewritten already.
 
 ## References
 

@@ -187,7 +187,8 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
 }
 
 /// The check and the moves of a pick into `worktrees[0]`, the source following when it is `worktrees[1]`. The check runs
-/// without the lock, and under it the witness: a target or a source that moved in between (another session's pick, a
+/// without the lock, then the wait for the index locks of other processes (`PickPlan::wait_for_index_locks`, so nobody
+/// waits for the repository lock while this pick waits for git's), and under it the witness: a target or a source that moved in between (another session's pick, a
 /// regroup, a fetch) sends the pick back to check again, `CHECKS_WITHOUT_THE_LOCK` times, then once under the lock. An
 /// interrupted move of either worktree (its mark, `pending_update`) has its files follow under the lock before a check
 /// reads them. `apply_pick` of a check that moves nothing runs no git, so it needs no lock
@@ -204,6 +205,7 @@ fn land(git_executor: &GitCommandExecutor, worktrees: &[&str], request: &PickReq
       let applied = apply(&plan)?;
       return Ok((plan, applied));
     }
+    plan.wait_for_index_locks(git_executor, target)?;
     let lock = options.lock(git_executor, target)?;
     if finish_pending(git_executor, worktrees)? || !recheck_pick(git_executor, target, &mut plan)? {
       info!("the target or the source moved during the check of the pick: it checks again");

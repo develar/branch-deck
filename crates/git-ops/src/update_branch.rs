@@ -8,6 +8,7 @@
 
 use crate::commit_utils::blob_id;
 use crate::commit_writer::{current_committer, write_notes_to_refs};
+use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{merge_trees, replay_range_with_env};
@@ -16,7 +17,7 @@ use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_p
 use crate::update_resolve::RESOLVE_NOTES_REF;
 use crate::word_replay::{WordsReplay, replay_resolving_words, resolve_note};
 use crate::word_resolve::ResolveMode;
-use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
+use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update, prepare_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
 use domain_types::error::ErrorCode;
@@ -1209,17 +1210,22 @@ pub(crate) fn move_branch_and_files_carrying(git_executor: &GitCommandExecutor, 
   with.extend(move_.with);
   let mut rollback_with = RefTransaction::new();
   rollback_with.extend(move_.rollback_with);
-  let pending = if files_change {
-    let pending = pending_ref(&current_worktree(git_executor, repo_path)?);
+  let worktree = if files_change { Some(current_worktree(git_executor, repo_path)?) } else { None };
+  let pending = worktree.as_ref().map(|worktree| {
+    let pending = pending_ref(worktree);
     with.create(&pending, head);
     rollback_with.delete(&pending, Some(head));
-    Some(pending)
-  } else {
-    None
-  };
-  move_branch_and_files_with(
+    pending
+  });
+  // the git dir is known: a lock of another process is waited for before the branch moves
+  let lock = worktree.as_ref().map_or_else(
+    || IndexLock::of(git_executor, repo_path),
+    |worktree| IndexLock::at(git_executor, repo_path, &worktree.git_dir),
+  );
+  move_with_index_lock(
     git_executor,
     repo_path,
+    &lock,
     &FileMove {
       head_ref,
       head,
@@ -1355,6 +1361,14 @@ pub(crate) struct FileMove<'a> {
 /// `update_resolve`, `pick`, `unapply` and `reapply` move a HEAD that the files follow (`MOVE_CALLERS` of
 /// `worktree_safety_test.rs`)
 pub(crate) fn move_branch_and_files_with(git_executor: &GitCommandExecutor, repo_path: &str, move_: &FileMove<'_>) -> Result<()> {
+  move_with_index_lock(git_executor, repo_path, &IndexLock::of(git_executor, repo_path), move_)
+}
+
+/// `move_branch_and_files_with` through `lock`, the index lock of the worktree. When the files change, the move waits
+/// for a lock of another process before the branch moves: while it is there (`wait_while_locked`, when its path is
+/// known), and for the refresh of the stat data, then the CAS move, then `read-tree -m -u`, which waits too; a lock that
+/// stays past its wait moves the branch back (`IndexLocked`, the code `locked`)
+fn move_with_index_lock(git_executor: &GitCommandExecutor, repo_path: &str, lock: &IndexLock<'_>, move_: &FileMove<'_>) -> Result<()> {
   let &FileMove {
     head_ref,
     head,
@@ -1366,6 +1380,12 @@ pub(crate) fn move_branch_and_files_with(git_executor: &GitCommandExecutor, repo
   } = move_;
   let name = head_ref.name();
   head_ref.ensure(git_executor, repo_path)?;
+  if files_change {
+    lock
+      .wait_while_locked(INDEX_LOCK_WAIT)
+      .and_then(|()| prepare_worktree_update(git_executor, repo_path, lock))
+      .map_err(|e| index_error(e, operation, "nothing was changed"))?;
+  }
   let head_as_checked = || head_ref.ensure(git_executor, repo_path);
   let mut transaction = RefTransaction::new();
   head_ref.update(&mut transaction, new_head, head).create_reflog().extend(with);
@@ -1387,13 +1407,50 @@ pub(crate) fn move_branch_and_files_with(git_executor: &GitCommandExecutor, repo
     bail!("{name} changed during the {}, nothing was changed: {e:#}", noun(operation));
   }
 
-  if files_change && let Err(e) = apply_worktree_update(git_executor, repo_path, head, new_head) {
-    if let Err(rollback_error) = roll_back(git_executor, repo_path, head_ref, head, new_head, operation, rollback_with) {
-      bail!("{rollback_error:#}; {e:#}");
-    }
-    bail!("Files changed during the {}; nothing was changed: {e:#}", noun(operation));
+  if files_change && let Err(e) = apply_worktree_update(git_executor, repo_path, head, new_head, lock) {
+    let undo = MoveBack {
+      head_ref,
+      head,
+      new_head,
+      operation,
+      rollback_with,
+    };
+    return Err(undo.after(git_executor, repo_path, e, "nothing was changed"));
   }
   Ok(())
+}
+
+/// The move back of a branch whose files could not follow
+struct MoveBack<'a> {
+  head_ref: &'a HeadRef,
+  head: &'a str,
+  new_head: &'a str,
+  operation: &'a str,
+  rollback_with: &'a RefTransaction,
+}
+
+impl MoveBack<'_> {
+  /// Move the branch back after `error`, the failure of its files, and say so: `IndexLocked` keeps its type (the code
+  /// `locked`), any other failure is a file changed since the check; `outcome` says what the move back left
+  fn after(&self, git_executor: &GitCommandExecutor, repo_path: &str, error: anyhow::Error, outcome: &str) -> anyhow::Error {
+    if let Err(rollback_error) = roll_back(git_executor, repo_path, self.head_ref, self.head, self.new_head, self.operation, self.rollback_with) {
+      return anyhow!("{rollback_error:#}; {error:#}");
+    }
+    if error.downcast_ref::<IndexLocked>().is_some() {
+      return index_error(error, self.operation, &format!("{} moved back, {outcome}", self.head_ref.name()));
+    }
+    anyhow!("Files changed during the {}; {outcome}: {error:#}", noun(self.operation))
+  }
+}
+
+/// `IndexLocked` of a move with what the move did, the type kept for the code of the error (`locked`); any other error as
+/// it is
+fn index_error(error: anyhow::Error, operation: &str, outcome: &str) -> anyhow::Error {
+  if error.downcast_ref::<IndexLocked>().is_some() {
+    error.context(format!("The files of the {} could not follow, {outcome}", noun(operation)))
+  } else {
+    error
+  }
 }
 
 /// A lock file of git is in the way of a ref move: another git process holds it, or a killed one left it; nothing was
@@ -1460,16 +1517,17 @@ pub(crate) fn files_follow(
     roll_back(git_executor, repo_path, head_ref, head, new_head, operation, rollback_with)?;
     return Err(anyhow::Error::new(FilesBlocked { paths: blocked }));
   }
-  if let Err(e) = apply_worktree_update(git_executor, repo_path, head, new_head) {
-    if let Err(rollback_error) = roll_back(git_executor, repo_path, head_ref, head, new_head, operation, rollback_with) {
-      bail!("{rollback_error:#}; {e:#}");
-    }
-    bail!(
-      "Files changed during the {}; {} moved back to {}: {e:#}",
-      noun(operation),
-      head_ref.name(),
-      crate::revs::short_id(head)
-    );
+  let lock = IndexLock::of(git_executor, repo_path);
+  let followed = prepare_worktree_update(git_executor, repo_path, &lock).and_then(|()| apply_worktree_update(git_executor, repo_path, head, new_head, &lock));
+  if let Err(e) = followed {
+    let undo = MoveBack {
+      head_ref,
+      head,
+      new_head,
+      operation,
+      rollback_with,
+    };
+    return Err(undo.after(git_executor, repo_path, e, &format!("{} moved back to {}", head_ref.name(), crate::revs::short_id(head))));
   }
   Ok(())
 }

@@ -48,6 +48,8 @@
 //! - `update_branch`: the check and the apply of an update onto the upstream, and its undo (the types are
 //!   `domain_types::update_project`'s)
 //! - `worktree_update`: the one write of the working tree, guarded
+//! - `index_lock`: the wait of a write of the user's index for the lock of another process, the removal of a lock no
+//!   process owns
 //! - `update_resolve`: the resolve sessions of `bd update`, one round per conflicting commit
 //! - `resolve_check`: the checks of a resolved file of a round
 //! - `word_replay`: the local commits replayed onto the upstream, each conflict resolved by words, all or nothing
@@ -74,6 +76,7 @@ pub mod commit_writer;
 pub mod conflict_analysis;
 pub mod copy_commit;
 pub mod history;
+pub mod index_lock;
 pub mod lease_slot;
 pub mod merge_conflict;
 pub mod merge_memo;

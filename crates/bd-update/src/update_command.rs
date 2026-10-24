@@ -7,12 +7,13 @@
 //! which only the finish writes. A block changes nothing; bd never stashes
 
 use bd_core::context::RepoContext;
-use bd_core::error::{CONFLICT_EXIT, CliError};
+use bd_core::error::{CONFLICT_EXIT, CliError, ErrorExtra, ProcessKind, ProcessOutput};
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
+use git_ops::index_lock::IndexLocked;
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
@@ -849,6 +850,23 @@ fn classified(error: anyhow::Error, undo: bool) -> CliError {
     ErrorCode::FinishPending
   } else if error.downcast_ref::<RefLocked>().is_some() {
     ErrorCode::Locked
+  } else if let Some(locked) = error.downcast_ref::<IndexLocked>() {
+    let mut cli_error = CliError::new(if undo { ErrorCode::Locked.in_undo() } else { ErrorCode::Locked }, format!("{error:#}"));
+    cli_error.extra = Some(Box::new(ErrorExtra {
+      processes: locked
+        .holders
+        .iter()
+        .map(|holder| ProcessOutput {
+          pid: holder.pid,
+          command: holder.name.clone(),
+          argv: holder.command.clone(),
+          kind: ProcessKind::Other,
+          workspace: None,
+        })
+        .collect(),
+      ..ErrorExtra::default()
+    }));
+    return cli_error;
   } else if let Some(blocked) = error.downcast_ref::<FilesBlocked>() {
     return uncommitted_overlap(blocked.paths.clone(), blocked.paths.len(), "finish of the resolve session");
   } else if let Some(blocked) = error.downcast_ref::<MoveBlocked>() {

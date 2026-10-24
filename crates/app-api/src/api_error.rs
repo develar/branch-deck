@@ -11,6 +11,7 @@ use domain_types::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHol
 use domain_types::landing::LandingRefusal;
 use file_diffs::accio::SearchCanceled;
 use git_executor::git_command_executor::StoppedCommand;
+use git_ops::index_lock::IndexLocked;
 use git_ops::revs::DetachedHead;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::{DropRefused, MoveBlocked};
@@ -197,8 +198,9 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
     return code(ErrorCode::Canceled);
   }
   // a lock file of git, not the repository lock of Branch Deck: no holder to name (`ErrorDetails::Locked` is the
-  // repository lock), so the page shows its words, which name the file and say to remove a stale one
-  if error.downcast_ref::<RefLocked>().is_some() {
+  // repository lock), so the page shows its words, which name the file (and the processes of an index lock) and say
+  // to remove a stale one
+  if error.downcast_ref::<RefLocked>().is_some() || error.downcast_ref::<IndexLocked>().is_some() {
     return code(ErrorCode::Locked);
   }
   if error.downcast_ref::<HeadMoved>().is_some() || error.downcast_ref::<BranchSwitched>().is_some() || error.downcast_ref::<HeadAttached>().is_some() {
@@ -346,6 +348,7 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
       }
       .into(),
     ),
+    ("index_locked", update_core::error_cases::index_locked().into()),
     (
       "canceled",
       LockWaitCanceled {

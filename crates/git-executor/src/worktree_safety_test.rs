@@ -32,10 +32,11 @@ const DENIED_SUBCOMMANDS: [&str; 14] = [
 const WORKTREE_WRITE_EXEMPTIONS: [(&str, usize); 1] = [("crates/git-ops/src/worktree_update.rs", 2)];
 
 /// The functions of `update_branch.rs` that move HEAD and let the files follow through `worktree_update.rs`
-const MOVE_FUNCTIONS: [&str; 5] = [
+const MOVE_FUNCTIONS: [&str; 6] = [
   "move_branch_and_files(",
   "move_branch_and_files_carrying(",
   "move_branch_and_files_with(",
+  "move_with_index_lock(",
   "files_follow(",
   "apply_move_undo_with(",
 ];
@@ -44,7 +45,7 @@ const MOVE_FUNCTIONS: [&str; 5] = [
 /// undo, the finish of a resolve session, `bd pick`, the unapply and the reapply of a virtual branch and their undo
 /// (docs/design/git-operations.md, invariant 1)
 const MOVE_CALLERS: [(&str, usize); 5] = [
-  ("crates/git-ops/src/update_branch.rs", 11),
+  ("crates/git-ops/src/update_branch.rs", 13),
   ("crates/git-ops/src/update_resolve.rs", 2),
   ("crates/git-ops/src/pick.rs", 2),
   ("crates/git-ops/src/unapply.rs", 2),

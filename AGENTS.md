@@ -286,6 +286,10 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
   a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
+- **Index lock**: a write of the user's index (a move the files follow, `IndexUpdate::apply`) goes through
+  `git_ops::index_lock`: it waits up to 30 s for the `index.lock` of another process (an IDE's `git status`),
+  removes one that no process owns (a killed git's), and answers `IndexLocked` (`locked`) after the wait; never a
+  removal of any other lock file of git ([Index lock](docs/design/git-operations.md#index-lock)).
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
   message; related refs (unapply rename, temp refs) go into the same transaction. The named exceptions: a notes ref
   that `fast-import` writes (`write_notes_to_refs`, `write_commits_with_notes`: `from <ref>^0`, and a tip that does not

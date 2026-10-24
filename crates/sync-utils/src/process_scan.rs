@@ -5,10 +5,13 @@
 //! process, its ancestors and every process of their process groups (the `jq` of `bd lease return | jq`, the
 //! `caffeinate` of the agent). It reads the argv of each process too (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
 //! on Linux): a Bazel server names its workspace there (`--workspace_directory=`), and serves only that one, since Bazel
-//! derives its output base from the workspace path.
+//! derives its output base from the workspace path. The index lock of a worktree asks who has a file open
+//! (`processes_with_open_file`) and when a git started (`ProcessInfo::started_at`): a lock no process owns was left by a
+//! killed git.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// A process the scan read
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,8 +46,14 @@ impl ProcessInfo {
     self.argv.iter().find_map(|arg| arg.strip_prefix(OUTPUT_BASE))
   }
 
+  /// When it started, on the wall clock: to the microsecond on macOS, on Linux by the clock ticks since the boot, whose
+  /// time `/proc/stat` gives to the second; `None` elsewhere and when unknown
+  pub fn started_at(&self) -> Option<SystemTime> {
+    platform::started_at(self.started?)
+  }
+
   /// Whether the program is git: its argv starts with `git` or a path to it
-  fn is_git(&self) -> bool {
+  pub fn is_git(&self) -> bool {
     self
       .argv
       .first()
@@ -245,6 +254,12 @@ pub fn process_started(pid: u32) -> Option<u64> {
   platform::started(pid)
 }
 
+/// The pids of the processes that have the file `path` open: `lsof` on macOS, the `fd` links of `/proc` on Linux (the
+/// processes of this user); `None` when that can't be told (no `lsof`, its failure, another platform)
+pub fn processes_with_open_file(path: &Path) -> Option<Vec<u32>> {
+  platform::processes_with_open_file(path)
+}
+
 /// Ask the process `pid` to exit with SIGTERM; false when the signal could not be sent (gone, another user's, no
 /// signals on this platform)
 pub fn terminate(pid: u32) -> bool {
@@ -327,6 +342,23 @@ mod platform {
   /// A process that still exists, where libproc gives no process its info (a sandbox denies it)
   pub(super) fn exists_unseen(pid: u32) -> bool {
     super::unix_exists(pid)
+  }
+
+  /// `started` is microseconds since the epoch (`start_time`)
+  pub(super) fn started_at(started: u64) -> Option<std::time::SystemTime> {
+    std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_micros(started))
+  }
+
+  /// `lsof -t -w -- <path>`: the pids on exit 0; exit 1 without a message is no process
+  pub(super) fn processes_with_open_file(path: &std::path::Path) -> Option<Vec<u32>> {
+    let mut command = std::process::Command::new("/usr/sbin/lsof");
+    command.args(["-t", "-w", "--"]).arg(path);
+    let output = crate::child_process::run_child(&mut command, None, std::time::Duration::from_secs(10), &|| false).ok()?;
+    match output.status.code() {
+      Some(0) => Some(String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| line.trim().parse().ok()).collect()),
+      Some(1) if output.stdout.is_empty() && output.stderr.is_empty() => Some(Vec::new()),
+      _ => None,
+    }
   }
 
   const fn start_time(info: &libc::proc_bsdinfo) -> u64 {
@@ -423,12 +455,15 @@ mod platform {
 
   pub(super) const SCAN_AVAILABLE: bool = true;
 
-  pub(super) fn processes() -> Option<Vec<ProcessInfo>> {
+  /// The pids of `/proc`
+  fn pids() -> Option<impl Iterator<Item = u32>> {
     let entries = std::fs::read_dir("/proc").ok()?;
+    Some(entries.flatten().filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok()))
+  }
+
+  pub(super) fn processes() -> Option<Vec<ProcessInfo>> {
     Some(
-      entries
-        .flatten()
-        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+      pids()?
         .filter_map(|pid| {
           let stat = Stat::read(pid)?;
           let dir = Path::new("/proc").join(pid.to_string());
@@ -458,6 +493,39 @@ mod platform {
   /// A zombie has exited: it waits only for its parent to reap it
   pub(super) fn started(pid: u32) -> Option<u64> {
     Stat::read(pid).filter(|stat| !stat.zombie).map(|stat| stat.started)
+  }
+
+  /// `started` is clock ticks since the boot: `btime` of `/proc/stat` (seconds since the epoch) plus the ticks
+  pub(super) fn started_at(started: u64) -> Option<std::time::SystemTime> {
+    let stat = std::fs::read_to_string("/proc/stat").ok()?;
+    let boot: u64 = stat.lines().find_map(|line| line.strip_prefix("btime "))?.trim().parse().ok()?;
+    let ticks = clock_ticks()?;
+    let since_boot = std::time::Duration::from_secs(started / ticks) + std::time::Duration::from_nanos((started % ticks) * 1_000_000_000 / ticks);
+    std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_secs(boot))?.checked_add(since_boot)
+  }
+
+  /// `sysconf(_SC_CLK_TCK)`: the clock ticks per second of `/proc/<pid>/stat`
+  #[expect(unsafe_code, reason = "sysconf(3), which std does not offer")]
+  fn clock_ticks() -> Option<u64> {
+    // SAFETY: sysconf takes a plain integer and touches no memory of this process
+    let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    u64::try_from(ticks).ok().filter(|&ticks| ticks > 0)
+  }
+
+  /// The processes of this user with a `/proc/<pid>/fd/<n>` link to `path`
+  pub(super) fn processes_with_open_file(path: &Path) -> Option<Vec<u32>> {
+    let path = std::fs::canonicalize(path).ok()?;
+    Some(
+      pids()?
+        .filter(|pid| {
+          std::fs::read_dir(format!("/proc/{pid}/fd"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|fd| std::fs::read_link(fd.path()).is_ok_and(|target| target == path))
+        })
+        .collect(),
+    )
   }
 
   /// `/proc` tells a zombie, which `kill(pid, 0)` would count, from a running process: what it doesn't show is gone
@@ -519,6 +587,16 @@ mod platform {
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
   pub(super) fn exists_unseen(_pid: u32) -> bool {
     true
+  }
+
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn started_at(_started: u64) -> Option<std::time::SystemTime> {
+    None
+  }
+
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn processes_with_open_file(_path: &std::path::Path) -> Option<Vec<u32>> {
+    None
   }
 
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]

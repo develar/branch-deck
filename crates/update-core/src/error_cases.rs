@@ -5,6 +5,7 @@
 //! `app-api`). A case whose code differs on one side fails that side's test
 use crate::update_project::{FetchFailed, NoUpstream};
 use domain_types::error::ErrorCode;
+use git_ops::index_lock::{IndexLocked, LockHolder};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::{DropRefused, MoveBlocked};
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, NotAnUpdate, PendingUpdate, RefLocked, UndoBlocked};
@@ -53,6 +54,20 @@ fn repository_locked() -> RepositoryLocked {
     path: PathBuf::from("/repo/.git/branch-deck.lock"),
     waited: Duration::from_secs(10),
     holder: None,
+  }
+}
+
+/// The index lock of a worktree that an IDE's `git status` held for the whole wait
+pub fn index_locked() -> IndexLocked {
+  IndexLocked {
+    worktree: "/repo".to_string(),
+    path: "/repo/.git/index.lock".to_string(),
+    held_for: Duration::from_secs(31),
+    holders: vec![LockHolder {
+      pid: 4242,
+      name: "git".to_string(),
+      command: "git status --porcelain -z".to_string(),
+    }],
   }
 }
 
@@ -117,6 +132,7 @@ fn move_cases() -> Vec<ErrorCase> {
       Locked,
       Some(Locked),
     ),
+    case("index_locked", Move, || index_locked().into(), Locked, Some(Locked)),
     case("repository_locked", Move, || repository_locked().into(), Locked, Some(Locked)),
     case(
       "finish_pending",

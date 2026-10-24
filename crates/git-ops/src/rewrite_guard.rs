@@ -2,6 +2,7 @@
 //! See docs/design/git-operations.md: the working tree is never written, and the user's index changes only when the
 //! tree of HEAD changes, keeping whatever is staged on paths the rewrite does not touch.
 
+use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
 use crate::revs::checked_out_branch;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -178,13 +179,17 @@ impl IndexUpdate {
     Err(anyhow!("Staged changes overlap the rewritten files, unstage or commit them first: {}", paths.join(", ")))
   }
 
-  /// Update the user's index after the branch moved; an error is returned, never ignored
+  /// Update the user's index after the branch moved, waiting for the index lock of another process
+  /// (`IndexLock::retry`); an error is returned, never ignored
   #[instrument(skip(self, git_executor))]
   pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
+    let lock = IndexLock::of(git_executor, repo_path);
     let result = match self {
       Self::TwoWay { old_tree, new_tree } if old_tree == new_tree => return Ok(()),
-      Self::TwoWay { old_tree, new_tree } => git_executor.execute_command(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path).map(drop),
-      Self::FromWorktree(files) => stage_worktree_files(git_executor, repo_path, &[], files),
+      Self::TwoWay { old_tree, new_tree } => lock.retry(INDEX_LOCK_WAIT, || {
+        git_executor.execute_command(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path).map(drop)
+      }),
+      Self::FromWorktree(files) => lock.retry(INDEX_LOCK_WAIT, || stage_worktree_files(git_executor, repo_path, &[], files)),
     };
     result.map_err(|e| anyhow!("The branch was rewritten, but the index could not follow it; run `git reset -q` to reset the index to HEAD: {e:#}"))?;
     // read-tree drops the stat data of the replaced entries; refresh it so `git status` doesn't rehash those files.

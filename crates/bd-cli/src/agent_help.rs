@@ -439,8 +439,9 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
 6. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,
    `squash fixups` (`bd fold` or the app's Squash Fixups), `reword <n> commits` (`bd group`, `bd rename`,
    `bd restack`, `bd unstack`, `bd reword`), `undo`,
-   `squash <n> commits`, `drop <n> commits`, `amend <id>`, `move hunk`, each also with ` rolled back` when its files
-   could not follow. A line without the `branch-deck: ` prefix came from outside Branch Deck.
+   `squash <n> commits`, `drop <n> commits`, `amend <id>`, `move hunk`; a move whose files could not follow (`pick`,
+   `update project`, `unapply`, `reapply` and their undo) also with ` rolled back`. A line without the
+   `branch-deck: ` prefix came from outside Branch Deck.
 ";
 
 /// The skill `bd install` writes and `bd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex

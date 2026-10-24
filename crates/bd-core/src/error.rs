@@ -35,7 +35,7 @@ pub struct CliError {
 pub struct ErrorExtra {
   /// The block ids of `block_not_found`
   pub blocks: Vec<String>,
-  /// The processes of `slot_busy`
+  /// The processes of `slot_busy`, and those that may own the index lock of `locked`
   pub processes: Vec<ProcessOutput>,
 }
 
@@ -117,14 +117,15 @@ pub struct ErrorBody {
   /// approvals count
   #[serde(skip_serializing_if = "Option::is_none")]
   pub review: Option<ReviewSummary>,
-  /// The processes that work in the worktree of `slot_busy`, with their argv: no `ps` needed to tell them
+  /// The processes that work in the worktree of `slot_busy`, or that may own the index lock of `locked`, with their
+  /// argv: no `ps` needed to tell them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub processes: Vec<ProcessOutput>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,
 }
 
-/// A process that works in a worktree of the lease pool
+/// A process that works in a worktree of the lease pool, or that may own the index lock of a worktree
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ProcessOutput {
   pub pid: u32,

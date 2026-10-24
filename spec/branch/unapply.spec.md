@@ -120,6 +120,9 @@ puts its commits back on top of the current branch, their files and their groupi
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
+- The index lock of another process must make the unapply, the reapply and their undo wait (at most 30 s per write)
+  and an ownerless one be removed, as for `bd pick`; one that stays must move HEAD back and answer `locked`.
+  [@test] ../../crates/git-ops/src/pick_test.rs (`a_move_removes_an_index_lock_that_no_process_owns_and_lets_the_files_follow`)
 - A later commit that depends on a dropped commit must make the unapply fail with a conflict, and no ref, index
   entry or file may change.
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`unapply_conflict_changes_nothing`)

@@ -51,6 +51,13 @@
     "retry": "same",
     "operation_id": null
   },
+  "index_locked": {
+    "code": "locked",
+    "message": "Cannot write the index of /repo: /repo/.git/index.lock has been held for 31 s by git status --porcelain -z (4242). Retry once it is gone",
+    "details": null,
+    "retry": "same",
+    "operation_id": null
+  },
   "canceled": { "code": "canceled", "message": "The wait for /repo/.git/branch-deck.lock was canceled", "details": null, "retry": "no", "operation_id": null },
   "uncommitted_overlap": {
     "code": "uncommitted_overlap",

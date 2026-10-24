@@ -554,6 +554,57 @@ fn an_undone_fast_forward_pick_is_no_fork_point() {
   assert_eq!(again.check.picked.iter().map(|commit| commit.commit.as_str()).collect::<Vec<_>>(), [first.as_str()]);
 }
 
+#[test]
+fn a_pick_waits_for_the_index_lock_of_another_process_and_then_lands_with_its_files() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  worktree.commit("(lane) change", "b.txt", "b\n");
+  repo.create_commit("(own) other", "own.txt", "own\n");
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
+  // an IDE's `git status` holds the lock of the target for a while
+  let lock = repo.path().join(".git").join("index.lock");
+  std::fs::write(&lock, "").unwrap();
+  let release = std::thread::spawn(move || {
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    std::fs::remove_file(lock).unwrap();
+  });
+  plan.wait_for_index_locks(repo.git_executor(), repo.path_str()).unwrap();
+  release.join().unwrap();
+  let applied = apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+  assert_eq!(applied.followed, Some(FollowState::Moved));
+  assert_eq!(read(&repo, "b.txt"), "b\n");
+  assert_eq!(repo.git(&["status", "--porcelain", "--untracked-files=no"]), "");
+  let moves = repo.git(&["log", "-g", "--format=%gs", "refs/heads/master"]);
+  assert!(!moves.contains("rolled back"), "{moves}");
+  assert_eq!(subjects(&repo, &format!("{base}..HEAD")), ["(own) other", "(lane) change"]);
+}
+
+#[test]
+fn a_move_removes_an_index_lock_that_no_process_owns_and_lets_the_files_follow() {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  worktree.commit("(lane) change", "b.txt", "b\n");
+  repo.create_commit("(own) other", "own.txt", "own\n");
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  // what a git killed by SIGKILL leaves: nobody has it open, nobody will remove it
+  let lock = repo.path().join(".git").join("index.lock");
+  std::fs::write(&lock, "").unwrap();
+  let result = apply_pick(repo.git_executor(), repo.path_str(), &plan);
+  if cfg!(windows) {
+    // no owner check: the lock stays for the whole wait, and the branch did not move
+    let error = result.unwrap_err();
+    assert!(error.downcast_ref::<crate::index_lock::IndexLocked>().is_some(), "{error:#}");
+    assert_eq!(repo.head(), plan.check.head);
+  } else {
+    result.unwrap();
+    assert!(!lock.exists());
+    assert_eq!(read(&repo, "b.txt"), "b\n");
+    assert_eq!(repo.git(&["log", "-g", "-n1", "--format=%gs", "refs/heads/master"]), "branch-deck: pick");
+  }
+}
+
 fn entry(index: usize, id: &str, message: &str) -> ReflogEntry {
   ReflogEntry {
     index,

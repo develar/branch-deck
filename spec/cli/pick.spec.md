@@ -168,6 +168,16 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
 - A file a move writes, changed between the check and the lock, must refuse the pick as `uncommitted_overlap`, nothing
   moved.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_file_edited_during_the_replay_of_a_pick_blocks_it`)
+- The index lock of another process in the target or the source (an IDE's `git status`) must make the pick wait,
+  before the repository lock and in the move, at most 30 s per write, never roll it back; a lock that no process owns
+  (left by a killed git) must be removed after two checks 2 s apart. A lock that stays must answer `locked`
+  (retryable, exit 3) with the lock file, its age and the processes that may own it (`processes`), nothing changed;
+  in the source it must make `followed.state` `blocked`, the target picked.
+  [@test] ../../crates/git-ops/src/pick_test.rs (`a_pick_waits_for_the_index_lock_of_another_process_and_then_lands_with_its_files`, `a_move_removes_an_index_lock_that_no_process_owns_and_lets_the_files_follow`)
+  [@test] ../../crates/git-ops/src/index_lock_test.rs (`a_lock_that_a_process_has_open_stays_and_the_answer_names_the_process`, `a_lock_that_no_process_owns_is_removed_and_the_step_runs_again`)
+  [@test] ../../crates/git-ops/src/index_lock_test.rs (`a_step_blocked_by_the_lock_of_another_process_runs_again_once_the_lock_is_gone`, `a_step_that_fails_on_its_own_returns_its_error_after_one_run_although_a_younger_lock_exists`)
+  [@test] ../../crates/git-ops/src/index_lock_test.rs (`a_lock_file_that_took_the_place_of_the_checked_one_is_not_removed`)
+  [@test] ../../crates/bd-update/src/error_code_test.rs (`bd_answers_the_code_of_each_refusal_of_a_move_an_unapply_and_a_reapply_that_the_app_answers`)
 
 ### `--follow`
 

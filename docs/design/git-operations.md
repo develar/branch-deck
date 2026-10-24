@@ -333,6 +333,44 @@ stdout on success, trimmed stderr otherwise, and the code); every other call is 
 counts (`with_process_stats`, `process_stats`), that is all the executor offers: it knows no git command, and what a
 command means (a commit or a tree by name, whether a ref exists) is a function of `git_ops::revs`.
 
+### Index lock
+
+A write of the user's index takes `<git dir>/index.lock`, and git does not wait for it: `core.filesRefLockTimeout` is
+only for refs. Two kinds of lock refused bd's moves on the IntelliJ monorepo (2026-10-24, ten sessions picking into
+one `master`), and each rollback made the agent loop again:
+
+- **Live**: an IDE's `git status` holds the lock for the whole of its scan (an opportunistic refresh; 11–20 s with
+  `--untracked-files=all --ignored=matching` on 1.4M files) and starts again at every ref change, so at the move of a
+  pick too.
+- **Ownerless**: a 0-byte lock that no process has open, left by a git killed with SIGKILL (git removes its lock on
+  exit, SIGTERM and SIGINT). Every later status skips it, and every write fails on it until someone removes it.
+
+`git_ops::index_lock` handles both, for the moves the files follow (the pick and its follow, Update Project, the
+unapply, the reapply, their undo, the finish of a resolve session) and for `IndexUpdate::apply` of the rewrites:
+
+1. **Before the CAS move**, a move whose git dir is known (`move_branch_and_files_carrying`: `current_worktree` reads
+   it anyway; a pick's check reads both worktrees' dirs) waits while a lock is there, and the refresh of the stat data
+   runs (`prepare_worktree_update`). A pick does this before the repository lock too (`PickPlan::wait_for_index_locks`),
+   so no other writer waits for the repository lock while this one waits for git's.
+2. **A step that a lock blocked runs again** once the lock is gone (`IndexLock::retry`): the step failed, and the lock
+   exists now and appeared before the step started (100 ms of slack: Linux stamps a file with a coarse clock). A step
+   that refused for its own reasons held the lock itself and released it, so a lock that exists now is younger and the
+   step's error stands. A blocked step wrote nothing: git takes the lock before it writes (`update-index --refresh` without stat data to write needs no lock and passes,
+   which is why step 1 looks at the file itself).
+3. **An ownerless lock is removed.** Every 2 s of a wait, bd asks who owns it: a process that has it open (`lsof` on
+   macOS, `/proc/*/fd` on Linux), or a git in the worktree that started before the lock appeared (a `git commit`
+   closes its lock while a hook runs). Two answers "nobody", 2 s apart, for the same file (device, inode, mtime) remove
+   it; its identity is read again right before the unlink, so the race left is microseconds after a lock that stood
+   ownerless for 2 s. A lock bd can't judge (no `lsof`, Windows) stays.
+4. **After 30 s** (`INDEX_LOCK_WAIT`, per write) the answer is `IndexLocked` with the file, its age and the processes
+   that may own it: `locked` (retryable) with `processes` in bd. A move that gives up after the branch moved moves it
+   back first, so nothing was changed; a follow that gives up is `followed: blocked`, the target picked. A rewrite has
+   rewritten the branch already: its error stays the non-retryable one with the `git reset -q` advice, naming the lock.
+5. The refresh after `read-tree -m -u` is best effort: the files followed, and the next `git status` refreshes the
+   stat data. Before, its failure moved the branch back after the files had moved.
+
+The happy path costs no process: the lock file is looked at only when a step failed or the git dir is known.
+
 ### Operations
 
 #### Rewrite history
@@ -887,7 +925,9 @@ Details:
 - **Order and rollback.** The branch moves before the files, with a CAS on H: if a commit landed meanwhile, the move
   fails and nothing was written. `read-tree` checks every path again before it writes any file, so a file changed
   between the dry run and step 10 fails it with nothing written; the branch then moves back with a second CAS
-  transaction and the update reports "Files changed during the update; nothing was changed".
+  transaction and the update reports "Files changed during the update; nothing was changed". The index lock of
+  another process is waited for, before the move and at `read-tree`, and an ownerless one removed
+  ([Index lock](#index-lock)); one that stays 30 s moves the branch back as `locked`.
 - **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
   **Landed commits left out.** When the replay conflicts, the check asks sync-core for sets of landed local commits
