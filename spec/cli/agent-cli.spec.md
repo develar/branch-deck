@@ -147,7 +147,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `branchdeck.branchPrefix` (`app_settings::resolve`), each named as the branches are (`jane/` is `jane`); every
   output must echo it, and `bd status` must name its source (`prefix_source`: `cli`, `repository_config`,
   `app_setting`, `global_config`), so that a fallback to the global config is explicit.
-  [@test] ../../crates/bd-remote/src/status_test.rs (`prefix_from_app_settings`, `prefix_from_git_config`, `prefix_source_names_where_the_prefix_came_from`)
+  [@test] ../../crates/bd-remote/src/status_test.rs (`prefix_from_app_settings`, `prefix_from_git_config`, `prefix_source_names_where_the_prefix_came_from`, `the_global_config_of_the_process_never_reaches_the_bd_of_a_test`)
   [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_of_the_command_line_is_taken_as_it_is_named`)
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`)
 - The settings of the app (its prefix, `patronusNewApi`) must be read once as `bd` starts, through the loader of the

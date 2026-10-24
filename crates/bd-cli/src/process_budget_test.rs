@@ -2,7 +2,7 @@
 //! `sync_core::process_budget_test` counts the cores: a change that runs fewer processes lowers the numbers here.
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
-use crate::fixture_test::{PREFIX, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
+use crate::fixture_test::{EMPTY_GLOBAL_CONFIG, PREFIX, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
 use crate::remote_fixture_test::{AUTH, Space, needs_code_owner, repo_with_remote, robot as robot_json};
 use bd_core::context::{RepoContext, RepoOptions, counted_git};
 use bd_core::sync_command::sync;
@@ -160,7 +160,8 @@ impl ProgressReporter for Discard {
 /// the settings and the descriptions from it
 #[test]
 fn a_sync_with_the_prefix_of_the_config() {
-  let core = GitCommandExecutor::new().with_process_stats("core");
+  // the global config of bd in a test, so that the core reads the settings bd reads
+  let core = GitCommandExecutor::new().with_env("GIT_CONFIG_GLOBAL", EMPTY_GLOBAL_CONFIG).with_process_stats("core");
   let core_repo = repo_with_branches();
   let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
   runtime

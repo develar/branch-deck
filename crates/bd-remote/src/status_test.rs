@@ -3,6 +3,7 @@ use bd_core::context::{Environment, app_settings_of};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
 /// Two prefixed commits, an issue-key commit and an unassigned one, at fixed times
@@ -186,6 +187,26 @@ fn empty_prefix_is_an_error() {
   let (exit_code, output) = run_json(&environment(repo.path()), &["status"]);
   assert_eq!(exit_code, 2);
   assert_error(&output, "no_branch_prefix");
+}
+
+/// The bd of a test reads the global config of its environment, empty, never the one of the process: the prefix of the
+/// developer's global config is no prefix there, as on CI; the environment of the process (`None`) leaves git its own
+#[test_log::test]
+fn the_global_config_of_the_process_never_reaches_the_bd_of_a_test() {
+  let (repo, _) = grouped_repo();
+  let developer = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(developer.path(), "[branchdeck]\n\tbranchPrefix = developer\n").unwrap();
+  let _global = EnvVars::set(&[("GIT_CONFIG_GLOBAL", developer.path())]);
+
+  let (exit_code, output) = run_json(&environment(repo.path()), &["status"]);
+  assert_eq!(exit_code, 2);
+  assert_error(&output, "no_branch_prefix");
+
+  let mut process = environment(repo.path());
+  process.git_config_global = None;
+  let (exit_code, output) = run_json(&process, &["status", "--unassigned"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["prefix"], &output["prefix_source"]), (&json!("developer"), &json!("global_config")));
 }
 
 #[test_log::test]
