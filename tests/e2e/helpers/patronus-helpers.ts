@@ -14,6 +14,7 @@ import type {
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
 import { dismissingApprovals } from "./pull-request-helpers"
+import { waitForStepFacts } from "./safe-push-helpers"
 import type { SetupRepoOptions } from "./setup-options"
 import { emitTauriEvent } from "./sync-helpers"
 import type { PatronusStartRequest, TestRepositoryBuilder } from "./test-repository"
@@ -296,6 +297,7 @@ export async function setupRobotsWith(
   await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
   // and the steps once every fact they wait for is in (why a robot failed, what a branch needs to land): a step that
   // answers late changes the width of its column and moves the chips under the pointer of a hover
+  await waitForStepFacts(page.getByTestId("next-step-slot"))
   await expect(page.locator('[data-testid="next-step-slot"][data-step="pending"]')).toHaveCount(0)
   return repo
 }

@@ -242,7 +242,8 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
   `setTimeout` in a spec, a fixture or a helper. A box or a point measured for a press waits for the facts that move
   it: Patronus answers after the sync and moves the header row (`waitForHeaderFacts`). A chain of commands gets a wait
   per step, each of which takes seconds under load: a rewrite and its sync `runAndWaitForSync`, Update Project
-  `runAndWaitForUpdate`, any other step `nextAnswer(page, command)` before the assertion that reads its answer.
+  `runAndWaitForUpdate`, a start `runAndWaitForAnswer(page, "start_patronus_robot", …)`, the facts of a next step
+  `waitForStepFacts`, any other step `nextAnswer(page, command)` before the assertion that reads its answer.
 - **Close a read toast** before acting where it lies (`closeToast` of `tests/e2e/helpers/toast-helpers.ts`): the toasts
   lie above menus and dialogs at the bottom right, and a click or hover under one waits until it times out (5 s, 10 s
   with an action); five tests spent 7-9 s each this way.

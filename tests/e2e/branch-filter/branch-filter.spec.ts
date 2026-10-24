@@ -6,7 +6,7 @@ import { findBranchRow, getPushButton, getStackChip, verifyBranchState } from ".
 import { availableRobots, expectPatronusStarts, robot, startRequest } from "../helpers/patronus-helpers"
 import { expectPushedToast, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
-import { popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import { popoverStart, safePushPopover, slotSafePush, waitForStepFacts } from "../helpers/safe-push-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own
@@ -345,6 +345,7 @@ test.describe("Branch filter", () => {
 
     // S never starts by itself: the popover, its start focused once it can run, which Enter presses; S of a step still
     // checking says what it waits for, so the test presses it once the step is known, as the user can
+    await waitForStepFacts(findBranchRow(page, "lint").getByTestId("next-step-slot"))
     await expect(findBranchRow(page, "lint").getByTestId("next-step-slot")).not.toHaveAttribute("data-step", "pending")
     await focusRow(page, "lint")
     await page.keyboard.press("s")

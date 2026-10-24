@@ -116,13 +116,21 @@ export async function runAndWaitForSync(page: Page, action: () => Promise<unknow
 }
 
 /**
- * The answer of the page's next `command` (`/invoke/<command>`), however long the test lets it take; ask for it before
+ * The `count`-th answer of the page's next `command` (`/invoke/<command>`), however long the test lets it take; ask for it before
  * the action that starts the command. It is the event of one step of a chain of commands, each of which takes seconds
  * under load (Update Project: the fetch, the update, then the sync), so the assertion after it waits only for the page
  * to show the answer, never for the whole chain within its 5 s
  */
-export function nextAnswer(page: Page, command: string): Promise<unknown> {
-  return page.waitForResponse(response => response.url().endsWith(`/invoke/${command}`), { timeout: 0 })
+export function nextAnswer(page: Page, command: string, count = 1): Promise<unknown> {
+  let answered = 0
+  return page.waitForResponse(response => response.url().endsWith(`/invoke/${command}`) && ++answered === count, { timeout: 0 })
+}
+
+/** Runs `action`, which starts `command` at the end of a chain of commands, and waits for the answer of that command */
+export async function runAndWaitForAnswer(page: Page, command: string, action: () => Promise<unknown>): Promise<void> {
+  const answered = nextAnswer(page, command)
+  await action()
+  await answered
 }
 
 /**
@@ -131,9 +139,7 @@ export function nextAnswer(page: Page, command: string): Promise<unknown> {
  * update follows it (`runAndWaitForSync` around this for an assertion on the rebuilt rows)
  */
 export async function runAndWaitForUpdate(page: Page, press: () => Promise<unknown>): Promise<void> {
-  const updated = nextAnswer(page, "update_project")
-  await press()
-  await updated
+  await runAndWaitForAnswer(page, "update_project", press)
 }
 
 /** Waits until the page listens to `event`: one fired before a lazy page registered its listener is lost */

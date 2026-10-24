@@ -69,7 +69,14 @@ export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }
   const item = step.item
   const requestReview = !startsWholeStack && step.kind === "requestReview" && item?.disabled !== true ? item : null
   return (
-    <div ref={slotRef} className="flex min-w-0 items-center" data-testid="next-step-slot" data-step={step.kind} data-stack-path="landing">
+    <div
+      ref={slotRef}
+      className="flex min-w-0 items-center"
+      data-testid="next-step-slot"
+      data-step={step.kind}
+      data-waits-for={step.waitsFor ?? undefined}
+      data-stack-path="landing"
+    >
       {startsWholeStack ? (
         <SafePushButton branch={branch} wholeStack={branch.name} placement="row" compact />
       ) : (

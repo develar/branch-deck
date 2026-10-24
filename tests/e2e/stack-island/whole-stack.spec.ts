@@ -28,7 +28,7 @@ import {
 import type { PushRequest } from "../helpers/push-helpers"
 import { pushOutcome, routeHeldPush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
-import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush, waitForStepFacts } from "../helpers/safe-push-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
@@ -223,7 +223,9 @@ async function openWholeStackPopoverWithPullRequest(
   }
   await syncAndWaitForBranches()
   // S once the step of the whole stack is known: before the answers it says what it waits for
-  await expect(island(page, "air").locator("[data-testid=next-step-slot][data-whole-stack=air]")).not.toHaveAttribute("data-step", "pending")
+  const slot = island(page, "air").locator("[data-testid=next-step-slot][data-whole-stack=air]")
+  await waitForStepFacts(slot)
+  await expect(slot).not.toHaveAttribute("data-step", "pending")
   await island(page, "air")
     .getByRole("button", { name: /^air Stack · 7 branches/ })
     .focus()

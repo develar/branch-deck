@@ -48,7 +48,7 @@ export function WholeStackSlot({ root, leaf }: WholeStackSlotProps) {
   const item = step.item
   const requestReview = step.kind === "requestReview" && item?.disabled !== true ? item : null
   return (
-    <div ref={slotRef} className="flex min-w-0 items-center" data-testid="next-step-slot" data-step={step.kind} data-whole-stack={root}>
+    <div ref={slotRef} className="flex min-w-0 items-center" data-testid="next-step-slot" data-step={step.kind} data-waits-for={step.waitsFor ?? undefined} data-whole-stack={root}>
       {item !== null &&
         (item.id === "safe-push" ? (
           <SafePushButton branch={rootBranch} wholeStack={root} placement="stack-header" compact />

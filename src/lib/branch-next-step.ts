@@ -247,6 +247,11 @@ export interface BranchNextStep {
   /** The step depends on the readiness of the branch: the store asks Patronus for it */
   readonly needsReadiness: boolean
   /**
+   * The fact a pending step ("Checking…", row 0) waits for, null for any other step; the slot names it
+   * (`data-waits-for`), so an E2E test waits for each fact with an assertion's time of its own (`waitForStepFacts`)
+   */
+  readonly waitsFor: PendingFact | null
+  /**
    * The `info` toast of S while "Safe Push" is disabled: a short title naming the branch ("Safe Push of auth waits for
    * Ilya Korennoy"), the reason as the description; null when it can open
    */
@@ -392,6 +397,7 @@ function step(kind: NextStepKind, item: MenuItem | null, safePushBlocker: string
     safePushBlocker,
     dryRunBlocker,
     needsReadiness: false,
+    waitsFor: null,
     notice: null,
     retarget: null,
     withoutReview: null,
@@ -498,6 +504,7 @@ function pendingStep(facts: NextStepFacts, fact: PendingFact, general: string | 
   return step("pending", item, general ?? reason, fact === "patronus" ? (dryRunBlocker ?? reason) : dryRunBlocker, {
     tone: "quiet",
     needsReadiness: fact === "readiness",
+    waitsFor: fact,
     ...rowNotice(general, `Safe Push of ${facts.subject} waits for ${from}`, reason),
   })
 }
