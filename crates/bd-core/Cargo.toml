@@ -19,6 +19,7 @@ sync-core = { path = "../sync-core" }
 trial-check = { path = "../trial-check" }
 sync-utils = { path = "../sync-utils" }
 history-rewrite = { path = "../history-rewrite" }
+repository-model = { path = "../repository-model" }
 domain-types = { path = "../domain-types", features = ["schemars"] }
 youtrack = { path = "../youtrack" }
 anyhow.workspace = true

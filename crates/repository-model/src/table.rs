@@ -9,6 +9,10 @@
 //! A sync that fails restores the table of the sync before (`finish_sync`): the rows of a failed sync are never shown
 //! as the table. The texts of the statuses, the marks of what to expand and the badges are the page's presentation.
 //!
+//! `bd sync` folds the events of its sync into a table of its own and summarizes it, so the app and `bd` read one
+//! applier; beside the parts of the view it reads two facts the page has no use for: the order in which the sync
+//! reported the stack branches (`stacks`) and the commits each branch left uncopied (`blocked_commits`).
+//!
 //! The session writes into the table outside a sync too (`OwnWrite`): the outcome of a push (`end_push`: the remote
 //! statuses it left) and the deletion of an archived or unapplied branch. Such a write is newer than every event of a
 //! run that started before it, so that run never undoes it (a remote status it computed before the push, an archived
@@ -33,6 +37,12 @@ pub(crate) struct TableParts {
   pub(crate) branches: BTreeMap<String, BranchView>,
   pub(crate) stacks: BTreeMap<String, StackBranchUpdate>,
   pub(crate) sections: TableSections,
+  /// Not a part of the view, which keys the stack branches by root: the roots in the order the grouping announced
+  /// them, of each stack that forks, then those kept for their remote branch (the order of `bd sync`)
+  pub(crate) stack_roots: Vec<String>,
+  /// Not a part of the view, whose rows mark none of them: branch -> the commits the sync did not copy, oldest first,
+  /// because an earlier commit failed or the branch was not built (`CommitsBlocked`; `bd sync` lists them)
+  pub(crate) blocked: HashMap<String, Vec<String>>,
 }
 
 /// The branch table of a session, folded from the events of its syncs
@@ -131,6 +141,19 @@ impl TableState {
     self.parts.stacks.get(root)
   }
 
+  /// The stack branches in the order the sync reported them: of each stack that forks, then those kept for their
+  /// remote branch
+  pub fn stacks(&self) -> impl Iterator<Item = &StackBranchUpdate> {
+    self.parts.stack_roots.iter().filter_map(|root| self.parts.stacks.get(root))
+  }
+
+  /// The commits of `branch` that the last sync did not copy, oldest first: those after the commit that failed, or all
+  /// of a branch it did not build
+  #[must_use]
+  pub fn blocked_commits(&self, branch: &str) -> &[String] {
+    self.parts.blocked.get(branch).map_or(&[], Vec::as_slice)
+  }
+
   #[must_use]
   pub const fn sections(&self) -> &TableSections {
     &self.parts.sections
@@ -212,8 +235,11 @@ impl TableState {
         header.parked = parked;
         self.apply_grouping(branches);
         // the stack branches the grouping announces keep what the last sync said of them until their update
-        let announced: HashSet<String> = stack_branches.into_iter().collect();
+        let announced: HashSet<&String> = stack_branches.iter().collect();
         self.parts.stacks.retain(|root, _| announced.contains(root));
+        self.parts.stack_roots = stack_branches;
+        // every branch builds anew
+        self.parts.blocked.clear();
       }
       SyncEvent::UnassignedCommits { commits } => self.parts.sections.unassigned = commits,
       SyncEvent::CommitSynced {
@@ -239,8 +265,15 @@ impl TableState {
         branch.sync.has_error = true;
         branch.sync.error_details = Some(error);
       }),
-      // not displayed
-      SyncEvent::CommitsBlocked { .. } => {}
+      // the rows don't mark them
+      SyncEvent::CommitsBlocked {
+        branch_name,
+        blocked_commit_hashes,
+      } => {
+        if self.parts.branches.contains_key(&branch_name) {
+          self.parts.blocked.insert(branch_name, blocked_commit_hashes);
+        }
+      }
       SyncEvent::BranchStatusUpdate { branch_name, status, error } => self.apply_branch_status(&branch_name, status, error),
       SyncEvent::BranchIntegrationDetected { info } => {
         if self.written_in_run(|write| matches!(write, OwnWrite::RemovedArchived(name) if *name == info.name)) {
@@ -280,6 +313,9 @@ impl TableState {
         let subject = RemoteSubject::WholeStack(update.root.clone());
         let shown = self.parts.stacks.get(&update.root).and_then(|stack| stack.remote.clone());
         update.remote = self.remote_of_run(&subject, update.remote.take()).map_or(shown, |remote| remote.status);
+        if !self.parts.stack_roots.contains(&update.root) {
+          self.parts.stack_roots.push(update.root.clone());
+        }
         self.parts.stacks.insert(update.root.clone(), update);
       }
       SyncEvent::BaselineStatus {

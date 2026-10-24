@@ -3157,8 +3157,8 @@ mapping note read at the sync's start names the copy of before), the stack branc
 facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the remote tip of each branch from
 `SyncReport::remote_tips`, up to date when the `RemoteStatusUpdate` the sync emitted for it has a remote branch and no
 work for it, `has_work_for_remote` in `remote_status.rs`; of each stack branch its `StackBranchUpdate::remote`); `bd`
-builds it from the report of its sync and the statuses among its events (`bd status` from a grouping, with the remote
-tips only). The app keeps the table of the last sync of each repository and branch prefix (`RepositoryViews` in
+builds it from the report of its sync and the remote statuses of the table state its sync folded (below; `bd status`
+from a grouping, with the remote tips only). The app keeps the table of the last sync of each repository and branch prefix (`RepositoryViews` in
 `views.rs`, written by the session host after a successful run from its report and the statuses a
 `RemoteStatusCollector` kept while it forwarded every event to the session; a failed sync keeps the one before) and
 answers `get_repository_view`
@@ -3189,6 +3189,15 @@ snapshot cost less than its `SyncEvent`s, and a sync that changes nothing costs 
 B15 of [Rust as the Domain Authority](rust-domain-authority.md#бюджеты-производительности)). `SyncReport::retry` says
 that another process moved a virtual branch or a stack branch while the sync built it (`BranchMove::MovedElsewhere`):
 the branch reports an error, and the session syncs once more.
+
+`bd sync` has no session, but the same table: its reporter (`TableReporter` in `bd-core/src/sync_command.rs`) applies
+each event to a `TableState` as it comes, and the summary reads that table with the report, never the events once
+more: the status of each row (one the sync did not report is `unchanged`), its error or conflict (for a block the
+reason in `blocked_reason`), the copies resolved by words, the remote status, the archived integration, the unassigned
+count, the baseline status with its landing and landed commits, and the stack branches. Two facts it reads are no
+parts of the view: the order the grouping announced the stack branches in (`TableState::stacks`: of each stack that
+forks, then those kept for their remote branch; the view keys them by root) and the commits each branch left
+uncopied (`blocked_commits`, from `CommitsBlocked`, which the rows mark none of). It costs no git process.
 
 Besides its syncs, the session writes into the table what its own operations did (`TableState::begin_push`,
 `end_push`, `remove_archived`, `remove_unapplied`, through `Sessions::push` and `Sessions::apply`, which answer the

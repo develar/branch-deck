@@ -35,7 +35,8 @@
 //!   chain for a focus, one silent retry
 //! - `table`: the branch table of a session as the events of its syncs leave it (`TableState::apply`), in the parts of
 //!   `domain_types::session`, and what its own operations wrote, which no older run undoes: the outcome of a push
-//!   (`begin_push`, `end_push`), a deleted archived or unapplied branch
+//!   (`begin_push`, `end_push`), a deleted archived or unapplied branch; `bd sync` folds its events into one too and
+//!   summarizes it
 //! - `views`: what the app keeps to answer `get_repository_view`: the table of the last sync and the memo, by repository
 
 pub mod actions;

@@ -56,6 +56,30 @@ pub(crate) fn grouping(branches: Vec<GroupedBranchInfo>) -> SyncEvent {
   }
 }
 
+/// A grouping of no branch with stacked branches on, which announces the stack branches of `roots`
+fn stack_grouping(roots: &[&str]) -> SyncEvent {
+  let SyncEvent::BranchesGrouped {
+    branches,
+    baseline_branch,
+    issue_groups,
+    stack_parents,
+    parked,
+    ..
+  } = grouping(Vec::new())
+  else {
+    unreachable!()
+  };
+  SyncEvent::BranchesGrouped {
+    branches,
+    baseline_branch,
+    stacks: true,
+    issue_groups,
+    stack_parents,
+    parked,
+    stack_branches: roots.iter().map(ToString::to_string).collect(),
+  }
+}
+
 pub(crate) fn synced(branch: &str, commit: &str, status: CommitSyncStatus) -> SyncEvent {
   SyncEvent::CommitSynced {
     branch_name: branch.to_string(),
@@ -200,6 +224,47 @@ fn a_commit_error_marks_the_commit_and_the_branch() {
   assert_eq!(state.branch("auth").unwrap().sync.status, BranchStatus::Syncing, "an error is rebuilt in view");
 }
 
+/// The commits a failed branch left uncopied stay in the table, unmarked in its rows, until the next grouping builds it
+/// anew
+#[test]
+fn the_blocked_commits_of_a_branch_stay_unmarked_until_the_next_grouping() {
+  let mut state = TableState::new();
+  state.begin_sync();
+  state.apply(grouping(vec![grouped("auth", &["a3", "a2", "a1"])]));
+  state.apply(SyncEvent::CommitsBlocked {
+    branch_name: "auth".to_string(),
+    blocked_commit_hashes: vec!["a2".to_string(), "a3".to_string()],
+  });
+  state.apply(SyncEvent::CommitsBlocked {
+    branch_name: "gone".to_string(),
+    blocked_commit_hashes: vec!["g1".to_string()],
+  });
+  state.finish_sync(Ok(()));
+  assert_eq!(
+    (state.blocked_commits("auth"), state.blocked_commits("gone")),
+    (["a2".to_string(), "a3".to_string()].as_slice(), [].as_slice())
+  );
+  assert!(state.branch("auth").unwrap().copies.iter().all(|copy| *copy == CommitSync::default()), "the rows mark none");
+
+  state.begin_sync();
+  state.apply(grouping(vec![grouped("auth", &["a3", "a2", "a1"])]));
+  assert_eq!(state.blocked_commits("auth"), [] as [String; 0]);
+}
+
+/// The stack branches keep the order the grouping announced them in, of the stacks that fork first, not the order of
+/// their roots
+#[test]
+fn the_stack_branches_keep_the_order_the_grouping_announced() {
+  let mut state = TableState::new();
+  state.begin_sync();
+  state.apply(stack_grouping(&["ui", "auth"]));
+  for root in ["ui", "auth"] {
+    state.apply(SyncEvent::StackBranchUpdate(Box::new(stack_branch(root, None))));
+  }
+  state.finish_sync(Ok(()));
+  assert_eq!(state.stacks().map(|stack| stack.root.as_str()).collect::<Vec<_>>(), ["ui", "auth"]);
+}
+
 /// A stack problem marks the commits whose prefix it asks to reword; a blocked branch keeps its reason and is no error
 #[test]
 fn a_stack_problem_marks_its_commits_and_a_block_keeps_its_reason() {
@@ -305,26 +370,7 @@ fn the_grouping_keeps_the_announced_stack_branches_and_the_baseline_status_fills
   state.begin_sync();
   state.apply(SyncEvent::StackBranchUpdate(Box::new(stack("auth"))));
   state.apply(SyncEvent::StackBranchUpdate(Box::new(stack("core"))));
-  let SyncEvent::BranchesGrouped {
-    branches,
-    baseline_branch,
-    issue_groups,
-    stack_parents,
-    parked,
-    ..
-  } = grouping(Vec::new())
-  else {
-    unreachable!()
-  };
-  state.apply(SyncEvent::BranchesGrouped {
-    branches,
-    baseline_branch,
-    stacks: true,
-    issue_groups,
-    stack_parents,
-    parked,
-    stack_branches: vec!["auth".to_string()],
-  });
+  state.apply(stack_grouping(&["auth"]));
   assert_eq!((state.stack("auth"), state.stack("core")), (Some(&stack("auth")), None));
   assert!(state.header().stacks_enabled);
 

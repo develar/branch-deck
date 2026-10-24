@@ -1,7 +1,8 @@
-//! `bd sync`: `sync_core::sync::sync_branches`, its events collected into one compact summary. It rebuilds the virtual
-//! branches, runs the integration detection of archived branches and the update check of the checked out branch, as
-//! the app's sync does, and like it without the repository lock: its refs move by compare-and-swap, so a sync never
-//! makes a rewrite, Update Project or the app wait
+//! `bd sync`: `sync_core::sync::sync_branches`, its events folded into the table of the app's session as they come
+//! (`repository_model::table::TableState`), and that table with the report in one compact summary. It rebuilds the
+//! virtual branches, runs the integration detection of archived branches and the update check of the checked out
+//! branch, as the app's sync does, and like it without the repository lock: its refs move by compare-and-swap, so a
+//! sync never makes a rewrite, Update Project or the app wait
 
 use crate::bd_command::shell_word;
 use crate::branch_view::placement;
@@ -9,17 +10,21 @@ use crate::context::RepoContext;
 use crate::error::CliError;
 use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use crate::stack_summary::StackSummary;
-use domain_types::branch_integration::BranchIntegrationStatus;
+use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
 use domain_types::branch_names::to_final_branch_name;
+use domain_types::commit::Commit;
+use domain_types::conflict::{MergeConflictInfo, WordResolutionSummary};
 use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
+use domain_types::session::{BaselineStatus, BranchStatus, BranchSync, BranchView};
 use domain_types::stack::BranchStack;
 use domain_types::update_project::{UpdateKind, UpdateState};
-use domain_types::{BranchError, BranchSyncStatus, ProgressReporter, RemoteStatusUpdate, SyncEvent};
+use domain_types::{BranchError, ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use history_rewrite::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository_in};
+use repository_model::table::TableState;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use sync_core::sync::{SyncOptions, SyncReport, sync_branches};
 
@@ -50,8 +55,8 @@ pub struct SyncOutput {
   #[serde(skip)]
   #[schemars(skip)]
   pub report: SyncReport,
-  /// The remote statuses the sync emitted, one per branch, for the remote facts of its table
-  /// (`repository_model::branch_table::remote_facts`)
+  /// The remote statuses the table's rows show, one per branch the sync computed one of, for the remote facts of its
+  /// table (`repository_model::branch_table::remote_facts`)
   #[serde(skip)]
   #[schemars(skip)]
   pub remote_statuses: Vec<RemoteStatusUpdate>,
@@ -363,15 +368,38 @@ pub fn landed_ids(branches: &[LandedBranch]) -> impl Iterator<Item = &str> {
     .flat_map(|commit| std::iter::once(commit.id.as_str()).chain(commit.upstream.as_ref().map(|upstream| upstream.id.as_str())))
 }
 
-/// Collects the events of a sync
-#[derive(Clone, Default)]
-struct CollectingReporter {
-  events: Arc<Mutex<Vec<SyncEvent>>>,
+/// Folds each event of the sync into a table of the app's session at once (`TableState::apply`, the applier of the
+/// app's rows): the summary reads that table, not the events once more
+#[derive(Clone)]
+struct TableReporter {
+  table: Arc<Mutex<TableState>>,
 }
 
-impl ProgressReporter for CollectingReporter {
+impl TableReporter {
+  fn new() -> Self {
+    let mut table = TableState::new();
+    table.begin_sync();
+    Self {
+      table: Arc::new(Mutex::new(table)),
+    }
+  }
+
+  /// The table the sync left once it succeeded
+  fn finish(&self) -> Result<TableState, CliError> {
+    let mut table = std::mem::take(
+      &mut *self
+        .table
+        .lock()
+        .map_err(|e| CliError::new(ErrorCode::GitError, format!("the table of the sync is poisoned: {e}")))?,
+    );
+    table.finish_sync(Ok(()));
+    Ok(table)
+  }
+}
+
+impl ProgressReporter for TableReporter {
   fn send(&self, event: SyncEvent) -> anyhow::Result<()> {
-    self.events.lock().map_err(|e| anyhow::anyhow!("the event collector is poisoned: {e}"))?.push(event);
+    self.table.lock().map_err(|e| anyhow::anyhow!("the table of the sync is poisoned: {e}"))?.apply(event);
     Ok(())
   }
 }
@@ -394,7 +422,7 @@ pub fn lock(context: &RepoContext) -> Result<RepositoryLock, CliError> {
 
 /// The sync of `bd sync`; `bd push` and `bd safe-push` run it under the lock they hold to the end of their push
 pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
-  let reporter = CollectingReporter::default();
+  let reporter = TableReporter::new();
   let runtime = context.runtime()?;
   // `--no-cache` trusts no mapping note either: each is checked against the tree of its virtual commit; its cache is
   // disabled, so every conflict is analysed again
@@ -405,17 +433,12 @@ pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
     ..SyncOptions::default()
   };
   let report = runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;
-  let events = std::mem::take(
-    &mut *reporter
-      .events
-      .lock()
-      .map_err(|e| CliError::new(ErrorCode::GitError, format!("the event collector is poisoned: {e}")))?,
-  );
-  Ok(summarize(context, report, events))
+  Ok(summarize(context, report, &reporter.finish()?))
 }
 
-/// One summary of the report and of the events, in the order they came
-fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) -> SyncOutput {
+/// One summary of the report and of the table the sync left: the rows in the order of the table, each with its state,
+/// its error, its blocked and resolved commits and its remote status, then the stack branches and the sections
+fn summarize(context: &RepoContext, report: SyncReport, table: &TableState) -> SyncOutput {
   // branch -> the branch it is built on
   let bases: HashMap<String, String> = report
     .branches
@@ -423,167 +446,53 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
     .filter_map(|branch| Some((branch.name.clone(), branch.stack.as_ref()?.effective_base.clone()?)))
     .collect();
   let tip_of = |name: &str| report.tips.get(&to_final_branch_name(&context.prefix, name).ok()?);
-  let mut unassigned_count = 0;
-  let mut statuses: HashMap<String, (BranchSyncStatus, Option<BranchError>)> = HashMap::new();
-  let mut blocked: HashMap<String, Vec<String>> = HashMap::new();
-  let mut resolved: HashMap<String, Vec<(String, ResolvedByWords)>> = HashMap::new();
-  let mut remotes: HashMap<String, RemoteStatusUpdate> = HashMap::new();
-  let mut archived: BTreeMap<String, ArchivedBranch> = BTreeMap::new();
-  let mut update = None;
-  let (mut landing, mut landed) = (Vec::new(), Vec::new());
-  for event in events {
-    match event {
-      SyncEvent::UnassignedCommits { commits } => unassigned_count = commits.len(),
-      SyncEvent::CommitsBlocked {
-        branch_name,
-        blocked_commit_hashes,
-      } => blocked.entry(branch_name).or_default().extend(blocked_commit_hashes),
-      SyncEvent::BranchStatusUpdate { branch_name, status, error } => {
-        statuses.insert(branch_name, (status, error));
-      }
-      SyncEvent::RemoteStatusUpdate(remote) => {
-        remotes.insert(remote.branch_name.clone(), remote);
-      }
-      SyncEvent::BranchIntegrationDetected { info } => {
-        let (status, integrated_at) = match info.status {
-          BranchIntegrationStatus::Integrated { integrated_at, .. } => (IntegrationState::Integrated, integrated_at),
-          BranchIntegrationStatus::NotIntegrated { integrated_at, .. } => (IntegrationState::NotIntegrated, integrated_at),
-          BranchIntegrationStatus::Partial { .. } => (IntegrationState::Partial, None),
-        };
-        archived.insert(
-          info.name.clone(),
-          ArchivedBranch {
-            name: info.name,
-            state: status,
-            integrated_at,
-          },
-        );
-      }
-      SyncEvent::BaselineStatus {
-        update: check,
-        check_error,
-        landing: incoming,
-        landed: report,
-        ..
-      } => {
-        landing = incoming;
-        landed = report;
-        update = match (check, check_error) {
-          (Some(check), _) => {
-            let (state, files, count) = match check.state {
-              UpdateState::UpToDate => (UpdateCheckState::UpToDate, Vec::new(), 0),
-              UpdateState::Clean { kind: UpdateKind::FastForward } => (UpdateCheckState::FastForward, Vec::new(), 0),
-              UpdateState::Clean { kind: UpdateKind::Rebase } => (UpdateCheckState::Rebase, Vec::new(), 0),
-              UpdateState::Conflict { files, file_count, .. } => (UpdateCheckState::Conflict, files, file_count),
-              UpdateState::Blocked { paths, path_count } => (UpdateCheckState::Blocked, paths, path_count),
-            };
-            Some(UpdateSummary {
-              upstream: Some(check.upstream),
-              state,
-              files_omitted: count.saturating_sub(u32::try_from(files.len()).unwrap_or(u32::MAX)),
-              files,
-              error: None,
-              landing: Vec::new(),
-            })
-          }
-          (None, Some(error)) => Some(UpdateSummary {
-            upstream: None,
-            state: UpdateCheckState::Error,
-            files: Vec::new(),
-            files_omitted: 0,
-            error: Some(error),
-            landing: Vec::new(),
-          }),
-          (None, None) => None,
-        };
-      }
-      SyncEvent::CommitSynced {
-        branch_name,
-        commit_hash,
-        resolved: Some(summary),
-        ..
-      } => resolved.entry(branch_name).or_default().push((commit_hash, ResolvedByWords::of_summary(&summary))),
-      // the report has them
-      SyncEvent::StackBranchUpdate(_)
-      | SyncEvent::BranchesGrouped { .. }
-      | SyncEvent::CommitSynced { .. }
-      | SyncEvent::IssueNavigationConfig { .. }
-      | SyncEvent::CommitError { .. }
-      | SyncEvent::ArchivedBranchesFound { .. }
-      // `bd status` lists them
-      | SyncEvent::UnappliedBranchesFound { .. } => {}
-    }
-  }
+  let rows: Vec<&BranchView> = table.order().iter().filter_map(|name| table.branch(name)).collect();
+  let sections = table.sections();
+  let landed = &sections.landed;
 
   let mut ids: Vec<&str> = report.tips.values().map(String::as_str).collect();
-  ids.extend(blocked.values().flatten().map(String::as_str));
-  ids.extend(resolved.values().flatten().map(|(commit, _)| commit.as_str()));
-  let conflicts: Vec<&str> = statuses
-    .values()
-    .filter_map(|(_, error)| match error {
-      Some(BranchError::MergeConflict(info)) => Some(info.commit.hash.as_str()),
-      _ => None,
-    })
-    .collect();
-  ids.extend(conflicts);
-  ids.extend(remotes.values().flat_map(RemoteSummary::ids));
-  ids.extend(report.stack_branches.iter().flat_map(StackSummary::ids));
-  ids.extend(landed_ids(&landing));
-  ids.extend(landed_ids(&landed));
-  let short = context.short_ids(ids);
-  if let Some(update) = &mut update {
-    update.landing = landed_summary(std::mem::take(&mut landing), &short);
+  for row in &rows {
+    ids.extend(table.blocked_commits(&row.head.name).iter().map(String::as_str));
+    ids.extend(resolved_commits(row).map(|(commit, _)| commit.id.as_str()));
+    ids.extend(error_of(&row.sync).1.map(|info| info.commit.hash.as_str()));
+    ids.extend(row.remote.status.iter().flat_map(RemoteSummary::ids));
   }
-  let landed = landed_summary(landed, &short);
+  ids.extend(table.stacks().flat_map(StackSummary::ids));
+  ids.extend(landed_ids(&landed.landing));
+  ids.extend(landed_ids(&landed.landed));
+  let short = context.short_ids(ids);
 
-  let branches: Vec<SyncedBranch> = report
-    .branches
+  let branches: Vec<SyncedBranch> = rows
     .iter()
-    .map(|branch| (branch.name.clone(), branch.commits.len()))
-    .map(|(name, commit_count)| {
-      let (status, error) = statuses.remove(&name).unwrap_or((BranchSyncStatus::Unchanged, None));
-      let status = match status {
-        BranchSyncStatus::Created => SyncState::Created,
-        BranchSyncStatus::Updated => SyncState::Updated,
-        BranchSyncStatus::Unchanged => SyncState::Unchanged,
-        BranchSyncStatus::Error => SyncState::Error,
-        BranchSyncStatus::Blocked => SyncState::Blocked,
-        BranchSyncStatus::MergeConflict | BranchSyncStatus::AnalyzingConflict => SyncState::Conflict,
-      };
-      let (error, conflict) = match error {
-        Some(BranchError::Generic(message)) => (Some(message), None),
-        Some(BranchError::MergeConflict(info)) => (None, Some(conflict_summary(&info, &short))),
-        None => (None, None),
-      };
-      let reference = to_final_branch_name(&context.prefix, &name).map_or_else(|_| String::new(), |name| format!("refs/heads/{name}"));
+    .map(|row| {
+      let name = &row.head.name;
+      let commit_count = row.commits.len();
+      let state = sync_state(row.sync.status);
+      let (error, conflict) = error_of(&row.sync);
       SyncedBranch {
-        tip: status.is_built().then(|| tip_of(&name).map(|tip| short.get(tip).to_string())).flatten(),
-        reference,
-        state: status,
+        name: name.clone(),
+        reference: to_final_branch_name(&context.prefix, name).map_or_else(|_| String::new(), |name| format!("refs/heads/{name}")),
+        state,
         commit_count,
-        error,
-        conflict,
-        blocked: blocked.remove(&name).unwrap_or_default().iter().map(|id| short.get(id).to_string()).collect(),
-        resolved: resolved
-          .remove(&name)
-          .unwrap_or_default()
-          .into_iter()
+        tip: state.is_built().then(|| tip_of(name).map(|tip| short.get(tip).to_string())).flatten(),
+        error: error.map(str::to_owned),
+        conflict: conflict.map(|info| conflict_summary(info, &short)),
+        blocked: table.blocked_commits(name).iter().map(|id| short.get(id).to_string()).collect(),
+        resolved: resolved_commits(row)
           .map(|(commit, resolved)| ResolvedCommit {
-            commit: short.get(&commit).to_string(),
-            resolved,
+            commit: short.get(&commit.id).to_string(),
+            resolved: ResolvedByWords::of_summary(resolved),
           })
           .collect(),
-        remote: remotes.get(&name).map(|remote| RemoteSummary::new(remote, commit_count, &short)),
+        remote: row.remote.status.as_ref().map(|remote| RemoteSummary::new(remote, commit_count, &short)),
         push: None,
-        name,
       }
     })
     .collect();
   let branches = with_push_commands(branches, &bases, &context.bd);
-  let stacks = report
-    .stack_branches
-    .iter()
-    .map(|stack| StackSummary::new(stack, report.branches.iter().flat_map(|branch| &branch.commits), &short))
+  let stacks = table
+    .stacks()
+    .map(|stack| StackSummary::new(stack, rows.iter().flat_map(|row| &row.commits), &short))
     .collect();
 
   SyncOutput {
@@ -593,13 +502,85 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
     baseline: report.baseline.clone(),
     branches,
     stacks,
-    unassigned_count,
-    archived: archived.into_values().collect(),
-    update,
-    landed,
+    unassigned_count: sections.unassigned.len(),
+    archived: sections.archived.integration.values().map(archived_branch).collect(),
+    update: landed.baseline.as_ref().and_then(|baseline| update_summary(baseline, &landed.landing, &short)),
+    landed: landed_summary(landed.landed.clone(), &short),
     report,
-    remote_statuses: remotes.into_values().collect(),
+    remote_statuses: rows.iter().filter_map(|row| row.remote.status.clone()).collect(),
   }
+}
+
+/// The state of a row; a branch the sync reported no status of is unchanged
+const fn sync_state(status: BranchStatus) -> SyncState {
+  match status {
+    BranchStatus::Created => SyncState::Created,
+    BranchStatus::Updated => SyncState::Updated,
+    BranchStatus::Syncing | BranchStatus::Unchanged => SyncState::Unchanged,
+    BranchStatus::Error => SyncState::Error,
+    BranchStatus::Blocked => SyncState::Blocked,
+    BranchStatus::MergeConflict | BranchStatus::AnalyzingConflict => SyncState::Conflict,
+  }
+}
+
+/// The error the sync reported with the status of a row (for a block: why its parent can't be built on), or its
+/// conflict
+fn error_of(sync: &BranchSync) -> (Option<&str>, Option<&MergeConflictInfo>) {
+  match (sync.status, &sync.error_details) {
+    (BranchStatus::Blocked, _) => (sync.blocked_reason.as_deref(), None),
+    (_, Some(BranchError::Generic(message))) => (Some(message), None),
+    (_, Some(BranchError::MergeConflict(info))) => (None, Some(info)),
+    (_, None) => (None, None),
+  }
+}
+
+/// The commits of a row whose conflict of git the sync resolved by words, oldest first
+fn resolved_commits(row: &BranchView) -> impl Iterator<Item = (&Commit, &WordResolutionSummary)> {
+  row
+    .commits
+    .iter()
+    .zip(&row.copies)
+    .rev()
+    .filter_map(|(commit, copy)| Some((commit, copy.resolved.as_ref()?)))
+}
+
+fn archived_branch(info: &BranchIntegrationInfo) -> ArchivedBranch {
+  let (state, integrated_at) = match &info.status {
+    BranchIntegrationStatus::Integrated { integrated_at, .. } => (IntegrationState::Integrated, *integrated_at),
+    BranchIntegrationStatus::NotIntegrated { integrated_at, .. } => (IntegrationState::NotIntegrated, *integrated_at),
+    BranchIntegrationStatus::Partial { .. } => (IntegrationState::Partial, None),
+  };
+  ArchivedBranch {
+    name: info.name.clone(),
+    state,
+    integrated_at,
+  }
+}
+
+/// The update check of the baseline status with the local commits the update drops; `None` for a local baseline
+fn update_summary(baseline: &BaselineStatus, landing: &[LandedBranch], short: &ShortIds) -> Option<UpdateSummary> {
+  let (upstream, state, files, count, error) = match (&baseline.update, &baseline.check_error) {
+    (Some(check), _) => {
+      let (state, files, count) = match &check.state {
+        UpdateState::UpToDate => (UpdateCheckState::UpToDate, Vec::new(), 0),
+        UpdateState::Clean { kind: UpdateKind::FastForward } => (UpdateCheckState::FastForward, Vec::new(), 0),
+        UpdateState::Clean { kind: UpdateKind::Rebase } => (UpdateCheckState::Rebase, Vec::new(), 0),
+        UpdateState::Conflict { files, file_count, .. } => (UpdateCheckState::Conflict, files.clone(), *file_count),
+        UpdateState::Blocked { paths, path_count } => (UpdateCheckState::Blocked, paths.clone(), *path_count),
+      };
+      (Some(check.upstream.clone()), state, files, count, None)
+    }
+    (None, Some(error)) => (None, UpdateCheckState::Error, Vec::new(), 0, Some(error.clone())),
+    (None, None) => return None,
+  };
+  Some(UpdateSummary {
+    upstream,
+    state,
+    files_omitted: count.saturating_sub(u32::try_from(files.len()).unwrap_or(u32::MAX)),
+    files,
+    error,
+    landing: landed_summary(landing.to_vec(), short),
+  })
 }
 
 /// `branches` with the `bd push` each needs. `--expect-remote` pushes the named branch alone, so it pins the lease only
@@ -633,7 +614,7 @@ fn with_push_commands(mut branches: Vec<SyncedBranch>, bases: &HashMap<String, S
   branches
 }
 
-fn conflict_summary(info: &domain_types::conflict::MergeConflictInfo, short: &ShortIds) -> ConflictSummary {
+fn conflict_summary(info: &MergeConflictInfo, short: &ShortIds) -> ConflictSummary {
   ConflictSummary {
     commit: short.get(&info.commit.hash).to_string(),
     subject: info.commit.message.lines().next().unwrap_or_default().to_string(),

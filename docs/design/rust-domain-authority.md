@@ -1665,6 +1665,13 @@ rewrites между процессами через файл `s10`; `s12` ждё
   - `bd`: таблица `Session::one_shot` в s6 — это `TableState`, которым `bd sync` сворачивает события своего sync
     (`bd-core::sync_command`, ребро `bd-core → repository-model`, библиотека для семейств уже); сводка читает вид, а
     не второй раз события; факты one_shot — s7. JSON `bd sync`/`bd status` не меняется.
+    Сделано (s6-8): `TableReporter` применяет каждое событие к `TableState` сразу (`begin_sync`, `apply`,
+    `finish_sync`); `summarize` читает из таблицы статусы, ошибки и конфликты, копии, разрешённые словами, remote
+    status, archived, unassigned, baseline с landing и landed и stack branches; из отчёта — tips, базы стека и
+    `baseline`. Два факта таблицы — не части вида: порядок stack branches, объявленный группировкой
+    (`TableState::stacks`; вид держит их по корню, а `stacks` `bd sync` идут в порядке sync), и коммиты, которые ветка
+    оставила без копии (`blocked_commits` из `CommitsBlocked`; строки их не отмечают). `CollectingReporter` с
+    `Vec<SyncEvent>` и разбор событий в `summarize` удалены; процессов git не прибавилось.
 
 ### s7-session-facts
 

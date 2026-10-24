@@ -1177,7 +1177,9 @@ same conflict comes again does the next round join their units.
 ### `bd sync`
 
 Rebuilds the virtual branches with `sync_core::sync::sync_branches`, the app's sync: it includes the integration
-detection of archived branches and the update check of the checked out branch. It takes no repository lock, as the
+detection of archived branches and the update check of the checked out branch. Its events fold into the table of the
+app's session as they come (`repository_model::table::TableState`), and the output reads that table: each branch says
+what its row in the app says. It takes no repository lock, as the
 app's sync takes none: every ref it moves is a compare-and-swap on the tip it listed, and a rewrite or an Update Project
 of the app or of another `bd` can land while it runs, so its output is the branches as they were when it read them;
 the next sync shows the change. While a rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress`, on a detached HEAD `detached_head`

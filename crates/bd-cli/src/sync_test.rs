@@ -46,6 +46,9 @@ fn a_conflict_exits_with_1() {
   commit_all(&repo, "(a) Add shared", 1_700_000_100);
   write(&repo, "shared.txt", "two\n");
   let conflicting = commit_all(&repo, "(b) Change shared", 1_700_000_200);
+  // not synced after the conflict
+  write(&repo, "other.txt", "other\n");
+  let blocked = commit_all(&repo, "(b) Add other", 1_700_000_300);
 
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 1, "{output}");
@@ -55,6 +58,7 @@ fn a_conflict_exits_with_1() {
   assert_eq!(b["conflict"]["commit"], json!(short_id(&conflicting)));
   assert_eq!(b["conflict"]["subject"], json!("(b) Change shared"));
   assert_eq!(b["conflict"]["files"], json!(["shared.txt"]));
+  assert_eq!(b["blocked"], json!([short_id(&blocked)]));
   let a = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("a")).unwrap();
   assert_eq!(a["state"], json!("created"));
 }
