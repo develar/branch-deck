@@ -23,6 +23,8 @@ pub mod repository_view;
 pub mod review_requests;
 pub mod reword;
 pub mod session;
+#[cfg(test)]
+mod session_test;
 pub mod settings;
 pub mod squash_commits;
 pub mod squash_fixups;

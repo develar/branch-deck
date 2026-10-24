@@ -171,7 +171,7 @@ Mock implementation:
   `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
   `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
   and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (128) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
+  bytes). The number of commands (127) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
@@ -245,7 +245,7 @@ Mock implementation:
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view))
 - **Sessions**: the server hosts the sessions of its repositories as the app does (`session_routes.rs`, the same
   `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` that stands still, so no session of a test
-  goes away by itself): `open_session`, `get_snapshot`, `sync`, `set_window_focus` and `unsubscribe_view` answer JSON;
+  goes away by itself): `get_snapshot`, `sync`, `set_window_focus` and `unsubscribe_view` answer JSON;
   `subscribe_view` is a long-lived event stream of its channel (`X-Progress-Channel`, the `patches` of the command):
   `{ result }` with the subscription and its view first, then each `ViewPatch` as `{ progress }`, until
   `unsubscribe_view` or the deletion of the repository, which closes its sessions first, so the stream ends and the
@@ -271,10 +271,14 @@ Mock implementation:
   them for each run until a test sets others (a test of several starts, whatever syncs run between them). `GET
   /repositories/{id}/revision?name=<rev>` answers the commit a ref is at (`repo.revision`), the copy a sync built.
   `POST /repositories/{id}/rebase-in-progress` (`setRebaseInProgress`, the `rebaseInProgress` option of `setupRepo`)
-  leaves the repository as an interrupted rebase does, so its syncs are deferred by the real check.
+  leaves the repository as an interrupted rebase does, so its syncs are deferred by the real check. `POST
+  /repositories/{id}/branch-prefix` (`setBranchPrefixInTerminal`) sets `branchdeck.branchPrefix` of `.git/config` as
+  `git config` in a terminal does: the run of a session reads the local prefix again (`branch_prefix_now`), so one
+  under the prefix the config left answers `prefix_changed`, as in the app.
   [@test] ../../crates/test-server/src/session_routes_test.rs (`the_next_sync_takes_the_overrides_of_its_repository_and_the_syncs_after_it_do_not_unless_set_for_every_sync`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_revision_of_the_repository_answers_its_commit`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_rebase_in_progress_defers_the_sync_until_it_is_gone`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_prefix_set_in_a_terminal_refuses_the_run_of_the_session_under_the_old_one`)
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
   functions; Patronus and GitHub are asked through the app's own services behind fakes
   ([Remote services](#remote-services)); an answer that claude would give, and the review requests, come from a

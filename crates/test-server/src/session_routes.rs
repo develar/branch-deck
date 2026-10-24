@@ -10,7 +10,7 @@
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
 use crate::state::AppState;
 use crate::sync_overrides::OverridingReporter;
-use crate::tauri_command_bridge::{CommandResult, Rejection, branch_prefix_of, failed, repository_by_path};
+use crate::tauri_command_bridge::{CommandResult, Rejection, branch_prefix_now, branch_prefix_of, failed, repository_by_path};
 use app_api::api_error::{api_error, no_branch_prefix};
 use axum::Json;
 use axum::extract::State;
@@ -19,7 +19,7 @@ use axum::response::{IntoResponse, Response};
 use domain_types::error::ApiError;
 use domain_types::session::{SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
 use domain_types::{ProgressReporter, RemoteStatusUpdate};
-use repository_model::runtime::SessionEnvironment;
+use repository_model::runtime::{RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::RemoteSubject;
 use serde::Deserialize;
@@ -27,17 +27,21 @@ use std::sync::{Arc, Weak};
 use sync_core::push::{PushBranchesOutcome, StackPushBranch};
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 
-/// What the syncs of the server's sessions take: the issue links read by the sync, and the settings of the test
-/// repository for the focus
+/// What the syncs of the server's sessions take: the issue links read by the sync, the prefix of the local config read
+/// now, and the settings of the test repository for the focus
 pub struct TestSessionEnvironment {
   pub state: Weak<AppState>,
 }
 
 impl SessionEnvironment for TestSessionEnvironment {
-  fn sync_options(&self, _key: &SessionKey) -> anyhow::Result<SyncOptions> {
-    Ok(SyncOptions {
-      issue_config: IssueConfigSource::Load,
-      ..Default::default()
+  fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup> {
+    let state = self.state.upgrade().ok_or_else(|| anyhow::anyhow!("The test server stopped"))?;
+    Ok(RunSetup {
+      options: SyncOptions {
+        issue_config: IssueConfigSource::Load,
+        ..Default::default()
+      },
+      prefix: branch_prefix_now(&state, &key.worktree)?,
     })
   }
 
@@ -98,15 +102,6 @@ async fn session_key(state: &AppState, repository_path: &str) -> Result<SessionK
     worktree: repository_path.to_owned(),
     prefix,
   })
-}
-
-pub async fn open_session(State(state): State<Arc<AppState>>, Json(request): Json<SessionRequest>) -> CommandResult<TableView> {
-  let key = session_key(&state, &request.repository_path).await?;
-  state.sessions.open(&key);
-  let view = state.sessions.get_snapshot(&key).await;
-  view
-    .map(Json)
-    .ok_or_else(|| failed("open the session", ApiError::internal("The session closed while it opened")))
 }
 
 pub async fn get_snapshot(State(state): State<Arc<AppState>>, Json(request): Json<SessionRequest>) -> CommandResult<Option<TableView>> {

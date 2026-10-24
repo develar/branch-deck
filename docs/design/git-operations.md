@@ -3231,18 +3231,23 @@ schedule (`SyncScheduler`, which replaced the chain of syncs each window ran its
 the chain, and a window that opens during a run is served by it; a `SyncReport::retry` runs once more for the same
 requests, the branches the run did not build `Syncing` meanwhile. A ticket (`SyncTicket`) resolves after the last
 patch of the run that serves its request, never after the follow-ups. A deferred sync (`SyncDeferred`) restores the
-table and keeps the state idle, its ticket gets the code; another failure restores the table with `Failed { error }`.
-The host supplies the sync (`SessionHost`; the app's is `GitSessionHost` with the options and the error conversion it
-keeps, `SessionEnvironment`). A session without subscribers runs nothing (a focus is `Skipped`, no git process), and
-`Sessions::sweep` removes it after two minutes without subscribers or operations on the session clock (`TestClock` in
-the tests); opened again it has a new epoch. `session_test.rs` pins the tickets, the recheck, the retry, the kept
-table, the late events, the focus checks, two worktrees and the life; `sync_scheduler_test.rs` the schedule.
+table and keeps the state idle, its ticket gets the code; so does a run whose git config names the branches by
+another prefix than its session's (`prefix_changed`: a `git config` in a terminal before any command resolved the
+prefix again), which builds nothing under the prefix the config left; another failure restores the table with
+`Failed { error }`. The host supplies the sync (`SessionHost`; the app's is `GitSessionHost` with the options, the
+prefix of the config it read and the error conversion it keeps, `SessionEnvironment::run_setup`). A session without
+subscribers runs nothing (a focus is `Skipped`, no git process), and `Sessions::sweep` removes it after two minutes
+without subscribers or operations on the session clock (`TestClock` in the tests), and at once one whose actor is gone
+(a panic in a debug build; the release build aborts), which the next call opens again too; opened again a session has
+a new epoch. `session_test.rs` pins the tickets, the recheck, the retry, the kept table, the late events, the focus
+checks, the timing of the patches (on a paused clock), the prefix check, two worktrees and the life;
+`sync_scheduler_test.rs` the schedule.
 
 The hosts: the app's commands (`src-tauri/src/commands/session.rs`) and the E2E server's routes (`session_routes.rs`)
 resolve the session key from the repository path with the prefix the commands resolve (`PrefixInputs`, refused as
-`no_branch_prefix` without one): `open_session` answers the view, `get_snapshot` the view of an open session (null for
-one that is not: the window subscribes again), `subscribe_view` subscribes the calling window on a channel of
-`ViewPatch`es and answers its id with the view at that moment (`ViewSubscription`), `unsubscribe_view` ends it by id,
+`no_branch_prefix` without one): `subscribe_view` opens the session and subscribes the calling window on a channel of
+`ViewPatch`es, answering its id with the view at that moment (`ViewSubscription`), `get_snapshot` answers the view of
+an open session (null for one that is not: the window subscribes again), `unsubscribe_view` ends a subscription by id,
 `set_window_focus` tells the session that a window gained or lost the focus and, for a gained one while the host
 syncs on focus (`SessionHost::syncs_on_focus`: Auto-sync on Focus as the app's `SettingsService` has it, the settings
 of the test repository on the E2E server), answers the `Focus` check or the run it started (null for a lost focus,
@@ -3250,14 +3255,16 @@ the setting off or a session that is not open), and `sync` with a `SyncReason` a
 run that serves it ended (`SyncAnswer`: the outcome and the version of the view after its last patch, which the window
 waits for, since the patch and the answer travel apart); a failure is the run's `ApiError`. The app's host
 (`GitSessionHost`) reads the git config for each sync (`ConfigSnapshot`, its git prefix kept for the commands after
-it), takes the issue links and the object cache of `RepositoryStateCache`, and after a
+it and checked against the session's), takes the issue links and the object cache of `RepositoryStateCache`, and after a
 successful run keeps its table in `RepositoryViews` (`BranchTable::from_report` with the remote statuses a
 `RemoteStatusCollector` kept), which `get_repository_view` answers from. A Tauri channel of a page that went away never
 fails its send, so a window's subscriptions end with the window (`Destroyed`) and with each page load of it (a
-reload); the app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the sessions of a test
+reload), and a subscription is kept for the page that asked for it (`WindowSubscriptions`): one that answers after that
+page went away ends at once; the app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the sessions of a test
 repository when it deletes it (`Sessions::close_worktree`, which drops the subscribers at once). The main window has
 no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; a switch of
-the repository or of its prefix is another subscription), applies its patches, asks `sync` (Sync, ⌘R, after a
+the repository or of its prefix is another subscription, and the session of a changed prefix syncs as an opened
+repository does, `useSyncOnOpen`; a `prefix_changed` answer resolves the prefix again), applies its patches, asks `sync` (Sync, ⌘R, after a
 change; ⌘R during a sync asks a `Focus` check after it) and tells the session its focus (`set_window_focus`, on focus
 and on blur, the last state of 100 ms; it checks no setting), and no `SyncEvent` reaches a page. A sub-window that
 reads the table subscribes the same way, by the path of its repository and under its own label, with a store of its

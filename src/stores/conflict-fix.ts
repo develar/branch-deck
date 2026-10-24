@@ -34,13 +34,16 @@ function conflictFixOperation(component: FixComponent): OperationKey {
   return { id: "apply-conflict-fix", subject: "conflict-fix", objects: branchesOfFix(component), kind: "rewrite" }
 }
 
-/** The repository and the table the session left (`tableRevision`): a fix found for another table is stale */
+/**
+ * The repository and the commits of the table the session left (`commitsRevision`): a fix found for other commits is
+ * stale; a push or the deletion of an archived branch leaves it as it is
+ */
 function fixKey(): string | null {
-  const { syncedRepositoryPath, tableRevision, isSyncing } = branchSyncStore.getState()
+  const { syncedRepositoryPath, commitsRevision, isSyncing } = branchSyncStore.getState()
   if (isSyncing || syncedRepositoryPath === null) {
     return null
   }
-  return `${syncedRepositoryPath}\n${tableRevision}`
+  return `${syncedRepositoryPath}\n${commitsRevision}`
 }
 
 // a sync changes what the fix is for: the running search stops, the next conflict view looks again
@@ -79,12 +82,12 @@ export function useConflictFix(enabled: boolean): ConflictFixState {
     conflictFixStore,
     useShallow(store => ({ key: store.key, status: store.status, fix: store.fix, error: store.error })),
   )
-  const syncedTable = useStore(branchSyncStore, store => (store.isSyncing || store.syncedRepositoryPath === null ? null : store.tableRevision))
+  const syncedCommits = useStore(branchSyncStore, store => (store.isSyncing || store.syncedRepositoryPath === null ? null : store.commitsRevision))
   useEffect(() => {
-    if (enabled && syncedTable !== null) {
+    if (enabled && syncedCommits !== null) {
       void requestConflictFix()
     }
-  }, [enabled, syncedTable])
+  }, [enabled, syncedCommits])
   return state
 }
 

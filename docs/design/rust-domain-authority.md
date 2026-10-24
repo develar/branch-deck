@@ -515,7 +515,7 @@ sequenceDiagram
 
 ### Рендер
 
-Окно вызывает `open_session(path)` (или получает снимок при создании) и подписывается. Под-окно (review, conflict,
+Окно подписывается (`subscribe_view(path)`: подписка открывает сессию и отвечает её снимком). Под-окно (review, conflict,
 Activity) подписывается на ту же сессию по пути репозитория: сессия принадлежит процессу (Tauri state), не окну, и
 создаётся, если её нет; реле через главное окно (`sub-window-link.ts`, большая часть `branch-review-window.ts`)
 сжимается до открытия и фокуса. **Жизнь сессии:** она живёт, пока на неё подписано хоть одно окно или идёт её
@@ -1629,8 +1629,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
   - Реле под-окон (`sub-window-link.ts`, `branch-review-window.ts`): в s6 к подписке на сессию переезжают только части
     таблицы (`tips`, `baselineBranch`, `stackCommits`, коммиты веток); `items`, `menus` и `commitMenus` остаются в
     реле до s8, потому что их строят правила TS, которые s8 переносит.
-  - `statusText`, `autoExpandRequested` и `autoScrollRequested` — презентация страницы: Rust шлёт `status` и проблему
-    стека, applier `src/model/store.ts` выводит текст и пометки раскрытия по `SyncOptions` билета `sync(reason)`.
+  - `statusText` — презентация страницы: Rust шлёт `status` и проблему стека, applier `src/model/store.ts` выводит
+    текст. Пометок раскрытия (`autoExpandRequested`, `autoScrollRequested`, `SyncOptions` с `autoExpand`) больше нет:
+    в master их никто не читал, и s6 удалил их вместе с цепочкой sync в TS.
   - Удаление archived и unapplied ветки (C12) и push unapplied (C3) отвечают патчем сессии: команда применяет
     результат к сессии (`Session::apply`), страница после неё sync не зовёт.
   - Хосты (s6-3): `sync` отвечает `SyncAnswer { outcome, version }` — версию вида после последнего патча своего
@@ -1640,6 +1641,13 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `send`, поэтому подписки окна снимаются на `Destroyed` и на каждой загрузке его страницы; приложение подметает
     сессии раз в 30 с. Test-server закрывает сессии репозитория при его удалении (`Sessions::close_worktree`), иначе
     поток `subscribe_view` держал бы репозиторий до `DELETE_WAIT`.
+  - Префикс сессии (ревью s6): запуск сверяет ключ с префиксом конфига, который он прочёл
+    (`SessionEnvironment::run_setup`); другой префикс (`git config` в терминале) — `prefix_changed`, ничего не собрано,
+    таблица как была. Страница на этот код и на смену префикса открывает сессию нового префикса и синхронизирует её как
+    открытый репозиторий (`useSyncOnOpen`). Подписка окна держится за страницу, которая её просила
+    (`WindowSubscriptions`): ответ после перезагрузки или закрытия снимает её. Актор, упавший в панике (debug; release
+    падает целиком), открывается заново в новой эпохе: `sweep` и следующий вызов убирают мёртвую запись. Время патчей
+    (≤ 1 на 16 мс, конец сборки сразу) закреплено тестом сессии на остановленных часах tokio.
   - Порядок remote status в s6 (s6-6, по коду): порядок — собственный счёт записей сессии, не `seq` факта (его вводит
     s7): `TableState` нумерует каждую запись вне sync, а запуск помнит номер своего старта. Push сообщает сессии своё
     начало и свой исход (`Sessions::push` вокруг guarded push в `push_branch`, `push_branches` приложения и
@@ -2137,7 +2145,7 @@ Baseline'ы измерены в `s0a-safety-net` на одной машине, m
 | B4 | Script главного потока, первый sync 141 строки | 210 / 222 мс (task 351 / 365 мс), chromium, медиана 5 прогонов | ≤ base в s6; ≤ 170 мс (−30 %) в s8 | `perf:table` (отчёт) | s6, s8 |
 | B5 | Script, sync без изменений | 49 / 36 мс (task 90 / 74 мс): разброс прогонов, не изменение | ≤ 10 мс | `perf:table` | s6 |
 | B6 | IPC на hover, открытие меню, открытие поповера строки | hover 1 (`prefetch_branch_review`), меню 0, поповер 0; таймер поповера и работа на строку не считаются | 0 на hover и меню; 1 `set_demand` на поповер | счётчик IPC в e2e, точное утверждение | s7, s8 |
-| B7 | IPC от старта до первого кадра со строками | много чтений | ≤ 2 (`open_session` + канал) | счётчик IPC в e2e; Real App Check владельца | s13 |
+| B7 | IPC от старта до первого кадра со строками | много чтений | ≤ 2 (`subscribe_view` + канал) | счётчик IPC в e2e; Real App Check владельца | s13 |
 | B8 | HTTP на холостой опрос Patronus | 1 список + проблемы на каждого упавшего робота | 1 запрос; проблемы только для роботов, чьё состояние изменилось | HTTP-бюджет сессии | s7 |
 | B9 | git-процессов на операцию | `an_unchanged_sync` 12 (`UNCHANGED_SYNC`), `a_safe_push_check` 42 (`SAFE_PUSH_CHECK` 34 + `TARGET_CHECK` 8, `crates/bd-cli/src/process_budget_test.rs`), его вариант со стеком 44; монорепозиторий: sync без изменений 14, полный 157 | не выше; Safe Push приложения на свежей таблице = `bd` минус его sync; один `for-each-ref` witness под lock; D1 добавляет один HTTP на target, не процесс | `process_budget_test.rs`, `perf:monorepo` | s9 |
 | B10 | derive + diff всей модели, 141 строка | цепочки TS-селекторов | ≤ 2 мс в release-бенче | бенч-тест `repository-model` | s8 |
@@ -2285,7 +2293,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s3-crates | приземлён |
 | s4-errors | приземлён |
 | s5-settings | приземлён: один писатель `SettingsService` (`app-settings`) для `settings.json` и `repository-state.json`, окна шлют патчи через `set_setting` и применяют версии, снимок в init script каждого окна, `restart_app` и выход через писателя, `bd` читает через `app-settings`; префикс разрешает Rust на каждую команду (`BranchPrefixes`, `PrefixInputs`) у семейств sync, Patronus, push, pull request, обзора ветки, независимости стека, unapply, reapply и поиска исправления конфликта; `lastFetchTime` и `landedHiddenUntil` — в `repositoryState`; defaults Rust-полей `appSettings` страница берёт из bindings. Осталось: Real App Check первого кадра ждёт владельца (агенты его не выполняли) |
-| s6-session-table | приземлён: `TableState` (`repository-model::table`, `state`, `patch`) сворачивает события sync в части вида (`TableView`: у ветки head, commits, sync, copies, remote; стеки по корню; секции) и шлёт `ViewPatch { base, next, changes }` только изменившихся частей не чаще раза в 16 мс, `Version { epoch, seq }`, чужая эпоха или пропуск — снимок; сессии процесса (`session.rs`, актор `runtime.rs`, `SyncScheduler`) по `SessionKey` (worktree и префикс, разрешённый Rust): билеты `sync(reason)`, повтор по `SyncReport.retry`, отложенный и неудачный sync сохраняют таблицу, без подписчиков ничего не запускается, удаление через 2 мин по `Clock`; хосты — команды `open_session`, `get_snapshot`, `subscribe_view`, `unsubscribe_view`, `set_window_focus`, `sync` приложения и маршруты test-server (патчи через SSE); страница — `src/model/store.ts` применяет вид и патчи за прежними селекторами, `data-view-version`; `sync_branches`, `Channel<SyncEvent>`, очередь, flush и applier TS, глобальный `AtomicU32`, `GetRepositoryViewParams.revision` и `batchTimer` удалены; фикстура `sync-overrides` вместо перезаписи потока в странице; outcome push и удаление archived и unapplied ветки — патч сессии без sync после (C3, C12); фокус — `set_window_focus`, `autoSyncOnFocus` читает Rust; окно review подписано на сессию своего репозитория (tips, baseline, stack commits); `bd sync` сворачивает события тем же `TableState`, JSON `bd sync` и `bd status` прежний. Остаётся: s7 — факты (remote tips как `Fact` с `seq`, роботы, PR, readiness; `get_repository_view` с `remote` и `matched` страницы), факты `one_shot` у `bd`, `Demand` и C4 (отпечаток входов по частям); s8 — `structureOf`, `branchTableRowsIn`, `stackDescendantsIn` и `items`/`menus` реле под-окон (их строят правила TS) |
+| s6-session-table | приземлён: `TableState` (`repository-model::table`, `state`, `patch`) сворачивает события sync в части вида (`TableView`: у ветки head, commits, sync, copies, remote; стеки по корню; секции) и шлёт `ViewPatch { base, next, changes }` только изменившихся частей не чаще раза в 16 мс, `Version { epoch, seq }`, чужая эпоха или пропуск — снимок; сессии процесса (`session.rs`, актор `runtime.rs`, `SyncScheduler`) по `SessionKey` (worktree и префикс, разрешённый Rust): билеты `sync(reason)`, повтор по `SyncReport.retry`, отложенный и неудачный sync сохраняют таблицу, без подписчиков ничего не запускается, удаление через 2 мин по `Clock`; хосты — команды `get_snapshot`, `subscribe_view` (она же открывает сессию; отдельный `open_session` удалён: страница его не звала), `unsubscribe_view`, `set_window_focus`, `sync` приложения и маршруты test-server (патчи через SSE); страница — `src/model/store.ts` применяет вид и патчи за прежними селекторами, `data-view-version`; `sync_branches`, `Channel<SyncEvent>`, очередь, flush и applier TS, глобальный `AtomicU32`, `GetRepositoryViewParams.revision` и `batchTimer` удалены; фикстура `sync-overrides` вместо перезаписи потока в странице; outcome push и удаление archived и unapplied ветки — патч сессии без sync после (C3, C12); фокус — `set_window_focus`, `autoSyncOnFocus` читает Rust; окно review подписано на сессию своего репозитория (tips, baseline, stack commits); `bd sync` сворачивает события тем же `TableState`, JSON `bd sync` и `bd status` прежний. Остаётся: s7 — факты (remote tips как `Fact` с `seq`, роботы, PR, readiness; `get_repository_view` с `remote` и `matched` страницы), факты `one_shot` у `bd`, `Demand` и C4 (отпечаток входов по частям); s8 — `structureOf`, `branchTableRowsIn`, `stackDescendantsIn` и `items`/`menus` реле под-окон (их строят правила TS) |
 | s7-session-facts | не начат |
 | s8-policy | не начат |
 | s9-engine-remote | не начат |

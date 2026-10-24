@@ -7,7 +7,7 @@ import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-he
 import { emitTauriEvent, finishedSyncCount, focusWindow, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
-import { routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import { holdCommand, holdNextAnswer, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
@@ -283,6 +283,54 @@ test.describe("Sync on focus", () => {
     await syncOnWindowFocus(page)
     await expect(findBranchRow(page, "feature-documentation")).toBeVisible()
     await expect(page.getByTestId("inputs-checked")).toHaveCount(0)
+  })
+
+  /**
+   * Sets the prefix of the repository in a terminal and focuses the window while the resolve of the prefix waits past
+   * the debounce of the focus (100 ms): held in its request, the server has not read the config, and the focus checks
+   * the session of the old prefix; held in its answer, the focus finds the session of the new one not open yet. Either
+   * way the window ends on the session of the new prefix, synced once as an opened one
+   */
+  async function focusAfterPrefixSetInTerminal(page: Page, repo: TestRepositoryBuilder, held: "request" | "answer"): Promise<void> {
+    const syncButton = page.getByTestId("sync-button")
+    const epochOf = async () => (await syncButton.getAttribute("data-view-version"))?.split(":")[0]
+    const synced = await epochOf()
+    expect(synced).toBeDefined()
+    await repo.setBranchPrefixInTerminal("team")
+    const syncs = await recordCommand(page, "sync")
+    const release = held === "request" ? await holdCommand(page, "resolve_branch_prefix") : (await holdNextAnswer(page, "resolve_branch_prefix")).release
+    const focused = page.waitForResponse(response => response.url().endsWith("/invoke/set_window_focus") && (response.request().postDataJSON() as { focused: boolean }).focused)
+    await emitTauriEvent(page, "tauri://focus")
+    await focused
+    release()
+
+    await expect.poll(epochOf).not.toBe(synced)
+    await expect(findBranchRow(page, "test-branch")).toBeVisible()
+    await expect(syncButton).toBeEnabled()
+    expect(syncs).toEqual([{ repositoryPath: repo.path, reason: "open" }])
+    // the branches are built under the new prefix
+    expect(await repo.revision("team/virtual/test-branch")).toMatch(/^[0-9a-f]{40}$/)
+  }
+
+  test("syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its request", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the template sets branchdeck.branchPrefix user-name in .git/config
+    const repo = await setupRepo("simple")
+    await syncAndWaitForBranches()
+    await focusAfterPrefixSetInTerminal(page, repo, "request")
+  })
+
+  test("syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its answer", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("simple")
+    await syncAndWaitForBranches()
+    await focusAfterPrefixSetInTerminal(page, repo, "answer")
   })
 
   test("tells the session the focus, which syncs nothing once Auto-sync on Focus is off", async ({ page, setupRepo, syncAndWaitForBranches }) => {

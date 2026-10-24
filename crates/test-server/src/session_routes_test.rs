@@ -25,12 +25,12 @@ async fn a_subscription_answers_its_view_then_the_patches_up_to_the_version_a_sy
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
-  let opened = post(&client, addr, "/invoke/open_session", json!({ "repositoryPath": path })).await;
-  assert_eq!(opened["version"]["seq"], 0, "{opened}");
+  // no session is open before a window subscribes
+  assert_eq!(post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await, Value::Null);
 
   let mut messages = subscribe(&client, addr, &id, &path, 7).await;
   let subscribed = subscription(&mut messages).await;
-  assert_eq!(subscribed["view"]["version"], opened["version"], "the session the window opened");
+  assert_eq!(subscribed["view"]["version"]["seq"], 0, "the subscription opened the session: {subscribed}");
 
   let synced = post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
   assert_eq!(synced["outcome"], "synced", "{synced}");
@@ -65,8 +65,14 @@ async fn a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app(
   assert_eq!(refused["result"]["error"]["code"], "no_branch_prefix", "{refused}");
   assert_eq!(messages.next_or_end().await, None);
 
-  for command in ["open_session", "get_snapshot", "sync"] {
-    let error = post_error(&client, addr, &format!("/invoke/{command}"), json!({ "repositoryPath": path, "reason": "open" })).await;
+  for command in ["get_snapshot", "sync", "set_window_focus"] {
+    let error = post_error(
+      &client,
+      addr,
+      &format!("/invoke/{command}"),
+      json!({ "repositoryPath": path, "reason": "open", "focused": true }),
+    )
+    .await;
     assert_eq!(error["code"], "no_branch_prefix", "{command}: {error}");
   }
 }
@@ -154,6 +160,29 @@ async fn a_rebase_in_progress_defers_the_sync_until_it_is_gone() {
   post(&client, addr, &rebase, json!({ "inProgress": false })).await;
   let synced = post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
   assert_eq!(synced["outcome"], "synced", "{synced}");
+}
+
+/// A prefix set in a terminal (`branch-prefix`): the run of the session under the old prefix builds nothing and answers
+/// `prefix_changed`, as the app's; the commands after it resolve the prefix the run read, whose session syncs
+#[tokio::test]
+async fn a_prefix_set_in_a_terminal_refuses_the_run_of_the_session_under_the_old_one() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  let sync = || post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" }));
+  let first = sync().await;
+  assert_eq!(first["outcome"], "synced", "{first}");
+  let revision = |name: &str| client.get(format!("http://{addr}/repositories/{id}/revision?name={name}")).send();
+
+  post(&client, addr, &format!("/repositories/{id}/branch-prefix"), json!({ "prefix": "team" })).await;
+  let refused = post_error(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
+  assert_eq!(refused["code"], "prefix_changed", "{refused}");
+  assert_eq!(revision("team/virtual/test-branch").await.unwrap().status(), 404, "the refused run built nothing");
+
+  let synced = sync().await;
+  assert_eq!(synced["outcome"], "synced", "{synced}");
+  assert_ne!(synced["version"]["epoch"], first["version"]["epoch"], "another session");
+  assert_eq!(revision("team/virtual/test-branch").await.unwrap().status(), 200);
 }
 
 /// The patches on `messages` up to `version`, each on the one before, from `from`

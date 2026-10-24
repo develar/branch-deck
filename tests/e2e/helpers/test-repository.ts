@@ -199,6 +199,14 @@ export class TestRepositoryBuilder {
     await this.setFixture("sync-overrides", overrides)
   }
 
+  /**
+   * Sets `branchdeck.branchPrefix` in `.git/config` behind the app's back, as `git config` in a terminal does: no command
+   * of the app knows of it until one reads the config again
+   */
+  async setBranchPrefixInTerminal(prefix: string): Promise<void> {
+    await this.setFixture("branch-prefix", { prefix })
+  }
+
   /** Leaves the repository as an interrupted rebase does (`.git/rebase-merge`), or takes it back: a sync is deferred */
   async setRebaseInProgress(inProgress: boolean): Promise<void> {
     await this.setFixture("rebase-in-progress", { inProgress })

@@ -192,6 +192,14 @@ struct Entry {
   life: Arc<SessionLife>,
 }
 
+impl Entry {
+  /// The actor ended without the registry removing the session (a panic): no message reaches it any more, and its
+  /// subscribers, which it never counts out, went with it
+  fn is_dead(&self) -> bool {
+    self.mailbox.is_closed()
+  }
+}
+
 /// The sessions of the process, by key
 pub struct Sessions {
   runtime: Handle,
@@ -212,11 +220,6 @@ impl Sessions {
       entries: Mutex::new(HashMap::new()),
       next_subscription: AtomicU32::new(1),
     }
-  }
-
-  /// Opens the session of `key` unless it is open; an open one counts as active now
-  pub fn open(&self, key: &SessionKey) {
-    self.with_entry(key, |entry| entry.life.touch());
   }
 
   #[must_use]
@@ -321,13 +324,13 @@ impl Sessions {
     outcome.map(|outcome| ViewAnswer { outcome, version })
   }
 
-  /// Removes the sessions idle for `IDLE_LIMIT` (no subscriber, no operation) and answers their keys; the host calls it
-  /// on a timer, the E2E server after it moved its clock
+  /// Removes the sessions idle for `IDLE_LIMIT` (no subscriber, no operation) and those whose actor is gone, and answers
+  /// their keys; the host calls it on a timer, the E2E server after it moved its clock
   pub fn sweep(&self) -> Vec<SessionKey> {
     let mut entries = self.lock();
     let idle: Vec<SessionKey> = entries
       .iter()
-      .filter(|(_, entry)| entry.life.idle_for().is_some_and(|idle| idle >= IDLE_LIMIT))
+      .filter(|(_, entry)| entry.is_dead() || entry.life.idle_for().is_some_and(|idle| idle >= IDLE_LIMIT))
       .map(|(key, _)| key.clone())
       .collect();
     // the actor ends with its mailbox
@@ -383,9 +386,14 @@ impl Sessions {
   }
 
   /// Runs `action` on the entry of `key` under the registry's lock, creating the session first, so `sweep` never removes
-  /// one between the lookup and the message
+  /// one between the lookup and the message. A session whose actor is gone (it panicked) opens again, in a new epoch:
+  /// its subscribers went with the actor, and the windows subscribe to the new one when their snapshot comes back empty
   fn with_entry(&self, key: &SessionKey, action: impl FnOnce(&Entry)) {
     let mut entries = self.lock();
+    if entries.get(key).is_some_and(Entry::is_dead) {
+      tracing::warn!(worktree = %key.worktree, prefix = %key.prefix, "The actor of the session is gone: the session opens again");
+      entries.remove(key);
+    }
     let entry = entries.entry(key.clone()).or_insert_with(|| {
       let life = Arc::new(SessionLife::new(Arc::clone(&self.clock)));
       let mailbox = spawn_actor(&self.runtime, key.clone(), Arc::clone(&self.host), Arc::clone(&life));

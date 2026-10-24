@@ -112,10 +112,11 @@ alert with the reason and the next step, never a raw Git error.
   Patronus), refuses a prefix git cannot take in place, and Escape takes the typing back before it closes the window.
   Empty, the prefix of the global git config applies (the window asks Rust itself, `resolve_branch_prefix`), shown as
   the placeholder. The session of a repository is keyed by the prefix Rust resolves: a change of it is another
-  session, whose next sync names the branches by it; a sync never waits for a load of the page, so a busy machine
-  fails none for a timeout.
+  session, which the window opens and syncs for a repository synced before, naming the branches by it; a sync never
+  waits for a load of the page, so a busy machine fails none for a timeout. Without a prefix the window holds no
+  session, and nothing is logged as an error: the welcome card asks for one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
-  [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`)
+  [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`, `subscribes first when asked before the window subscribed, and again after a failed subscription, whose failure it names`)
 - The specific prefix wins, in the app as in `bd` ([Settings](settings.spec.md#branch-prefix-order)): a repository
   whose own git config (local or worktree, or `git -c`) sets `branchdeck.branchPrefix` names its branches by it, whatever the field
   says; the field says so ("This repository uses its own prefix `user-name`", with "Open Repository Settings") and
@@ -160,6 +161,15 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_runs_only_when_the_inputs_changed`, `a_focus_during_a_run_checks_the_inputs_once_after_the_chain`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_with_unchanged_inputs_reads_only_the_fingerprint`, `a_focus_during_a_run_is_one_check_after_it`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
+- A prefix changed in a terminal (`git config branchdeck.branchPrefix`) shows on the next focus: the window resolves the
+  prefix again and opens the session under it, which it syncs as it opens a repository synced before, whichever of that
+  resolve and the check of the focus (100 ms later) ends first, so the table is never the empty one of a session no
+  sync built. A run of the session under the old prefix builds nothing under it: it answers `prefix_changed`, which is
+  no failure, and the page resolves the prefix again. A prefix changed in Settings is another session the same way.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its request`, `syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its answer`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_run_under_a_prefix_the_config_left_builds_nothing`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_prefix_set_in_a_terminal_refuses_the_run_of_the_session_under_the_old_one`)
+  [@test] ../../src/model/store.test.ts (`resolves the prefix again when the git config names another one than the session's, quietly`)
 - The main window tells the session of its repository when it gains and loses the focus (`set_window_focus`, the last
   state of a quick succession, 100 ms); the session decides whether a gained one syncs, by the setting as Rust's
   writer has it (`SessionHost::syncs_on_focus`), and the page checks nothing. A focus of a session no window shows

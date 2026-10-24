@@ -21,6 +21,7 @@ import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
+import { getErrorCode } from "@/lib/errors"
 import { sameStringRecord, withoutKeys } from "@/lib/record"
 import { showToast } from "@/lib/toast-message"
 import { addTiming } from "@/lib/update-progress"
@@ -30,7 +31,7 @@ import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNa
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore, toRemoteStatus } from "@/stores/branch-sync"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
-import { getSelectedRepositoryPath } from "@/stores/repository"
+import { getSelectedRepositoryPath, refreshBranchPrefix } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 import { updateRepositoryState } from "@/stores/settings/repositoryState"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
@@ -158,7 +159,10 @@ function fail(failed: Session, error: unknown): void {
   const message = typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error)
   failed.failure = message || "Cannot subscribe to the branches of the repository"
   if (failed === session) {
-    console.error("Cannot subscribe to the branches of the repository", error)
+    // a repository without a prefix is the welcome card's state, not a failure
+    if (getErrorCode(error) !== "no_branch_prefix") {
+      console.error("Cannot subscribe to the branches of the repository", error)
+    }
     notifyViewListeners()
   }
 }
@@ -290,6 +294,9 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
   if (changesTable(previous, changes)) {
     update.tableRevision = state.tableRevision + 1
   }
+  if (changesCommits(previous, changes)) {
+    update.commitsRevision = state.commitsRevision + 1
+  }
   branchSyncStore.setState(update)
   // a placeholder still waiting got no result, also after a failed run
   if (!running && (wasRunning || changes === null)) {
@@ -314,6 +321,37 @@ function changesTable(previous: TableView | null, changes: TableChanges | null):
     ([name, change]) =>
       change.head != null || change.commits != null || change.remote != null || (change.copies != null && !sameCopies(previous?.branches[name]?.copies, change.copies)),
   )
+}
+
+/**
+ * Whether a patch changed the commits of the table and how they are grouped and built (`commitsRevision`): the header,
+ * the order, the unassigned commits, a branch or a stack that came or went, the head, the commits or the copies of a
+ * branch, a stack beyond its remote status. Not a remote status (a push), the archived, unapplied or landed sections
+ */
+function changesCommits(previous: TableView | null, changes: TableChanges | null): boolean {
+  if (changes === null) {
+    return true
+  }
+  const { header, order, unassigned, branches, removedBranches, stacks, removedStacks } = changes
+  if (header != null || order != null || unassigned != null || !isEmptyPart(removedBranches) || !isEmptyPart(removedStacks)) {
+    return true
+  }
+  if (Object.entries(stacks ?? {}).some(([root, update]) => !sameStackBeyondRemote(previous?.stacks[root], update))) {
+    return true
+  }
+  return Object.entries(branches ?? {}).some(
+    ([name, change]) => change.head != null || change.commits != null || (change.copies != null && !sameCopies(previous?.branches[name]?.copies, change.copies)),
+  )
+}
+
+/** The same stack branch, whatever its remote status: a push of it changes nothing it is built of */
+function sameStackBeyondRemote(shown: StackBranchUpdate | undefined, update: StackBranchUpdate): boolean {
+  if (shown === undefined) {
+    return false
+  }
+  const { remote: _shownRemote, ...built } = shown
+  const { remote: _remote, ...next } = update
+  return JSON.stringify(built) === JSON.stringify(next)
 }
 
 function isEmptyPart(part: unknown): boolean {
@@ -627,7 +665,9 @@ export async function setSessionWindowFocus(focused: boolean): Promise<SyncAnswe
  * The answer of a request of `target` (`sync`, `set_window_focus`): resolves when the store has the last patch of the
  * run that served it, which may come after the answer (Sync stays busy until then), and records it; null when nothing
  * was asked or the request failed. A deferred sync (a rebase in progress, a detached HEAD) is no failure: the user's own
- * (`manual`) says so in an `info` toast, any other waits silently
+ * (`manual`) says so in an `info` toast, any other waits silently. Nor is a sync of a session whose prefix the git config
+ * no longer names (`prefix_changed`: a `git config` in a terminal): the page resolves the prefix again, and the window
+ * opens and syncs the session under the new one (`useSyncOnOpen`)
  */
 async function settle(target: Session, reason: SyncReason, startedAt: number, request: () => Promise<CommandResult<SyncAnswer | null>>): Promise<SyncAnswer | null> {
   let answer: SyncAnswer | null
@@ -635,7 +675,12 @@ async function settle(target: Session, reason: SyncReason, startedAt: number, re
     const result = await request()
     if (result.status === "error") {
       const { code, message } = result.error
-      if (code === "operation_in_progress" || code === "detached_head") {
+      if (code === "prefix_changed") {
+        // the main window shows the prefix and opens the session under it
+        if (isMainWindow) {
+          refreshBranchPrefix()
+        }
+      } else if (code === "operation_in_progress" || code === "detached_head") {
         if (reason === "manual") {
           showToast({
             type: "info",

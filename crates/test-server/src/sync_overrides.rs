@@ -7,7 +7,9 @@
 //! after it are the server's as they are, unless `every` keeps the overrides for each of them. `GET /repositories/{id}/revision?name=<rev>` answers the commit a ref of the
 //! repository is at, which such a test compares with what the page shows (the copy of a commit the sync built).
 //! `POST /repositories/{id}/rebase-in-progress` (`{"inProgress": bool}`) leaves the repository as an interrupted rebase
-//! does (`.git/rebase-merge`), so its syncs are deferred (`SyncDeferred`) by the real check, until it is set back
+//! does (`.git/rebase-merge`), so its syncs are deferred (`SyncDeferred`) by the real check, until it is set back.
+//! `POST /repositories/{id}/branch-prefix` (`{"prefix": "team"}`) sets `branchdeck.branchPrefix` of `.git/config` as
+//! `git config` in a terminal does: no command of the app was asked, so the server's prefixes still name the old one
 
 use crate::state::AppState;
 use axum::Json;
@@ -144,6 +146,34 @@ pub async fn get_revision(Path(id): Path<String>, Query(query): Query<RevisionQu
 #[serde(rename_all = "camelCase")]
 pub struct RebaseRequest {
   in_progress: bool,
+}
+
+#[derive(Deserialize)]
+pub struct BranchPrefixRequest {
+  prefix: String,
+}
+
+/// Sets `branchdeck.branchPrefix` in `.git/config` of the repository behind the app's back
+pub async fn set_branch_prefix_in_terminal(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(request): Json<BranchPrefixRequest>) -> StatusCode {
+  let Some(path) = state.repositories.get(&id).map(|repository| repository.path.clone()) else {
+    return StatusCode::UNPROCESSABLE_ENTITY;
+  };
+  let git = state.git_executor.clone();
+  let written = tokio::task::spawn_blocking(in_current_span(move || {
+    git.execute_command(&["config", "--local", "branchdeck.branchPrefix", &request.prefix], &path)
+  }))
+  .await;
+  match written {
+    Ok(Ok(_)) => StatusCode::OK,
+    Ok(Err(error)) => {
+      tracing::warn!("Cannot set the branch prefix of the repository: {error:#}");
+      StatusCode::INTERNAL_SERVER_ERROR
+    }
+    Err(error) => {
+      tracing::warn!("The write of the branch prefix failed: {error}");
+      StatusCode::INTERNAL_SERVER_ERROR
+    }
+  }
 }
 
 /// Creates or removes `.git/rebase-merge` of the repository: git's mark of a rebase it stopped in

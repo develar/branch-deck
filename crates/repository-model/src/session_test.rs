@@ -1,11 +1,11 @@
-use crate::runtime::{GitSessionHost, SessionEnvironment};
+use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment};
 use crate::session::SyncTicket;
 use crate::session::{IDLE_LIMIT, RunReporter, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun};
 use crate::table::RemoteSubject;
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
 use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::session::{BranchStatus, SyncOutcome, SyncReason, SyncState, TableView, ViewPatch};
+use domain_types::session::{BranchStatus, SyncOutcome, SyncReason, SyncState, SyncStep, TableView, ViewPatch};
 use domain_types::stack::BlockReason;
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -18,6 +18,7 @@ use sync_core::sync::{SyncDeferred, SyncOptions, SyncReport};
 use sync_utils::clock::TestClock;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use tokio::sync::Notify;
+use tokio::time::Instant;
 
 /// The patches a window got
 #[derive(Clone, Default)]
@@ -38,9 +39,11 @@ impl Subscriber for Window {
   }
 }
 
-/// One scripted run: its events, then its result once `gate` (if any) is notified
+/// One scripted run: its events, each followed by `pace` on the runtime's clock, then its result once `gate` (if any)
+/// is notified
 struct Script {
   events: Vec<SyncEvent>,
+  pace: Duration,
   result: Result<SyncReport, ApiError>,
   gate: Option<Arc<Notify>>,
 }
@@ -54,6 +57,8 @@ struct ScriptedHost {
   checks: Mutex<u32>,
   /// The reporter of every run, which a test may keep using after its run ended
   reporters: Mutex<Vec<RunReporter>>,
+  /// When each event of the runs was sent, on the runtime's clock
+  sent_at: Arc<Mutex<Vec<Instant>>>,
 }
 
 impl ScriptedHost {
@@ -62,7 +67,13 @@ impl ScriptedHost {
   }
 
   fn push_gated(&self, events: Vec<SyncEvent>, result: Result<SyncReport, ApiError>, gate: Option<Arc<Notify>>) {
-    self.scripts.lock().unwrap().push_back(Script { events, result, gate });
+    let pace = Duration::ZERO;
+    self.scripts.lock().unwrap().push_back(Script { events, pace, result, gate });
+  }
+
+  /// A run whose events stream over time: `pace` after each
+  fn push_paced(&self, events: Vec<SyncEvent>, result: Result<SyncReport, ApiError>, pace: Duration) {
+    self.scripts.lock().unwrap().push_back(Script { events, pace, result, gate: None });
   }
 
   fn set_inputs(&self, inputs: &str) {
@@ -84,9 +95,14 @@ impl SessionHost for ScriptedHost {
     *self.runs.lock().unwrap() += 1;
     let script = self.scripts.lock().unwrap().pop_front().expect("a script for every run");
     self.reporters.lock().unwrap().push(reporter.clone());
+    let sent_at = Arc::clone(&self.sent_at);
     Box::pin(async move {
       for event in script.events {
+        sent_at.lock().unwrap().push(Instant::now());
         reporter.send(event).unwrap();
+        if !script.pace.is_zero() {
+          tokio::time::sleep(script.pace).await;
+        }
       }
       if let Some(gate) = script.gate {
         gate.notified().await;
@@ -284,15 +300,19 @@ async fn a_failed_sync_keeps_the_table() {
   assert_eq!(deferred_view.branches, synced.branches);
 }
 
-/// The environment of the app's sessions in a test: the default options, a deferred sync with its code, and whether a
-/// focus syncs (Auto-sync on Focus)
+/// The environment of the app's sessions in a test: the default options, a deferred sync with its code, whether a
+/// focus syncs (Auto-sync on Focus), and the prefix the git config names (`None`: the session's own)
 struct TestEnvironment {
   syncs_on_focus: bool,
+  config_prefix: Option<String>,
 }
 
 impl SessionEnvironment for TestEnvironment {
-  fn sync_options(&self, _key: &SessionKey) -> anyhow::Result<SyncOptions> {
-    Ok(SyncOptions::default())
+  fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup> {
+    Ok(RunSetup {
+      options: SyncOptions::default(),
+      prefix: self.config_prefix.clone().unwrap_or_else(|| key.prefix.clone()),
+    })
   }
 
   fn api_error(&self, error: anyhow::Error) -> ApiError {
@@ -314,7 +334,14 @@ fn with_git(git: GitCommandExecutor) -> (Sessions, TestClock) {
 
 /// `with_git` whose syncs keep their tables in `views`
 fn with_git_views(git: GitCommandExecutor, views: RepositoryViews) -> (Sessions, TestClock) {
-  with_environment(git, views, TestEnvironment { syncs_on_focus: true })
+  with_environment(
+    git,
+    views,
+    TestEnvironment {
+      syncs_on_focus: true,
+      config_prefix: None,
+    },
+  )
 }
 
 /// Sessions that sync with `git` in `environment`, their tables kept in `views`
@@ -454,8 +481,7 @@ async fn a_session_without_subscribers_runs_nothing_and_goes_away() {
   assert!(!sessions.is_open(&key));
   assert_eq!(sessions.get_snapshot(&key).await, None);
 
-  sessions.open(&key);
-  let reopened = snapshot(&sessions, &key).await;
+  let (_, reopened) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   assert_ne!(reopened.version.epoch, epoch, "a new epoch: a window of the old session asks for a snapshot");
   assert_eq!(reopened.version.seq, 0);
 }
@@ -471,7 +497,11 @@ async fn a_focus_with_unchanged_inputs_reads_only_the_fingerprint() {
   };
   for syncs_on_focus in [true, false] {
     let git = GitCommandExecutor::new().with_process_stats("sessions");
-    let (sessions, _clock) = with_environment(git.clone(), RepositoryViews::default(), TestEnvironment { syncs_on_focus });
+    let environment = TestEnvironment {
+      syncs_on_focus,
+      config_prefix: None,
+    };
+    let (sessions, _clock) = with_environment(git.clone(), RepositoryViews::default(), environment);
     let window = Window::default();
     sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
     sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
@@ -603,4 +633,129 @@ async fn deleting_an_archived_or_unapplied_branch_answers_a_patch_and_runs_no_sy
   assert_eq!(host.runs(), 1, "no sync after a deletion");
   let not_open = self::key("/not-open");
   assert_eq!(sessions.apply(&not_open, |state| state.remove_archived("test/archived/old")).version().await, None);
+}
+
+/// A run whose git config names the branches by another prefix than its session's (a `git config` in a terminal before
+/// any command resolved the prefix again) builds nothing: its request gets `prefix_changed`, which says nothing failed,
+/// and no branch is written under the prefix the config left
+#[tokio::test]
+async fn a_run_under_a_prefix_the_config_left_builds_nothing() {
+  let repo = ahead_of_origin(&["(auth) Add auth"]);
+  let environment = TestEnvironment {
+    syncs_on_focus: true,
+    config_prefix: Some("team".to_string()),
+  };
+  let (sessions, _clock) = with_environment(GitCommandExecutor::new(), RepositoryViews::default(), environment);
+  let key = SessionKey {
+    worktree: repo.path_str().to_string(),
+    prefix: "test".to_string(),
+  };
+  let (_, empty) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+
+  let refused = outcome(sessions.sync(&key, SyncReason::Manual)).await.unwrap_err();
+  assert_eq!(refused.code, ErrorCode::PrefixChanged, "{refused:?}");
+  let view = snapshot(&sessions, &key).await;
+  assert_eq!(view.sync, SyncState::Idle, "nothing failed: the window resolves the prefix again");
+  assert_eq!(view.order, empty.order);
+  assert_eq!(
+    repo.git(&["for-each-ref", "--format=%(refname)", "refs/heads/test/", "refs/heads/team/"]),
+    "",
+    "no branch built"
+  );
+}
+
+/// A session whose actor panicked opens again in a new epoch: `sweep` removes it at once (its subscribers, which the
+/// actor never counted out, went with it), and so does the next call that opens it, whose sync runs in the fresh session
+#[tokio::test]
+async fn a_session_whose_actor_panicked_opens_again_in_a_new_epoch() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  let (key, _window) = synced_window(&sessions, &host, "/repo", auth_built()).await;
+  let epoch = snapshot(&sessions, &key).await.version.epoch;
+  let panic_in_actor = |sessions: &Sessions| sessions.apply(&key, |_| panic!("a defect of the actor")).version();
+
+  assert_eq!(panic_in_actor(&sessions).await, None, "the change never got its patch");
+  assert_eq!(sessions.get_snapshot(&key).await, None, "a window of the dead session subscribes again");
+  assert_eq!(sessions.sweep(), std::slice::from_ref(&key), "removed without waiting for IDLE_LIMIT");
+
+  let (_, reopened) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  assert_ne!(reopened.version.epoch, epoch);
+  assert_eq!(panic_in_actor(&sessions).await, None);
+  host.push(auth_built(), Ok(report(false, &[])));
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  let fresh = snapshot(&sessions, &key).await;
+  assert!(fresh.version.epoch != epoch && fresh.version.epoch != reopened.version.epoch, "{fresh:?}");
+  assert_eq!(fresh.branches["auth"].sync.status, BranchStatus::Created);
+}
+
+/// The patches a window got, each with when it came on the runtime's clock
+#[derive(Clone, Default)]
+struct TimedWindow {
+  patches: Arc<Mutex<Vec<(Instant, ViewPatch)>>>,
+}
+
+impl Subscriber for TimedWindow {
+  fn send(&self, patch: &ViewPatch) -> Result<(), SubscriberGone> {
+    self.patches.lock().map_err(|_poisoned| SubscriberGone)?.push((Instant::now(), patch.clone()));
+    Ok(())
+  }
+}
+
+/// While the events of a run stream, its patches go out at most one per `PATCH_INTERVAL` (B15), so a run of T ms costs
+/// ⌈T / 16⌉ + 2 patches at most (B1), not one per event; the end of the build goes out at once with the event that ended
+/// it (`UnappliedBranchesFound`): the tips are known before the detection and the update check end, whose own patches
+/// and the run's end come after it
+#[tokio::test(start_paused = true)]
+async fn the_patches_of_a_run_keep_the_interval_and_leave_at_once_when_the_build_ends() {
+  const PACE: Duration = Duration::from_millis(3);
+  let commits: Vec<String> = (0..32).map(|index| format!("c{index}")).collect();
+  let commits: Vec<&str> = commits.iter().map(String::as_str).collect();
+  let mut events = vec![grouping(vec![grouped("auth", &commits)])];
+  events.extend(commits.iter().map(|commit| synced("auth", commit, CommitSyncStatus::Created)));
+  events.push(branch_status("auth", BranchSyncStatus::Created));
+  let build_end = events.len();
+  events.push(SyncEvent::UnappliedBranchesFound { branches: Vec::new() });
+  // the detection: the remote status of the branch moves on
+  events.extend((0..5).map(|index| SyncEvent::RemoteStatusUpdate(remote_at("auth", &format!("tip{index}")))));
+  let event_count = events.len();
+  let host = Arc::new(ScriptedHost::default());
+  host.push_paced(events, Ok(report(false, &[])), PACE);
+  let (sessions, _clock) = scripted(&host);
+  let key = key("/repo");
+  let window = TimedWindow::default();
+  let (_, empty) = sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+
+  let started = Instant::now();
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  let elapsed = started.elapsed();
+  let patches = std::mem::take(&mut *window.patches.lock().unwrap());
+  let sent_at = host.sent_at.lock().unwrap().clone();
+  assert_eq!(sent_at.len(), event_count);
+
+  let budget = usize::try_from(elapsed.as_millis().div_ceil(PATCH_INTERVAL.as_millis())).unwrap() + 2;
+  assert!(
+    patches.len() <= budget,
+    "{} patches for {event_count} events in {elapsed:?}, B1 allows {budget}",
+    patches.len()
+  );
+  let detection = patches
+    .iter()
+    .position(|(_, patch)| patch.changes.sync == Some(SyncState::Running { step: SyncStep::Detection }))
+    .expect("a patch that says the detection runs");
+  assert_eq!(patches[detection].0, sent_at[build_end], "the end of the build is not held for the interval");
+  assert!(patches[detection].1.changes.branches.contains_key("auth"), "the built branch comes with it");
+  let last = patches.len() - 1;
+  assert!(detection < last, "the detection and the end of the run come in later patches");
+  assert_eq!(patches[last].1.changes.sync, Some(SyncState::Idle));
+  // the patches between the start, the end of the build and the end of the run come by the interval
+  for index in (1..last).filter(|index| *index != detection) {
+    let since = patches[index].0 - patches[index - 1].0;
+    assert!(since >= PATCH_INTERVAL, "patch {index} came {since:?} after the one before");
+  }
+  // each patch follows the one before, and together they make the snapshot
+  let mut view = empty;
+  for (_, patch) in patches {
+    crate::patch::apply_patch(&mut view, patch).unwrap();
+  }
+  assert_eq!(view, snapshot(&sessions, &key).await);
 }

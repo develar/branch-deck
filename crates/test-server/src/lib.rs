@@ -165,6 +165,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/sync-overrides", post(sync_overrides::set_sync_overrides))
     .route("/repositories/{id}/revision", get(sync_overrides::get_revision))
     .route("/repositories/{id}/rebase-in-progress", post(sync_overrides::set_rebase_in_progress))
+    .route("/repositories/{id}/branch-prefix", post(sync_overrides::set_branch_prefix_in_terminal))
     .route(
       "/repositories/{id}/pull-requests",
       post(remote_fixtures::set_pull_requests).get(remote_fixtures::get_github_log),
@@ -215,7 +216,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/check_git_setup", post(tauri_command_bridge::check_git_setup))
     .route("/invoke/get_repository_config", post(tauri_command_bridge::get_repository_config))
     .route("/invoke/set_repository_config", post(tauri_command_bridge::set_repository_config))
-    .route("/invoke/open_session", post(session_routes::open_session))
     .route("/invoke/get_snapshot", post(session_routes::get_snapshot))
     .route("/invoke/subscribe_view", post(session_routes::subscribe_view))
     .route("/invoke/unsubscribe_view", post(session_routes::unsubscribe_view))

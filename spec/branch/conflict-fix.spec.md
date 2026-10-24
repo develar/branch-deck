@@ -122,8 +122,11 @@ rewrite.
 - The conflict view of a sync conflict must show the fix as an `info` `Callout` with `WandSparklesIcon` below the
   explanation; a conflict with the amended commit has none. The search runs when a conflict view is shown and the
   last sync is done, one at a time; a sync that starts cancels it (`cancel_conflict_fix`), and the next view looks again.
-  Until it ends the callout says "Looking for a fix…" with a spinner.
+  A found fix holds while the commits of the table stay (`commitsRevision`): a push or the deletion of an archived
+  branch changes only their sections, and looks for nothing again. Until it ends the callout says "Looking for a fix…"
+  with a spinner.
   [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the move a trial build verified, apply it and undo it`)
+  [@test] ../../src/stores/conflict-fix.test.ts (`looks for the fix once per commits of the table: a push or a deleted archived branch looks for nothing again`)
 - A found fix names its steps as the Move action does ("Move “Show the timeout in seconds” to api", "Move the
   unassigned “Add config” to auth", "Move 2 commits of x and y to auth", "Stack ui on api"): one step is the title,
   more are a list under "Fix in N steps". Below: the issue groups it writes ("Future IJAI-4085 commits go to IJAI-4047

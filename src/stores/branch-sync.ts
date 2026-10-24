@@ -159,6 +159,12 @@ export interface BranchSyncState {
    * (the repository view, the conflict fix) is asked again only when it changed
    */
   tableRevision: number
+  /**
+   * Counts the patches that changed the commits of the table and how they are grouped and built (the header, the order,
+   * the heads, commits and copies of the branches, the stacks but their remote status, the unassigned commits): what
+   * the conflict fix is looked for with. A push or the deletion of an archived branch changes `tableRevision`, not this
+   */
+  commitsRevision: number
   /** When a focus last found the inputs as the last sync read them (ms): the header says "Checked just now" then */
   inputsCheckedAt: number | null
   /** Repository's baseline branch (e.g., "origin/master") */
@@ -214,6 +220,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   syncedRepositoryPath: null,
   viewVersion: null,
   tableRevision: 0,
+  commitsRevision: 0,
   inputsCheckedAt: null,
   baselineBranch: null,
   branchOrder: [],

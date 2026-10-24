@@ -7,8 +7,10 @@ import { closeSession, openSession, requestSessionSync, setSessionWindowFocus, w
 import { branchSyncStore, getBranch, getStackBranch, setBranchPushing, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
 import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
 
-const { toasts, archived, syncRecords } = vi.hoisted(() => ({
+const { toasts, archived, syncRecords, prefixLoads } = vi.hoisted(() => ({
   toasts: [] as { type?: string; title: string; description?: string }[],
+  /** How often the page resolved the prefix of the repository again (`refreshBranchPrefix`) */
+  prefixLoads: { count: 0 },
   /** Each `updateFromArchivedNames` of the archived branches: the names, and the ones marked new */
   archived: { names: [] as [readonly string[], readonly string[]][], settled: 0 },
   /** What each sync that ended recorded of its repository (`repositoryState`) */
@@ -21,6 +23,9 @@ vi.mock("@/lib/toast-message", () => ({ showToast: (toast: { type?: string; titl
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: "/repo" }),
   getSelectedRepositoryPath: () => "/repo",
+  refreshBranchPrefix: () => {
+    prefixLoads.count++
+  },
 }))
 vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {} }))
 vi.mock("@/stores/settings/repositoryState", () => ({
@@ -66,6 +71,7 @@ beforeEach(() => {
   archived.names.length = 0
   archived.settled = 0
   syncRecords.length = 0
+  prefixLoads.count = 0
 })
 
 // a request left waiting would hold the tests after it
@@ -278,6 +284,20 @@ describe("a sync of the session", () => {
     expect(toasts).toEqual([{ type: "info", title: "Not synced: a rebase is in progress", description: "The branches sync once git finished it" }])
   })
 
+  it("resolves the prefix again when the git config names another one than the session's, quietly", async () => {
+    await open()
+    await send(grouping("a"))
+    const changed = { ...internalError('The branch prefix of the repository is "team" now'), code: "prefix_changed" } as const
+    const manual = requestSessionSync("manual")
+    ;(await nextSync(1)).fail(changed)
+    expect(await manual).toBeNull()
+    // the window opens the session of the new prefix once the page has it (`useSyncOnOpen`); nothing failed meanwhile
+    expect(prefixLoads.count).toBe(1)
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false })
+    expect(toasts).toEqual([])
+    expect(syncRecords).toEqual([])
+  })
+
   it("names the failure of a refused request, and of a run the failed state of the view", async () => {
     await open()
     const refused = requestSessionSync("manual")
@@ -297,10 +317,14 @@ describe("a sync of the session", () => {
     await vi.waitFor(() => expect(fakeSessions.subscribeCalls).toEqual([{ repositoryPath: "/repo" }]))
     ;(await nextSync(1)).answer()
     expect(await synced).not.toBeNull()
-    // a repository without a prefix then: its subscription fails, the request says why and syncs nothing
+    // a repository without a prefix then: its subscription fails, the request says why and syncs nothing; the welcome
+    // card's state, so nothing is logged as an error
     fakeSessions.subscribeFailure = { ...internalError("Cannot sync without a branch prefix"), code: "no_branch_prefix" }
+    const logged = vi.spyOn(console, "error")
     openSession("/repo")
     await whenSessionReady()
+    expect(logged).not.toHaveBeenCalled()
+    logged.mockRestore()
     expect(await requestSessionSync("manual")).toBeNull()
     expect(fakeSessions.syncs).toHaveLength(1)
     expect(branchSyncStore.getState().syncError).toBe("Cannot sync without a branch prefix")
@@ -421,17 +445,35 @@ describe("the table of the view", () => {
     await open()
     await send({ ...grouping("a"), branches: { a: { ...grouping("a").branches!.a!, copies: [{ hash: "a1-new", status: "Created" }] } } })
     const revision = () => branchSyncStore.getState().tableRevision
-    const before = revision()
+    const commits = () => branchSyncStore.getState().commitsRevision
+    const [before, commitsBefore] = [revision(), commits()]
     // a sync that changes nothing: the run, the branch and its copy say Unchanged
     await send(running)
     await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false }, copies: [{ hash: "a1-new", status: "Unchanged" }] } } })
     await send(idle)
-    expect(revision()).toBe(before)
-    // a new copy, a moved remote branch: another table
+    expect([revision(), commits()]).toEqual([before, commitsBefore])
+    // a new copy, a moved remote branch: another table; only the copy changed the commits the conflict fix is for
     await send({ branches: { a: { copies: [{ hash: "a1-newer", status: "Created" }] } } })
-    expect(revision()).toBe(before + 1)
+    expect([revision(), commits()]).toEqual([before + 1, commitsBefore + 1])
     await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 1) } } } })
-    expect(revision()).toBe(before + 2)
+    expect([revision(), commits()]).toEqual([before + 2, commitsBefore + 1])
+    // a pushed stack branch and a deleted archived branch: their sections, not the commits
+    const stack: StackBranchUpdate = {
+      root: "a",
+      branchName: "user/stack/a",
+      members: ["a"],
+      commitCount: 1,
+      state: "Built",
+      tip: "a-tip",
+      blockedBy: null,
+      conflict: null,
+      error: null,
+      remote: null,
+    }
+    await send({ stacks: { a: stack } })
+    expect(commits()).toBe(commitsBefore + 2)
+    await send({ stacks: { a: { ...stack, remote: fakeRemoteStatus("user/stack/a", 0) } }, archived: { names: [] } })
+    expect([revision(), commits()]).toEqual([before + 4, commitsBefore + 2])
   })
 
   it("marks new only the branches a patch archived: a mark the user dismissed stays dismissed", async () => {

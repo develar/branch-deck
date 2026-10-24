@@ -9,8 +9,8 @@ import { getRepositoryState } from "@/stores/settings/repositoryState"
 /**
  * The main window after a write of Settings → Repository, → Diffs & Merge or → Agents (`repository_config_changed`, sent by the
  * backend): what the key changes for the selected repository, nothing for another one. A repository synced before
- * syncs again, as the branches are grouped, named, reviewed or merged by the key; one never synced waits for the
- * user's first sync.
+ * syncs again, as the branches are grouped, reviewed or merged by the key, and named by the prefix (the session of
+ * the new prefix syncs as the window opens it); one never synced waits for the user's first sync.
  */
 export function useRepositoryConfigChanges(): void {
   useTauriListen<RepositoryConfigChanged>("repository_config_changed", ({ repositoryPath, key }) => {
@@ -25,9 +25,9 @@ export function useRepositoryConfigChanges(): void {
     }
     switch (key) {
       case "branchPrefix":
-        // the names the page shows; the sync resolves the new prefix in Rust from the config it reads
+        // the names the page shows: a changed prefix is another session, which the window opens and syncs
+        // (`useSyncOnOpen`); the same prefix again changes nothing to sync
         refreshBranchPrefix()
-        resync()
         break
       case "stacks":
         resync()

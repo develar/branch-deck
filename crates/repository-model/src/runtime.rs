@@ -12,9 +12,10 @@
 //!   known before the detection and the update check end, which come as patches of their own), at its end and after an
 //!   `apply`. The waiters of a run resolve after its last patch.
 //! - The end of a run: a success leaves the table its events made; a deferred sync (`operation_in_progress`,
-//!   `detached_head`) restores the table and says nothing failed, its waiters get the code; another failure restores
-//!   the table with `Failed { error }`. A run whose report asks for a retry (`SyncReport::retry`) runs once more for the
-//!   same requests, its branches that were not built `Syncing` until then.
+//!   `detached_head`, and `prefix_changed`: the git config the run read names the branches by another prefix than the
+//!   session's, so it builds nothing) restores the table and says nothing failed, its waiters get the code; another
+//!   failure restores the table with `Failed { error }`. A run whose report asks for a retry (`SyncReport::retry`) runs
+//!   once more for the same requests, its branches that were not built `Syncing` until then.
 
 use crate::branch_table::BranchTable;
 use crate::session::{Busy, RunReporter, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, Waiter};
@@ -304,23 +305,40 @@ impl Actor {
   }
 }
 
-/// A sync refused while git is in the middle of something or HEAD is detached (`SyncDeferred`): nothing failed
+/// A sync refused while git is in the middle of something or HEAD is detached (`SyncDeferred`), or under a prefix the
+/// git config no longer names (`prefix_changed`): nothing failed
 const fn is_deferred(error: &ApiError) -> bool {
-  matches!(error.code, ErrorCode::OperationInProgress | ErrorCode::DetachedHead)
+  matches!(error.code, ErrorCode::OperationInProgress | ErrorCode::DetachedHead | ErrorCode::PrefixChanged)
+}
+
+/// The refusal of a run of the session under `session_prefix` whose git config names the branches by `config_prefix`
+fn prefix_changed(session_prefix: &str, config_prefix: &str) -> ApiError {
+  ApiError::new(
+    ErrorCode::PrefixChanged,
+    format!("The branch prefix of the repository is {config_prefix:?} now, not {session_prefix:?}: its session syncs under the new one"),
+  )
 }
 
 async fn read_inputs(host: Arc<dyn SessionHost>, key: SessionKey) -> Option<String> {
   tokio::task::spawn_blocking(in_current_span(move || host.inputs(&key))).await.ok().flatten()
 }
 
+/// What a run of a session syncs with (`SessionEnvironment::run_setup`)
+pub struct RunSetup {
+  /// The issue links and the object cache the host keeps per repository, the git config it read
+  pub options: SyncOptions,
+  /// The prefix that git config (and the app's settings) names the branches with now: a run whose session has another
+  /// one builds nothing and answers `prefix_changed`, so no branch is written under a prefix the config left
+  pub prefix: String,
+}
+
 /// What the app supplies to the syncs of its sessions besides git
 pub trait SessionEnvironment: Send + Sync + 'static {
-  /// The options of a sync of `key`: the issue links and the object cache the host keeps per repository, the git config
-  /// it read to resolve the prefix. Blocking
+  /// The options of a sync of `key` and the prefix of the git config read for them. Blocking
   ///
   /// # Errors
   /// What reading them failed with
-  fn sync_options(&self, key: &SessionKey) -> anyhow::Result<SyncOptions>;
+  fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup>;
 
   /// A core's error as the `ApiError` a command answers (`app_api::api_error::api_error`, which this crate does not
   /// reach): a deferred sync keeps its code
@@ -367,13 +385,16 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
   fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun {
     let (git, views, environment, key) = (self.git.clone(), self.views.clone(), Arc::clone(&self.environment), key.clone());
     Box::pin(async move {
-      let options = {
+      let setup = {
         let (environment, key) = (Arc::clone(&environment), key.clone());
-        tokio::task::spawn_blocking(in_current_span(move || environment.sync_options(&key))).await
+        tokio::task::spawn_blocking(in_current_span(move || environment.run_setup(&key))).await
       };
-      let options = options
+      let RunSetup { options, prefix } = setup
         .map_err(|error| ApiError::internal(format!("The sync preparation task failed: {error}")))?
         .map_err(|error| environment.api_error(error))?;
+      if prefix != key.prefix {
+        return Err(prefix_changed(&key.prefix, &prefix));
+      }
       // the remote statuses among the events are kept for the table of the views
       let collector = RemoteStatusCollector::new(reporter);
       let reporter = environment.reporter(&key, Arc::new(collector.clone()));

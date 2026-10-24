@@ -264,8 +264,6 @@ export const commands = {
 	getPatronusTargetBranch: (params: GetPatronusTargetBranchParams) => typedError<string | null, ApiError>(__TAURI_INVOKE("get_patronus_target_branch", { params })),
 	/**  How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason */
 	readPatronusCommandReply: (params: ReadPatronusCommandReplyParams) => typedError<PatronusCommandReply, ApiError>(__TAURI_INVOKE("read_patronus_command_reply", { params })),
-	/**  Opens the session of the repository unless it is open, and answers its view; nothing syncs (`sync` with `open`) */
-	openSession: (params: SessionParams) => typedError<TableView, ApiError>(__TAURI_INVOKE("open_session", { params })),
 	/**
 	 *  The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
 	 *  null when the session is not open, so the window subscribes again
@@ -1505,6 +1503,12 @@ export type ErrorCode =
 "stacks_moved" | 
 /**  The parked branches (`refs/branch-deck/parked`) changed since the caller read them; read again and retry */
 "parked_moved" | 
+/**
+ *  The app's sync of a session whose branch prefix the git config no longer names (a `git config` meanwhile): nothing
+ *  was built; resolve the prefix again and sync the session under it. `bd` resolves the prefix once per command and
+ *  never answers it
+ */
+"prefix_changed" | 
 /**  `bd unpark`: the branch is not parked */
 "not_parked" | 
 /**

@@ -5,6 +5,8 @@
 //!
 //! A subscription ends with `unsubscribe_view`, with its window (`forget_window` on `Destroyed`) and with a page load
 //! of its window (a reload): a Tauri channel of a page that went away never fails its send, so the session would keep it.
+//! A subscription is recorded under the page that asked for it (`WindowSubscriptions`), so one that answers after its
+//! page went away (the command awaited the prefix and the session meanwhile) ends at once.
 
 use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::operation::operation;
@@ -15,7 +17,7 @@ use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::session::{SyncAnswer, SyncReason, TableView, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
-use repository_model::runtime::{GitSessionHost, SessionEnvironment};
+use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::views::RepositoryViews;
 use serde::Deserialize;
@@ -35,7 +37,57 @@ const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 /// The sessions of the app and the subscriptions of each window, by label
 pub struct SessionsState {
   sessions: Arc<Sessions>,
-  windows: Mutex<HashMap<String, Vec<SubscriptionId>>>,
+  windows: Mutex<WindowSubscriptions>,
+}
+
+/// The page a window shows, as a command of it saw it start: another page (a reload, a window opened again under the same
+/// label) has another id
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PageId(u64);
+
+/// The subscriptions of the page each window shows, by label
+#[derive(Default)]
+pub struct WindowSubscriptions {
+  last_page: u64,
+  pages: HashMap<String, (PageId, Vec<SubscriptionId>)>,
+}
+
+impl WindowSubscriptions {
+  /// The page the window `label` shows now, as a command of it starts
+  pub fn page(&mut self, label: &str) -> PageId {
+    if let Some((page, _)) = self.pages.get(label) {
+      return *page;
+    }
+    self.last_page += 1;
+    let page = PageId(self.last_page);
+    self.pages.insert(label.to_owned(), (page, Vec::new()));
+    page
+  }
+
+  /// Keeps `subscription` for the page `page` of the window `label`; false when that page went away meanwhile, so the
+  /// caller ends the subscription
+  pub fn keep(&mut self, label: &str, page: PageId, subscription: SubscriptionId) -> bool {
+    match self.pages.get_mut(label) {
+      Some((shown, subscriptions)) if *shown == page => {
+        subscriptions.push(subscription);
+        true
+      }
+      _ => false,
+    }
+  }
+
+  /// Drops `subscription` of the window `label` (its page ended it)
+  pub fn drop_subscription(&mut self, label: &str, subscription: SubscriptionId) {
+    if let Some((_, subscriptions)) = self.pages.get_mut(label) {
+      subscriptions.retain(|kept| *kept != subscription);
+    }
+  }
+
+  /// Forgets the page of the window `label` (it closed, or loads again) and answers its subscriptions, which the caller
+  /// ends
+  pub fn forget(&mut self, label: &str) -> Vec<SubscriptionId> {
+    self.pages.remove(label).map_or_default(|(_, subscriptions)| subscriptions)
+  }
 }
 
 impl SessionsState {
@@ -47,7 +99,7 @@ impl SessionsState {
     sessions.sweep_every(SWEEP_INTERVAL);
     Self {
       sessions,
-      windows: Mutex::new(HashMap::new()),
+      windows: Mutex::new(WindowSubscriptions::default()),
     }
   }
 
@@ -56,13 +108,13 @@ impl SessionsState {
     &self.sessions
   }
 
-  fn windows(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<SubscriptionId>>> {
+  fn windows(&self) -> std::sync::MutexGuard<'_, WindowSubscriptions> {
     self.windows.lock().unwrap_or_else(PoisonError::into_inner)
   }
 
   /// Ends the subscriptions of the window `label`: it closed, or its page loads again
   pub fn forget_window(&self, label: &str) {
-    let subscriptions = self.windows().remove(label).unwrap_or_default();
+    let subscriptions = self.windows().forget(label);
     for id in subscriptions {
       self.sessions.unsubscribe(id);
     }
@@ -70,25 +122,28 @@ impl SessionsState {
 }
 
 /// What the syncs of the app's sessions take besides git: the issue links and the object cache of the repository, the
-/// git config read for the sync (whose prefix the commands after it resolve with), the settings
+/// git config read for the sync (whose prefix the commands after it resolve with, and the run checks), the settings
 struct AppEnvironment {
   app: AppHandle,
 }
 
 impl SessionEnvironment for AppEnvironment {
-  fn sync_options(&self, key: &SessionKey) -> anyhow::Result<SyncOptions> {
+  fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup> {
     let git = self.app.state::<GitCommandExecutor>();
     let cache = self.app.state::<RepositoryStateCache>();
     // discovery rejects a too old git, once per process, before any event
     git.get_info()?;
     let config = ConfigSnapshot::read(&git, &key.worktree)?;
     let settings = self.app.state::<SettingsService>().app();
-    self.app.state::<BranchPrefixes>().refresh(&settings, &key.worktree, config.branch_prefix());
-    Ok(SyncOptions {
-      issue_config: IssueConfigSource::Cached((*cache.issue_config(&key.worktree)).clone()),
-      object_cache: cache.object_cache(&git, &key.worktree),
-      config: Some(config),
-      ..Default::default()
+    let resolved = self.app.state::<BranchPrefixes>().refresh(&settings, &key.worktree, config.branch_prefix());
+    Ok(RunSetup {
+      options: SyncOptions {
+        issue_config: IssueConfigSource::Cached((*cache.issue_config(&key.worktree)).clone()),
+        object_cache: cache.object_cache(&git, &key.worktree),
+        config: Some(config),
+        ..Default::default()
+      },
+      prefix: resolved.prefix,
     })
   }
 
@@ -129,30 +184,6 @@ async fn session_key(inputs: PrefixInputs, repository_path: &str) -> Result<Sess
   })
 }
 
-/// Opens the session of the repository unless it is open, and answers its view; nothing syncs (`sync` with `open`)
-#[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path))]
-#[specta::specta]
-pub async fn open_session(
-  git_executor: State<'_, GitCommandExecutor>,
-  settings: Settings<'_>,
-  prefixes: Prefixes<'_>,
-  state: State<'_, SessionsState>,
-  params: SessionParams,
-) -> Result<TableView, ApiError> {
-  operation(async move {
-    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let key = session_key(inputs, &params.repository_path).await?;
-    state.sessions.open(&key);
-    state
-      .sessions
-      .get_snapshot(&key)
-      .await
-      .ok_or_else(|| ApiError::internal("The session closed while it opened"))
-  })
-  .await
-}
-
 /// The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
 /// null when the session is not open, so the window subscribes again
 #[tauri::command]
@@ -189,6 +220,9 @@ pub async fn subscribe_view(
   patches: Channel<ViewPatch>,
 ) -> Result<ViewSubscription, ApiError> {
   operation(async move {
+    let label = webview.label().to_owned();
+    // the page that asks, before anything awaits: a reload or a close meanwhile makes it another one
+    let page = state.windows().page(&label);
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let key = session_key(inputs, &params.repository_path).await?;
     let (id, view) = state
@@ -196,7 +230,11 @@ pub async fn subscribe_view(
       .subscribe(&key, Box::new(ChannelSubscriber(patches)))
       .await
       .ok_or_else(|| ApiError::internal("The session closed while the window subscribed"))?;
-    state.windows().entry(webview.label().to_owned()).or_default().push(id);
+    if !state.windows().keep(&label, page, id) {
+      // the page went away: its channel never fails a send, so the session would keep it
+      state.sessions.unsubscribe(id);
+      return Err(ApiError::internal("The page of the window went away while it subscribed"));
+    }
     Ok(ViewSubscription { id: id.0, view })
   })
   .await
@@ -215,9 +253,7 @@ pub struct UnsubscribeViewParams {
 #[expect(clippy::needless_pass_by_value, reason = "tauri passes the webview and the state of a command by value")]
 pub fn unsubscribe_view(webview: Webview, state: State<'_, SessionsState>, params: UnsubscribeViewParams) {
   let id = SubscriptionId(params.id);
-  if let Some(subscriptions) = state.windows().get_mut(webview.label()) {
-    subscriptions.retain(|subscription| *subscription != id);
-  }
+  state.windows().drop_subscription(webview.label(), id);
   state.sessions.unsubscribe(id);
 }
 

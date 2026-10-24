@@ -47,6 +47,10 @@ pub enum ErrorCode {
   StacksMoved,
   /// The parked branches (`refs/branch-deck/parked`) changed since the caller read them; read again and retry
   ParkedMoved,
+  /// The app's sync of a session whose branch prefix the git config no longer names (a `git config` meanwhile): nothing
+  /// was built; resolve the prefix again and sync the session under it. `bd` resolves the prefix once per command and
+  /// never answers it
+  PrefixChanged,
   /// `bd unpark`: the branch is not parked
   NotParked,
   /// `bd unapply`: the virtual branch is not the copies of its commits now (a conflict, no sync since a new commit):
@@ -221,7 +225,7 @@ impl ErrorCode {
       | Self::NotASlot
       | Self::SlotInPool
       | Self::NotParked => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::RoundMoved | Self::Locked => 3,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved | Self::Locked => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
@@ -277,7 +281,7 @@ impl ErrorCode {
   pub const fn retry(self) -> Retry {
     match self {
       Self::Locked | Self::NetworkError => Retry::Same,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::RoundMoved => Retry::AfterReread,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved => Retry::AfterReread,
       _ => Retry::No,
     }
   }

@@ -259,6 +259,13 @@ pub(crate) async fn branch_prefix_of(state: &AppState, repository_path: &str) ->
   Ok(run_command("read the branch prefix", move || inputs.branch_prefix(&path)).await?.0)
 }
 
+/// The prefix of the test repository at `repository_path` by its local config read now, kept for the commands after it:
+/// what the run of its session checks its key against, as the app's run resolves it from the config it reads; blocking
+pub(crate) fn branch_prefix_now(state: &AppState, repository_path: &str) -> anyhow::Result<String> {
+  let inputs = prefix_inputs(state, repository_path).map_err(|_unknown| anyhow::anyhow!("Repository not accessible: {repository_path}"))?;
+  Ok(inputs.fresh(repository_path)?.prefix)
+}
+
 /// Settings → Patronus, the new API, of the settings of the test repository at `repository_path`, as the app's commands
 /// read it from the writer (a test sets it with `initialStoreValues` or through the page's `set_setting`)
 fn patronus_new_api_of(state: &AppState, repository_path: &str) -> Result<bool, Rejection> {

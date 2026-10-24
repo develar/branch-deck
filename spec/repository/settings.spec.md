@@ -407,7 +407,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should tell a failed write in a toast`)
 - After a write the backend tells the main window (`repository_config_changed` `{ repositoryPath, key }`), which acts
-  for the selected repository only: the branch prefix loads again, then a sync; stacked branches a sync; the symbol
+  for the selected repository only: the branch prefix loads again, and a changed one is another session, which the
+  window opens and syncs for a repository synced before ([Onboarding](onboarding.spec.md)); stacked branches a sync; the symbol
   mode a sync, and the stack-independence checks of the Safe Push popover ask again; the GitHub repository a sync and the
   pull requests (`refreshPullRequests("manual")`). A repository never synced only loads its prefix: its first sync is
   the user's.
@@ -473,8 +474,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_is_named_as_the_branches_are_and_one_of_slashes_only_is_unset`, `the_source_is_written_in_snake_case`)
 - The prefix of git is read with its scope (one `git config --show-scope`; the global config alone for an empty path).
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`, `a_prefix_of_git_c_is_repository_scoped`)
-- The commands of the sync family take no prefix from the page: the session commands (`open_session`,
-  `subscribe_view`, `get_snapshot`, `sync`, `set_window_focus`, whose session is keyed by the resolved prefix),
+- The commands of the sync family take no prefix from the page: the session commands (`subscribe_view`,
+  `get_snapshot`, `sync`, `set_window_focus`, whose session is keyed by the resolved prefix),
   `get_repository_view`, `wait_landing_needs`, `get_archived_branch_commits`, `get_unapplied_branch_commits`,
   `delete_archived_branch` and `delete_unapplied_branch` resolve it per command, with the app's prefix of the settings
   when the command starts and the git prefix of a memo by repository path (`BranchPrefixes` in
