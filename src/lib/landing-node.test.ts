@@ -68,10 +68,28 @@ describe("getLandingNode", () => {
   })
 
   it("waits before the first answer of Patronus, never a green that turns blue", () => {
-    expect(landing(facts())).toEqual({ kind: "waiting", label: "Waits for the answer of Patronus about the approvals", pending: true })
+    expect(landing(facts())).toEqual({ kind: "waiting", label: "Waits for Patronus to check the approvals", pending: true })
     expect(landing(facts({ patronusAvailable: false, robot: { kind: "none" } }), { patronusKnown: false })).toEqual({
       kind: "waiting",
       label: "Waits for the answer of Patronus",
+      pending: true,
+    })
+    // nor before the pull requests, the view of the first robots, why a robot failed: the step waits for each
+    expect(landing(facts({ pending: "pullRequests", pullRequestsAvailable: false, pullRequest: null }))).toEqual({
+      kind: "waiting",
+      label: "Waits for GitHub to list the pull requests",
+      pending: true,
+    })
+    expect(landing(facts({ pending: "patronus" }))).toEqual({ kind: "waiting", label: "Waits for the answer of Patronus", pending: true })
+    expect(landing(facts({ pending: "robotProblems", robot: finished("failed"), restart }))).toEqual({
+      kind: "waiting",
+      label: "Waits for Patronus to tell why the Safe Push failed",
+      pending: true,
+    })
+    // a repository not on Space lands through its pull request: one not listed yet is no "not in a pull request"
+    expect(landing(facts({ patronusAvailable: false, robot: { kind: "none" }, pending: "pullRequests", pullRequestsAvailable: false, pullRequest: null }))).toEqual({
+      kind: "waiting",
+      label: "Waits for GitHub to list the pull requests",
       pending: true,
     })
   })

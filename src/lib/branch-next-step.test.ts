@@ -5,7 +5,7 @@ import type { NextStepFacts } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
-import { alice, chip, createPullRequest, facts, finished, group, ilya, missing, openPullRequest, requestReview, restart, withReadiness } from "@/lib/test-next-step-facts"
+import { alice, answered, chip, createPullRequest, facts, finished, group, ilya, missing, openPullRequest, requestReview, restart, withReadiness } from "@/lib/test-next-step-facts"
 import { testRobot } from "@/lib/test-robot"
 
 describe("getBranchNextStep", () => {
@@ -47,7 +47,7 @@ describe("getBranchNextStep", () => {
   })
 
   it("row 1: a merged pull request of other commits (new work under the same name) blocks nothing", () => {
-    const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, state: "merged", mergedCurrent: false } }))
+    const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, state: "merged", mergedCurrent: false }, readiness: answered }))
     expect(step).toMatchObject({ kind: "safePush", safePushBlocker: null, landed: null })
   })
 
@@ -100,11 +100,22 @@ describe("getBranchNextStep", () => {
 
   it("row 3: keeps the pull request step while nobody can tell whether the approvals count", () => {
     const unknown: ReviewReadiness = { kind: "unknown", reason: "approvalsNotEvaluated" }
-    for (const readiness of [null, { readiness: unknown, stale: false }]) {
+    for (const readiness of [
+      { readiness: unknown, stale: false },
+      { readiness: { kind: "unavailable", reason: "error", message: "503" } as ReviewReadiness, stale: false },
+    ]) {
       const step = getBranchNextStep(facts({ robot: finished("needsReview"), robotPullRequest: 1078, restart, readiness }))
       expect(step).toMatchObject({ kind: "pullRequest", item: { label: "Open Pull Request", kbds: ["o"] }, safePushBlocker: null })
     }
-    expect(getBranchNextStep(facts({ robot: finished("needsReview"), pullRequest: null }))).toMatchObject({ kind: "pullRequest", item: createPullRequest })
+    expect(getBranchNextStep(facts({ robot: finished("needsReview"), pullRequest: null, readiness: { readiness: unknown, stale: false } }))).toMatchObject({
+      kind: "pullRequest",
+      item: createPullRequest,
+    })
+    // before the first answer the restart and the pull request are both possible: the step waits for it
+    expect(getBranchNextStep(facts({ robot: finished("needsReview"), robotPullRequest: 1078, restart }))).toMatchObject({
+      kind: "pending",
+      safePushBlocker: "Waits for Patronus to check the approvals",
+    })
   })
 
   it("a stacked branch takes the steps of its own pull request into master", () => {
@@ -359,40 +370,104 @@ describe("getBranchNextStep", () => {
 
     // row 1 first: a running robot, a sync
     expect(getBranchNextStep(facts({ landingNeeds: [missingName], syncing: true })).kind).toBe("none")
-    // not computed yet, or nothing needed: the rows below decide
-    expect(getBranchNextStep(facts({ landingNeeds: null })).kind).toBe("safePush")
-    expect(getBranchNextStep(facts({ landingNeeds: [] })).kind).toBe("safePush")
+    // not computed yet, or nothing needed: the rows below decide; the start runs the same gate itself
+    expect(getBranchNextStep(facts({ landingNeeds: null, readiness: answered })).kind).toBe("safePush")
+    expect(getBranchNextStep(facts({ landingNeeds: [], readiness: answered })).kind).toBe("safePush")
+    // known needs come before the facts the rows below wait for
+    expect(getBranchNextStep(facts({ landingNeeds: [missingName], pending: "pullRequests" })).kind).toBe("needsBranch")
   })
 
-  it("row 11: Safe Push… for every other readiness, and before the first answer", () => {
-    const readinesses: (ReviewReadiness | null)[] = [
-      null,
+  it("row 11: Safe Push… for every other readiness", () => {
+    const readinesses: ReviewReadiness[] = [
       { kind: "notRequired" },
       { kind: "approved", groups: [] },
       { kind: "unknown", reason: "approvalsNotEvaluated" },
       { kind: "unavailable", reason: "error", message: "503" },
     ]
     for (const readiness of readinesses) {
-      const step = getBranchNextStep(facts({ readiness: readiness === null ? null : { readiness, stale: false } }))
+      const step = getBranchNextStep(facts({ readiness: { readiness, stale: false } }))
       expect(step).toMatchObject({ kind: "safePush", item: { label: "Safe Push", kbds: ["s"], disabled: false }, safePushBlocker: null, needsReadiness: true })
     }
   })
 
+  it("row 0: waits with Checking… for a fact no answer told yet, never a step a later answer turns into another", () => {
+    const cases: [Partial<NextStepFacts>, string, string][] = [
+      // GitHub hasn't listed the pull requests: an unknown pull request is no "no pull request"
+      [{ pending: "pullRequests", pullRequestsAvailable: false, pullRequest: null }, "Waits for GitHub to list the pull requests", "GitHub"],
+      // Patronus hasn't answered: whether it lands the branch, and what its robots hold
+      [{ pending: "patronus", patronusAvailable: false, robot: { kind: "none" } }, "Waits for the answer of Patronus", "Patronus"],
+      // why the robot failed decides between a restart and the approvals
+      [{ pending: "robotProblems", robot: finished("failed"), restart }, "Waits for Patronus to tell why the Safe Push failed", "Patronus"],
+      // the first answer of the readiness: approved, missing, a wait
+      [{ readiness: null }, "Waits for Patronus to check the approvals", "Patronus"],
+    ]
+    for (const [patch, reason, from] of cases) {
+      const step = getBranchNextStep(facts(patch))
+      expect(step, JSON.stringify(patch)).toMatchObject({
+        kind: "pending",
+        tone: "quiet",
+        item: { id: "next-step-pending", label: "Checking…", disabled: true, running: true, description: reason },
+        safePushBlocker: reason,
+        notice: { title: `Safe Push of wsm-skip-wa-2 waits for ${from}`, description: reason },
+      })
+    }
+    // the readiness store asks for the first answer it waits for
+    expect(getBranchNextStep(facts({ readiness: null })).needsReadiness).toBe(true)
+    // a Dry Run waits only for Patronus: approvals and pull requests never hold it back
+    expect(getBranchNextStep(facts({ readiness: null })).dryRunBlocker).toBeNull()
+    expect(getBranchNextStep(facts({ pending: "pullRequests", pullRequestsAvailable: false })).dryRunBlocker).toBeNull()
+    expect(getBranchNextStep(facts({ pending: "patronus", patronusAvailable: false, robot: { kind: "none" } })).dryRunBlocker).toBe("Waits for the answer of Patronus")
+  })
+
+  it("row 0: a reason of the branch outranks a fact no answer told yet, and a start waits for the readiness itself", () => {
+    // row 1 says it: a sync, a robot that runs
+    expect(getBranchNextStep(facts({ pending: "pullRequests", syncing: true }))).toMatchObject({ kind: "none", safePushBlocker: "Wait for the sync to finish" })
+    expect(getBranchNextStep(facts({ pending: "patronus", syncing: true }))).toMatchObject({ kind: "none", safePushBlocker: "Wait for the sync to finish" })
+    expect(getBranchNextStep(facts({ pending: "patronus", robot: { kind: "running", chip: chip("running") } })).kind).toBe("none")
+    // a robot of a branch below holds every start back: its reason, not "Checking…"
+    const ancestor = "A Safe Push of login is running: wait until it merges"
+    expect(getBranchNextStep(facts({ startBlocker: ancestor }))).toMatchObject({ kind: "safePush", safePushBlocker: ancestor })
+    expect(getBranchNextStep(facts({ pending: "pullRequests", startBlocker: ancestor }))).toMatchObject({ kind: "safePush", safePushBlocker: ancestor })
+    // the step of a start reads only a fresh answer and waits for one itself (`getSafePushDecision`)
+    expect(getBranchNextStep(facts({ readiness: null, forStart: true }))).toMatchObject({ kind: "safePush", safePushBlocker: null })
+  })
+
   it("names the Safe Push of a stacked branch by the branches it lands, and says what it lands on hover", () => {
-    expect(getBranchNextStep(facts()).item).toMatchObject({ label: "Safe Push", description: "Lands wsm-skip-wa-2 into master once the checks pass" })
-    expect(getBranchNextStep(facts({ landsBranches: 3 })).item).toMatchObject({
+    expect(getBranchNextStep(facts({ readiness: answered })).item).toMatchObject({ label: "Safe Push", description: "Lands wsm-skip-wa-2 into master once the checks pass" })
+    expect(getBranchNextStep(facts({ landsBranches: 3, readiness: answered })).item).toMatchObject({
       label: "Safe Push · 3",
       description: "Lands wsm-skip-wa-2 with the 2 branches it is built on into master in one Safe Push",
     })
   })
 
-  it("keeps a stale answer while the new one loads, so the row doesn't flicker", () => {
+  it("keeps a stale answer while the new one loads, so the row doesn't flicker, and its action waits for the new one", () => {
     expect(getBranchNextStep(facts({ readiness: { readiness: missing([group()]), stale: true } })).kind).toBe("awaiting")
+    // the label stays, the action waits: the new answer may say the approvals are missing
+    const stale = getBranchNextStep(facts({ readiness: { readiness: { kind: "approved", groups: [] }, stale: true } }))
+    expect(stale).toMatchObject({
+      kind: "safePush",
+      item: { id: "safe-push", label: "Safe Push" },
+      safePushBlocker: "Waits for Patronus to check the approvals again",
+      notice: { title: "Safe Push of wsm-skip-wa-2 waits for Patronus", description: "Waits for Patronus to check the approvals again" },
+    })
+    // a quiet step only opens the pull request: it stays enabled
+    expect(getBranchNextStep(facts({ readiness: { readiness: missing([group()]), stale: true } })).item?.disabled).toBeUndefined()
+    // Request Review… of a stale answer waits too: someone may be asked by now
+    const request = getBranchNextStep(facts({ readiness: { readiness: missing([group({ requested: [] })]), stale: true } }))
+    expect(request).toMatchObject({ kind: "requestReview", item: { disabled: true, description: "Waits for Patronus to check the approvals again" } })
+    // a start reads a fresh answer only, and waits for it
+    expect(getBranchNextStep(facts({ readiness: { readiness: { kind: "approved", groups: [] }, stale: true }, forStart: true })).safePushBlocker).toBeNull()
   })
 
   it("treats the readiness as unavailable without the pull requests: never a duplicate Create Pull Request…", () => {
     const step = getBranchNextStep(withReadiness(missing([group()], { reason: "noPullRequestContext" }), { pullRequestsAvailable: false, pullRequest: null }))
     expect(step).toMatchObject({ kind: "safePush", needsReadiness: false })
+    // a failed listing says itself: an unknown pull request, the approvals checked at the start
+    const failed = getBranchNextStep(facts({ pullRequestsAvailable: false, pullRequestsUnlisted: "GitHub: offline", pullRequest: null }))
+    expect(failed).toMatchObject({
+      kind: "safePush",
+      item: { disabled: false, description: "Lands wsm-skip-wa-2 into master once the checks pass · GitHub: offline: Patronus checks the approvals when the robot starts" },
+    })
   })
 
   it("asks for the readiness of a branch on GitHub, pushed or not: Patronus judges the local commits", () => {
@@ -423,7 +498,7 @@ describe("getBranchNextStep", () => {
   })
 
   it("words the notice of S as a short title naming the branch, the reason below; a reason of the branch first", () => {
-    expect(getBranchNextStep(facts()).notice).toBeNull()
+    expect(getBranchNextStep(facts({ readiness: answered })).notice).toBeNull()
     expect(getBranchNextStep(withReadiness(missing([group(), group({ name: "Air Platform", requested: [alice] })]))).notice?.title).toBe(
       "Safe Push of wsm-skip-wa-2 waits for 2 reviews",
     )

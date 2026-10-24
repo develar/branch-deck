@@ -802,16 +802,20 @@
   {
     "id": "row-11-not-asked-yet",
     "group": "next-step-rows",
-    "title": "nobody asked Patronus for the review yet: Safe Push; bd always asks",
-    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "title": "nobody asked Patronus for the review yet: the app's step waits for the answer (Checking…), bd always asks",
+    "spec": ["spec/branch/next-step.spec.md#the-table:0", "spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": null,
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "bd asks Patronus for the review before it plans (spec/cli/agent-cli.spec.md#bd-safe-push): a readiness the app's scan hasn't answered yet is no state of bd"
+    },
     "given": {
       "readiness": "notAsked"
     },
     "app": {
       "step": {
-        "kind": "safePush",
-        "safePushBlocker": null
+        "kind": "pending",
+        "safePushBlocker": "Waits for Patronus to check the approvals"
       }
     },
     "bd": {

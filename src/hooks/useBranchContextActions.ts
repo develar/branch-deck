@@ -40,6 +40,7 @@ import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { fixBlocker, parkBlocker, rewriteBlocker } from "@/lib/branch-drop"
 import type { BranchNextStep } from "@/lib/branch-next-step"
+import { formatPendingFact } from "@/lib/branch-next-step"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { copyText } from "@/lib/clipboard"
@@ -97,8 +98,9 @@ import {
   getPushHold,
   getStackBranchHoldReason,
   isPatronusAvailable,
+  isPatronusKnown,
 } from "@/stores/patronus"
-import { getPullRequest, getStackPullRequest } from "@/stores/pull-requests"
+import { getPullRequest, getStackPullRequest, isPullRequestsLoading } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, getReviewReadiness, recheckReviewReadiness } from "@/stores/review-readiness"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -140,7 +142,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const rewriteBlocker = getRewriteBlocker(branch)
   const rewrite = (items: MenuItem[]): MenuItem[] => items.map(item => rewriteItem(branch, item, operations, rewriteBlocker))
 
-  const patronus = isPatronusAvailable()
+  // until Patronus answers its starts are offered, disabled with what they wait for: hidden only off Space
+  const patronus = isPatronusAvailable() || !isPatronusKnown()
   const landingActions: MenuItem[] = []
   // the build of what its Safe Push lands needs a branch outside it: the fix first ("Stack lane-run on stills-codec")
   if (nextStep.landingFix !== null) {
@@ -649,17 +652,20 @@ export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNex
 /**
  * "Create Pull Request…" of a branch without a live pull request, on GitHub, pushed or not (the dialog pushes it); null
  * otherwise. Disabled with the reason once nothing of it is left to land (`landed`, the next step's `landed`: "Landed in
- * master with oauth"): a pull request of commits that are in the target has nothing to review.
+ * master with oauth"): a pull request of commits that are in the target has nothing to review; and while GitHub hasn't
+ * listed the pull requests (`isPullRequestsLoading`): the branch may have one.
  */
 export function getCreatePullRequestItem(branch: Branch, landed: string | null = getBranchNextStepNow(branch.name)?.landed ?? null): MenuItem | null {
   if (!canCreatePullRequest(branch)) {
     return null
   }
+  // the pull request of the branch is not known yet: never a second one of a branch that has one
+  const blocker = isPullRequestsLoading() ? formatPendingFact("pullRequests") : landed
   return {
     id: "create-pull-request",
     label: CREATE_PULL_REQUEST_LABEL,
     icon: GitPullRequestCreateIcon,
-    ...(landed !== null && { disabled: true, description: landed }),
+    ...(blocker !== null && { disabled: true, description: blocker }),
     onSelect: () => openCreatePullRequestDialog(branch.name),
   }
 }

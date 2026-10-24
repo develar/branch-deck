@@ -58,11 +58,17 @@ function setRobots(...robots: PatronusRobot[]): void {
   setRobotsAndView(robots, null)
 }
 
-/** The robots, and what the backend says they land, landed and hold (`view`) */
+/**
+ * The robots, and what the backend says they land, landed and hold (`view`); why each failed one failed is answered
+ * (not for approvals)
+ */
 function setRobotsAndView(robots: readonly PatronusRobot[], view: Partial<PatronusView> | null): void {
   patronusStore.setState({
     repositories: {
-      [KEY]: testPatronusRepository(robotsById(...robots), view === null ? null : { branches: {}, stacks: {}, landedByRobot: {}, ...view }),
+      [KEY]: {
+        ...testPatronusRepository(robotsById(...robots), view === null ? null : { branches: {}, stacks: {}, landedByRobot: {}, ...view }),
+        needsReview: Object.fromEntries(robots.filter(robot => robot.status === "failure").map(robot => [robot.id, false])),
+      },
     },
   })
 }
@@ -105,14 +111,15 @@ function setPullRequests(stack: PullRequest | null): void {
   })
 }
 
-function setReadiness(readiness: ReviewReadiness): void {
-  reviewReadinessStore.setState({
+function setReadiness(readiness: ReviewReadiness, key = stackReadinessKey("air")): void {
+  reviewReadinessStore.setState(state => ({
     repositories: {
       [KEY]: {
-        [stackReadinessKey("air")]: { key: "k", readiness, requirement: null, stale: false, answeredAt: 0, tip: "stack-tip", pullRequest: 12, waitingFor: [], approvedBy: [] },
+        ...state.repositories[KEY],
+        [key]: { key: "k", readiness, requirement: null, stale: false, answeredAt: 0, tip: "stack-tip", pullRequest: 12, waitingFor: [], approvedBy: [] },
       },
     },
-  })
+  }))
 }
 
 const ilya = { login: "ikorennoy", fullName: "Ilya Korennoy" }
@@ -136,6 +143,10 @@ afterEach(() => {
 
 describe("the next step of the whole stack", () => {
   it("is the Safe Push of the stack branch of a stack that forks, which needs the readiness of the whole stack", () => {
+    // before the first answer of the readiness of the whole stack its step waits for it
+    expect(getStackNextStepNow("air")?.step).toMatchObject({ kind: "pending", safePushBlocker: "Waits for Patronus to check the approvals", needsReadiness: true })
+    expect(readinessKeysNeedingAnswer([stackReadinessKey("air")])).toEqual([stackReadinessKey("air")])
+    setReadiness({ kind: "notRequired" })
     const next = getStackNextStepNow("air")
     expect(next?.leaf).toBeNull()
     expect(next?.step).toMatchObject({ kind: "safePush", item: { id: "safe-push", disabled: false }, safePushBlocker: null, dryRunBlocker: null, needsReadiness: true })
@@ -146,6 +157,7 @@ describe("the next step of the whole stack", () => {
 
   it("is the step of the last branch of a straight chain, which has no stack branch: its Safe Push lands the whole stack", () => {
     setStack(null, branches.slice(0, 3))
+    setReadiness({ kind: "notRequired" }, "deploy")
     const next = getStackNextStepNow("air")
     expect(next?.leaf).toBe("deploy")
     expect(next?.step.kind).toBe("safePush")
@@ -207,6 +219,7 @@ describe("the next step of the whole stack", () => {
     }
     setStack(null, [...branches.slice(0, 2), rebuilt])
     setRobots(failed)
+    setReadiness({ kind: "notRequired" }, "deploy")
     expect(getStackNextStepNow("air")?.step).toMatchObject({ kind: "safePush", item: { disabled: false } })
   })
 
@@ -214,6 +227,7 @@ describe("the next step of the whole stack", () => {
     // the Safe Push of deploy landed air, bazel and deploy: side is left, with its 2 commits
     const byDeploy = { air: landedWholeBy("deploy", "d1"), bazel: landedWholeBy("deploy", "d1"), deploy: landedWholeBy("deploy", "d1", true) }
     setRobotsAndView([testRobot("d1", "deploy", { status: "success", sourceRevision: "deploy-tip", finishTime: 200 })], { branches: byDeploy })
+    setReadiness({ kind: "notRequired" })
     const rest = "Lands 1 branch · 2 commits into master in one Safe Push: side; air, bazel and deploy landed with deploy"
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       kind: "safePush",

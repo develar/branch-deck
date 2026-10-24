@@ -18,6 +18,9 @@ export function testPatronusRepository(robots: Readonly<Record<string, PatronusR
     failing: {},
     view,
     viewOf: view === null ? null : robots,
+    // the facts of the rows are known: a test of a pending answer says so
+    viewListed: true,
+    problemsFailed: {},
   }
 }
 

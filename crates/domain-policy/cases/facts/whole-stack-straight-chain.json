@@ -6,6 +6,12 @@
       "readiness": {"kind": "notRequired"},
       "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
       "tip": "auth-tip"
+    },
+    "login": {
+      "pullRequest": null,
+      "readiness": {"kind": "notRequired"},
+      "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
+      "tip": "login-tip"
     }
   },
   "remoteTips": {},

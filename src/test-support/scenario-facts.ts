@@ -257,13 +257,11 @@ function robotIdOf(index: number, robot: GivenRobot): string {
 
 /**
  * Patronus as the store holds it: the robots as the list answers them and the repository view as `patronus_view`
- * computes it of them (the facts), the GitHub repository, the robots that failed for the approvals (`needsReview`, what
- * the poll of a failed robot's problems says, by the robot's id)
+ * computes it of them (the facts), the GitHub repository, whether each robot failed for the approvals (`needsReview`,
+ * what the poll of a failed robot's problems says, by the robot's id: answered for every robot)
  */
 function seedPatronus(given: Given, facts: ScenarioFacts): void {
-  const needsReview = robotsOf(given)
-    .map((robot, index) => [robotIdOf(index, robot), robot.reason === "approvals"] as const)
-    .filter(([, failedForApprovals]) => failedForApprovals)
+  const needsReview = robotsOf(given).map((robot, index) => [robotIdOf(index, robot), robot.reason === "approvals"] as const)
   patronusStore.setState({
     repositories: {
       [KEY]: {

@@ -19,6 +19,11 @@ export type NextStepKind =
   | "hidden"
   /** Row 1: syncing, failed, blocked, held, parked, landed, a robot runs or merged (also one of another branch that landed it); the Status cell says it */
   | "none"
+  /**
+   * Row 0: a fact the step decides on has no answer yet (`PendingFact`, the first answer of the readiness): "Checking…",
+   * disabled with what it waits for, never a step a later answer turns into another
+   */
+  | "pending"
   /** Row 1′: the build of what the Safe Push lands needs a branch outside it (`landingNeeds` of the repository view): "Needs util", its fix */
   | "needsBranch"
   /** Rows 2 and 3: "Restart Safe Push" of the failed or canceled robot */
@@ -50,6 +55,18 @@ export interface ReadinessFact {
   readonly readiness: ReviewReadiness
   readonly stale: boolean
 }
+
+/**
+ * A fact of the remote that the step decides on and no answer told yet, in the order the step waits for them; a failed
+ * answer is a fact of its own (unavailable, unlisted), never pending:
+ * - `patronus`: Patronus hasn't answered for the repository, or the repository view of the robots it listed first isn't
+ *   in (what they hold and land)
+ * - `pullRequests`: GitHub hasn't listed the pull requests of the repository
+ * - `robotProblems`: Patronus hasn't told why the robot of the branch failed (`/problems`: for approvals or not)
+ * - `readiness`: Patronus hasn't answered whether the approvals count, for the branch as it is (`readiness` null, or
+ *   stale while a new answer loads)
+ */
+export type PendingFact = "patronus" | "pullRequests" | "robotProblems" | "readiness"
 
 /** The pull request of the branch, as the step needs it */
 export interface NextStepPullRequest {
@@ -151,6 +168,12 @@ export interface NextStepFacts {
   readonly restart: MenuItem | null
   /** GitHub lists the pull requests of the repository: without it the table never offers one it may have */
   readonly pullRequestsAvailable: boolean
+  /**
+   * Why GitHub doesn't list the pull requests of a repository on GitHub (`formatAvailabilityHint`: signed out, offline,
+   * SSO): the Safe Push says it, the pull requests are unknown, never "none"; null while it lists them, before its first
+   * answer and off GitHub
+   */
+  readonly pullRequestsUnlisted: string | null
   readonly pullRequest: NextStepPullRequest | null
   /** The branch Patronus pushes into, as a pull request names its base ("master") */
   readonly target: string
@@ -168,6 +191,16 @@ export interface NextStepFacts {
   readonly landingNeeds: readonly LandingRefusal[] | null
   /** null until asked */
   readonly readiness: ReadinessFact | null
+  /**
+   * The first fact of the remote that no answer told yet (`PendingFact`, the readiness aside: it is `readiness`); null
+   * while each of them is known
+   */
+  readonly pending: Exclude<PendingFact, "readiness"> | null
+  /**
+   * The step of a start (`StartStepOptions`): the start waits for the readiness itself (`getSafePushDecision`), so a
+   * readiness without an answer holds nothing back here, and `readiness` is only a fresh one
+   */
+  readonly forStart: boolean
   /**
    * The open pull request of the whole stack the branch is in (`{prefix}/stack/<root>`), whose approvals count for the
    * Safe Push of the whole stack only: row 7 of a branch without its own pull request points to it ("In #12"); null
@@ -418,6 +451,55 @@ function isMergedByRobot(facts: Pick<NextStepFacts, "robot">): boolean {
   return facts.robot.kind === "finished" && facts.robot.chip.kind === "merged"
 }
 
+/** What a pending step waits for (`PendingFact`): the hover of "Checking…", why Safe Push is disabled, and who answers */
+const PENDING_FACTS: Readonly<Record<PendingFact, { readonly reason: string; readonly from: string }>> = {
+  patronus: { reason: "Waits for the answer of Patronus", from: "Patronus" },
+  pullRequests: { reason: "Waits for GitHub to list the pull requests", from: "GitHub" },
+  robotProblems: { reason: "Waits for Patronus to tell why the Safe Push failed", from: "Patronus" },
+  readiness: { reason: "Waits for Patronus to check the approvals", from: "Patronus" },
+}
+
+/** Why a step waits for `fact`, in the words of its hover and of every disabled Safe Push */
+export function formatPendingFact(fact: PendingFact): string {
+  return PENDING_FACTS[fact].reason
+}
+
+/** A stale answer of the readiness: its step stays while the new one loads, its action waits */
+const STALE_READINESS = "Waits for Patronus to check the approvals again"
+
+/**
+ * Row 0: the facts the step decides on have no answer yet, so no step is known: "Checking…", disabled with what it
+ * waits for, the Safe Push of every surface too (a Dry Run only while Patronus hasn't answered: approvals and pull
+ * requests never hold it back), S says it. Never the step the rows below would take without the fact: an unknown pull
+ * request is no "no pull request", an unanswered readiness no "approved"
+ */
+function pendingStep(facts: NextStepFacts, fact: PendingFact, general: string | null, dryRunBlocker: string | null): BranchNextStep {
+  const { reason, from } = PENDING_FACTS[fact]
+  // its spinner where the step will be, muted: the app reads what decides it
+  const item: MenuItem = { id: "next-step-pending", label: "Checking…", disabled: true, running: true, description: reason, onSelect: () => {} }
+  return step("pending", item, general ?? reason, fact === "patronus" ? (dryRunBlocker ?? reason) : dryRunBlocker, {
+    tone: "quiet",
+    needsReadiness: fact === "readiness",
+    ...rowNotice(general, `Safe Push of ${facts.subject} waits for ${from}`, reason),
+  })
+}
+
+/**
+ * A step decided on a stale answer of the readiness (the branch moved on: a new tip, a new review, Check Approvals
+ * Again): it stays while the new answer loads, so the row doesn't flicker, but its action waits for that answer, which
+ * may decide another step; a quiet step only opens the pull request and stays. A start reads only a fresh answer
+ */
+function withStaleReadiness(facts: NextStepFacts, result: BranchNextStep): BranchNextStep {
+  if (facts.forStart || facts.readiness?.stale !== true) {
+    return result
+  }
+  const item = result.item
+  const waits = item !== null && result.tone === "default" && item.disabled !== true ? { ...item, disabled: true, description: STALE_READINESS } : item
+  return result.safePushBlocker === null
+    ? { ...result, item: waits, safePushBlocker: STALE_READINESS, notice: { title: `Safe Push of ${facts.subject} waits for Patronus`, description: STALE_READINESS } }
+    : { ...result, item: waits }
+}
+
 /** Row 1: the branch has nothing to start now, and its Status cell says why */
 function isSettled(facts: NextStepFacts): boolean {
   return (
@@ -438,15 +520,22 @@ function isSettled(facts: NextStepFacts): boolean {
 }
 
 function safePushItem(facts: NextStepFacts, blocker: string | null): MenuItem {
+  const lands = facts.startDescription ?? describeStart("rebaseAutosquash", facts.subject, facts.landsBranches, facts.target)
   return {
     id: "safe-push",
     label: formatStartLabel("rebaseAutosquash", facts.landsBranches),
     icon: ShieldCheckIcon,
     kbds: ["s"],
     disabled: blocker !== null,
-    description: blocker ?? facts.startDescription ?? describeStart("rebaseAutosquash", facts.subject, facts.landsBranches, facts.target),
+    // a failed listing is no "no pull request": the start can't count the approvals of one, Patronus checks them
+    description: blocker ?? (facts.pullRequestsUnlisted === null ? lands : `${lands} · ${formatUnlisted(facts.pullRequestsUnlisted)}`),
     onSelect: facts.actions.openSafePush,
   }
+}
+
+/** "GitHub: offline: Patronus checks the approvals when the robot starts", of a failed listing of the pull requests */
+export function formatUnlisted(reason: string): string {
+  return `${reason}: Patronus checks the approvals when the robot starts`
 }
 
 /** A quiet step: the state as its label, opening the pull request it waits in (O on the row opens it too) */
@@ -468,6 +557,14 @@ function decideNextStep(facts: NextStepFacts): BranchNextStep {
   // a dry run pushes nothing into the target: approvals, a landing ancestor and a draft don't hold it back
   const dryRunBlocker = startReason(facts, facts.dryRunStartBlocker)
   const general = startReason(facts, facts.startBlocker)
+  // row 0: before the answer of Patronus nobody knows whether it lands the branch, nor what its robots hold and land;
+  // what the sync tells (a sync, a failure, a landing) and a robot it listed (one that runs, one that merged) still say
+  // why nothing starts
+  if (facts.pending === "patronus") {
+    return general !== null || facts.robot.kind === "running" || isMergedByRobot(facts)
+      ? withNotice(facts, step("none", null, general, dryRunBlocker))
+      : pendingStep(facts, "patronus", general, dryRunBlocker)
+  }
   // the surfaces offer a start only where Patronus answers: the blockers stay those of the branch
   if (!facts.patronusAvailable && facts.robot.kind === "none") {
     return step("hidden", null, general, dryRunBlocker)
@@ -476,6 +573,12 @@ function decideNextStep(facts: NextStepFacts): BranchNextStep {
     return withNotice(facts, step("none", null, general, dryRunBlocker))
   }
   const needs = facts.landingNeeds
+  // row 0: the rows past 1′ read the pull requests and why a robot failed, which have no answer yet; a reason of the
+  // branch that holds every start back (a robot of a branch below, a block) says more than "Checking…"
+  const pending = (needs !== null && needs.length > 0) || general !== null ? null : facts.pending
+  if (pending !== null) {
+    return pendingStep(facts, pending, general, dryRunBlocker)
+  }
   const result = withNotice(facts, needs !== null && needs.length > 0 ? needsBranchStep(facts, needs, general, dryRunBlocker) : nextStep(facts, general, dryRunBlocker))
   const busy = facts.busy
   // the retarget the menu offers beside the step runs too
@@ -548,6 +651,10 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
   // Patronus judges the local commits: an unpushed branch is asked too, so its step is never a leftover answer
   const asks = facts.pullRequestsAvailable
   const approved = readiness?.kind === "approved" || readiness?.kind === "notRequired"
+  // row 0: the rows that read the readiness wait for its first answer; a start waits for it itself
+  const unanswered = asks && readiness === null && !facts.forStart && general === null
+  // a step of a stale answer stays, its action waits for the new one
+  const judged = (result: BranchNextStep): BranchNextStep => withStaleReadiness(facts, result)
 
   if (robot.kind === "finished") {
     const chip = robot.chip.kind
@@ -557,17 +664,22 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
       return facts.restart === null ? step("safePush", safePushItem(facts, general), general, dryRunBlocker) : step("restart", facts.restart, general, dryRunBlocker)
     }
     if (chip === "needsReview") {
+      if (unanswered) {
+        return pendingStep(facts, "readiness", general, dryRunBlocker)
+      }
       // row 3: the restart keeps the pull request of the robot, it counts the approvals it has by now
       const linked = open !== null && open.intoTarget && facts.robotPullRequest === open.number
       if (linked && approved && facts.restart !== null) {
-        return step("restart", facts.restart, general, dryRunBlocker, { needsReadiness: asks })
+        return judged(step("restart", facts.restart, general, dryRunBlocker, { needsReadiness: asks }))
       }
-      // nobody can tell yet whether the approvals count: a restart may fail again, the pull request collects them
+      // nobody can tell whether the approvals count: a restart may fail again, the pull request collects them
       if (readiness === null || readiness.kind === "unknown" || readiness.kind === "unavailable") {
         const item = open === null ? facts.actions.createPullRequest : quietItem(facts, "Open Pull Request", `Open Pull Request #${open.number}`, GitPullRequestArrowIcon)
-        return item === null
-          ? step("safePush", safePushItem(facts, general), general, dryRunBlocker, { needsReadiness: asks })
-          : step("pullRequest", item, general, dryRunBlocker, { needsReadiness: asks })
+        return judged(
+          item === null
+            ? step("safePush", safePushItem(facts, general), general, dryRunBlocker, { needsReadiness: asks })
+            : step("pullRequest", item, general, dryRunBlocker, { needsReadiness: asks }),
+        )
       }
     }
   }
@@ -608,14 +720,28 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
   if (open !== null && (readiness?.kind === "unknown" || readiness?.kind === "unavailable")) {
     const unjudged = unjudgedWait(facts, open, general, dryRunBlocker, asks)
     if (unjudged !== null) {
-      return unjudged
+      return judged(unjudged)
     }
+  }
+  if (unanswered) {
+    return pendingStep(facts, "readiness", general, dryRunBlocker)
   }
   if (readiness?.kind !== "missing") {
     // row 11; row 3 for a robot whose approvals arrived, but not in the pull request it was started from
-    return step("safePush", safePushItem(facts, general), general, dryRunBlocker, { needsReadiness: asks })
+    return judged(step("safePush", safePushItem(facts, general), general, dryRunBlocker, { needsReadiness: asks }))
   }
+  return judged(missingApprovalsStep(facts, readiness, open, general, dryRunBlocker, asks))
+}
 
+/** Rows 7 to 10: the approvals that count are missing (`missing`), where they can come from */
+function missingApprovalsStep(
+  facts: NextStepFacts,
+  readiness: Extract<ReviewReadiness, { kind: "missing" }>,
+  open: NextStepPullRequest | null,
+  general: string | null,
+  dryRunBlocker: string | null,
+  asks: boolean,
+): BranchNextStep {
   const groups = open === null ? readiness.groups : withRequestedOnPullRequest(readiness.groups, open.waitingFor)
   // row 7: a start through the API counts no approval
   if (open === null) {

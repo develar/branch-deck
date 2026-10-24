@@ -15,7 +15,7 @@ import { announce } from "@/lib/os-notification"
 import { canStartRobot, formatLandedReason, formatPushMode, getSafePushSlot, isLandedByOwnRobot, isLandedWhole, isPullRequestIntoTarget } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
-import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
+import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { stackProblemOf } from "@/lib/stack"
@@ -36,11 +36,13 @@ import {
   getLandingSpan,
   getPushHold,
   isPatronusAvailable,
+  isPatronusPending,
   isRobotFailing,
   isRobotNeedingReview,
+  isRobotProblemsPending,
   patronusStore,
 } from "@/stores/patronus"
-import { getPullRequest, getPullRequestAvailability, getStackPullRequest, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
+import { getPullRequest, getPullRequestAvailability, getStackPullRequest, isPullRequestsLoading, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useShowReviewReadiness } from "@/stores/review-readiness"
@@ -155,6 +157,20 @@ export function busyFact(key: string, options: StartStepOptions | null): NextSte
   return starting == null ? null : { id: "", label: `Starting the ${formatPushMode(starting.mode)}` }
 }
 
+/**
+ * The first fact of the remote the step of a branch (of a whole stack: `robot` of its stack branch) waits for
+ * (`NextStepFacts.pending`): Patronus, the pull requests, why its robot failed; null while each is known
+ */
+export function pendingFactOf(robot: PatronusRobot | undefined): NextStepFacts["pending"] {
+  if (isPatronusPending()) {
+    return "patronus"
+  }
+  if (isPullRequestsLoading()) {
+    return "pullRequests"
+  }
+  return robot !== undefined && isRobotProblemsPending(robot) ? "robotProblems" : null
+}
+
 /** What decides the next step of the branch now, from the stores; the node of its row reads them too (`useLandingNode`) */
 export function getNextStepFacts(branch: Branch, options: StartStepOptions | null = null): NextStepFacts {
   const name = branch.name
@@ -206,6 +222,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,
     pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
+    pullRequestsUnlisted: formatAvailabilityHint(getPullRequestAvailability()),
     pullRequest: pullRequestFact,
     target,
     // the ancestors a merged Safe Push landed are in the target: the robot lands the others
@@ -213,6 +230,8 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     startDescription: null,
     landingNeeds: getLandingNeeds(name),
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
+    pending: pendingFactOf(robot),
+    forStart: options !== null,
     stackPullRequest: stackPullRequestFactOf(name),
     actions: {
       openSafePush: () => void requestSafePush(name, { mode: "rebaseAutosquash", via: "click" }),

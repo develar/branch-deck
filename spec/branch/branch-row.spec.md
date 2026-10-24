@@ -542,10 +542,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   whole stack of its root: [Whole Stack](whole-stack.spec.md)); the commits ("Amend Changes…", "Add Issue Reference…",
   "Squash N Fixups…"); what sets the branch aside ("Park Branch…": [Parked Branches](parked-branches.spec.md),
   "Unapply…"); and last "Copy ›" ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a branch
-  with a pull request, "Copy Retarget Command" for an open one into a virtual branch). Where Patronus doesn't answer,
-  the landing starts with the push. An item with a key (P, S, D, O, M) is never in a submenu; a key of an item in a
+  with a pull request, "Copy Retarget Command" for an open one into a virtual branch). Off Space the landing starts
+  with the push; before Patronus answers whether the repository is on Space its starts stay, disabled with "Waits for
+  the answer of Patronus" ([Next Step](next-step.spec.md#facts-without-an-answer)). An item with a key (P, S, D, O, M) is never in a submenu; a key of an item in a
   submenu (⌘C of "Copy Full Branch Name") works on the row as well.
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`, `starts with the push where Patronus doesn't answer: no Safe Push and no Patronus ›`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`, `starts with the push off Space: no Safe Push and no Patronus ›`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
   [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`)
 - The menu of a branch that can't change now (no commits, a sync error, a sync running) keeps every item: the

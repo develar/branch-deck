@@ -375,8 +375,9 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   own pull request. Its readiness is asked while the header of its island or its root's row shows
   ([Next Step](next-step.spec.md#the-readiness-store)), so a small stack's menu and popovers know the missing approvals
   before a click: "Safe Push Whole Stack" disabled with "Code owners must approve in a pull request: IJPL Code
-  Platform" beside "Create Pull Request of the Stack…"; a click that waited for the answer, and S on the header, say
-  it in the notice, whose action is "Create Pull Request of the Stack…". A stack branch not built lands the stack in pieces: the "⋯" of the island offers the Safe Push of
+  Platform" beside "Create Pull Request of the Stack…", and before the answer with "Waits for Patronus to check the
+  approvals" ([Facts without an answer](next-step.spec.md#facts-without-an-answer)); S on the header says it in the
+  notice, whose action is "Create Pull Request of the Stack…". A stack branch not built lands the stack in pieces: the "⋯" of the island offers the Safe Push of
   the last branch of its main line, and so do the notice of S and the popover ("Land it in pieces").
   [@test] ../../src/hooks/useStackNextStep.test.ts (`is disabled with the reason of a stack branch the sync didn't build, for a Dry Run too: the stack lands in pieces`, `waits for the robot of a branch of the stack, which lands a part of it; a Dry Run doesn't`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should ask for the approvals of the whole stack of a small stack while its root's row shows, and offer its pull request where they are missing`)

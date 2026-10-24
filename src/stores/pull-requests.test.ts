@@ -6,6 +6,7 @@ import {
   PUSH_RECHECK_DELAY_MS,
   getGitHubRepository,
   getPullRequest,
+  isPullRequestsLoading,
   mergePullRequests,
   pullRequestsStore,
   refreshPullRequests,
@@ -177,6 +178,24 @@ describe("refreshPullRequests", () => {
     // GitHub's answer after the retarget is the truth
     expect(getPullRequest("auth")).toMatchObject({ baseRefName: "master", title: "retargeted" })
     expect(gh.writes).toEqual(["retarget #1 onto master in /repo"])
+  })
+
+  it("is loading until GitHub's first answer, which a failure is too: no pull request is known meanwhile", async () => {
+    expect(isPullRequestsLoading()).toBe(true)
+    gh.hold = true
+    const asked = refreshPullRequests("sync")
+    // asked, not answered yet
+    expect(isPullRequestsLoading()).toBe(true)
+    gh.pending?.()
+    await asked
+    expect(isPullRequestsLoading()).toBe(false)
+    // a failed refresh is an answer: the pull requests are unlisted, never loading again
+    gh.hold = false
+    const { commands } = await import("@/lib/bindings")
+    const spy = vi.spyOn(commands, "getPullRequests").mockResolvedValueOnce({ status: "error", error: { message: "offline" } } as never)
+    await refreshPullRequests("manual")
+    spy.mockRestore()
+    expect(isPullRequestsLoading()).toBe(false)
   })
 
   it("keeps the shown pull requests when a refresh fails", async () => {

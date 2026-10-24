@@ -1067,18 +1067,17 @@ test.describe("Stacked branches", () => {
       await syncAndWaitForBranches()
       await asked
 
-      // a click before the answer waits for it, then says why, with the pull request where the approvals count
+      // before the answer the menu says what the whole stack waits for: no Safe Push a later answer refuses
       await findBranchRow(page, "auth").click({ button: "right" })
       await openSubmenu(page, "Whole Stack")
-      await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
-      release()
-      const notice = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of the whole auth stack needs a pull request" })
-      await expect(notice.locator("[data-slot=toast-description]")).toHaveText("Code owners must approve in it: IJPL Code Platform")
-      await notice.getByRole("button", { name: "Create Pull Request of the Stack…" }).click()
-      const dialog = createPullRequestDialog(page)
-      await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole auth stack → master")
+      const waiting = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
+      await expect(waiting).toHaveAttribute("aria-disabled", "true")
+      await waiting.hover()
+      await expect(page.getByRole("tooltip")).toHaveText("Waits for Patronus to check the approvals")
       await page.keyboard.press("Escape")
-      await expect(dialog).toHaveCount(0)
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("menu")).toHaveCount(0)
+      release()
 
       // now the menu knows: its Safe Push disabled with the reason, its pull request offered
       await findBranchRow(page, "auth").click({ button: "right" })
@@ -1088,6 +1087,7 @@ test.describe("Stacked branches", () => {
       await safePush.hover()
       await expect(page.getByRole("tooltip")).toHaveText(missing)
       await page.getByRole("menuitem", { name: "Create Pull Request of the Stack…" }).click()
+      const dialog = createPullRequestDialog(page)
       await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole auth stack → master")
       await page.keyboard.press("Escape")
 

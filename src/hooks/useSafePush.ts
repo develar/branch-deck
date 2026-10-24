@@ -219,8 +219,13 @@ function reviewFactOf(checksReview: boolean, entry: ReadinessEntry | null): Revi
     }
     return entry.requirement === null ? { kind: "loaded", readiness: entry.readiness } : { kind: "space", required: entry.requirement.required }
   }
-  // until GitHub lists the pull requests the start is not known (no token, SSO): the robot decides
-  if (getPullRequestAvailability()?.status !== "available") {
+  // before GitHub's first answer the start is not known yet: the start waits for it, never "unlisted"
+  const availability = getPullRequestAvailability()
+  if (availability === null) {
+    return { kind: "loading" }
+  }
+  // GitHub doesn't list the pull requests (no token, SSO): the start is not known, the robot decides
+  if (availability.status !== "available") {
     return { kind: "unlisted" }
   }
   return entry === null ? { kind: "loading" } : { kind: "loaded", readiness: entry.readiness }

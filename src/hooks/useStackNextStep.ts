@@ -7,6 +7,7 @@ import {
   getBranchNextStepNow,
   getLandedIn,
   nextStepSources,
+  pendingFactOf,
   tellApprovalNews,
   useBranchNextStep,
   useNextStepStores,
@@ -21,7 +22,7 @@ import type { MenuItem } from "@/lib/menu"
 import { wholeStackParkedState } from "@/lib/parked"
 import { canStartStackRobot, formatLandingSubject, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
-import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
+import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import type { StackLandedPart } from "@/lib/whole-stack"
@@ -219,6 +220,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,
     pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
+    pullRequestsUnlisted: formatAvailabilityHint(getPullRequestAvailability()),
     pullRequest: stackPullRequestFactOf(stack, target),
     target,
     // what merged Safe Pushes landed of it is in the target: the robot lands the rest
@@ -227,6 +229,8 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     // the repository view computes them of the branches, not of the whole stack: its start's gate checks it
     landingNeeds: null,
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
+    pending: pendingFactOf(robot),
+    forStart: options !== null,
     stackPullRequest: null,
     actions: {
       openSafePush: () => void requestSafePush(key, { mode: "rebaseAutosquash", via: "click" }),

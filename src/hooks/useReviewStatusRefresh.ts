@@ -7,7 +7,7 @@ import { setWindowFocus } from "@/lib/os-notification"
 import { watchFailingRobots } from "@/lib/patronus-failing"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { refreshGitHubAuthStatus } from "@/stores/github-auth"
-import { refreshPatronus, setPatronusWindowFocus, watchRepositoryView } from "@/stores/patronus"
+import { refreshPatronus, setPatronusWindowFocus, watchRepositoryView, watchRobotProblems } from "@/stores/patronus"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
 import { onReviewRequestsPoll, refreshReviewRequests } from "@/stores/review-requests"
@@ -24,7 +24,8 @@ function isAwaiting(): boolean {
  * pull requests itself. Running robots are polled every minute while the window is focused, a robot that pushes every
  * five minutes while it is not; a running robot that will fail and a robot that failed are told once
  * (`watchFailingRobots`); what a merged robot landed is read by content when a change below its commit gave the
- * branches new copies (`watchRepositoryView`); which commits a running robot covers, once its branch changed since it
+ * branches new copies (`watchRepositoryView`); why a failed robot a change of the branches matched failed
+ * (`watchRobotProblems`); which commits a running robot covers, once its branch changed since it
  * started (`watchRobotCoverage`); the review requests
  * every five minutes, focused or not. A sign-in or a sign-out of
  * GitHub (`github-auth-changed`, from any window) asks GitHub again at once. The readiness of the branches whose next
@@ -36,6 +37,8 @@ function isAwaiting(): boolean {
 export function useReviewStatusRefresh(): void {
   useEffect(() => watchFailingRobots(), [])
   useEffect(() => watchRepositoryView(), [])
+  // why a failed robot failed, for a robot a change of the branches gave a row: its next step waits for it
+  useEffect(() => watchRobotProblems(), [])
   useEffect(() => watchRobotCoverage(), [])
   useEffect(() => watchReviewReadiness(readinessKeysNeedingAnswer, tellReadinessNews), [])
   // a row waits for an approval: each poll of the review requests asks GitHub for the user's pull requests too, whose

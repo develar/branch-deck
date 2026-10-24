@@ -971,7 +971,8 @@ impl Situation {
 
   /// The review readiness as the app's scan asks it (`readinessInputOf`): the branch from its open pull request into
   /// the target, else through the API; the whole stack of its root as its built stack branch with the pull request of
-  /// the stack; nothing while the app hasn't asked (`notAsked`)
+  /// the stack, or of a straight chain its last branch, whose step the whole stack takes (its row asks it); nothing
+  /// while the app hasn't asked (`notAsked`)
   fn readiness(&self, context: &RepoContext, synced: &SyncOutput, given: &Given) -> BTreeMap<String, Value> {
     if given.readiness == Readiness::NotAsked {
       return BTreeMap::new();
@@ -1015,6 +1016,13 @@ impl Situation {
       && let Some(tip) = &stack.tip
     {
       asks.push(ask(&format!("stack:{root}"), Some(stack.branch_name.clone()), tip, listed.stack_pull_requests.get(root)));
+    }
+    if given.subject == GivenSubject::WholeStack
+      && let Ok(WholeStack::Chain { leaf, .. }) = whole_stack_of(&synced.report.branches, &synced.report.stack_branches, name)
+      && leaf != name
+      && let Some(tip) = synced.report.tips.get(&virtual_branch(&leaf))
+    {
+      asks.push(ask(&leaf, None, tip, listed.pull_requests.get(leaf.as_str())));
     }
     let answers = runtime
       .block_on(branch_review_readiness(

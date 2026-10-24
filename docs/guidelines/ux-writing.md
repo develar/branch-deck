@@ -144,6 +144,14 @@ indicator could cancel a robot but not restart it.
   that drops someone's remote commits, one that dismisses approvals, a start that cancels a running robot. The row of
   an unpushed branch once offered a disabled "Create Pull Request…" ("Push first: a pull request needs the remote
   branch") beside its own push button.
+- **An unknown step is no action**: a wait for a fact that decides which action it is (the pull requests GitHub
+  hasn't listed, the approvals Patronus hasn't checked) is no step of an action, as a push is: the action is not known
+  yet. The slot says "Checking…" muted with its spinner, disabled, what it waits for on hover ("Waits for GitHub to
+  list the pull requests"); every other surface of the action is disabled with the same words, and S says them. Never
+  the action the facts would decide without the answer: a "Safe Push" that turned into "Awaiting Review" three
+  seconds later had let a click start a robot whose approvals didn't count
+  ([Next Step](../../spec/branch/next-step.spec.md#facts-without-an-answer)). A failed answer is said as such, never as
+  "none".
 - **A step is not a button beside its action**: a surface that offers the action doesn't offer its step too. The row,
   the preview and the review window of a branch the remote lacks show Create Pull Request… and Safe Push, which push
   it, and no "Push" of their own; the menu keeps the push, so it stays reachable. One name per action: the first push

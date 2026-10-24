@@ -25,10 +25,12 @@ export function slotSafePush(page: Page, branchName: string): Locator {
 
 /**
  * S on the row: the popover of its Safe Push, never a start by itself; resolves once its start took the focus (it can
- * start), so Enter starts the robot
+ * start), so Enter starts the robot. Pressed once the facts of its step are in: before them S says what the step waits
+ * for (`Checking…`)
  */
 export async function openSafePushWithKey(page: Page, branchName: string): Promise<Locator> {
   const row = findBranchRow(page, branchName)
+  await expect(row.getByTestId("next-step-slot")).not.toHaveAttribute("data-step", "pending")
   await row.focus()
   await page.keyboard.press("s")
   const popover = safePushPopover(page)

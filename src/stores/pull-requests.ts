@@ -115,6 +115,14 @@ export function getPullRequestAvailability(): PullRequestAvailability | null {
   return key === null ? null : (pullRequestsStore.getState().repositories[key]?.availability ?? null)
 }
 
+/**
+ * GitHub hasn't answered yet whether it lists the pull requests of the selected repository (after a start or a switch):
+ * no pull request of a branch is known, which is never "no pull request". A failed answer is an availability, not this
+ */
+export function isPullRequestsLoading(): boolean {
+  return currentKey() !== null && getPullRequestAvailability() === null
+}
+
 // ---- refresh ----
 
 /**

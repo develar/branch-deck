@@ -66,11 +66,14 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     robotPullRequest: null,
     restart: null,
     pullRequestsAvailable: true,
+    pullRequestsUnlisted: null,
     pullRequest: openPullRequest,
     target: "master",
     landsBranches: 1,
     landingNeeds: null,
     readiness: null,
+    pending: null,
+    forStart: false,
     startDescription: null,
     stackPullRequest: null,
     actions: {
@@ -84,6 +87,9 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     ...patch,
   }
 }
+
+/** An answer of the readiness for the branch as it is that holds nothing back */
+export const answered: NonNullable<NextStepFacts["readiness"]> = { readiness: { kind: "notRequired" }, stale: false }
 
 export function withReadiness(readiness: ReviewReadiness, patch: Partial<NextStepFacts> = {}): NextStepFacts {
   return facts({ readiness: { readiness, stale: false }, ...patch })

@@ -37,6 +37,8 @@ import {
   getPushHold,
   getStackBranchHoldReason,
   getStackLandedReason,
+  isPatronusPending,
+  isRobotProblemsPending,
   markRobotFailing,
   mergeRobots,
   patronusStore,
@@ -49,6 +51,7 @@ import {
   startPatronusFromPullRequest,
   startPatronusFromReviewedPullRequest,
   startPatronusRobot,
+  watchRepositoryView,
   watchRobot,
   whenRepositoryViewCurrent,
 } from "@/stores/patronus"
@@ -65,6 +68,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     problemCalls: [] as string[],
     /** What the problems of a robot are: the review approval check unless a test says otherwise; "offline" for an error */
     problems: null as { title: string; subsystem: string }[] | "offline" | null,
+    /** Holds the answer of the problems until a test resolves it */
+    problemsHeld: null as Promise<void> | null,
     /** The robot ids of each ask whether robots will fail */
     failingCalls: [] as string[][],
     failing: [] as string[],
@@ -156,6 +161,7 @@ vi.mock("@/lib/bindings", async importOriginal => ({
     },
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
+      await patronus.problemsHeld
       if (patronus.problems === "offline") {
         return { status: "error", error: "offline" }
       }
@@ -343,6 +349,7 @@ beforeEach(() => {
   patronus.polls = []
   patronus.problemCalls = []
   patronus.problems = null
+  patronus.problemsHeld = null
   patronus.failingCalls = []
   patronus.failing = []
   patronus.failureKind = "checks"
@@ -1107,6 +1114,71 @@ describe("a failed start", () => {
     patronus.postFailure = { ...internalError("GitHub answered 403"), code: "patronus_error", operation_id: OPERATION_ID }
     const told = await tellFailure("Cannot start the Safe Push", () => startPatronusFromPullRequest(9, "rebaseAutosquash", { branchName: "auth" }))
     expect(told.recorded).toEqual([{ title: "Cannot start the Safe Push", description: "GitHub answered 403", operationId: OPERATION_ID }])
+  })
+})
+
+describe("facts without an answer", () => {
+  it("waits for Patronus until the view of the robots it listed first is in, then never again for a change of them", async () => {
+    const unwatch = watchRepositoryView()
+    try {
+      // not asked yet: whether it lands the repository is unknown
+      expect(isPatronusPending()).toBe(true)
+      patronus.list = available(robot({ status: "running" }))
+      await refreshPatronus("sync")
+      await vi.advanceTimersByTimeAsync(0)
+      // the view of the listed robot came after the list: what it holds is known
+      expect(patronus.viewCalls.length).toBeGreaterThan(0)
+      expect(isPatronusPending()).toBe(false)
+      // a poll that changes the robot lags the view a moment, which no row waits for
+      patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
+      setPatronusWindowFocus(true)
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+      expect(patronus.polls.length).toBeGreaterThan(0)
+      expect(isPatronusPending()).toBe(false)
+    } finally {
+      unwatch()
+    }
+  })
+
+  it("takes a failure of Patronus as its answer, and a list that left the robots as they were as having its view", async () => {
+    const unwatch = watchRepositoryView()
+    try {
+      patronus.list = { availability: { status: "error", message: "503" }, robots: [] }
+      await refreshPatronus("sync")
+      await vi.advanceTimersByTimeAsync(0)
+      expect(isPatronusPending()).toBe(false)
+      resetPatronus()
+      // no robot: the view asked before the list stays the view of its robots
+      patronus.list = available()
+      await refreshPatronus("sync")
+      await vi.advanceTimersByTimeAsync(0)
+      expect(isPatronusPending()).toBe(false)
+    } finally {
+      unwatch()
+    }
+  })
+
+  it("waits for why a failed robot failed until its problems come, and no longer once Patronus didn't give them", async () => {
+    const failed = robot({ status: "failure" })
+    expect(isRobotProblemsPending(failed)).toBe(false)
+    patronus.problems = "offline"
+    let answer!: () => void
+    patronus.problemsHeld = new Promise<void>(resolve => (answer = resolve))
+    await refreshPatronus("sync")
+    expect(isRobotProblemsPending(failed)).toBe(true)
+    answer()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(patronus.problemCalls).toEqual(["r1"])
+    expect(isRobotProblemsPending(failed)).toBe(false)
+    // the next answer of a list or a poll asks again
+    patronus.problems = null
+    await refreshPatronus("manual")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(patronus.problemCalls).toEqual(["r1", "r1"])
+    expect(patronusStore.getState().repositories["/repo\nuser"]?.needsReview).toEqual({ r1: true })
+    expect(isRobotProblemsPending(failed)).toBe(false)
+    // a robot that didn't fail waits for nothing
+    expect(isRobotProblemsPending(robot({ status: "running" }))).toBe(false)
   })
 })
 

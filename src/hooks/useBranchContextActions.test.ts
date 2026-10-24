@@ -9,6 +9,7 @@ import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/b
 import { branchSyncStore, setStackPush } from "@/stores/branch-sync"
 import { operationsStore } from "@/stores/operations"
 import { patronusStore } from "@/stores/patronus"
+import { pullRequestsStore } from "@/stores/pull-requests"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { testPatronusRepository } from "@/test-support/patronus-repository"
 
@@ -17,12 +18,31 @@ vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-
 /** The key of `/repo` with the prefix `user` in the stores of Patronus and GitHub answers */
 const KEY = "/repo\nuser"
 
+/** GitHub listed the pull requests of the repository: none */
+function setPullRequestsListed(): void {
+  pullRequestsStore.setState({
+    repositories: { [KEY]: { availability: { status: "available", owner: "acme", name: "air" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, isRefreshing: false } },
+  })
+}
+
 describe("getSafePushBlocker", () => {
   afterEach(() => {
     operationsStore.setState({ running: [] })
+    patronusStore.setState({ repositories: {} })
+    pullRequestsStore.setState({ repositories: {} })
   })
 
   it("says why a branch can't start a Safe Push, in the words of every surface that offers it", () => {
+    // what the start decides on is not known yet: Patronus, then GitHub
+    expect(getSafePushBlocker(testBranch("login", null))).toBe("Waits for the answer of Patronus")
+    patronusStore.setState({ repositories: { [KEY]: { ...testPatronusRepository(), githubRepository: null } } })
+    expect(getSafePushBlocker(testBranch("login", null))).toBe("Waits for GitHub to list the pull requests")
+    setPullRequestsListed()
+    // the readiness of a branch is asked by its row; nothing else holds the start back
+    expect(getSafePushBlocker(testBranch("login", null))).toBe("Waits for Patronus to check the approvals")
+    pullRequestsStore.setState({
+      repositories: { [KEY]: { availability: { status: "notGitHub" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, isRefreshing: false } },
+    })
     expect(getSafePushBlocker(testBranch("login", null))).toBeNull()
     expect(getSafePushBlocker(testBranch("login", null, { hasError: true }))).toBe("The branch failed to sync")
     expect(getSafePushBlocker(testBranch("login", null, { commitCount: 0 }))).toBe("No commits to push")
@@ -286,6 +306,7 @@ describe("the order of the branch menu", () => {
   afterEach(() => {
     branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false })
     patronusStore.setState({ repositories: {} })
+    pullRequestsStore.setState({ repositories: {} })
   })
 
   it("leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus", () => {
@@ -311,10 +332,29 @@ describe("the order of the branch menu", () => {
     expect(findMenuItem(groupsOf("auth"), "patronus")).toBeUndefined()
   })
 
-  it("starts with the push where Patronus doesn't answer: no Safe Push and no Patronus ›", () => {
+  it("starts with the push off Space: no Safe Push and no Patronus ›", () => {
+    patronusStore.setState({ repositories: { [KEY]: { ...testPatronusRepository(), availability: { status: "notPatronus" } } } })
     setBranches(synced("auth", null, unpushed))
     expect(idsOf("auth")[0]).toEqual(["push"])
     expect(menuOf("auth").some(item => item.id === "patronus" || item.id === "safe-push")).toBe(false)
+  })
+
+  it("offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests", () => {
+    setBranches(synced("auth", null, unpushed))
+    expect(menuOf("auth").find(item => item.id === "safe-push")).toMatchObject({ disabled: true, description: "Waits for the answer of Patronus" })
+    setPatronus()
+    expect(menuOf("auth").find(item => item.id === "safe-push")).toMatchObject({ disabled: true, description: "Waits for GitHub to list the pull requests" })
+    expect(
+      groupsOf("auth")
+        .flat()
+        .find(item => item.id === "create-pull-request"),
+    ).toMatchObject({ disabled: true, description: "Waits for GitHub to list the pull requests" })
+    setPullRequestsListed()
+    expect(
+      groupsOf("auth")
+        .flat()
+        .find(item => item.id === "create-pull-request")?.disabled,
+    ).toBeUndefined()
   })
 
   it("moves a branch with Move to… alone: the form offers the existing branches", () => {

@@ -1,5 +1,5 @@
 import type { NextStepFacts } from "@/lib/branch-next-step"
-import { getBranchNextStep } from "@/lib/branch-next-step"
+import { formatPendingFact, formatUnlisted, getBranchNextStep } from "@/lib/branch-next-step"
 import { formatParkedLabel } from "@/lib/parked"
 import { formatLandingWait, isFailingChip } from "@/lib/patronus"
 import type { FoundMove } from "@/lib/running-move"
@@ -119,11 +119,19 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
   if (facts.landingWith !== null) {
     return node("landing", `Lands with ${facts.landingWith}: its Safe Push runs`)
   }
+  // what the robots hold and land waits for the first answers of Patronus, as the step does
+  if (next.pending === "patronus" || (!next.patronusAvailable && !facts.patronusKnown)) {
+    return pendingNode(formatPendingFact("patronus"))
+  }
   if (next.held) {
     return node("waiting", "A running Safe Push holds the branch")
   }
   if (!next.patronusAvailable) {
-    return facts.patronusKnown ? withoutPatronus(next, facts.pushPending) : pendingNode("Waits for the answer of Patronus")
+    return withoutPatronus(next, facts.pushPending)
+  }
+  // why the robot failed decides whether a restart helps: the step waits for it
+  if (next.pending === "robotProblems") {
+    return pendingNode(formatPendingFact("robotProblems"))
   }
   // a robot of a branch below that lands a part of it runs: the failure of the earlier piece waits for it
   if (robot.kind === "finished" && robot.chip.kind === "failed" && next.landingPart === null) {
@@ -159,6 +167,9 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
     case "none":
     case "hidden":
       return node("waiting", step.safePushBlocker ?? "Nothing to land")
+    case "pending":
+      // nobody knows yet whether it can land: never a node that a later answer turns into another
+      return pendingNode(step.item?.description ?? formatPendingFact("readiness"))
   }
 }
 
@@ -200,19 +211,24 @@ function ready(facts: NextStepFacts): LandingNode {
       ? { kind: "waiting", label: facts.startBlocker, shows: part.branch }
       : node("waiting", facts.startBlocker)
   }
+  // before the first answer of the readiness the step is pending (`getBranchNextStep`); a stale answer keeps its node
   const readiness = facts.pullRequestsAvailable ? (facts.readiness?.readiness ?? null) : null
-  // before the first answer of Patronus nobody knows whether it can land: never a green that turns blue
-  if (facts.pullRequestsAvailable && readiness === null) {
-    return pendingNode("Waits for the answer of Patronus about the approvals")
-  }
   const lands = facts.landsBranches > 1 ? `Safe Push lands ${facts.landsBranches} branches` : "Safe Push"
-  return readiness?.kind === "approved" || readiness?.kind === "notRequired"
-    ? node("ready", `Ready to land: ${lands}`)
-    : node("yourStep", `${lands}: Patronus checks the approvals when the robot starts`)
+  if (readiness?.kind === "approved" || readiness?.kind === "notRequired") {
+    return node("ready", `Ready to land: ${lands}`)
+  }
+  return node(
+    "yourStep",
+    facts.pullRequestsUnlisted === null ? `${lands}: Patronus checks the approvals when the robot starts` : `${lands} · ${formatUnlisted(facts.pullRequestsUnlisted)}`,
+  )
 }
 
 /** A repository not on Space lands a branch by its pull request; without one GitHub lists, the push is the step it shows */
 function withoutPatronus(facts: NextStepFacts, pushPending: boolean): LandingNode {
+  // an unknown pull request is no "not in a pull request"
+  if (facts.pending === "pullRequests") {
+    return pendingNode(formatPendingFact("pullRequests"))
+  }
   if (!facts.pullRequestsAvailable) {
     return pushPending ? node("yourStep", "Not on the remote yet: push it") : node("waiting", "Pushed: it lands through its pull request")
   }

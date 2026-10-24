@@ -221,6 +221,8 @@ async function openWholeStackPopoverWithPullRequest(
     await repo.setReviewAnswers({ answers: { "stack:air": answer } })
   }
   await syncAndWaitForBranches()
+  // S once the step of the whole stack is known: before the answers it says what it waits for
+  await expect(island(page, "air").locator("[data-testid=next-step-slot][data-whole-stack=air]")).not.toHaveAttribute("data-step", "pending")
   await island(page, "air")
     .getByRole("button", { name: /^air Stack · 7 branches/ })
     .focus()
