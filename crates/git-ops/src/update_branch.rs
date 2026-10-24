@@ -11,7 +11,7 @@ use crate::commit_writer::{current_committer, write_notes_to_refs};
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{merge_trees, replay_range_with_env};
-use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, merge_base, resolve_commit};
+use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, is_ancestor, merge_base, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress};
 use crate::update_resolve::RESOLVE_NOTES_REF;
 use crate::word_replay::{WordsReplay, replay_resolving_words, resolve_note};
@@ -732,6 +732,81 @@ pub const REAPPLY: MoveOperation = MoveOperation {
 
 /// Every move the files follow: the finish of an interrupted one accepts their messages
 const MOVE_OPERATIONS: [MoveOperation; 4] = [UPDATE, PICK, UNAPPLY, REAPPLY];
+
+/// The fork point of `commit` in the reflog of `branch`, whose tip is `tip`, without a value that only a move of bd put
+/// into the reflog and that its rollback or its undo took back (`undone_move_base`): a fast-forward pick that rolled
+/// back left the source's own tip there, and `merge-base --fork-point` would answer that tip, so the range of the source
+/// would be empty and a follow would drop its commits. Such a value gives way to the value before the move, when the
+/// move only added commits to it. A fork point on the tip's history is no undone move: one `merge-base --is-ancestor`;
+/// only another one costs a read of the reflog
+pub(crate) fn branch_fork_point(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, tip: &str, commit: &str) -> Result<Option<String>> {
+  let reflog_ref = format!("refs/heads/{branch}");
+  let Some(found) = fork_point(git_executor, repo_path, &reflog_ref, commit)? else {
+    return Ok(None);
+  };
+  if is_ancestor(git_executor, repo_path, &found, tip)? {
+    return Ok(Some(found));
+  }
+  // `<selector>\0<new value>\0<message>` per entry, newest first; a reflog message is one line
+  let lines = git_executor.execute_command_lines(&["log", "-g", "--format=%gd%x00%H%x00%gs", &reflog_ref, "--"], repo_path)?;
+  let entries: Vec<ReflogEntry> = lines.iter().filter_map(|line| ReflogEntry::parse(line)).collect();
+  if let Some(before) = undone_move_base(&entries, &found)
+    && is_ancestor(git_executor, repo_path, &before, &found)?
+  {
+    info!(%branch, fork_point = %found, base = %before, "the fork point is a move that was rolled back or undone");
+    return Ok(Some(before));
+  }
+  Ok(Some(found))
+}
+
+/// An entry of a reflog
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReflogEntry {
+  /// `n` of `<ref>@{n}`: 0 is the newest
+  pub index: usize,
+  /// The value the entry moved the ref to
+  pub id: String,
+  pub message: String,
+}
+
+impl ReflogEntry {
+  /// `<ref>@{<n>}\0<id>\0<message>`
+  fn parse(line: &str) -> Option<Self> {
+    let mut fields = line.splitn(3, '\0');
+    let (selector, id, message) = (fields.next()?, fields.next()?, fields.next()?);
+    let index = selector.rsplit_once("@{")?.1.strip_suffix('}')?.parse().ok()?;
+    Some(Self {
+      index,
+      id: id.to_string(),
+      message: message.to_string(),
+    })
+  }
+}
+
+/// The value before the moves that put `value` into the reflog `entries` (newest first), when each of them was undone:
+/// every entry that moved the ref to `value` is a move of `MOVE_OPERATIONS`, and the entry right after it is its
+/// rollback (`<move> rolled back`) or its undo, back to the value before it. `None` when an entry put `value` there
+/// otherwise (the user, a rewrite, a rollback or an undo itself), when the newest entry is one of them (the ref is
+/// there), or when the indices around one are not consecutive: `log -g` skips an entry whose commit is gone, so the
+/// next entry is unknown
+pub(crate) fn undone_move_base(entries: &[ReflogEntry], value: &str) -> Option<String> {
+  let mut before = None;
+  for (position, entry) in entries.iter().enumerate().filter(|(_, entry)| entry.id == value) {
+    let message = entry.message.strip_prefix(REFLOG_PREFIX)?;
+    let operation = MOVE_OPERATIONS.iter().find(|operation| operation.done == message)?;
+    let newer = &entries[position.checked_sub(1)?];
+    let older = entries.get(position + 1)?;
+    if newer.index + 1 != entry.index || entry.index + 1 != older.index || newer.id != older.id {
+      return None;
+    }
+    let undone = newer.message.strip_prefix(REFLOG_PREFIX)?;
+    if undone != operation.undo && undone != format!("{} rolled back", operation.done) {
+      return None;
+    }
+    before.get_or_insert_with(|| older.id.clone());
+  }
+  before
+}
 
 /// How a message names the operation of a move: `pick`, `unapply`, `reapply` or `update`
 fn noun(operation: &str) -> &'static str {

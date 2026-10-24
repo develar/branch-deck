@@ -1246,7 +1246,14 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    HEAD>...<source HEAD> ^<base> ^<upstream>` with `%m`: one process gives the range and, by `=`, the commits that a
    target commit above the base and the upstream has the patch id of. The base is `merge-base --fork-point
    refs/heads/<target> <source HEAD>`: the reflog of the target holds the commit the worktree was cut from, also after
-   a fold, a regroup or new dates rewrote the target, so the target's old commits never come back. A source on a newer
+   a fold, a regroup or new dates rewrote the target, so the target's old commits never come back. A value that only a
+   move of bd put there and its rollback or undo took back is none (`branch_fork_point`): a fast-forward pick whose
+   files could not follow left the source's own tip in the reflog, `--fork-point` answered that tip, the range was
+   empty and `--follow` moved the worktree off its commit (idea-1, 2026-10-24). Such a value gives way to the value
+   before the move when the move only added commits to it; every entry with that value must be such a move, the entry
+   after it its `rolled back` or undo back to the value before, with consecutive selectors (`log -g` skips an entry
+   whose commit is gone). A fork point on the tip's history costs one `merge-base --is-ancestor`, and only another one
+   a read of the reflog. A source on a newer
    baseline (its merge base with the upstream is not in the target) is refused; without a fork point, a local shared
    history is refused too, and `<a>..<b>` names the commits. No merge in the range (`ensure_no_merges`).
 4. A range whose oldest commit's parent is the target's HEAD is a fast-forward: the commits land as they are, no
@@ -1304,8 +1311,8 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
 **Undo** (`bd undo pick:<H>..<N>[+follow:<worktree id>:<S>..<N>]`, `undo_pick_core`): under the lock, both moves are
 checked first as the undo of an update is (`check_pick_undo`, the last reflog entry of the branch, of `HEAD` when
 detached, must be `branch-deck: pick` to N with the value before it at H or S; the dry run with the trees swapped),
-then both move back (`branch-deck: undo pick`). The source moves back too: otherwise its commits would no longer be in
-the range, since the fork point of N is N. The worktree path comes from `$GIT_COMMON_DIR/worktrees/<id>/gitdir`.
+then both move back (`branch-deck: undo pick`). The source moves back too, so it has its commits again; the undone
+move is no fork point (step 3), so the next pick picks them. The worktree path comes from `$GIT_COMMON_DIR/worktrees/<id>/gitdir`.
 
 Code: `crates/git-ops/src/pick.rs`, `crates/git-ops/src/update_branch.rs` (the moves, `HeadRef`, the undo check by
 operation), `crates/update-core/src/pick.rs` (lock, baseline, grouping, dependencies, the undo token), `crates/bd-update/src/pick_command.rs`.

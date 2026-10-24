@@ -569,6 +569,24 @@ fn a_return_refuses_only_the_commit_that_the_source_branch_lacks() {
   assert!(output["error"]["message"].as_str().unwrap().contains("detached HEAD"), "{output}");
 }
 
+/// A fast-forward pick of the slot's commit that rolled back left the commit in the reflog of master, and its rollback
+/// took it back: the commit is unlanded, not a fork point that makes it landed
+#[test_log::test]
+fn a_return_after_a_pick_that_rolled_back_refuses_the_commit() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let base = fixture.repo.head();
+  let commit = commit_in(&path, "(lane) Add c", "lane-c.txt");
+  fixture.repo.git(&["update-ref", "-m", "branch-deck: pick", "refs/heads/master", &commit, &base]);
+  fixture
+    .repo
+    .git(&["update-ref", "-m", "branch-deck: pick rolled back", "refs/heads/master", &base, &commit]);
+
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "unlanded_commits"));
+  assert_eq!(output["error"]["commits"], json!([commit]));
+}
+
 /// A session lands a commit with `bd pick --follow`, then fixes its message on the shared branch from its own worktree
 /// (`bd -C <shared checkout> reword`): the worktree needs nothing, its old tip is landed by content, a later pick
 /// lands only a new commit and moves the worktree, and the return passes

@@ -114,6 +114,14 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   source in the reflog of the branch, so that a branch folded, regrouped or redated after the worktree was cut gives
   none of its old commits back.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_target_rewritten_after_the_worktree_was_cut_from_it_gives_back_none_of_its_old_commits`)
+- A value that a move of bd (a pick, an update, an unapply, a reapply) put into the reflog of the branch and that its
+  rollback or its undo took back must be no fork point: a fast-forward pick that rolled back leaves the source's own
+  tip there, which would make its range empty and a `--follow` drop its commits. The base must be the value before
+  that move, when the move only added commits to it; a value that any other entry put there (the user, a rewrite, a
+  rollback or an undo itself, the current tip) stays a fork point, and so does one whose next entry `log -g` skipped.
+  [@test] ../../crates/git-ops/src/pick_test.rs (`a_fast_forward_pick_that_rolled_back_is_no_fork_point_and_the_next_pick_lands_the_commit`, `a_worktree_that_went_on_from_a_rolled_back_tip_lands_the_commits_below_it_too`)
+  [@test] ../../crates/git-ops/src/pick_test.rs (`an_undone_fast_forward_pick_is_no_fork_point`, `only_a_value_whose_every_move_was_rolled_back_or_undone_gives_way_to_the_value_before`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_after_a_pick_that_rolled_back_refuses_the_commit`)
 - Without a fork point, a shared history that is local (not the upstream's) must be refused as `range_unknown`
   (exit 4), and `bd pick <rev>` or `<a>..<b>` must pick the commits it names. A worktree that stands on a newer
   baseline than the branch must be refused as `source_on_newer_baseline` (exit 4).

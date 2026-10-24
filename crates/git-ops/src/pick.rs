@@ -10,11 +10,11 @@
 use crate::paths::{COMMIT_FORMAT, ChangedPath, changed_paths, parse_commits};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
-use crate::revs::{RepositoryDirs, fork_point, is_ancestor, merge_base, repository_dirs, resolve_commit};
+use crate::revs::{RepositoryDirs, is_ancestor, merge_base, repository_dirs, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges};
 use crate::update_branch::{
-  BranchSwitched, FileMove, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, check_move_undo, check_update_guards, move_branch_and_files,
-  move_branch_and_files_carrying, recheck_blocking_paths,
+  BranchSwitched, FileMove, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, branch_fork_point, check_move_undo, check_update_guards,
+  move_branch_and_files, move_branch_and_files_carrying, recheck_blocking_paths,
 };
 use crate::update_resolve::pair_by_patch_id;
 use anyhow::{Result, anyhow, bail};
@@ -397,7 +397,8 @@ fn source_worktree(git_executor: &GitCommandExecutor, target: &str, dir: &str) -
 }
 
 /// The commit the range of the source worktree starts after: the fork point of `source_head` in the reflog of the
-/// target branch, else the merge base when the shared history is the upstream's
+/// target branch, a move that was rolled back or undone being none (`branch_fork_point`), else the merge base when the
+/// shared history is the upstream's
 fn worktree_base(git_executor: &GitCommandExecutor, target: &str, branch: &str, head: &str, source_head: &str, upstream_head: Option<&str>, dir: &str) -> Result<String> {
   if let Some(upstream_head) = upstream_head
     && let Some(source_base) = merge_base(git_executor, target, source_head, upstream_head)?
@@ -408,7 +409,7 @@ fn worktree_base(git_executor: &GitCommandExecutor, target: &str, branch: &str, 
        (`bd update`, by the session that owns it), then pick again"
     ))));
   }
-  if let Some(fork_point) = fork_point(git_executor, target, &format!("refs/heads/{branch}"), source_head)? {
+  if let Some(fork_point) = branch_fork_point(git_executor, target, branch, head, source_head)? {
     return Ok(fork_point);
   }
   let Some(base) = merge_base(git_executor, target, source_head, head)? else {

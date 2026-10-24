@@ -429,7 +429,7 @@ fn pick_from(repo: &TestRepo, lane: TestWorktree, options: impl FnOnce(&mut Pick
 }
 
 /// `bd pick --from <worktree> --follow`: before the lock the baseline, the marks of both worktrees and the check (HEAD
-/// with its committer date, the range with the patch id marks, one `replay`, the copies, both dry runs); under it the
+/// with its committer date, the fork point and whether the tip has it, the range with the patch id marks, one `replay`, the copies, both dry runs); under it the
 /// marks again, the witness (the guards and HEAD of both worktrees, the upstream; the local changes of added paths need
 /// no git) and the two moves with their marks (`update-ref`, `read-tree`); after it the grouping of the picked commits
 /// (the inputs and one `log` of the commits ahead: a new prefix needs no diffs). `the_check_of_a_pick_runs_before_the_lock`
@@ -454,7 +454,7 @@ fn a_pick() {
       ("diff-tree", 2),
       ("for-each-ref", 2),
       ("log", 4),
-      ("merge-base", 3),
+      ("merge-base", 4),
       ("read-tree", 4),
       ("remote", 2),
       ("replay", 1),
@@ -578,7 +578,7 @@ fn a_pick_into_a_branch_the_target_has() {
       ("diff-tree", 1),
       ("for-each-ref", 2),
       ("log", 4),
-      ("merge-base", 3),
+      ("merge-base", 4),
       ("read-tree", 1),
       ("remote", 2),
       ("rev-list", 1),

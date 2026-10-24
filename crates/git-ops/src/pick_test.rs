@@ -1,7 +1,7 @@
 use crate::pick::{FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, apply_pick, check_pick, check_pick_undo};
 use crate::revs::ref_exists;
 use crate::rewrite_guard::HeadMoved;
-use crate::update_branch::{GuardRefusal, PENDING_UPDATE_PREFIX, UndoCheck, apply_update_undo, finish_pending_update};
+use crate::update_branch::{GuardRefusal, PENDING_UPDATE_PREFIX, ReflogEntry, UndoCheck, apply_update_undo, finish_pending_update, undone_move_base};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -63,10 +63,7 @@ fn expire_reflog(repo: &TestRepo) {
 
 #[test]
 fn a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows() {
-  let repo = TestRepo::new();
-  let base = repo.create_commit("base", "a.txt", "a\n");
-  let worktree = TestWorktree::detached(&repo);
-  let first = worktree.commit("(lane) first", "b.txt", "b\n");
+  let (repo, base, worktree, first) = a_lane_cut_at_the_tip();
   worktree.commit("(lane) second", "a.txt", "a2\n");
   // the target moved on: the copies are new commits (a worktree cut at the tip is a fast-forward, and would have nowhere
   // to move)
@@ -487,6 +484,153 @@ fn the_undo_moves_the_target_and_the_detached_source_back() {
   repo.create_commit("(own) after", "c.txt", "c\n");
   let error = check_pick_undo(repo.git_executor(), repo.path_str(), &own, &applied.new_head).unwrap_err();
   assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
+}
+
+/// A repository with `base` and a worktree cut at it with one commit, `first` on `b.txt`: a pick of it is a fast-forward
+fn a_lane_cut_at_the_tip() -> (TestRepo, String, TestWorktree, String) {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  let first = worktree.commit("(lane) first", "b.txt", "b\n");
+  (repo, base, worktree, first)
+}
+
+/// Apply `plan`, which must roll back: a file the move writes appears in the target after the check
+fn roll_back_pick(repo: &TestRepo, plan: &PickPlan, file: &str) {
+  std::fs::write(repo.path().join(file), "in the way\n").unwrap();
+  let error = apply_pick(repo.git_executor(), repo.path_str(), plan).unwrap_err();
+  assert!(format!("{error:#}").starts_with("Files changed during the pick; nothing was changed"), "{error:#}");
+  assert_eq!(repo.git(&["log", "-g", "-n1", "--format=%gs", "refs/heads/master"]), "branch-deck: pick rolled back");
+  std::fs::remove_file(repo.path().join(file)).unwrap();
+}
+
+#[test]
+fn a_fast_forward_pick_that_rolled_back_is_no_fork_point_and_the_next_pick_lands_the_commit() {
+  let (repo, base, worktree, first) = a_lane_cut_at_the_tip();
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
+  assert_eq!(plan.check.new_head, first, "a fast-forward: the source's own tip lands in the reflog of master");
+  roll_back_pick(&repo, &plan, "b.txt");
+  assert_eq!(repo.head(), base);
+  assert_eq!(repo.git(&["merge-base", "--fork-point", "refs/heads/master", &first]), first);
+
+  let again = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
+  assert_eq!(again.check.base, base);
+  assert_eq!(again.check.picked.iter().map(|commit| commit.commit.as_str()).collect::<Vec<_>>(), [first.as_str()]);
+  let applied = apply_pick(repo.git_executor(), repo.path_str(), &again).unwrap();
+  assert_eq!(repo.head(), first);
+  assert_eq!(applied.followed, Some(FollowState::Moved));
+  assert_eq!(worktree.head(), first);
+  assert_eq!(read(&repo, "b.txt"), "b\n");
+}
+
+#[test]
+fn a_worktree_that_went_on_from_a_rolled_back_tip_lands_the_commits_below_it_too() {
+  let (repo, base, worktree, first) = a_lane_cut_at_the_tip();
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  roll_back_pick(&repo, &plan, "b.txt");
+  let second = worktree.commit("(lane) second", "c.txt", "c\n");
+
+  let again = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
+  assert_eq!(again.check.base, base);
+  assert_eq!(
+    again.check.picked.iter().map(|commit| commit.commit.as_str()).collect::<Vec<_>>(),
+    [first.as_str(), second.as_str()]
+  );
+}
+
+#[test]
+fn an_undone_fast_forward_pick_is_no_fork_point() {
+  let (repo, base, worktree, first) = a_lane_cut_at_the_tip();
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
+  apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+  let UndoCheck::Ready(undo) = check_pick_undo(repo.git_executor(), repo.path_str(), &base, &first).unwrap() else {
+    panic!("not ready");
+  };
+  apply_update_undo(repo.git_executor(), repo.path_str(), &undo).unwrap();
+  assert_eq!(repo.head(), base);
+
+  let again = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
+  assert_eq!(again.check.base, base);
+  assert_eq!(again.check.picked.iter().map(|commit| commit.commit.as_str()).collect::<Vec<_>>(), [first.as_str()]);
+}
+
+fn entry(index: usize, id: &str, message: &str) -> ReflogEntry {
+  ReflogEntry {
+    index,
+    id: id.to_string(),
+    message: message.to_string(),
+  }
+}
+
+#[test]
+fn only_a_value_whose_every_move_was_rolled_back_or_undone_gives_way_to_the_value_before() {
+  let rolled_back = [
+    entry(0, "h", "branch-deck: pick rolled back"),
+    entry(1, "t", "branch-deck: pick"),
+    entry(2, "h", "commit: h"),
+  ];
+  assert_eq!(undone_move_base(&rolled_back, "t").as_deref(), Some("h"));
+  let undone = [entry(0, "h", "branch-deck: undo pick"), entry(1, "t", "branch-deck: pick"), entry(2, "h", "commit: h")];
+  assert_eq!(undone_move_base(&undone, "t").as_deref(), Some("h"));
+  // twice rolled back, then a newer value
+  let twice = [
+    entry(0, "n", "branch-deck: pick"),
+    entry(1, "h", "branch-deck: update project rolled back"),
+    entry(2, "u", "branch-deck: update project"),
+    entry(3, "h", "branch-deck: pick rolled back"),
+    entry(4, "t", "branch-deck: pick"),
+    entry(5, "h", "branch-deck: pick rolled back"),
+    entry(6, "t", "branch-deck: pick"),
+    entry(7, "h", "commit: h"),
+  ];
+  assert_eq!(undone_move_base(&twice, "t").as_deref(), Some("h"));
+
+  // the value stood: the ref is there, an undo of its undo rolled back, another move put it there too, the user did
+  let cases: [(&str, Vec<ReflogEntry>); 5] = [
+    ("the tip", vec![entry(0, "t", "branch-deck: pick"), entry(1, "h", "commit: h")]),
+    (
+      "a rolled back undo",
+      vec![
+        entry(0, "t", "branch-deck: undo pick rolled back"),
+        entry(1, "h", "branch-deck: undo pick"),
+        entry(2, "t", "branch-deck: pick"),
+        entry(3, "h", "commit: h"),
+      ],
+    ),
+    (
+      "another move to it stood",
+      vec![
+        entry(0, "n", "commit: n"),
+        entry(1, "t", "branch-deck: pick"),
+        entry(2, "h", "branch-deck: pick rolled back"),
+        entry(3, "t", "branch-deck: pick"),
+        entry(4, "h", "commit: h"),
+      ],
+    ),
+    (
+      "a commit of the user",
+      vec![entry(0, "h", "reset: moving to h"), entry(1, "t", "commit: t"), entry(2, "h", "commit: h")],
+    ),
+    // `log -g` skipped an entry whose commit is gone: the one after the move is unknown
+    (
+      "a gap",
+      vec![
+        entry(0, "h", "branch-deck: pick rolled back"),
+        entry(2, "t", "branch-deck: pick"),
+        entry(3, "h", "commit: h"),
+      ],
+    ),
+  ];
+  for (name, entries) in cases {
+    assert_eq!(undone_move_base(&entries, "t"), None, "{name}");
+  }
+  // a rollback to another value than the one before is no undo of the move
+  let elsewhere = [
+    entry(0, "x", "branch-deck: pick rolled back"),
+    entry(1, "t", "branch-deck: pick"),
+    entry(2, "h", "commit: h"),
+  ];
+  assert_eq!(undone_move_base(&elsewhere, "t"), None);
 }
 
 #[test]
