@@ -1639,6 +1639,24 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `send`, поэтому подписки окна снимаются на `Destroyed` и на каждой загрузке его страницы; приложение подметает
     сессии раз в 30 с. Test-server закрывает сессии репозитория при его удалении (`Sessions::close_worktree`), иначе
     поток `subscribe_view` держал бы репозиторий до `DELETE_WAIT`.
+  - Порядок remote status в s6 (планировщик, 2026-10-24, по коду ветки `rework/s6-session-table`): `seq` — это
+    `Version.seq` вида, не `seq` факта (его вводит s7). Push сообщает сессии своё начало и свой исход
+    (`Sessions::apply` из `push_branch`, `push_branches`, push unapplied, в приложении и в test-server, под ключом,
+    который push разрешил сам): пока push ветки идёт, `RemoteStatusUpdate` запуска sync для неё отбрасывается; исход
+    push записывается в часть `remote` с `seq` патча, и запуск sync, начатый при меньшем `seq`, её не заменяет.
+    Push, который только ждёт sync, — не «идёт»: статус sync к нему применяется, и он пушит поверх него. Страница
+    больше не пишет `remoteStatus` сама (`setBranchRemoteStatus`, `setStackBranchRemoteStatus` удаляются); её
+    `pushingBranches`/`stackPushes` остаются состоянием спиннера по пути репозитория до s9.
+  - Фокус окна: страница зовёт `set_window_focus(path, focused)` на фокус и на потерю фокуса; `autoSyncOnFocus`
+    читает хост (`SessionHost::syncs_on_focus`, настройка писателя s5), страница её не проверяет. `sync(reason:
+    focus)` остаётся для ⌘R во время sync (`syncIfChanged`).
+  - E2E: `rewriteNextSyncEvents`/`rewriteNextRemoteStatus` (перезапись потока `sync_branches` в странице) заменяются
+    фикстурой test-server `POST /repositories/{id}/sync-overrides` (remote status веток и стеков, issue links;
+    действует на следующий запуск sync), которую применяет обёртка репортёра хоста сессии; патчи остаются настоящими,
+    число ответов страницы на чтения только падает.
+  - `bd`: таблица `Session::one_shot` в s6 — это `TableState`, которым `bd sync` сворачивает события своего sync
+    (`bd-core::sync_command`, ребро `bd-core → repository-model`, библиотека для семейств уже); сводка читает вид, а
+    не второй раз события; факты one_shot — s7. JSON `bd sync`/`bd status` не меняется.
 
 ### s7-session-facts
 
