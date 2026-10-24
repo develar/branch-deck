@@ -202,7 +202,16 @@ used to download and compile the main window's tree before its own page: 61 modu
   the page gets a stage further: the fallback of the build once showed a page that had loaded 2.26 s after the build,
   0.74 s later, before its budget and with the warning that it did not load. Until the window showed, the sync events
   apply on the next task (`batchTimer`): their 16 ms timer would wait for WebKit's throttle of a hidden page, up to a
-  second. The deadlines run on the backend's clock (`wait_for_deadline`), never on a timer of the hidden page.
+  second. The deadlines run on the backend's clock (`wait_for_deadline`), never on a timer of the hidden page. The
+  log has the time of the first rows from the build ("main open 812 ms: loaded 240, shell 300") and, from the backend,
+  what showed the window. A cold first start after an install on the monorepo ("main open 6199 ms: loaded 1506"): the
+  budget showed the title row and the loading table 1.0 s after the load (WebKit's `window visible 1` 2.5 s after the
+  build); the sync started 2.25 s after the build and sent its rows 3.7 s later,
+  1.9 s of it in the listing of the branches (`read_baseline_listing`), whose `for-each-ref --sort=-committerdate`
+  with the subjects read the commits of 452 refs from a cold pack (0.09 s warm), none of which the rows show. The
+  listing reads refs only since (0.03 s); the rest of those 3.7 s is cold work the rows need, the commit list ahead of
+  the baseline with its notes and the stores of the grouping, while the update check reads beside them
+  ([Git Operations](git-operations.md#virtual-branch-sync)).
 - The first frame of a window is its content: a window due to show waits for its webview to present the page as it
   is (`show_window`, `-[WKWebView _doAfterNextPresentationUpdate:]`, then `[CATransaction flush]`), at most 1 s. A
   page says its content settled from an effect, after React's commit and before WebKit's rendering update, and the
@@ -212,15 +221,15 @@ used to download and compile the main window's tree before its own page: 61 modu
   as it is on a loaded machine. WebKit does not stop a hidden page: the remote layer tree paints and commits while the
   window is hidden ("Should we suspend painting while not visible … Probably", `RemoteLayerTreeDrawingArea`), and no
   reason freezes the layer tree then; the presentation answers 15–80 ms after the ready, and the window is ordered in
-  4–8 ms after it, on the rows ([Real App Checks](../guidelines/real-app-checks.md#an-agents-check-copy)). The log has the time of the first rows from the build ("main open 812 ms: loaded
-  240") and, from the backend, what showed the window. A cold first start after an install on the monorepo ("main
-  open 6199 ms: loaded 1506"): the budget showed the title row and the loading table 1.0 s after the load (WebKit's
-  `window visible 1` 2.5 s after the build); the sync started 2.25 s after the build and sent its rows 3.7 s later,
-  1.9 s of it in the listing of the branches (`read_baseline_listing`), whose `for-each-ref --sort=-committerdate`
-  with the subjects read the commits of 452 refs from a cold pack (0.09 s warm), none of which the rows show. The
-  listing reads refs only since (0.03 s); the rest of those 3.7 s is cold work the rows need, the commit list ahead of
-  the baseline with its notes and the stores of the grouping, while the update check reads beside them
-  ([Git Operations](git-operations.md#virtual-branch-sync)).
+  after it, on the rows ([Real App Checks](../guidelines/real-app-checks.md#an-agents-check-copy)). Elsewhere the
+  webview tells no presentation and the window shows at once, with no earlier frame to show. WebKitGTK paints nothing
+  while its view is not visible (`DrawingAreaCoordinatedGraphics::suspendPainting`): in the VM the shell entered the
+  DOM 0.25–0.6 s before the show and the first rendering update came 50–160 ms after it; a capture of the X window at
+  60 fps from 60 ms after the show had 8 transparent frames, then one frame with the rows and without the title row,
+  then the whole page, never a canvas (GNOME rounds the window, which is transparent). WebView2 paints a hidden page (it is `visible` to itself,
+  its first rendering update came 6–9 ms after the shell, while the window was hidden), and Windows fades the window
+  in from that frame: the frames of the fade had the shell or the Welcome card from the first one on, never a bare
+  canvas.
 - The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
   its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
   starts the highlight worker when its module loads, beside the reads of the files and the diffs.

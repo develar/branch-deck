@@ -51,7 +51,10 @@ fn request_presentation<R: Runtime>(window: &WebviewWindow<R>) -> oneshot::Recei
   receiver
 }
 
-/// Elsewhere the webview tells no presentation: the window shows at once
+/// Elsewhere the webview tells no presentation, and the window shows at once: there is no earlier frame to wait out.
+/// `WebKitGTK` paints nothing while its view is not visible (`DrawingAreaCoordinatedGraphics::suspendPainting`), so a
+/// Linux window is transparent until the first frame of the page as it is; `WebView2` paints a hidden page, and
+/// Windows fades the window in from that frame
 #[cfg(not(target_os = "macos"))]
 fn request_presentation<R: Runtime>(_window: &WebviewWindow<R>) -> oneshot::Receiver<bool> {
   let (sender, receiver) = oneshot::channel();

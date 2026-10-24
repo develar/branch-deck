@@ -8,7 +8,8 @@
 
 What a release build shows on screen (a window that opens late, a frame of "Loading…") is checked in the real app,
 not only in E2E: `pnpm install-app` (5–7 min, quits and replaces /Applications/BranchDeck.app), then drive it with
-the `peekaboo` CLI. An agent never does that: it checks a copy of its own ([An agent's check copy](#an-agents-check-copy)).
+the `peekaboo` CLI. An agent never does that: it checks a copy of its own
+([An agent's check copy](#an-agents-check-copy)).
 - **Through Peekaboo.app**: its Bridge holds Screen Recording, Accessibility and Event Synthesizing. Keep Peekaboo.app
   open, never pass `--no-remote`, never delete or replace the CLI (other agents call it), kill nothing. Peekaboo may
   pick its on-demand daemon (`daemon-*.sock`), which has no permissions ("Operation hotkey is not allowed"): pass
@@ -69,3 +70,12 @@ identifier of its own and runs it from its lease on a scratch repository.
   probe (a page busy for 0.6 s right after its ready) and compare the frames with and without the change. Give no
   `--capture-engine`: an explicit engine captures locally, without the Bridge's permission ("Screen Recording
   permission is required"). The region behind the window shows the user's screen: delete the frames after the check.
+- **Linux and Windows**: the probe build in the VMs of [Platform Checks](platform-checks.md), with a probed `dist/`
+  and an identifier of its own where the build reads `TAURI_CONFIG`. Linux: under `GDK_BACKEND=x11` the X window of
+  the app can be captured from its creation at 60 fps (`xwininfo -root -tree` for its id, then `gst-launch-1.0
+  ximagesrc xid=<id> use-damage=false ! … ! pngenc ! multifilesink`); the root of a rootless Xwayland is black, and
+  a transparent pixel of the window is black too. Windows: a PowerShell loop of `CopyFromScreen` into bitmaps kept in
+  memory, saved after the capture (30–60 fps), in physical pixels, like the window state, whose window must fit the
+  work area or the plugin centres it; the console of a debug build opens beside the window. A debug build there takes
+  about 6 GB without debug info (`CARGO_PROFILE_DEV_DEBUG=0`); with it the disk of the VM ran full. Delete the target
+  and the data of the copy after the check.

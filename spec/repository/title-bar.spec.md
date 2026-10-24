@@ -267,7 +267,9 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   the app's process as it does for a visible one, `-[WKWebView _doAfterNextPresentationUpdate:]` answers once the
   layers of the next rendering update are there, and the app flushes them to the render server before it orders the
   window in. At most 1 s (`PRESENTATION_BUDGET`): a webview that presents nothing shows its window as it is and the
-  backend logs it; a page that never loaded shows at once.
+  backend logs it; a page that never loaded shows at once. Elsewhere the window shows at once, with no earlier frame
+  to show: WebKitGTK paints nothing while its view is not visible, so a Linux window is transparent until WebKit's
+  first frame of the page as it is; WebView2 paints a hidden page, and Windows fades the window in from that frame.
   [@test] ../../src-tauri/src/presentation_test.rs (`a_window_due_to_show_waits_for_the_frame_its_webview_presents`, `a_webview_that_presents_nothing_shows_its_window_once_the_budget_passed`, `a_webview_that_tells_no_presentation_shows_its_window_at_once`)
 - The first rows wait for no commit of a branch they don't show: the listing of the sync reads refs only, never the
   subjects or the dates of the archived and the remote branches under the prefix (on the monorepo 452 refs, 1 to 2 s
