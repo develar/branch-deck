@@ -459,13 +459,19 @@ log of the fake). No test answers a remote write in the page: the registry test 
   the page clock until the app read the bot's reply), not the parameters the page sent; it records the page's
   parameters on their way to the server where they matter (`recordCommand`), and no test answers a pull request
   command, a review, a `/patronus` comment or the text of a new pull request in the page.
-- **Held answers**: `POST /repositories/{id}/remote-gates` (`holdRemoteAnswers({ hold, release })`) holds answers of
-  the fakes from now on, or releases them: `pullRequests` (GitHub's search of the user's pull requests, `POST /graphql`
-  whose body has `author:@me`), `robots` (the list of Patronus, `GET /app/rest/v1/robots`), `readiness` (the
-  pre-check, `POST /app/rest/v1/pre-merge-approval-required-check`) and `reviewRequests` (the bridge answers them from
-  their fixture, so they wait in `get_review_requests`). A held request reaches its fake and waits at a `FakeGate`
+- **Held answers**: `POST /repositories/{id}/remote-gates` (`holdRemoteAnswers({ hold, fail, release })`) holds
+  answers of the fakes from now on, fails them, or releases them: `pullRequests` (GitHub's search of the user's pull
+  requests, `POST /graphql` whose body has `author:@me`), `robots` (the list of Patronus, `GET /app/rest/v1/robots`),
+  `readiness` (the pre-check, `POST /app/rest/v1/pre-merge-approval-required-check`), `robotProblems` (why a robot
+  failed, `GET /app/rest/v1/robots/*/problems`: a `*` segment of a route of `FakePatronus::hold` matches any one) and
+  the answers the bridge gives itself, which wait in their command: `reviewRequests` (`get_review_requests`, from their
+  fixture), `landingNeeds` (`wait_landing_needs`), `branchRules` (`get_branch_rules`), `gitHubAuth`, `youTrackAuth`
+  and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`
   (`test_utils::fake_server`, the gate `FakeGitHub::hold` and `FakePatronus::hold` take), so the page shows what it
-  shows before the answer, and a release lets it through with what the fixture holds then. `GET` (`getArrivedAnswers`)
+  shows before the answer, and a release lets it through with what the fixture holds then. `fail` makes a route of
+  the fake Patronus answer 500 (`FakePatronus::set_failing`) or the bridge reject the command ("the fixture fails this
+  read") from now on, until a release; the failing set changes before the gates of the same request open, so
+  `{ fail: [a], release: [a] }` fails the request held at `a`. `GET` (`getArrivedAnswers`)
   names the held answers a request reached: a test waits for that (`expect.poll`) before it asserts the page before
   the answer, so the assertion is never vacuous, then releases and asserts the page after it. Set before the sync whose
   answers it holds (a reload keeps it: the next start of the page); the deletion of the repository releases what is

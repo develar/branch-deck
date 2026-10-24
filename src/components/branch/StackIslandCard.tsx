@@ -24,6 +24,7 @@ import { useStackLandingNode, useStackNodeBranch } from "@/hooks/useLandingNode"
 import { useStackBranchAlong, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
+import { useSettledStackLine } from "@/hooks/useSettledLayout"
 import { isForkingStack } from "@/hooks/useStackNextStep"
 import { useStackStates } from "@/hooks/useStackStates"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
@@ -225,6 +226,7 @@ function IslandLandingNode({ root }: { root: string }) {
 }
 
 function IslandHeader({ root, summary, landing }: { root: string; summary: IslandSummary; landing: ReadonlyMap<string, string> }) {
+  const { linesRef, reserved } = useSettledStackLine(root)
   // the branches whose robot lands a part of the stack, with the count of the branches it lands, itself included
   const landed = new Map<string, number>()
   for (const name of summary.members) {
@@ -246,8 +248,13 @@ function IslandHeader({ root, summary, landing }: { root: string; summary: Islan
       </div>
       {/* " · " between the items of the line, as between the parts of every line: each item may render nothing */}
       <div
-        className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-muted-foreground *:not-first:before:mr-1 *:not-first:before:text-muted-foreground *:not-first:before:content-['·'] empty:hidden"
+        ref={linesRef}
+        className={cn(
+          "flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-muted-foreground *:not-first:before:mr-1 *:not-first:before:text-muted-foreground *:not-first:before:content-['·']",
+          reserved ? "min-h-lh" : "empty:hidden",
+        )}
         data-testid="stack-island-lines"
+        data-reserved={reserved || undefined}
       >
         <WholeStackPullRequestLine root={root} />
         <PullRequestSummary members={summary.members} />

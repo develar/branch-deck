@@ -248,13 +248,15 @@ pub async fn set_patronus_start_refusal(Path(id): Path<String>, State(state): St
   Ok(StatusCode::OK)
 }
 
-/// The answers of the fakes a test holds back (`POST /repositories/{id}/remote-gates`): `hold` from now on, `release`
-/// the held ones; a deleted repository releases them all
+/// The answers of the fakes a test holds back (`POST /repositories/{id}/remote-gates`): `hold` from now on, `fail` (an
+/// answer the bridge gives) from now on, `release` the held and the failing ones; a deleted repository releases them all
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteGatesFixture {
   #[serde(default)]
   pub hold: Vec<HeldAnswer>,
+  #[serde(default)]
+  pub fail: Vec<HeldAnswer>,
   #[serde(default)]
   pub release: Vec<HeldAnswer>,
 }
@@ -262,6 +264,7 @@ pub struct RemoteGatesFixture {
 /// Holds or releases answers of the fakes (`RemoteGatesFixture`): a held request reaches its fake and waits there
 pub async fn set_remote_gates(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<RemoteGatesFixture>) -> FixtureResult {
   let (host, _) = host_of(&state, &id)?;
+  host.set_failing(&fixture.fail, &fixture.release);
   host.release_answers(&fixture.release);
   host.hold_answers(&fixture.hold);
   Ok(StatusCode::OK)

@@ -19,7 +19,7 @@ import type {
   RobotOf,
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { commandFailure } from "@/lib/errors"
+import { commandFailure, getErrorDetails } from "@/lib/errors"
 import { storeKeyOf } from "@/lib/git/vcs-request"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-stack"
@@ -124,10 +124,16 @@ export interface RepositoryPatronus {
    */
   readonly viewListed: boolean
   /**
-   * By robot id, the failed robots whose problems Patronus didn't give (`loadReviewProblems` failed): why they failed
-   * stays unknown, which no row waits for; asked again after the next answer of a list or a poll
+   * By robot id, the failed robots whose problems Patronus didn't give (`loadReviewProblems` failed), with why: why they
+   * failed stays unknown, so the step of the branch offers no restart (`UnavailableFact`); asked again after the next
+   * answer of a list or a poll, and by Check Approvals Again (`askRobotProblemsAgain`)
    */
-  readonly problemsFailed: Readonly<Record<string, true>>
+  readonly problemsFailed: Readonly<Record<string, string>>
+  /**
+   * The view said that the landing needs of a branch are unknown and Rust computes them now (`waitForLandingNeeds`
+   * runs); false once the computation answered, or ended without needs for these inputs (failed, too slow)
+   */
+  readonly landingNeedsComputing: boolean
 }
 
 export interface PatronusState {
@@ -151,6 +157,7 @@ const EMPTY: RepositoryPatronus = {
   viewOf: null,
   viewListed: false,
   problemsFailed: {},
+  landingNeedsComputing: false,
 }
 
 /** The key of a repository and branch prefix in the stores of Patronus answers (the robots, the review readiness) */
@@ -603,11 +610,14 @@ async function askRepositoryView(): Promise<void> {
         // the same view of the same robots (a sync that changed nothing): no store change, no selector of a row runs
         const view = keptView(entry.view, result.data.patronus)
         const viewListed = entry.viewListed || isOfListedRobots(entry, asking)
-        if (view !== entry.view || entry.viewOf !== asking || viewListed !== entry.viewListed) {
-          update(key, () => ({ view, viewOf: asking, viewListed }))
+        // the landing needs of a branch of the table are computed in the background meanwhile, unless the same view of the
+        // same count of computations said that none runs for them (failed, too slow): no step waits then
+        const unknown = state.branchOrder.some(name => view.branches[name]?.landingNeeds.state !== "known")
+        const computing = unknown && !(view === entry.view && landingSettled.get(key) === result.data.landingGeneration)
+        if (view !== entry.view || entry.viewOf !== asking || viewListed !== entry.viewListed || (!computing && entry.landingNeedsComputing)) {
+          update(key, () => ({ view, viewOf: asking, viewListed, ...(!computing && { landingNeedsComputing: false }) }))
         }
-        // the landing needs of a branch of the table are computed in the background meanwhile
-        if (state.branchOrder.some(name => view.branches[name]?.landingNeeds.state !== "known")) {
+        if (computing) {
           waitForLandingNeeds(key, project.path, result.data.landingGeneration)
         }
       }
@@ -629,6 +639,8 @@ function isOfListedRobots(entry: RepositoryPatronus, asking: Readonly<Record<str
 
 /** The repository whose landing needs the page waits for, one wait at a time */
 let landingWait: string | null = null
+/** By repository key, the count of computations of the landing needs after which no computation ran (`waitForLandingNeeds`) */
+const landingSettled = new Map<string, number>()
 
 /**
  * While the landing needs of a branch are unknown, Rust computes them in the background: waits until the computation
@@ -636,6 +648,9 @@ let landingWait: string | null = null
  * (none ran, or it failed for these inputs) asks nothing: the needs stay unknown until the inputs change
  */
 function waitForLandingNeeds(key: string, repositoryPath: string, after: number): void {
+  if (!(patronusStore.getState().repositories[key]?.landingNeedsComputing ?? false)) {
+    update(key, () => ({ landingNeedsComputing: true }))
+  }
   if (landingWait === key) {
     return
   }
@@ -646,6 +661,10 @@ function waitForLandingNeeds(key: string, repositoryPath: string, after: number)
       if (result.status === "ok" && result.data !== after && key === currentKey()) {
         askedView = null
         void askRepositoryView()
+      } else {
+        // no computation answers for these inputs (it failed, or took too long): the needs stay unknown, no step waits
+        landingSettled.set(key, result.status === "ok" ? result.data : after)
+        update(key, () => ({ landingNeedsComputing: false }))
       }
     })
     .finally(() => {
@@ -736,6 +755,15 @@ export function getLandingNeeds(branchName: string): readonly LandingRefusal[] |
 function landingNeedsIn(repository: RepositoryPatronus | undefined, branchName: string): readonly LandingRefusal[] | null {
   const needs = repository?.view?.branches[branchName]?.landingNeeds
   return needs?.state === "known" ? needs.refusals : null
+}
+
+/**
+ * Rust computes what the Safe Push of the branch needs now (`landingNeedsComputing`, its needs unknown): its step waits
+ * for the answer, a second or two after the view (`PendingFact` `landingNeeds`)
+ */
+export function isLandingNeedsPending(branchName: string): boolean {
+  const repository = currentRepository()
+  return repository?.landingNeedsComputing === true && landingNeedsIn(repository, branchName) === null
 }
 
 /**
@@ -1215,27 +1243,30 @@ async function loadReviewProblems(key: string, retryFailed: boolean): Promise<vo
       robot.status !== "failure" ||
       robot.id in entry.needsReview ||
       problemsInFlight.has(robot.id) ||
-      (!retryFailed && entry.problemsFailed[robot.id] === true)
+      (!retryFailed && entry.problemsFailed[robot.id] !== undefined)
     ) {
       continue
     }
     problemsInFlight.add(robot.id)
     let answered = false
+    let failure = "Patronus gave no answer"
     try {
       const result = await commands.getPatronusRobotProblems({ repositoryPath, robotId: robot.id })
       if (result.status === "ok") {
         answered = true
         const needsReview = result.data.some(problem => problem.subsystem === REVIEW_APPROVAL_SUBSYSTEM)
         update(key, previous => ({ needsReview: { ...previous.needsReview, [robot.id]: needsReview }, problemsFailed: withoutKey(previous.problemsFailed, robot.id) }))
+      } else {
+        failure = getErrorDetails(result.error)
       }
-    } catch {
-      // an extra: the chip says "Failed"
+    } catch (error) {
+      failure = getErrorDetails(error)
     } finally {
       problemsInFlight.delete(robot.id)
     }
-    // why it failed stays unknown: the step of its branch no longer waits for it
+    // why it failed stays unknown: the step of its branch says so, no restart as if it hadn't failed for approvals
     if (!answered) {
-      update(key, previous => ({ problemsFailed: { ...previous.problemsFailed, [robot.id]: true } }))
+      update(key, previous => ({ problemsFailed: { ...previous.problemsFailed, [robot.id]: failure } }))
     }
   }
 }
@@ -1255,7 +1286,21 @@ function withoutKey<T>(record: Readonly<Record<string, T>>, key: string): Readon
 export function isRobotProblemsPending(robot: PatronusRobot): boolean {
   const key = currentKey()
   const entry = key === null ? undefined : patronusStore.getState().repositories[key]
-  return robot.status === "failure" && entry !== undefined && !(robot.id in entry.needsReview) && entry.problemsFailed[robot.id] !== true
+  return robot.status === "failure" && entry !== undefined && !(robot.id in entry.needsReview) && entry.problemsFailed[robot.id] === undefined
+}
+
+/** Why Patronus didn't give the problems of the failed `robot` (`problemsFailed`); null while they came or are to come */
+export function getRobotProblemsFailure(robot: PatronusRobot): string | null {
+  const key = currentKey()
+  return robot.status !== "failure" || key === null ? null : (patronusStore.getState().repositories[key]?.problemsFailed[robot.id] ?? null)
+}
+
+/** Asks Patronus again why the failed robots of the branches failed, those it didn't give too (Check Approvals Again) */
+export function askRobotProblemsAgain(): void {
+  const key = currentKey()
+  if (key !== null) {
+    void loadReviewProblems(key, true)
+  }
 }
 
 /**
@@ -1384,6 +1429,11 @@ export function usePatronusAvailable(): boolean {
     const status = state.repositories[key]?.availability?.status
     return status !== undefined && status !== "notPatronus"
   })
+}
+
+/** What Patronus answered for the selected repository: whether it is on Space, logged in, failing; null before */
+export function getPatronusAvailability(): PatronusAvailability | null {
+  return currentRepository()?.availability ?? null
 }
 
 /** Non-hook variant of `usePatronusAvailable`, for menus built on open */
@@ -1789,6 +1839,7 @@ export function setPatronusWindowFocus(focused: boolean): void {
 /** Forgets the gates, the timer and the data (tests) */
 export function resetPatronus(): void {
   problemsInFlight.clear()
+  landingSettled.clear()
   lateCommentStarts.clear()
   failingInFlight.clear()
   listGates.reset()

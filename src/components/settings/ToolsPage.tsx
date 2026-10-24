@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
-import { SettingsSection } from "@/components/settings/SettingRow"
+import { ReadFailure, SettingsSection } from "@/components/settings/SettingRow"
 import { CommandLine } from "@/components/shared/CommandLine"
+import { LoadingLine } from "@/components/shared/LoadingLine"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import type { CliToolAction, CliToolServer, CliToolSkill, CliToolStatus } from "@/lib/bindings"
 import {
@@ -24,10 +25,12 @@ import { resolveHomeDir, tildePath } from "@/lib/home-path"
 import {
   cancelCliToolAction,
   refreshCliTools,
+  retryCliTools,
   runCliToolAction,
   setInstallWithSkill,
   signInYoutrackWithApp,
   useCliToolStatuses,
+  useCliToolsReadError,
   useInstallWithSkill,
   useRunningCliToolAction,
 } from "@/stores/cli-tools"
@@ -36,10 +39,12 @@ import type { RunningCliToolAction } from "@/stores/cli-tools"
 /**
  * Settings → Tools (spec/repository/cli-tools.spec.md): the `teamcity` and `youtrack` CLIs, each with its binary,
  * version and sign-ins, and the one action Rust picks for it; read again on each open and focus, the last answer shown
- * meanwhile. `server` is the TeamCity server an open names (the server of a robot's build), for the sign-in.
+ * meanwhile; a failed read says why, with Retry, above them. `server` is the TeamCity server an open names (the server
+ * of a robot's build), for the sign-in.
  */
 export function ToolsPage({ openCount, server }: { openCount: number; server: string | undefined }) {
   const statuses = useCliToolStatuses()
+  const readError = useCliToolsReadError()
   const [homeDir, setHomeDir] = useState("")
   useEffect(() => {
     void refreshCliTools()
@@ -51,11 +56,10 @@ export function ToolsPage({ openCount, server }: { openCount: number; server: st
 
   return (
     <SettingsSection title="Command-line tools" description="Agents and Branch Deck run them as you would; each keeps its own sign-in, its skill teaches the agents to use it">
-      {statuses === null ? (
-        <Spinner className="size-4" aria-label="Reading the tools" />
-      ) : (
-        statuses.map(status => <CliToolRow key={status.tool} status={status} homeDir={homeDir} server={server} />)
-      )}
+      {readError !== null && <ReadFailure title="Cannot read the tools" message={readError} testId="cli-tools-error" onRetry={retryCliTools} />}
+      {statuses === null
+        ? readError === null && <LoadingLine>Reading the tools…</LoadingLine>
+        : statuses.map(status => <CliToolRow key={status.tool} status={status} homeDir={homeDir} server={server} />)}
     </SettingsSection>
   )
 }

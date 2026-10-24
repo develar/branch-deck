@@ -9,6 +9,7 @@ import {
   nextStepSources,
   pendingFactOf,
   tellApprovalNews,
+  unavailableFactOf,
   useBranchNextStep,
   useNextStepStores,
 } from "@/hooks/useBranchNextStep"
@@ -230,7 +231,8 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     // the repository view computes them of the branches, not of the whole stack: its start's gate checks it
     landingNeeds: null,
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
-    pending: pendingFactOf(robot),
+    pending: pendingFactOf(robot, null),
+    unavailable: unavailableFactOf(robot),
     forStart: options !== null,
     stackPullRequest: null,
     actions: {

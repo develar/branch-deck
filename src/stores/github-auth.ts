@@ -22,25 +22,35 @@ export type GitHubSignIn =
 export interface GitHubAuthState {
   /** null until asked */
   readonly status: GitHubAuthStatus | null
+  /** Why the last read of the status failed; null once one answers. The last status stays */
+  readonly readError: string | null
   readonly signIn: GitHubSignIn
 }
 
-export const gitHubAuthStore = createStore<GitHubAuthState>(() => ({ status: null, signIn: { phase: "idle" } }))
+export const gitHubAuthStore = createStore<GitHubAuthState>(() => ({ status: null, readError: null, signIn: { phase: "idle" } }))
 
 export function useGitHubAuthStatus(): GitHubAuthStatus | null {
   return useStore(gitHubAuthStore, state => state.status)
+}
+
+export function useGitHubAuthReadError(): string | null {
+  return useStore(gitHubAuthStore, state => state.readError)
 }
 
 export function useGitHubSignIn(): GitHubSignIn {
   return useStore(gitHubAuthStore, state => state.signIn)
 }
 
-/** Asks the backend where the token comes from; a failure leaves the last status */
+/** Asks the backend where the token comes from; a failure leaves the last status and says why (`readError`) */
 export async function refreshGitHubAuthStatus(): Promise<void> {
   const result = await commands.getGithubAuthStatus()
-  if (result.status === "ok") {
-    gitHubAuthStore.setState({ status: result.data })
-  }
+  gitHubAuthStore.setState(result.status === "ok" ? { status: result.data, readError: null } : { readError: result.error.message })
+}
+
+/** Retry of a failed read: the page says it reads again until the answer */
+export function retryGitHubAuthStatus(): void {
+  gitHubAuthStore.setState({ readError: null })
+  void refreshGitHubAuthStatus()
 }
 
 let loading: Promise<void> | null = null

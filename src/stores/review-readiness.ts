@@ -12,7 +12,7 @@ import { waitingReviewers } from "@/lib/pull-request"
 import { baselineOnRemote } from "@/lib/stack"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { branchSyncStore, getBranch, getBranchTableOrder, getStackBranch } from "@/stores/branch-sync"
-import { currentKey, getPatronusGitHubRepository, isPatronusAvailable, patronusStore, repositoryKey } from "@/stores/patronus"
+import { askRobotProblemsAgain, currentKey, getPatronusGitHubRepository, isPatronusAvailable, patronusStore, repositoryKey } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, pullRequestsStore, refreshPullRequests } from "@/stores/pull-requests"
 import { getFullStackBranchName, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 
@@ -436,13 +436,15 @@ function countIn(counts: Map<string, number>, branchName: string): () => void {
 
 /**
  * Check Approvals Again: the pull requests from GitHub first (a new review changes the input), then Patronus asked again
- * instead of the kept answer. The answer of the branch is stale meanwhile.
+ * instead of the kept answer. The answer of the branch is stale meanwhile. Why the failed robots failed is asked again
+ * too, where Patronus didn't give it (`askRobotProblemsAgain`)
  */
 export async function recheckReviewReadiness(branchName: string): Promise<void> {
   const key = currentKey()
   if (key === null) {
     return
   }
+  askRobotProblemsAgain()
   update(key, current => (current[branchName] === undefined || current[branchName].stale ? current : { ...current, [branchName]: { ...current[branchName], stale: true } }))
   await refreshPullRequests("manual")
   rechecks.add(recheckKey(key, branchName))

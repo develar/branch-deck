@@ -52,6 +52,33 @@ async function expectStacked(page: Page) {
 }
 
 test.describe("Landing needs", () => {
+  test("should check what a branch needs to land before it offers its Safe Push, S and the popover waiting for the answer", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("landing_needs", { patronus: availableRobots() })
+    await repo.holdRemoteAnswers({ hold: ["landingNeeds"] })
+    const rowsAt = Date.now()
+    await syncAndWaitForBranches()
+    // Rust computes the needs after the view: the page waits for them, the step too
+    await expect.poll(() => repo.getArrivedAnswers()).toContain("landingNeeds")
+    for (const name of ["lane-run", "stills-codec"]) {
+      await expect(step(page, name)).toHaveAttribute("data-step", "pending")
+    }
+    await step(page, "lane-run").getByTestId("next-step").hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText("Checking what lane-run needs to land…")
+    // S says it, no popover, no start whose gate the page could have told
+    await findBranchRow(page, "lane-run").focus()
+    await page.keyboard.press("s")
+    await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push of lane-run waits for the check of what it needs" })).toBeVisible()
+    expect((await repo.getPatronusLog()).starts).toEqual([])
+
+    // the answer: lane-run needs stills-codec, stills-codec needs nothing
+    await repo.holdRemoteAnswers({ release: ["landingNeeds"] })
+    await expect(step(page, "lane-run")).toHaveAttribute("data-step", "needsBranch")
+    await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
+    await expect(slotSafePush(page, "stills-codec")).toHaveText("Safe Push")
+    // how long the needs of the three branches of the template take, held time aside, is in the log of the test
+    test.info().annotations.push({ type: "rows to needs (ms, held)", description: String(Date.now() - rowsAt) })
+  })
+
   test("should say on the row which branch its Safe Push needs before any press, and stack it on that branch from the slot", async ({
     page,
     setupRepo,

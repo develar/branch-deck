@@ -21,7 +21,8 @@ export type NextStepKind =
   | "none"
   /**
    * Row 0: a fact the step decides on has no answer yet (`PendingFact`, the first answer of the readiness): "Checking…",
-   * disabled with what it waits for, never a step a later answer turns into another
+   * disabled with what it waits for, never a step a later answer turns into another; or its read failed
+   * (`UnavailableFact`): what helps (a sign-in, a refresh), the starts disabled with the failure
    */
   | "pending"
   /** Row 1′: the build of what the Safe Push lands needs a branch outside it (`landingNeeds` of the repository view): "Needs util", its fix */
@@ -62,11 +63,25 @@ export interface ReadinessFact {
  * - `patronus`: Patronus hasn't answered for the repository, or the repository view of the robots it listed first isn't
  *   in (what they hold and land)
  * - `pullRequests`: GitHub hasn't listed the pull requests of the repository
+ * - `landingNeeds`: Rust computes what the Safe Push of the branch needs of a branch outside it (the landing gate of its
+ *   start, `landingNeeds` of the repository view): within a second or two of the view on the monorepo
  * - `robotProblems`: Patronus hasn't told why the robot of the branch failed (`/problems`: for approvals or not)
  * - `readiness`: Patronus hasn't answered whether the approvals count, for the branch as it is (`readiness` null, or
  *   stale while a new answer loads)
  */
-export type PendingFact = "patronus" | "pullRequests" | "robotProblems" | "readiness"
+export type PendingFact = "patronus" | "pullRequests" | "landingNeeds" | "robotProblems" | "readiness"
+
+/**
+ * A fact the step decides on whose read failed (`NextStepFacts.unavailable`): no start is decided on it, never as if
+ * it answered "no". `patronus`: Patronus answers for the repository with a failure (the Safe Push CLI not logged in, an
+ * error), so its robots are unknown; `robotProblems`: Patronus didn't give why the robot of the branch failed, so a
+ * restart may fail again for the approvals. `action` is what helps (Copy Command of the login, Refresh), null for none
+ */
+export interface UnavailableFact {
+  readonly fact: "patronus" | "robotProblems"
+  readonly reason: string
+  readonly action: MenuItem | null
+}
 
 /** The pull request of the branch, as the step needs it */
 export interface NextStepPullRequest {
@@ -196,6 +211,8 @@ export interface NextStepFacts {
    * while each of them is known
    */
   readonly pending: Exclude<PendingFact, "readiness"> | null
+  /** The first fact the step decides on whose read failed (`UnavailableFact`); null while none */
+  readonly unavailable: UnavailableFact | null
   /**
    * The step of a start (`StartStepOptions`): the start waits for the readiness itself (`getSafePushDecision`), so a
    * readiness without an answer holds nothing back here, and `readiness` is only a fresh one
@@ -452,16 +469,17 @@ function isMergedByRobot(facts: Pick<NextStepFacts, "robot">): boolean {
 }
 
 /** What a pending step waits for (`PendingFact`): the hover of "Checking…", why Safe Push is disabled, and who answers */
-const PENDING_FACTS: Readonly<Record<PendingFact, { readonly reason: string; readonly from: string }>> = {
-  patronus: { reason: "Waits for the answer of Patronus", from: "Patronus" },
-  pullRequests: { reason: "Waits for GitHub to list the pull requests", from: "GitHub" },
-  robotProblems: { reason: "Waits for Patronus to tell why the Safe Push failed", from: "Patronus" },
-  readiness: { reason: "Waits for Patronus to check the approvals", from: "Patronus" },
+const PENDING_FACTS: Readonly<Record<PendingFact, (subject: string) => { readonly reason: string; readonly from: string }>> = {
+  patronus: () => ({ reason: "Waits for the answer of Patronus", from: "Patronus" }),
+  pullRequests: () => ({ reason: "Waits for GitHub to list the pull requests", from: "GitHub" }),
+  landingNeeds: subject => ({ reason: `Checking what ${subject} needs to land…`, from: "the check of what it needs" }),
+  robotProblems: () => ({ reason: "Waits for Patronus to tell why the Safe Push failed", from: "Patronus" }),
+  readiness: () => ({ reason: "Waits for Patronus to check the approvals", from: "Patronus" }),
 }
 
-/** Why a step waits for `fact`, in the words of its hover and of every disabled Safe Push */
-export function formatPendingFact(fact: PendingFact): string {
-  return PENDING_FACTS[fact].reason
+/** Why the step of `subject` waits for `fact`, in the words of its hover and of every disabled Safe Push */
+export function formatPendingFact(fact: PendingFact, subject = "the branch"): string {
+  return PENDING_FACTS[fact](subject).reason
 }
 
 /** A stale answer of the readiness: its step stays while the new one loads, its action waits */
@@ -474,13 +492,26 @@ const STALE_READINESS = "Waits for Patronus to check the approvals again"
  * request is no "no pull request", an unanswered readiness no "approved"
  */
 function pendingStep(facts: NextStepFacts, fact: PendingFact, general: string | null, dryRunBlocker: string | null): BranchNextStep {
-  const { reason, from } = PENDING_FACTS[fact]
+  const { reason, from } = PENDING_FACTS[fact](facts.subject)
   // its spinner where the step will be, muted: the app reads what decides it
   const item: MenuItem = { id: "next-step-pending", label: "Checking…", disabled: true, running: true, description: reason, onSelect: () => {} }
   return step("pending", item, general ?? reason, fact === "patronus" ? (dryRunBlocker ?? reason) : dryRunBlocker, {
     tone: "quiet",
     needsReadiness: fact === "readiness",
     ...rowNotice(general, `Safe Push of ${facts.subject} waits for ${from}`, reason),
+  })
+}
+
+/**
+ * Row 0 of a failed read (`UnavailableFact`): the step is what helps (Copy Command of the login of the Safe Push CLI,
+ * Refresh), else the start disabled with the failure; every Safe Push and, while Patronus fails, every Dry Run says
+ * it. Never the start the rows below would take as if the read had answered
+ */
+function unavailableStep(facts: NextStepFacts, unavailable: UnavailableFact, general: string | null, dryRunBlocker: string | null): BranchNextStep {
+  const { reason, action } = unavailable
+  const item: MenuItem = action ?? { ...(facts.restart ?? safePushItem(facts, reason)), disabled: true, description: reason }
+  return step("pending", item, general ?? reason, unavailable.fact === "patronus" ? (dryRunBlocker ?? reason) : dryRunBlocker, {
+    ...rowNotice(general, `Safe Push of ${facts.subject} can't start`, reason),
   })
 }
 
@@ -572,12 +603,21 @@ function decideNextStep(facts: NextStepFacts): BranchNextStep {
   if (isSettled(facts)) {
     return withNotice(facts, step("none", null, general, dryRunBlocker))
   }
+  // Patronus answers with a failure (not logged in, an error): its robots are unknown, no start is decided on them;
+  // what the sync tells (a landing, nothing to land) still says why nothing starts
+  if (facts.unavailable?.fact === "patronus" && general === null) {
+    return unavailableStep(facts, facts.unavailable, general, dryRunBlocker)
+  }
   const needs = facts.landingNeeds
   // row 0: the rows past 1′ read the pull requests and why a robot failed, which have no answer yet; a reason of the
   // branch that holds every start back (a robot of a branch below, a block) says more than "Checking…"
   const pending = (needs !== null && needs.length > 0) || general !== null ? null : facts.pending
   if (pending !== null) {
     return pendingStep(facts, pending, general, dryRunBlocker)
+  }
+  // why the robot failed is unknown: a restart may fail again for the approvals
+  if (facts.unavailable?.fact === "robotProblems" && (needs === null || needs.length === 0) && general === null) {
+    return unavailableStep(facts, facts.unavailable, general, dryRunBlocker)
   }
   const result = withNotice(facts, needs !== null && needs.length > 0 ? needsBranchStep(facts, needs, general, dryRunBlocker) : nextStep(facts, general, dryRunBlocker))
   const busy = facts.busy

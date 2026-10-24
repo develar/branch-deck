@@ -26,6 +26,8 @@ pub struct FakePatronus {
   status: Mutex<u16>,
   /// By `METHOD /path`: the gates that hold its requests (`hold`)
   holds: Mutex<HashMap<String, Arc<FakeGate>>>,
+  /// The `METHOD /path` routes answered with a failure (`set_failing`), after their gate
+  failing: Mutex<std::collections::HashSet<String>>,
   pub list_calls: AtomicU32,
   pub update_calls: AtomicU32,
   pub detail_calls: AtomicU32,
@@ -131,7 +133,8 @@ pub struct FakePatronus {
 }
 
 impl FakePatronus {
-  /// Holds the requests to `method path` (without the query) until the gate it returns opens
+  /// Holds the requests to `method path` (without the query; a `*` segment matches any one) until the gate it returns
+  /// opens
   pub fn hold(&self, method: &str, path: &str) -> Arc<FakeGate> {
     let gate = Arc::new(FakeGate::default());
     self.holds.lock().unwrap().insert(format!("{method} {path}"), Arc::clone(&gate));
@@ -139,7 +142,26 @@ impl FakePatronus {
   }
 
   fn gate(&self, method: &axum::http::Method, path: &str) -> Option<Arc<FakeGate>> {
-    self.holds.lock().unwrap().get(&format!("{method} {path}")).cloned()
+    let route = format!("{method} {path}");
+    let holds = self.holds.lock().unwrap();
+    holds.iter().find(|(pattern, _)| route_matches(pattern, &route)).map(|(_, gate)| Arc::clone(gate))
+  }
+
+  /// Answers the requests to `method path` (a `*` segment matches any one) with a failure (500) from now on, or as
+  /// before
+  pub fn set_failing(&self, method: &str, path: &str, failing: bool) {
+    let route = format!("{method} {path}");
+    let mut routes = self.failing.lock().unwrap();
+    if failing {
+      routes.insert(route);
+    } else {
+      routes.remove(&route);
+    }
+  }
+
+  fn is_failing(&self, method: &axum::http::Method, path: &str) -> bool {
+    let route = format!("{method} {path}");
+    self.failing.lock().unwrap().iter().any(|pattern| route_matches(pattern, &route))
   }
 
   pub fn set_status(&self, status: u16) {
@@ -416,10 +438,27 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
   (fake, PatronusClient::new(url, "Branch Deck test"))
 }
 
-/// A request waits at its gate (`FakePatronus::hold`) before it is answered
+/// `route` (`METHOD /path`) is the one `pattern` names, a `*` segment of it any one segment
+fn route_matches(pattern: &str, route: &str) -> bool {
+  let mut segments = route.split('/');
+  pattern
+    .split('/')
+    .all(|expected| segments.next().is_some_and(|segment| expected == "*" || expected == segment))
+    && segments.next().is_none()
+}
+
+/// A request waits at its gate (`FakePatronus::hold`) before it is answered, and fails then where its route fails
+/// (`FakePatronus::set_failing`)
 async fn held(State(fake): State<Arc<FakePatronus>>, request: axum::extract::Request, next: axum::middleware::Next) -> Response {
   if let Some(gate) = fake.gate(request.method(), request.uri().path()) {
     gate.pass().await;
+  }
+  if fake.is_failing(request.method(), request.uri().path()) {
+    return (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      Json(serde_json::json!({"error": "INTERNAL_ERROR", "description": "the fixture fails this request"})),
+    )
+      .into_response();
   }
   next.run(request).await
 }

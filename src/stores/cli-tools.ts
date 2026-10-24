@@ -23,12 +23,14 @@ export interface RunningCliToolAction {
 interface CliToolsState {
   /** null until the first read answers; the last answer stays while the next one runs */
   readonly statuses: readonly CliToolStatus[] | null
+  /** Why the last read failed; null once one answers. The last statuses stay */
+  readonly readError: string | null
   readonly running: Partial<Record<CliTool, RunningCliToolAction>>
   /** "Also install the agent skill" of a missing CLI: on by default, kept while the app runs, not a setting */
   readonly installWithSkill: Record<CliTool, boolean>
 }
 
-const cliToolsStore = createStore<CliToolsState>(() => ({ statuses: null, running: {}, installWithSkill: { teamcity: true, youtrack: true } }))
+const cliToolsStore = createStore<CliToolsState>(() => ({ statuses: null, readError: null, running: {}, installWithSkill: { teamcity: true, youtrack: true } }))
 
 export function useInstallWithSkill(tool: CliTool): boolean {
   return useStore(cliToolsStore, state => state.installWithSkill[tool])
@@ -42,6 +44,10 @@ export function useCliToolStatuses(): readonly CliToolStatus[] | null {
   return useStore(cliToolsStore, state => state.statuses)
 }
 
+export function useCliToolsReadError(): string | null {
+  return useStore(cliToolsStore, state => state.readError)
+}
+
 export function useRunningCliToolAction(tool: CliTool): RunningCliToolAction | undefined {
   return useStore(cliToolsStore, state => state.running[tool])
 }
@@ -52,7 +58,7 @@ let readAgain = false
 /**
  * Reads the status of every tool again. A read asked while one runs is run once more after it: the one running may
  * have started before what changed (an action just ended, the user installed a tool in a terminal). A failure keeps the
- * last status
+ * last status and says why (`readError`)
  */
 export function refreshCliTools(): Promise<void> {
   if (reading !== null) {
@@ -62,9 +68,7 @@ export function refreshCliTools(): Promise<void> {
   reading = commands
     .cliToolsStatus()
     .then(result => {
-      if (result.status === "ok") {
-        cliToolsStore.setState({ statuses: result.data })
-      }
+      cliToolsStore.setState(result.status === "ok" ? { statuses: result.data, readError: null } : { readError: result.error.message })
     })
     .finally(() => {
       reading = null
@@ -74,6 +78,12 @@ export function refreshCliTools(): Promise<void> {
       }
     })
   return reading
+}
+
+/** Retry of a failed read: the page says it reads again until the answer */
+export function retryCliTools(): void {
+  cliToolsStore.setState({ readError: null })
+  void refreshCliTools()
 }
 
 function setRunning(tool: CliTool, running: RunningCliToolAction | undefined): void {

@@ -73,6 +73,7 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     landingNeeds: null,
     readiness: null,
     pending: null,
+    unavailable: null,
     forStart: false,
     startDescription: null,
     stackPullRequest: null,

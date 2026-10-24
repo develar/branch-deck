@@ -21,6 +21,7 @@ export function testPatronusRepository(robots: Readonly<Record<string, PatronusR
     // the facts of the rows are known: a test of a pending answer says so
     viewListed: true,
     problemsFailed: {},
+    landingNeedsComputing: false,
   }
 }
 

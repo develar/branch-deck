@@ -269,15 +269,21 @@ export function CreatePullRequestForm({
   const review = context.review
   const suggestions = review.status === "loaded" ? suggestedReviewers(review.requirement, viewerLogin) : []
 
-  const [reviewers, setReviewers] = useState<GitHubUser[]>([])
-  const [preselected, setPreselected] = useState(false)
-  // once the code owners and the user are known: the user is never asked to review the own pull request
-  if (!preselected && review.status !== "loading" && text.status !== "loading") {
-    setPreselected(true)
-    const chosen = preselectedReviewers(suggestions).filter(user => !reviewers.some(it => isLogin(it.login, user.login)))
-    if (chosen.length > 0) {
-      setReviewers([...reviewers, ...chosen])
-    }
+  const [reviewers, setChosenReviewers] = useState<GitHubUser[]>([])
+  // the user chose the reviewers: no later answer of Patronus changes them
+  const [touched, setTouched] = useState(false)
+  const setReviewers = (next: GitHubUser[]) => {
+    setTouched(true)
+    setChosenReviewers(next)
+  }
+  // the code owners of each answer that arrives while the user hasn't chosen (an error first, then the owners; a new
+  // answer for a new review), once the user is known: the user is never asked to review the own pull request
+  const preset = review.status === "loading" || text.status === "loading" ? null : preselectedReviewers(suggestions)
+  const presetKey = preset === null ? null : preset.map(user => user.login).join("\n")
+  const [appliedPreset, setAppliedPreset] = useState<string | null>(null)
+  if (!touched && preset !== null && presetKey !== appliedPreset) {
+    setAppliedPreset(presetKey)
+    setChosenReviewers(preset)
   }
 
   const assignSelf = useAppSettings(state => state.createPullRequestAssignSelf)

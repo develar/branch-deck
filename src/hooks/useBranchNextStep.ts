@@ -1,3 +1,4 @@
+import { ClipboardCopyIcon, RefreshCwIcon } from "lucide-react"
 import { useStore } from "zustand"
 import { toast } from "@/components/ui/toast"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
@@ -6,15 +7,28 @@ import { restackBranch } from "@/hooks/useStackActions"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
 import type { LandingFix, PatronusRobot, PullRequest } from "@/lib/bindings"
-import type { BranchNextStep, NextStepBusy, NextStepFacts, NextStepPullRequest, StackPullRequestFact } from "@/lib/branch-next-step"
-import { formatLandedState, getBranchNextStep } from "@/lib/branch-next-step"
+import type { BranchNextStep, NextStepBusy, NextStepFacts, NextStepPullRequest, StackPullRequestFact, UnavailableFact } from "@/lib/branch-next-step"
+import { formatLandedState, formatPendingFact, getBranchNextStep } from "@/lib/branch-next-step"
+import { copyText } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
 import { isVirtualBranchBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
+import type { MenuItem } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
-import { canStartRobot, formatLandedReason, formatPushMode, getSafePushSlot, isLandedByOwnRobot, isLandedWhole, isPullRequestIntoTarget } from "@/lib/patronus"
+import {
+  canStartRobot,
+  formatLandedReason,
+  formatPatronusAvailabilityHint,
+  formatPushMode,
+  formatSafePushLoginCommand,
+  getSafePushSlot,
+  isLandedByOwnRobot,
+  isLandedWhole,
+  isPullRequestIntoTarget,
+} from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
+import { isWindows } from "@/lib/platform"
 import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
@@ -34,13 +48,17 @@ import {
   getLandingBranchCount,
   getLandingNeeds,
   getLandingSpan,
+  getPatronusAvailability,
   getPushHold,
+  getRobotProblemsFailure,
+  isLandingNeedsPending,
   isPatronusAvailable,
   isPatronusPending,
   isRobotFailing,
   isRobotNeedingReview,
   isRobotProblemsPending,
   patronusStore,
+  refreshPatronus,
 } from "@/stores/patronus"
 import {
   getPullRequest,
@@ -166,17 +184,51 @@ export function busyFact(key: string, options: StartStepOptions | null): NextSte
 }
 
 /**
- * The first fact of the remote the step of a branch (of a whole stack: `robot` of its stack branch) waits for
- * (`NextStepFacts.pending`): Patronus, the pull requests, why its robot failed; null while each is known
+ * The first fact of the remote the step of a branch (of a whole stack: `robot` of its stack branch, no `branchName`:
+ * the gate of its start checks what it needs) waits for (`NextStepFacts.pending`): Patronus, the pull requests, what its
+ * Safe Push needs, why its robot failed; null while each is known
  */
-export function pendingFactOf(robot: PatronusRobot | undefined): NextStepFacts["pending"] {
+export function pendingFactOf(robot: PatronusRobot | undefined, branchName: string | null): NextStepFacts["pending"] {
   if (isPatronusPending()) {
     return "patronus"
   }
   if (isPullRequestsLoading()) {
     return "pullRequests"
   }
+  if (branchName !== null && isLandingNeedsPending(branchName)) {
+    return "landingNeeds"
+  }
   return robot !== undefined && isRobotProblemsPending(robot) ? "robotProblems" : null
+}
+
+/**
+ * The first fact the step decides on whose read failed (`NextStepFacts.unavailable`): Patronus answered with a failure
+ * (the Safe Push CLI not logged in: Copy Command of its login; an error: Refresh), or didn't give why the robot failed
+ */
+export function unavailableFactOf(robot: PatronusRobot | undefined): UnavailableFact | null {
+  const availability = getPatronusAvailability()
+  if (availability?.status === "notLoggedIn" || availability?.status === "error") {
+    const reason = formatPatronusAvailabilityHint(availability) ?? "Patronus doesn't answer"
+    const repositoryPath = getSelectedProject()?.path
+    const action: MenuItem =
+      availability.status === "notLoggedIn" && repositoryPath !== undefined
+        ? {
+            id: "copy-safe-push-login",
+            label: "Copy Login Command",
+            icon: ClipboardCopyIcon,
+            description: `${reason}: the command goes to the clipboard, for a terminal`,
+            onSelect: () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
+          }
+        : { id: "refresh-patronus", label: "Refresh Patronus", icon: RefreshCwIcon, description: reason, onSelect: () => void refreshPatronus("manual") }
+    return { fact: "patronus", reason, action }
+  }
+  const failure = robot === undefined ? null : getRobotProblemsFailure(robot)
+  return failure === null ? null : { fact: "robotProblems", reason: formatProblemsFailure(failure), action: null }
+}
+
+/** Why a restart of a failed robot is not offered while Patronus didn't give why it failed */
+function formatProblemsFailure(failure: string): string {
+  return `Patronus didn't tell why the Safe Push failed (${failure}): Check Approvals Again asks again`
 }
 
 /** What decides the next step of the branch now, from the stores; the node of its row reads them too (`useLandingNode`) */
@@ -239,7 +291,8 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     startDescription: null,
     landingNeeds: getLandingNeeds(name),
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
-    pending: pendingFactOf(robot),
+    pending: pendingFactOf(robot, name),
+    unavailable: unavailableFactOf(robot),
     forStart: options !== null,
     stackPullRequest: stackPullRequestFactOf(name),
     actions: {
@@ -404,6 +457,9 @@ export function announceApproval(news: ApprovalNews, pullRequest: PullRequest | 
   })
 }
 
+/** The actions of a failed robot that read why it failed: a restart, the prompts for an agent */
+const UNKNOWN_FAILURE_ACTIONS: ReadonlySet<string> = new Set(["restart-robot", "push-and-restart-robot", "copy-robot-prompt", "copy-robot-full-prompt"])
+
 /** The next steps that wait for approvals: a restart of a robot that failed for them would fail again */
 const APPROVAL_STEPS: ReadonlySet<BranchNextStep["kind"]> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting"])
 
@@ -414,6 +470,20 @@ const APPROVAL_STEPS: ReadonlySet<BranchNextStep["kind"]> = new Set(["createPull
  */
 export function getGatedRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview?: boolean, failing?: boolean, operations?: Operations): RobotAction[] {
   const actions = getRobotActions(robot, branch, needsReview, failing, operations)
+  // why the robot of the branch failed is still to come, or Patronus didn't give it (`loadReviewProblems` reads them for
+  // the robots of the rows): no restart and no prompt as if it hadn't failed for the approvals
+  const failure = branch === null || robot.status !== "failure" ? null : getRobotProblemsFailure(robot)
+  const problems =
+    branch === null || robot.status !== "failure"
+      ? undefined
+      : isRobotProblemsPending(robot)
+        ? formatPendingFact("robotProblems")
+        : failure === null
+          ? undefined
+          : formatProblemsFailure(failure)
+  if (problems !== undefined) {
+    return actions.map(item => (UNKNOWN_FAILURE_ACTIONS.has(item.id) ? { ...item, disabled: true, description: problems } : item))
+  }
   if (branch === null) {
     return actions
   }

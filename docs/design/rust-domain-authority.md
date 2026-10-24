@@ -403,8 +403,8 @@ confirmations }` для Safe Push и Dry Run — результат того ж�
   в локальный store поверхности, как сегодня `pushProgressStore`.
 - Rust сливает патчи не чаще одного на 16 мс, пока sync идёт, — это заменяет flush в TS.
 - **Поздний факт не двигает раскладку.** Часть, чей факт ещё `Loading` (чип PR, шаг, Your Turn, счёт moves
-  заголовка), занимает место, которое займёт ответ: треки столбцов и острова над таблицей держат ширины и высоты
-  последнего установившегося кадра репозитория (`settledLayout` в `repositoryState`, сегодня `useSettledLayout`),
+  заголовка, вторая строка шапки острова стека), занимает место, которое займёт ответ: треки столбцов и острова
+  над таблицей держат ширины и высоты последнего установившегося кадра репозитория (`settledLayout` в `repositoryState`, сегодня `useSettledLayout`),
   счёт moves — место одной цифры, полоса — всегда; после первого ответа каждого факта раскладка следует содержимому и
   сохраняется для следующего старта. Строка, столбец и контрол заголовка не уходят из-под указателя ни при ответе
   Patronus, ни GitHub, ни review requests.
@@ -1677,9 +1677,16 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `Loading`, `Unknown` или `Unavailable` даёт строку 0 (`NextStep::Pending { fact }`): ожидание с фактом как причиной,
   `actions` каждой поверхности `Disabled{Pending(fact)}`, узел ждёт и не считается ходом; Dry Run ждёт только Patronus;
   причина ветки (строка 1, робот предка, блок, parked, операция) и известная landing need (строка 1′) перекрывают
-  её; landing needs не ждутся — gate старта проверяет их сам. Неудачный ответ — не «нет»: `Unavailable` PR оставляет
-  PR неизвестным (строки 5–10 не применяются, Safe Push подтверждается и называет причину), а временная неудача после
-  листинга (ошибка, rate limit) — `Stale` последнего листинга, по которому шаги и решают. `Stale` readiness
+  её. Landing needs — такой же факт: `Loading`, пока фоновая проверка sync'а не ответила для представления, которое
+  читают строки («Checking what JIRA-456 needs to land…»). Замерено 2026-10-24: на монорепозитории они приходят через
+  0.2 s после строк с тёплым кэшем и через 0.7–1.2 s с холодным (9 веток), в e2e-фикстурах через 0.1–0.2 s, поэтому
+  Safe Push их ждёт, а не предлагает старт, который gate откажет после нажатия. Неудачный ответ — не «нет»:
+  `Unavailable` PR оставляет PR неизвестным (строки 5–10 не применяются, Safe Push подтверждается и называет
+  причину), а временная неудача после листинга (ошибка, rate limit) — `Stale` последнего листинга, по которому шаги и
+  решают. `Unavailable` Patronus (CLI Safe Push не залогинен, Patronus отвечает ошибкой) и `Unavailable` problems
+  упавшего робота — тоже строка 0, но действие шага — то, что помогает: «Copy Login Command», «Refresh Patronus»,
+  либо restart и промпты для агента `Disabled` с причиной неудачи, которую Check Approvals Again спрашивает заново;
+  старты каждой поверхности `Disabled` с той же причиной. `Stale` readiness
   сохраняет шаг и его подпись, действие — `Disabled{Pending(readiness)}`, тихий шаг остаётся. Табличные тесты s8
   покрывают каждую строку `next-step.spec.md` с каждым входным фактом не `Fresh` (`Loading`, `Stale`, `Unavailable`,
   `Unknown`): ни один вход не отвечает действием, которое тот же вход с `Fresh` заменил бы другим. Rust-версия держит
@@ -1689,8 +1696,13 @@ rewrites между процессами через файл `s10`; `s12` ждё
   refresh`),
   `tests/e2e/repository/header.spec.ts` (`should keep its controls in place when Patronus answers after the sync`),
   `tests/e2e/branch-row-layout/late-facts.spec.ts` (`should keep the rows and the columns where the last start left
-  them while Your Turn, the pull requests and the approvals come back`) и кейс `row-11-not-asked-yet` таблицы
-  сценариев (`asymmetry: byDesign`: `bd` спрашивает readiness до плана).
+  them while Your Turn, the pull requests and the approvals come back`, `should keep the second header line of a stack
+  island in its place while the pull requests come back`), те же `facts-without-answer.spec.ts` (`should offer the
+  login instead of a Safe Push while the Safe Push CLI is not logged in, and a refresh while Patronus fails`, `should
+  restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer`),
+  `tests/e2e/next-step/landing-needs.spec.ts` (`should check what a branch needs to land before it offers its Safe
+  Push, S and the popover waiting for the answer`) и кейс `row-11-not-asked-yet` таблицы сценариев (`asymmetry:
+  byDesign`: `bd` спрашивает readiness до плана).
 - **Удаляется:** `branch-next-step.ts`, `landing-node.ts`, `safe-push-decision.ts`, правила `whole-stack.ts`,
   `parked.ts`, `push-summary.ts`; в `patronus.ts`: `canStartRobot`, `isStartBlocked`, `allowsPushMode`,
   `getRobotRestartAction`; в `stack.ts`: `needsPush`, `stackPushOrder`, `stackAskFirst`, `stackAncestors`; в
@@ -1935,8 +1947,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   (`__BD_MODEL__`), и `markWindowContentReady` в `BranchCreator` срабатывает на них, не дожидаясь sync.
 - **Кэш помечен.** Кэшированный кадр несёт факты как `Cached`, не `Fresh`: шаги и узлы из кэша видны, их действия
   `Disabled{Cached}` до свежего ответа своего факта, счёт moves заголовка из кэша не берётся (никакой цифры, которую
-  свежий ответ уберёт). Раскладка кадра — его строки; `settledLayout` (ширины треков и высота Your Turn, сегодня
-  `useSettledLayout`) остаётся для репозитория без кэша и после смены схемы, и поздний факт не двигает ни строку, ни
+  свежий ответ уберёт). Раскладка кадра — его строки; `settledLayout` (ширины треков, высота Your Turn и вторые
+  строки островов стека, сегодня `useSettledLayout`) остаётся для репозитория без кэша и после смены схемы, и поздний факт не двигает ни строку, ни
   столбец, ни контрол заголовка ([Представление](#представление-снимок-и-патчи)).
 - **Удаляется:** стартовая последовательность чтений страницы (префикс, конфиг, статусы auth до первого кадра).
 - **Проверки:** B7, B13; холодный старт release-приложения измеряет владелец (Real App Checks); путь: Unstack на

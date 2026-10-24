@@ -73,6 +73,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
+use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
 use crate::state::AppState;
 
@@ -640,6 +641,12 @@ pub async fn get_repository_view(
 
 /// The wait of the page for the landing needs of the repository, by the real core, as the app answers it
 pub async fn wait_landing_needs(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::repository_view::WaitLandingNeedsParams>) -> CommandResult<u32> {
+  // a test that holds the answer (`/remote-gates`) sees the page while the needs are computed; no entry of the map is
+  // held meanwhile
+  let host = repository_by_path(&state, &params.repository_path)?.existing_remote();
+  if let Some(host) = host {
+    host.pass_held(HeldAnswer::LandingNeeds).await;
+  }
   let inputs = prefix_inputs(&state, &params.repository_path)?;
   let views = state.repository_views.clone();
   run_command("wait for the landing needs", move || {
@@ -951,6 +958,7 @@ pub async fn get_pull_requests(State(state): State<Arc<AppState>>, Json(params):
 pub async fn get_branch_rules(State(state): State<Arc<AppState>>, Json(params): Json<GetBranchRulesParams>) -> CommandResult<BranchRules> {
   let operation = "read the rules of the branch";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
+  held_or_failed(&host, HeldAnswer::BranchRules, operation).await?;
   let rules = read_branch_rules(&host.github_service(), &params.repository_path, &repository, &params.branch).await;
   rules.map(Json).map_err(|failure| failed(operation, failure_message(&failure)))
 }
@@ -959,6 +967,7 @@ pub async fn get_branch_rules(State(state): State<Arc<AppState>>, Json(params): 
 /// default)
 pub async fn get_github_auth_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<GitHubAuthStatus> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  held_or_failed(&host, HeldAnswer::GitHubAuth, "read the GitHub sign-in").await?;
   let client_id = host.github_client_id();
   Ok(Json(host.github_sign_in().status(&host.github_service(), client_id.as_deref()).await))
 }
@@ -1094,6 +1103,7 @@ pub async fn search_github_users(State(state): State<Arc<AppState>>, Json(params
 /// The YouTrack sign-in of the requesting page's repository, as the app reads it
 pub async fn get_youtrack_auth_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<YouTrackAuthStatus> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+  held_or_failed(&host, HeldAnswer::YouTrackAuth, "read the YouTrack sign-in").await?;
   Ok(Json(host.youtrack_service().status()))
 }
 
@@ -1177,12 +1187,17 @@ pub async fn get_review_requests(
   State(state): State<Arc<AppState>>,
   Json(params): Json<domain_types::review_request::GetReviewRequestsParams>,
 ) -> CommandResult<domain_types::review_request::ReviewRequestsResult> {
-  let repo = repository_by_path(&state, &params.repository_path)?;
-  repo.review_request_calls.fetch_add(1, Ordering::SeqCst);
-  // a test that holds the answer (`/remote-gates`) sees the page before it
-  if let Some(host) = repo.existing_remote() {
-    host.pass_held(crate::remote_host::HeldAnswer::ReviewRequests).await;
+  let host = {
+    let repo = repository_by_path(&state, &params.repository_path)?;
+    repo.review_request_calls.fetch_add(1, Ordering::SeqCst);
+    repo.existing_remote()
+  };
+  // a test that holds the answer (`/remote-gates`) sees the page before it; no entry of the map is held meanwhile, so the
+  // deletion of the repository, which releases it, can remove the repository
+  if let Some(host) = host {
+    host.pass_held(HeldAnswer::ReviewRequests).await;
   }
+  let repo = repository_by_path(&state, &params.repository_path)?;
   Ok(Json(repo.review_requests.read().expect("review request fixture lock").result.clone()))
 }
 
@@ -1834,6 +1849,16 @@ pub async fn agent_cli_command(Json(request): Json<AgentCliCommandRequest>) -> J
 
 /// The skill files the fake install names
 const AGENT_SKILLS: [&str; 2] = ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"];
+
+/// Waits while a test holds `answer` (`/remote-gates`), then fails it while the test fails it: a read of a status the
+/// bridge gives itself
+pub(crate) async fn held_or_failed(host: &RemoteHost, answer: HeldAnswer, operation: &str) -> Result<(), Rejection> {
+  host.pass_held(answer).await;
+  if host.fails(answer) {
+    return Err(failed(operation, "the fixture fails this read"));
+  }
+  Ok(())
+}
 
 /// The repository of the page that sends a command (`X-Repository-Id`)
 pub(crate) fn requesting_repository<'a>(state: &'a AppState, headers: &HeaderMap) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, Rejection> {

@@ -3,8 +3,9 @@
 //! tools of the machine. A test sets what is installed (`POST /repositories/{id}/cli-tools`) and reads what the fakes
 //! were asked (`GET`). The newest release of each tool is the fixture's until the app checks the releases itself.
 
+use crate::remote_host::HeldAnswer;
 use crate::state::{AppState, TestRepository};
-use crate::tauri_command_bridge::{CommandResult, Rejection, failed, requesting_repository};
+use crate::tauri_command_bridge::{CommandResult, Rejection, failed, held_or_failed, requesting_repository};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -161,6 +162,9 @@ pub async fn cli_tools_status(State(state): State<Arc<AppState>>, headers: axum:
     let repository = requesting_repository(&state, &headers)?;
     (Arc::clone(&repository.cli_tools), repository.existing_remote())
   };
+  if let Some(remote) = &remote {
+    held_or_failed(remote, HeldAnswer::CliTools, "read the tools").await?;
+  }
   // the YouTrack the app is signed in to, of the fake YouTrack a test started
   let signed_in = match remote {
     Some(remote) => {

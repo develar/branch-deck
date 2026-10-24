@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { MissingReviewGroup, Person, PullRequest, Reviewer, ReviewReadiness } from "@/lib/bindings"
-import { formatRefused, formatRequestedToast, getRequestReviewCandidates, getRequestReviewItem, requestReviewPushes } from "@/lib/request-review"
+import { describeCodeOwnersFact, formatRefused, formatRequestedToast, getRequestReviewCandidates, getRequestReviewItem, requestReviewPushes } from "@/lib/request-review"
 import type { RemoteStatus } from "@/stores/branch-sync"
 
 function person(fullName: string | null, login: string | null): Person {
@@ -80,6 +80,20 @@ describe("the code owners Request Review… offers", () => {
     expect(getRequestReviewCandidates({ kind: "approved", groups: [] }, pullRequest())).toEqual([])
     expect(getRequestReviewCandidates({ kind: "unknown", reason: "approvalsNotEvaluated" }, pullRequest())).toEqual([])
     expect(getRequestReviewCandidates(null, pullRequest())).toEqual([])
+  })
+})
+
+describe("what Request Review… says of the code owners", () => {
+  it("says while Patronus checks them, when its check failed or doesn't tell, never nothing as if none were needed", () => {
+    expect(describeCodeOwnersFact(null, true)).toBe("Asking Patronus which code owners must approve…")
+    expect(describeCodeOwnersFact(null, false)).toBeNull()
+    expect(describeCodeOwnersFact({ kind: "unavailable", reason: "error", message: "503" }, true)).toBe(
+      "Patronus didn't answer which code owners must approve (503): ask the reviewers yourself.",
+    )
+    expect(describeCodeOwnersFact({ kind: "unknown", reason: "approvalsNotEvaluated" }, true)).toBe(
+      "Patronus doesn't tell yet which code owners must approve: ask the reviewers yourself.",
+    )
+    expect(describeCodeOwnersFact({ kind: "notRequired" }, true)).toBeNull()
   })
 })
 

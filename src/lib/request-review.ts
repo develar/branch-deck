@@ -91,6 +91,25 @@ export function getRequestReviewItem(pullRequest: PullRequest | null | undefined
   }
 }
 
+/**
+ * What the popover says of the code owners while Patronus can't name them: asked and not answered yet (`null`, where
+ * Patronus answers for the repository), a check that failed (`unavailable`), one that doesn't tell yet (`unknown`);
+ * null once it named them, where none is needed, and off Space
+ */
+export function describeCodeOwnersFact(readiness: ReviewReadiness | null, patronus: boolean): string | null {
+  if (readiness === null) {
+    return patronus ? "Asking Patronus which code owners must approve…" : null
+  }
+  switch (readiness.kind) {
+    case "unavailable":
+      return `Patronus didn't answer which code owners must approve (${readiness.message}): ask the reviewers yourself.`
+    case "unknown":
+      return "Patronus doesn't tell yet which code owners must approve: ask the reviewers yourself."
+    default:
+      return null
+  }
+}
+
 /** Why the reviewers of an open pull request can't be asked now; null when they can */
 export function getRequestReviewBlocker(pullRequest: PullRequest): string | null {
   return pullRequest.isDraft ? `#${pullRequest.number} is a draft: mark it ready for review on GitHub first` : null

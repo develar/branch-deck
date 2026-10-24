@@ -43,6 +43,23 @@ pub const SPACE_REPOSITORY: &str = "repository";
 /// robot a test starts starts then for the page, after the robots of its fixtures
 pub const PAGE_CLOCK_START: u32 = 1_704_189_600;
 
+/// The route of the fake Patronus that gives `answer`: held and failed there
+const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)> {
+  match answer {
+    HeldAnswer::Robots => Some(("GET", "/app/rest/v1/robots")),
+    HeldAnswer::Readiness => Some(("POST", "/app/rest/v1/pre-merge-approval-required-check")),
+    // of every robot
+    HeldAnswer::RobotProblems => Some(("GET", "/app/rest/v1/robots/*/problems")),
+    HeldAnswer::PullRequests
+    | HeldAnswer::ReviewRequests
+    | HeldAnswer::LandingNeeds
+    | HeldAnswer::BranchRules
+    | HeldAnswer::GitHubAuth
+    | HeldAnswer::YouTrackAuth
+    | HeldAnswer::CliTools => None,
+  }
+}
+
 /// The token of the app's sign-in the GitHub of a test repository accepts, and its user: the author of the pull
 /// requests of the fixtures (`VIEWER_LOGIN` of pull-request-helpers.ts)
 pub const GITHUB_TOKEN: &str = "e2e-github-token";
@@ -79,6 +96,8 @@ pub struct RemoteHost {
   git: GitCommandExecutor,
   /// The answers a test holds at the fakes (`hold_answers`), each until it releases it or the repository is deleted
   held: Mutex<HashMap<HeldAnswer, Arc<FakeGate>>>,
+  /// The answers the bridge fails from now on (`set_failing`), until a release: a read that failed
+  failing: Mutex<std::collections::HashSet<HeldAnswer>>,
 }
 
 /// An answer of a fake a test holds back (`POST /repositories/{id}/remote-gates`): the request reaches the fake and
@@ -94,6 +113,18 @@ pub enum HeldAnswer {
   Robots,
   /// The pre-check of the code-owner review (`get_branch_review_readiness`)
   Readiness,
+  /// The answer of the background computation of the landing needs (`wait_landing_needs`, held in the bridge)
+  LandingNeeds,
+  /// Why a robot failed (`GET /app/rest/v1/robots/{id}/problems`, of every robot)
+  RobotProblems,
+  /// The rules of a branch (`get_branch_rules`, in the bridge): whether a push dismisses the approvals
+  BranchRules,
+  /// The status of the GitHub sign-in (`get_github_auth_status`, in the bridge)
+  GitHubAuth,
+  /// The status of the YouTrack sign-in (`get_youtrack_auth_status`, in the bridge)
+  YouTrackAuth,
+  /// The statuses of the command-line tools of Settings → Tools (`cli_tools_status`, in the bridge)
+  CliTools,
 }
 
 impl RemoteHost {
@@ -160,6 +191,7 @@ impl RemoteHost {
       youtrack_sign_in: YouTrackSignInSession::default(),
       git,
       held: Mutex::default(),
+      failing: Mutex::default(),
     };
     host.set_github_signed_in(true);
     host
@@ -306,14 +338,38 @@ impl RemoteHost {
     for answer in answers {
       let gate = match answer {
         HeldAnswer::PullRequests => self.github.hold_with_body("POST", "/graphql", "author:@me"),
-        HeldAnswer::ReviewRequests => Arc::new(FakeGate::default()),
-        HeldAnswer::Robots => self.patronus.hold("GET", "/app/rest/v1/robots"),
-        HeldAnswer::Readiness => self.patronus.hold("POST", "/app/rest/v1/pre-merge-approval-required-check"),
+        HeldAnswer::Robots | HeldAnswer::Readiness | HeldAnswer::RobotProblems => {
+          let (method, path) = patronus_route(*answer).expect("a route of the fake Patronus");
+          self.patronus.hold(method, path)
+        }
+        HeldAnswer::ReviewRequests | HeldAnswer::LandingNeeds | HeldAnswer::BranchRules | HeldAnswer::GitHubAuth | HeldAnswer::YouTrackAuth | HeldAnswer::CliTools => {
+          Arc::new(FakeGate::default())
+        }
       };
       if let Some(before) = held.insert(*answer, gate) {
         before.open();
       }
     }
+  }
+
+  /// Fails `fail` from now on (an answer the bridge gives, a route of the fake Patronus), and `released` no more; before
+  /// the gates of `released` open, so a request held until now fails when `fail` names it too
+  pub fn set_failing(&self, fail: &[HeldAnswer], released: &[HeldAnswer]) {
+    let mut failing = self.failing.lock().expect("failing answers lock");
+    for answer in released {
+      failing.remove(answer);
+    }
+    failing.extend(fail.iter().copied());
+    for answer in released.iter().chain(fail) {
+      if let Some((method, path)) = patronus_route(*answer) {
+        self.patronus.set_failing(method, path, failing.contains(answer));
+      }
+    }
+  }
+
+  /// `answer` fails now (`set_failing`)
+  pub fn fails(&self, answer: HeldAnswer) -> bool {
+    self.failing.lock().expect("failing answers lock").contains(&answer)
   }
 
   /// Lets the held requests of `answers` through, and the later ones

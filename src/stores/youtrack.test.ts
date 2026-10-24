@@ -46,7 +46,7 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(() => {
-  youTrackAuthStore.setState({ status: null, signIn: { phase: "idle" }, issues: {} })
+  youTrackAuthStore.setState({ status: null, readError: null, signIn: { phase: "idle" }, issues: {} })
   youtrack.status = null
   youtrack.finish = null
   openUrl.mockClear()
@@ -64,7 +64,7 @@ describe("startYouTrackSignIn", () => {
     youtrack.status = signedIn
     youtrack.finish!({ status: "ok", data: { login: "jane", fullName: "Jane Doe" } })
     await signingIn
-    expect(youTrackAuthStore.getState()).toEqual({ status: signedIn, signIn: { phase: "idle" }, issues: {} })
+    expect(youTrackAuthStore.getState()).toEqual({ status: signedIn, readError: null, signIn: { phase: "idle" }, issues: {} })
     expect(showToast).toHaveBeenCalledWith({ title: "Signed in to youtrack.example.com as Jane Doe" })
   })
 

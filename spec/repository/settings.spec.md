@@ -42,6 +42,10 @@ targets:
   - ../../src/components/settings/GitHubPage.tsx
   - ../../src/components/settings/GitHubSettings.tsx
   - ../../src/components/settings/YouTrackPage.tsx
+  - ../../src/components/settings/YouTrackSettings.tsx
+  - ../../src/stores/github-auth.ts
+  - ../../src/stores/youtrack.ts
+  - ../../src/stores/cli-tools.ts
   - ../../src/components/settings/PatronusPage.tsx
   - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/YourTurnCard.tsx
@@ -222,6 +226,13 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - Tools: the `teamcity` and `youtrack` CLIs, their version, sign-ins and the action each needs
   ([Command-Line Tools](cli-tools.spec.md)).
 - Repository: the settings of the selected repository ([Repository](#repository)).
+- A page that reads a status (GitHub, YouTrack, Tools) says it reads until the first answer ("Reading the GitHub
+  sign-in…", "Reading the YouTrack sign-in…", "Reading the tools…", once the read took 300 ms, `LoadingLine`), never an
+  empty section or a spinner without end. A failed read says why, with Retry ("Cannot read the GitHub sign-in" and the
+  reason, `ReadFailure`), above the last status when one is known, until a read answers (`readError` of each store);
+  Retry says it reads again until the answer.
+  [@test] ../../tests/e2e/settings/status-reads.spec.ts (`should say it reads the GitHub sign-in until the answer, and a failed read with Retry`, `should say it reads the YouTrack sign-in until the answer, and a failed read with Retry`, `should say it reads the tools until the answer, and a failed read with Retry`)
+  [@test] ../../src/stores/github-auth.test.ts (`says why a read failed and keeps the last status, until a read answers; Retry reads again, the failure gone meanwhile`)
 - Every page fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
   OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux, every line a row
   of Repository can show, on Agents the installed skill, a value of the worktree config and an invalid one, on Tools a

@@ -1,4 +1,5 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
+import type { RefObject } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { getBranchNextStepNow, useNextStepStores } from "@/hooks/useBranchNextStep"
@@ -16,7 +17,8 @@ import { getShownBranchTableOrder } from "@/stores/stack-collapse"
  * The facts of the remote come after the first rows: Patronus, the pull requests, the readiness of each row, the review
  * requests ([Next Step](../../spec/branch/next-step.spec.md#facts-without-an-answer)). Until they are in, the branch view
  * reserves the layout it had once they were in the last time (`repositoryState.settledLayout`): the widths of the
- * branch columns and the height of Your Turn, so an answer that fills them as before moves nothing under the pointer.
+ * branch columns, the height of Your Turn and the second header line of a stack island, so an answer that fills them
+ * as before moves nothing under the pointer.
  * Once they are in, the view follows its content, and its layout is kept for the next start and a switch back.
  */
 
@@ -55,13 +57,42 @@ export function useSettledLayout(): SettledLayout | undefined {
   return useRepositoryStateField(useSelectedProjectPath(), "settledLayout")
 }
 
-/** Keeps what the view measures once settled: the widths of the tracks (`tracks`), or the height of Your Turn */
+/** Keeps what the view measures once settled: the widths of the tracks (`tracks`), the height of Your Turn, or the stack lines */
 export function saveSettledLayout(path: string, patch: Partial<SettledLayout>): void {
   const before = getRepositoryState(path)?.settledLayout ?? { tracks: {}, yourTurn: 0 }
   const next: SettledLayout = { ...before, ...patch }
   if (JSON.stringify(next) !== JSON.stringify(before) || getRepositoryState(path)?.settledLayout === undefined) {
     updateRepositoryState(path, state => ({ ...state, settledLayout: next }))
   }
+}
+
+/** Keeps whether the header of the stack island on `root` had its second line once settled */
+export function saveSettledStackLine(path: string, root: string, shown: boolean): void {
+  const before = getRepositoryState(path)?.settledLayout?.stackLines ?? []
+  if (before.includes(root) !== shown) {
+    saveSettledLayout(path, { stackLines: shown ? [...before, root].sort() : before.filter(it => it !== root) })
+  }
+}
+
+/**
+ * The second header line of the island on `root`: while the facts of the remote are not in, it keeps the place it had
+ * once they were in the last time (`useSettledLayout`), so the pull requests that come move no row below; once they
+ * are in, it shows only with an item, and whether it had one is kept for the next start
+ */
+export function useSettledStackLine(root: string): { linesRef: RefObject<HTMLDivElement | null>; reserved: boolean } {
+  const path = useSelectedProjectPath()
+  const settled = useLayoutSettled()
+  const reserved = useSettledLayout()?.stackLines?.includes(root) === true && !settled
+  const linesRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!settled || path === undefined) {
+      return
+    }
+    // whether the settled line has an item, once its frame is laid out
+    const frame = requestAnimationFrame(() => saveSettledStackLine(path, root, (linesRef.current?.childElementCount ?? 0) > 0))
+    return () => cancelAnimationFrame(frame)
+  }, [settled, path, root])
+  return { linesRef, reserved }
 }
 
 /** The widths of `tracks` as the layout keeps them: whole pixels, the empty tracks left out */

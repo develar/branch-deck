@@ -31,6 +31,8 @@ const { state } = vi.hoisted(() => ({
     key: "/repo\nuser",
     hold: false,
     refreshes: 0,
+    /** Check Approvals Again asked why the failed robots failed (`askRobotProblemsAgain`) */
+    problemsAsked: 0,
   },
 }))
 
@@ -74,6 +76,9 @@ vi.mock("@/stores/patronus", async () => {
   return {
     patronusStore: stores.patronus,
     isPatronusAvailable: () => true,
+    askRobotProblemsAgain: () => {
+      state.problemsAsked++
+    },
     getPatronusGitHubRepository: () => "acme/monorepo",
     repositoryKey: (repositoryPath: string, branchPrefix: string) => `${repositoryPath}\n${branchPrefix}`,
     currentKey: () => state.key,
@@ -145,6 +150,7 @@ beforeEach(() => {
   state.held = []
   state.key = "/repo\nuser"
   state.refreshes = 0
+  state.problemsAsked = 0
 })
 
 afterEach(() => {
@@ -320,6 +326,8 @@ describe("review readiness", () => {
     await recheck
     await settle()
     expect(state.refreshes).toBe(1)
+    // why the failed robots failed is asked again too, where Patronus didn't give it
+    expect(state.problemsAsked).toBe(1)
     expect(state.calls.at(-1)).toMatchObject({ branches: [{ branchName: "auth" }], recheck: true })
     expect(getReviewReadiness("auth")?.stale).toBe(false)
   })

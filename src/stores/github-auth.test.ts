@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { GitHubAuthStatus } from "@/lib/bindings"
-import { cancelGitHubSignIn, gitHubAuthStore, loadGitHubAuthStatus, startGitHubSignIn } from "@/stores/github-auth"
+import { cancelGitHubSignIn, gitHubAuthStore, loadGitHubAuthStatus, refreshGitHubAuthStatus, retryGitHubAuthStatus, startGitHubSignIn } from "@/stores/github-auth"
 
 const { github } = vi.hoisted(() => ({
   github: {
     status: null as GitHubAuthStatus | null,
+    /** The read of the status fails with this message */
+    statusFailure: null as string | null,
     start: { status: "ok", data: { userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresIn: 900 } } as unknown,
     /** Resolves the wait in flight with its answer */
     finish: null as ((answer: unknown) => void) | null,
@@ -19,7 +21,7 @@ vi.mock("@/lib/bindings", () => ({
   commands: {
     getGithubAuthStatus: async () => {
       github.statusAsked++
-      return { status: "ok", data: github.status }
+      return github.statusFailure === null ? { status: "ok", data: github.status } : { status: "error", error: internalError(github.statusFailure) }
     },
     startGithubSignIn: async () => github.start,
     waitGithubSignIn: () =>
@@ -47,8 +49,9 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(() => {
-  gitHubAuthStore.setState({ status: null, signIn: { phase: "idle" } })
+  gitHubAuthStore.setState({ status: null, readError: null, signIn: { phase: "idle" } })
   github.status = null
+  github.statusFailure = null
   github.finish = null
   github.canceled = 0
   github.statusAsked = 0
@@ -65,7 +68,7 @@ describe("startGitHubSignIn", () => {
     github.status = signedIn
     github.finish!({ status: "ok", data: "octocat" })
     await signingIn
-    expect(gitHubAuthStore.getState()).toEqual({ status: signedIn, signIn: { phase: "idle" } })
+    expect(gitHubAuthStore.getState()).toEqual({ status: signedIn, readError: null, signIn: { phase: "idle" } })
     expect(showToast).toHaveBeenCalledWith({ title: "Signed in to GitHub as @octocat" })
     expect(notifyError).not.toHaveBeenCalled()
   })
@@ -103,5 +106,30 @@ describe("loadGitHubAuthStatus", () => {
     await loadGitHubAuthStatus()
     expect(github.statusAsked).toBe(1)
     expect(gitHubAuthStore.getState().status?.signInAvailable).toBe(false)
+  })
+})
+
+describe("refreshGitHubAuthStatus", () => {
+  it("says why a read failed and keeps the last status, until a read answers; Retry reads again, the failure gone meanwhile", async () => {
+    github.statusFailure = "the keychain is locked"
+    await refreshGitHubAuthStatus()
+    expect(gitHubAuthStore.getState()).toMatchObject({ status: null, readError: "the keychain is locked" })
+
+    github.statusFailure = null
+    github.status = signedIn
+    await refreshGitHubAuthStatus()
+    expect(gitHubAuthStore.getState()).toMatchObject({ status: signedIn, readError: null })
+
+    // a failure after an answer keeps that answer
+    github.statusFailure = "the keychain is locked"
+    await refreshGitHubAuthStatus()
+    expect(gitHubAuthStore.getState()).toMatchObject({ status: signedIn, readError: "the keychain is locked" })
+
+    github.statusFailure = null
+    retryGitHubAuthStatus()
+    // the page says it reads again, not the failure of the last read
+    expect(gitHubAuthStore.getState().readError).toBeNull()
+    await settle()
+    expect(github.statusAsked).toBe(4)
   })
 })

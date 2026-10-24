@@ -31,12 +31,14 @@ export type IssueEntry = YouTrackIssueAnswer
 export interface YouTrackAuthState {
   /** null until asked */
   readonly status: YouTrackAuthStatus | null
+  /** Why the last read of the status failed; null once one answers. The last status stays */
+  readonly readError: string | null
   readonly signIn: YouTrackSignInPhase
   /** By issue key */
   readonly issues: Readonly<Record<string, IssueEntry>>
 }
 
-export const youTrackAuthStore = createStore<YouTrackAuthState>(() => ({ status: null, signIn: { phase: "idle" }, issues: {} }))
+export const youTrackAuthStore = createStore<YouTrackAuthState>(() => ({ status: null, readError: null, signIn: { phase: "idle" }, issues: {} }))
 
 /** The YouTrack the token is for while it is used; null signed out. The links of its issues open a popover. */
 export function useYouTrackUrl(): string | null {
@@ -62,16 +64,24 @@ export function useYouTrackAuthStatus(): YouTrackAuthStatus | null {
   return useStore(youTrackAuthStore, state => state.status)
 }
 
+export function useYouTrackAuthReadError(): string | null {
+  return useStore(youTrackAuthStore, state => state.readError)
+}
+
 export function useYouTrackSignIn(): YouTrackSignInPhase {
   return useStore(youTrackAuthStore, state => state.signIn)
 }
 
-/** Asks the backend for the sign-in; a failure leaves the last status */
+/** Asks the backend for the sign-in; a failure leaves the last status and says why (`readError`) */
 export async function refreshYouTrackAuthStatus(): Promise<void> {
   const result = await commands.getYoutrackAuthStatus()
-  if (result.status === "ok") {
-    youTrackAuthStore.setState({ status: result.data })
-  }
+  youTrackAuthStore.setState(result.status === "ok" ? { status: result.data, readError: null } : { readError: result.error.message })
+}
+
+/** Retry of a failed read: the page says it reads again until the answer */
+export function retryYouTrackAuthStatus(): void {
+  youTrackAuthStore.setState({ readError: null })
+  void refreshYouTrackAuthStatus()
 }
 
 /**

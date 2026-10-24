@@ -429,8 +429,9 @@ shows.
   its content (a track that has less to show than the last time narrows then, once) and keeps its widths for the next
   start. A repository's first start has no floors; within a window a repository settles once, so a late fact after it
   (a new branch waiting for its readiness) moves only what it changes. Your Turn above the table holds its height the
-  same way ([Review Requests](../../spec/repository/review-requests.spec.md#card)), and the unassigned commits card
-  renders with the rows (no lazy chunk: one came seconds later under load and moved the table).
+  same way ([Review Requests](../../spec/repository/review-requests.spec.md#card)), the second header line of a stack
+  island its line (`stackLines` of `settledLayout`, [Stack Island](../../spec/branch/stack-island.spec.md)), and the
+  unassigned commits card renders with the rows (no lazy chunk: one came seconds later under load and moved the table).
 - **Live values hold their own width**: a running robot is at least `13ch`, the compact push `min-w-16` (`⟳ 100%`),
   the Safe Push of a slot its width at rest while its start runs, so
   a tick of a time or a percent changes no column. A minimum lives on the element that changes, never in the column:

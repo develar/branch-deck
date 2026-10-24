@@ -12,9 +12,11 @@ import { TEST_SERVER_URL } from "./test-server-url"
 
 /**
  * An answer of a fake a test holds back (`HeldAnswer` of `remote_host.rs`): GitHub's search of the user's pull
- * requests, the review requests, the list of the robots, the pre-check of the code-owner review
+ * requests, the review requests, the list of the robots, the pre-check of the code-owner review, the answer of the
+ * computation of the landing needs, why a robot failed (its problems, of every robot), the rules of a branch, the
+ * statuses of Settings (the GitHub and the YouTrack sign-in, the tools)
  */
-export type HeldAnswer = "pullRequests" | "reviewRequests" | "robots" | "readiness"
+export type HeldAnswer = "pullRequests" | "reviewRequests" | "robots" | "readiness" | "landingNeeds" | "robotProblems" | "branchRules" | "gitHubAuth" | "youTrackAuth" | "cliTools"
 import type { YouTrackFixture, YouTrackLog } from "./youtrack-helpers"
 
 /** What reached the fake Patronus: the requests by kind, the robots whose problems and progress were asked, in order */
@@ -343,12 +345,13 @@ export class TestRepositoryBuilder {
   }
 
   /**
-   * Holds the answers `hold` of the fakes from now on and releases `release` (`/remote-gates`): a held request of the
-   * page reaches its fake and waits there, so a test sees the page before the answer, then after it. The deletion of
-   * the repository releases what is still held
+   * Holds the answers `hold` of the fakes from now on, fails `fail` and releases `release`
+   * (`/remote-gates`): a held request of the page reaches its fake and waits there, so a test sees the page before the
+   * answer, then after it; a released failing one answers again. The deletion of the repository releases what is still
+   * held
    */
-  async holdRemoteAnswers({ hold = [], release = [] }: { hold?: HeldAnswer[]; release?: HeldAnswer[] }): Promise<void> {
-    await this.setFixture("remote-gates", { hold, release })
+  async holdRemoteAnswers({ hold = [], fail = [], release = [] }: { hold?: HeldAnswer[]; fail?: HeldAnswer[]; release?: HeldAnswer[] }): Promise<void> {
+    await this.setFixture("remote-gates", { hold, fail, release })
   }
 
   /** The held answers a request of the page reached and waits at: the page asked, the answer is still to come */

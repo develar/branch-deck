@@ -2,56 +2,73 @@ import { openUrl } from "@tauri-apps/plugin-opener"
 import { ExternalLinkIcon, LogInIcon, LogOutIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { ReadFailure } from "@/components/settings/SettingRow"
+import { LoadingLine } from "@/components/shared/LoadingLine"
 import { useNow } from "@/hooks/useNow"
 import type { GitHubAuthStatus } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatTokenSource, ORGANIZATION_APPROVAL } from "@/lib/pull-request"
-import { cancelGitHubSignIn, copyCodeAndOpenGitHub, signOutOfGitHub, startGitHubSignIn, useGitHubAuthStatus, useGitHubSignIn } from "@/stores/github-auth"
+import {
+  cancelGitHubSignIn,
+  copyCodeAndOpenGitHub,
+  retryGitHubAuthStatus,
+  signOutOfGitHub,
+  startGitHubSignIn,
+  useGitHubAuthReadError,
+  useGitHubAuthStatus,
+  useGitHubSignIn,
+} from "@/stores/github-auth"
 
 /**
  * Settings → GitHub: where the token comes from, and the app's own sign-in (spec/repository/github-sign-in.spec.md).
- * Signing in shows the code to enter on GitHub until GitHub answers.
+ * Signing in shows the code to enter on GitHub until GitHub answers. Until the first answer the page says it reads the
+ * sign-in; a failed read says why, with Retry, above the last status.
  */
 export function GitHubSettings() {
   const status = useGitHubAuthStatus()
+  const readError = useGitHubAuthReadError()
   const signIn = useGitHubSignIn()
+  const failure = readError === null ? null : <ReadFailure title="Cannot read the GitHub sign-in" message={readError} testId="github-auth-error" onRetry={retryGitHubAuthStatus} />
   if (status === null) {
-    return null
+    return failure ?? <LoadingLine>Reading the GitHub sign-in…</LoadingLine>
   }
   if (signIn.phase === "waiting") {
     return <SignInCode userCode={signIn.userCode} expiresAt={signIn.expiresAt} />
   }
   const approvalNote = describeApproval(status)
   return (
-    <div className="flex flex-col gap-2 text-sm" data-testid="github-auth" data-status={status.signedInAs === null ? "signedOut" : "signedIn"}>
-      <p>{describeToken(status)}</p>
-      {approvalNote !== null && (
-        <p className="text-xs text-muted-foreground" data-testid="github-approval-note">
-          {approvalNote}
-        </p>
-      )}
-      <div className="flex flex-wrap gap-2">
-        {status.signedInAs === null ? (
-          status.signInAvailable && (
-            <Button size="xs" variant="outline" disabled={signIn.phase === "starting"} onClick={() => void startGitHubSignIn()}>
-              {signIn.phase === "starting" ? <Spinner data-icon="inline-start" /> : <LogInIcon data-icon="inline-start" />}
-              Sign In to GitHub
+    <>
+      {failure}
+      <div className="flex flex-col gap-2 text-sm" data-testid="github-auth" data-status={status.signedInAs === null ? "signedOut" : "signedIn"}>
+        <p>{describeToken(status)}</p>
+        {approvalNote !== null && (
+          <p className="text-xs text-muted-foreground" data-testid="github-approval-note">
+            {approvalNote}
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {status.signedInAs === null ? (
+            status.signInAvailable && (
+              <Button size="xs" variant="outline" disabled={signIn.phase === "starting"} onClick={() => void startGitHubSignIn()}>
+                {signIn.phase === "starting" ? <Spinner data-icon="inline-start" /> : <LogInIcon data-icon="inline-start" />}
+                Sign In to GitHub
+              </Button>
+            )
+          ) : (
+            <Button size="xs" variant="outline" onClick={() => void signOutOfGitHub()}>
+              <LogOutIcon data-icon="inline-start" />
+              Sign Out
             </Button>
-          )
-        ) : (
-          <Button size="xs" variant="outline" onClick={() => void signOutOfGitHub()}>
-            <LogOutIcon data-icon="inline-start" />
-            Sign Out
-          </Button>
-        )}
-        {status.manageUrl !== null && status.signedInAs !== null && (
-          <Button size="xs" variant="ghost" onClick={() => void openUrl(status.manageUrl!).catch((error: unknown) => notifyError("Cannot open GitHub", error))}>
-            <ExternalLinkIcon data-icon="inline-start" />
-            Manage on GitHub
-          </Button>
-        )}
+          )}
+          {status.manageUrl !== null && status.signedInAs !== null && (
+            <Button size="xs" variant="ghost" onClick={() => void openUrl(status.manageUrl!).catch((error: unknown) => notifyError("Cannot open GitHub", error))}>
+              <ExternalLinkIcon data-icon="inline-start" />
+              Manage on GitHub
+            </Button>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 

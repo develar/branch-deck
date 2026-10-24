@@ -10,6 +10,7 @@ targets:
   - ../../src/hooks/useStackStates.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/StackIslandCard.tsx
+  - ../../src/hooks/useSettledLayout.ts
   - ../../src/components/branch/LandingNodeHover.tsx
   - ../../src/hooks/usePushButton.ts
   - ../../src/hooks/useWholeStackActions.ts
@@ -113,6 +114,12 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   asks to close one that no longer matches (in the root's row, as from "⋯").
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should offer the close of the pull request of the whole stack in the island header once it no longer matches`)
+- The line takes no room while it has no item, and moves no row when the pull requests come after the rows: until the
+  facts of the remote are in, an island whose line showed once they were in the last time keeps its place, one text
+  line high and empty (`useSettledStackLine`, the roots kept in `stackLines` of `settledLayout` in the repository state,
+  as the columns and Your Turn keep theirs, [Next Step](next-step.spec.md#facts-without-an-answer)); the answer fills
+  it there.
+  [@test] ../../tests/e2e/branch-row-layout/late-facts.spec.ts (`should keep the second header line of a stack island in its place while the pull requests come back`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say in the popover of the whole stack only what holds: the branches on the remote stay, no approvals where none are needed`)
 - The header must end with the Actions cell of a branch row, for the whole stack, its push, Safe Push slot and "⋯"

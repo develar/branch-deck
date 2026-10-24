@@ -38,11 +38,12 @@ const RepositoryStateEntrySchema = z.object({
   landedHiddenUntil: z.number().optional().catch(undefined),
   /**
    * The layout of the branch view once the facts of the last start were in (`useSettledLayout`): the widths of the
-   * tracks of the branch columns and the height of Your Turn (px, 0 without it); the next start and a switch back
-   * reserve them until their own facts are in
+   * tracks of the branch columns, the height of Your Turn (px, 0 without it) and the roots of the stack islands whose
+   * header had its second line (the pull requests, the landing); the next start and a switch back reserve them until
+   * their own facts are in
    */
   settledLayout: z
-    .object({ tracks: z.record(z.string(), z.number()), yourTurn: z.number() })
+    .object({ tracks: z.record(z.string(), z.number()), yourTurn: z.number(), stackLines: z.array(z.string()).optional().catch(undefined) })
     .optional()
     .catch(undefined),
 })

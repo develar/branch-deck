@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { RotateCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { Callout } from "@/components/shared/Callout"
 import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
 
@@ -53,6 +54,21 @@ export function SettingRow({
 export function SettingSwitch({ name, label, description }: { name: AppSettingsSwitch; label: string; description?: string }) {
   const checked = useAppSettings(state => state[name])
   return <SettingRow testId={`setting-${name}`} label={label} description={description} checked={checked} onCheckedChange={value => setAppSettingsSwitch(name, value)} />
+}
+
+/** A failed read of what a page shows (the settings of a repository, a sign-in, the tools), with Retry */
+export function ReadFailure({ title, message, testId, onRetry }: { title: string; message: string; testId: string; onRetry: () => void }) {
+  return (
+    <Callout tone="destructive" title={title} data-testid={testId}>
+      <p>{message}</p>
+      <div className="flex">
+        <Button size="xs" variant="outline" onClick={onRetry}>
+          <RotateCwIcon data-icon="inline-start" />
+          Retry
+        </Button>
+      </div>
+    </Callout>
+  )
 }
 
 /** A failed read of the git config under a setting, with Retry */

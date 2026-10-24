@@ -3,13 +3,12 @@ import type { ReactNode } from "react"
 import type { UnlistenFn } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { cn } from "cn"
-import { RotateCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FieldGroup } from "@/components/layout/FieldGroup"
-import { Callout } from "@/components/shared/Callout"
+import { ReadFailure } from "@/components/settings/SettingRow"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
@@ -76,17 +75,7 @@ function RepositorySettings({ path }: { path: string }) {
         {` of ${name}, which bd reads too`}
       </p>
       {state.status === "loading" && <LoadingLine>Reading the settings…</LoadingLine>}
-      {state.status === "error" && (
-        <Callout tone="destructive" title={`Cannot read the settings of ${name}`} data-testid="repository-settings-error">
-          <p>{state.message}</p>
-          <div className="flex">
-            <Button size="xs" variant="outline" onClick={retry}>
-              <RotateCwIcon data-icon="inline-start" />
-              Retry
-            </Button>
-          </div>
-        </Callout>
-      )}
+      {state.status === "error" && <ReadFailure title={`Cannot read the settings of ${name}`} message={state.message} testId="repository-settings-error" onRetry={retry} />}
       {state.status === "loaded" && <ConfigRows path={path} config={state.config} startWrite={startWrite} />}
     </div>
   )

@@ -123,3 +123,31 @@ async fn under_state_only_every_route_answers_only_the_state_set() {
   assert_eq!(get(format!("{base}/teamcity-proxy/build-progress/1")).await.1["percentageComplete"], json!(50));
   assert_eq!(get(format!("{base}/teamcity-proxy/test-run-details/1/2/3")).await.1["testRunId"], json!("3"));
 }
+
+/// A `*` segment of a held or failing route stands for one segment: the problems of every robot, not the robot itself
+#[tokio::test]
+async fn a_route_with_a_star_segment_holds_and_fails_the_requests_of_every_robot() {
+  let fake = Arc::new(FakePatronus::default());
+  fake.set_status(200);
+  fake.state_only.store(true, Ordering::SeqCst);
+  let gate = fake.hold("GET", "/app/rest/v1/robots/*/problems");
+  let server = served(&fake).await;
+  let base = format!("{}/app/rest/v1", server.url);
+  let client = reqwest::Client::new();
+
+  let held = tokio::spawn(client.get(format!("{base}/robots/r1/problems")).send());
+  gate.arrived().await;
+  // another route of the robot passes
+  assert!(client.get(format!("{base}/robots")).send().await.unwrap().status().is_success());
+  fake.set_failing("GET", "/app/rest/v1/robots/*/problems", true);
+  gate.open();
+  assert_eq!(held.await.unwrap().unwrap().status(), reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+  assert_eq!(
+    client.get(format!("{base}/robots/r2/problems")).send().await.unwrap().status(),
+    reqwest::StatusCode::INTERNAL_SERVER_ERROR
+  );
+
+  fake.set_failing("GET", "/app/rest/v1/robots/*/problems", false);
+  let answer: Value = client.get(format!("{base}/robots/r2/problems")).send().await.unwrap().json().await.unwrap();
+  assert_eq!(answer, json!({"robotId": "r2", "problems": []}));
+}

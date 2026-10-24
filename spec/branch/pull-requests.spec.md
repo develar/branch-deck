@@ -377,7 +377,8 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   from its one reader, `review-readiness`, [Next Step](next-step.spec.md#the-readiness-store), a start without a pull
   request, the kept answer, never a recheck; for a stacked branch the groups of the
   stack Patronus counts), and one suggested reviewer with a GitHub login per group is chosen when the dialog opens: the user sees
-  the chips before creating and removes what doesn't fit. A suggestion without a GitHub login (Patronus sends
+  the chips before creating and removes what doesn't fit. An answer that comes after the opening (asked, failed, then
+  answered) chooses them too, the choice following the answer it shows, until the user changes the reviewers. A suggestion without a GitHub login (Patronus sends
   `githubUsername` behind its flag `review.precheck.github.usernames.enabled`) searches the reviewer's name; the user
   picks the person, the app never guesses. While Patronus answers the row says "Asking Patronus for the code owners…",
   a failure "Cannot read the code owners: …", a skipped check "The code owners of so many commits are named when the Safe Push starts".
@@ -385,6 +386,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should create the pull request with the reviewers it searched and the user as its assignee`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should ask the code owner Patronus names, and the row then awaits the review in the pull request`, `should offer to create the pull request the approvals count in, and no start Patronus would fail`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should offer Create Pull Request… with the code owner when approvals count only in one`)
+  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should preselect the code owners in Create Pull Request… from the answer that comes after the dialog opened`)
 - "Assign to me" is on until the user turns it off; the choice is kept (`appSettings.createPullRequestAssignSelf`).
 - ⌘↵ (Ctrl+Enter) or the button creates it (`create_pull_request`), in one request of the token chain: `GET /user`
   first (a rejected token is replaced before anything is written), `POST pulls`, then `POST issues/<n>/assignees`
@@ -491,21 +493,29 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   date, an unknown remote status pushes nothing), so the reviewers see the commits. A push that dismisses the
   approvals the pull request has (the rules of the repository, `useDismissesStaleReviews` answers `dismiss`) is said in
   the popover, a consequence the user decides by Request: "The push of the new commits dismisses the approvals of
-  #1078: the rules of the repository dismiss stale reviews when new commits are pushed." Rules that can't be read say
-  nothing here (the request counts no approvals) and are asked again by the next form. A refused push ("Cannot request a review on
+  #1078: the rules of the repository dismiss stale reviews when new commits are pushed." Rules that can't be read are
+  said, never read as keeping the approvals, and are asked again by the next form; the request still goes (it counts
+  no approvals): "Cannot check whether the push of the new commits keeps the approvals of #1078: GitHub answered 500."
+  A refused push ("Cannot request a review on
   #1078" with its reason) asks nobody. Its hover names whom it asks: "Ask Ilya Korennoy to review #1078".
   [@test] ../../src/lib/request-review.test.ts (`asks the chosen code owners on the open pull request`, `is disabled with the reason for a draft only: work the remote lacks is pushed by the request`, `is not there without an open pull request`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should push the commits the remote lacks as the first step of Request Review…`)
+  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should say in Request Review… while Patronus names no code owners, when it fails to, and when the rules of the branch can't be read`)
 - It opens `RequestReviewPopover`, mounted by the surface around its own trigger (Base UI `render`), with the branch,
   its pull request and its review readiness: "Request a review on #1078" over the title of the pull request; "Code
   owners", a checkbox per suggested code owner with a GitHub login of the groups whose approval is missing (the full name,
   the login beside it, the groups below), never the author, a member asked already or one whose approval counts, each
   once; checked when it opens: one per missing group nobody is asked for yet, each once, as the Create Pull Request
   dialog chooses them (`preselectedReviewers`). A readiness that comes after the opening checks them too, until the
-  user checks or unchecks one. "Others" (or "Reviewers" without code owners): the reviewer search of
+  user checks or unchecks one. While Patronus names none the popover says why, never nothing as if none were needed
+  (`describeCodeOwnersFact`): "Asking Patronus which code owners must approve…" before its answer, "Patronus didn't
+  answer which code owners must approve (…): ask the reviewers yourself." after a failed check, "Patronus doesn't tell
+  yet which code owners must approve: ask the reviewers yourself." for a check that doesn't judge them. "Others" (or "Reviewers" without code owners): the reviewer search of
   the dialog (`ReviewerPicker`, `useReviewerSearch`). "Request Review" asks the checked ones and the chosen ones.
   [@test] ../../src/lib/request-review.test.ts (`are the suggested ones of the missing groups, one per group nobody is asked for chosen, each once`, `leave out the author, whoever is asked already and an approval that counts; a group someone is asked for chooses nobody`, `are none when no approval is missing or the readiness is unknown`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should choose the code owner of a readiness of the whole stack that comes after its Request Review… opened`)
+  [@test] ../../src/lib/request-review.test.ts (`says while Patronus checks them, when its check failed or doesn't tell, never nothing as if none were needed`)
+  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should say in Request Review… while Patronus names no code owners, when it fails to, and when the rules of the branch can't be read`)
 - The surfaces ([Next Step](next-step.spec.md), row 9): the row's slot mounts the popover around its step, or, for
   another step, around an anchor at its end, which "Request Review…" of the branch menu opens
   (`request-review-popover`). The Safe Push popover has no Request Review…: a start whose approvals are missing is

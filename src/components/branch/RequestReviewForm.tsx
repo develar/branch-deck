@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { PopoverDescription, PopoverSectionTitle, PopoverTitle } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
-import { useDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
+import { isRulesUnknown, useDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
 import { useReviewerSearch } from "@/hooks/useReviewerSearch"
 import type { GitHubUser, PullRequest, ReviewReadiness } from "@/lib/bindings"
 import { isLogin } from "@/lib/create-pull-request"
@@ -13,11 +13,20 @@ import { notifyError } from "@/lib/errors"
 import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { openPullRequest } from "@/lib/pull-request"
-import { formatCandidate, formatRefused, formatRequestedToast, getRequestReviewBlocker, getRequestReviewCandidates, requestReviewPushes } from "@/lib/request-review"
+import {
+  describeCodeOwnersFact,
+  formatCandidate,
+  formatRefused,
+  formatRequestedToast,
+  getRequestReviewBlocker,
+  getRequestReviewCandidates,
+  requestReviewPushes,
+} from "@/lib/request-review"
 import { showToast } from "@/lib/toast-message"
 import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { runOperation, useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
+import { usePatronusAvailable } from "@/stores/patronus"
 import { requestReviewers } from "@/stores/pull-requests"
 import { getRepositorySwitchReason, useSelectedProjectPath } from "@/stores/repository"
 
@@ -78,8 +87,13 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
   const pushes = requestReviewPushes(branch)
   // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
   const approved = pushes && pullRequest.reviewers.some(reviewer => reviewer.state === "approved")
-  // only a warning here: the request counts no approvals, so it never waits for the rules
-  const dismissesApprovals = useDismissesStaleReviews(pullRequest.baseRefName || null, approved) === "dismiss"
+  // only a warning here: the request counts no approvals, so it never waits for the rules; rules it can't read are said
+  // as such, never as "keeps them"
+  const rules = useDismissesStaleReviews(pullRequest.baseRefName || null, approved)
+  const dismissesApprovals = rules === "dismiss"
+  const rulesUnknown = rules !== null && isRulesUnknown(rules) ? rules.reason : null
+  // whom Patronus asks for: a check that failed or doesn't tell yet is said, never "no code owner needed"
+  const codeOwners = describeCodeOwnersFact(readiness, usePatronusAvailable())
   const logins = candidates.filter(candidate => checked.some(login => isLogin(login, candidate.login))).map(candidate => candidate.login)
   for (const user of others) {
     if (!logins.some(login => isLogin(login, user.login))) {
@@ -177,6 +191,17 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
       </div>
 
       {blocker !== null && <p className="text-xs text-muted-foreground">{blocker}</p>}
+      {blocker === null && codeOwners !== null && (
+        <p className="text-xs text-muted-foreground" data-testid="request-review-code-owners-unknown">
+          {codeOwners}
+        </p>
+      )}
+      {blocker === null && rulesUnknown !== null && (
+        <p className="flex items-start gap-1.5 text-xs text-warning" data-testid="request-review-rules-unknown">
+          <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+          {`Cannot check whether the push of the new commits keeps the approvals of #${number}: ${rulesUnknown}.`}
+        </p>
+      )}
       {blocker === null && dismissesApprovals && (
         <p className="flex items-start gap-1.5 text-xs text-warning" data-testid="request-review-dismisses-approvals">
           <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />

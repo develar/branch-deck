@@ -330,10 +330,23 @@ async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
 async fn a_deleted_repository_releases_the_answers_its_test_held() {
   let (addr, client, id, repository_path) = listing_login().await;
   let tip = branch_at_head(&repository_path, "user-name/virtual/login");
-  post(&client, addr, &format!("/repositories/{id}/remote-gates"), json!({"hold": ["pullRequests"]})).await;
+  post(
+    &client,
+    addr,
+    &format!("/repositories/{id}/remote-gates"),
+    json!({"hold": ["pullRequests", "reviewRequests"]}),
+  )
+  .await;
+  // one held at the fake, one in the bridge
   let listed = invoke(&client, addr, &id, "get_pull_requests", &repository_path);
   until_arrived(&client, addr, &id, "pullRequests").await;
+  let requests = invoke(&client, addr, &id, "get_review_requests", &repository_path);
+  until_arrived(&client, addr, &id, "reviewRequests").await;
   delete_repository(&client, addr, &id, &repository_path).await;
   let listed = tokio::time::timeout(std::time::Duration::from_mins(1), listed).await.expect("the held listing ended");
   assert_eq!(listed.unwrap()["pullRequests"]["login"]["headRefOid"], tip.as_str());
+  assert!(
+    tokio::time::timeout(std::time::Duration::from_mins(1), requests).await.is_ok(),
+    "the held review requests ended"
+  );
 }

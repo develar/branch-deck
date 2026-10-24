@@ -80,7 +80,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
 
   | # | State | Slot | Safe Push elsewhere |
   |---|---|---|---|
-  | 0 | A fact the rows below decide on has no answer yet (`PendingFact`; [below](#facts-without-an-answer)): Patronus hasn't answered for the repository or its view of the robots it listed first isn't in, GitHub hasn't listed the pull requests, Patronus hasn't told why the robot of the branch failed, the first answer of the readiness; never while a reason of row 1 or of the branch holds the start back, which it says instead | muted "Checking…" with its spinner, disabled, the fact on hover ("Waits for GitHub to list the pull requests") | disabled with the same words ("Waits for the answer of Patronus", "Waits for Patronus to check the approvals"); a Dry Run only while Patronus hasn't answered |
+  | 0 | A fact the rows below decide on has no answer yet (`PendingFact`; [below](#facts-without-an-answer)): Patronus hasn't answered for the repository or its view of the robots it listed first isn't in, GitHub hasn't listed the pull requests, the check of what the branch needs to land is still running, Patronus hasn't told why the robot of the branch failed, the first answer of the readiness; never while a reason of row 1 or of the branch holds the start back, which it says instead. Or a read failed (`UnavailableFact`): the Safe Push CLI is not logged in, Patronus fails, Patronus didn't give why the robot failed | muted "Checking…" with its spinner, disabled, the fact on hover ("Waits for GitHub to list the pull requests"); after a failed read what helps: "Copy Login Command", "Refresh Patronus", or the restart disabled with the failure | disabled with the same words ("Waits for the answer of Patronus", "Waits for Patronus to check the approvals", "Run ./safePush.cmd once to log in to Patronus"); a Dry Run only while Patronus hasn't answered or can't be asked |
   | 1 | Syncing, failed to sync, no commits, blocked, held by a Safe Push, parked or built on a parked branch, landed, a robot runs, merged (by the robot, by the merged Safe Push of a branch built on it or of the whole stack, or the pull request of these commits; all of it, no commit added since) | nothing; the Status cell says it ("Landed with oauth", "Parked with auth") | disabled: "Wait for the sync to finish", "Parked: Unpark it to push", "Built on parked auth: Unpark auth to push", "Holds parked auth: land the stack in pieces" (the whole stack), "Landed in origin/master", "Landed in master with oauth", "Merged by Patronus", "Pull request #7 is merged", … (a running robot of an older commit: enabled, the start replaces it) |
   | 1′ | The build of what its Safe Push lands needs a commit of a branch outside it (`landingNeeds` of the repository view, [below](#what-the-safe-push-needs)) | "Needs stills-codec" (a commit not in a branch by its hash), the reason on hover; a click runs the fix, "Stack lane-run on stills-codec" | enabled: its popover says why before the start, with the fix and Start Anyway |
   | 2 | A robot failed or was canceled, not for approvals, and no running Safe Push of a branch it is built on (of the whole stack: of a branch of it) lands a part of it; while one does, the failure of the earlier piece waits for it: the rows below decide, the Safe Push disabled with "A Safe Push of auth is running: wait until it merges" | "Restart Safe Push" (Safe Push… where Patronus can't restart it) | enabled |
@@ -208,7 +208,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   A branch built on one that needs a branch needs it too: its Safe Push lands that one. The needs are a fact with its
   inputs (the baseline, the tips of the table, the landed commits): unknown until computed, never "nothing", and not
   computed again while the inputs stay; the page waits for the computation (`wait_landing_needs`) and asks the view
-  again. Row 1′ maps them to the step, no rule of its own (`getBranchNextStep`): "Needs stills-codec", its hover the
+  again, the step waiting meanwhile (row 0, [below](#facts-without-an-answer)). Row 1′ maps them to the step, no rule of its own (`getBranchNextStep`): "Needs stills-codec", its hover the
   reason in the words of the gate's toast ("“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3),
   which “Name lossy stills” of stills-codec adds: git merges it, but the build of lane-run fails. Stack lane-run on
   stills-codec to land it too."), and a click the fix: the restack of the root of what lands onto that branch
@@ -241,15 +241,19 @@ branch from all the facts (the branch, its robots, its pull request and the read
   answer of the readiness of the branch as it is), never the step a later answer turns into another: an unknown pull
   request is no "no pull request", an unanswered readiness no "approved". A reason of the branch (row 1, a robot of a
   branch below, a block, a parked branch, an operation on the row) outranks it; so does a known landing need (row
-  1′). The landing needs are no fact the step waits for: the start runs the same gate itself before it acts, and a
-  trial check of every branch would hold every Safe Push of the table after each sync.
+  1′). The landing needs are such a fact too (`isLandingNeedsPending`: the background check of the sync,
+  `wait_landing_needs`, hasn't answered for the view the rows read; "Checking what JIRA-456 needs to land…"): measured
+  on 2026-10-24, they come 0.2 s after the rows on the monorepo with a warm cache and 0.7 to 1.2 s cold (9 branches),
+  0.1 to 0.2 s in the e2e fixtures, so the Safe Push waits for them as for the other facts instead of offering a start
+  whose gate may refuse it after the press.
   [@test] ../../src/lib/branch-next-step.test.ts (`row 0: waits with Checking… for a fact no answer told yet, never a step a later answer turns into another`, `row 0: a reason of the branch outranks a fact no answer told yet, and a start waits for the readiness itself`)
+  [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should check what a branch needs to land before it offers its Safe Push, S and the popover waiting for the answer`)
   [@test] ../../src/stores/patronus.test.ts (`waits for Patronus until the view of the robots it listed first is in, then never again for a change of them`, `takes a failure of Patronus as its answer, and a list that left the robots as they were as having its view`, `waits for why a failed robot failed until its problems come, and no longer once Patronus didn't give them`)
   [@test] ../../src/stores/pull-requests.test.ts (`is loading until GitHub's first answer, which a failure is too: no pull request is known meanwhile`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should wait with Checking… for the pull requests and the approvals, S and the menu saying why, then start the Safe Push they allow`)
 - Every surface waits the same way: the slot shows a muted "Checking…" with its spinner, disabled, the fact on hover
-  ("Waits for GitHub to list the pull requests", "Waits for the answer of Patronus", "Waits for Patronus to tell why
-  the Safe Push failed", "Waits for Patronus to check the approvals"); "⋯" keeps Safe Push and "Patronus ›" disabled
+  ("Waits for GitHub to list the pull requests", "Waits for the answer of Patronus", "Checking what JIRA-456 needs to
+  land…", "Waits for Patronus to tell why the Safe Push failed", "Waits for Patronus to check the approvals"); "⋯" keeps Safe Push and "Patronus ›" disabled
   with the same words, and so do the footer of the preview and the title bar of the review window, also before
   Patronus answers whether it lands the repository (hidden only once it says it doesn't, `isPatronusOffered`); "Create Pull Request…" of "⋯" is disabled with "Waits for GitHub to list the pull requests" while the
   branch may have one; S says it in an `info` notice ("Safe Push of JIRA-456 waits for GitHub"); the node of the row
@@ -266,10 +270,22 @@ branch from all the facts (the branch, its robots, its pull request and the read
   master once the checks pass · GitHub: offline: Patronus checks the approvals when the robot starts", the node the
   same), and its start confirms first. A refresh GitHub fails for a while after a listing (an error, offline, the rate
   limit) keeps that listing (`listed`): the steps read its pull requests as of then, so a failed refresh never turns a
-  wait back into a Safe Push. A view or problems Patronus didn't give leave the step to the rows below.
+  wait back into a Safe Push. A view Patronus didn't give leaves the step to the rows below.
   [@test] ../../src/stores/pull-requests.test.ts (`keeps the last listing through a refresh GitHub failed for a while, never once its token is gone`)
   [@test] ../../src/lib/branch-next-step.test.ts (`treats the readiness as unavailable without the pull requests: never a duplicate Create Pull Request…`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should never offer Create Pull Request… before GitHub lists the pull requests, say a failed listing, and keep the last listing through a failed refresh`)
+- A read of Patronus that failed decides no start (`UnavailableFact`, `unavailableFactOf`), after row 1 and the
+  reasons of the branch: the Safe Push CLI not logged in (`notLoggedIn`) makes the step "Copy Login Command", the
+  command of the hint for a terminal ("Run ./safePush.cmd once to log in to Patronus: the command goes to the
+  clipboard, for a terminal"); Patronus failing (`error`) makes it "Refresh Patronus", which asks it again. Safe Push
+  and Dry Run of "⋯" are disabled with the hint, S says it in an `info` notice ("Safe Push of JIRA-456 can't start")
+  whose action is the step's. Problems Patronus didn't give for the failed robot of the branch (`problemsFailed`) keep
+  the restart and the prompts for an agent disabled with the failure, on every surface of the robot ("Patronus didn't
+  tell why the Safe Push failed (…): Check Approvals Again asks again"); Check Approvals Again asks for them again
+  (`askRobotProblemsAgain`).
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 0: a read that failed decides no start: a login to copy, a refresh, a restart disabled while why the robot failed is unknown`)
+  [@test] ../../src/stores/review-readiness.test.ts (`asks again with recheck after the pull requests from GitHub, the answer stale meanwhile`)
+  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should offer the login instead of a Safe Push while the Safe Push CLI is not logged in, and a refresh while Patronus fails`, `should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer`)
 - A stale answer of the readiness (the branch moved on: a new tip, a new review, Check Approvals Again) keeps its step
   while the new one loads, so the row doesn't flicker, but its action waits for the new answer, which may decide
   another step: Safe Push, Restart, Create Pull Request… and Request Review… disabled with "Waits for Patronus to check

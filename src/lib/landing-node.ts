@@ -123,6 +123,10 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
   if (next.pending === "patronus" || (!next.patronusAvailable && !facts.patronusKnown)) {
     return pendingNode(formatPendingFact("patronus"))
   }
+  // Patronus answers with a failure: a login is the user's step, an error a wait
+  if (next.unavailable?.fact === "patronus") {
+    return node(next.unavailable.action?.id === "copy-safe-push-login" ? "yourStep" : "waiting", next.unavailable.reason)
+  }
   if (next.held) {
     return node("waiting", "A running Safe Push holds the branch")
   }
@@ -132,6 +136,10 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
   // why the robot failed decides whether a restart helps: the step waits for it
   if (next.pending === "robotProblems") {
     return pendingNode(formatPendingFact("robotProblems"))
+  }
+  // Patronus didn't give why: a failure to fix, no restart offered as if it hadn't failed for the approvals
+  if (next.unavailable?.fact === "robotProblems" && robot.kind === "finished" && next.landingPart === null) {
+    return robotNode("needsFix", `Safe Push failed on ${next.subject} as it is · ${next.unavailable.reason}`)
   }
   // a robot of a branch below that lands a part of it runs: the failure of the earlier piece waits for it
   if (robot.kind === "finished" && robot.chip.kind === "failed" && next.landingPart === null) {

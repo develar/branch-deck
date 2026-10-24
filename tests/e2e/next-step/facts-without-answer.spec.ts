@@ -1,12 +1,15 @@
 // @spec spec/branch/next-step.spec.md
+// @spec spec/branch/pull-requests.spec.md
 import type { Page } from "@playwright/test"
 import type { PatronusReviewRequirement, PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
-import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, availableRobots } from "../helpers/patronus-helpers"
-import { availablePullRequests, gitHubRequests, pullRequest, reviewer, unavailablePullRequests } from "../helpers/pull-request-helpers"
+import { clearClipboard, readClipboard } from "../helpers/clipboard-helpers"
+import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, availableRobots, failedFastTests, robot, unavailableRobots } from "../helpers/patronus-helpers"
+import { availablePullRequests, createPullRequestDialog, gitHubRequests, pullRequest, reviewer, unavailablePullRequests } from "../helpers/pull-request-helpers"
+import { openLandingOverview } from "../helpers/review-status-helpers"
 import { openSafePushWithKey, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
-import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
+import { oneCommitUnpushedOnNextSync, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 
 const BRANCH = "JIRA-456"
@@ -60,20 +63,28 @@ async function expectChecking(page: Page, reason: string): Promise<void> {
 }
 
 /** "⋯" of the row: Safe Push disabled with `reason`, which its hover says */
-async function expectMenuSafePushDisabled(page: Page, reason: string): Promise<void> {
-  await findBranchRow(page, BRANCH).click({ button: "right" })
-  const item = page.getByRole("menu").getByRole("menuitem", SAFE_PUSH_ITEM)
-  await expect(item).toBeDisabled()
-  await item.hover()
-  await expect(page.getByRole("tooltip", { name: reason })).toBeVisible()
-  await page.keyboard.press("Escape")
-  await expect(page.getByRole("menu")).toHaveCount(0)
+async function expectMenuSafePushDisabled(page: Page, reason: string | RegExp): Promise<void> {
+  await expectMenuItemsDisabled(page, BRANCH, [SAFE_PUSH_ITEM], reason)
+}
+
+/** "⋯" of the row of `branch`: the `items` disabled with `reason`, which the hover of each says, each in a menu of its own */
+async function expectMenuItemsDisabled(page: Page, branch: string, items: Array<{ name: string | RegExp }>, reason: string | RegExp): Promise<void> {
+  for (const name of items) {
+    await findBranchRow(page, branch).click({ button: "right" })
+    const item = page.getByRole("menu").getByRole("menuitem", name)
+    await expect(item).toBeDisabled()
+    await item.hover()
+    // the open one: the pointer crossed the item above on its way, whose tooltip closes
+    await expect(page.getByRole("tooltip", { name: reason }).and(page.locator("[data-open]"))).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+  }
 }
 
 /** Check Approvals Again of the row's "Patronus ›": GitHub is asked for the pull requests, then Patronus again */
-async function checkApprovalsAgain(page: Page): Promise<void> {
-  await findBranchRow(page, BRANCH).click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Patronus" }).hover()
+async function checkApprovalsAgain(page: Page, branch = BRANCH): Promise<void> {
+  await findBranchRow(page, branch).click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Patronus", exact: true }).hover()
   await page.getByRole("menuitem", { name: "Check Approvals Again" }).click()
   await expect(page.getByRole("menu")).toHaveCount(0)
 }
@@ -171,5 +182,140 @@ test.describe("Next step before the answers", () => {
     await expect.poll(rechecks).toBeGreaterThan(before)
     await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
     await expect(slot(page).getByTestId("next-step")).toBeEnabled()
+  })
+
+  test("should preselect the code owners in Create Pull Request… from the answer that comes after the dialog opened", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupHeld(page, setupRepo, AWAITING_CODE_OWNER, [], ["readiness"])
+    await syncAndWaitForBranches()
+    await expectHeld(repo, "readiness")
+    await expectChecking(page, "Waits for Patronus to check the approvals")
+
+    // GitHub listed no pull request: the dialog opens, its code owners still to come
+    await findBranchRow(page, BRANCH).click({ button: "right" })
+    await page.getByRole("menu").getByRole("menuitem", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(page)
+    await expect(dialog).toContainText("Asking Patronus for the code owners…")
+    await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveCount(0)
+
+    // Patronus names them: the code owner is chosen, as the dialog would have opened with him
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
+  })
+
+  test("should say in Request Review… while Patronus names no code owners, when it fails to, and when the rules of the branch can't be read", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // a commit the remote lacks and a pull request someone approved: the request pushes into it, so the rules matter
+    await oneCommitUnpushedOnNextSync(page, BRANCH)
+    const repo = await setupRepo("issue_links", {
+      patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+      pullRequests: availablePullRequests(pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")], baseRefName: "master" })),
+    })
+    await repo.holdRemoteAnswers({ hold: ["readiness"], fail: ["branchRules"] })
+    await syncAndWaitForBranches()
+    await expectHeld(repo, "readiness")
+
+    await findBranchRow(page, BRANCH).click({ button: "right" })
+    await page.getByRole("menu").getByRole("menuitem", { name: "Request Review…" }).click()
+    const popover = page.getByTestId("request-review-popover")
+    await expect(popover).toContainText("Request a review on #1078")
+    // asked, not answered: no code owner is known, which is no "none needed"
+    const codeOwners = popover.getByTestId("request-review-code-owners-unknown")
+    await expect(codeOwners).toHaveText("Asking Patronus which code owners must approve…")
+    // the push may take the approval away: rules GitHub didn't give are said, never read as keeping it
+    await expect(popover.getByTestId("request-review-rules-unknown")).toHaveText(
+      "Cannot check whether the push of the new commits keeps the approvals of #1078: the fixture fails this read.",
+    )
+
+    // Patronus fails the check: the popover says so, the reviewers are the user's to choose
+    await repo.holdRemoteAnswers({ fail: ["readiness"], release: ["readiness"] })
+    await expect(codeOwners).toHaveText(/^Patronus didn't answer which code owners must approve \(.+\): ask the reviewers yourself\.$/)
+    await expect(popover.getByTestId("request-review-candidates")).toHaveCount(0)
+  })
+
+  test("should offer the login instead of a Safe Push while the Safe Push CLI is not logged in, and a refresh while Patronus fails", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const login = "Run ./safePush.cmd once to log in to Patronus"
+    const repo = await setupRepo("issue_links", { patronus: unavailableRobots({ status: "notLoggedIn" }) })
+    await syncAndWaitForBranches()
+
+    // no robot is known: the step is the login, its command copied from the slot (the tests run as Windows: PowerShell)
+    const step = slot(page).getByTestId("next-step")
+    await expect(slot(page)).toHaveAttribute("data-step", "pending")
+    await expect(step).toHaveText("Copy Login Command")
+    await step.hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText(`${login}: the command goes to the clipboard, for a terminal`)
+    await step.click()
+    await expect.poll(() => readClipboard(page)).toMatch(/^cd .+; \.\\safePush\.cmd$/)
+    await expectMenuSafePushDisabled(page, login)
+    // S says why no Safe Push starts, the login from its toast
+    await clearClipboard(page)
+    await expectNoticeOnS(page, `Safe Push of ${BRANCH} can't start`, login)
+    await page
+      .locator("[data-slot=toast]", { hasText: `Safe Push of ${BRANCH} can't start` })
+      .getByRole("button", { name: "Copy Login Command" })
+      .click()
+    await expect.poll(() => readClipboard(page)).toMatch(/safePush\.cmd$/)
+
+    // logged in, Patronus fails (asked again from the landing overview): the step asks it again, and the answer decides
+    // the Safe Push
+    await repo.setPatronus(unavailableRobots({ status: "error", message: "Patronus is down" }))
+    const overview = await openLandingOverview(page)
+    await overview.getByTestId("patronus-refresh").click()
+    await expect(overview.getByTestId("patronus-status-line")).toContainText("Patronus: ")
+    await page.keyboard.press("Escape")
+    await expect(overview).toBeHidden()
+    await expect(step).toHaveText("Refresh Patronus")
+    // the failure of the fake (its 500) is the reason
+    await expectMenuSafePushDisabled(page, /^Patronus: \S/)
+    await repo.setPatronus({ ...availableRobots(), githubRepository: "acme/monorepo" })
+    await step.click()
+    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+  })
+
+  test("should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const failed = "ABC-123"
+    const repo = await setupRepo("issue_links", { patronus: availableRobots(robot(failed, "failed-robot", { status: "failure", finishTime: 1704142800 })) })
+    // the CI failed it, not the approvals
+    await repo.setPatronusDetails({ ...failedFastTests("failed-robot"), problems: { "failed-robot": [] } })
+    await repo.holdRemoteAnswers({ hold: ["robotProblems"] })
+    await syncAndWaitForBranches()
+    const failedSlot = findBranchRow(page, failed).getByTestId("next-step-slot")
+    const step = failedSlot.getByTestId("next-step")
+    const unknownFailure = [{ name: "Restart Safe Push" }, { name: "Copy Prompt for Agent" }]
+
+    // why it failed is still to come: no restart, no prompt as if it hadn't failed for the approvals
+    await expectHeld(repo, "robotProblems")
+    await expect(failedSlot).toHaveAttribute("data-step", "pending")
+    await expect(step).toHaveText("Checking…")
+    await expectMenuItemsDisabled(page, failed, unknownFailure, "Waits for Patronus to tell why the Safe Push failed")
+
+    // Patronus fails to tell it: the restart stays disabled, with the failure and the way to ask again
+    await repo.holdRemoteAnswers({ fail: ["robotProblems"], release: ["robotProblems"] })
+    const failure = /^Patronus didn't tell why the Safe Push failed \(.+\): Check Approvals Again asks again$/
+    await expect(step).toHaveText("Restart Safe Push")
+    await expect(step).toBeDisabled()
+    await step.hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText(failure)
+    await expectMenuItemsDisabled(page, failed, unknownFailure, failure)
+
+    // asked again, Patronus tells it: the restart and the prompt act
+    await repo.holdRemoteAnswers({ release: ["robotProblems"] })
+    await checkApprovalsAgain(page, failed)
+    await expect(failedSlot).toHaveAttribute("data-step", "restart")
+    await findBranchRow(page, failed).click({ button: "right" })
+    await page.getByRole("menu").getByRole("menuitem", { name: "Copy Prompt for Agent" }).click()
+    await expect.poll(() => readClipboard(page)).toContain(`Safe Push of \`${failed}\` into \`master\` failed`)
+    await step.click()
+    await expect.poll(async () => (await repo.getPatronusLog()).restarts).toEqual(["failed-robot"])
   })
 })

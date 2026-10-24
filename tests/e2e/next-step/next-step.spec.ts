@@ -36,7 +36,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
+import { emitTauriEvent, oneCommitUnpushedOnNextSync, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, holdCommandCalls, recordCommand, routeCommand } from "../helpers/wait-helpers"
 
@@ -530,11 +530,7 @@ test.describe("Next step", () => {
   test("should push the commits the remote lacks as the first step of Request Review…", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const unasked = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
     // a commit the remote lacks: the reviewers would see the old commits without the push
-    await rewriteNextRemoteStatus(page, status =>
-      status.branchName === BRANCH
-        ? { ...status, remoteExists: true, unpushedCommits: [status.unpushedCommits[0] ?? "new"], myUnpushedCount: 1, commitsBehind: 0, fastForward: true }
-        : status,
-    )
+    await oneCommitUnpushedOnNextSync(page, BRANCH)
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked], availableRobots(), { unpushed: true })
     const pushes = await routePush(page, {})
     await expect(slot(page)).toHaveAttribute("data-step", "requestReview")

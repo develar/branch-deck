@@ -1,5 +1,6 @@
 // @spec spec/branch/next-step.spec.md
 // @spec spec/repository/review-requests.spec.md
+// @spec spec/branch/stack-island.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
@@ -85,5 +86,34 @@ test.describe("Late facts", () => {
     await expect(findBranchRow(page, BRANCH).getByTestId("next-step-slot")).toHaveAttribute("data-step", "awaiting")
     await expect(page.getByTestId("your-turn-checking")).toHaveCount(0)
     expect(await rowLayout(page)).toEqual(settled)
+  })
+
+  test("should keep the second header line of a stack island in its place while the pull requests come back", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stack_island", { pullRequests: availablePullRequests(pullRequest("air", 812, { reviewDecision: "approved" })) })
+    await syncAndWaitForBranches()
+    const island = page.locator('[data-testid="stack-island"][data-stack-root="air"]')
+    const lines = island.getByTestId("stack-island-lines")
+    const firstRow = findBranchRow(page, "air")
+
+    // the first start: the line says what GitHub answered, the view keeps that it had it
+    await expect(lines.getByTestId("stack-island-pull-requests")).toHaveText("1 pull request open · 1 approved")
+    const settled = await boxOf(firstRow)
+    await waitForStorePersistence(page, "repositoryState", states =>
+      Object.values(states as Record<string, { settledLayout?: { stackLines?: string[] } }>).some(state => state.settledLayout?.stackLines?.includes("air") === true),
+    )
+
+    // the next start: GitHub answers after the first rows, the line keeps its place empty
+    await repo.holdRemoteAnswers({ hold: ["pullRequests"] })
+    await page.reload()
+    await expect.poll(() => repo.getArrivedAnswers()).toContain("pullRequests")
+    await expect(lines).toHaveAttribute("data-reserved", "true")
+    await expect(lines.getByTestId("stack-island-pull-requests")).toHaveCount(0)
+    expect(await boxOf(firstRow)).toEqual(settled)
+
+    // the answer fills the line where it stood: the rows below stay
+    await repo.holdRemoteAnswers({ release: ["pullRequests"] })
+    await expect(lines.getByTestId("stack-island-pull-requests")).toHaveText("1 pull request open · 1 approved")
+    await expect(lines).not.toHaveAttribute("data-reserved")
+    expect(await boxOf(firstRow)).toEqual(settled)
   })
 })

@@ -398,6 +398,8 @@ describe("getBranchNextStep", () => {
       [{ pending: "patronus", patronusAvailable: false, robot: { kind: "none" } }, "Waits for the answer of Patronus", "Patronus"],
       // why the robot failed decides between a restart and the approvals
       [{ pending: "robotProblems", robot: finished("failed"), restart }, "Waits for Patronus to tell why the Safe Push failed", "Patronus"],
+      // what the Safe Push needs of a branch outside it: Rust computes it a second or two after the view
+      [{ pending: "landingNeeds" }, "Checking what wsm-skip-wa-2 needs to land…", "the check of what it needs"],
       // the first answer of the readiness: approved, missing, a wait
       [{ readiness: null }, "Waits for Patronus to check the approvals", "Patronus"],
     ]
@@ -417,6 +419,20 @@ describe("getBranchNextStep", () => {
     expect(getBranchNextStep(facts({ readiness: null })).dryRunBlocker).toBeNull()
     expect(getBranchNextStep(facts({ pending: "pullRequests", pullRequestsAvailable: false })).dryRunBlocker).toBeNull()
     expect(getBranchNextStep(facts({ pending: "patronus", patronusAvailable: false, robot: { kind: "none" } })).dryRunBlocker).toBe("Waits for the answer of Patronus")
+  })
+
+  it("row 0: a read that failed decides no start: a login to copy, a refresh, a restart disabled while why the robot failed is unknown", () => {
+    const login: MenuItem = { id: "copy-safe-push-login", label: "Copy Login Command", onSelect: vi.fn() }
+    const reason = "Run ./safePush.cmd once to log in to Patronus"
+    const loggedOut = getBranchNextStep(facts({ unavailable: { fact: "patronus", reason, action: login }, readiness: answered }))
+    expect(loggedOut).toMatchObject({ kind: "pending", item: login, safePushBlocker: reason, dryRunBlocker: reason })
+    expect(loggedOut.notice).toEqual({ title: "Safe Push of wsm-skip-wa-2 can't start", description: reason })
+    // a robot that runs says it in its Status cell: nothing to decide
+    expect(getBranchNextStep(facts({ unavailable: { fact: "patronus", reason, action: login }, robot: { kind: "running", chip: chip("running") } })).kind).toBe("none")
+    // Patronus didn't give why the robot failed: its restart waits, a Dry Run doesn't
+    const why = "Patronus didn't tell why the Safe Push failed (offline): Check Approvals Again asks again"
+    const unknownFailure = getBranchNextStep(facts({ unavailable: { fact: "robotProblems", reason: why, action: null }, robot: finished("failed"), restart, readiness: answered }))
+    expect(unknownFailure).toMatchObject({ kind: "pending", item: { id: "restart-robot", disabled: true, description: why }, safePushBlocker: why, dryRunBlocker: null })
   })
 
   it("row 0: a reason of the branch outranks a fact no answer told yet, and a start waits for the readiness itself", () => {

@@ -4,6 +4,8 @@ import { ExternalLinkIcon, KeyRoundIcon, LogInIcon, LogOutIcon } from "lucide-re
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
+import { ReadFailure } from "@/components/settings/SettingRow"
+import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { YouTrackAuthStatus } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatTimestamp } from "@/lib/time"
@@ -12,9 +14,11 @@ import { useRecentProjects } from "@/stores/settings/repositorySettings"
 import {
   cancelYouTrackSignIn,
   openYouTrackSignInPage,
+  retryYouTrackAuthStatus,
   saveYouTrackToken,
   signOutOfYouTrack,
   startYouTrackSignIn,
+  useYouTrackAuthReadError,
   useYouTrackAuthStatus,
   useYouTrackSignIn,
 } from "@/stores/youtrack"
@@ -23,19 +27,29 @@ import type { YouTrackSignInPhase } from "@/stores/youtrack"
 /**
  * Settings → YouTrack (spec/repository/youtrack.spec.md): who is signed in to which YouTrack, else the URL to sign in
  * to, offered from the issue links of `.idea/vcs.xml`. Sign In opens the Hub of the YouTrack in the browser; a token
- * created in YouTrack can be pasted instead.
+ * created in YouTrack can be pasted instead. Until the first answer the page says it reads the sign-in; a failed read
+ * says why, with Retry, above the last status.
  */
 export function YouTrackSettings() {
   const status = useYouTrackAuthStatus()
+  const readError = useYouTrackAuthReadError()
   const signIn = useYouTrackSignIn()
+  const failure =
+    readError === null ? null : <ReadFailure title="Cannot read the YouTrack sign-in" message={readError} testId="youtrack-auth-error" onRetry={retryYouTrackAuthStatus} />
   if (status === null) {
-    return null
+    return failure ?? <LoadingLine>Reading the YouTrack sign-in…</LoadingLine>
   }
-  if (status.url !== null && status.problem === null && signIn.phase === "idle") {
-    return <SignedIn status={status} url={status.url} />
-  }
-  // stays mounted while the browser signs in: a cancel keeps the URL typed
-  return <SignInForm status={status} phase={signIn.phase} />
+  return (
+    <>
+      {failure}
+      {status.url !== null && status.problem === null && signIn.phase === "idle" ? (
+        <SignedIn status={status} url={status.url} />
+      ) : (
+        // stays mounted while the browser signs in: a cancel keeps the URL typed
+        <SignInForm status={status} phase={signIn.phase} />
+      )}
+    </>
+  )
 }
 
 function SignedIn({ status, url }: { status: YouTrackAuthStatus; url: string }) {
