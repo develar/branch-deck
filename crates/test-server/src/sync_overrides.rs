@@ -20,6 +20,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
+use sync_utils::span::in_current_span;
 
 /// The overrides of the next sync; a branch or a root not named is reported as the sync computed it
 #[derive(Debug, Default, Deserialize)]
@@ -120,7 +121,7 @@ pub async fn get_revision(Path(id): Path<String>, Query(query): Query<RevisionQu
     .map(|repository| repository.path.clone())
     .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   let git = state.git_executor.clone();
-  let resolved = tokio::task::spawn_blocking(move || git_ops::revs::resolve_commit(&git, &path, &query.name))
+  let resolved = tokio::task::spawn_blocking(in_current_span(move || git_ops::revs::resolve_commit(&git, &path, &query.name)))
     .await
     .map_err(anyhow::Error::from)
     .and_then(|resolved| resolved);
