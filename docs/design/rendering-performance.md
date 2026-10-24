@@ -197,7 +197,13 @@ used to download and compile the main window's tree before its own page: 61 modu
   0.5 s, then the rows. Its budget is 1 s after the page loaded (the rows of the IntelliJ monorepo came about 0.6 s
   after it), then the title row and the loading table show; 3 s after the build when the page never loads. Until the
   window showed, the sync events apply on the next task (`batchTimer`): their 16 ms timer would wait for WebKit's
-  throttle of a hidden page, up to a second. The log has its timing from the build ("main open 812 ms: loaded 240").
+  throttle of a hidden page, up to a second. The budgets run on the backend's clock (`show_when_budget_passes`), never
+  on a timer of the hidden page. The log has the time of the first rows from the build ("main open 812 ms: loaded
+  240") and, from the backend, what showed the window. A cold first start after an install on the monorepo ("main
+  open 6199 ms: loaded 1506"): the budget showed the title row and the loading table 1.0 s after the load (WebKit's
+  `window visible 1` 2.5 s after the build); the sync started 2.25 s after the build and sent its rows 3.7 s later,
+  1.9 s of it in the listing of the branches (`read_baseline_listing`), whose `for-each-ref --sort=-committerdate`
+  with the subjects read the commits of 452 refs from a cold pack (0.09 s warm).
 - The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
   its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
   starts the highlight worker when its module loads, beside the reads of the files and the diffs.

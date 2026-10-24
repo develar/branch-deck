@@ -24,5 +24,12 @@ the `peekaboo` CLI.
 - **Timings**: every sub-window open logs its phases in `~/Library/Logs/org.develar.branch-deck/BranchDeck.log`
   ("commit-review open 258 ms: loaded 91, files 187, diffs 187, painted 235"), the backend the source of
   each patch (memory, disk, git) at debug level. The main window logs its start from its build ("main open 812 ms:
-  loaded 240"): it shows on its first rows, so the frames of a start begin with the rows (or with the title row and
-  the loading table when the first sync took longer than 1 s after the page loaded), never with a bare canvas.
+  loaded 240"): the time of its first rows, not of its show. The backend logs what showed it ("the page settled its
+  content, showing the window", or "the page settled no content within its budget, showing the window" 1 s after the
+  page loaded), so the frames of a start begin with the rows or with the title row and the loading table, never with
+  a bare canvas. The log stamps whole seconds; the milliseconds of a start are in the unified log of WebKit:
+  `/usr/bin/log show --start '<local time>' --end '<local time>' --predicate 'process == "branch-deck"' --style
+  compact` (zsh has a `log` builtin; the unified log is in local time, the app's log in UTC) has `isViewVisible(): …
+  window visible 1` at the show, `didCommitLoadForFrame` at the load of the page, a `WebURLSchemeTaskProxy::startLoading`
+  per command the page invokes, and a burst of `runJavaScriptInFrameInScriptWorld` per batch of events the backend
+  sends.

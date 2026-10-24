@@ -244,11 +244,16 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   shows the title row and the loading table, a broken page still shows. The loading table stands where the rows come:
   the filter bar's room where the last sync had enough branches for it, the column heads and as many rows as the last
   sync had (`lastBranchCount`), "Syncing branches…" after its delay; the rows take its room, nothing below moves.
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_budget_shows_a_main_window_whose_page_drew_no_rows`)
+  The budgets run on the backend's clock (`show_when_budget_passes`), never on a timer of the page, which WebKit
+  throttles while the window is hidden: a page that says nothing after its load still shows.
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_backend_shows_a_main_window_whose_page_says_nothing_after_its_load_once_its_budget_passed`)
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_first_rows_within_the_budget_show_the_main_window_and_the_budget_then_does_nothing`)
 - While the window never showed, a batch of sync events applies on the next task, not on its 16 ms timer: WebKit
   throttles the timers of a hidden page to a second (`batchTimer`).
   [@test] ../../src/lib/batch-timer.test.ts (`runs a batch on the next task, no timer, while the window never showed, then on its timer once it showed`)
-- The page logs how long the window took, from its build ("main open 812 ms: loaded 240").
+- The page logs when its first frame with content came, from the build ("main open 812 ms: loaded 240"), which is
+  not when the window showed: the backend logs what showed it, the page ("the page settled its content, showing the
+  window") or the budget ("the page settled no content within its budget, showing the window").
 
 ### Sub-windows
 

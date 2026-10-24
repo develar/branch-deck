@@ -110,6 +110,8 @@ test-utils = { path = "../crates/test-utils" }
 # the cases of the adapters' contract test (`api_error_contract_test.rs`)
 app-api = { path = "../crates/app-api", features = ["fixtures"] }
 pretty_assertions = { workspace = true }
+# the budgets of the window shows on a paused clock (`window_management_test.rs`)
+tokio = { workspace = true, features = ["test-util", "time"] }
 
 [package.metadata.cargo-machete]
 # tauri-build: build dependency used in build.rs

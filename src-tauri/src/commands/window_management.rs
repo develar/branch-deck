@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State, Webview, WebviewUrl, WebviewWindowBuilder};
-use tracing::{Instrument, instrument, warn};
+use tracing::{Instrument, info, instrument, warn};
 
 /// How long a new window stays hidden at most when its page never loads (a broken page still shows)
 const SHOW_FALLBACK: Duration = Duration::from_secs(3);
@@ -351,6 +351,7 @@ pub async fn sub_window_loaded(
 pub async fn sub_window_ready(webview: Webview, state: State<'_, SubWindowState>, open_id: u32) -> Result<(), ApiError> {
   operation(async move {
     if state.ready(webview.label(), open_id) {
+      info!(label = webview.label(), open_id, "the page settled its content, showing the window");
       let window = webview.window();
       window.show().map_err(tauri_error)?;
       window.set_focus().map_err(tauri_error)?;
@@ -367,29 +368,44 @@ pub fn show_when_settled(app_handle: AppHandle, label: String, build: u32) {
   show_after(app_handle, label, build, SHOW_FALLBACK, Some("the page of the window did not load, showing it"));
 }
 
-/// Shows the window `build` of `label` after `delay` unless it showed by then, logging `warning` if it does
+/// Shows the window `build` of `label` after `delay` unless it showed by then, logging `warning` if it does, else that
+/// the budget showed it
 fn show_after(app_handle: AppHandle, label: String, build: u32, delay: Duration, warning: Option<&'static str>) {
   tauri::async_runtime::spawn(
     async move {
-      tokio::time::sleep(delay).await;
-      if !app_handle.state::<SubWindowState>().budget_passed(&label, build) {
-        return;
-      }
-      if let Some(warning) = warning {
-        warn!(label, "{warning}");
-      }
-      if let Some(window) = app_handle.get_webview_window(&label)
-        && let Err(e) = window.show().and_then(|()| window.set_focus())
-      {
-        warn!(label, error = %e, "cannot show the window");
-      }
+      let state = app_handle.state::<SubWindowState>();
+      show_when_budget_passes(&state, &label, build, delay, || {
+        if let Some(warning) = warning {
+          warn!(label, "{warning}");
+        } else {
+          info!(label, budget_ms = delay.as_millis(), "the page settled no content within its budget, showing the window");
+        }
+        if let Some(window) = app_handle.get_webview_window(&label)
+          && let Err(e) = window.show().and_then(|()| window.set_focus())
+        {
+          warn!(label, error = %e, "cannot show the window");
+        }
+      })
+      .await;
     }
     .in_current_span(),
   );
 }
 
+/// Waits `delay` on the backend's clock, then shows the window `build` of `label` with `show` unless it showed by then
+/// (its page settled its content, `ready`): true when it showed it. Never a timer of the page, which `WebKit` throttles
+/// while the window is hidden: a page that says nothing after its load still shows
+pub async fn show_when_budget_passes(state: &SubWindowState, label: &str, build: u32, delay: Duration, show: impl FnOnce()) -> bool {
+  tokio::time::sleep(delay).await;
+  if !state.budget_passed(label, build) {
+    return false;
+  }
+  show();
+  true
+}
+
 /// The line of the main window's init script that names its open (`__SUB_WINDOW_OPEN__`, its build): its page settles
-/// it when it drew its first rows (`markMainWindowContentReady`)
+/// it when it drew its first rows (`markWindowContentReady`)
 pub fn open_script(open: &SubWindowOpen) -> String {
   // two numbers: their JSON is never an error
   format!("window.__SUB_WINDOW_OPEN__ = {};", to_json(open).unwrap_or_else(|_| "undefined".to_owned()))

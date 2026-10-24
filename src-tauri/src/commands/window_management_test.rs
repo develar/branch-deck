@@ -1,7 +1,8 @@
-use crate::commands::window_management::{BuiltPage, Reopen, SubWindowLoaded, SubWindowOpen, SubWindowState, SubWindowUpdate};
+use crate::commands::window_management::{BuiltPage, Reopen, SubWindowLoaded, SubWindowOpen, SubWindowState, SubWindowUpdate, show_when_budget_passes};
 use app_settings::service::SettingsService;
 use domain_types::settings::SettingsPatch;
 use serde_json::json;
+use std::cell::Cell;
 use std::time::Duration;
 
 /// A writer of the app data directory `dir` that never saves within a test
@@ -184,15 +185,39 @@ fn the_main_window_waits_for_its_first_rows_longer_and_takes_no_settings_with_it
   assert!(!state.ready("main", open.id));
 }
 
-#[test]
-fn the_budget_shows_a_main_window_whose_page_drew_no_rows() {
-  let state = SubWindowState::default();
+/// A main window built hidden whose page loaded: its open, and the build and the budget its window waits for
+fn loaded_main(state: &SubWindowState) -> (SubWindowOpen, u32, Duration) {
   let open = state.next_open(0.0);
   state.built("main", open, BuiltPage::Main);
   let dir = tempfile::tempdir().unwrap();
-  state.loaded("main", &settings(&dir));
-  // the first sync is slow: the budget shows the title row and the loading table
-  assert!(state.budget_passed("main", open.id));
+  let (build, budget) = state.loaded("main", &settings(&dir)).1.unwrap();
+  (open, build, budget)
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_backend_shows_a_main_window_whose_page_says_nothing_after_its_load_once_its_budget_passed() {
+  let state = SubWindowState::default();
+  let (open, build, budget) = loaded_main(&state);
+  // the first sync is slow and the page says nothing after its load: the timers of a hidden page are throttled, the
+  // backend's clock is not, and the budget shows the title row and the loading table 1 s after the load
+  let started = tokio::time::Instant::now();
+  let shown_after = Cell::new(None);
+  assert!(show_when_budget_passes(&state, "main", build, budget, || shown_after.set(Some(started.elapsed()))).await);
+  assert_eq!(shown_after.get(), Some(Duration::from_secs(1)));
   // the rows that come later show nothing again
   assert!(!state.ready("main", open.id));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_first_rows_within_the_budget_show_the_main_window_and_the_budget_then_does_nothing() {
+  let state = SubWindowState::default();
+  let (open, build, budget) = loaded_main(&state);
+  let budget_showed = Cell::new(false);
+  let (by_budget, by_page) = tokio::join!(show_when_budget_passes(&state, "main", build, budget, || budget_showed.set(true)), async {
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    state.ready("main", open.id)
+  });
+  assert!(by_page);
+  assert!(!by_budget);
+  assert!(!budget_showed.get());
 }
