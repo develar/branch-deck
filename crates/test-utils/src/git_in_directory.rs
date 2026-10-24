@@ -1,7 +1,7 @@
 //! A process that works in a directory, as a shell or a build of an agent does: a git whose current directory it is,
 //! alive until the test lets it go, in a process group of its own (of another session than the test's, which a scan of
 //! the processes leaves out). On Windows it keeps the directory from a removal and a rename (a sharing error), as a
-//! real holder would; a scan of the processes finds it there by its working directory.
+//! real holder would; the scan of macOS and Linux finds it there by its working directory.
 
 use crate::git_test_utils::git_command;
 use std::io::{BufRead, Write};

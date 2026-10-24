@@ -18,18 +18,10 @@ tracing.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
-# the process scan (`process_scan`: a toolhelp snapshot, the working directory and the arguments from the PEB through
-# `NtQueryInformationProcess` and `ReadProcessMemory`, split by `CommandLineToArgvW`, the start time by
-# `GetProcessTimes`) and the sharing errors that a rename or a removal waits out (`fs_retry`)
+# the start time of a process (`process_scan`: `OpenProcess`, `GetProcessTimes`) and the sharing errors that a rename
+# or a removal waits out (`fs_retry`)
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = [
-  "Wdk_System_Threading",
-  "Win32_Foundation",
-  "Win32_System_Diagnostics_Debug",
-  "Win32_System_Diagnostics_ToolHelp",
-  "Win32_System_Threading",
-  "Win32_UI_Shell",
-] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
 pretty_assertions.workspace = true

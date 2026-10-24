@@ -374,10 +374,10 @@ fn nested_deletes_keep_only_the_whitelist() {
 
 /// A process that works in a stale unit or in an entry of a `delete` (a shell or a build of an agent) keeps it: on Windows
 /// no rename moves it, so the unit (its files moved before put back) and the entry stay whole in the checkout, the error
-/// of the rule names them and the processes, and the rest goes through the trash; elsewhere the rename moves them from
-/// under the process, and everything goes
+/// of the rule names them and says that a process holds them, and the rest goes through the trash; once the processes
+/// exited, the next clean takes them. Elsewhere the rename moves them from under the process, and everything goes at once
 #[test]
-fn a_held_unit_and_a_held_entry_stay_whole_and_the_rest_goes_through_the_trash() {
+fn a_held_unit_and_a_held_entry_stay_whole_and_the_next_clean_takes_them() {
   let (checkout, git) = git_checkout();
   let root = checkout.path();
   let profile = root.join("target/debug");
@@ -397,9 +397,14 @@ fn a_held_unit_and_a_held_entry_stay_whole_and_the_rest_goes_through_the_trash()
   ];
   let rules = parse_clean_rules("[lease]\nclean = [\n  { cargo = \"target\", keep = 0, age = \"0s\" },\n  { delete = \"out\", except = [\"kept\"] },\n]\n").unwrap();
   let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
-  let trash = Trash::new(trash_root.path());
+  let clean = || {
+    let trash = Trash::new(trash_root.path());
+    let mut cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Trash(&trash));
+    assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
+    cleaned
+  };
 
-  let mut cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Trash(&trash));
+  let cleaned = clean();
 
   assert!(free_files.iter().all(|file| !file.exists()) && !root.join("out/free").exists(), "{cleaned:?}");
   assert!(root.join("out/kept/k").exists());
@@ -407,16 +412,17 @@ fn a_held_unit_and_a_held_entry_stay_whole_and_the_rest_goes_through_the_trash()
     assert!(held_files.iter().all(|file| file.exists()), "the held unit is not whole: {cleaned:?}");
     assert!(root.join("out/held/h").exists());
     let (unit, entry) = (cleaned[0].error.clone().unwrap_or_default(), cleaned[1].error.clone().unwrap_or_default());
-    assert!(unit.contains("cannot move") && unit.contains(&format!("aho-corasick-{held}")), "{unit}");
-    assert!(entry.contains("cannot move") && entry.contains("held"), "{entry}");
-    for (error, holder) in [(&unit, &holders[0]), (&entry, &holders[1])] {
-      assert!(error.contains(&format!("git ({}: git hash-object --stdin-paths)", holder.pid())), "{error}");
+    for (error, held) in [(&unit, format!("aho-corasick-{held}")), (&entry, "held".to_string())] {
+      assert!(error.contains("cannot move") && error.contains(&held) && error.contains("a process holds it"), "{error}");
     }
+    drop(holders);
+    let again = clean();
+    assert!(held_files.iter().all(|file| !file.exists()) && !root.join("out/held").exists(), "{again:?}");
+    assert!(again.iter().all(|rule| rule.error.is_none() && rule.freed_bytes > 0), "{again:?}");
   } else {
+    drop(holders);
     assert!(held_files.iter().all(|file| !file.exists()) && !root.join("out/held").exists(), "{cleaned:?}");
     assert!(cleaned.iter().all(|rule| rule.error.is_none()), "{cleaned:?}");
   }
-  drop(holders);
-  assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
   assert!(cleaned.iter().all(|rule| rule.freed_bytes > 0), "{cleaned:?}");
 }

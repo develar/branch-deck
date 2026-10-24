@@ -16,8 +16,8 @@
 //! all rules); a rule that breaks one of these is skipped and reported, never applied. The walk follows no symlink. A
 //! return and `bd lease clean` move what a rule removes into a trash directory first, a rename (a stale unit of a
 //! `cargo` rule as a whole), and delete it once the slot is free again (`Trash`). What a process keeps (on Windows one
-//! that works in it or has a file of it open, which no rename moves) stays whole in the checkout and is named in the
-//! error of its rule, never half deleted.
+//! that works in it or has a file of it open, which no rename moves) stays whole in the checkout and the error of its
+//! rule names it, never half deleted: a later clean deletes it once it is free.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 use sync_utils::fs_retry;
-use sync_utils::process_scan::{ProcessScan, is_running, process_started};
+use sync_utils::process_scan::{is_running, process_started};
 use tracing::{debug, warn};
 
 /// The file of the rules, at the root of a checkout
@@ -448,7 +448,7 @@ fn run_rule(rule: &CleanRule, target: &Path, mode: CleanMode<'_>, trashed: &mut 
 /// Remove `paths` (files, symlinks, directories with what is in them) together, as `mode` says: measure them, delete
 /// them in place, or move them into the trash, where their bytes are counted once it is deleted. A path that can't be
 /// moved (on Windows a process works in it or has a file of it open) puts back the ones moved before it, so what a
-/// holder keeps stays whole in the checkout and is named in the error, never half deleted; on another volume than the
+/// holder keeps stays whole in the checkout and the error names it, never half deleted; on another volume than the
 /// trash they are deleted in place
 pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<u64> {
   let delete = || {
@@ -476,7 +476,7 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
             warn!(path = %path.display(), trash = %target.display(), error = %back, "cannot move a path back from the trash");
           }
         }
-        return Err(anyhow!("cannot move {} into the trash: {error}{}", path.display(), holders_of(path)));
+        return Err(anyhow!("cannot move {} into the trash: {error}{}", path.display(), held_note(&error)));
       }
     }
   }
@@ -484,22 +484,15 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
   Ok(0)
 }
 
-/// The processes that work in `path`, as the error of a path they keep names them; nothing where no scan tells them
-fn holders_of(path: &Path) -> String {
-  let scan = ProcessScan::scan();
-  let holders = scan.inside(path);
-  if holders.is_empty() {
-    return String::new();
+/// What the error of a held path tells to do: no scan of Windows names the process, but its refusal of the move says
+/// that one holds the path
+fn held_note(error: &std::io::Error) -> &'static str {
+  if fs_retry::is_held(error) {
+    "; a process holds it (works in it or has a file of it open): once it is closed, `bd lease clean` deletes it"
+  } else {
+    ""
   }
-  let named: Vec<String> = holders
-    .iter()
-    .map(|process| format!("{} ({}: {})", process.name, process.pid, process.command_line(HOLDER_COMMAND_LIMIT)))
-    .collect();
-  format!("; processes work in it: {}", named.join(", "))
 }
-
-/// How much of the command line of a holder the error names
-const HOLDER_COMMAND_LIMIT: usize = 200;
 
 /// Delete `path` and everything below it, symlinks as themselves, in one walk that counts the bytes on disk it freed
 pub fn remove_measured(path: &Path) -> std::io::Result<u64> {

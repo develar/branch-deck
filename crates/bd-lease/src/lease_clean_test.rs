@@ -6,9 +6,10 @@ use bd_cli::fixture_test::assert_error;
 use bd_cli::fixture_test::git;
 use pretty_assertions::assert_eq;
 #[cfg(unix)]
-use serde_json::{Value, json};
-#[cfg(unix)]
+use serde_json::Value;
+use serde_json::json;
 use std::path::Path;
+use test_utils::git_in_directory::GitInDirectory;
 
 /// Rules that clean the cargo units of `target` and delete `tests/results`, committed with the `.gitignore` that
 /// ignores both, so a slot with them stays clean
@@ -22,7 +23,6 @@ fn commit_rules(fixture: &Fixture, rules: &str) {
 const RULES: &str = "[lease]\nclean = [\n  { cargo = \"target\", keep = 1, age = \"1h\" },\n  { delete = \"tests/results\" },\n]\n";
 
 /// A file of `size` bytes at `path` under `root`
-#[cfg(unix)]
 fn file(root: &Path, path: &str, size: usize) {
   let path = root.join(path);
   std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -302,4 +302,37 @@ fn a_return_deletes_through_the_trash_and_what_a_gone_run_left_there() {
   assert!(!Path::new(&path).join("tests/results").exists());
   assert_eq!(std::fs::read_dir(&trash).unwrap().count(), 0, "the trash is empty");
   assert_eq!((returned.get("trash_left"), fixture.status().get("trash_bytes")), (None, None));
+}
+
+/// A git that works in what a rule deletes (the shell of an agent left in a returned slot): macOS and Linux see it and
+/// skip the slot, naming it; Windows has no process scan (`processes_checked: false`) and cleans the slot, but refuses the
+/// move of the held entry into the trash: the entry stays whole, and the error of the rule names it and says that a
+/// process holds it. Once the git exited, the next clean finishes on every platform
+#[test_log::test]
+fn a_held_entry_of_a_free_slot_stays_whole_until_its_process_exits() {
+  let fixture = Fixture::new();
+  commit_rules(&fixture, "[lease]\nclean = [{ delete = \"tests/results\" }]\n");
+  let path = path_of(&fixture.get(&[]));
+  fixture.give_back(&path);
+  let slot = Path::new(&path);
+  file(slot, "tests/results/run/trace.zip", 4096);
+  let git = GitInDirectory::start(&slot.join("tests/results/run"));
+
+  let (exit_code, output) = fixture.run(&["lease", "clean", "--free"]);
+
+  let named = format!("git ({}: git hash-object --stdin-paths)", git.pid());
+  assert_eq!((exit_code, &output["processes_checked"]), (0, &json!(cfg!(unix))), "{output}");
+  let target = &output["targets"][0];
+  if cfg!(windows) {
+    let error = target["cleaned"][0]["error"].as_str().unwrap_or_default();
+    assert!(target["skipped"].is_null() && error.contains("results") && error.contains("a process holds it"), "{output}");
+  } else {
+    assert!(target["skipped"].as_str().is_some_and(|reason| reason.contains(&named)), "{output}");
+  }
+  assert!(slot.join("tests/results/run/trace.zip").exists(), "the held entry is not whole: {output}");
+  drop(git);
+  let (exit_code, output) = fixture.run(&["lease", "clean", "--free"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["targets"][0]["cleaned"][0]["error"], json!(null), "{output}");
+  assert!(!slot.join("tests/results").exists(), "{output}");
 }

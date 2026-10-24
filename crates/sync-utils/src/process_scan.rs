@@ -1,13 +1,11 @@
 //! The processes whose working directory is inside a directory, for the lease pool (`lease`): a slot with a process in
 //! it is busy, a shell or a build daemon there would see its files change. One scan reads every process of the user
-//! once: on macOS through libproc (`proc_listallpids`, `proc_pidinfo`), on Linux from `/proc`, on Windows from a
-//! toolhelp snapshot and the PEB of each process (its `CurrentDirectory` and `CommandLine`, read with
-//! `ReadProcessMemory` as psutil reads them; a 32-bit process under WOW64 and one this user may not read have none).
-//! It tells the start of a process by its pid (`process_started`) on all three. The scan leaves out the session that
-//! runs `bd`: this process, its ancestors and every process of their process groups (the `jq` of `bd lease return |
-//! jq`, the `caffeinate` of the agent; Windows has no process groups). It reads the argv of each process too
-//! (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline` on Linux, the command line split by `CommandLineToArgvW` on
-//! Windows): a Bazel server names its workspace there (`--workspace_directory=`), and serves only that one, since Bazel
+//! once: on macOS through libproc (`proc_listallpids`, `proc_pidinfo`), on Linux from `/proc`. Windows has no scan:
+//! `ProcessScan::Unavailable`, and a lease never waits for it; it tells the start of a process by its pid
+//! (`process_started`), as the other two do. The scan leaves out the session that runs `bd`: this
+//! process, its ancestors and every process of their process groups (the `jq` of `bd lease return | jq`, the
+//! `caffeinate` of the agent). It reads the argv of each process too (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
+//! on Linux): a Bazel server names its workspace there (`--workspace_directory=`), and serves only that one, since Bazel
 //! derives its output base from the workspace path. The index lock of a worktree asks who has a file open
 //! (`processes_with_open_file`) and when a git started (`ProcessInfo::started_at`): a lock no process owns was left by a
 //! killed git.
@@ -125,8 +123,6 @@ const RUNNERS: &[&str] = &[
   "csh",
   "nu",
   "pwsh",
-  "powershell",
-  "cmd",
   "env",
   "nohup",
   "timeout",
@@ -287,15 +283,14 @@ pub fn is_running(pid: u32, started: Option<u64>) -> bool {
   }
 }
 
-/// The questions only the scans of macOS and Linux answer: their own there, none elsewhere (the scan of Windows reads the
-/// working directories and the arguments only)
+/// The questions only a scan answers: the platform's own on macOS and Linux, none elsewhere
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use platform as scan;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 use unscanned as scan;
 
-/// What only the scans of macOS and Linux tell (Windows and the rest tell none of it): no wall clock of a start without
-/// a `ProcessInfo`, no holders of a file, no signals
+/// What only the scans of macOS and Linux tell, where a platform has none (Windows and the rest): no wall clock of a
+/// start without a `ProcessInfo`, no holders of a file, no signals
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod unscanned {
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
@@ -602,236 +597,42 @@ mod platform {
 }
 
 #[cfg(windows)]
-#[expect(
-  unsafe_code,
-  reason = "Win32: the processes (a toolhelp snapshot), their working directories and arguments (their PEB), their start times (GetProcessTimes)"
-)]
+#[expect(unsafe_code, reason = "Win32: the start time of a process (OpenProcess, GetProcessTimes, GetExitCodeProcess)")]
 mod platform {
   use super::ProcessInfo;
-  use std::collections::HashMap;
-  use std::ffi::OsString;
-  use std::mem::{MaybeUninit, size_of};
-  use std::os::windows::ffi::OsStringExt;
   use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-  use std::path::PathBuf;
-  use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, ProcessBasicInformation};
-  use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, FILETIME, HANDLE, INVALID_HANDLE_VALUE, LocalFree, STILL_ACTIVE};
-  use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
-  use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
-  use windows_sys::Win32::System::Threading::{GetExitCodeProcess, GetProcessTimes, IsWow64Process, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ};
-  use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
+  use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, FILETIME, STILL_ACTIVE};
+  use windows_sys::Win32::System::Threading::{GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
-  /// `PROCESS_BASIC_INFORMATION` (winternl.h): the address of the PEB
-  #[repr(C)]
-  #[derive(Default)]
-  struct BasicInformation {
-    exit_status: i32,
-    peb: usize,
-    affinity_mask: usize,
-    base_priority: i32,
-    pid: usize,
-    parent: usize,
-  }
-
-  /// The start of the PEB of a 64-bit process, to the address of its parameters (`PEB.ProcessParameters` of winternl.h)
-  #[repr(C)]
-  #[derive(Clone, Copy, Default)]
-  struct PebHead {
-    reserved: [usize; 4],
-    process_parameters: usize,
-  }
-
-  /// A `UNICODE_STRING` of another process: its length in bytes and the address of its UTF-16 text there
-  #[repr(C)]
-  #[derive(Clone, Copy, Default)]
-  struct RemoteString {
-    length: u16,
-    maximum_length: u16,
-    buffer: usize,
-  }
-
-  /// The start of the `RTL_USER_PROCESS_PARAMETERS` of a 64-bit process, to its command line: winternl.h names the
-  /// command line and leaves reserved the `CURDIR` before it, the current directory, at the same offset since Windows XP
-  /// (as psutil reads it)
-  #[repr(C)]
-  #[derive(Clone, Copy, Default)]
-  struct ProcessParameters {
-    reserved: [u8; 16],
-    console_handle: usize,
-    console_flags: usize,
-    standard_input: usize,
-    standard_output: usize,
-    standard_error: usize,
-    current_directory: RemoteString,
-    current_directory_handle: usize,
-    dll_path: RemoteString,
-    image_path_name: RemoteString,
-    command_line: RemoteString,
-  }
-
-  const _: () = assert!(std::mem::offset_of!(PebHead, process_parameters) == 0x20);
-  const _: () = assert!(std::mem::offset_of!(ProcessParameters, current_directory) == 0x38);
-  const _: () = assert!(std::mem::offset_of!(ProcessParameters, command_line) == 0x70);
-
-  /// Every process of the snapshot: its pid, parent and executable, its start time, and the working directory and the
-  /// arguments of the 64-bit processes that this user may read (`read_peb`); a parent pid that the system gave to a
-  /// process that started after the child is no parent
-  pub(super) fn processes() -> Option<Vec<ProcessInfo>> {
-    // SAFETY: plain arguments; a valid result is a handle that nothing else owns
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
-      return None;
-    }
-    // SAFETY: the handle just opened, owned from here on and closed when dropped
-    let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot) };
-    let mut entry = PROCESSENTRY32W {
-      dwSize: u32::try_from(size_of::<PROCESSENTRY32W>()).ok()?,
-      ..PROCESSENTRY32W::default()
-    };
-    let mut processes = Vec::new();
-    // SAFETY: the snapshot is open while `snapshot` lives, and the entry is a local of the size it names
-    let mut more = unsafe { Process32FirstW(snapshot.as_raw_handle(), &raw mut entry) } != 0;
-    while more {
-      processes.push(describe(&entry));
-      // SAFETY: as above
-      more = unsafe { Process32NextW(snapshot.as_raw_handle(), &raw mut entry) } != 0;
-    }
-    let started: HashMap<u32, u64> = processes.iter().filter_map(|process| Some((process.pid, process.started?))).collect();
-    for process in &mut processes {
-      if let (Some(child), Some(parent)) = (process.started, started.get(&process.parent))
-        && *parent > child
-      {
-        process.parent = 0;
-      }
-    }
-    Some(processes)
-  }
-
-  /// The process of a snapshot entry: the name of its executable without `.exe`, as `ps -o comm` names it elsewhere
-  fn describe(entry: &PROCESSENTRY32W) -> ProcessInfo {
-    let length = entry.szExeFile.iter().position(|&unit| unit == 0).unwrap_or(entry.szExeFile.len());
-    let executable = String::from_utf16_lossy(&entry.szExeFile[..length]);
-    let name = match executable.len().checked_sub(4) {
-      Some(stem) if executable.is_char_boundary(stem) && executable[stem..].eq_ignore_ascii_case(".exe") => executable[..stem].to_string(),
-      _ => executable,
-    };
-    let opened = open(entry.th32ProcessID, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ).ok();
-    let (cwd, argv) = opened.as_ref().and_then(|process| read_peb(process.as_raw_handle())).unwrap_or_default();
-    ProcessInfo {
-      pid: entry.th32ProcessID,
-      parent: entry.th32ParentProcessID,
-      group: 0,
-      name,
-      cwd,
-      argv,
-      started: opened.as_ref().and_then(|process| started_of(process.as_raw_handle())),
-    }
-  }
-
-  /// The working directory, canonical as `ProcessScan::inside` compares it (no 8.3 names, the case on disk), and the
-  /// arguments of the process, from its PEB; none for a 32-bit process under WOW64, whose own PEB holds them
-  fn read_peb(process: HANDLE) -> Option<(Option<PathBuf>, Vec<String>)> {
-    let mut wow64 = 0;
-    // SAFETY: the handle is open while the caller holds it, and the answer goes into a local
-    if unsafe { IsWow64Process(process, &raw mut wow64) } == 0 || wow64 != 0 {
-      return None;
-    }
-    let mut basic = BasicInformation::default();
-    let size = u32::try_from(size_of::<BasicInformation>()).ok()?;
-    // SAFETY: the information goes into a local of the size the call is told
-    let status = unsafe { NtQueryInformationProcess(process, ProcessBasicInformation, (&raw mut basic).cast(), size, std::ptr::null_mut()) };
-    if status < 0 || basic.peb == 0 {
-      return None;
-    }
-    let head: PebHead = read(process, basic.peb)?;
-    let parameters: ProcessParameters = read(process, head.process_parameters)?;
-    let cwd = read_text(process, parameters.current_directory).map(|text| {
-      let raw = PathBuf::from(OsString::from_wide(&text));
-      std::fs::canonicalize(&raw).unwrap_or(raw)
-    });
-    let argv = read_text(process, parameters.command_line).map_or_default(|text| split_command_line(&text));
-    Some((cwd, argv))
-  }
-
-  /// A `T` at `address` of the other process
-  fn read<T: Copy + Default>(process: HANDLE, address: usize) -> Option<T> {
-    let mut value = MaybeUninit::<T>::uninit();
-    let mut copied = 0;
-    // SAFETY: at most `size_of::<T>()` bytes go into `value`, read only when all of them came
-    let read = unsafe { ReadProcessMemory(process, std::ptr::without_provenance(address), value.as_mut_ptr().cast(), size_of::<T>(), &raw mut copied) };
-    // SAFETY: every byte of the `Copy` value was written, and any bytes are a value of these plain structs
-    (read != 0 && copied == size_of::<T>()).then(|| unsafe { value.assume_init() })
-  }
-
-  /// The UTF-16 units of a string of the other process; none for an empty one
-  fn read_text(process: HANDLE, text: RemoteString) -> Option<Vec<u16>> {
-    let units = usize::from(text.length) / 2;
-    if units == 0 || text.buffer == 0 {
-      return None;
-    }
-    let mut buffer = vec![0u16; units];
-    let mut copied = 0;
-    // SAFETY: the buffer holds `units` units, as many bytes as the call is told to copy
-    let read = unsafe { ReadProcessMemory(process, std::ptr::without_provenance(text.buffer), buffer.as_mut_ptr().cast(), units * 2, &raw mut copied) };
-    (read != 0 && copied == units * 2).then_some(buffer)
-  }
-
-  /// The arguments of a command line, as the C runtime of the program splits them (`CommandLineToArgvW`)
-  fn split_command_line(line: &[u16]) -> Vec<String> {
-    let mut terminated = line.to_vec();
-    terminated.push(0);
-    let mut count = 0;
-    // SAFETY: the line ends with a NUL; a non-null result is an array of `count` NUL-ended strings that `LocalFree`
-    // frees
-    let array = unsafe { CommandLineToArgvW(terminated.as_ptr(), &raw mut count) };
-    if array.is_null() {
-      return Vec::new();
-    }
-    let arguments = (0..usize::try_from(count).unwrap_or(0))
-      .map(|index| {
-        // SAFETY: an element of the array, a NUL-ended string
-        let argument = unsafe { *array.add(index) };
-        let mut length = 0;
-        // SAFETY: as above, read to its NUL
-        while unsafe { *argument.add(length) } != 0 {
-          length += 1;
-        }
-        // SAFETY: the `length` units before the NUL
-        String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(argument, length) })
-      })
-      .collect();
-    // SAFETY: the array `CommandLineToArgvW` allocated, freed once
-    unsafe { LocalFree(array.cast()) };
-    arguments
+  /// No scan of the working directories: reading another process's needs its memory
+  pub(super) const fn processes() -> Option<Vec<ProcessInfo>> {
+    None
   }
 
   /// The creation time of the process, while it runs: a process that exited keeps its pid as long as a handle to it is
   /// open, with its exit code in place of `STILL_ACTIVE`
   pub(super) fn started(pid: u32) -> Option<u64> {
-    started_of(open(pid, PROCESS_QUERY_LIMITED_INFORMATION).ok()?.as_raw_handle())
-  }
-
-  fn started_of(process: HANDLE) -> Option<u64> {
+    let process = open(pid).ok()?;
     let mut exit_code = 0;
-    // SAFETY: the handle is open while the caller holds it, and the code goes into a local
-    if unsafe { GetExitCodeProcess(process, &raw mut exit_code) } == 0 || exit_code != STILL_ACTIVE.cast_unsigned() {
+    // SAFETY: the handle is open while `process` lives, and the code goes into a local
+    if unsafe { GetExitCodeProcess(process.as_raw_handle(), &raw mut exit_code) } == 0 || exit_code != STILL_ACTIVE.cast_unsigned() {
       return None;
     }
     let (mut created, mut exited, mut kernel, mut user) = (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
-    // SAFETY: the handle is open while the caller holds it, and the four times go into locals
-    let read = unsafe { GetProcessTimes(process, &raw mut created, &raw mut exited, &raw mut kernel, &raw mut user) };
+    // SAFETY: the handle is open while `process` lives, and the four times go into locals
+    let read = unsafe { GetProcessTimes(process.as_raw_handle(), &raw mut created, &raw mut exited, &raw mut kernel, &raw mut user) };
     (read != 0).then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
   }
 
   /// A process that won't open for this user (another user's, a protected one): it exists, its start can't be read
   pub(super) fn runs_unseen(pid: u32) -> bool {
-    open(pid, PROCESS_QUERY_LIMITED_INFORMATION).is_err_and(|error| error.raw_os_error() == Some(ERROR_ACCESS_DENIED.cast_signed()))
+    open(pid).is_err_and(|error| error.raw_os_error() == Some(ERROR_ACCESS_DENIED.cast_signed()))
   }
 
-  /// The process `pid`, opened with `access`; an error when it is gone (`ERROR_INVALID_PARAMETER`) or won't open
-  fn open(pid: u32, access: u32) -> std::io::Result<OwnedHandle> {
+  /// The process `pid`, opened only to query it; an error when it is gone (`ERROR_INVALID_PARAMETER`) or won't open
+  fn open(pid: u32) -> std::io::Result<OwnedHandle> {
     // SAFETY: plain arguments; a non-null result is a handle that nothing else owns
-    let handle = unsafe { OpenProcess(access, 0, pid) };
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
       return Err(std::io::Error::last_os_error());
     }

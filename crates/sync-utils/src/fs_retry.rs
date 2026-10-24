@@ -33,6 +33,21 @@ pub fn remove_dir(path: impl AsRef<Path>) -> std::io::Result<()> {
   retry_while_shared(|| std::fs::remove_dir(path))
 }
 
+/// Whether `error` is the sharing error of a holder that this module waited out in vain (Windows); never elsewhere,
+/// where no holder fails these calls
+#[cfg(windows)]
+pub fn is_held(error: &std::io::Error) -> bool {
+  use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION};
+  let sharing = [ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION].map(u32::cast_signed);
+  error.raw_os_error().is_some_and(|code| sharing.contains(&code))
+}
+
+#[cfg(not(windows))]
+#[expect(clippy::missing_const_for_fn, reason = "the signature of the Windows variant")]
+pub fn is_held(_error: &std::io::Error) -> bool {
+  false
+}
+
 #[cfg(not(windows))]
 fn retry_while_shared(mut call: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
   call()
@@ -40,14 +55,12 @@ fn retry_while_shared(mut call: impl FnMut() -> std::io::Result<()>) -> std::io:
 
 #[cfg(windows)]
 fn retry_while_shared(mut call: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
-  use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION};
   /// The waits before the tries after the first: about a second in all
   const RETRY_DELAYS_MS: [u64; 8] = [1, 5, 10, 25, 50, 100, 250, 500];
-  let sharing = [ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION].map(u32::cast_signed);
   let mut delays = RETRY_DELAYS_MS.iter();
   loop {
     match call() {
-      Err(error) if error.raw_os_error().is_some_and(|code| sharing.contains(&code)) => match delays.next() {
+      Err(error) if is_held(&error) => match delays.next() {
         Some(&delay) => std::thread::sleep(std::time::Duration::from_millis(delay)),
         None => return Err(error),
       },
