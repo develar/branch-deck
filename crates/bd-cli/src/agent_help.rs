@@ -420,7 +420,8 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    read `processes`, never `ps` or `lsof`, and wait until it is done; never kill it. A repeat after a timed-out call is
    safe: it waits for the running return and answers `joined: true`. Not counted: your own session (bd, its ancestors
    and their process groups: the `jq` of `bd lease return | jq`), git's background maintenance (`maintenance`: a
-   repack after a commit, which writes only the shared object store) and `caffeinate`. The Bazel servers of the
+   repack after a commit, which writes only the shared object store; `maintenance_started`: the return started it
+   between leases, `branchdeck.leaseMaintenance`) and `caffeinate`. The Bazel servers of the
    worktree (`--workspace_directory` in it, `kind: bazel_server`) serve only it, with an output base of their own: the
    return stops them with SIGTERM once no other process is there (`stopped_servers`; their output bases stay), so
    never run `bazel shutdown` or kill one first. --confirm-preserved discards the changes and gives up the

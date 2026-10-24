@@ -495,6 +495,24 @@ fn a_lease_get_and_return() {
   assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("rev-parse", 2), ("status", 1)]);
 }
 
+/// `bd lease return` with `branchdeck.leaseMaintenance`: the processes of a return and one `maintenance run --auto
+/// --detach` in the common dir, once the slot is free
+#[test]
+fn a_lease_return_that_starts_the_maintenance() {
+  let repo = repo_with_branches();
+  repo
+    .git_executor()
+    .execute_command(&["config", "branchdeck.leaseMaintenance", "true"], repo.path().to_str().unwrap())
+    .unwrap();
+  let (_home, environment) = lease_environment(&repo);
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let added = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  let context = LeaseContext::resolve(&environment, Some(std::path::Path::new(&added.path))).unwrap();
+  let returned = lease_return(&context, &LeaseReturnArgs::default()).unwrap();
+  assert!(returned.maintenance_started, "{returned:?}");
+  assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("maintenance", 1), ("rev-parse", 2), ("status", 1)]);
+}
+
 /// `bd workspace` in the shared checkout: the repository, the `branchdeck.*` config, the pool config and one `status` of
 /// the checkout; in a lease the same without the pool config, the `status` of the shared checkout
 #[test]

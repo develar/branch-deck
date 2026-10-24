@@ -858,6 +858,37 @@ fn git_maintenance_keeps_no_slot_busy_and_is_named() {
   assert_eq!((path_of(&got), &got["reused"], got.get("skipped")), (path, &json!(true), None), "{got}");
 }
 
+/// With `maintenance.auto` false (as every fixture sets it) a commit in a slot starts no maintenance; with
+/// `branchdeck.leaseMaintenance` the return starts it once the slot is free, in the common dir, and without it none
+#[cfg(unix)]
+#[test_log::test]
+fn a_return_starts_the_maintenance_that_branchdeck_lease_maintenance_asks_for() {
+  let fixture = Fixture::new();
+  let trace = fixture.home.path().join("trace2.json");
+  let _env = test_utils::env_vars::EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
+  let started = |gits: &[Vec<String>]| gits_of(gits, "maintenance").len();
+  let path = path_of(&fixture.get(&[]));
+  started_gits(&trace);
+  let returned = fixture.give_back(&path);
+  assert_eq!((started(&started_gits(&trace)), returned.get("maintenance_started")), (0, None), "{returned}");
+
+  git(&fixture.repo, &["config", "branchdeck.leaseMaintenance", "true"]);
+  let path = path_of(&fixture.get(&[]));
+  commit_in(&path, "Add c", "c.txt");
+  slot_git(&path, &["branch", "keep-c"]);
+  assert_eq!(started(&started_gits(&trace)), 0, "a commit starts no maintenance");
+  let returned = fixture.give_back(&path);
+  let gits = started_gits(&trace);
+  assert_eq!(returned["maintenance_started"], json!(true), "{returned}");
+  let maintenance = gits_of(&gits, "maintenance");
+  assert!(
+    maintenance
+      .iter()
+      .any(|argv| argv.ends_with(&["run".to_string(), "--auto".to_string(), "--detach".to_string()])),
+    "{gits:?}"
+  );
+}
+
 /// A get refuses below the free space that `--min-free` or `branchdeck.leaseMinFree` asks, naming both and the free
 /// slots, with nothing leased; `--min-free 0` checks nothing; a size that does not parse is an invalid argument
 #[cfg(unix)]

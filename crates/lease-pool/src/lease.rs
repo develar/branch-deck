@@ -11,7 +11,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
   CheckoutWorkers, LeaseConfig, UnlandedCommit, UntrackedFiles, add_slot, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths,
-  is_valid_branch_name, lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, unlanded_commits, unlock_slot,
+  is_valid_branch_name, lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, start_deferred_maintenance, unlanded_commits, unlock_slot,
 };
 use git_ops::pick::commits_to_pick;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists};
@@ -1168,6 +1168,9 @@ pub struct LeaseReturned {
   pub stopped_servers: Vec<StoppedServer>,
   /// git's background maintenance in the slot, which does not keep it busy
   pub maintenance: Vec<u32>,
+  /// `branchdeck.leaseMaintenance` is true, and the return started `git maintenance run --auto --detach` once the slot
+  /// was free
+  pub maintenance_started: bool,
   /// What the trash kept: a path that could not be deleted once the slot was free
   pub trash_left: Vec<String>,
   /// The seeded paths removed
@@ -1236,6 +1239,7 @@ const fn joined_return(slot: Slot, landed_check: Option<LandedCheck>, process_sc
     joined: true,
     stopped_servers: Vec::new(),
     maintenance: Vec::new(),
+    maintenance_started: false,
     trash_left: Vec::new(),
     removed: Vec::new(),
     detached_branch: None,
@@ -1331,7 +1335,8 @@ fn return_once(
       check: landed_check,
     });
   }
-  let changes = slot_changes(git_executor, &path, lease_config(git_executor, &path)?.untracked)?;
+  let config = lease_config(git_executor, &path)?;
+  let changes = slot_changes(git_executor, &path, config.untracked)?;
   if !changes.is_empty() && !params.confirm_preserved {
     bail!(LeaseRefusal::DirtyWorktree { path, paths: changes });
   }
@@ -1387,7 +1392,13 @@ fn return_once(
     slot.returned = Some(last_return + 1);
     Ok(())
   })?;
-  // the slot is free: the long delete of what the rules moved into the trash keeps no get waiting
+  // the slot is free. With `maintenance.auto` false no commit in a slot starts git's maintenance, whose repack held a
+  // slot of idea-1 for 2 to 17 minutes: with `branchdeck.leaseMaintenance` the return starts it now, in the common
+  // dir, before the long delete of the trash that a timeout of the caller may cut short. It never fails the return
+  let maintenance_started = config.return_maintenance
+    && start_deferred_maintenance(git_executor, &params.workspace.git_common_dir)
+      .inspect_err(|error| warn!(error = %format!("{error:#}"), "cannot start git's maintenance after the return"))
+      .is_ok();
   let trash_left = trash.empty(&mut cleaned);
   Ok(ReturnStep::Done(Box::new(LeaseReturned {
     slot,
@@ -1397,6 +1408,7 @@ fn return_once(
     joined: false,
     stopped_servers,
     maintenance,
+    maintenance_started,
     trash_left,
     removed,
     detached_branch,

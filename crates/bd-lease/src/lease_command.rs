@@ -391,6 +391,11 @@ pub struct LeaseReturnOutput {
   /// The pids of git's background maintenance in the worktree (a repack after a commit), which keeps no worktree busy
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub maintenance: Vec<u32>,
+  /// `branchdeck.leaseMaintenance` is true (for a repository whose `maintenance.auto` is false, so no commit or fetch
+  /// starts git's maintenance): the return started `git maintenance run --auto --detach` in the common dir once the
+  /// worktree was free
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub maintenance_started: bool,
   /// What the trash kept: paths a clean rule moved there that could not be deleted once the worktree was free
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub trash_left: Vec<String>,
@@ -502,6 +507,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     joined: returned.joined,
     stopped_servers: stopped_output(&returned.stopped_servers),
     maintenance: returned.maintenance.clone(),
+    maintenance_started: returned.maintenance_started,
     trash_left: returned.trash_left.clone(),
     landed_branch: match &returned.landed_check {
       Some(LandedCheck::Content { branch }) => Some(branch.clone()),

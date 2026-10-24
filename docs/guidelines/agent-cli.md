@@ -844,7 +844,9 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   the pick onto the branch of the source would pick: land them with `bd pick --from <dir> --follow`),
   `dirty_worktree` (`paths`). Not counted: the session of bd (bd, its ancestors and the processes of their process
   groups, such as the `jq` of a pipeline), git's background maintenance (`git maintenance`, `git gc --auto` and the
-  gits they start: `maintenance` names them; a detach of HEAD waits up to 10 s for a `HEAD.lock` they hold) and
+  gits they start: `maintenance` names them; a detach of HEAD waits up to 10 s for a `HEAD.lock` they hold;
+  with `git config branchdeck.leaseMaintenance true` the return starts `git maintenance run --auto --detach` once the
+  slot is free, `maintenance_started`, for a repository whose `maintenance.auto` is false) and
   `caffeinate`. A Bazel server of the worktree (`--workspace_directory` in it) is asked to exit with SIGTERM once no
   other process is there, up to 30 s, and named in `stopped_servers`; one that does not exit is `slot_busy`.
   `landed_check` says which check found the work landed: `reachability` or `content`

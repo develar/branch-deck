@@ -1438,7 +1438,11 @@ and a refusal names the rest with their argv and kind (`processes`).
   working directory for 2 to 17 minutes in idea-1 (`gc.auto 50000`), and write only the shared object store. Told by
   argv (a `git maintenance` or a `git gc --auto`, and every git below it in the parent chain); the return names them
   (`maintenance`). The detach of HEAD retries for up to 10 s while `HEAD.lock` of the slot exists, which `pack-refs`
-  or `reflog expire` of a `gc --auto` holds.
+  or `reflog expire` of a `gc --auto` holds. A repository can move the repack between leases: `maintenance.auto`
+  false keeps every commit and fetch from starting it, and `branchdeck.leaseMaintenance` true makes each return start
+  `git maintenance run --auto --detach` in the common dir once the slot is free (`maintenance_started`); `--auto`
+  runs only the tasks whose thresholds passed. git's own switch is not the signal, since the fixtures of the tests set
+  `maintenance.auto` false only to keep maintenance out.
 - `caffeinate` of another session: it holds a power assertion and opens no file.
 
 A Bazel server of the slot (its argv has `--workspace_directory=` the slot or a directory in it, `community/` in

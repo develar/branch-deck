@@ -10,6 +10,7 @@ use crate::revs::{is_object_id, read_head};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::{Path, PathBuf};
+use sync_utils::git_bool::parse_git_bool;
 
 /// A linked worktree, as its `.git` file and its admin directory name it
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -255,6 +256,14 @@ pub fn discard_slot_changes(git_executor: &GitCommandExecutor, slot: &str) -> Re
   Ok(())
 }
 
+/// Start git's maintenance as a commit would, once a return freed its slot: `maintenance run --auto --detach` in the
+/// common dir `git_common_dir`, so the detached run keeps no slot as its working directory. `--auto` runs only the tasks
+/// whose thresholds passed (a geometric repack, loose objects), usually none; the run returns once it detached
+pub fn start_deferred_maintenance(git_executor: &GitCommandExecutor, git_common_dir: &str) -> Result<()> {
+  git_executor.execute_command(&["maintenance", "run", "--auto", "--detach"], git_common_dir)?;
+  Ok(())
+}
+
 /// Detach the HEAD of `slot` at its commit when it is on a branch, which survives; no file changes. One `rev-parse`,
 /// and a `RefTransaction` with `option no-deref` when attached
 pub fn detach_slot_head(git_executor: &GitCommandExecutor, slot: &str) -> Result<()> {
@@ -294,10 +303,14 @@ pub struct LeaseConfig {
   pub untracked: UntrackedFiles,
   /// `branchdeck.leaseMinFree`, as written (`200G`): the free space a get needs on the volume of the pool
   pub min_free: Option<String>,
+  /// `branchdeck.leaseMaintenance`: a return starts git's maintenance once the slot is free
+  /// (`start_deferred_maintenance`), for a repository whose `maintenance.auto` is false, where no commit or fetch in a
+  /// slot starts it
+  pub return_maintenance: bool,
 }
 
-/// `branchdeck.leasePool`, whether `checkout.workers` is set, `status.showUntrackedFiles` and
-/// `branchdeck.leaseMinFree`: one `config --type=path --get-regexp`, which exits with 1 when no key is set
+/// `branchdeck.leasePool`, whether `checkout.workers` is set, `status.showUntrackedFiles`, `branchdeck.leaseMinFree`
+/// and `branchdeck.leaseMaintenance`: one `config --type=path --get-regexp`, which exits with 1 when no key is set
 pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<LeaseConfig> {
   let output = git_executor
     .cmd(
@@ -305,7 +318,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
         "config",
         "--type=path",
         "--get-regexp",
-        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|checkout\.workers|status\.showuntrackedfiles)$",
+        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaintenance|checkout\.workers|status\.showuntrackedfiles)$",
       ],
       repository,
     )
@@ -317,6 +330,8 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
     match key {
       "branchdeck.leasepool" if !value.is_empty() => config.pool = Some(value.to_string()),
       "branchdeck.leaseminfree" if !value.is_empty() => config.min_free = Some(value.to_string()),
+      // the last value wins; a key without a value is true
+      "branchdeck.leasemaintenance" => config.return_maintenance = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(true),
       "checkout.workers" => config.workers.configured = true,
       // the last value wins, as in git
       "status.showuntrackedfiles" => config.untracked = if value == "all" { UntrackedFiles::All } else { UntrackedFiles::Normal },

@@ -206,6 +206,14 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   object store. While a `gc --auto` holds `HEAD.lock` of the slot (`pack-refs`, `reflog expire`), the detach of HEAD
   must be retried for up to 10 s; the lock is told by its file, never by the words of git's error.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`git_maintenance_keeps_no_slot_busy_and_is_named`)
+- With `branchdeck.leaseMaintenance` true in the git config, the return must start `git maintenance run --auto
+  --detach` in the common dir once the slot is free, before it empties the trash, and say so
+  (`maintenance_started`); a failed start never fails the return. It is for a repository whose `maintenance.auto` is
+  false, so that no commit or fetch in a slot starts a repack while a session works there (idea-1): the repack runs
+  between leases, and only when its thresholds passed (`--auto`). The detached run keeps no slot as its working
+  directory. Without the setting the return starts none.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_starts_the_maintenance_that_branchdeck_lease_maintenance_asks_for`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_return_that_starts_the_maintenance`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`git_maintenance_is_the_maintenance_and_the_gits_it_starts`)
 - Once its checks passed, the return must reserve the slot before it changes anything: under the pool lock, with CAS on
   the lease id, the lease becomes `returning`, and a get must pass the slot over. A repeat must join, never fail: a
