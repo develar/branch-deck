@@ -230,7 +230,8 @@ written, except by Update Project and the finish of its resolve session (their o
 6. **Batch**: one process per operation phase, not one per item. **An operation reads a repository fact once** and
    passes it down: the baseline and its upstream come from `read_baseline` (`symbolic-ref`, `remote` and one
    `for-each-ref`, as `read_baseline_listing` reads them for a sync), never from `detect_baseline_branch` and then
-   `resolve_baseline_upstream` (six processes; `the_baseline_and_its_upstream_are_read_once`); a step of a sync takes
+   `resolve_baseline_upstream` (six processes; `the_baseline_and_its_upstream_are_read_once`); the directories come from
+   the executor ([Executor](#executor); `the_directories_of_an_operation_are_read_once`); a step of a sync takes
    `RepoFacts`, `ConfigSnapshot` or the `SyncReport`. Only HEAD and the guards are read again, under the lock, where
    they may have moved since the check (the witness). Never parse translated text; rely on exit codes and
    on `--porcelain` and `-z` output. **One named exception:** a branch description (`branch.<name>.description`,
@@ -280,7 +281,13 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
 - Inherited `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and `GIT_NOTES_REF` are removed. A temporary index is always
   passed explicitly, in the per-call environment, which is applied after the removal.
 - The executor knows no git beyond running it: a rev or ref fact (`resolve_tree_id`, `ref_exists`) is a function of
-  `git_ops::revs`.
+  `git_ops::revs`. It carries what its operation read once, for the steps it passes the executor to (`with_fact`, one
+  value per type, which it never reads itself): the directories of the repository (`with_repository_dirs`,
+  `with_dirs_of`), so the guards, the lock, the worktree, the index of a dry run, `index.lock`, `FETCH_HEAD` and the
+  landed state are paths of those directories (`RepositoryDirs::git_path`) and start no `rev-parse`; a step on
+  another path (the source worktree of `bd pick`) reads its own. `bd`'s context attaches the directories it reads;
+  Update Project, its undo, the resolve session, `bd pick` and the rewrites of the checked out branch read them once at
+  their entry.
 - stdin is null unless the call pipes it: git never inherits the stdin of the app or of `bd`. On Windows git queries
   its stdin handle at startup, which waits while a read of the same pipe is pending in our process (`bd check --plan -`
   reads a plan from stdin).

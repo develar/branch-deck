@@ -7,6 +7,7 @@
 //! runs again once the lock is gone, a lock that no process owns is removed, and after the wait the answer is
 //! `IndexLocked`. The happy path costs no process: the lock file is looked at only after a step failed.
 
+use crate::revs::known_dirs;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::cell::OnceCell;
@@ -138,10 +139,15 @@ impl<'a> IndexLock<'a> {
     if let Some(path) = self.path.get() {
       return Ok(path);
     }
-    let path = self
-      .git_executor
-      .execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index.lock"], self.worktree)?;
-    Ok(self.path.get_or_init(|| PathBuf::from(path)))
+    let path = match known_dirs(self.git_executor, self.worktree) {
+      Some(dirs) => dirs.git_path("index.lock"),
+      None => PathBuf::from(
+        self
+          .git_executor
+          .execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index.lock"], self.worktree)?,
+      ),
+    };
+    Ok(self.path.get_or_init(|| path))
   }
 
   /// Run `step`, a git that writes the index of the worktree, and run it again while the lock of another process blocks

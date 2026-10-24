@@ -11,6 +11,7 @@ use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::pick::{PickRequest, PickSource, PickState, check_pick};
 use git_ops::reapply::{UnappliedRef, apply_reapply, apply_reapply_undo, check_reapply_undo, restore_chain_messages};
+use git_ops::revs::with_dirs_of;
 use git_ops::unapply::MoveBlocked;
 use git_ops::update_branch::{REAPPLY, finish_pending_update};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
@@ -106,6 +107,8 @@ pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBr
   let repo = params.repository_path.as_str();
   let name = params.branch_name.as_str();
   let full_name = qualified_branch_name(normalize_branch_prefix(branch_prefix), BranchKind::Unapplied, name)?;
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repo)?;
   let _lock = if params.dry_run { None } else { options.lock(git_executor, repo)? };
   if !params.dry_run {
     finish_pending_update(git_executor, repo)?;

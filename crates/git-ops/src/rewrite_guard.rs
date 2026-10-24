@@ -3,7 +3,7 @@
 //! tree of HEAD changes, keeping whatever is staged on paths the rewrite does not touch.
 
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
-use crate::revs::checked_out_branch;
+use crate::revs::{checked_out_branch, known_dirs};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -79,6 +79,10 @@ pub fn find_operation_in_progress(git_executor: &GitCommandExecutor, repo_path: 
     ("sequencer", "a cherry-pick or revert"),
   ];
 
+  // the markers live in the worktree's own git directory: none to read when the operation knows it
+  if let Some(dirs) = known_dirs(git_executor, repo_path) {
+    return Ok(MARKERS.iter().find(|(marker, _)| dirs.git_path(marker).exists()).map(|(_, operation)| *operation));
+  }
   let mut args = vec!["rev-parse"];
   for (marker, _) in MARKERS {
     args.push("--git-path");
@@ -128,7 +132,10 @@ pub struct IndexCopy {
 
 impl IndexCopy {
   pub fn new(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Self> {
-    let index_path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?;
+    let index_path = match known_dirs(git_executor, repo_path) {
+      Some(dirs) => dirs.git_path("index").to_string_lossy().into_owned(),
+      None => git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?,
+    };
     let dir = tempfile::Builder::new().prefix("branchdeck-index-").tempdir()?;
     let copy = dir.path().join("index");
     if Path::new(&index_path).exists() {

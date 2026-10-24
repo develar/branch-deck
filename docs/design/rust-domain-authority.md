@@ -1631,8 +1631,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
   спрашивает до `retry_at`; токен и scope (`read:org`) — факт `auth`, чтения источников — single-flight; сессия
   знает `git_common_dir` и передаёт его в `RewriteOptions` и `UpdateOptions`, так что lock не стартует `rev-parse`.
   Факты репозитория одной операции уже читаются один раз на её входе и передаются вниз (`RepoFacts` sync,
-  `ConfigSnapshot`, `read_baseline` для fetch и Update Project; правило «Batch» в git-operations.md); сессия
-  становится их владельцем, и операция берёт их у неё.
+  `ConfigSnapshot`, `read_baseline` для fetch и Update Project, каталоги репозитория — на executor операции,
+  `with_dirs_of`, без `rev-parse` у guards и lock; правило «Batch» в git-operations.md); сессия становится их
+  владельцем, и операция берёт их у неё.
 - **Факт без ответа** (правило приложения с 2026-10-24, `fix/first-frame-truth`): каждое семейство — `Loading` с
   открытия сессии и смены репозитория до первого ответа, сегодня это `isPatronusPending` (Patronus не ответил или вид
   роботов первого ответа списка не посчитан), `isPullRequestsLoading`, `isRobotProblemsPending` и readiness без

@@ -13,7 +13,7 @@ use anyhow::Result;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::UpdateCheck;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::current_branch;
+use git_ops::revs::{current_branch, known_dirs};
 use git_ops::update_branch::{CheckPurpose, CheckedHead, LandedScope, UpdatePlan, UpstreamRef, check_update, check_update_of};
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::NoBaseline;
@@ -161,6 +161,9 @@ pub fn previous_tip_of_forced_update(output: &str, tracking_ref: &str) -> Option
 /// When the repository was last fetched, from the time git last wrote `FETCH_HEAD` (Branch Deck's own fetch writes no
 /// `FETCH_HEAD`, its time is returned with the update result)
 pub fn last_fetch_time(git_executor: &GitCommandExecutor, repo_path: &str) -> Option<u32> {
+  if let Some(dirs) = known_dirs(git_executor, repo_path) {
+    return modified_time(&dirs.git_path("FETCH_HEAD"));
+  }
   let path = git_executor
     .execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"], repo_path)
     .ok()?;

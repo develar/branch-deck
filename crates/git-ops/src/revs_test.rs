@@ -1,10 +1,13 @@
 use crate::revs::{
-  DetachedHead, RepositoryDirs, checked_out_branch, current_branch, fork_point, is_ancestor, merge_base, read_head, ref_exists, ref_tips, repository_dirs, resolve_commit,
-  resolve_tree_id, tips_under,
+  DetachedHead, RepositoryDirs, checked_out_branch, current_branch, current_worktree, fork_point, git_common_dir, is_ancestor, known_dirs, merge_base, read_head, ref_exists,
+  ref_tips, repository_dirs, resolve_commit, resolve_tree_id, tips_under, with_dirs_of,
 };
+use crate::rewrite_guard::find_operation_in_progress;
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
 use test_log::test;
-use test_utils::git_test_utils::{TestRepo, git_canonical_path};
+use test_utils::git_test_utils::{TestRepo, TestWorktree, git_canonical_path};
+use test_utils::process_budget::{assert_processes, counting};
 
 /// An id of no object
 const MISSING: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -176,4 +179,48 @@ fn the_tips_of_several_namespaces_in_one_listing() {
   assert_eq!(tips_under(&tips, "refs/remotes/origin/"), HashMap::from([("me/virtual/auth".to_string(), base)]));
   // no namespace lists nothing, not every ref
   assert_eq!(ref_tips(git, path, &[]).unwrap(), HashMap::new());
+}
+
+/// The directories an operation read at its entry are what git names, in the main worktree and in a linked one: a file
+/// of the worktree's git directory (`git_path`) is the path of `rev-parse --git-path`, the common directory, the
+/// worktree and an operation in progress are those git reads, and with them the steps start no process
+#[test]
+fn the_known_directories_give_the_paths_git_names_without_a_process() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial", "a.txt", "a\n");
+  let linked = TestWorktree::detached(&repo);
+  for path in [repo.path_str(), linked.path.as_str()] {
+    let read = GitCommandExecutor::new();
+    let git = with_dirs_of(&read, path).unwrap();
+    let dirs = known_dirs(&git, path).unwrap().clone();
+    for name in [
+      "index",
+      "index.lock",
+      "FETCH_HEAD",
+      "branch-deck/landed.json",
+      "rebase-merge",
+      "rebase-apply",
+      "MERGE_HEAD",
+      "CHERRY_PICK_HEAD",
+      "REVERT_HEAD",
+      "sequencer",
+    ] {
+      let named = read.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", name], path).unwrap();
+      assert_eq!(dirs.git_path(name), std::path::PathBuf::from(named), "{path}: {name}");
+    }
+
+    let counted = with_dirs_of(&counting(), path).unwrap();
+    let worktree = current_worktree(&counted, path).unwrap();
+    assert_eq!(worktree, current_worktree(&read, path).unwrap(), "{path}");
+    assert_eq!(git_common_dir(&counted, path).unwrap(), git_common_dir(&read, path).unwrap().trim(), "{path}");
+    assert_eq!(find_operation_in_progress(&counted, path).unwrap(), None, "{path}");
+    std::fs::write(dirs.git_path("MERGE_HEAD"), "x\n").unwrap();
+    assert_eq!(find_operation_in_progress(&counted, path).unwrap(), Some("a merge"), "{path}");
+    assert_eq!(find_operation_in_progress(&read, path).unwrap(), Some("a merge"), "{path}");
+    std::fs::remove_file(dirs.git_path("MERGE_HEAD")).unwrap();
+    // the one `rev-parse` of `with_dirs_of`, nothing after it
+    assert_processes(&counted, &[("rev-parse", 1)]);
+    // another path reads its own
+    assert!(known_dirs(&git, "/elsewhere").is_none());
+  }
 }

@@ -3,6 +3,7 @@ use crate::interactive_command::InteractiveCommand;
 use crate::process_stats::ProcessStats;
 use crate::process_tree::ProcessTree;
 use anyhow::{Result, anyhow};
+use std::any::Any;
 use std::io::{Read, Write};
 use std::ops::ControlFlow;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
@@ -49,6 +50,20 @@ pub struct GitCommandExecutor {
   stats: Option<Arc<ProcessStats>>,
   /// Variables every process of this executor gets (`with_env`)
   env: Arc<[(String, String)]>,
+  /// What the operation of this executor read once at its entry, for every step it passes the executor to
+  /// (`with_fact`)
+  facts: Facts,
+}
+
+/// The facts of `GitCommandExecutor::with_fact`, one per type. The executor never reads or interprets them: a caller
+/// (`git_ops::revs::with_repository_dirs`) puts a fact there and the helpers of the same crate take it back
+#[derive(Clone, Default)]
+struct Facts(Arc<[Arc<dyn Any + Send + Sync>]>);
+
+impl std::fmt::Debug for Facts {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "Facts({})", self.0.len())
+  }
 }
 
 impl GitCommandExecutor {
@@ -62,9 +77,25 @@ impl GitCommandExecutor {
   pub fn with_info(info: GitInfo) -> Self {
     Self {
       info: Arc::new(OnceLock::from(info)),
-      stats: None,
-      env: Arc::default(),
+      ..Self::default()
     }
+  }
+
+  /// A clone that carries `fact`, in place of a fact of the same type, to every step its operation passes it to: an
+  /// operation reads a repository fact once (docs/design/git-operations.md, "Batch")
+  #[must_use]
+  pub fn with_fact<T: Any + Send + Sync>(&self, fact: T) -> Self {
+    let mut facts: Vec<Arc<dyn Any + Send + Sync>> = self.facts.0.iter().filter(|known| !(***known).is::<T>()).cloned().collect();
+    facts.push(Arc::new(fact));
+    Self {
+      facts: Facts(facts.into()),
+      ..self.clone()
+    }
+  }
+
+  /// The fact of type `T` that `with_fact` put here
+  pub fn fact<T: Any>(&self) -> Option<&T> {
+    self.facts.0.iter().find_map(|fact| (**fact).downcast_ref::<T>())
   }
 
   /// A clone that counts its git processes, and those of its clones, for `operation`; the summary is logged when the
@@ -76,9 +107,8 @@ impl GitCommandExecutor {
       return self.clone();
     }
     Self {
-      info: Arc::clone(&self.info),
       stats: Some(Arc::new(ProcessStats::new(operation))),
-      env: Arc::clone(&self.env),
+      ..self.clone()
     }
   }
 

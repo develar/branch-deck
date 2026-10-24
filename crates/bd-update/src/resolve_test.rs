@@ -1168,6 +1168,10 @@ fn the_landed_report_of_a_finished_session_runs_after_the_lock() {
     .unwrap_or_else(|| panic!("the finish moves the session refs: {commands:#?}"));
   assert!(commands[finished].0, "the finish under the lock: {commands:#?}");
   let report = &commands[finished + 1..];
-  assert!(report.iter().any(|(_, args)| args.contains("branch-deck/landed")), "the landed report: {commands:#?}");
+  // the landed candidates of the report: its commits by their author in the upstream range (`find_landed`)
+  assert!(
+    report.iter().any(|(_, args)| args.contains(" --fixed-strings --author=")),
+    "the landed report: {commands:#?}"
+  );
   assert!(report.iter().all(|(locked, _)| !*locked), "nothing after the finish under the lock: {commands:#?}");
 }

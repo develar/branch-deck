@@ -244,6 +244,67 @@ fn the_baseline_and_its_upstream_are_read_once() {
   });
 }
 
+/// An operation reads the directories of its repository once (`git_ops::revs::with_dirs_of`, `bd`'s context): a path in
+/// the git directory or the common one comes from `known_dirs`, `git_common_dir`, `repository_dirs` or
+/// `current_worktree`, which take the operation's directories and read them only without them. Each exemption reads a
+/// path after asking `known_dirs`, or names one the directories don't give
+#[test]
+fn the_directories_of_an_operation_are_read_once() {
+  check(
+    "a directory of the repository is read with its own `rev-parse`",
+    "git_ops::revs::{known_dirs, git_common_dir, repository_dirs, current_worktree}",
+    &[
+      Exemption {
+        path: "crates/git-ops/src/revs.rs",
+        hits: 3,
+        reason: "the readers themselves, each after `known_dirs`",
+      },
+      Exemption {
+        path: "crates/git-ops/src/rewrite_guard.rs",
+        hits: 2,
+        reason: "the markers and the index without known directories",
+      },
+      Exemption {
+        path: "crates/git-ops/src/update_branch.rs",
+        hits: 3,
+        reason: "the locks of HEAD and of a branch, which live in two directories, after a failed move; the index without known directories",
+      },
+      Exemption {
+        path: "crates/git-ops/src/index_lock.rs",
+        hits: 1,
+        reason: "index.lock without known directories",
+      },
+      Exemption {
+        path: "crates/sync-core/src/landed.rs",
+        hits: 1,
+        reason: "the landed state without known directories",
+      },
+      Exemption {
+        path: "crates/sync-core/src/baseline.rs",
+        hits: 1,
+        reason: "FETCH_HEAD without known directories",
+      },
+      Exemption {
+        path: "crates/sync-core/src/repo_facts.rs",
+        hits: 2,
+        reason: "FETCH_HEAD and the landed state in the one `rev-parse` of a sync's facts, with HEAD and the baseline",
+      },
+      Exemption {
+        path: "crates/sync-core/src/sync_inputs.rs",
+        hits: 1,
+        reason: "the directories of the app's sync, read once per sync",
+      },
+    ],
+    |source| {
+      source
+        .code_lines()
+        .filter(|(_, line)| line.contains("\"--git-common-dir\"") || line.contains("\"--git-path\""))
+        .map(|(number, _)| number)
+        .collect()
+    },
+  );
+}
+
 #[test]
 fn network_commands_run_through_remote_command() {
   check(

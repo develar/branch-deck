@@ -8,7 +8,7 @@ use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::is_object_id;
+use git_ops::revs::{is_object_id, with_dirs_of};
 use git_ops::unapply::{UnappliedMove, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
 use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{UndoCheck, UpdateUndo, finish_pending_update};
@@ -94,6 +94,8 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   let prefix = normalize_branch_prefix(branch_prefix);
   let virtual_name = qualified_branch_name(prefix, BranchKind::Virtual, &branch_name)?;
 
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repo)?;
   let _lock = options.lock(git_executor, repo)?;
   finish_pending_update(git_executor, repo)?;
 
@@ -327,6 +329,8 @@ pub(crate) fn checked_undo(
   lock_wait: LockWait,
   check: impl FnOnce() -> Result<UndoCheck>,
 ) -> Result<(RepositoryLock, Option<UpdateUndo>)> {
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let lock = lock_wait.lock(git_executor, repo_path)?;
   finish_pending_update(git_executor, repo_path)?;
   match check()? {

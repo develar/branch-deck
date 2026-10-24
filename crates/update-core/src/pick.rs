@@ -10,7 +10,7 @@ use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list_at;
 use git_ops::pick::{AppliedPick, PickCheck, PickPlan, PickRequest, PickSource, PickState, PickedCommit, apply_pick, check_pick, check_pick_undo, recheck_pick};
-use git_ops::revs::is_object_id;
+use git_ops::revs::{git_common_dir, is_object_id, with_dirs_of};
 use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update, pending_update};
 use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
@@ -142,6 +142,8 @@ const CHECKS_WITHOUT_THE_LOCK: usize = 2;
 #[instrument(skip(git_executor, options, cache, file_diffs))]
 pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options: &RewriteOptions<'_>, cache: &ObjectCache, file_diffs: &FileDiffs) -> Result<PickResult> {
   let target = params.repository_path.as_str();
+  // the steps on the target take its directories from here; those on the source worktree read its own
+  let git_executor = &with_dirs_of(git_executor, target)?;
   let (baseline, upstream) = baseline_tracking_ref(git_executor, target)?;
   let source = match &params.from {
     PickFrom::Worktree(dir) => PickSource::Worktree(dir),
@@ -476,6 +478,7 @@ pub struct UndonePick {
 /// writes. Undoing again is no error: `already_undone`
 #[instrument(skip(git_executor))]
 pub fn undo_pick_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &PickUndoToken, lock_timeout: Duration) -> Result<UndonePick> {
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
   let source = token
     .follow
@@ -524,7 +527,7 @@ fn worktree_path(git_executor: &GitCommandExecutor, repo_path: &str, id: &str) -
       .map(str::to_string)
       .ok_or_else(|| anyhow!("git worktree list names no main worktree"));
   }
-  let common_dir = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repo_path)?;
+  let common_dir = git_common_dir(git_executor, repo_path)?;
   let gitdir_file = Path::new(&common_dir).join("worktrees").join(id).join("gitdir");
   let gitdir = std::fs::read_to_string(&gitdir_file).map_err(|e| anyhow!("The worktree {id} of the undo token is gone ({}: {e})", gitdir_file.display()))?;
   let gitdir = Path::new(gitdir.trim());

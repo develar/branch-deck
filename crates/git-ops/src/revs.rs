@@ -19,8 +19,12 @@ pub struct Worktree {
   pub git_dir: String,
 }
 
-/// The worktree of `repo_path`: `main`, or the name of a linked worktree
+/// The worktree of `repo_path`: `main`, or the name of a linked worktree; no process when its operation knows the
+/// directories (`with_repository_dirs`)
 pub fn current_worktree(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Worktree> {
+  if let Some(dirs) = known_dirs(git_executor, repo_path) {
+    return Ok(dirs.worktree());
+  }
   let lines = git_executor.execute_command_lines(&["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], repo_path)?;
   let [git_dir, common_dir] = <[String; 2]>::try_from(lines).map_err(|lines| anyhow!("Unexpected rev-parse output: {lines:?}"))?;
   let id = if git_dir == common_dir {
@@ -51,11 +55,80 @@ impl RepositoryDirs {
       self.git_dir.trim_end_matches('/').rsplit('/').next().unwrap_or(MAIN_WORKTREE).to_string()
     }
   }
+
+  /// The worktree, as `current_worktree` reads it
+  pub fn worktree(&self) -> Worktree {
+    Worktree {
+      id: self.worktree_id(),
+      git_dir: self.git_dir.clone(),
+    }
+  }
+
+  /// A file of the worktree's own git directory, as `rev-parse --path-format=absolute --git-path <name>` names it for a
+  /// name git keeps per worktree (gitrepository-layout(5)): `index`, `FETCH_HEAD`, the markers of an operation in
+  /// progress (`rebase-merge`, `MERGE_HEAD`, `sequencer`, …), `branch-deck/landed.json`. Not for what the worktrees
+  /// share (`refs`, `objects`, `config`), which lives in `git_common_dir`
+  pub fn git_path(&self, name: &str) -> std::path::PathBuf {
+    std::path::Path::new(&self.git_dir).join(name)
+  }
+}
+
+/// The directories of one repository path, as its operation read them at its entry (`with_repository_dirs`)
+struct KnownDirs {
+  /// The repository path the operation passes to its steps
+  path: String,
+  dirs: RepositoryDirs,
+}
+
+/// `git_executor` for an operation on `repo_path` whose directories it read once (`repository_dirs`): its steps take
+/// them from the executor (`current_worktree`, the guards, the lock, the index of a dry run), where they would start a
+/// `rev-parse` each. A step on another path reads that path's own
+#[must_use]
+pub fn with_repository_dirs(git_executor: &GitCommandExecutor, repo_path: &str, dirs: RepositoryDirs) -> GitCommandExecutor {
+  git_executor.with_fact(KnownDirs {
+    path: repo_path.to_string(),
+    dirs,
+  })
+}
+
+/// `git_executor` for an operation on `repo_path` that reads its directories in several steps: with the directories
+/// it knows already, else with those of one `rev-parse` now (`with_repository_dirs`); as it is outside a working tree
+pub fn with_dirs_of(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<GitCommandExecutor> {
+  if known_dirs(git_executor, repo_path).is_some() {
+    return Ok(git_executor.clone());
+  }
+  Ok(match repository_dirs(git_executor, repo_path)? {
+    Some(dirs) => with_repository_dirs(git_executor, repo_path, dirs),
+    None => git_executor.clone(),
+  })
+}
+
+/// The directories of `repo_path` that its operation read at its entry (`with_repository_dirs`), `None` for another
+/// path or an operation that read none
+pub fn known_dirs<'a>(git_executor: &'a GitCommandExecutor, repo_path: &str) -> Option<&'a RepositoryDirs> {
+  git_executor.fact::<KnownDirs>().filter(|known| known.path == repo_path).map(|known| &known.dirs)
+}
+
+/// `$GIT_COMMON_DIR` of `repo_path`, absolute: the repository lock and the object cache live there; no process when
+/// its operation knows the directories (`with_repository_dirs`), else one `rev-parse` (in a bare repository too)
+pub fn git_common_dir(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
+  if let Some(dirs) = known_dirs(git_executor, repo_path) {
+    return Ok(dirs.git_common_dir.clone());
+  }
+  Ok(
+    git_executor
+      .execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repo_path)?
+      .trim()
+      .to_string(),
+  )
 }
 
 /// The working tree `directory` is in, `None` outside one (a bare repository, a `.git` directory, no repository): one
-/// `rev-parse`
+/// `rev-parse`, none when its operation knows them (`with_repository_dirs`)
 pub fn repository_dirs(git_executor: &GitCommandExecutor, directory: &str) -> Result<Option<RepositoryDirs>> {
+  if let Some(dirs) = known_dirs(git_executor, directory) {
+    return Ok(Some(dirs.clone()));
+  }
   let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-dir", "--git-common-dir"], directory)?;
   let mut lines = output.lines().map(str::trim);
   let (0, Some(top_level), Some(git_dir), Some(git_common_dir)) = (exit_code, lines.next().filter(|line| !line.is_empty()), lines.next(), lines.next()) else {

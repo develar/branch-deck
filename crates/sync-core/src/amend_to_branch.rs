@@ -5,6 +5,7 @@ use domain_types::BranchError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::amend_operations::{AmendToCommitParams, apply_amend, prepare_amend};
 use git_ops::copy_commit::CopyCommitError;
+use git_ops::revs::with_dirs_of;
 use history_rewrite::repository_lock::RewriteOptions;
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +46,8 @@ pub fn amend_uncommitted_to_branch_core(git_executor: &GitCommandExecutor, param
     files,
   } = params;
 
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, &repository_path).map_err(|e| format!("{e:#}"))?;
   let _lock = options.lock(git_executor, &repository_path).map_err(|e| format!("{e:#}"))?;
   let amend_params = AmendToCommitParams {
     original_commit_id: original_commit_id.clone(),

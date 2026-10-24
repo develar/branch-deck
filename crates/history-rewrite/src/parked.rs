@@ -15,6 +15,7 @@ use anyhow::Result;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::write_store_updates;
+use git_ops::revs::with_dirs_of;
 use tracing::{info, instrument};
 
 pub const PARKED_REF: &str = "refs/branch-deck/parked";
@@ -134,6 +135,8 @@ pub fn park_core(git_executor: &GitCommandExecutor, repository_path: &str, lines
     .iter()
     .map(|line| Ok((line.branch, Some(normalize_note(line.note)?))))
     .collect::<Result<Vec<_>, ParkError>>()?;
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repository_path)?;
   let _lock = options.lock(git_executor, repository_path)?;
   let grouping = read_grouping_inputs(git_executor, repository_path)?;
   let ahead = CommitsAhead::read(git_executor, repository_path)?;
@@ -149,6 +152,8 @@ pub fn park_core(git_executor: &GitCommandExecutor, repository_path: &str, lines
 /// with compare-and-swap on the store
 #[instrument(skip(git_executor, options))]
 pub fn unpark_core(git_executor: &GitCommandExecutor, repository_path: &str, branches: &[&str], options: &RewriteOptions) -> Result<ParkOutcome, ParkError> {
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repository_path)?;
   let _lock = options.lock(git_executor, repository_path)?;
   let parked = PARKED.read(git_executor, repository_path)?;
   if let Some(branch) = branches

@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow, bail};
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::{Worktree, current_worktree, is_object_id};
+use git_ops::revs::{Worktree, current_worktree, is_object_id, with_dirs_of};
 use git_ops::update_branch::{
   CheckPurpose, LandedScope, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards,
   check_update_undo, finish_pending_update, pending_update, recheck_update,
@@ -132,6 +132,8 @@ pub fn update_project_core(
 /// baseline `NoUpstream`, a refused guard `GuardRefusal`
 #[instrument(skip(git_executor, on_progress))]
 pub fn update_project_with(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress)) -> Result<UpdateProjectResult> {
+  // the guards, the lock, the pending moves and the index of the dry run take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   match update_project_impl(git_executor, repo_path, options, on_progress, Resolve::No)? {
     BdUpdate::Update(result) => Ok(*result),
     BdUpdate::Session(_) => Err(anyhow!("an update without a resolve session started one")),
@@ -161,6 +163,7 @@ enum Resolve<'a> {
 /// round is shown again, and its missing copies written
 #[instrument(skip(git_executor))]
 pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, dir: Option<&Path>) -> Result<BdUpdate> {
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let worktree = current_worktree(git_executor, repo_path)?;
   if let Some(session) = own_session(git_executor, repo_path, &worktree)? {
     if dir.is_some() {
@@ -408,6 +411,7 @@ pub struct UndoneUpdate {
 /// goes back to the one before the update. Undoing again is no error: `already_undone`, nothing changes
 #[instrument(skip(git_executor))]
 pub fn undo_update_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UpdateUndoToken, lock_timeout: Duration) -> Result<UndoneUpdate> {
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
   finish_pending_update(git_executor, repo_path)?;
   let undo = match check_update_undo(git_executor, repo_path, &token.previous_head, &token.new_head)? {

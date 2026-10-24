@@ -3,6 +3,7 @@
 
 use domain_types::commit::CommitInfo;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::revs::with_dirs_of;
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::RewriteOptions;
@@ -106,6 +107,8 @@ pub fn add_issue_reference_to_commits_core(
 
   // Reword commits using plumbing commands
   let repository_path = &params.repository_path;
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
   let _lock = options.lock(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
   let expected_head = options.expected_full_head(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
   let baseline_branch = detect_baseline_branch(git_executor, repository_path).map_err(|e| format!("Failed to add issue reference: {e}"))?;

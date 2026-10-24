@@ -419,7 +419,7 @@ fn an_amend() {
       ("merge-tree", 1),
       ("read-tree", 1),
       ("replay", 1),
-      ("rev-parse", 4), // the repository lock: 1
+      ("rev-parse", 3), // the directories, read once for the lock and the guards: 1
       ("symbolic-ref", 1),
       ("update-index", 3),
       ("update-ref", 1),
@@ -467,7 +467,7 @@ async fn a_drop() {
       ("remote", 1),
       ("replay", 2),
       ("rev-list", 1),
-      ("rev-parse", 10), // the repository lock: 1
+      ("rev-parse", 5), // the directories, read once for the lock, the guards and the index: 1
       ("symbolic-ref", 4),
       ("update-index", 3),
       ("update-ref", 2),
@@ -475,13 +475,14 @@ async fn a_drop() {
   );
 }
 
-/// The undo of an unapply or of a reapply: the lock (`rev-parse`: 1), the mark of pending files, the guards and the last
-/// two moves of the branch in its reflog, the dry run of the files, and the move back with its mark
+/// The undo of an unapply or of a reapply: the directories, read once for the lock, the guards and the marks
+/// (`rev-parse`: 1), the mark of pending files, the guards and the last two moves of the branch in its reflog, the dry
+/// run of the files, and the move back with its mark
 const UNDO_OF_A_MOVE: &[(&str, u32)] = &[
   ("diff-tree", 1),
   ("log", 1),
   ("read-tree", 2),
-  ("rev-parse", 8),
+  ("rev-parse", 7),
   ("symbolic-ref", 3),
   ("update-index", 3),
   ("update-ref", 2),
@@ -524,7 +525,7 @@ async fn a_reapply() {
       ("remote", 1),
       ("replay", 1),
       ("rev-list", 2),
-      ("rev-parse", 9), // the repository lock: 1
+      ("rev-parse", 5), // the directories, read once for the lock, the guards and the index: 1
       ("symbolic-ref", 4),
       ("update-index", 3),
       ("update-ref", 2),
@@ -578,7 +579,7 @@ fn a_squash() {
       ("merge-tree", 1),
       ("replay", 2),
       ("rev-list", 1),
-      ("rev-parse", 4), // the repository lock: 1
+      ("rev-parse", 3), // the directories, read once for the lock and the guards: 1
       ("symbolic-ref", 1),
       ("update-ref", 1),
       ("var", 1),
@@ -643,7 +644,7 @@ fn a_park_and_an_unpark() {
       ("for-each-ref", 1),
       ("log", 1),
       ("remote", 1),
-      ("rev-parse", 2), // the repository lock: 1
+      ("rev-parse", 2), // the directories, read once for the lock: 1
       ("update-ref", 1),
       ("var", 1),
     ],
@@ -682,7 +683,7 @@ fn a_squash_of_fixups() {
       ("remote", 1),
       ("replay", 2),
       ("rev-list", 1),
-      ("rev-parse", 7), // the repository lock: 1
+      ("rev-parse", 6), // the directories, read once for the lock and the guards: 1
       ("symbolic-ref", 1),
       ("update-ref", 1),
       ("var", 1),

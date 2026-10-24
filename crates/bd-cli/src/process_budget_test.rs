@@ -92,7 +92,7 @@ const WARM_CHECK: [(&str, u32); 7] = [
   ("for-each-ref", 2),
   ("log", 2),
   ("remote", 1),
-  ("rev-parse", 5),
+  ("rev-parse", 4),
 ];
 
 /// The processes of `bd check` of the current grouping of `repo_with_branches`, with an empty object cache: one
@@ -105,7 +105,7 @@ const CHECK: [(&str, u32); 8] = [
   ("log", 4),
   ("merge-tree", 2),
   ("remote", 1),
-  ("rev-parse", 5),
+  ("rev-parse", 4),
 ];
 
 /// `processes` with the counts of `changes` set, sorted by subcommand
@@ -155,9 +155,10 @@ impl ProgressReporter for Discard {
 }
 
 /// `bd sync` with the branch prefix of the repository's config (no `--prefix`): the processes of the core
-/// (`sync_branches` of the same repository) and the `rev-parse` of the context, nothing else. The lock is taken in the
-/// common git directory the context resolved; the one `git config` of the context reads the prefix, and the sync takes
-/// the settings and the descriptions from it
+/// (`sync_branches` of the same repository), nothing else: the `rev-parse` of the context's directories takes the
+/// place of the guards', which find the markers of an operation in progress in the git directory the context read
+/// (`with_repository_dirs`). The lock is taken in the common git directory the context resolved; the one `git config`
+/// of the context reads the prefix, and the sync takes the settings and the descriptions from it
 #[test]
 fn a_sync_with_the_prefix_of_the_config() {
   // the global config of bd in a test, so that the core reads the settings bd reads
@@ -175,13 +176,12 @@ fn a_sync_with_the_prefix_of_the_config() {
     .map(|(subcommand, stats)| (subcommand, stats.count))
     .collect();
   let core: Vec<(&str, u32)> = core.iter().map(|(subcommand, count)| (subcommand.as_str(), *count)).collect();
-  let core_rev_parse = core.iter().find(|(subcommand, _)| *subcommand == "rev-parse").map_or(0, |(_, count)| *count);
 
   let repo = repo_with_branches();
   let context = context_with_the_config_prefix(&repo);
   let output = sync(&context).unwrap();
   assert_eq!(output.branches.len(), 2);
-  assert_processes(&context, &changed(&core, &[("rev-parse", core_rev_parse + 1)]));
+  assert_processes(&context, &core);
 }
 
 /// `bd status` of the synced branches: HEAD, the grouping, whose one listing has the virtual tips too, the stack
@@ -253,7 +253,7 @@ fn a_push() {
       ("push", 1),
       ("remote", 2),
       ("rev-list", 2),
-      ("rev-parse", 3),
+      ("rev-parse", 2),
       ("show-ref", 1),
       ("symbolic-ref", 1),
       ("update-ref", 2),
@@ -306,7 +306,7 @@ fn a_push_beside_a_robot_started_before_a_restack() {
       ("push", 1),
       ("remote", 2),
       ("rev-list", 2),
-      ("rev-parse", 3),
+      ("rev-parse", 2),
       ("symbolic-ref", 1),
     ],
   );
@@ -337,7 +337,7 @@ fn a_fold() {
       ("remote", 2),
       ("replay", 1),
       ("rev-list", 1),
-      ("rev-parse", 10),
+      ("rev-parse", 7),
       ("symbolic-ref", 2),
       ("update-ref", 1),
       ("var", 1),
@@ -371,7 +371,7 @@ fn a_reword() {
       ("for-each-ref", 2),
       ("log", 2),
       ("remote", 2),
-      ("rev-parse", 7),
+      ("rev-parse", 5),
       ("symbolic-ref", 1),
       ("update-ref", 1),
     ],
@@ -459,7 +459,7 @@ fn a_pick() {
       ("remote", 1),
       ("replay", 1),
       ("rev-list", 1),
-      ("rev-parse", 25),
+      ("rev-parse", 17),
       ("symbolic-ref", 9),
       ("update-index", 6),
       ("update-ref", 4),
@@ -582,7 +582,7 @@ fn a_pick_into_a_branch_the_target_has() {
       ("read-tree", 1),
       ("remote", 1),
       ("rev-list", 1),
-      ("rev-parse", 7),
+      ("rev-parse", 4),
       ("symbolic-ref", 2),
       ("update-index", 1),
     ],
@@ -607,7 +607,7 @@ const SAFE_PUSH_CHECK: &[(&str, u32)] = &[
   ("notes", 1),
   ("remote", 2),
   ("rev-list", 2),
-  ("rev-parse", 4),
+  ("rev-parse", 3),
   ("show-ref", 1),
   ("symbolic-ref", 1),
   ("update-ref", 2),
@@ -720,7 +720,7 @@ fn a_safe_push_check_of_the_whole_stack() {
       ("notes", 1),
       ("remote", 2),
       ("rev-list", 4),
-      ("rev-parse", 4),
+      ("rev-parse", 3),
       ("show-ref", 2),
       ("symbolic-ref", 1),
       ("update-ref", 4),
@@ -822,6 +822,6 @@ fn a_group_dry_run_with_a_description() {
   assert_eq!(output.described, ["auth"]);
   assert_processes(
     &context,
-    &[("cat-file", 1), ("config", 2), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 4)],
+    &[("cat-file", 1), ("config", 2), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 3)],
   );
 }

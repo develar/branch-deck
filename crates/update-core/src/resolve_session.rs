@@ -12,7 +12,7 @@ use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, Update
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
 use git_ops::resolve_check::count_markers;
-use git_ops::revs::{Worktree, current_worktree};
+use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
 use git_ops::update_branch::{LandedScope, UpdatePlan};
 use git_ops::update_resolve::{
   ConflictKind, EditCopy, RefusalKind, Resolution, ResolveError, RoundInput, RoundObjects, Session, SessionStart, SessionState, SessionStatus, Side, Stage, Step, abort_session,
@@ -319,6 +319,7 @@ pub struct ContinueOptions {
 /// its resolution in a loop never makes an update, a rewrite or another `bd` wait
 #[instrument(skip(git_executor))]
 pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, options: &ContinueOptions, lock_timeout: Duration) -> Result<SessionOutcome> {
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let lock = if options.dry_run {
     None
   } else {
@@ -509,6 +510,7 @@ pub struct AbortedSession {
 /// not orphaned), only `force` removes it
 #[instrument(skip(git_executor))]
 pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktree: Option<&str>, force: bool, lock_timeout: Duration) -> Result<AbortedSession> {
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let invalid = |message: String| anyhow::Error::new(ResolveError::InvalidInput { message });
   if let Some(id) = worktree
     && (id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
@@ -547,6 +549,7 @@ pub struct SessionSummary {
 /// `bd update --status`: the session of this worktree (writing the copies `materialize` asks for) and every session of
 /// the repository. Takes no lock and moves nothing
 pub fn session_status(git_executor: &GitCommandExecutor, repo_path: &str, materialize: Option<Materialize>) -> Result<(Option<SessionView>, Vec<SessionSummary>)> {
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let worktree = current_worktree(git_executor, repo_path)?;
   let sessions = list_sessions(git_executor, repo_path)?;
   let mut own = None;

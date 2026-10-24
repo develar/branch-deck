@@ -422,7 +422,8 @@ fn the_check_of_a_pick_runs_before_the_lock() {
   let commands = wrapped.commands();
   let dry_runs = commands.iter().filter(|(locked, args)| !locked && args.contains(" read-tree -m -u -n ")).count();
   assert_eq!(dry_runs, 2, "both dry runs before the lock: {commands:#?}");
-  // the marks of interrupted moves, the witness (the target's guards, HEAD and upstream; the source's guards and HEAD),
+  // the marks of interrupted moves, the witness (the target's guards from the directories bd read, HEAD and upstream;
+  // the source's guards and HEAD),
   // the local changes on `a.txt`, the one path a move changes that the old tree has (its index entry, its content), and
   // each move: the check of the symref, the transaction with its mark, the files, the mark deleted
   assert_eq!(
@@ -431,7 +432,7 @@ fn the_check_of_a_pick_runs_before_the_lock() {
       ("cat-file".to_string(), 1),
       ("hash-object".to_string(), 1),
       ("read-tree".to_string(), 2),
-      ("rev-parse".to_string(), 12),
+      ("rev-parse".to_string(), 8),
       ("symbolic-ref".to_string(), 6),
       ("update-index".to_string(), 4),
       ("update-ref".to_string(), 4),

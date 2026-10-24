@@ -5,7 +5,7 @@
 use crate::commit_ids::MIN_ID_LENGTH;
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::checked_out_branch;
+use git_ops::revs::{checked_out_branch, git_common_dir};
 use git_ops::rewrite_guard::HeadMoved;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -156,8 +156,8 @@ pub fn lock_repository(git_executor: &GitCommandExecutor, repository_path: &str,
 /// `lock_repository`; `on_wait` is called once, when another holds the lock and the wait starts (the update says so)
 #[instrument(skip(git_executor, on_wait))]
 pub fn lock_repository_with(git_executor: &GitCommandExecutor, repository_path: &str, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
-  let common_dir = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repository_path)?;
-  lock_repository_in(Path::new(common_dir.trim()), timeout, on_wait)
+  let common_dir = git_common_dir(git_executor, repository_path)?;
+  lock_repository_in(Path::new(&common_dir), timeout, on_wait)
 }
 
 /// `lock_repository_with` for a caller that knows `$GIT_COMMON_DIR` (absolute, `bd`'s context): no git process
@@ -260,8 +260,8 @@ impl LockWait<'_> {
 
   /// `lock`; `on_wait` is called once, when another holds the lock and the wait starts (the update says so)
   pub fn lock_with(&self, git_executor: &GitCommandExecutor, repository_path: &str, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
-    let common_dir = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repository_path)?;
-    self.lock_in(Path::new(common_dir.trim()), on_wait)
+    let common_dir = git_common_dir(git_executor, repository_path)?;
+    self.lock_in(Path::new(&common_dir), on_wait)
   }
 
   /// `lock_with` for a caller that knows `$GIT_COMMON_DIR` (absolute): no git process

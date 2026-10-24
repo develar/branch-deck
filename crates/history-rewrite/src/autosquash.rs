@@ -12,7 +12,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::read_raw_commits;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::{checked_out_branch, short_id};
+use git_ops::revs::{checked_out_branch, short_id, with_dirs_of};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash};
 use serde::{Deserialize, Serialize};
@@ -323,6 +323,8 @@ pub fn get_autosquash_plan_with_branches(git_executor: &GitCommandExecutor, repo
 #[instrument(skip(git_executor, options))]
 pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions) -> Result<SquashFixupsResult> {
   let repo_path = &params.repository_path;
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let _lock = options.lock(git_executor, repo_path)?;
   let (head, commits, grouping) = read_range(git_executor, repo_path)?;
   options.ensure_head(git_executor, repo_path, &head)?;

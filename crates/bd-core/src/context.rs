@@ -8,7 +8,7 @@ use domain_types::settings::{AppSettings, PrefixSource};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
-use git_ops::revs::{RepositoryDirs, repository_dirs};
+use git_ops::revs::{repository_dirs, with_repository_dirs};
 use github::client::GITHUB_API_URL;
 use github::token::TokenSources;
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
@@ -181,15 +181,13 @@ impl RepoContext {
       return Err(CliError::new(ErrorCode::NotARepository, format!("No such directory: {}", directory.display())));
     }
     let directory = directory.to_string_lossy();
-    let Some(RepositoryDirs {
-      top_level: repository,
-      git_common_dir,
-      ..
-    }) = repository_dirs(&git, &directory)?
-    else {
+    let Some(dirs) = repository_dirs(&git, &directory)? else {
       return Err(CliError::new(ErrorCode::NotARepository, format!("Not inside a git working tree: {directory}")));
     };
-    let git_common_dir = PathBuf::from(git_common_dir);
+    let repository = dirs.top_level.clone();
+    let git_common_dir = PathBuf::from(&dirs.git_common_dir);
+    // every step of the command takes the directories from here: the guards, the lock, the worktree, a dry run's index
+    let git = with_repository_dirs(&git, &repository, dirs);
 
     // the config the sync reads too: one `git config` for the prefix, the settings and the descriptions
     let mut config = None;

@@ -12,7 +12,7 @@ use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{merge_trees, replay_range_with_env};
-use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, is_ancestor, merge_base, resolve_commit};
+use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, is_ancestor, known_dirs, merge_base, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress};
 use crate::update_resolve::RESOLVE_NOTES_REF;
 use crate::word_replay::{WordsReplay, replay_resolving_words, resolve_note};
@@ -1782,7 +1782,10 @@ fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &
   let index_path = if let Some(path) = &probe.index_path {
     path.clone()
   } else {
-    let path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?;
+    let path = match known_dirs(git_executor, repo_path) {
+      Some(dirs) => dirs.git_path("index").to_string_lossy().into_owned(),
+      None => git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?,
+    };
     probe.index_path = Some(path.clone());
     path
   };

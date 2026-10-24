@@ -27,7 +27,7 @@ use domain_types::stack::{StackProblem, StackProblemView, stack_path};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{StoreUpdate, WrittenStore, write_store_commits, write_store_updates};
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::{checked_out_branch, is_object_id, read_head, short_id};
+use git_ops::revs::{checked_out_branch, is_object_id, read_head, short_id, with_dirs_of};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::restore_branch_head_with;
 use serde::{Deserialize, Serialize};
@@ -677,6 +677,8 @@ fn with_stack_parents(snapshot: &Snapshot, mut change: Change, set: BTreeMap<Str
 /// tree stay valid
 #[instrument(skip(git_executor))]
 pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken, lock_wait: LockWait) -> Result<(), RegroupError> {
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repository_path)?;
   let _lock = lock_wait.lock(git_executor, repository_path)?;
   let mut also = RefTransaction::new();
   if let Some(pair) = &token.issue_groups {

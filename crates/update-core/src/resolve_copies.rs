@@ -9,6 +9,7 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::revs::git_common_dir;
 use git_ops::update_resolve::{ConflictFile, EditCopy, ResolveError, RoundConflict, RoundObjects, SessionState, list_sessions};
 use std::fs;
 use std::io::{ErrorKind, Read};
@@ -285,7 +286,7 @@ pub fn prepare_dir(git_executor: &GitCommandExecutor, repo_path: &str, dir: &Pat
       session.state().worktree
     ));
   }
-  let common_dir = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repo_path)?;
+  let common_dir = git_common_dir(git_executor, repo_path)?;
   let common_dir = fs::canonicalize(common_dir).unwrap_or_default();
   let output = git_executor.cmd(&["worktree", "list", "--porcelain", "-z"], repo_path).bytes()?;
   let output = String::from_utf8_lossy(&output);

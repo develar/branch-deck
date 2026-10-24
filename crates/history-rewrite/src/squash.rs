@@ -8,6 +8,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::copy_commit::CopyCommitError;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
+use git_ops::revs::with_dirs_of;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -61,6 +62,8 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
   );
 
   let repo_path = &params.repository_path;
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let _lock = options.lock(git_executor, repo_path)?;
   let ids: Vec<&str> = params.commit_ids.iter().map(String::as_str).collect();
   let history = History::read_to(git_executor, repo_path, &ids)?;
@@ -94,6 +97,8 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
 /// waited for as `lock_wait` says
 #[instrument(skip(git_executor))]
 pub fn restore_branch_head_core(git_executor: &GitCommandExecutor, params: &RestoreBranchHeadParams, lock_wait: LockWait) -> Result<()> {
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, &params.repository_path)?;
   let _lock = lock_wait.lock(git_executor, &params.repository_path)?;
   restore_branch_head(git_executor, &params.repository_path, &params.expected_head, &params.previous_head, "undo squash").map_err(CopyCommitError::into_anyhow)?;
   info!("Restored the branch head");

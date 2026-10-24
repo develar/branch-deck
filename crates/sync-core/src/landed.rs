@@ -21,7 +21,7 @@ use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::parse_single_commit;
 use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
-use git_ops::revs::read_head;
+use git_ops::revs::{known_dirs, read_head};
 use git_ops::update_branch::LandedScope;
 use history_rewrite::autosquash::plan_autosquash;
 use history_rewrite::commit_grouper::{GroupingInputs, parse_subject};
@@ -367,6 +367,9 @@ struct LandedState {
 pub const STATE_FILE: &str = "branch-deck/landed.json";
 
 fn state_path(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<PathBuf> {
+  if let Some(dirs) = known_dirs(git_executor, repo_path) {
+    return Ok(dirs.git_path(STATE_FILE));
+  }
   let path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", STATE_FILE], repo_path)?;
   Ok(PathBuf::from(path))
 }

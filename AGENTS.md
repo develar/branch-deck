@@ -286,7 +286,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `.env`, `.stdin`, `.accept`, `.timeout` and one finisher (`.text`, `.bytes`, `.lines`, `.output`, `.status`,
   `.stream`, `.progress`, `.interactive`), all on one spawn core; the only shorthands are `execute_command` (`.text`),
   `execute_command_lines` (`.lines`) and `execute_command_with_status` (`.status` as text). The executor knows no git
-  beyond that: a rev or ref fact (`resolve_tree_id`, `ref_exists`) is a git-ops function. Test fixtures run git through
+  beyond that: a rev or ref fact (`resolve_tree_id`, `ref_exists`) is a git-ops function. It carries what its operation
+  read once (`with_fact`): the repository's directories (`git_ops::revs::with_dirs_of`), so a step asks `known_dirs`,
+  `git_common_dir` or `current_worktree` instead of its own `rev-parse`. Test fixtures run git through
   `test_utils::git_test_utils::git_command()`, which removes the repository variables a hook or `rebase --exec`
   exports (`git_command_test.rs` fails on a raw `Command::new("git")`).
 - **Scan tests** (`crates/git-executor/src/git_usage_scan_test.rs`, on the sources as `source_scan_test.rs` reads them

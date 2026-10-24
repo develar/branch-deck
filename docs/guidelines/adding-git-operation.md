@@ -38,8 +38,9 @@ headers of `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `cr
   of the checked-out branch takes `&RewriteOptions`: `options.lock(..)` before it reads anything, then the expected
   HEAD (`ensure_head`, `expected_full_head`), then git-ops. An operation reads a repository fact once and passes it
   down: a step of a sync, or of a `bd` command after its sync, takes the facts `RepoFacts`, `ConfigSnapshot`,
-  `Snapshot` or the `SyncReport` hold instead of reading them again, and the baseline with its upstream comes from one
-  `read_baseline`; only HEAD and the guards are read again under the lock. A remote only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
+  `Snapshot` or the `SyncReport` hold instead of reading them again, the baseline with its upstream comes from one
+  `read_baseline`, and an operation that reads the directories in several steps takes them once at its entry
+  (`with_dirs_of`); only HEAD and the guards are read again under the lock. A remote only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
 - **bd** (usually `<op>_command.rs` in the crate of its area, e.g. `crates/bd-rewrite/src/`, and a variant of `Command`
   in `crates/bd-cli/src/lib.rs`): clap arguments, one JSON object with
   `schema` (`bd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
@@ -96,5 +97,6 @@ Reuse one of these before writing a parser or a process of your own.
 | `execute_remote_command` (`_accepting`, `_with_progress`, `_with_progress_until`) | `sync_core::remote_command` | every push and fetch |
 | `push_refs` | `sync_core::push_lease` | one leased `push --porcelain` of many refs |
 | `detect_baseline_branch`; `check_sync_guards` | `history_rewrite::baseline`; `sync_core::sync` | the baseline outside a sync; the guards of a sync |
+| `with_dirs_of`, `known_dirs`, `git_common_dir`, `RepositoryDirs::git_path` | `git_ops::revs` | the directories of the repository, read once at the entry of an operation and carried by its executor: a path in the git directory with no `rev-parse` |
 | `ProcessPermits` | `git_executor::concurrency` | the slots of an operation's parallel git work |
 | `with_process_stats`, `GitCommandExecutor::process_stats`; `ProcessStats::by_command` | `git_executor::git_command_executor`; `git_executor::process_stats` | the processes of an operation, in a test or in the log |
