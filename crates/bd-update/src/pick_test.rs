@@ -354,6 +354,7 @@ fn the_landing_of_a_pick_is_read_after_the_lock() {
 }
 
 /// A worktree with two commits that change `a.txt` and add `b.txt`, onto a target that moved on: the pick replays
+#[cfg(unix)]
 fn lane_onto_a_moved_target(repo: &TestRepo) -> TestWorktree {
   let lane = TestWorktree::detached(repo);
   lane.commit("(lane) Change a", "a.txt", "lane\n");
