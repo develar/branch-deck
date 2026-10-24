@@ -25,7 +25,6 @@ pub struct ReapplyBranchParams {
   pub repository_path: String,
   /// The name of the unapplied branch, `<name>` of `{prefix}/unapplied/<name>`
   pub branch_name: String,
-  pub branch_prefix: String,
   /// Check only: nothing is written but git objects, and no lock is taken
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
@@ -98,15 +97,15 @@ impl ReapplyRefusal {
   }
 }
 
-/// Reapply the unapplied branch `params.branch_name`: its own commits (from its stack note, else its merge base with the
+/// Reapply the unapplied branch `params.branch_name` (named with `branch_prefix`, which the caller resolved): its own commits (from its stack note, else its merge base with the
 /// baseline) get their grouping prefix back where their subject groups elsewhere, then they are picked onto HEAD
 /// (`check_pick`: a commit HEAD has is left out, a conflict or local changes in the way refuse it), and HEAD moves with
 /// the files while the unapplied branch is deleted, in one transaction. Under the repository lock unless a dry run
 #[instrument(skip(git_executor, options), fields(repo = %params.repository_path, branch = %params.branch_name))]
-pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBranchParams, options: &RewriteOptions) -> Result<ReapplyBranchResult> {
+pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBranchParams, branch_prefix: &str, options: &RewriteOptions) -> Result<ReapplyBranchResult> {
   let repo = params.repository_path.as_str();
   let name = params.branch_name.as_str();
-  let full_name = qualified_branch_name(normalize_branch_prefix(&params.branch_prefix), BranchKind::Unapplied, name)?;
+  let full_name = qualified_branch_name(normalize_branch_prefix(branch_prefix), BranchKind::Unapplied, name)?;
   let _lock = if params.dry_run { None } else { options.lock(git_executor, repo)? };
   if !params.dry_run {
     finish_pending_update(git_executor, repo)?;

@@ -1213,20 +1213,26 @@ fn fingerprint(snapshot: &Snapshot) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct FindConflictFixParams {
   pub repository_path: String,
-  pub branch_prefix: String,
 }
 
-/// The fix of the conflicts of the current grouping (`find_conflict_fix`): trial builds only, without the repository
-/// lock; `cancel` stops it before the next branch build
+/// The fix of the conflicts of the current grouping (`find_conflict_fix`) of the branches named with `branch_prefix`,
+/// which the caller resolved: trial builds only, without the repository lock; `cancel` stops it before the next branch
+/// build
 #[instrument(skip(git_executor, cache, cancel))]
-pub fn find_conflict_fix_core(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &FindConflictFixParams, cancel: &AtomicBool) -> Result<ConflictFix> {
+pub fn find_conflict_fix_core(
+  git_executor: &GitCommandExecutor,
+  cache: &ObjectCache,
+  params: &FindConflictFixParams,
+  branch_prefix: &str,
+  cancel: &AtomicBool,
+) -> Result<ConflictFix> {
   let run = FixRun {
     budget: FixBudget::default(),
     started: Instant::now(),
     cancel,
     progress: &|line| debug!(line, "conflict fix"),
   };
-  let session = CheckSession::open(git_executor, &params.repository_path, &params.branch_prefix, cache)?;
+  let session = CheckSession::open(git_executor, &params.repository_path, branch_prefix, cache)?;
   Ok(session.find_conflict_fix(None, None, &run)?)
 }
 

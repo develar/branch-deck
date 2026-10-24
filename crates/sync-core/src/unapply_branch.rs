@@ -26,7 +26,6 @@ pub struct UnapplyBranchParams {
   pub repository_path: String,
   /// The branch as the grouping names it (`auth`), not its full virtual branch name
   pub branch_name: String,
-  pub branch_prefix: String,
   /// The original commits the request was made for: when the branch groups others now, the unapply is refused. `None`
   /// takes the commits as they group now
   #[serde(default)]
@@ -79,21 +78,20 @@ impl UnapplyRefusal {
   }
 }
 
-/// Unapply the virtual branch of `params.branch_name`: its original commits leave HEAD (the checked out branch), the
+/// Unapply the virtual branch of `params.branch_name` (named with `branch_prefix`, which the caller resolved): its original commits leave HEAD (the checked out branch), the
 /// files following, and the virtual branch moves to the unapplied namespace, all in one ref transaction. Under the
 /// repository lock, after an interrupted move of the files is finished: the commits of the branch as they group now
 /// (`original_commit_ids`, when given, must be them), the check that the virtual branch is their copies, the drop
 /// replayed on objects and the dry run of the files (`check_unapply`), then the move
 #[instrument(skip(git_executor, options), fields(repo = %params.repository_path, branch = %params.branch_name))]
-pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBranchParams, options: &RewriteOptions) -> Result<UnapplyBranchResult> {
+pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBranchParams, branch_prefix: &str, options: &RewriteOptions) -> Result<UnapplyBranchResult> {
   let UnapplyBranchParams {
     repository_path,
     branch_name,
-    branch_prefix,
     original_commit_ids,
   } = params;
   let repo = repository_path.as_str();
-  let prefix = normalize_branch_prefix(&branch_prefix);
+  let prefix = normalize_branch_prefix(branch_prefix);
   let virtual_name = qualified_branch_name(prefix, BranchKind::Virtual, &branch_name)?;
 
   let _lock = options.lock(git_executor, repo)?;

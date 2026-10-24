@@ -29,7 +29,8 @@ import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useLanding } from "@/stores/landed"
 import { useOperationWait } from "@/stores/operations"
-import { useSelectedProjectField } from "@/stores/repository"
+import { useSelectedProjectPath } from "@/stores/repository"
+import { useRepositoryStateField } from "@/stores/settings/repositoryState"
 import type { RunningUpdate } from "@/stores/update-project"
 import { runUpdateProject, UPDATE_OPERATION, useShownUpdate } from "@/stores/update-project"
 
@@ -56,7 +57,7 @@ function upstreamName(status: BaselineStatus): string {
 }
 
 function useFetchTime(status: BaselineStatus): number | null {
-  const ownFetchTime = useSelectedProjectField("lastFetchTime")
+  const ownFetchTime = useRepositoryStateField(useSelectedProjectPath(), "lastFetchTime")
   return lastFetchTime(status.update, ownFetchTime)
 }
 

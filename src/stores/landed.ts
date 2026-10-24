@@ -8,8 +8,8 @@ import { notifyError } from "@/lib/errors"
 import { mergeLandedReport } from "@/lib/landed"
 import { recordLanded } from "@/stores/activity"
 import { clearNewlyArchived } from "@/stores/archived-branches"
-import { useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
-import { updateProject } from "@/stores/settings/repositorySettings"
+import { useSelectedProjectPath } from "@/stores/repository"
+import { updateRepositoryState, useRepositoryStateField } from "@/stores/settings/repositoryState"
 
 /** The island stays at least this long after the user saw it: the sync that follows an update keeps it */
 export const ISLAND_MIN_SEEN_MS = 10_000
@@ -88,7 +88,7 @@ export function hideAfterSync(repositoryPath: string): void {
     return
   }
   landedStore.setState({ seenAt: null })
-  updateProject(repositoryPath, { landedHiddenUntil: seenAt.landedAt })
+  updateRepositoryState(repositoryPath, state => ({ ...state, landedHiddenUntil: seenAt.landedAt }))
 }
 
 function useOwnState<T>(select: (state: LandedState) => T, fallback: T): T {
@@ -103,7 +103,7 @@ export function useLandedReport(): readonly LandedBranch[] {
 
 /** What the island shows: the branches of the undismissed report that landed after those a sync hid */
 export function useLandedIsland(): readonly LandedBranch[] {
-  const hiddenUntil = useSelectedProjectField("landedHiddenUntil") ?? 0
+  const hiddenUntil = useRepositoryStateField(useSelectedProjectPath(), "landedHiddenUntil") ?? 0
   const report = useLandedReport()
   return useMemo(() => (hiddenUntil === 0 ? report : report.filter(branch => branch.landedAt > hiddenUntil)), [report, hiddenUntil])
 }

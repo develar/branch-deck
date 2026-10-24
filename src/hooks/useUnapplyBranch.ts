@@ -5,7 +5,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { runRewrite, runUndo } from "@/lib/rewrite"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSubject } from "@/stores/operations"
-import { getEffectiveBranchPrefix, vcsRequestFactory } from "@/stores/repository"
+import { vcsRequestFactory } from "@/stores/repository"
 
 export interface UnapplyOptions {
   /** The surface that started it and shows its spinner (`inlineSurface` of the confirmation) */
@@ -24,7 +24,6 @@ export async function unapplyBranch(branch: Branch, options: UnapplyOptions = {}
     return false
   }
   const { repositoryPath } = vcsRequestFactory.createRequest()
-  const branchPrefix = getEffectiveBranchPrefix()
   const result = await runRewrite(
     { id: "unapply", subject: branchSubject(branch.name), objects: [branch.name], label: `Unapplying ${branch.name}`, surface: options.surface ?? null },
     `Cannot unapply ${branch.name}`,
@@ -33,7 +32,6 @@ export async function unapplyBranch(branch: Branch, options: UnapplyOptions = {}
         {
           repositoryPath,
           branchName: branch.name,
-          branchPrefix,
           originalCommitIds: branch.commits.map(commit => commit.originalHash),
         },
         wait,

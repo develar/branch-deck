@@ -14,7 +14,6 @@ import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import type { OperationKey } from "@/stores/operations"
-import { getEffectiveBranchPrefix } from "@/stores/repository"
 
 /** The search of the fix of the conflicts of the last sync (spec/branch/conflict-fix.spec.md) */
 export interface ConflictFixState {
@@ -61,7 +60,7 @@ export async function requestConflictFix(force = false): Promise<void> {
   }
   const { syncedInputs } = branchSyncStore.getState()
   conflictFixStore.setState({ key, status: "searching", fix: null, error: null })
-  const result = await invokeCommand(() => commands.findConflictFix({ repositoryPath: syncedInputs!.repositoryPath, branchPrefix: getEffectiveBranchPrefix() }))
+  const result = await invokeCommand(() => commands.findConflictFix({ repositoryPath: syncedInputs!.repositoryPath }))
   if (conflictFixStore.getState().key !== key) {
     return
   }

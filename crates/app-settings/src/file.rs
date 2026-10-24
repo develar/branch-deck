@@ -25,9 +25,10 @@ pub const REPOSITORY_STATE_FILE_NAME: &str = "repository-state.json";
 pub const REPOSITORY_STATE_KEY: &str = "repositoryState";
 
 /// The fields of a repository in `repositoryState`: when it was synced last, how many branches that sync had, how long
-/// the steps of Update Project and of a sync took. A settings file of before kept them in each project of
-/// `recentProjects` (`SettingsFile::take_repository_state`)
-pub const REPOSITORY_STATE_FIELDS: &[&str] = &["lastSyncTime", "lastBranchCount", "updateTimings"];
+/// the steps of Update Project and of a sync took, when Branch Deck fetched its baseline last, up to when the Landed
+/// island hides what landed (a sync hides it). A settings file of before kept them in each project of `recentProjects`
+/// (`SettingsFile::take_repository_state`)
+pub const REPOSITORY_STATE_FIELDS: &[&str] = &["lastSyncTime", "lastBranchCount", "updateTimings", "lastFetchTime", "landedHiddenUntil"];
 
 /// The key of the recent projects, whose projects kept the fields of `repositoryState` before it
 const RECENT_PROJECTS_KEY: &str = "recentProjects";

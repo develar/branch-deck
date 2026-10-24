@@ -36,7 +36,9 @@ const { gh } = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/lib/bindings", () => ({
+vi.mock("@/lib/bindings", async importOriginal => ({
+  // the constants of the bindings (the defaults of the settings Rust reads); the commands are the test's
+  ...(await importOriginal<typeof import("@/lib/bindings")>()),
   commands: {
     getReviewRequests: async (params: { repositoryPath: string; githubRepository: string | null }) => {
       gh.calls.push(params)

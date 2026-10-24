@@ -24,10 +24,9 @@ fn reapply(repo: &TestRepo, name: &str, dry_run: bool) -> Result<ReapplyBranchRe
   let params = ReapplyBranchParams {
     repository_path: path(repo).to_string(),
     branch_name: name.to_string(),
-    branch_prefix: PREFIX.to_string(),
     dry_run,
   };
-  reapply_branch_core(repo.git_executor(), &params, &RewriteOptions::default())
+  reapply_branch_core(repo.git_executor(), &params, PREFIX, &RewriteOptions::default())
 }
 
 fn refusal(repo: &TestRepo, name: &str) -> ReapplyRefusal {
@@ -173,10 +172,9 @@ fn reapply_waits_for_the_repository_lock_and_fails_with_locked() {
   let params = ReapplyBranchParams {
     repository_path: path(&repo).to_string(),
     branch_name: "feature".to_string(),
-    branch_prefix: PREFIX.to_string(),
     dry_run: false,
   };
-  let error = reapply_branch_core(repo.git_executor(), &params, &options).expect_err("locked");
+  let error = reapply_branch_core(repo.git_executor(), &params, PREFIX, &options).expect_err("locked");
   assert!(error.downcast_ref::<history_rewrite::repository_lock::RepositoryLocked>().is_some(), "{error:#}");
   assert!(repo.branch_exists(UNAPPLIED));
 }

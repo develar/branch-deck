@@ -354,17 +354,17 @@ test.describe("Branch review window", () => {
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
   })
 
-  test("should save the diff view the window chooses through the main window", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
+  test("should save the diff view the window chooses through the writer of the backend", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
     const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
     const unified = reviewPage.getByRole("button", { name: "Unified" })
     await expect(unified).toHaveAttribute("aria-pressed", "false")
     await unified.click()
-    // only the main window writes settings.json: the window asked it, and it applied the value before it wrote it
-    // the main window saves what differs from the defaults
+    // the review window sends its change to the writer of the backend (`set_setting`), which keeps what differs from
+    // the defaults
     await expect.poll(() => testStore.get("diffView")).toEqual({ mode: "unified" })
-    // the main window's answer keeps the choice
+    // the writer's answer keeps the choice
     await expect(unified).toHaveAttribute("aria-pressed", "true")
   })
 

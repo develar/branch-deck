@@ -1,13 +1,14 @@
 //! `SettingsService`: the one writer of the settings files of the app data directory. Every change, from any window or
 //! from Rust, is a `SettingsPatch` that `set` applies to the copy in memory under one mutex, in the order it arrives,
 //! and answers at once with the `SettingsChange` (the new version and the whole key) that the caller sends to every
-//! window. A key lives in one file (`StoreFile::of`): `repositoryState`, which every sync changes, in
-//! `repository-state.json`, every other key in `settings.json`, which so changes only when the user changes a setting;
-//! the versions count the changes of both. The disk lags: one writer thread saves the stored form of each changed file
+//! window. A key lives in one file (`StoreFile::of`): `repositoryState`, which every sync, fetch and update changes, in
+//! `repository-state.json`, every other key in `settings.json`, which so changes only when the user changes a setting or
+//! the list of projects; the versions count the changes of both. The disk lags: one writer thread saves the stored form of each changed file
 //! (`SettingsFile::save`: only the non-default fields, a temporary file renamed over the file) at most `debounce` after
 //! the first unsaved change, so a burst of changes costs one write, and a file nothing changed is not written; `flush`
-//! saves now and waits (the exit of the app). A failed save keeps the value in memory, is retried by the next change or
-//! flush, and is reported to `on_save_error` once per streak of failures.
+//! saves now and waits (the exit of the app). A failed save keeps the value in memory and is retried by itself, first
+//! `debounce` after it, each next time after twice the delay before, at most `MAX_RETRY_DELAY` (or `debounce`, if
+//! longer) apart, and by the next change or flush; it is reported to `on_save_error` once per streak of failures.
 //!
 //! The value of `appSettings` that the windows get (`snapshot`, `SettingsChange::value`) is its full form: every field
 //! Rust knows with its default (`AppSettings`), so the page takes the defaults of these fields from Rust; the file keeps
@@ -31,6 +32,9 @@ use tracing::warn;
 
 /// How long the writer waits after the first unsaved change before it saves, so a burst of changes is one write
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
+
+/// The longest delay between two retries of a failed save, unless the debounce is longer
+pub const MAX_RETRY_DELAY: Duration = Duration::from_mins(1);
 
 /// A save of the settings file that failed
 #[derive(Debug, Clone, thiserror::Error)]
@@ -121,6 +125,10 @@ struct State {
   changes: BTreeMap<String, KeyChange>,
   /// When the first change that no save has taken yet arrived
   dirty_since: Option<Instant>,
+  /// When the writer tries a failed save again by itself; none while the last pass saved everything
+  retry_at: Option<Instant>,
+  /// The delay before `retry_at`, which doubles with each failure of a streak
+  retry_delay: Duration,
   /// A flush waits for a save of every change before it
   flush_requested: bool,
   /// The passes of the writer that started and that finished: a flush waits for a pass that started after it asked
@@ -353,7 +361,10 @@ impl Drop for SettingsService {
 fn write_loop(shared: &Shared) {
   let mut state = shared.lock();
   loop {
-    let due = state.dirty_since.map(|since| since + shared.debounce);
+    let due = match (state.dirty_since.map(|since| since + shared.debounce), state.retry_at) {
+      (Some(changed), Some(retry)) => Some(changed.min(retry)),
+      (changed, retry) => changed.or(retry),
+    };
     let write_now = state.flush_requested || (state.shutdown && due.is_some()) || due.is_some_and(|due| due <= Instant::now());
     if !write_now {
       if state.shutdown {
@@ -374,6 +385,7 @@ fn write_loop(shared: &Shared) {
 
     state.passes_started += 1;
     state.dirty_since = None;
+    state.retry_at = None;
     state.flush_requested = false;
     #[expect(clippy::needless_collect, reason = "the copies are taken under the lock, the saves run outside it")]
     let unsaved: Vec<(StoreFile, Option<u32>, SettingsFile)> = StoreFile::SAVE_ORDER
@@ -413,6 +425,16 @@ fn write_loop(shared: &Shared) {
       }
       Some(error) => {
         let first_of_streak = state.last_error.replace(error.clone()).is_none();
+        // a transient failure (a handle of an indexer on Windows) must not wait for a change that may never come; the
+        // last pass of a shutdown gives up
+        if !state.shutdown {
+          state.retry_delay = if first_of_streak {
+            shared.debounce
+          } else {
+            (state.retry_delay * 2).min(MAX_RETRY_DELAY.max(shared.debounce))
+          };
+          state.retry_at = Some(Instant::now() + state.retry_delay);
+        }
         first_of_streak.then_some(error)
       }
     };

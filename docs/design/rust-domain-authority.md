@@ -982,7 +982,7 @@ repository». Аудит всех функций в тот же день наш�
 - Первый рендер остаётся синхронным: in-memory копия внедряется как `window.__TAURI_STORE__` в каждое окно при
   создании, под-окна тоже; `getStoreSnapshot` открывающего окна не передаётся. `__TAURI_STORE__` остаётся объектом
   значений по ключам (его читают шесть помощников e2e), версия копии ложится рядом — `window.__TAURI_STORE_VERSION__`.
-  Летучие поля sync (`lastSyncTime`, `lastBranchCount`, `updateTimings`) живут в `repository-state.json` того же app
+  Летучие поля sync (`lastSyncTime`, `lastBranchCount`, `updateTimings`, `lastFetchTime`, `landedHiddenUntil`) живут в `repository-state.json` того же app
   data dir, который пишет тот же `SettingsService` (вторая `SettingsFile`, ключ → файл по таблице), так что
   `settings.json` переписывает только пользователь.
 - `restart_app` вызывает `set_setting`, потом перезапускается. `bd` читает через `app-settings` с теми же defaults и
@@ -1559,10 +1559,10 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `TestRepository::store` e2e-сервера), остальное — комментарии, имя файла (`SETTINGS_FILE_NAME`) и тесты. Сверх
   плана: летучие поля sync — ключ `repositoryState` в `repository-state.json` того же писателя (ключ → файл, одна
   версия; загрузчик переносит их из `recentProjects` старого файла); `sub_window_loaded` отдаёт изменения после
-  версии сборки окна, главное окно догоняет `get_settings_changes`. Не сделано: `unapply_branch`, `reapply_branch` и
-  `find_conflict_fix` по-прежнему принимают `branch_prefix` от страницы, потому что их параметры — типы ядра, общие с
-  `bd`; их перевод — разделить параметры страницы и ядра (кандидат в s6 вместе с `SessionKey`). `lastFetchTime`
-  остаётся в `recentProjects`. Real App Check первого кадра (единственный этап, где он нужен) агенты не выполняли:
+  версии сборки окна, главное окно догоняет `get_settings_changes`. `unapply_branch`, `reapply_branch` и
+  `find_conflict_fix` тоже без `branch_prefix`: ядро получает префикс отдельным аргументом (`bd` — свой из контекста,
+  команда — из `PrefixInputs`). `lastFetchTime` и `landedHiddenUntil` — в `repositoryState`. Defaults Rust-полей
+  `appSettings` страница берёт из bindings (`APP_SETTINGS_DEFAULTS`, тип `AppSettings`). Real App Check первого кадра (единственный этап, где он нужен) агенты не выполняли:
   он ждёт владельца.
 
 ### s6-session-table
@@ -2139,7 +2139,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s2-types | приземлён |
 | s3-crates | приземлён |
 | s4-errors | приземлён |
-| s5-settings | приземлён: один писатель `SettingsService` (`app-settings`) для `settings.json` и `repository-state.json`, окна шлют патчи через `set_setting` и применяют версии, снимок в init script каждого окна, `restart_app` и выход через писателя, `bd` читает через `app-settings`; префикс разрешает Rust на каждую команду (`BranchPrefixes`, `PrefixInputs`) у семейств sync, Patronus, push, pull request, обзора ветки и независимости стека. Осталось: `unapply_branch`, `reapply_branch`, `find_conflict_fix` получают префикс страницы (параметры общие с `bd`); `lastFetchTime` в `recentProjects`; Real App Check первого кадра ждёт владельца (агенты его не выполняли) |
+| s5-settings | приземлён: один писатель `SettingsService` (`app-settings`) для `settings.json` и `repository-state.json`, окна шлют патчи через `set_setting` и применяют версии, снимок в init script каждого окна, `restart_app` и выход через писателя, `bd` читает через `app-settings`; префикс разрешает Rust на каждую команду (`BranchPrefixes`, `PrefixInputs`) у семейств sync, Patronus, push, pull request, обзора ветки, независимости стека, unapply, reapply и поиска исправления конфликта; `lastFetchTime` и `landedHiddenUntil` — в `repositoryState`; defaults Rust-полей `appSettings` страница берёт из bindings. Осталось: Real App Check первого кадра ждёт владельца (агенты его не выполняли) |
 | s6-session-table | не начат |
 | s7-session-facts | не начат |
 | s8-policy | не начат |

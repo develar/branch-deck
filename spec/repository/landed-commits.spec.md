@@ -162,8 +162,8 @@ by the next sync the same way.
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
 - The island shows from the report until the first successful sync that completes while the window has focus, at least
   10 s after the user saw the island (it showed while the window had focus): the sync that follows the update keeps it,
-  a later one hides what was seen. Hidden is remembered for the repository (`landedHiddenUntil`, the newest `landedAt`
-  seen), so a restart doesn't show it again; what lands later shows again. The "N landed" chips and the "New" marks stay
+  a later one hides what was seen. Hidden is remembered for the repository (`landedHiddenUntil` of its `repositoryState`, the newest
+  `landedAt` seen), so a restart doesn't show it again; what lands later shows again. The "N landed" chips and the "New" marks stay
   until Dismiss, which the Activity entry of the report offers once the island is hidden, and the entry keeps the
   report ([Activity](activity.spec.md)).
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should keep the landed report after a sync hid the island, in the window`, `should keep the landed report after a sync hid the island, in the panel`)

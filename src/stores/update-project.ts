@@ -17,7 +17,6 @@ import { addLandedUpdate } from "@/stores/landed"
 import type { OperationKey } from "@/stores/operations"
 import { getOperationBlocker, getOperations, runOperation } from "@/stores/operations"
 import { getSelectedProject, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
-import { updateProject } from "@/stores/settings/repositorySettings"
 import { getRepositoryState, updateRepositoryState } from "@/stores/settings/repositoryState"
 
 /** How long the bar shows the end of a run (ms), so it reads as done; the buttons work again at once */
@@ -246,7 +245,7 @@ function fetchOf(repositoryPath: string, failureTitle: string): Promise<boolean>
         notifyError(failureTitle, result.error)
         return false
       }
-      updateProject(repositoryPath, { lastFetchTime: Date.now() })
+      updateRepositoryState(repositoryPath, state => ({ ...state, lastFetchTime: Date.now() }))
       return true
     })
     .finally(() => fetches.delete(repositoryPath))

@@ -250,10 +250,10 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   ("Copy Commit Hash", "Copy Commit Message", "Copy Changed Paths") run in the window, of the commit as it shows it.
   The review of the whole stack has the copies only: "Review side-fix" leads to the menu.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window`)
-- Split/Unified/Inline must be the setting of every diff view, saved by the main window, which owns `settings.json`
-  ([Distributed Settings](../../docs/design/distributed-settings.md)): the window asks it, and keeps the choice on its
-  answer.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the main window`)
+- Split/Unified/Inline must be the setting of every diff view, saved by the writer of the backend, which owns
+  `settings.json` ([Distributed Settings](../../docs/design/distributed-settings.md)): the window sends it the change,
+  and keeps the choice on its answer.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the writer of the backend`)
 - The target branch is the branch of the last selected segment, the reviewed end of the part: for "From Root", the
   reviewed branch; for a parent alone, the parent.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)

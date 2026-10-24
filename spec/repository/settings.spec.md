@@ -98,7 +98,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   opens with.
 - A button that needs a setting opens the page that has it, not the top of a long list.
 - The same settings in every window: every window writes them through the backend, which owns `settings.json`.
-- `settings.json` changes only when a setting changes: what a sync records of a repository lives beside it.
+- `settings.json` changes only when the user changes a setting or the list of projects: what a sync, a fetch or Update
+  Project records of a repository lives beside it.
 
 ## Non-goals
 
@@ -258,7 +259,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   checks the item of the native menu (`set_auto_sync_menu_checked`), a changed AI mode clears the last AI failure of
   every window (`ai-suggestions.ts`). The writer refuses a value of a field it reads that is invalid (a zoom that is no
   positive number), and the window shows the value the writer has, with "Cannot change the settings".
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the writer of the backend`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should zoom every window from Appearance with the items of the View menu`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
   [@test] ../../crates/app-settings/src/service_test.rs (`the_changes_are_saved_in_the_order_they_arrive_so_the_last_one_is_on_disk`, `an_invalid_value_of_a_field_rust_knows_is_refused_and_changes_nothing`)
@@ -280,21 +281,30 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   version of the snapshot it started from, by the same versions: a sub-window with its load (`sub_window_loaded`
   answers the changes after the version its build remembered, `SubWindowState::built`), applied before its content
   settles and the window shows (`sub_window_ready`); the main window once it listens (`get_settings_changes`; its
-  reload starts from the snapshot of the app's start). A zoom changed while a review window loaded is the window's when
-  it shows, and the Activity panel the main window opened meanwhile stays when the review window changes another field.
-  The window's webview starts at the zoom of its snapshot, which its page changes when the level it has differs
-  (`zoomAtStart`, `useZoom`).
+  reload starts from the snapshot of the app's start). Until it caught up, the main window holds its own changes; then
+  it sends them, a field on top of the writer's value, and drops a whole array (the recent projects) the writer has a
+  newer value of, which the array built on the old snapshot would overwrite. A zoom changed while a review window
+  loaded is the window's when it shows, and the Activity panel the main window opened meanwhile stays when the review
+  window changes another field. The window's webview starts at the zoom of its snapshot, which its page changes when
+  the level it has differs (`zoomAtStart`, `useZoom`).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`zooms a review window whose page loaded after Actual Size`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should keep the Activity panel the main window opened when a review window hides its sidebar right after`)
   [@test] ../../src-tauri/src/commands/window_management_test.rs (`a_page_that_loads_takes_the_changes_after_the_snapshot_of_its_build`, `a_page_that_loads_takes_no_change_older_than_its_snapshot_nor_a_key_only_the_main_window_keeps`)
   [@test] ../../src/lib/sub-window.test.ts (`takes the settings changed while the page loaded once it listens, before it says its content settled`)
   [@test] ../../src/stores/settings/persistent-store.test.ts (`takes the changes the load of the window hands over by their versions, before its store exists too`)
+  [@test] ../../src/stores/settings/persistent-store-main.test.ts (`holds its changes until it caught up with the writer, and drops a whole array the writer has a newer one of`)
 - The file keeps only what differs from the defaults: a field back at its default is removed, and an object or an
-  array left empty removes its key. Keys the backend does not know are kept as they are.
+  array left empty removes its key. Keys the backend does not know are kept as they are. The defaults of the fields
+  Rust reads (the app's prefix, the new Patronus API, the zoom, the sync on focus, the system title bar) are Rust's
+  alone: the page takes them from the bindings (`APP_SETTINGS_DEFAULTS`), so a value the page sends back as its default
+  is the one Rust and `bd` read as the default too.
   [@test] ../../crates/app-settings/src/service_test.rs (`a_field_patch_merges_into_the_key_and_a_null_field_is_removed`, `a_field_patch_that_removes_the_last_field_removes_the_key`)
   [@test] ../../crates/app-settings/src/file_test.rs (`unknown_keys_round_trip`)
+  [@test] ../../src/stores/settings/appSettings.test.ts (`takes the defaults of the fields Rust reads from Rust, so a value back at its default means the same to both`)
+  [@test] ../../src-tauri/src/bindings_test.rs (`the_bindings_are_what_the_export_writes`)
 - What each sync records of a repository (`repositoryState` by its path: when the last sync ended, how many branches it
-  had, how long the steps of a sync and of Update Project took) lives in a file of its own, `repository-state.json`
+  had, how long the steps of a sync and of Update Project took, when Branch Deck fetched the baseline last, up to when
+  the Landed island hides what landed) lives in a file of its own, `repository-state.json`
   beside `settings.json`, behind the same writer and its versions, and only the main window has it: a sync writes that
   file alone, never `settings.json`, which `bd` reads beside it. A `settings.json` of before that kept these fields in
   its recent projects is read once: the writer moves them (a value the state file has for the repository wins), saves
@@ -308,10 +318,12 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   settings file that does not parse (one cut within a write): it never starts without its settings because of a syntax
   error in its init script.
   [@test] ../../crates/app-settings/src/service_test.rs (`the_snapshot_of_a_cut_file_is_a_json_object_of_the_defaults`)
-- A failed save keeps the settings in memory, is tried again by the next change, and the main window says so once per
-  streak of failures ("Cannot save the settings", `settings_save_failed`). The app saves what is unsaved before it
-  quits (`RunEvent::ExitRequested`) and before Restart of the title bar setting (`restart_app`).
-  [@test] ../../crates/app-settings/src/service_test.rs (`an_unwritable_directory_reports_the_error_once_a_streak_and_memory_keeps_the_value`, `a_flush_soon_after_a_patch_saves_it_without_waiting_for_the_debounce`)
+- A failed save keeps the settings in memory, is tried again by itself (the delay doubling up to a minute) and by the
+  next change, and the main window says so once per streak of failures ("Cannot save the settings",
+  `settings_save_failed`). The app saves what is unsaved before it quits (`RunEvent::ExitRequested`) and before Restart
+  of the title bar setting (`restart_app`).
+  [@test] ../../crates/app-settings/src/service_test.rs (`an_unwritable_directory_reports_the_error_once_a_streak_and_memory_keeps_the_value`, `a_failed_save_is_retried_by_itself_once_the_directory_is_writable_again`, `a_flush_soon_after_a_patch_saves_it_without_waiting_for_the_debounce`)
+  [@test] ../../src/stores/settings/persistent-store-main.test.ts (`tells the user in the main window that the settings could not be saved`)
 - The pages read only what every window has: the settings and the backend. The branch prefix field asks Rust for the
   prefix of the selected repository itself (`resolve_branch_prefix`, again on focus and once the writer has another
   app prefix), and stays enabled while a sync runs: a sync resolves the prefix when it starts, so a change names the

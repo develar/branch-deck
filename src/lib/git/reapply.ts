@@ -3,7 +3,7 @@ import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { runRewrite, runUndo } from "@/lib/rewrite"
 import { branchSubject } from "@/stores/operations"
-import { getEffectiveBranchPrefix, vcsRequestFactory } from "@/stores/repository"
+import { vcsRequestFactory } from "@/stores/repository"
 import { getUnappliedBranch } from "@/stores/unapplied-branches"
 
 /**
@@ -18,11 +18,10 @@ export async function reapplyBranch(name: string): Promise<boolean> {
     return false
   }
   const { repositoryPath } = vcsRequestFactory.createRequest()
-  const branchPrefix = getEffectiveBranchPrefix()
   const result = await runRewrite(
     { id: "reapply", subject: branchSubject(name), objects: [name], label: `Reapplying ${branch.branch}` },
     `Cannot reapply ${branch.branch}`,
-    wait => commands.reapplyBranch({ repositoryPath, branchName: branch.branch, branchPrefix }, wait),
+    wait => commands.reapplyBranch({ repositoryPath, branchName: branch.branch }, wait),
     data => ({
       sync: true,
       after: () =>

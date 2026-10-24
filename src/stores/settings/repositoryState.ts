@@ -29,6 +29,13 @@ const RepositoryStateEntrySchema = z.object({
   lastBranchCount: z.number().optional().catch(undefined),
   /** The last durations of each step of Update Project and of a sync, the shares of its progress (`update-progress.ts`) */
   updateTimings: UpdateTimingsSchema,
+  /** When Branch Deck last fetched the baseline (ms); a fetch elsewhere shows through FETCH_HEAD */
+  lastFetchTime: z.number().optional().catch(undefined),
+  /**
+   * The Landed island hides the branches that landed up to this time (`landedAt`, Unix seconds): a sync hid them after
+   * the user had seen them. Their chips stay until Dismiss.
+   */
+  landedHiddenUntil: z.number().optional().catch(undefined),
 })
 
 /** A malformed repository is dropped, never the others */

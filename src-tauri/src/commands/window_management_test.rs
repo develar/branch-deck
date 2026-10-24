@@ -4,9 +4,9 @@ use domain_types::settings::SettingsPatch;
 use serde_json::json;
 use std::time::Duration;
 
-/// A writer that never saves within a test
+/// A writer of the app data directory `dir` that never saves within a test
 fn settings(dir: &tempfile::TempDir) -> SettingsService {
-  SettingsService::open_with_debounce(dir.path().join("settings.json"), Duration::from_hours(1)).unwrap()
+  SettingsService::open_with_debounce(dir.path().to_path_buf(), Duration::from_hours(1)).unwrap()
 }
 
 /// A change of one field of `appSettings` from the main window

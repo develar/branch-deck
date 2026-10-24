@@ -20,10 +20,9 @@ pub(crate) fn unapply(repo: &TestRepo, branch: &str, expected: Option<Vec<String
   let params = UnapplyBranchParams {
     repository_path: path(repo).to_string(),
     branch_name: branch.to_string(),
-    branch_prefix: PREFIX.to_string(),
     original_commit_ids: expected,
   };
-  unapply_branch_core(repo.git_executor(), params, &RewriteOptions::default())
+  unapply_branch_core(repo.git_executor(), params, PREFIX, &RewriteOptions::default())
 }
 
 fn refusal(repo: &TestRepo, branch: &str, expected: Option<Vec<String>>) -> UnapplyRefusal {

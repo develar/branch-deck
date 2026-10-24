@@ -52,10 +52,9 @@ pub fn unapply(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutpu
   let params = UnapplyBranchParams {
     repository_path: context.repository.clone(),
     branch_name: args.branch.clone(),
-    branch_prefix: context.prefix.clone(),
     original_commit_ids: None,
   };
-  let result = unapply_branch_core(&context.git, params, &options).map_err(unapply_error)?;
+  let result = unapply_branch_core(&context.git, params, &context.prefix, &options).map_err(unapply_error)?;
   let short = context.short_ids(
     result
       .commits_removed
@@ -161,10 +160,9 @@ pub fn reapply(context: &RepoContext, args: &ReapplyArgs) -> Result<ReapplyOutpu
   let params = ReapplyBranchParams {
     repository_path: context.repository.clone(),
     branch_name: args.branch.clone(),
-    branch_prefix: context.prefix.clone(),
     dry_run: args.dry_run,
   };
-  let result = reapply_branch_core(&context.git, &params, &options).map_err(reapply_error)?;
+  let result = reapply_branch_core(&context.git, &params, &context.prefix, &options).map_err(reapply_error)?;
   let ids = result
     .reapplied
     .iter()

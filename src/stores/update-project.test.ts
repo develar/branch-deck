@@ -63,18 +63,16 @@ vi.mock("@/stores/branch-sync", () => ({
 }))
 vi.mock("@/stores/landed", () => ({ addLandedUpdate: () => {} }))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
-vi.mock("@/stores/settings/repositorySettings", () => ({
-  updateProject: (path: string, update: { lastFetchTime?: number }) => {
-    if (update.lastFetchTime !== undefined) {
-      fetchTimes.push(path)
-    }
-  },
-}))
-// the durations a run learns go to the state of the repository, never to the recent projects
+// the time of a fetch and the durations a run learns go to the state of the repository, never to the recent projects
 vi.mock("@/stores/settings/repositoryState", () => ({
   getRepositoryState: () => undefined,
-  updateRepositoryState: (path: string, update: (state: { updateTimings?: unknown }) => { updateTimings?: unknown }) => {
-    timings.push({ path, timings: update({}).updateTimings })
+  updateRepositoryState: (path: string, update: (state: { updateTimings?: unknown; lastFetchTime?: number }) => { updateTimings?: unknown; lastFetchTime?: number }) => {
+    const state = update({})
+    if (state.lastFetchTime === undefined) {
+      timings.push({ path, timings: state.updateTimings })
+    } else {
+      fetchTimes.push(path)
+    }
   },
 }))
 vi.mock("@/stores/repository", () => ({

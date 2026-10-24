@@ -1,9 +1,12 @@
+use crate::lock_wait::{WaitChannel, run_waiting};
 use crate::operation::run_blocking;
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::settings::{AppSettings, GitBranchPrefix, ResolvedBranchPrefix};
 use git_executor::git_command_executor::GitCommandExecutor;
+use history_rewrite::lock_wait::LockWaits;
+use history_rewrite::repository_lock::LockWait;
 use serde::Deserialize;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 use sync_core::git_setup::GitSetup;
@@ -37,6 +40,12 @@ pub async fn resolve_branch_prefix(
   .await
 }
 
+/// The writer of the settings, as a command takes it to resolve the prefix (`PrefixInputs::new`)
+pub type Settings<'a> = State<'a, SettingsService>;
+
+/// The memo of the git prefixes, as a command takes it to resolve the prefix (`PrefixInputs::new`)
+pub type Prefixes<'a> = State<'a, BranchPrefixes>;
+
 /// What a command of a repository resolves the prefix of its branches with: git, the settings when the command started
 /// (the app's prefix), the memo of git prefixes
 pub struct PrefixInputs {
@@ -46,7 +55,7 @@ pub struct PrefixInputs {
 }
 
 impl PrefixInputs {
-  pub fn new(git_executor: &State<'_, GitCommandExecutor>, settings: &State<'_, SettingsService>, prefixes: &State<'_, BranchPrefixes>) -> Self {
+  pub fn new(git_executor: &State<'_, GitCommandExecutor>, settings: &Settings<'_>, prefixes: &Prefixes<'_>) -> Self {
     Self {
       git: git_executor.inner().clone(),
       settings: settings.app(),
@@ -77,6 +86,21 @@ impl PrefixInputs {
   pub fn refreshed(&self, repository_path: &str, git_prefix: GitBranchPrefix) -> ResolvedBranchPrefix {
     self.prefixes.refresh(&self.settings, repository_path, git_prefix)
   }
+}
+
+/// `step` of a rewrite of the repository at `repository_path` as `run_waiting` runs it (the wait for the repository lock
+/// told on `wait`), with git and the prefix the command names the branches with, resolved by `inputs` in the step
+pub async fn run_waiting_with_prefix<T, F>(inputs: PrefixInputs, lock_waits: &LockWaits, wait: WaitChannel, repository_path: &str, step: F) -> Result<T, ApiError>
+where
+  F: FnOnce(&GitCommandExecutor, &str, LockWait<'_>) -> anyhow::Result<T> + Send + 'static,
+  T: Send + 'static,
+{
+  let path = repository_path.to_owned();
+  run_waiting(lock_waits, wait, move |lock_wait| {
+    let branch_prefix = inputs.branch_prefix(&path)?;
+    step(&inputs.git, &branch_prefix, lock_wait)
+  })
+  .await
 }
 
 /// Git, the git identity and a branch prefix suggestion, checked when the window opens and on every repository change

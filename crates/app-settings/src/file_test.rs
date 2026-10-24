@@ -156,13 +156,13 @@ fn a_save_replaces_the_file_and_leaves_no_temporary_file() {
 #[test]
 fn the_fields_of_the_repository_state_leave_the_recent_projects_by_path_and_nothing_else_changes() {
   let mut settings = SettingsFile::parse(
-    r#"{"recentProjects":[{"path":"/a","lastSyncTime":1,"lastBranchCount":2,"updateTimings":{"fetch":[3]},"parkedCollapsed":true},{"lastSyncTime":4},"text",{"path":"/b"}],"other":{"lastSyncTime":5}}"#,
+    r#"{"recentProjects":[{"path":"/a","lastSyncTime":1,"lastBranchCount":2,"updateTimings":{"fetch":[3]},"lastFetchTime":6,"landedHiddenUntil":7,"parkedCollapsed":true},{"lastSyncTime":4},"text",{"path":"/b"}],"other":{"lastSyncTime":5}}"#,
   )
   .unwrap();
   let taken = settings.take_repository_state();
   assert_eq!(
     Value::Object(taken),
-    json!({ "/a": { "lastSyncTime": 1, "lastBranchCount": 2, "updateTimings": { "fetch": [3] } } })
+    json!({ "/a": { "lastSyncTime": 1, "lastBranchCount": 2, "updateTimings": { "fetch": [3] }, "lastFetchTime": 6, "landedHiddenUntil": 7 } })
   );
   assert_eq!(
     Value::Object(settings.to_stored()),

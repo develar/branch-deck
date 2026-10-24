@@ -20,6 +20,7 @@ import { describeUpstreamCommit, groupConflictFiles, splitPath } from "@/lib/upd
 import type { ConflictFile } from "@/lib/update-conflict"
 import { lastFetchTime } from "@/lib/update-state"
 import { useSelectedProject } from "@/stores/repository"
+import { useRepositoryStateField } from "@/stores/settings/repositoryState"
 
 export interface UpdateBlockedDialogProps {
   /** The conflicting or blocked update; null while closed */
@@ -174,6 +175,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
     setShown(check)
   }
   const project = useSelectedProject()
+  const ownFetchTime = useRepositoryStateField(project?.path, "lastFetchTime")
   const bd = useAgentCliCommand(check === null ? null : (project?.path ?? null))
   const bodyRef = useRef<HTMLDivElement>(null)
   // the button says "Copied" in place, no toast (docs/guidelines/ux-writing.md)
@@ -183,7 +185,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
   }
 
   const { state, upstream } = shown
-  const fetchTime = lastFetchTime(shown, project?.lastFetchTime)
+  const fetchTime = lastFetchTime(shown, ownFetchTime)
   const copyPrompt = () => copyToClipboard(buildAgentPrompt({ repositoryPath: project?.path ?? "", check: shown, fetchTime, bd: bd ?? null }))
 
   return (

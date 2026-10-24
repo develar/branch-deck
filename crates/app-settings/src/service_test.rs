@@ -31,6 +31,27 @@ fn repository_state_path(directory: &tempfile::TempDir) -> PathBuf {
   directory.path().join("repository-state.json")
 }
 
+/// The save errors `service` reports, each by the path it names and its text
+type SaveErrors = Arc<std::sync::Mutex<Vec<(PathBuf, String)>>>;
+
+fn save_errors(service: &SettingsService) -> SaveErrors {
+  let reports = SaveErrors::default();
+  service.on_save_error({
+    let reports = Arc::clone(&reports);
+    move |error| reports.lock().unwrap().push((error.path.clone(), error.to_string()))
+  });
+  reports
+}
+
+/// An app data directory in `directory` that cannot be created: a file is in its place, which every platform refuses
+/// as the directory of a file; with the path of its settings file
+fn blocked_app_data(directory: &tempfile::TempDir) -> (PathBuf, PathBuf) {
+  let blocked = directory.path().join("app-data");
+  std::fs::write(&blocked, "").unwrap();
+  let path = blocked.join("settings.json");
+  (blocked, path)
+}
+
 /// A service on a new empty app data directory, which lives as long as the directory it answers with
 fn opened(debounce: Duration) -> (tempfile::TempDir, SettingsService) {
   let directory = tempfile::tempdir().unwrap();
@@ -213,16 +234,9 @@ fn a_reader_of_the_file_never_sees_a_missing_prefix_while_the_service_writes_it(
 #[test]
 fn an_unwritable_directory_reports_the_error_once_a_streak_and_memory_keeps_the_value() {
   let directory = tempfile::tempdir().unwrap();
-  // the directory of the file is a file: every platform refuses to create it
-  let blocked = directory.path().join("app-data");
-  std::fs::write(&blocked, "").unwrap();
-  let path = blocked.join("settings.json");
+  let (blocked, path) = blocked_app_data(&directory);
   let service = SettingsService::open_with_debounce(blocked.clone(), NEVER).unwrap();
-  let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
-  service.on_save_error({
-    let reports = Arc::clone(&reports);
-    move |error| reports.lock().unwrap().push((error.path.clone(), error.to_string()))
-  });
+  let reports = save_errors(&service);
 
   service.set(app_fields(json!({ "zoom": 2 })), "main").unwrap();
   assert!(matches!(service.flush(), Err(SettingsError::Save(error)) if error.path == path));
@@ -248,6 +262,31 @@ fn an_unwritable_directory_reports_the_error_once_a_streak_and_memory_keeps_the_
   service.set(app_fields(json!({ "zoom": 4 })), "main").unwrap();
   assert!(service.flush().is_err());
   assert_eq!(reports.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn a_failed_save_is_retried_by_itself_once_the_directory_is_writable_again() {
+  let directory = tempfile::tempdir().unwrap();
+  let (blocked, path) = blocked_app_data(&directory);
+  let service = SettingsService::open_with_debounce(blocked.clone(), Duration::from_millis(20)).unwrap();
+  let reports = save_errors(&service);
+
+  service.set(app_fields(json!({ "zoom": 2 })), "main").unwrap();
+  let deadline = Instant::now() + Duration::from_mins(1);
+  while reports.lock().unwrap().is_empty() {
+    assert!(Instant::now() < deadline, "the debounced save never failed");
+    std::thread::sleep(Duration::from_millis(5));
+  }
+
+  // the directory comes back, and nothing changes or flushes: the writer saves what memory kept by itself
+  std::fs::remove_file(&blocked).unwrap();
+  std::fs::create_dir_all(&blocked).unwrap();
+  while !path.exists() {
+    assert!(Instant::now() < deadline, "the failed save was never tried again");
+    std::thread::sleep(Duration::from_millis(5));
+  }
+  assert_eq!(read(&path), json!({ "appSettings": { "zoom": 2 } }));
+  assert_eq!(reports.lock().unwrap().len(), 1, "the retries of one streak report nothing more");
 }
 
 #[test]
@@ -451,13 +490,13 @@ fn a_settings_file_of_before_moves_the_fields_of_a_sync_to_the_repository_state_
   let (version, snapshot) = service.snapshot();
   assert_eq!(version, 0);
   let projects = json!([
-    { "path": "/a", "cachedBranchPrefix": { "prefix": "jane", "source": "app_setting" }, "lastFetchTime": 7 },
+    { "path": "/a", "cachedBranchPrefix": { "prefix": "jane", "source": "app_setting" } },
     { "path": "/b" },
     { "path": "/c" },
   ]);
   assert_eq!(snapshot["recentProjects"], projects);
   let state = json!({
-    "/a": { "lastSyncTime": 10, "lastBranchCount": 2, "updateTimings": { "sync": [5] } },
+    "/a": { "lastSyncTime": 10, "lastBranchCount": 2, "updateTimings": { "sync": [5] }, "lastFetchTime": 7 },
     "/b": { "lastSyncTime": 30 },
   });
   assert_eq!(snapshot["repositoryState"], state);

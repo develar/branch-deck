@@ -18,7 +18,7 @@ import { getCollapsedSideStacks } from "@/stores/stack-collapse"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/api/core", () => ({ Channel: Object }))
-vi.mock("@/lib/bindings", () => ({ commands: {} }))
+vi.mock("@/lib/bindings", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/bindings")>()), commands: {} }))
 vi.mock("@/stores/repository", async () => (await import("@/stores/test-store-mocks")).repositoryMock)
 vi.mock("@/stores/settings/repositorySettings", async () => (await import("@/stores/test-store-mocks")).repositorySettingsMock)
 vi.mock("@/stores/archived-branches", async () => (await import("@/stores/test-store-mocks")).archivedBranchesMock)

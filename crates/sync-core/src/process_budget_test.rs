@@ -436,9 +436,9 @@ fn unapply_beta(git: &GitCommandExecutor, repo: &TestRepo, commits: &[String]) -
     UnapplyBranchParams {
       repository_path: path(repo),
       branch_name: "beta".to_string(),
-      branch_prefix: PREFIX.to_string(),
       original_commit_ids: Some(vec![commits[1].clone(), commits[3].clone(), commits[5].clone()]),
     },
+    PREFIX,
     &RewriteOptions::default(),
   )
   .unwrap()
@@ -549,10 +549,9 @@ fn reapply_beta(git: &GitCommandExecutor, repo: &TestRepo) -> ReapplyBranchResul
   let params = ReapplyBranchParams {
     repository_path: path(repo),
     branch_name: "beta".to_string(),
-    branch_prefix: PREFIX.to_string(),
     dry_run: false,
   };
-  reapply_branch_core(git, &params, &RewriteOptions::default()).unwrap()
+  reapply_branch_core(git, &params, PREFIX, &RewriteOptions::default()).unwrap()
 }
 
 /// Two commits of alpha squashed into the older one

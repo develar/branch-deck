@@ -15,7 +15,9 @@ import { isMainWindow } from "@/lib/window-label"
  * applies every change the writer sends to all windows (`settings_changed`) that is newer than the one it applied, the
  * changes made while the page loaded too (`listeningToSettings`, `acceptSettingsChanges`).
  * A change is never rolled back by an older answer, and the fields of a window's own patches that the writer has not
- * answered yet stay on top of a value of another window.
+ * answered yet stay on top of a value of another window. The main window holds its changes until it caught up with the
+ * writer (`caughtUp`): a reload starts it from the snapshot of the app's start, and a whole array built on that would
+ * overwrite what the writer has now.
  */
 
 /** State of an array store; zustand state must be an object, so the array is wrapped. */
@@ -67,6 +69,13 @@ export function snapshotValueOf(key: string): unknown {
   return snapshot[key]
 }
 const syncs = new Map<string, KeySync>()
+
+/**
+ * Whether the page has the changes the writer made after its snapshot. A sub-window's snapshot is the writer's copy of
+ * its build, so it starts caught up; the main window catches up once it listens (`get_settings_changes`): its init
+ * script, which a reload runs again, has the snapshot of the app's start. Until then its local changes wait in `queued`
+ */
+let caughtUp = !hasBackend || !isMainWindow
 
 /** The fields of `after` that differ from `before`, each with its value, `null` for one that is its default again */
 export function changedFields(before: Fields, after: Fields, defaults: Fields): Fields {
@@ -197,7 +206,7 @@ function changedLocally(sync: KeySync): void {
   if (patch === null || !hasBackend) {
     return
   }
-  if (sync.sent === null) {
+  if (sync.sent === null && caughtUp) {
     send(sync, patch)
   } else {
     sync.queued = mergePatch(sync.queued, patch)
@@ -232,15 +241,44 @@ function listenToWriter(): Promise<void> {
   if (isMainWindow) {
     void listening
       .then(() => commands.getSettingsChanges(snapshotVersion))
-      .then(result => {
-        if (result.status === "error") {
-          logError("Cannot read the settings changed while the window loaded", result.error)
-          return
-        }
-        acceptSettingsChanges(result.data)
-      })
+      .then(
+        result => {
+          if (result.status === "error") {
+            logError("Cannot read the settings changed while the window loaded", result.error)
+          } else {
+            acceptSettingsChanges(result.data)
+          }
+        },
+        (error: unknown) => {
+          logError("Cannot read the settings changed while the window loaded", error)
+        },
+      )
+      .then(sendHeldChanges)
   }
   return listening
+}
+
+/**
+ * The main window caught up with the writer: the local changes it held go to the writer, as fields on top of the
+ * writer's value now. A whole value (an array) built on the snapshot while the writer has a newer one is dropped, the
+ * store showing the writer's: sent, it would overwrite every change made since the snapshot (the projects opened after
+ * the app started, before a reload of the window)
+ */
+function sendHeldChanges(): void {
+  caughtUp = true
+  for (const sync of syncs.values()) {
+    const held = sync.queued
+    if (held === null || sync.sent !== null) {
+      continue
+    }
+    sync.queued = null
+    if (held.kind === "value" && (confirmed.get(sync.key)?.version ?? snapshotVersion) > snapshotVersion) {
+      logError(`Dropped a change of ${sync.key} made before the window caught up with the settings`, "the writer has a newer value")
+      refresh(sync)
+    } else {
+      send(sync, held)
+    }
+  }
 }
 
 /** Resolves once the page listens to the changes of the writer (`settings_changed`): any change after it reaches the page */

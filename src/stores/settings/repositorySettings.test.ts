@@ -7,10 +7,9 @@ describe("ProjectMetadataSchema", () => {
     expect(ProjectMetadataSchema.parse({ path: "/repo", issueNavigationConfig })).toEqual({ path: "/repo", issueNavigationConfig })
   })
 
-  it("keeps no field a sync records: those are the state of the repository", () => {
-    expect(ProjectMetadataSchema.parse({ path: "/repo", lastSyncTime: 1, lastBranchCount: 2, updateTimings: { sync: [3] }, lastFetchTime: 4 })).toEqual({
+  it("keeps no field a sync or a fetch records: those are the state of the repository", () => {
+    expect(ProjectMetadataSchema.parse({ path: "/repo", lastSyncTime: 1, lastBranchCount: 2, updateTimings: { sync: [3] }, lastFetchTime: 4, landedHiddenUntil: 5 })).toEqual({
       path: "/repo",
-      lastFetchTime: 4,
     })
   })
 

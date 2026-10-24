@@ -54,7 +54,7 @@ import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
-import { getRecentProjects } from "@/stores/settings/repositorySettings"
+import { getRepositoryState } from "@/stores/settings/repositoryState"
 import { runFetchBaseline, runUpdateProjectOf } from "@/stores/update-project"
 
 /** A sync asks for new robots at most this often: robots are started elsewhere, a sync never starts one */
@@ -1001,7 +1001,7 @@ function isFetchedSince(repositoryPath: string, finishTime: number | null): bool
   }
   const baseline = branchSyncStore.getState().baselineStatus
   const update = baseline?.repositoryPath === repositoryPath ? baseline.update : null
-  const fetched = lastFetchTime(update, getRecentProjects().find(project => project.path === repositoryPath)?.lastFetchTime)
+  const fetched = lastFetchTime(update, getRepositoryState(repositoryPath)?.lastFetchTime)
   return fetched !== null && fetched > finishTime * 1000
 }
 

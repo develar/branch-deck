@@ -206,12 +206,16 @@ fn collection_in(type_name: &str, structs: &BTreeMap<String, Vec<(String, String
 }
 
 /// Whether `body` is one `run_blocking(…).await` (or `run_waiting(…).await`, the blocking step of a rewrite that waits
-/// for the repository lock, `lock_wait.rs`), with only infallible preparation (clones of the state) before it: nothing
+/// for the repository lock, `lock_wait.rs`, or `run_waiting_with_prefix(…).await`, that step with the branch prefix
+/// resolved in it, `commands/branch_prefix.rs`), with only infallible preparation (clones of the state) before it: nothing
 /// that can fail or wait runs outside the step, so the step alone is the operation. As rustfmt lays it out, the call
 /// ends on its own line or at the `.await` line at the body's indentation after it
 fn is_one_blocking_step(body: &str) -> bool {
   let lines: Vec<&str> = body.lines().collect();
-  let Some(step) = lines.iter().position(|line| line.contains("run_blocking(") || line.contains("run_waiting(")) else {
+  let Some(step) = lines
+    .iter()
+    .position(|line| line.contains("run_blocking(") || line.contains("run_waiting(") || line.contains("run_waiting_with_prefix("))
+  else {
     return false;
   };
   let outside = |line: &&str| line.contains(".await") || line.contains('?') || line.contains("return");
@@ -285,6 +289,9 @@ fn a_body_is_one_blocking_step_only_without_work_outside_it() {
   assert!(!is_one_blocking_step("  service.restart().await.map_err(ApiError::internal)"));
   assert!(is_one_blocking_step(
     "  let git = (*git_executor).clone();\n  run_waiting(&lock_waits, wait, move |lock_wait| core(&git, lock_wait)).await"
+  ));
+  assert!(is_one_blocking_step(
+    "  let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);\n  run_waiting_with_prefix(inputs, &lock_waits, wait, &path, move |git, prefix, lock_wait| {\n    core(git, prefix, lock_wait)\n  })\n  .await"
   ));
 }
 

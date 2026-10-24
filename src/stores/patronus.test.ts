@@ -102,7 +102,9 @@ const { patronus, branches } = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/lib/bindings", () => ({
+vi.mock("@/lib/bindings", async importOriginal => ({
+  // the constants of the bindings (the defaults of the settings Rust reads); the commands are the test's
+  ...(await importOriginal<typeof import("@/lib/bindings")>()),
   commands: {
     getPatronusRobots: async (params: GetPatronusRobotsParams) => {
       patronus.lists.push(params)
@@ -250,13 +252,13 @@ vi.mock("@/stores/repository", async () => ({
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 
 const { fetches } = vi.hoisted(() => ({
-  /** When Update Project last fetched the baseline of /repo (ms), as the recent projects keep it */
+  /** When Update Project last fetched the baseline of /repo (ms), as the state of the repository keeps it */
   fetches: { lastFetchTime: undefined as number | undefined },
 }))
 
-vi.mock("@/stores/settings/repositorySettings", async importOriginal => ({
-  ...(await importOriginal<typeof import("@/stores/settings/repositorySettings")>()),
-  getRecentProjects: () => [{ path: "/repo", lastFetchTime: fetches.lastFetchTime }],
+vi.mock("@/stores/settings/repositoryState", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/stores/settings/repositoryState")>()),
+  getRepositoryState: (path: string) => (path === "/repo" ? { lastFetchTime: fetches.lastFetchTime } : undefined),
 }))
 
 vi.mock("@/stores/branch-sync", () => ({

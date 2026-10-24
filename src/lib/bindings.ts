@@ -348,7 +348,8 @@ export const commands = {
 	moveCommitsToBranch: (params: MoveCommitsParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("move_commits_to_branch", { params, wait })),
 	/**
 	 *  The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
-	 *  cache only, no repository lock). One search at a time: a new one cancels the one before.
+	 *  cache only, no repository lock), of the branches named with the prefix Rust resolves for the repository
+	 *  (`PrefixInputs`). One search at a time: a new one cancels the one before.
 	 */
 	findConflictFix: (params: FindConflictFixParams) => typedError<ConflictFix, ApiError>(__TAURI_INVOKE("find_conflict_fix", { params })),
 	/**  Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts. */
@@ -431,8 +432,13 @@ export const commands = {
 	getUnappliedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchName })),
 	deleteUnappliedBranch: (params: DeleteArchivedBranchParams) => typedError<null, ApiError>(__TAURI_INVOKE("delete_unapplied_branch", { params })),
 	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, ApiError>(__TAURI_INVOKE("delete_archived_branch", { params })),
+	/**
+	 *  Unapplies a virtual branch of the repository, named with the prefix Rust resolves for it (`PrefixInputs`), the one a
+	 *  sync's view of the repository has
+	 */
 	unapplyBranch: (params: UnapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<UnapplyBranchResult, ApiError>(__TAURI_INVOKE("unapply_branch", { params, wait })),
 	undoUnapplyBranch: (params: UndoUnapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneUnapply, ApiError>(__TAURI_INVOKE("undo_unapply_branch", { params, wait })),
+	/**  Reapplies an unapplied branch of the repository, named with the prefix Rust resolves for it (`PrefixInputs`) */
 	reapplyBranch: (params: ReapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<ReapplyBranchResult, ApiError>(__TAURI_INVOKE("reapply_branch", { params, wait })),
 	undoReapplyBranch: (params: UndoReapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneReapply, ApiError>(__TAURI_INVOKE("undo_reapply_branch", { params, wait })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
@@ -516,6 +522,9 @@ export const commands = {
 	 */
 	waitYoutrackCliSignIn: () => typedError<CliToolActionDone, ApiError>(__TAURI_INVOKE("wait_youtrack_cli_sign_in")),
 };
+
+/* Constants */
+export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"zoom":1} as const;
 
 /* Types */
 export type AddIssueReferenceParams = {
@@ -602,6 +611,28 @@ export type ApiError = {
 	 *  raised outside one
 	 */
 	operation_id: string | null,
+};
+
+/**
+ *  `appSettings` of `settings.json`: the fields Rust reads, with their defaults, which the page takes from here (the
+ *  type and `APP_SETTINGS_DEFAULTS` of the bindings, `src/stores/settings/appSettings.ts`), and the fields only the page
+ *  reads, kept as they are. Deserializing is tolerant per field: a field of the wrong type
+ *  or out of range is its default, so one bad field never costs the others
+ */
+export type AppSettings = {
+	/**  General → Branch prefix: the prefix of every repository whose own git config sets none (`resolve_branch_prefix`) */
+	globalUserBranchPrefix?: string | null,
+	/**
+	 *  Settings → Patronus: the new API of Patronus (the progress of a running robot in one request, the merge profile
+	 *  in the robot list); off by default
+	 */
+	patronusNewApi: boolean,
+	/**  The zoom of the pages in every window, positive; 1 by default */
+	zoom: number | null,
+	/**  A focus of the main window syncs when what a sync reads changed; on by default */
+	autoSyncOnFocus: boolean,
+	/**  Settings → Appearance → Title bar (Windows, Linux): the system title bar and menu bar; off by default */
+	systemTitleBar: boolean,
 };
 
 export type AppliedConflictFix = 
@@ -1750,7 +1781,6 @@ export type FinalNewline = {
 
 export type FindConflictFixParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 };
 
 /**  The parameters of `find_declaration`: a name in a diff of a review and the files of the review (`declarations.rs`) */
@@ -3161,7 +3191,6 @@ export type ReapplyBranchParams = {
 	repositoryPath: string,
 	/**  The name of the unapplied branch, `<name>` of `{prefix}/unapplied/<name>` */
 	branchName: string,
-	branchPrefix: string,
 	/**  Check only: nothing is written but git objects, and no lock is taken */
 	dryRun?: boolean,
 };
@@ -4614,7 +4643,6 @@ export type UnapplyBranchParams = {
 	repositoryPath: string,
 	/**  The branch as the grouping names it (`auth`), not its full virtual branch name */
 	branchName: string,
-	branchPrefix: string,
 	/**
 	 *  The original commits the request was made for: when the branch groups others now, the unapply is refused. `None`
 	 *  takes the commits as they group now

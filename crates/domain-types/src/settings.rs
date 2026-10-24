@@ -10,8 +10,9 @@ use serde_json::{Map, Value};
 /// The key of `AppSettings` in `settings.json`
 pub const APP_SETTINGS_KEY: &str = "appSettings";
 
-/// `appSettings` of `settings.json`: the fields Rust reads, with the defaults of the page (`src/stores/settings/appSettings.ts`),
-/// and the fields only the page reads, kept as they are. Deserializing is tolerant per field: a field of the wrong type
+/// `appSettings` of `settings.json`: the fields Rust reads, with their defaults, which the page takes from here (the
+/// type and `APP_SETTINGS_DEFAULTS` of the bindings, `src/stores/settings/appSettings.ts`), and the fields only the page
+/// reads, kept as they are. Deserializing is tolerant per field: a field of the wrong type
 /// or out of range is its default, so one bad field never costs the others
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

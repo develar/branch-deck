@@ -323,7 +323,11 @@ test.describe("Activity of updates", () => {
     await page.clock.fastForward("00:11")
     await syncAndWaitForBranches()
     await expect(card).toHaveCount(0)
-    await expect.poll(async () => ((await testStore.get("recentProjects")) as { landedHiddenUntil?: number }[])[0]?.landedHiddenUntil ?? 0).toBeGreaterThan(0)
+    // in what the syncs record of the repository (repository-state.json), not in the user's settings
+    await expect
+      .poll(async () => Object.values(((await testStore.get("repositoryState")) ?? {}) as Record<string, { landedHiddenUntil?: number }>)[0]?.landedHiddenUntil ?? 0)
+      .toBeGreaterThan(0)
+    expect(((await testStore.get("recentProjects")) as { landedHiddenUntil?: number }[])[0]?.landedHiddenUntil).toBeUndefined()
     const chip = findBranchRow(page, "search").getByTestId("landed-chip")
     await expect(chip).toHaveText("1 landed · 1 local")
 

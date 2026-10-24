@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test"
 import { z } from "zod"
 import type { SettingsChange, SettingsPatch } from "@/lib/bindings"
 import { acceptSettingsChanges, createPersistentStore, onWriterChange } from "@/stores/settings/persistent-store"
+import type { EventHandler } from "@/test-support/settings-writer-mock"
 
 interface SetCall {
   patch: SettingsPatch
@@ -18,7 +19,7 @@ const { sets, listeners, errors, loadChanges } = vi.hoisted(() => {
   return {
     // the `set_setting` calls in the order they reach the backend, each answered when the test answers it
     sets: [] as SetCall[],
-    listeners: new Map<string, (event: { payload: unknown }) => void>(),
+    listeners: new Map<string, EventHandler>(),
     errors: [] as string[],
     // the changes of a key the writer made, as the load of the window hands them over (`sub_window_loaded`), the one
     // before the snapshot too
@@ -29,17 +30,9 @@ const { sets, listeners, errors, loadChanges } = vi.hoisted(() => {
   }
 })
 
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: async (name: string, handler: (event: { payload: unknown }) => void) => {
-    listeners.set(name, handler)
-    return () => {}
-  },
-}))
+vi.mock("@tauri-apps/api/event", async () => (await import("@/test-support/settings-writer-mock")).settingsWriterMocks.event(listeners))
 vi.mock("@/lib/window-label", () => ({ windowLabel: "review", isMainWindow: false }))
-vi.mock("@/lib/errors", () => ({
-  logError: (title: string) => errors.push(title),
-  notifyError: (title: string) => errors.push(title),
-}))
+vi.mock("@/lib/errors", async () => (await import("@/test-support/settings-writer-mock")).settingsWriterMocks.errors(errors))
 vi.mock("@/lib/bindings", () => ({
   commands: {
     setSetting: ({ patch }: { patch: SettingsPatch }) =>

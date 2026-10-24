@@ -81,9 +81,9 @@ fn run_every_rewrite(repo: &TestRepo, [a1, b1, a2, fixup]: &[String; 4], options
           UnapplyBranchParams {
             repository_path: repository_path.clone(),
             branch_name: "beta".to_string(),
-            branch_prefix: "test-user".to_string(),
             original_commit_ids: Some(vec![b1.clone()]),
           },
+          "test-user",
           options,
         )
         .map(drop),

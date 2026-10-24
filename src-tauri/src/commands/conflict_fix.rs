@@ -1,3 +1,4 @@
+use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::operation::run_blocking;
 use domain_types::error::ApiError;
@@ -20,16 +21,19 @@ fn cancel_running() {
 }
 
 /// The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
-/// cache only, no repository lock). One search at a time: a new one cancels the one before.
+/// cache only, no repository lock), of the branches named with the prefix Rust resolves for the repository
+/// (`PrefixInputs`). One search at a time: a new one cancels the one before.
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(git_executor, repository_state))]
+#[instrument(skip(git_executor, repository_state, settings, prefixes))]
 pub async fn find_conflict_fix(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, crate::repository_state::RepositoryStateCache>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
   params: FindConflictFixParams,
 ) -> Result<ConflictFix, ApiError> {
-  let git = (*git_executor).clone();
+  let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
   let repository_state = (*repository_state).clone();
   cancel_running();
   let flag = Arc::new(AtomicBool::new(false));
@@ -37,8 +41,9 @@ pub async fn find_conflict_fix(
     *running = Some(Arc::clone(&flag));
   }
   run_blocking(move || {
-    let cache = repository_state.object_cache(&git, &params.repository_path);
-    find_conflict_fix_core(&git, &cache, &params, &flag)
+    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
+    let cache = repository_state.object_cache(&inputs.git, &params.repository_path);
+    find_conflict_fix_core(&inputs.git, &cache, &params, &branch_prefix, &flag)
   })
   .await
 }

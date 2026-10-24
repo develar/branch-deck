@@ -506,14 +506,23 @@ pub async fn unapply_branch(
   headers: HeaderMap,
   Json(params): Json<sync_core::unapply_branch::UnapplyBranchParams>,
 ) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+  let repository_path = params.repository_path.clone();
+  run_waiting_with_prefix(&state, &headers, &repository_path, "unapply the branch", move |git, branch_prefix, lock_wait| {
+    sync_core::unapply_branch::unapply_branch_core(git, params, branch_prefix, &RewriteOptions::waiting(lock_wait))
+  })
+  .await
+}
+
+/// `step` of a rewrite of the test repository at `repository_path` under `run_waiting`, with git and the prefix the
+/// app's commands name its branches with (`branch_prefix_of`); an error for an unknown repository
+async fn run_waiting_with_prefix<T, F>(state: &AppState, headers: &HeaderMap, repository_path: &str, operation: &'static str, step: F) -> Result<Response, Rejection>
+where
+  F: FnOnce(&git_executor::git_command_executor::GitCommandExecutor, &str, LockWait<'_>) -> anyhow::Result<T> + Send + 'static,
+  T: serde::Serialize + Send + 'static,
+{
+  let branch_prefix = branch_prefix_of(state, repository_path).await?;
   let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "unapply the branch", move |lock_wait| {
-      sync_core::unapply_branch::unapply_branch_core(&git_executor, params, &RewriteOptions::waiting(lock_wait))
-    })
-    .await,
-  )
+  Ok(run_waiting(state, headers, operation, move |lock_wait| step(&git_executor, &branch_prefix, lock_wait)).await)
 }
 
 pub async fn undo_unapply_branch(
@@ -539,14 +548,11 @@ pub async fn reapply_branch(
   headers: HeaderMap,
   Json(params): Json<sync_core::reapply_branch::ReapplyBranchParams>,
 ) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "reapply the branch", move |lock_wait| {
-      sync_core::reapply_branch::reapply_branch_core(&git_executor, &params, &RewriteOptions::waiting(lock_wait))
-    })
-    .await,
-  )
+  let repository_path = params.repository_path.clone();
+  run_waiting_with_prefix(&state, &headers, &repository_path, "reapply the branch", move |git, branch_prefix, lock_wait| {
+    sync_core::reapply_branch::reapply_branch_core(git, &params, branch_prefix, &RewriteOptions::waiting(lock_wait))
+  })
+  .await
 }
 
 pub async fn undo_reapply_branch(
@@ -648,10 +654,10 @@ pub async fn find_conflict_fix(
   State(state): State<Arc<AppState>>,
   Json(params): Json<trial_check::conflict_fix::FindConflictFixParams>,
 ) -> CommandResult<trial_check::conflict_fix::ConflictFix> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let git_executor = state.git_executor.clone();
   run_command("find the conflict fix", move || {
-    trial_check::conflict_fix::find_conflict_fix_core(&git_executor, &ObjectCache::disabled(), &params, &std::sync::atomic::AtomicBool::new(false))
+    trial_check::conflict_fix::find_conflict_fix_core(&git_executor, &ObjectCache::disabled(), &params, &branch_prefix, &std::sync::atomic::AtomicBool::new(false))
   })
   .await
 }

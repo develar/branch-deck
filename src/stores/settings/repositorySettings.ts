@@ -38,13 +38,6 @@ const CachedBranchPrefixSchema = z
 export const ProjectMetadataSchema = z.object({
   path: z.string(),
   cachedBranchPrefix: CachedBranchPrefixSchema,
-  /** When Update Project last fetched the baseline (ms); a fetch elsewhere shows through FETCH_HEAD */
-  lastFetchTime: z.number().optional(),
-  /**
-   * The Landed island hides the branches that landed up to this time (`landedAt`, Unix seconds): a sync hid them after
-   * the user had seen them. Their chips stay until Dismiss.
-   */
-  landedHiddenUntil: z.number().optional(),
   /** The user collapsed the "Your Turn" card of the repository (open by default) */
   reviewRequestsCollapsed: z.boolean().optional(),
   /** The user collapsed the Parked card of the repository (open by default) */

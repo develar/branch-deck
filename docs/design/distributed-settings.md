@@ -22,8 +22,9 @@ The backend owns the file: one `SettingsService` (`crates/app-settings/src/servi
 runs the same writer) holds the settings in memory, applies every change as a patch in the order it arrives, gives each
 change a version and saves the file at most 500 ms after the first unsaved change, to a temporary file renamed over it.
 `src-tauri` opens it on the app data directory in `setup` (`src-tauri/src/settings.rs`). It writes two files there: the
-key `repositoryState`, what each sync records of a repository, in `repository-state.json`, every other key in
-`settings.json`, so the file of the user's settings, which `bd` reads, changes only when a setting changes.
+key `repositoryState`, what each sync, fetch and update records of a repository, in `repository-state.json`, every
+other key in `settings.json`, so the file of the user's settings, which `bd` reads, changes only when the user changes
+a setting or the list of projects.
 
 Each setting group of the page is a zustand vanilla store created by `createPersistentStore`
 (`src/stores/settings/persistent-store.ts`). It starts synchronously from `window.__TAURI_STORE__`, the writer's copy
@@ -96,7 +97,10 @@ sequenceDiagram
    answers them from the version its build remembered, `SubWindowState::built`), before it says its content settled
    and the window shows (`sub_window_ready`), so a zoom changed while a review window loaded is the window's when it
    shows; the main window by `get_settings_changes` (its init script, which a reload runs again, has the snapshot of
-   the app's start). The webview starts at the zoom of the snapshot, and `useZoom` zooms the page whenever the level
+   the app's start). Until it caught up, the main window holds its own changes (a reload would otherwise send a
+   whole array built on the snapshot of the app's start and overwrite the projects opened since); then it sends them,
+   and drops a held whole value whose key the writer changed after the snapshot. The webview starts at the zoom of the
+   snapshot, and `useZoom` zooms the page whenever the level
    differs from it (`zoomAtStart`), also when the load's change was in the store before the first render.
 
 3. **Decision**: A window sends patches, not whole values: the fields of an object that differ from the value it last
@@ -121,9 +125,13 @@ sequenceDiagram
 
 6. **Decision**: Only non-default fields are persisted; an empty array, and an object whose last field went, remove
    the key. The fields Rust reads (`AppSettings`) go to the windows in their full form, every field with its default
-   (`AppSettings::to_full`).
-   **Rationale**: Keeps the file small and lets new defaults apply to users who never changed a setting; the page and
-   Rust agree on the defaults of the fields both read. Keys the backend does not know are kept raw.
+   (`AppSettings::to_full`), and the page has no defaults of its own for them: its schema takes them from the bindings
+   (`APP_SETTINGS_DEFAULTS`, exported from `AppSettings::default`, and the type `AppSettings`, whose fields the schema
+   must name, `src/stores/settings/appSettings.ts`).
+   **Rationale**: Keeps the file small and lets new defaults apply to users who never changed a setting. A field back
+   at its default goes to the writer as `null`, which the writer stores as no value and reads as its own default: with
+   two sets of defaults, a switch turned to a value that is the page's default and not Rust's would snap back, and
+   `bd` would read another value than the page shows. Keys the backend does not know are kept raw.
 
 7. **Decision**: Array stores (recent projects) wrap the array as `{ items }`.
    **Rationale**: zustand state must be an object. The writer and the file see the plain array.
@@ -137,20 +145,22 @@ sequenceDiagram
 9. **Decision**: The disk lags, the windows don't: a change is sent to every window at once, and the file is saved on
    one writer thread at most 500 ms after the first unsaved change. The app flushes on `RunEvent::ExitRequested`.
    **Rationale**: A burst of changes (a zoom by keys, a dragged split) is one write. A failed save keeps the settings in
-   memory, is tried again by the next change or flush, and is told to the main window once per streak of failures
-   (`settings_save_failed` → "Cannot save the settings").
+   memory, is tried again by itself (first after the debounce, then after twice the delay before, at most a minute
+   apart: a transient failure, such as a handle an indexer holds on Windows, must not wait for a change that may never
+   come before the app is killed) and by the next change or flush, and is told to the main window once per streak of
+   failures (`settings_save_failed` → "Cannot save the settings").
 
 10. **Decision**: What a sync records of a repository (`repositoryState` by its path: `lastSyncTime`,
-    `lastBranchCount`, `updateTimings`) is a key of its own in a file of its own, `repository-state.json`, behind the
+    `lastBranchCount`, `updateTimings`, `lastFetchTime` of a fetch, `landedHiddenUntil` of the Landed island) is a key of its own in a file of its own, `repository-state.json`, behind the
     same writer: a key lives in one file (`StoreFile::of`), the versions count the changes of both, and a pass of the
     writer saves only the files that changed. A `settings.json` of before kept these fields in each recent project:
     the load moves them (`SettingsFile::take_repository_state`; a value the state file has for the repository wins) and
     saves the state file within the debounce; `settings.json` loses them with its next save, not before.
     **Rationale**: A sync runs on every focus that changed what it reads, and every Update Project learns its step
     times: in `settings.json` each would rewrite the file `bd` reads beside it, and the user's settings would follow the
-    churn of the syncs. The state file is saved before `settings.json` in a pass, so the moved values are on disk before
-    `settings.json` drops them. `lastFetchTime` and the cached prefix stay in the recent projects: Update Project, an
-    action of the user, writes the first, and the second changes only with the prefix.
+    churn of the syncs. A fetch (every Update Project) and a sync that hides the Landed island are as routine. The
+    state file is saved before `settings.json` in a pass, so the moved values are on disk before `settings.json` drops
+    them. The cached prefix stays in the recent projects: it changes only with the prefix.
 
 ### Implementation Notes
 
