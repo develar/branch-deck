@@ -622,6 +622,7 @@ dependencies = [
  "test-utils",
  "text-diff",
  "trial-check",
+ "update-core",
 ]
 
 [[package]]

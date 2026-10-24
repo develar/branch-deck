@@ -9,6 +9,8 @@
 //! - `resolve_session`: the resolve sessions of a conflicting `bd update`
 //! - `resolve_copies`: the copies of a round that the agent edits, the only files of a session
 
+#[cfg(any(test, feature = "fixtures"))]
+pub mod error_cases;
 pub mod pick;
 pub mod resolve_copies;
 pub mod resolve_session;

@@ -926,12 +926,21 @@ repository». Аудит всех функций в тот же день наш�
 - Одна цепочка downcast: `app_api::api_error(anyhow::Error) -> ApiError` (`crates/app-api/src/api_error.rs`) в
   новом crate `app-api` (в s4 только этот модуль; s12 наполняет его телами команд), от которого зависят только
   `branch-deck` и `test-server` (`architecture_test.rs` в `bd-cli`). Код у самого типа — `RegroupError::code()` и
-  `SyncDeferred::code()`: их вызывают и `bd-core`, и `app-api`. `NoBaseline` → `no_baseline` обе стороны находят
-  downcast'ом; `RepositoryLocked` → `locked` с держателем (`ErrorDetails::Locked`) — только `app-api`. Остальные
-  типизированные ошибки (`ParkError`, `GuardRefusal`, отказы unapply и reapply, landing) сопоставлены дважды:
-  в `classify` `app-api` и в мапперах команд `bd` (`park_error`, `unapply_error`, `update_command::core_error`);
-  ошибки только `bd` (`ResolveError`, `PickRefusal`, `LeaseRefusal`, `MoveHunkError`) — только там, приложение отвечает на них `internal`. Долг после s4:
-  перенести эти коды к типам (`code()`), чтобы вторая таблица исчезла. Контракт адаптеров — фикстура
+  `SyncDeferred::code()`, а также `ParkError::code()`, `GuardRefusal::code()`, `UnapplyRefusal::code()` и
+  `ReapplyRefusal::code()`: их вызывают и мапперы команд `bd` (`park_error`, `unapply_error`, `reapply_error`,
+  `update_command::core_error`), и `classify` `app-api`. Ошибки с одним кодом (`HeadMoved`, `RefLocked`,
+  `MoveBlocked`, `FetchFailed`, …) обе стороны находят downcast'ом; `RepositoryLocked` → `locked` с держателем
+  (`ErrorDetails::Locked`) — только `app-api`; lock-файл git (`RefLocked`) — `locked` без `details`, так что
+  страница показывает его слова (путь и «удалите файл, когда git не работает»), а не «другая операция Branch Deck».
+  Код ошибки отмены — одно правило `ErrorCode::in_undo` (сдвинутый ref → `undo_stale`, `retry: No`; план токена →
+  `invalid_arguments`): `bd undo` (`undo_core_error`, `undo_command.rs`) и команды отмены приложения
+  (`app_api::api_error::undo_error`: `undo_regroup`, `undo_unapply_branch`, `undo_reapply_branch`). Что обе стороны
+  отвечают один код на каждую ошибку, проверяет одна таблица ошибок с их кодами `update_core::error_cases` (feature
+  `fixtures`): на ней тестируются мапперы `bd` (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/park_error_test.rs`)
+  и `api_error` (`app-api/src/api_error_test.rs`), потому что `app-api` недоступен crate'ам `bd` (без кода: `git_error`
+  в `bd`, `internal` в приложении). Ошибки только
+  `bd` (`ResolveError`, `PickRefusal`, `LeaseRefusal`, `MoveHunkError`) — только там, приложение отвечает на них
+  `internal`. Контракт адаптеров — фикстура
   `crates/app-api/fixtures/api_errors.json` на случаи `app_api::api_error::contract_cases`
   (`src-tauri/src/api_error_contract_test.rs`, `crates/test-server/src/api_error_contract_test.rs`).
 - `CommandError`/`CommandErrorKind` (`src-tauri/src/command_error.rs`) удалены; `OperationInProgress` и

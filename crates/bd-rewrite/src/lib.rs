@@ -33,6 +33,8 @@ mod fold_test;
 #[cfg(test)]
 mod move_hunk_test;
 #[cfg(test)]
+mod park_error_test;
+#[cfg(test)]
 mod park_test;
 #[cfg(test)]
 mod reword_test;

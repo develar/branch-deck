@@ -19,6 +19,7 @@ use crate::word_resolve::ResolveMode;
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
+use domain_types::error::ErrorCode;
 use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -982,6 +983,16 @@ pub enum GuardRefusal {
   /// HEAD is detached
   #[error("{0}")]
   DetachedHead(String),
+}
+
+impl GuardRefusal {
+  /// The code of the refusal, the same in `bd` and in the app
+  pub const fn code(&self) -> ErrorCode {
+    match self {
+      Self::OperationInProgress(_) => ErrorCode::OperationInProgress,
+      Self::DetachedHead(_) => ErrorCode::DetachedHead,
+    }
+  }
 }
 
 /// The guards of an update and of its undo: no operation in progress, HEAD on a branch. Returns the branch; a refusal

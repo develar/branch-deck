@@ -6,11 +6,13 @@
 //! the regroup (`regroup.rs`); a sync only drops the lines of the branches whose archived branch is integrated
 //! (`drop_integrated_parked`). The ref is shared by every branch and worktree, so a write changes only the lines it names.
 
+use crate::baseline::NoBaseline;
 use crate::move_commits::validate_branch_name;
 use crate::repository_lock::{RepositoryLocked, RewriteOptions};
 use crate::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};
 use crate::store_lines::{LineStore, StoreMoved, drop_store_lines, format_store_lines};
 use anyhow::Result;
+use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::write_store_updates;
 use tracing::{info, instrument};
@@ -68,6 +70,22 @@ pub enum ParkError {
   Locked(RepositoryLocked),
   #[error("{0:#}")]
   Other(anyhow::Error),
+}
+
+impl ParkError {
+  /// The code of a refused or failed park, the same in `bd` and in the app (as `RegroupError::code`); `None` for a
+  /// failure without a code of its own
+  pub fn code(&self) -> Option<ErrorCode> {
+    Some(match self {
+      Self::UnknownBranch(_) => ErrorCode::UnknownBranch,
+      Self::NotParked(_) => ErrorCode::NotParked,
+      Self::InvalidNote(_) => ErrorCode::InvalidArguments,
+      Self::Moved(_) => ErrorCode::ParkedMoved,
+      Self::Locked(_) => ErrorCode::Locked,
+      Self::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
+      Self::Other(_) => return None,
+    })
+  }
 }
 
 impl From<anyhow::Error> for ParkError {

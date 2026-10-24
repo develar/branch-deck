@@ -33,6 +33,8 @@ tempfile.workspace = true
 # the tests run bd through its Cli: a dev-dependency cycle, which cargo allows
 bd-cli = { path = "../bd-cli", features = ["fixtures"] }
 test-utils = { path = "../test-utils" }
+# `error_cases`: the typed errors with the one code bd and the app answer for each
+update-core = { path = "../update-core", features = ["fixtures"] }
 pretty_assertions.workspace = true
 test-log.workspace = true
 

@@ -279,6 +279,19 @@ impl ErrorCode {
     }
   }
 
+  /// The code of this error when an undo fails with it: a ref that moved on since the operation (HEAD, the issue
+  /// groups, the stack parents, the parked branches) makes the token stale (`UndoStale`: the same undo can never
+  /// succeed), and a plan the token names is a wrong argument (`InvalidArguments`); any other code stays. The one rule
+  /// of `bd undo` and of the undo commands of the app
+  #[must_use]
+  pub const fn in_undo(self) -> Self {
+    match self {
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved => Self::UndoStale,
+      Self::InvalidPlan => Self::InvalidArguments,
+      code => code,
+    }
+  }
+
   /// Whether running the same command again (after re-reading the state for a stale code) may succeed: the `retryable`
   /// of `bd`
   pub const fn retryable(self) -> bool {
@@ -333,6 +346,14 @@ impl ApiError {
   /// A failure without a code of its own (`ErrorCode::Internal`)
   pub fn internal(message: impl Into<String>) -> Self {
     Self::new(ErrorCode::Internal, message)
+  }
+
+  /// This error as an undo answers it: its code `in_undo`, with the retry of that code
+  #[must_use]
+  pub const fn in_undo(mut self) -> Self {
+    self.code = self.code.in_undo();
+    self.retry = self.code.retry();
+    self
   }
 
   #[must_use]

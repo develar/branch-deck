@@ -13,6 +13,8 @@ pub mod undo_command;
 pub mod update_command;
 
 #[cfg(test)]
+mod error_code_test;
+#[cfg(test)]
 mod pick_test;
 #[cfg(test)]
 mod resolve_test;

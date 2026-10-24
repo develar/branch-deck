@@ -3,13 +3,13 @@
 //! (`sync_core::unapply_branch`) takes the repository lock, checks that the virtual branch is the copies of its commits,
 //! and moves HEAD through the guarded working-tree update; local changes on the paths it writes change nothing
 
-use crate::update_command::{core_error, uncommitted_overlap};
+use crate::update_command::{core_error, undo_core_error};
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::lock;
 use domain_types::error::ErrorCode;
-use git_ops::unapply::{DropRefused, MoveBlocked};
+use git_ops::unapply::DropRefused;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -76,26 +76,15 @@ pub fn unapply(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutpu
   })
 }
 
-/// The code of a failed unapply: a refusal of the core, local changes in the way, a drop that conflicts, else as for an
-/// update (`core_error`)
-fn unapply_error(error: anyhow::Error) -> CliError {
+/// The code of a failed unapply: a refusal of the core, a drop that conflicts, else as for an update (`core_error`,
+/// also local changes in the way)
+pub(crate) fn unapply_error(error: anyhow::Error) -> CliError {
   let code = match error.downcast_ref::<UnapplyRefusal>() {
-    Some(UnapplyRefusal::UnknownBranch(_)) => ErrorCode::UnknownBranch,
-    Some(UnapplyRefusal::BranchChanged(_)) => ErrorCode::HeadMoved,
-    Some(UnapplyRefusal::NotBuilt { .. }) => ErrorCode::BranchNotBuilt,
-    Some(UnapplyRefusal::CheckedOut { .. }) => ErrorCode::BranchCheckedOut,
+    Some(refusal) => refusal.code(),
     None if error.downcast_ref::<DropRefused>().is_some() => ErrorCode::DropConflict,
-    None => return move_error(error),
+    None => return core_error(error),
   };
   CliError::new(code, format!("{error:#}"))
-}
-
-/// The code of a failed move of HEAD the files follow: local changes in the way, else as for an update (`core_error`)
-fn move_error(error: anyhow::Error) -> CliError {
-  match error.downcast_ref::<MoveBlocked>() {
-    Some(blocked) => uncommitted_overlap(blocked.paths.clone(), blocked.path_count as usize, blocked.operation),
-    None => core_error(error, ErrorCode::HeadMoved),
-  }
 }
 
 /// `bd undo unapply:<previous head>..<new head>:<tip>:<virtual branch>:<unapplied branch>`; `None` for a token of
@@ -114,7 +103,7 @@ fn undo_unapply_token(context: &RepoContext, text: &str) -> Result<(UnapplyUndoT
       format!("{text:?} is not an unapply token: unapply:<previous head>..<new head>:<tip>:<branch>:<unapplied branch>, as bd unapply printed it"),
     )
   })?;
-  let undone = undo_unapply_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(|e| core_error(e, ErrorCode::UndoStale))?;
+  let undone = undo_unapply_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(undo_core_error)?;
   Ok((token, undone))
 }
 
@@ -207,19 +196,17 @@ pub fn reapply(context: &RepoContext, args: &ReapplyArgs) -> Result<ReapplyOutpu
   })
 }
 
-/// The code of a failed reapply: a refusal of the core, local changes in the way, else as for an update (`core_error`)
-fn reapply_error(error: anyhow::Error) -> CliError {
+/// The code of a failed reapply: a refusal of the core, else as for an update (`core_error`, also local changes in the way)
+pub(crate) fn reapply_error(error: anyhow::Error) -> CliError {
   let code = match error.downcast_ref::<ReapplyRefusal>() {
-    Some(ReapplyRefusal::UnknownBranch(_)) => ErrorCode::UnknownBranch,
-    Some(ReapplyRefusal::CheckedOut { .. }) => ErrorCode::BranchCheckedOut,
-    Some(ReapplyRefusal::NoCommonHistory(_) | ReapplyRefusal::AlreadyInHead(_)) => ErrorCode::NothingToReapply,
-    Some(ReapplyRefusal::Conflict { commit, files, .. }) => {
-      let mut cli_error = CliError::new(ErrorCode::ReapplyConflict, format!("{error:#}"));
+    Some(refusal @ ReapplyRefusal::Conflict { commit, files, .. }) => {
+      let mut cli_error = CliError::new(refusal.code(), format!("{error:#}"));
       cli_error.commits = vec![git_ops::revs::short_id(commit).to_string()];
       cli_error.paths.clone_from(files);
       return cli_error;
     }
-    None => return move_error(error),
+    Some(refusal) => refusal.code(),
+    None => return core_error(error),
   };
   CliError::new(code, format!("{error:#}"))
 }
@@ -239,6 +226,6 @@ fn undo_reapply_token(context: &RepoContext, text: &str) -> Result<(ReapplyUndoT
       format!("{text:?} is not a reapply token: reapply:<previous head>..<new head>:<tip>:<unapplied branch>, as bd reapply printed it"),
     )
   })?;
-  let undone = undo_reapply_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(|e| core_error(e, ErrorCode::UndoStale))?;
+  let undone = undo_reapply_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(undo_core_error)?;
   Ok((token, undone))
 }

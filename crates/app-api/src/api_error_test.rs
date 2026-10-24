@@ -1,4 +1,4 @@
-use crate::api_error::{CONTRACT_JSON, api_error, api_error_at, contract_cases};
+use crate::api_error::{CONTRACT_JSON, api_error, api_error_at, contract_cases, undo_error};
 use anyhow::{Context, anyhow};
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, LockHolderInfo, Retry};
 use file_diffs::accio::SearchCanceled;
@@ -8,6 +8,7 @@ use serde_json::{Map, Value};
 use std::path::PathBuf;
 use std::time::Duration;
 use sync_core::sync::SyncDeferred;
+use update_core::error_cases::error_cases;
 
 const NOW: u64 = 1_800_000_000;
 
@@ -91,4 +92,25 @@ fn api_error_picks_no_code_by_the_message() {
   }
   let error: anyhow::Result<()> = Err(anyhow!("exit 128")).context("canceled");
   assert_eq!(api_error_at(&error.unwrap_err(), NOW).code, ErrorCode::Internal);
+}
+
+/// The app answers the code of each typed error that `bd` answers: both are tested on `update_core::error_cases`
+/// (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/park_error_test.rs`), an undo through `undo_error`
+#[test]
+fn api_error_answers_the_code_of_each_typed_error_that_bd_answers_and_an_undo_its_code_in_undo() {
+  let cases = error_cases();
+  let expected: Vec<_> = cases.iter().map(|case| (case.name, case.code)).collect();
+  let actual: Vec<_> = cases.iter().map(|case| (case.name, api_error((case.error)()).code)).collect();
+  assert_eq!(actual, expected);
+  let expected: Vec<_> = cases.iter().filter_map(|case| case.undo.map(|undo| (case.name, undo, undo.retry()))).collect();
+  let actual: Vec<_> = cases
+    .iter()
+    .filter(|case| case.undo.is_some())
+    .map(|case| {
+      let error = undo_error((case.error)());
+      (case.name, error.code, error.retry)
+    })
+    .collect();
+  assert_eq!(actual, expected);
+  assert!(actual.contains(&("head_moved", ErrorCode::UndoStale, Retry::No)));
 }

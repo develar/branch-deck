@@ -117,9 +117,14 @@ the error object of `bd`, is in `crates/bd-core/src/error.rs`. A typed error of 
 (`RegroupError::code`, `SyncDeferred::code`), so `bd` and the app read one mapping. The app's conversion is
 `crates/app-api/src/api_error.rs`: the app and the e2e server turn a core's error into `ApiError` with its one function,
 `app_api::api_error`, which also names the holder of a held lock (`details`) and gives the other typed errors
-(`ParkError`, `GuardRefusal`, the refusals of unapply, reapply and landing) the code the `bd` command gives them; that
-mapping is still written twice, in `api_error.rs` and in the commands of `bd` (`park_error`, `unapply_error`,
-`update_command::core_error`), until each type names its code. Both adapters answer the JSON of
+the code the `bd` command gives them: the types name it (`ParkError::code`, `GuardRefusal::code`,
+`UnapplyRefusal::code`, `ReapplyRefusal::code`), which the commands of `bd` (`park_error`, `unapply_error`,
+`reapply_error`, `update_command::core_error`) read too. An undo answers `ErrorCode::in_undo` of the code, in `bd undo`
+and in the undo commands of the app (`app_api::api_error::undo_error`): a ref that moved on since the operation is
+`undo_stale`. One table of the typed errors with their codes, `crates/update-core/src/error_cases.rs`, is what both
+sides are tested on (`error_code_test.rs` of `bd-update`, `park_error_test.rs` of `bd-rewrite`, `api_error_test.rs` of
+`app-api`): no crate calls both, as only the app and the e2e server depend on `app-api`. A lock file of git in the way of a ref move (`RefLocked`) is `locked` without
+`details`: its message names the file. Both adapters answer the JSON of
 `crates/app-api/fixtures/api_errors.json` for each of its cases (`api_error_contract_test.rs` of `src-tauri` and of
 `test-server`). `canceled` is an action the user stopped (the wait for a lock, a sign-in, an action of a CLI tool, a
 review fetch: `LockWaitCanceled`, `SignInError::Canceled`, `DeviceFlowError::Canceled`, `ActionError::Canceled`,

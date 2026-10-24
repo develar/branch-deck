@@ -205,6 +205,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   failure of git or IO as `git_error`) with 5.
   [@test] ../../crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
   [@test] ../../crates/domain-types/src/error_test.rs (`an_error_without_a_code_of_its_own_is_internal_and_canceled_is_a_code`, `an_error_carries_the_retry_of_its_code`)
+- A typed error of a core must have one code in `bd` and in the app: the type names it (`ParkError::code`,
+  `GuardRefusal::code`, `UnapplyRefusal::code`, `ReapplyRefusal::code`), local changes in the way of an unapply, a
+  reapply or their undo are `uncommitted_overlap`, and an undo answers the code `in_undo` (`ErrorCode::in_undo`): a
+  ref that moved on since the operation is `undo_stale`, never retried, in `bd undo` and in the undo commands of the
+  app alike. Both sides are tested on one table of the typed errors and their codes (`update_core::error_cases`).
+  [@test] ../../crates/bd-update/src/error_code_test.rs (`bd_answers_the_code_of_each_refusal_of_a_move_an_unapply_and_a_reapply_that_the_app_answers`, `bd_undo_answers_the_code_of_each_refusal_that_the_app_answers_and_a_moved_head_makes_it_stale`, `an_error_without_a_code_is_git_error_in_bd`)
+  [@test] ../../crates/bd-rewrite/src/park_error_test.rs (`bd_answers_the_code_of_each_refusal_of_a_park_that_the_app_answers`, `a_park_that_fails_without_a_code_is_git_error_in_bd`)
+  [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_the_code_of_each_typed_error_that_bd_answers_and_an_undo_its_code_in_undo`)
+  [@test] ../../crates/domain-types/src/error_test.rs (`an_undo_that_a_moved_ref_refuses_is_stale_and_never_retried`)
+  [@test] ../../crates/test-server/src/reword_test.rs (`undo_regroup_after_a_new_commit_answers_undo_stale_never_retried`)
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
   with `invalid_arguments`, an unknown `--branch` with `unknown_branch`; all exit with 2.
   [@test] ../../crates/bd-remote/src/status_test.rs (`empty_prefix_is_an_error`, `not_a_repository`, `invalid_arguments`, `status_filters_and_pages`)

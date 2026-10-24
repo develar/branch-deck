@@ -6,6 +6,7 @@ use anyhow::Result;
 use branch_integration::archive::{REF_RENAME_MUTEX, own_commits_start, unique_branch_name};
 use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
 use domain_types::commit::Commit;
+use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::is_object_id;
 use git_ops::unapply::{UnappliedMove, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
@@ -64,6 +65,18 @@ pub enum UnapplyRefusal {
   /// A worktree has the virtual branch checked out
   #[error("{branch} is checked out in {worktree}: switch that worktree to another branch first")]
   CheckedOut { branch: String, worktree: String },
+}
+
+impl UnapplyRefusal {
+  /// The code of the refusal, the same in `bd` and in the app
+  pub const fn code(&self) -> ErrorCode {
+    match self {
+      Self::UnknownBranch(_) => ErrorCode::UnknownBranch,
+      Self::BranchChanged(_) => ErrorCode::HeadMoved,
+      Self::NotBuilt { .. } => ErrorCode::BranchNotBuilt,
+      Self::CheckedOut { .. } => ErrorCode::BranchCheckedOut,
+    }
+  }
 }
 
 /// Unapply the virtual branch of `params.branch_name`: its original commits leave HEAD (the checked out branch), the

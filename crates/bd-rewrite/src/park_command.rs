@@ -6,7 +6,6 @@ use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::lock;
 use domain_types::error::ErrorCode;
-use history_rewrite::baseline::NoBaseline;
 use history_rewrite::parked::{ParkError, ParkLine, ParkOutcome, park_core, unpark_core};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use schemars::JsonSchema;
@@ -92,15 +91,6 @@ fn locked(context: &RepoContext, write: impl FnOnce(&RewriteOptions) -> Result<P
 
 /// The error code of a refused or failed park; by value, for `map_err`
 #[expect(clippy::needless_pass_by_value, reason = "used as `map_err(park_error)`")]
-fn park_error(error: ParkError) -> CliError {
-  let code = match &error {
-    ParkError::UnknownBranch(_) => ErrorCode::UnknownBranch,
-    ParkError::NotParked(_) => ErrorCode::NotParked,
-    ParkError::InvalidNote(_) => ErrorCode::InvalidArguments,
-    ParkError::Moved(_) => ErrorCode::ParkedMoved,
-    ParkError::Locked(_) => ErrorCode::Locked,
-    ParkError::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
-    ParkError::Other(_) => ErrorCode::GitError,
-  };
-  CliError::new(code, error.to_string())
+pub(crate) fn park_error(error: ParkError) -> CliError {
+  CliError::new(error.code().unwrap_or(ErrorCode::GitError), error.to_string())
 }

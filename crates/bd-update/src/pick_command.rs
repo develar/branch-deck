@@ -3,7 +3,7 @@
 //! worktree shares, replays the commits in memory, and moves the branch (and, with --follow, the source worktree)
 //! through the guarded working-tree update; a conflict or local changes in the way change nothing
 
-use crate::update_command::{core_error, uncommitted_overlap};
+use crate::update_command::{core_error, uncommitted_overlap, undo_core_error};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::{SchemaVersion, ShortIds};
@@ -249,7 +249,7 @@ fn pick_error(error: anyhow::Error) -> CliError {
     Some(PickRefusal::InvalidSource(_)) => ErrorCode::InvalidArguments,
     Some(PickRefusal::RangeUnknown(_)) => ErrorCode::RangeUnknown,
     Some(PickRefusal::SourceOnNewerBaseline(_)) => ErrorCode::SourceOnNewerBaseline,
-    None => return core_error(error, ErrorCode::HeadMoved),
+    None => return core_error(error),
   };
   CliError::new(code, format!("{error:#}"))
 }
@@ -403,6 +403,6 @@ fn undo_pick_token(context: &RepoContext, text: &str) -> Result<(PickUndoToken, 
       format!("{text:?} is not a pick token: pick:<previous head>..<new head>, with the full ids bd pick printed"),
     )
   })?;
-  let undone = undo_pick_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|e| core_error(e, ErrorCode::UndoStale))?;
+  let undone = undo_pick_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(undo_core_error)?;
   Ok((token, undone))
 }

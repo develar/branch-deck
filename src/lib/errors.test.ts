@@ -21,6 +21,9 @@ function lockedBy(holder: LockHolderInfo | null): ApiError {
 
 const BD_PUSH: LockHolderInfo = { tool: "bd", command: "bd push auth", pid: 4242, held_for: 40 }
 
+/** The `ApiError` of each case of `app_api::api_error::contract_cases`, as the app and the e2e server answer it */
+const CONTRACT = Object.values(import.meta.glob<Record<string, ApiError>>("/crates/app-api/fixtures/api_errors.json", { eager: true, import: "default" }))[0]
+
 /** The page's own sources, without the tests and the generated bindings */
 const sources = import.meta.glob<string>(["/src/**/*.{ts,tsx}", "!/src/**/*.test.{ts,tsx}", "!/src/lib/bindings.ts"], { eager: true, query: "?raw", import: "default" })
 
@@ -110,6 +113,13 @@ describe("describeError", () => {
 
   it("says another operation holds the repository when the holder left no record, never the lock file", () => {
     expect(describeError(lockedBy(null))).toBe("Another Branch Deck operation holds the repository")
+  })
+
+  it("keeps the words of a lock file of git, which name the file and say to remove a stale one, never another Branch Deck operation", () => {
+    const refLocked = CONTRACT?.ref_locked
+    expect(refLocked?.code).toBe("locked")
+    expect(describeError(refLocked)).toBe(refLocked?.message)
+    expect(describeError(refLocked)).toContain("/repo/.git/refs/heads/master.lock exists")
   })
 
   it("is the message of any other error", () => {

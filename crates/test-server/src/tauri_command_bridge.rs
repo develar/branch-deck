@@ -1,6 +1,6 @@
 use crate::channel_commands::{answer_with_progress, canceled_by, canceled_code, progress_channel, register_wait, run_waiting};
 use crate::remote_host::PAGE_CLOCK_START;
-use app_api::api_error::{IntoApiError, patronus_error};
+use app_api::api_error::{IntoApiError, patronus_error, undo_error};
 use axum::{
   extract::State,
   http::{HeaderMap, StatusCode, header},
@@ -396,7 +396,7 @@ pub async fn undo_regroup(
   let git_executor = state.git_executor.clone();
   Ok(
     run_waiting(&state, &headers, "undo regroup", move |lock_wait| {
-      sync_core::stack_operations::undo_regroup(&git_executor, &params, lock_wait)
+      sync_core::stack_operations::undo_regroup(&git_executor, &params, lock_wait).map_err(undo_error)
     })
     .await,
   )
@@ -463,9 +463,10 @@ pub async fn undo_unapply_branch(
   let git_executor = state.git_executor.clone();
   Ok(
     run_waiting(&state, &headers, "undo the unapply", move |lock_wait| {
-      let token =
-        sync_core::unapply_branch::UnapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of an unapply: {}", params.undo_token))?;
-      sync_core::unapply_branch::undo_unapply_core(&git_executor, &params.repository_path, &token, lock_wait)
+      let token = sync_core::unapply_branch::UnapplyUndoToken::parse(&params.undo_token)
+        .ok_or_else(|| anyhow::anyhow!("Not an undo token of an unapply: {}", params.undo_token))
+        .map_err(undo_error)?;
+      sync_core::unapply_branch::undo_unapply_core(&git_executor, &params.repository_path, &token, lock_wait).map_err(undo_error)
     })
     .await,
   )
@@ -495,8 +496,10 @@ pub async fn undo_reapply_branch(
   let git_executor = state.git_executor.clone();
   Ok(
     run_waiting(&state, &headers, "undo the reapply", move |lock_wait| {
-      let token = sync_core::reapply_branch::ReapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of a reapply: {}", params.undo_token))?;
-      sync_core::reapply_branch::undo_reapply_core(&git_executor, &params.repository_path, &token, lock_wait)
+      let token = sync_core::reapply_branch::ReapplyUndoToken::parse(&params.undo_token)
+        .ok_or_else(|| anyhow::anyhow!("Not an undo token of a reapply: {}", params.undo_token))
+        .map_err(undo_error)?;
+      sync_core::reapply_branch::undo_reapply_core(&git_executor, &params.repository_path, &token, lock_wait).map_err(undo_error)
     })
     .await,
   )

@@ -1,6 +1,7 @@
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::operation::run_blocking;
 use crate::repository_state::RepositoryStateCache;
+use app_api::api_error::undo_error;
 use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::move_commits::MoveCommitsResult;
@@ -66,5 +67,5 @@ pub async fn get_stack_independence(
 #[instrument(skip(git_executor, lock_waits, wait))]
 pub async fn undo_regroup(git_executor: State<'_, GitCommandExecutor>, lock_waits: Waits<'_>, params: UndoRegroupParams, wait: WaitChannel) -> Result<(), ApiError> {
   let git = (*git_executor).clone();
-  run_waiting(&lock_waits, wait, move |lock_wait| undo_regroup_core(&git, &params, lock_wait)).await
+  run_waiting(&lock_waits, wait, move |lock_wait| undo_regroup_core(&git, &params, lock_wait).map_err(undo_error)).await
 }

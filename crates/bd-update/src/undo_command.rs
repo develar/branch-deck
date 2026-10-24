@@ -141,13 +141,9 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
   };
   undo_regroup_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(|error| {
     let mut error = regroup_error(error);
-    error.code = match error.code {
-      // the token names no write of the issue groups or the stack parents: a wrong argument, not a wrong plan
-      ErrorCode::InvalidPlan => ErrorCode::InvalidArguments,
-      // a ref moved on since the rewrite: the same token can never succeed, as for `update:` and `pick:`
-      ErrorCode::HeadMoved | ErrorCode::GroupsMoved | ErrorCode::StacksMoved | ErrorCode::ParkedMoved => ErrorCode::UndoStale,
-      code => code,
-    };
+    // a ref moved on since the rewrite: the same token can never succeed, as for `update:` and `pick:`; the token
+    // names no write of the issue groups or the stack parents: a wrong argument, not a wrong plan
+    error.code = error.code.in_undo();
     error
   })?;
   let head = head_after_undo(context, token.head.as_ref())?;

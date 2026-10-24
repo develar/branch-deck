@@ -1,7 +1,9 @@
 //! `api_error`: a core's error as the `ApiError` a command of the app answers, the same in the app and in the e2e
-//! server. One chain of downcasts over the typed errors that reach a command; the code of a typed error that knows it
-//! comes from the type (`RegroupError::code`, `SyncDeferred::code`), the others answer the code `bd` gives them. A code
-//! is never picked by reading a message; an error without a code of its own is `internal` with its whole context chain.
+//! server. One chain of downcasts over the typed errors that reach a command; the code of a typed error with several
+//! comes from the type (`RegroupError::code`, `SyncDeferred::code`, `ParkError::code`, `GuardRefusal::code`,
+//! `UnapplyRefusal::code`, `ReapplyRefusal::code`), which the commands of `bd` read too. An undo answers the code
+//! `in_undo` (`undo_error`), as `bd undo` does. A code is never picked by reading a message; an error without a code of
+//! its own is `internal` with its whole context chain.
 
 use cli_tools::install::ActionError;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHolderInfo};
@@ -31,6 +33,13 @@ use youtrack::sign_in::SignInError;
 pub fn api_error(error: anyhow::Error) -> ApiError {
   let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
   api_error_at(&error, now)
+}
+
+/// The error an undo command answers for `error`: `api_error` with its code `in_undo` (`ErrorCode::in_undo`: a ref that
+/// moved on since the operation makes the token stale, `undo_stale`, never retried), as `bd undo` answers it; by value,
+/// for `map_err`
+pub fn undo_error(error: anyhow::Error) -> ApiError {
+  api_error(error).in_undo()
 }
 
 /// What a step of a command fails with, as its `ApiError`: a core's error through `api_error`, a message without a code
@@ -157,12 +166,8 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   }
   if let Some(park) = error.downcast_ref::<ParkError>() {
     return match park {
-      ParkError::UnknownBranch(_) => code(ErrorCode::UnknownBranch),
-      ParkError::NotParked(_) => code(ErrorCode::NotParked),
-      ParkError::InvalidNote(_) => code(ErrorCode::InvalidArguments),
-      ParkError::Moved(_) => code(ErrorCode::ParkedMoved),
-      ParkError::Locked(_) => code(ErrorCode::Locked),
       ParkError::Other(inner) => classify(inner),
+      _ => park.code().and_then(code),
     };
   }
   if let Some(deferred) = error.downcast_ref::<SyncDeferred>() {
@@ -174,17 +179,16 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   if is_canceled(error) {
     return code(ErrorCode::Canceled);
   }
+  // a lock file of git, not the repository lock of Branch Deck: no holder to name (`ErrorDetails::Locked` is the
+  // repository lock), so the page shows its words, which name the file and say to remove a stale one
   if error.downcast_ref::<RefLocked>().is_some() {
-    return Some((ErrorCode::Locked, Some(ErrorDetails::Locked { holder: None })));
+    return code(ErrorCode::Locked);
   }
   if error.downcast_ref::<HeadMoved>().is_some() || error.downcast_ref::<BranchSwitched>().is_some() || error.downcast_ref::<HeadAttached>().is_some() {
     return code(ErrorCode::HeadMoved);
   }
   if let Some(refusal) = error.downcast_ref::<GuardRefusal>() {
-    return code(match refusal {
-      GuardRefusal::OperationInProgress(_) => ErrorCode::OperationInProgress,
-      GuardRefusal::DetachedHead(_) => ErrorCode::DetachedHead,
-    });
+    return code(refusal.code());
   }
   if error.downcast_ref::<DetachedHead>().is_some() {
     return code(ErrorCode::DetachedHead);
@@ -218,27 +222,17 @@ fn is_canceled(error: &anyhow::Error) -> bool {
 fn classify_branch_moves(error: &anyhow::Error) -> Option<Classified> {
   let paths = |paths: &[String]| Some((ErrorCode::UncommittedOverlap, Some(ErrorDetails::Paths { paths: paths.to_vec() })));
   if let Some(refusal) = error.downcast_ref::<UnapplyRefusal>() {
-    let code = match refusal {
-      UnapplyRefusal::UnknownBranch(_) => ErrorCode::UnknownBranch,
-      UnapplyRefusal::BranchChanged(_) => ErrorCode::HeadMoved,
-      UnapplyRefusal::NotBuilt { .. } => ErrorCode::BranchNotBuilt,
-      UnapplyRefusal::CheckedOut { .. } => ErrorCode::BranchCheckedOut,
-    };
-    return Some((code, None));
+    return Some((refusal.code(), None));
   }
   if let Some(refusal) = error.downcast_ref::<ReapplyRefusal>() {
-    return Some(match refusal {
-      ReapplyRefusal::UnknownBranch(_) => (ErrorCode::UnknownBranch, None),
-      ReapplyRefusal::CheckedOut { .. } => (ErrorCode::BranchCheckedOut, None),
-      ReapplyRefusal::NoCommonHistory(_) | ReapplyRefusal::AlreadyInHead(_) => (ErrorCode::NothingToReapply, None),
-      ReapplyRefusal::Conflict { commit, files, .. } => (
-        ErrorCode::ReapplyConflict,
-        Some(ErrorDetails::Conflict {
-          commits: vec![commit.clone()],
-          paths: files.clone(),
-        }),
-      ),
-    });
+    let details = match refusal {
+      ReapplyRefusal::Conflict { commit, files, .. } => Some(ErrorDetails::Conflict {
+        commits: vec![commit.clone()],
+        paths: files.clone(),
+      }),
+      _ => None,
+    };
+    return Some((refusal.code(), details));
   }
   if error.downcast_ref::<DropRefused>().is_some() {
     return Some((ErrorCode::DropConflict, None));
@@ -324,6 +318,13 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
       anyhow::Error::new(RegroupError::Locked(locked(Some(holder("branch-deck"))))).context("Cannot move the commits"),
     ),
     ("locked_without_holder", locked(None).into()),
+    (
+      "ref_locked",
+      RefLocked {
+        path: "/repo/.git/refs/heads/master.lock".to_string(),
+      }
+      .into(),
+    ),
     (
       "canceled",
       LockWaitCanceled {

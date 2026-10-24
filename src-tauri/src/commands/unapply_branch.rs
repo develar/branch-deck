@@ -1,4 +1,5 @@
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
+use app_api::api_error::undo_error;
 use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
@@ -31,8 +32,10 @@ pub async fn undo_unapply_branch(
 ) -> Result<UndoneUnapply, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| {
-    let token = UnapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of an unapply: {}", params.undo_token))?;
-    undo_unapply_core(&git, &params.repository_path, &token, lock_wait)
+    let token = UnapplyUndoToken::parse(&params.undo_token)
+      .ok_or_else(|| anyhow::anyhow!("Not an undo token of an unapply: {}", params.undo_token))
+      .map_err(undo_error)?;
+    undo_unapply_core(&git, &params.repository_path, &token, lock_wait).map_err(undo_error)
   })
   .await
 }
@@ -61,8 +64,10 @@ pub async fn undo_reapply_branch(
 ) -> Result<UndoneReapply, ApiError> {
   let git = (*git_executor).clone();
   run_waiting(&lock_waits, wait, move |lock_wait| {
-    let token = ReapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of a reapply: {}", params.undo_token))?;
-    undo_reapply_core(&git, &params.repository_path, &token, lock_wait)
+    let token = ReapplyUndoToken::parse(&params.undo_token)
+      .ok_or_else(|| anyhow::anyhow!("Not an undo token of a reapply: {}", params.undo_token))
+      .map_err(undo_error)?;
+    undo_reapply_core(&git, &params.repository_path, &token, lock_wait).map_err(undo_error)
   })
   .await
 }

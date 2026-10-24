@@ -83,3 +83,15 @@ fn a_locked_error_names_its_holder() {
     })
   );
 }
+
+#[test]
+fn an_undo_that_a_moved_ref_refuses_is_stale_and_never_retried() {
+  for code in [ErrorCode::HeadMoved, ErrorCode::GroupsMoved, ErrorCode::StacksMoved, ErrorCode::ParkedMoved] {
+    let error = ApiError::new(code, "Branch master moved").in_undo();
+    assert_eq!((error.code, error.retry, error.message.as_str()), (ErrorCode::UndoStale, Retry::No, "Branch master moved"));
+  }
+  assert_eq!(ErrorCode::InvalidPlan.in_undo(), ErrorCode::InvalidArguments);
+  for code in [ErrorCode::Locked, ErrorCode::UncommittedOverlap, ErrorCode::Internal, ErrorCode::Canceled] {
+    assert_eq!(ApiError::new(code, "").in_undo(), ApiError::new(code, ""));
+  }
+}

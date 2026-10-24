@@ -44,6 +44,13 @@
     "retry": "same",
     "operation_id": null
   },
+  "ref_locked": {
+    "code": "locked",
+    "message": "/repo/.git/refs/heads/master.lock exists: another git process changes the branch, or a killed one left the lock; nothing was changed. Retry; if it stays, remove the file once no git runs",
+    "details": null,
+    "retry": "same",
+    "operation_id": null
+  },
   "canceled": { "code": "canceled", "message": "The wait for /repo/.git/branch-deck.lock was canceled", "details": null, "retry": "no", "operation_id": null },
   "uncommitted_overlap": {
     "code": "uncommitted_overlap",

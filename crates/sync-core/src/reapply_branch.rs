@@ -7,6 +7,7 @@ use crate::unapply_branch::{checked_undo, parse_move_token};
 use anyhow::Result;
 use branch_integration::archive::own_commits_start;
 use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
+use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::pick::{PickRequest, PickSource, PickState, check_pick};
 use git_ops::reapply::{UnappliedRef, apply_reapply, apply_reapply_undo, check_reapply_undo, restore_chain_messages};
@@ -83,6 +84,18 @@ pub enum ReapplyRefusal {
     subject: String,
     files: Vec<String>,
   },
+}
+
+impl ReapplyRefusal {
+  /// The code of the refusal, the same in `bd` and in the app; a conflict names its commit and files besides
+  pub const fn code(&self) -> ErrorCode {
+    match self {
+      Self::UnknownBranch(_) => ErrorCode::UnknownBranch,
+      Self::CheckedOut { .. } => ErrorCode::BranchCheckedOut,
+      Self::NoCommonHistory(_) | Self::AlreadyInHead(_) => ErrorCode::NothingToReapply,
+      Self::Conflict { .. } => ErrorCode::ReapplyConflict,
+    }
+  }
 }
 
 /// Reapply the unapplied branch `params.branch_name`: its own commits (from its stack note, else its merge base with the

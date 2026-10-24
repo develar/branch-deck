@@ -25,6 +25,8 @@ specta = { workspace = true, optional = true }
 
 [features]
 default = []
+# `error_cases`: the typed errors with the one code bd and the app answer for each, which both test their conversion on
+fixtures = []
 specta = ["dep:specta", "sync-core/specta", "trial-check/specta", "history-rewrite/specta", "domain-types/specta", "git-ops/specta"]
 
 [dev-dependencies]
