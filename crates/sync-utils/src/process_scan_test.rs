@@ -25,14 +25,16 @@ fn a_process_in_a_directory_is_inside_it_and_this_process_is_left_out() {
 #[cfg(unix)]
 #[test]
 fn a_process_runs_only_with_the_start_time_it_was_recorded_with() {
-  let pid = std::process::id();
+  let mut sleeping = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+  let pid = sleeping.id();
   let started = process_started(pid).unwrap();
   assert!(is_running(pid, Some(started)));
+  assert!(is_running(pid, None));
   assert!(!is_running(pid, Some(started + 1)));
-  let mut child = std::process::Command::new("true").spawn().unwrap();
-  let child_pid = child.id();
-  child.wait().unwrap();
-  assert!(!is_running(child_pid, Some(started)));
+  sleeping.kill().unwrap();
+  sleeping.wait().unwrap();
+  assert!(!is_running(pid, Some(started)));
+  assert!(!is_running(pid, None));
 }
 
 /// `KERN_PROCARGS2`: argc, the executable path with its padding, the arguments, then the environment, which is left out

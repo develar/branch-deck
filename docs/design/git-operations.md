@@ -545,7 +545,10 @@ resolve session under it) after its fetch and its check, for the witness, the lo
 `--continue --dry-run` take none. A holder writes who it is next to the lock (`branch-deck.lock.holder`: the command line, the pid, the start of
 the process and the time, through a temporary file and a rename) once it has the lock, and deletes it before it
 releases it, so the error of a wait names the holder; the lock file itself can't carry it, Windows refuses to read a
-locked file. A record whose process is gone (`process_scan::is_running`) names nobody. A core finds the file with one
+locked file. A record whose process is gone (`process_scan::is_running`) names nobody. A record of this process always
+names it, and one whose process the system won't describe (a sandbox that denies the process info on macOS) names its
+holder while `kill(pid, 0)` still finds the process: otherwise the app would wait for a live holder it can't see, say
+whom for nowhere, and refuse after 10 s. A core finds the file with one
 `rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
 directory its context resolved, and a wait for it makes `bd` read the config again (`RepoContext::forget_config`). A sync
 never waits for it, the app's, `bd sync` and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large

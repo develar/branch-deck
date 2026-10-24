@@ -347,9 +347,14 @@ fn the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed
 
   let (told, holders) = std::sync::mpsc::channel();
   std::thread::scope(|scope| {
-    let wait = scope.spawn(|| lock_repository_while_held(dir.path(), Duration::ZERO, &mut |holder| told.send(holder.clone()).unwrap(), &|| false));
+    // a bound of 500 ms for a holder no record names, which the wait passes while the named one holds; not zero: the
+    // release deletes the record a moment before it frees the lock
+    let wait = scope.spawn(|| lock_repository_while_held(dir.path(), Duration::from_millis(500), &mut |holder| told.send(holder.clone()).unwrap(), &|| false));
     let holder = holders.recv_timeout(Duration::from_mins(1)).unwrap();
     assert_eq!(holder.pid, std::process::id());
+    let first = Instant::now();
+    holders.recv_timeout(Duration::from_mins(1)).unwrap();
+    assert!(first.elapsed() >= Duration::from_millis(500), "told again after {:?}", first.elapsed());
     drop(held);
     drop(wait.join().unwrap().expect("the lock once its holder released it"));
   });

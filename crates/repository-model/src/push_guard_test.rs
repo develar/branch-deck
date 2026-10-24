@@ -265,8 +265,9 @@ fn pushable_while_locked() -> (TestRepo, PushBranchesParams, std::path::PathBuf,
 
 /// Another holder of the repository lock (`bd pick --follow` of an agent, a rewrite of the app) keeps the push waiting,
 /// without a bound, as long as it lives: the progress of the push names it ("Waiting for `…` (pid …, for 0 s)"), and
-/// once it releases the lock, the push goes. Here the holder is the test itself, alive; the bound for a holder no record
-/// names is zero, so a wait that counted it would refuse at once
+/// once it releases the lock, the push goes. Here the holder is the test itself, alive; the push is told it again past
+/// the bound for a holder no record names, which a wait that counted it would have refused at. The bound is not zero:
+/// the release deletes the record a moment before it frees the lock, and a zero bound would refuse in that moment
 #[test]
 fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
   let (repo, params, common_dir, views, held) = pushable_while_locked();
@@ -275,12 +276,26 @@ fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
   std::thread::scope(|scope| {
     let push = scope.spawn(|| {
       let mut on_progress = |tick: TransferProgress| progress.send(tick).unwrap();
-      push_guarded_within(Duration::ZERO, &|| {}, &|| false, &git, &common_dir, &views, Vec::new(), &params, &mut on_progress)
+      push_guarded_within(
+        Duration::from_millis(500),
+        &|| {},
+        &|| false,
+        &git,
+        &common_dir,
+        &views,
+        Vec::new(),
+        &params,
+        &mut on_progress,
+      )
     });
     let waiting = told.recv_timeout(Duration::from_mins(1)).unwrap();
     assert!(waiting.waiting, "{waiting:?}");
     assert!(waiting.line.starts_with("Waiting for `"), "{waiting:?}");
     assert!(waiting.line.contains(&format!("(pid {}, for ", std::process::id())), "{waiting:?}");
+    // told again about a second later: past the bound for a holder no record names, the named one keeps it waiting
+    let started = std::time::Instant::now();
+    assert!(told.recv_timeout(Duration::from_mins(1)).unwrap().waiting);
+    assert!(started.elapsed() >= Duration::from_millis(500), "told again after {:?}", started.elapsed());
     assert_eq!(remote_branches(&repo), "");
     drop(held);
     assert!(matches!(push.join().unwrap(), Ok(PushBranchesOutcome::Pushed { .. })));

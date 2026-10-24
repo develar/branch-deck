@@ -855,9 +855,13 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   Ok(StatusCode::ACCEPTED)
 }
 
-/// Waits for the commands still running for a deleted repository (`hold_repository`) and for the computations of its
-/// landing needs (`RepositoryViews::forget`), releases the repository lock its test held, then deletes its files
+/// Releases the repository lock the test of a deleted repository left held, then waits for the commands still running
+/// for it (`hold_repository`) and for the computations of its landing needs (`RepositoryViews::forget`), then deletes
+/// its files
 async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepository) {
+  // the lock first (`hold_repository_lock`), its holder record with it: a rewrite of the page that waits for it, as
+  // long as its holder (this server) lives, runs and ends instead of keeping the deletion waiting
+  drop(repo.held_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
   let no_commands = tokio::time::timeout(DELETE_WAIT, Arc::clone(&repo.in_flight).write_owned()).await;
   if no_commands.is_err() {
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
@@ -868,8 +872,6 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
   if !tokio::task::spawn_blocking(in_current_span(move || views.forget(&path))).await.unwrap_or(false) {
     tracing::warn!(id, "The landing needs of the test repository are still computed; deleting it anyway");
   }
-  // a test that ended before it released the lock it held: the holder record goes with the lock, before the directory
-  drop(repo.held_lock.lock().expect("held lock").take());
 
   if repo.app_data.exists()
     && let Err(e) = std::fs::remove_dir_all(&repo.app_data)

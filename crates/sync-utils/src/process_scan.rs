@@ -167,12 +167,31 @@ pub fn terminate(pid: u32) -> bool {
 }
 
 /// Whether the process that had `pid` and started at `started` still runs. Without a start time (Windows) it counts as
-/// running: a lease is never taken from a process that may live
+/// running: a lease is never taken from a process that may live. Where the system tells no process its start, not
+/// even this one's (a sandbox that denies the process info, macOS), this process runs and another one while it still
+/// exists to the kernel (`kill(pid, 0)`): the start time then can't tell a reused pid apart, but a gone process never
+/// counts as running. Elsewhere a process whose start the system won't tell has exited (a zombie)
 pub fn is_running(pid: u32, started: Option<u64>) -> bool {
-  match started {
-    Some(started) => platform::started(pid) == Some(started),
-    None => !platform::SCAN_AVAILABLE || platform::started(pid).is_some(),
+  match (started, platform::started(pid)) {
+    (Some(started), Some(now)) => now == started,
+    (None, Some(_)) => true,
+    (_, None) => !platform::SCAN_AVAILABLE || (process_info_denied() && (pid == std::process::id() || platform::exists_unseen(pid))),
   }
+}
+
+/// Whether the system tells this process not even its own start: a sandbox denies the process info
+fn process_info_denied() -> bool {
+  static DENIED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+  *DENIED.get_or_init(|| platform::started(std::process::id()).is_none())
+}
+
+/// Whether `pid` exists to the kernel, as `kill(pid, 0)` answers: it does, or it does but belongs to another user
+#[cfg(target_os = "macos")]
+#[expect(unsafe_code, reason = "kill(2) with the signal 0, which asks whether the process exists")]
+fn unix_exists(pid: u32) -> bool {
+  let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+  // SAFETY: kill(2) takes plain integers and touches no memory of this process; the signal 0 sends nothing
+  unsafe { libc::kill(pid, 0) == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) }
 }
 
 /// SIGTERM through `kill(2)`
@@ -217,6 +236,11 @@ mod platform {
 
   pub(super) fn started(pid: u32) -> Option<u64> {
     bsd_info(pid).map(|info| start_time(&info))
+  }
+
+  /// A process that still exists, where libproc gives no process its info (a sandbox denies it)
+  pub(super) fn exists_unseen(pid: u32) -> bool {
+    super::unix_exists(pid)
   }
 
   const fn start_time(info: &libc::proc_bsdinfo) -> u64 {
@@ -349,6 +373,12 @@ mod platform {
     Stat::read(pid).filter(|stat| !stat.zombie).map(|stat| stat.started)
   }
 
+  /// `/proc` tells a zombie, which `kill(pid, 0)` would count, from a running process: what it doesn't show is gone
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scan of macOS")]
+  pub(super) fn exists_unseen(_pid: u32) -> bool {
+    false
+  }
+
   pub(super) fn terminate(pid: u32) -> bool {
     super::unix_terminate(pid)
   }
@@ -394,6 +424,11 @@ mod platform {
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
   pub(super) fn started(_pid: u32) -> Option<u64> {
     None
+  }
+
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn exists_unseen(_pid: u32) -> bool {
+    true
   }
 
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
