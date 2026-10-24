@@ -1679,7 +1679,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
     выше). C4 не сделан (см. s6-6) и переходит в s7, где remote tips становятся фактом сессии. `branch-sync.ts` —
     1168 строк вместо 1921 (push, строки, поиск), applier — `src/model/store.ts` (733) и `src/model/patch.ts` (74).
     Мёртвый `batchTimer` (`src/lib/batch-timer.ts`, flush TS для скрытого окна) удалён: патчи сливает часы сессии в
-    Rust, страница применяет каждый при доставке (требование `title-bar.spec.md`).
+    Rust, страница применяет каждый при доставке (требование `title-bar.spec.md`). Критерий выхода выполнен:
+    `grep -rn SyncEvent src/` пуст (последним был doc comment `LandedSection` в `bindings.ts`).
 
 ### s7-session-facts
 

@@ -351,7 +351,7 @@ pub struct ArchivedSection {
 }
 
 /// The check of the checked out branch against the last fetched baseline and the commits that landed or are landing
-/// with its update, as one event of the sync reports them (`SyncEvent::BaselineStatus`)
+/// with its update, which the sync reports together from the update check it runs beside its build
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

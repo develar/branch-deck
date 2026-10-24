@@ -2373,7 +2373,7 @@ export type LandedRemoteCommit = {
 
 /**
  *  The check of the checked out branch against the last fetched baseline and the commits that landed or are landing
- *  with its update, as one event of the sync reports them (`SyncEvent::BaselineStatus`)
+ *  with its update, which the sync reports together from the update check it runs beside its build
  */
 export type LandedSection = {
 	/**  Whether the checked out branch can be updated onto the last fetched baseline; `None` until a sync reported it */
