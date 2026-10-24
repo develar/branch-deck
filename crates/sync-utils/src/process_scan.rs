@@ -50,7 +50,7 @@ impl ProcessInfo {
   /// When it started, on the wall clock: to the microsecond on macOS, on Linux by the clock ticks since the boot, whose
   /// time `/proc/stat` gives to the second; `None` elsewhere and when unknown
   pub fn started_at(&self) -> Option<SystemTime> {
-    platform::started_at(self.started?)
+    scan::started_at(self.started?)
   }
 
   /// Whether the program is git: its argv starts with `git` or a path to it
@@ -259,13 +259,13 @@ pub fn process_started(pid: u32) -> Option<u64> {
 /// The pids of the processes that have the file `path` open: `lsof` on macOS, the `fd` links of `/proc` on Linux (the
 /// processes of this user); `None` when that can't be told (no `lsof`, its failure, another platform)
 pub fn processes_with_open_file(path: &Path) -> Option<Vec<u32>> {
-  platform::processes_with_open_file(path)
+  scan::processes_with_open_file(path)
 }
 
 /// Ask the process `pid` to exit with SIGTERM; false when the signal could not be sent (gone, another user's, no
 /// signals on this platform)
 pub fn terminate(pid: u32) -> bool {
-  platform::terminate(pid)
+  scan::terminate(pid)
 }
 
 /// Whether the process that had `pid` and started at `started` still runs. A process whose start the system won't tell
@@ -280,6 +280,32 @@ pub fn is_running(pid: u32, started: Option<u64>) -> bool {
     (Some(started), Some(now)) => now == started,
     (None, Some(_)) => true,
     (_, None) => platform::runs_unseen(pid),
+  }
+}
+
+/// The questions only a scan answers: the platform's own on macOS and Linux, none elsewhere
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use platform as scan;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+use unscanned as scan;
+
+/// What only the scans of macOS and Linux tell, where a platform has none (Windows and the rest): no wall clock of a
+/// start without a `ProcessInfo`, no holders of a file, no signals
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+mod unscanned {
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn started_at(_started: u64) -> Option<std::time::SystemTime> {
+    None
+  }
+
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn processes_with_open_file(_path: &std::path::Path) -> Option<Vec<u32>> {
+    None
+  }
+
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn terminate(_pid: u32) -> bool {
+    false
   }
 }
 
@@ -603,22 +629,6 @@ mod platform {
     open(pid).is_err_and(|error| error.raw_os_error() == Some(ERROR_ACCESS_DENIED.cast_signed()))
   }
 
-  /// No `ProcessInfo` without the scan
-  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
-  pub(super) fn started_at(_started: u64) -> Option<std::time::SystemTime> {
-    None
-  }
-
-  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
-  pub(super) fn processes_with_open_file(_path: &std::path::Path) -> Option<Vec<u32>> {
-    None
-  }
-
-  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
-  pub(super) fn terminate(_pid: u32) -> bool {
-    false
-  }
-
   /// The process `pid`, opened only to query it; an error when it is gone (`ERROR_INVALID_PARAMETER`) or won't open
   fn open(pid: u32) -> std::io::Result<OwnedHandle> {
     // SAFETY: plain arguments; a non-null result is a handle that nothing else owns
@@ -648,21 +658,6 @@ mod platform {
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
   pub(super) fn runs_unseen(_pid: u32) -> bool {
     true
-  }
-
-  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
-  pub(super) fn started_at(_started: u64) -> Option<std::time::SystemTime> {
-    None
-  }
-
-  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
-  pub(super) fn processes_with_open_file(_path: &std::path::Path) -> Option<Vec<u32>> {
-    None
-  }
-
-  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
-  pub(super) fn terminate(_pid: u32) -> bool {
-    false
   }
 }
 
