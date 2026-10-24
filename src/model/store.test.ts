@@ -337,6 +337,23 @@ describe("the table of the view", () => {
     expect(getStackBranch("a")).toBeUndefined()
   })
 
+  it("counts a change of what the table of the backend is made of, not of the state of a run, of a build or of a copy", async () => {
+    await open()
+    await send({ ...grouping("a"), branches: { a: { ...grouping("a").branches!.a!, copies: [{ hash: "a1-new", status: "Created" }] } } })
+    const revision = () => branchSyncStore.getState().tableRevision
+    const before = revision()
+    // a sync that changes nothing: the run, the branch and its copy say Unchanged
+    await send(running)
+    await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false }, copies: [{ hash: "a1-new", status: "Unchanged" }] } } })
+    await send(idle)
+    expect(revision()).toBe(before)
+    // a new copy, a moved remote branch: another table
+    await send({ branches: { a: { copies: [{ hash: "a1-newer", status: "Created" }] } } })
+    expect(revision()).toBe(before + 1)
+    await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 1) } } } })
+    expect(revision()).toBe(before + 2)
+  })
+
   it("marks new only the branches a patch archived: a mark the user dismissed stays dismissed", async () => {
     await open()
     await send({ archived: { names: ["x"], newlyArchived: ["x"] } })

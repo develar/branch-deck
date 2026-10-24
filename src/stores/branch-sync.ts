@@ -154,7 +154,8 @@ export interface BranchSyncState {
   /** The version of the session's view the store holds (`data-view-version`); null without one */
   viewVersion: Version | null
   /**
-   * Counts the patches that changed the table, beyond the state of its sync: what the backend answers about the table
+   * Counts the patches that changed what the table of the backend is made of (the branches, their tips and remote
+   * branches, the stacks, the sections), not the state of a run or of a build: what the backend answers about the table
    * (the repository view, the conflict fix) is asked again only when it changed
    */
   tableRevision: number

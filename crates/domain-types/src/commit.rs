@@ -53,6 +53,19 @@ pub struct Commit {
   pub mapped_resolution: Option<NoteResolution>,
 }
 
+impl Commit {
+  /// The same commit as a window shows it: the fields that serialize, not the notes, the trees and the parent a sync
+  /// reads with it. A sync after the one that wrote the mapping notes reads the same commits with their notes
+  pub fn shows_as(&self, other: &Self) -> bool {
+    self.id == other.id
+      && self.stripped_subject == other.stripped_subject
+      && self.message == other.message
+      && self.author_name == other.author_name
+      && self.author_timestamp == other.author_timestamp
+      && self.committer_timestamp == other.committer_timestamp
+  }
+}
+
 /// The trees a virtual commit was copied from: the original's parent tree and its tree
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoteSource {

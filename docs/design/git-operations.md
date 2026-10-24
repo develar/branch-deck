@@ -3172,7 +3172,9 @@ a branch grouped as before, with the same commits, which the last sync built wit
 keeps what its row shows until the sync reports it again (a quiet resync; its progress counts only while `Syncing`);
 any other grouped branch starts `Syncing` with the remote status it had; the archived names reconcile the integration
 infos and the "new" marks; a failed sync (`finish_sync`) brings back the table of the sync before, with the error.
-`View::diff` compares the state with the view sent last, part by part (`PartialEq`), and answers a `ViewPatch { base,
+`View::diff` compares the state with the view sent last, part by part (`PartialEq`; commits by what a window shows of
+them, `Commit::shows_as`, so the sync after the one that wrote the mapping notes, which reads the same commits with
+their notes, sends none of them again), and answers a `ViewPatch { base,
 next, changes }` of the parts that differ, so a window keeps the identity of every other part; `View::snapshot` is the
 view at the last patch. `Version { epoch, seq }`: the epoch is random per session, the sequence grows by one per patch,
 and a patch applies only to the view at its base in its epoch (`apply_patch`, the contract the page keeps; a lost patch

@@ -4,7 +4,7 @@
 //! version of the last patch, for a window that opens or lost a patch. Rust decides equality, so the page keeps the
 //! identity of every part a patch does not carry.
 
-use crate::patch::{apply_patch, branch_change, changed, diff_keyed};
+use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::table::TableState;
 use domain_types::session::{ArchivedChanges, TableChanges, TableView, Version, ViewPatch};
 use std::collections::BTreeMap;
@@ -67,7 +67,7 @@ impl View {
       removed_branches,
       stacks,
       removed_stacks,
-      unassigned: changed(&last.sections.unassigned, &parts.sections.unassigned),
+      unassigned: changed_commits(&last.sections.unassigned, &parts.sections.unassigned),
       archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),
       landed: changed(&last.sections.landed, &parts.sections.landed),

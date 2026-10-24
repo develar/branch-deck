@@ -119,6 +119,35 @@ fn an_unchanged_resync_sends_only_the_sync_state() {
   );
 }
 
+/// The sync after the one that wrote the mapping notes groups the same commits with their notes: a window shows them as
+/// before, so no patch carries them again (141 branches of commits were 53 KB of each second sync); another subject does
+#[test]
+fn a_grouping_that_reads_the_notes_of_the_copies_resends_no_commit() {
+  let mut state = TableState::new();
+  let mut view = View::new(1);
+  run_sync(&mut state, sync_events(CommitSyncStatus::Unchanged, BranchSyncStatus::Unchanged));
+  view.diff(&state).unwrap();
+
+  let with_notes = |mut branch: domain_types::GroupedBranchInfo| {
+    for commit in &mut branch.commits {
+      commit.note = Some(format!("v-commit-v1:copy-{}", commit.id));
+      commit.mapped_commit_id = Some(format!("copy-{}", commit.id));
+    }
+    branch
+  };
+  state.begin_sync();
+  state.apply(grouping(vec![with_notes(grouped("auth", &["a2", "a1"])), with_notes(grouped("ui", &["u1"]))]));
+  let patch = view.diff(&state).unwrap();
+  assert!(patch.changes.branches.values().all(|change| change.commits.is_none()), "{patch:#?}");
+
+  let mut reworded = grouped("ui", &["u1"]);
+  reworded.commits[0].message = "Another subject".to_string();
+  state.apply(grouping(vec![with_notes(grouped("auth", &["a2", "a1"])), reworded]));
+  let patch = view.diff(&state).unwrap();
+  assert_eq!(patch.changes.branches.keys().collect::<Vec<_>>(), ["ui"], "{patch:#?}");
+  assert!(patch.changes.branches["ui"].commits.is_some());
+}
+
 /// The bytes of the JSON a window gets of each item
 fn json_bytes<T: serde::Serialize>(items: &[T]) -> usize {
   items.iter().map(|item| serde_json::to_string(item).unwrap().len()).sum()

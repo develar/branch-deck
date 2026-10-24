@@ -3,6 +3,7 @@
 //! the page's store keeps as well: a patch applies only to the view at its base, in the same epoch; any other view asks
 //! for a snapshot. A lost patch costs one snapshot and never shows a wrong table.
 
+use domain_types::commit::Commit;
 use domain_types::session::{BranchChange, BranchRemote, BranchSync, BranchView, CommitSync, TableChanges, TableView, Version, ViewPatch};
 use std::collections::BTreeMap;
 
@@ -23,6 +24,12 @@ pub enum PatchRejected {
 /// `now` when it differs from `last`
 pub(crate) fn changed<T: PartialEq + Clone>(last: &T, now: &T) -> Option<T> {
   (last != now).then(|| now.clone())
+}
+
+/// `now` when a window would show other commits than `last`: the notes a sync reads with them are not part of a view
+pub(crate) fn changed_commits(last: &[Commit], now: &[Commit]) -> Option<Vec<Commit>> {
+  let same = last.len() == now.len() && last.iter().zip(now).all(|(last, now)| last.shows_as(now));
+  (!same).then(|| now.to_vec())
 }
 
 /// The entries of `now` that `last` lacks or has otherwise, and the keys of `last` that `now` lacks
@@ -49,7 +56,7 @@ pub(crate) fn branch_change(last: Option<&BranchView>, now: &BranchView) -> Opti
     },
     Some(last) => BranchChange {
       head: changed(&last.head, &now.head),
-      commits: changed(&last.commits, &now.commits),
+      commits: changed_commits(&last.commits, &now.commits),
       sync: changed(&last.sync, &now.sync),
       copies: changed(&last.copies, &now.copies),
       remote: changed(&last.remote, &now.remote),

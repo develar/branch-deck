@@ -26,6 +26,8 @@ export async function syncBranches(page: Page, waitForSelectors?: string[]): Pro
         }),
       ),
     )
+    // what the selectors name comes with the first patches of the sync: the rest moves it until the sync ends
+    await expect(syncButton).toBeEnabled({ timeout: 15000 })
   } else {
     // Default behavior: wait for sync to complete
     // Wait for sync to complete (button becomes enabled again)

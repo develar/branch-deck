@@ -268,7 +268,7 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
     setUnappliedBranches(next.sections.unapplied.map(({ remote, ...info }) => ({ ...info, remoteStatus: remote === null ? null : toRemoteStatus(remote) })))
   }
   projectArchived(previous, next, changes)
-  if (changes === null || Object.keys(changes).some(part => part !== "sync")) {
+  if (changesTable(previous, changes)) {
     update.tableRevision = state.tableRevision + 1
   }
   branchSyncStore.setState(update)
@@ -276,6 +276,34 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
   if (!running && (wasRunning || changes === null)) {
     settleArchivedPlaceholders()
   }
+}
+
+/**
+ * Whether a patch changed what the table of the backend is made of (`BranchTable`: the branches, their tips and remote
+ * branches, the stacks, the sections): not the state of a run, of the build of a branch or of the copy of a commit,
+ * which a sync that changes nothing reports for every branch (Created, then Unchanged)
+ */
+function changesTable(previous: TableView | null, changes: TableChanges | null): boolean {
+  if (changes === null) {
+    return true
+  }
+  const { sync: _sync, branches, ...parts } = changes
+  if (Object.values(parts).some(part => !isEmptyPart(part))) {
+    return true
+  }
+  return Object.entries(branches ?? {}).some(
+    ([name, change]) =>
+      change.head != null || change.commits != null || change.remote != null || (change.copies != null && !sameCopies(previous?.branches[name]?.copies, change.copies)),
+  )
+}
+
+function isEmptyPart(part: unknown): boolean {
+  return part == null || (Array.isArray(part) ? part.length === 0 : typeof part === "object" && Object.keys(part).length === 0)
+}
+
+/** The same copies: the same hashes, whatever the sync says of each */
+function sameCopies(shown: readonly CommitSync[] | undefined, copies: readonly CommitSync[]): boolean {
+  return shown !== undefined && shown.length === copies.length && shown.every((copy, index) => copy.hash === copies[index]!.hash)
 }
 
 function syncErrorOf(view: TableView | null): string | null {
