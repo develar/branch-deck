@@ -393,8 +393,10 @@ test.describe("Branch review window", () => {
     // no approval needed: the Safe Push of each part is offered
     await repo.setReviewAnswers({ answers: { auth: NO_REVIEW_NEEDED, login: NO_REVIEW_NEEDED } })
     await syncAndWaitForBranches()
-    // the robots and the pull requests load after the sync
-    await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toBeVisible()
+    // the robots, the pull requests and the approvals load after the sync: the steps wait for them
+    for (const branch of ["auth", "login"]) {
+      await expect(findBranchRow(page, branch).getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
+    }
     await expect(findBranchRow(page, "login").getByTestId("pull-request-chip")).toBeVisible()
 
     // the window opens with the actions of each branch of its chain, the items of its menu
@@ -503,7 +505,8 @@ test.describe("Branch review window", () => {
     // the main window, in the page again: its listener runs what the window asked for
     await page.goto(`/?repoId=${new URL(page.url()).searchParams.get("repoId")}`)
     await syncAndWaitForBranches()
-    await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toBeVisible()
+    // the Safe Push the window asks for runs once its step is known
+    await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
     const pushes = await routePush(page, {})
     // a repository the main window can't switch to: refused with the reason, in the window
     await emitTauriEvent(page, "branch-review/request", { ...requests[2]!, id: "elsewhere", repositoryPath: "/elsewhere" })

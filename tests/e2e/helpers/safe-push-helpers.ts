@@ -38,8 +38,9 @@ export async function openSafePushWithKey(page: Page, branchName: string): Promi
   return popover
 }
 
-/** "Safe Push With Profile…" of the branch menu: the popover, its profile to choose */
+/** "Safe Push With Profile…" of the branch menu: the popover, its profile to choose; once the facts of its step are in */
 export async function openSafePushWithProfile(page: Page, branchName: string): Promise<Locator> {
+  await expect(findBranchRow(page, branchName).getByTestId("next-step-slot")).not.toHaveAttribute("data-step", "pending")
   await findBranchRow(page, branchName).click({ button: "right" })
   await openSubmenu(page, "Patronus")
   await page.getByRole("menuitem", { name: "Safe Push With Profile…" }).click()
