@@ -35,6 +35,23 @@ async function rowLayout(page: Page): Promise<{ row: Box; commits: Box; pullRequ
   }
 }
 
+/**
+ * How far below the top of `frame` `item` stands once the open animation of the dialog ended (it scales the whole box):
+ * two reads alike
+ */
+async function settledOffset(item: Locator, frame: Locator): Promise<number> {
+  let last = Number.NaN
+  await expect
+    .poll(async () => {
+      const offset = (await boxOf(item)).y - (await boxOf(frame)).y
+      const settled = offset === last
+      last = offset
+      return settled
+    })
+    .toBe(true)
+  return last
+}
+
 test.describe("Late facts", () => {
   test("should keep the rows and the columns where the last start left them while Your Turn, the pull requests and the approvals come back", async ({
     page,
@@ -99,8 +116,7 @@ test.describe("Late facts", () => {
     const pendingPullRequest = preview.getByTestId("branch-preview-pull-request-pending")
     await expect(pendingPullRequest).toHaveText("Checking GitHub for a pull request of ABC-123…")
     await expect(preview.getByTestId("branch-preview-patronus-pending")).toHaveText("Asking Patronus for the Safe Push of ABC-123…")
-    // where in the body: the dialog's open animation moves the whole box
-    const top = (await boxOf(pendingPullRequest)).y - (await boxOf(preview.getByTestId("branch-preview-body"))).y
+    const top = await settledOffset(pendingPullRequest, preview.getByTestId("branch-preview-body"))
     // the first push of a branch whose landing may push it: in its place, waiting for the answer that tells
     await page.keyboard.press("Escape")
     await expect(preview).toHaveCount(0)
@@ -121,7 +137,7 @@ test.describe("Late facts", () => {
     const answered = await openBranchPreview(page, "ABC-123")
     await expect(answered.getByTestId("branch-preview-pull-request")).toBeVisible()
     await expect(answered.getByTestId("branch-preview-patronus")).toBeVisible()
-    await expect.poll(async () => (await boxOf(answered.getByTestId("branch-preview-pull-request"))).y - (await boxOf(answered.getByTestId("branch-preview-body"))).y).toBe(top)
+    expect(await settledOffset(answered.getByTestId("branch-preview-pull-request"), answered.getByTestId("branch-preview-body"))).toBe(top)
   })
 
   test("should keep the second header line of a stack island in its place while the pull requests come back", async ({ page, setupRepo, syncAndWaitForBranches }) => {

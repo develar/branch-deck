@@ -343,7 +343,9 @@ test.describe("Branch filter", () => {
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push of web" })).toHaveAttribute("data-type", "info")
     await expect(safePushPopover(page)).toHaveCount(0)
 
-    // S never starts by itself: the popover, its start focused once it can run, which Enter presses
+    // S never starts by itself: the popover, its start focused once it can run, which Enter presses; S of a step still
+    // checking says what it waits for, so the test presses it once the step is known, as the user can
+    await expect(findBranchRow(page, "lint").getByTestId("next-step-slot")).not.toHaveAttribute("data-step", "pending")
     await focusRow(page, "lint")
     await page.keyboard.press("s")
     await expect(safePushPopover(page)).toBeVisible()
