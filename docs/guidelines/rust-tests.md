@@ -69,6 +69,22 @@ the job summary (`scripts/slowest-tests.mjs`).
 The wall times of the A/B say nothing: the load of the other sessions changed by a factor of three between the runs.
 The process counts do not depend on it.
 
+## Temporary files on a RAM disk (macOS)
+
+The repositories of the tests live in the temporary directory, and their files cost on the APFS of the disk: with
+`TMPDIR` on a RAM disk the full suite took 142 s instead of 164 s on the developer Mac (load about 100), `-p sync-core
+-p git-ops` 38 and 42 s instead of 45 and 56 s; a run never held more than 75 MB there.
+
+```bash
+device=$(diskutil image attach --noMount ram://1048576)   # 512 MB
+diskutil erasevolume APFS bd-tests "$device"
+TMPDIR=/Volumes/bd-tests/ cargo nextest run --workspace
+diskutil eject "$device"
+```
+
+Neither CI nor `yonder run studio` does it: on a RAM disk the temporary directory of a test is no symlink, and the tests of
+the macOS symlink of `/var` (`git_canonical_path`) would pass without one.
+
 Of the 73,704, about three quarters are the code under test itself: each bd or sync operation reads the same
 repository facts again (`git remote` three times per operation, `symbolic-ref HEAD` twice, three variants of
 `rev-parse --git-dir`), which a session that reads them once per operation would cut (the rework of
