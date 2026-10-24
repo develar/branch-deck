@@ -339,3 +339,29 @@ fn a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash() {
   assert!(cleaned[0].freed_bytes >= 2 * 8192 && cleaned[0].trashed.is_empty(), "{cleaned:?}");
   assert_eq!(std::fs::read_dir(trash_root.path()).unwrap().count(), 0, "the trash of this run and of the gone one");
 }
+
+/// A whitelist of a directory: `out` but for `dev-run` and a mark, and `out/dev-run` but for `jar-cache`, leave only
+/// those; a new entry of `out` goes without an edit of the rules
+#[cfg(unix)]
+#[test]
+fn nested_deletes_keep_only_the_whitelist() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  for file in ["out/dev-run/jar-cache/j", "out/dev-run/idea/lib.jar", "out/.mark", "out/handoff.md", "out/new-tool/x"] {
+    std::fs::create_dir_all(root.join(file).parent().unwrap()).unwrap();
+    std::fs::write(root.join(file), "x").unwrap();
+  }
+  let rules =
+    parse_clean_rules("[lease]\nclean = [\n  { delete = \"out\", except = [\"dev-run\", \".mark\"] },\n  { delete = \"out/dev-run\", except = [\"jar-cache\"] },\n]\n").unwrap();
+  let cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Delete);
+  assert!(cleaned.iter().all(|rule| rule.error.is_none()), "{cleaned:?}");
+  let mut left: Vec<String> = std::fs::read_dir(root.join("out"))
+    .unwrap()
+    .flatten()
+    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+    .collect();
+  left.sort();
+  assert_eq!(left, [".mark", "dev-run"]);
+  assert_eq!(std::fs::read_dir(root.join("out/dev-run")).unwrap().count(), 1);
+  assert!(root.join("out/dev-run/jar-cache/j").exists());
+}

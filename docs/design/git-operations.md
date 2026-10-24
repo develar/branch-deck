@@ -1390,7 +1390,8 @@ same tree takes several minutes.
    not exist and must be on the same volume; any error (`EXDEV`, `ENOTSUP`, `EACCES` of a file it can't read) removes
    what is left and falls back to `worktree add`. What the `delete` clean rules of the source delete is left out
    (`lease_clean::clone_skips`): the directories on the way to such a path are made anew, the rest of each is cloned
-   entry by entry with `CLONE_NOFOLLOW`, the `except` entries of a rule are cloned, and the template's `.git` is left
+   entry by entry with `CLONE_NOFOLLOW`, the `except` entries of a rule are cloned (with the rules below them: `out`
+   but for `dev-run`, `out/dev-run` but for `jar-cache`), and the template's `.git` is left
    out with them (step 3 replaces it). Without such rules it stays one call. A clone of the idea-1 main checkout carried
    its whole `out/`: 188 GB and 760,000 files (heap dumps, installers, test runs of months), and its `bazel-*` links into
    the output base of the main checkout, which an agent in the slot read until its first build there. The blocks were

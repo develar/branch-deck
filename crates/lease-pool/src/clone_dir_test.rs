@@ -75,3 +75,23 @@ fn a_clone_leaves_out_the_skipped_paths_but_for_their_kept_entries() {
     }
   }
 }
+
+/// A rule below a kept entry of another rule applies too: `out` but for `dev-run`, and `out/dev-run` but for
+/// `jar-cache`, leave only the jar cache of `out`
+#[test]
+fn a_rule_below_a_kept_entry_applies_too() {
+  let dir = tempfile::tempdir().unwrap();
+  let from = dir.path().join("template");
+  template(&from);
+  let skips = CloneSkips::new(&[("out".to_string(), vec!["dev-run".to_string()]), ("out/dev-run".to_string(), vec!["jar-cache".to_string()])]);
+  let cloned = clone_directory(&from, &dir.path().join("clone"), &skips);
+  if cfg!(target_os = "macos") {
+    cloned.unwrap();
+    assert_eq!(
+      listing(&dir.path().join("clone")),
+      ["out", "out/dev-run", "out/dev-run/jar-cache", "out/dev-run/jar-cache/j", "src", "src/a.txt"]
+    );
+  } else {
+    assert_eq!(cloned.unwrap_err().kind(), std::io::ErrorKind::Unsupported);
+  }
+}

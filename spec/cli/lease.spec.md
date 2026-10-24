@@ -114,7 +114,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `core.checkStat=minimal`, then `checkout --force` to the source HEAD, `clean -fd` and a clean `status`: the
   template's local changes, staged files and untracked files never reach the lease, its ignored files do, but for
   what the `delete` clean rules of the source delete: those paths are left out of the clone, but for their `except`
-  entries, a link among them as the link, and the `.git` of the template with them, so a new slot starts as a
+  entries (a rule below a kept entry applies too), a link among them as the link, and the `.git` of the template with
+  them, so a new slot starts as a
   returned one and a clone of a main checkout never copies its build output (in idea-1 188 GB and 760,000 files of
   `out/`, its `bazel-*` links into the output base of the main checkout among them). The directories on the way to a
   left-out path are made anew and the rest of each is cloned entry by entry (`clonefile` with `CLONE_NOFOLLOW`);
@@ -125,7 +126,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_of_a_new_slot_by_a_clone`)
   [@test] ../../crates/git-ops/src/lease_slot_test.rs (`a_prune_while_a_cloned_slot_is_away_keeps_its_registration_until_the_unlock`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_cloned_slot_leaves_out_what_the_delete_rules_delete`)
-  [@test] ../../crates/lease-pool/src/clone_dir_test.rs (`a_clone_leaves_out_the_skipped_paths_but_for_their_kept_entries`)
+  [@test] ../../crates/lease-pool/src/clone_dir_test.rs (`a_clone_leaves_out_the_skipped_paths_but_for_their_kept_entries`, `a_rule_below_a_kept_entry_applies_too`)
 - A clone that fails (another volume, no APFS, a file it can't read, not macOS) must leave nothing behind and fall
   back to `git worktree add` (`created_by: "checkout"`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_clone_that_fails_falls_back_to_a_checkout`)
@@ -238,9 +239,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   The uplifted artifacts at the top of the profile dir (`debug/libavl_vm.rlib`, `debug/<bin>`) and `.cargo-lock` are
   never touched. `{ delete = "<path>" }` removes a path, a file, a directory or a symlink (the link, never its
   target); `{ delete = "<dir>", except = ["<name>", …] }` removes every entry of the directory but the named ones
-  (names of direct entries, no path).
+  (names of direct entries, no path), a whitelist: a new entry goes without an edit of the rules. A rule below a kept
+  entry applies to it (`out` but for `dev-run`, then `out/dev-run` but for `jar-cache`).
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`, `the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash`, `a_classic_unit_is_its_name_and_its_hash`)
-  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`, `nested_deletes_keep_only_the_whitelist`)
 - An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
 - A rule must be skipped and reported (`error`), never applied, when its path is absolute, leaves the checkout with

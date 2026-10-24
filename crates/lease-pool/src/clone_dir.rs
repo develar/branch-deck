@@ -45,7 +45,8 @@ pub fn clone_directory(from: &Path, to: &Path, skips: &CloneSkips) -> std::io::R
 
 /// `from` to `to` without the entries `skips` leaves out: a skipped path is left out whole (a file, a symlink, a
 /// directory without kept entries); a directory on the way, or a skipped one with kept entries, is made with the
-/// permissions of the template; a symlink on the way is cloned as the link
+/// permissions of the template; a symlink on the way is cloned as the link. A rule below a kept entry applies too
+/// (`out` but for `dev-run`, and `out/dev-run` but for `jar-cache`)
 fn clone_except(from: &Path, to: &Path, skips: &CloneSkips, root: bool) -> std::io::Result<()> {
   let metadata = from.symlink_metadata()?;
   if skips.skipped.as_ref().is_some_and(|except| except.is_empty() || !metadata.is_dir()) {
@@ -65,13 +66,12 @@ fn clone_except(from: &Path, to: &Path, skips: &CloneSkips, root: bool) -> std::
       continue;
     }
     let (source, target) = (entry.path(), to.join(&name));
-    match &skips.skipped {
-      Some(except) if except.contains(&name) => platform::clone(&source, &target)?,
-      Some(_) => {}
-      None => match skips.children.get(&name) {
-        Some(child) => clone_except(&source, &target, child, false)?,
-        None => platform::clone(&source, &target)?,
-      },
+    // a kept entry of a skipped path, or any entry of a path on the way, is cloned, with the rules below it
+    let kept = skips.skipped.as_ref().is_none_or(|except| except.contains(&name));
+    match skips.children.get(&name) {
+      _ if !kept => {}
+      Some(child) => clone_except(&source, &target, child, false)?,
+      None => platform::clone(&source, &target)?,
     }
   }
   Ok(())
