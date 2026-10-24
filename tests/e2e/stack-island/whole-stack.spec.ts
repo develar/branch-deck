@@ -31,7 +31,7 @@ import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/r
 import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush, waitForStepFacts } from "../helpers/safe-push-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
+import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import { holdCommand, recordCommand } from "../helpers/wait-helpers"
@@ -917,7 +917,7 @@ test.describe("Whole stack", () => {
     await openWholeStackSubmenu(page, "auth")
     await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
     await expect(safePushPopover(page)).toHaveAttribute("aria-label", "Safe Push of the whole auth stack")
-    await popoverStart(page).click()
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
     await expectPatronusStarts(repo, [wholeStackStartRequest("auth")])
     expect(stackPushes).toHaveLength(1)
     await expect(findBranchRow(page, "session").getByTestId("landing-span")).toHaveText("lands with the whole auth stack")
@@ -979,7 +979,7 @@ test.describe("Whole stack", () => {
     const popover = safePushPopover(page)
     await expect(popover).toHaveAttribute("aria-label", "Safe Push of the whole auth stack")
     await expect(popover.getByTestId("safe-push-lands")).toHaveText(`${rest}.`)
-    await popoverStart(page).click()
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
     await expectPatronusStarts(repo, [wholeStackStartRequest("auth")])
     expect(stackPushes).toHaveLength(1)
 

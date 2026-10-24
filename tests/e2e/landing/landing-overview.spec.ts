@@ -19,6 +19,7 @@ import {
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
+import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 const NOW = ROBOTS_NOW
@@ -202,7 +203,7 @@ test.describe("Landing overview", () => {
     // the Safe Push of docs has nothing to ask: it pushes and starts at once, the row shown
     const docs = landingRow(popover, "docs")
     await expect(docs).toHaveAttribute("data-kind", "ready")
-    await docs.getByTestId("next-step").click()
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => docs.getByTestId("next-step").click())
     await expect(popover).toBeHidden()
     await expectPatronusStarts(repo, [startRequest("docs")])
     await expect(findBranchRow(page, "docs")).toBeInViewport()

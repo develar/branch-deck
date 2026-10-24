@@ -20,7 +20,7 @@ import { pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackRes
 import { closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { rewriteNextSyncEvents, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
+import { rewriteNextSyncEvents, runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -370,7 +370,7 @@ test.describe("Stack island", () => {
     await expect(push).toBeDisabled()
     await expect(push).not.toHaveAttribute("aria-busy", "true")
     expect((await repo.getPatronusLog()).starts).toEqual([])
-    release()
+    await runAndWaitForAnswer(page, "start_patronus_robot", async () => release())
     await expectPatronusStarts(repo, [safePushOfAir])
     expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: null })]])
     await expect(popover).toHaveCount(0)
@@ -389,7 +389,7 @@ test.describe("Stack island", () => {
     ])
     await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
     await expectWholeStackPopoverAt(popover, headerSlot)
-    await popoverStart(page).click()
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
     await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir])
     await expect(popover).toHaveCount(0)
     await closeRefusal(page)
@@ -398,7 +398,7 @@ test.describe("Stack island", () => {
     await air.getByRole("button", { name: /^air Stack · 7 branches/ }).focus()
     await page.keyboard.press("s")
     await expectWholeStackPopoverAt(popover, headerSlot)
-    await page.keyboard.press("Enter")
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => page.keyboard.press("Enter"))
     await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir, safePushOfAir])
     await closeRefusal(page)
 
@@ -408,7 +408,7 @@ test.describe("Stack island", () => {
     await expect(popover).toHaveAttribute("aria-label", "Dry Run of the whole air stack")
     await expect(popover.getByTestId("safe-push-lands")).toHaveText("Checks 7 branches · 14 commits on master in one Dry Run: air, bazel, … side-fix and side-test.")
     await expectPopoverAtSlot(popover, headerSlot)
-    await popoverStart(page).click()
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
     await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir, safePushOfAir, wholeStackStartRequest("air", { mode: "DRY_RUN" })])
     await expect(page.locator("[data-slot=toast]", { hasText: "Cannot start the Dry Run" })).toBeVisible()
 
@@ -471,7 +471,7 @@ test.describe("Stack island", () => {
     await notice.getByRole("button", { name: "Safe Push deploy" }).click()
     await expect(popover).toHaveAttribute("aria-label", "Safe Push of deploy")
     await expectPopoverAtSlot(popover, headerSlot)
-    await popoverStart(page).click()
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
     // the piece: the virtual branch of deploy, not the stack branch
     await expectPatronusStarts(repo, [startRequest("deploy")])
     expect(pushes.map(push => push.branchName)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
