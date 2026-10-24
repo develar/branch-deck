@@ -26,6 +26,7 @@
     "lint:arch": "node --test scripts/lint-arch.test.mjs && node scripts/lint-arch.mjs",
     "perf:bd-rebuild": "node scripts/perf/bd-rebuild.mjs",
     "perf:monorepo": "node scripts/perf/monorepo.mjs",
+    "perf:test-processes": "node scripts/perf/test-processes.mjs",
     "perf:diff": "playwright test -c playwright.perf.config.ts diff-review",
     "perf:table": "playwright test -c playwright.perf.config.ts branch-table",
     "screenshots:readme": "playwright test -c playwright.screenshots.config.ts",

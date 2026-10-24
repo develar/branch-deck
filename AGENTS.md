@@ -93,11 +93,18 @@ Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<r
 ⚠️ **NEVER `cargo test`, ALWAYS `cargo nextest run`.** `cargo test` runs the tests of a binary as threads of one
 process, and a test that sets environment variables (`test_utils::env_vars::EnvVars`, sound only with a process per
 test) changes them under the others. `nextest` (`.config/nextest.toml`) runs a process per test, all in parallel
-(the suite takes about 80 s on 18 cores); kills a test still running after 5 minutes (a hung git) and fails one whose
+(the suite starts about 74,000 git processes; 253 s on the 20 cores of a quiet Studio when they were 94,000, several
+times that on a loaded Mac); kills a test still running after 5 minutes (a hung git) and fails one whose
 git process outlives it; in CI (`NEXTEST_PROFILE=ci`) runs a failed test twice more, and one that passes on a retry is
 FLAKY and still fails the run, because a flaky test is a race to fix (locally no retries). With recording on in the user
 config (`[experimental] record = true` and `[record] enabled = true` in `~/.config/nextest/config.toml`),
 `cargo nextest run -R latest` runs only what failed; finish with a full run.
+
+**A test's time is its git processes** ([Fast Rust Tests](docs/guidelines/rust-tests.md)): a fixture repository is
+`TestRepo::new()` (one `git init`, its config appended by `append_config`), a commit `create_commit*` or `commit_with`
+(`add` and `commit`, the id from the summary, no `rev-parse HEAD`); never a `git config` process per key, a sleep, or a
+wall-clock limit an assertion depends on. `pnpm perf:test-processes measure|summarize|compare` counts the git
+processes of every test, which the load of the machine does not change.
 
 **Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
 `pnpm lint:backend` run as `yonder run studio -- <command>` from the lease, on its working tree, committed or not
@@ -158,6 +165,7 @@ pnpm lint:specs           # the [@test] links of spec/ and docs/ name test files
 pnpm lint:arch            # the page acts on the code of an error, never on its words (scripts/lint-arch.mjs)
 bd lease clean --free     # the clean rules of .branchdeck.toml on the free lease slots (`--dry-run` only reports)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
+pnpm perf:test-processes measure|summarize|compare  # the git processes of every Rust test (docs/guidelines/rust-tests.md)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
 ```
 
@@ -601,6 +609,7 @@ The rows and the menus of the main window: `branch/branch-row`, `commit/commit-r
 - [Adding a Git Operation](docs/guidelines/adding-git-operation.md) - The layers of an operation and the helpers to reuse
 - [Agent CLI](docs/guidelines/agent-cli.md) - The `bd` commands, their JSON, error codes and exit codes
 - [Platform Checks](docs/guidelines/platform-checks.md) - Linux in Docker and Windows in the Parallels VM before platform code lands
+- [Fast Rust Tests](docs/guidelines/rust-tests.md) - A test costs its git processes: the fixtures of one process per step, no sleeps or wall-clock limits, `pnpm perf:test-processes`
 - [Studio Runs](docs/guidelines/studio-runs.md) - `yonder run studio -- <command>`: a heavy check on the Mac Studio, on the exact working tree of a lease, in a warm lease of its own there
 - [Real App Checks](docs/guidelines/real-app-checks.md) - The release app driven with Peekaboo: windows, input, frames, timings
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns

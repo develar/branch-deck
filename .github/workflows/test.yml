@@ -88,7 +88,7 @@ jobs:
 
       - name: Check macOS release credential handling
         if: runner.os == 'macOS'
-        run: pnpm exec node --test scripts/release-signing.test.mjs
+        run: pnpm exec node --test scripts/release-signing.test.mjs scripts/slowest-tests.test.mjs
 
       - name: Type-check, find copies, check the test links of the specs and the architecture rules
         run: pnpm lint:typecheck && pnpm lint:cpd && pnpm lint:specs && pnpm lint:arch
@@ -104,6 +104,12 @@ jobs:
         run: pnpm test
         env:
           NEXTEST_PROFILE: ci
+
+      # the slowest tests and the time per test binary, in the job summary: a test that became slow shows in its run
+      - name: Report the slowest Rust tests
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: node scripts/slowest-tests.mjs target/nextest/ci/junit.xml 30 >> "$GITHUB_STEP_SUMMARY"
 
       # the failed and FLAKY tests of the run with their output (.config/nextest.toml, profile ci)
       - name: Upload Rust test report
