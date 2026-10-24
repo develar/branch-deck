@@ -1240,7 +1240,7 @@ fn the_status_reads_the_state_without_a_git_status() {
 }
 
 /// A get that died while preparing a lease leaves it `preparing`; once its process is gone the slot is abandoned, and
-/// the next get takes it
+/// the next get takes it. Windows has no process scan: there the lease stays `preparing`, and the next get adds a slot
 #[test_log::test]
 fn a_preparing_lease_of_a_gone_process_is_taken_by_the_next_get() {
   let fixture = Fixture::new();
@@ -1258,10 +1258,16 @@ fn a_preparing_lease_of_a_gone_process_is_taken_by_the_next_get() {
   lease["pid"] = json!(pid);
   lease["process_started"] = json!(1);
   std::fs::write(fixture.state_file(), state.to_string()).unwrap();
-  assert_eq!(states(&fixture.status()), [(path.clone(), "abandoned".to_string())]);
-
-  let got = fixture.get(&[]);
-  assert_eq!((path_of(&got), &got["reused"]), (path, &json!(true)));
+  if cfg!(windows) {
+    assert_eq!(states(&fixture.status()), [(path.clone(), "preparing".to_string())]);
+    let got = fixture.get(&[]);
+    assert_eq!(&got["reused"], &json!(false), "{got}");
+    assert_ne!(path_of(&got), path);
+  } else {
+    assert_eq!(states(&fixture.status()), [(path.clone(), "abandoned".to_string())]);
+    let got = fixture.get(&[]);
+    assert_eq!((path_of(&got), &got["reused"]), (path, &json!(true)));
+  }
 }
 
 /// A get that fails after it recorded the lease gives the slot back and says so

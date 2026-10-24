@@ -162,7 +162,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/lease-pool/src/lease_test.rs (`the_seed_candidates_are_literal_paths_and_globs_of_one_directory`, `a_glob_matches_by_stars_question_marks_and_classes`)
 - A get that fails after it recorded the lease must give the slot back (free, or dropped when it was never added) and
   say so in the message; it must never leave the lease `preparing`. A `preparing` lease whose process (its pid and
-  start time) is gone must be taken as free by the next get.
+  start time) is gone must be taken as free by the next get; on Windows, without the process scan, it stays
+  `preparing` and the next get passes it over.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_failed_get_rolls_the_lease_back`, `a_preparing_lease_of_a_gone_process_is_taken_by_the_next_get`)
 - A get of a free slot must run a fixed number of git processes: the repository, the source HEAD, the pool config,
   one `status` and one `checkout` of the slot.
