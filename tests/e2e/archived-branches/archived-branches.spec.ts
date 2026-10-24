@@ -6,7 +6,7 @@ import { expandBranch } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard, testCopyButtonOnHover } from "../helpers/clipboard-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
-import { syncBranches } from "../helpers/sync-helpers"
+import { runAndWaitForUpdate, syncBranches } from "../helpers/sync-helpers"
 import { holdCommand, waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
 
 // Basic foundation test for ArchivedBranchTableCard
@@ -194,7 +194,7 @@ test.describe("Archived branch merged by a baseline commit", () => {
     // moves to the archive, merged by the robot's commit
     await setupRepo("landed_upstream")
     await syncAndWaitForBranches()
-    await page.getByTestId("update-project-button").click()
+    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
 
     const card = page.getByTestId("archived-branches-card")
     await card.getByText("Archived Branches", { exact: true }).click()

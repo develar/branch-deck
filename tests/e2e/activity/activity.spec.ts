@@ -17,7 +17,7 @@ import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { confirmForcePush, routePush } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate, waitForTauriListener } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -115,7 +115,8 @@ testWithIssueLinks.describe("Activity", () => {
     await expect(dialog).toBeVisible()
     // the shortcut is the editor's: pressed before the dialog moved the focus there, it does nothing
     await expect(dialog.getByTestId("squash-message-editor")).toBeFocused()
-    await page.keyboard.press("ControlOrMeta+Enter")
+    // a rewrite shows its result with the sync it starts
+    await runAndWaitForSync(page, () => page.keyboard.press("ControlOrMeta+Enter"))
     await expect(dialog).toBeHidden()
     await verifyCommitCount(row, "3 commits")
 
@@ -130,7 +131,7 @@ testWithIssueLinks.describe("Activity", () => {
     }
     const entry = activityEntry(scope, "Squashed 2 commits")
     await expect(entry).toHaveAttribute("data-kind", "rewrite")
-    await entry.getByTestId("activity-undo").click()
+    await runAndWaitForSync(page, () => entry.getByTestId("activity-undo").click())
     await expect(entry.getByTestId("activity-undone")).toHaveText("undone")
     await expect(entry.getByTestId("activity-undo")).toHaveCount(0)
     await verifyCommitCount(row, "4 commits")
@@ -249,7 +250,7 @@ test.describe("Activity of updates", () => {
     await page.setViewportSize(MIN_WINDOW)
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await page.getByTestId("update-project-button").click()
+    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
 
     const header = await page.getByTestId("configuration-header").boundingBox()
@@ -271,7 +272,7 @@ test.describe("Activity of updates", () => {
     await useTitleBar(page, TITLE_BARS.gnome)
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await page.getByTestId("update-project-button").click()
+    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
 
     await openMainMenuView(page)
@@ -295,7 +296,7 @@ test.describe("Activity of updates", () => {
   test("should record a refused update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("update_conflict")
     await syncAndWaitForBranches()
-    await page.getByTestId("update-project-button").click()
+    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
     const dialog = page.getByTestId("update-blocked-dialog")
     await expect(dialog).toBeVisible()
     await page.keyboard.press("Escape")
@@ -312,7 +313,7 @@ test.describe("Activity of updates", () => {
   ) => {
     await setupRepo("landed_upstream")
     await syncAndWaitForBranches()
-    await page.getByTestId("update-project-button").click()
+    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
     const card = page.getByTestId("landed-card")
     await expect(card).toBeVisible()
 

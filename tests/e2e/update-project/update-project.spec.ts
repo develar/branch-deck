@@ -5,7 +5,7 @@ import { findBranchRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
-import { emitTauriEvent, runAndWaitForSync } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
@@ -37,7 +37,7 @@ test.describe("Update Project", () => {
     await expect(button).toHaveText("Update")
     await expectTooltip(page, "Rebases cleanly onto origin/master")
 
-    await button.click()
+    await runAndWaitForUpdate(page, () => button.click())
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
     await expect(button).toHaveAttribute("data-status", "upToDate")
     await expectTooltip(page, /Up to date with origin\/master.*Fetched just now/)
@@ -52,7 +52,7 @@ test.describe("Update Project", () => {
     await expect(button).toHaveAttribute("data-status", "clean")
     await expectTooltip(page, "Rebases onto origin/master, resolving 1 conflict by words")
 
-    await button.click()
+    await runAndWaitForUpdate(page, () => button.click())
     await expect(page.getByText("Updated master: rebased 2 commits onto origin/master")).toBeVisible()
     await expect(page.getByText("Resolved 1 conflict by words in “(feature-auth) Capitalize line 2”")).toBeVisible()
     await expect(button).toHaveAttribute("data-status", "upToDate")
@@ -166,7 +166,7 @@ test.describe("Update Project", () => {
   test("should end the progress at the result when there is nothing to apply, its sync on Sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await updateButton(page).click()
+    await runAndWaitForUpdate(page, () => updateButton(page).click())
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
     await expect(updateButton(page)).toHaveText("Update")
 
@@ -224,7 +224,7 @@ test.describe("Update Project", () => {
     const fetches = await recordCommand(page, "fetch_baseline")
     const updates = await recordCommand(page, "update_project")
 
-    await updateButton(page).click()
+    await runAndWaitForUpdate(page, () => updateButton(page).click())
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot update the project" })
     await expect(toast).toContainText("`bd push auth` (pid 4242) has held the repository for 40 s")
     await expect(toast).not.toContainText("branch-deck.lock")
@@ -242,7 +242,7 @@ test.describe("Update Project", () => {
     await syncAndWaitForBranches()
     await routeCommandError(page, "update_project", { code: "head_moved", message: "master moved during the update: nothing was changed", retry: "after_reread" })
 
-    await updateButton(page).click()
+    await runAndWaitForUpdate(page, () => updateButton(page).click())
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot update the project" })
     await expect(toast).toContainText("master moved during the update: nothing was changed")
     // the toast is there, without a retry: the request is read again, not repeated
@@ -264,7 +264,7 @@ test.describe("Update Project", () => {
     await expect(button.getByTestId("update-state-icon")).toBeVisible()
     await expectTooltip(page, "Conflicts in 1 file: src/app.txt")
 
-    await button.click()
+    await runAndWaitForUpdate(page, () => button.click())
     const dialog = refusedDialog(page)
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole("heading")).toHaveText("1 file conflicts with origin/master")
@@ -319,7 +319,7 @@ test.describe("Update Project", () => {
     await expect(button).toHaveAttribute("data-status", "conflict")
     await expectTooltip(page, "Conflicts in 60 files: src/wide/file00.txt, src/wide/file01.txt, src/wide/file02.txt and 57 more")
 
-    await button.click()
+    await runAndWaitForUpdate(page, () => button.click())
     const dialog = refusedDialog(page)
     await expect(dialog.getByRole("heading")).toHaveText("60 files conflict with origin/master")
     // the check reports the files it attributes commits to, and counts the rest
@@ -344,7 +344,7 @@ test.describe("Update Project", () => {
     await expect(button).toHaveAttribute("data-status", "blocked")
     await expectTooltip(page, "Your uncommitted changes in src/app.txt overlap origin/master")
 
-    await button.click()
+    await runAndWaitForUpdate(page, () => button.click())
     const dialog = refusedDialog(page)
     await expect(dialog.getByRole("heading")).toHaveText("Your uncommitted changes block the update")
     await expect(dialog.getByTestId("update-blocked-paths").locator("li")).toHaveAttribute("data-path", "src/app.txt")

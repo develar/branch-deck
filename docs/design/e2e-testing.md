@@ -534,7 +534,13 @@ log of the fake). No test answers a remote write in the page: the registry test 
   table renders with the rows (a lazy chunk of it once came seconds later under load and moved the rows away from
   the pointer of a hover). A menu zooms in as it opens, late
   under load: an item hovered meanwhile moves away under the pointer and its leave cancels the hover open, so
-  `openSubmenu` hovers once the animations of the open menus ended (`animationsEnded`)
+  `openSubmenu` hovers once the animations of the open menus ended (`animationsEnded`). A chain of commands gets a
+  wait per step: at a load of 150-220 on 18 cores each of them takes 2-5 s, and a 5 s assertion after the press that
+  starts the chain failed. Update Project is a fetch, then the update, then its sync: `runAndWaitForUpdate` waits for
+  the answer of `update_project` (`nextAnswer`, the page's next answer of a command, with the test's timeout), then the
+  toast and the button are an assertion's. The steps measured in the traces of the failed waits (2026-10-24):
+  `fetch_baseline` 2-4 s, `check_landing_gate` 2-3.5 s (a start runs the gate again in `start_patronus_robot`, 2-2.7 s:
+  the test server has no object cache), `wait_landing_needs` 2-5 s, `get_branch_review_readiness` 1-5 s
 - **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
   covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,
   which is until the toast times out (5 s, 10 s with an action). A test closes a toast it has read with its close

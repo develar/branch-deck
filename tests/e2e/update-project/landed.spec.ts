@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getPushButton } from "../helpers/branch-helpers"
 import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
+import { runAndWaitForUpdate } from "../helpers/sync-helpers"
 
 // The `landed_upstream` template: a robot pushed `feature-auth` (one commit) and the first of the two `search` commits to
 // origin/master, rebased without the prefix, committer `Patronus`; `ui` stays local. Already fetched. The `search` commit
@@ -82,7 +83,7 @@ test.describe("Landed commits", () => {
     await setupRepo("landed_upstream")
     await syncAndWaitForBranches()
 
-    await updateButton(page).click()
+    await runAndWaitForUpdate(page, () => updateButton(page).click())
     await expect(page.getByText("2 branches landed in origin/master")).toBeVisible()
     await expect(page.getByText("feature-auth and search · rebased 2 commits")).toBeVisible()
 
@@ -125,7 +126,7 @@ test.describe("Landed commits", () => {
   test("should show the copy button of a baseline commit on hover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("landed_upstream")
     await syncAndWaitForBranches()
-    await updateButton(page).click()
+    await runAndWaitForUpdate(page, () => updateButton(page).click())
 
     const branch = landedBranch(page, "feature-auth")
     await branch.getByRole("button", { expanded: false }).click()

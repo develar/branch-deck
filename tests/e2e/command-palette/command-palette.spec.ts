@@ -5,7 +5,7 @@ import { activityPanel, expectActivityOpened } from "../helpers/activity-helpers
 import { collapseBranch, findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate, waitForTauriListener } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 
 // `issue_links`: 7 branches, ABC-123 and JIRA-456 among them; `behind_upstream`: master is behind origin/master
@@ -107,7 +107,7 @@ test.describe("Command palette of a custom title bar", () => {
 
     await page.keyboard.press("Control+KeyK")
     await expect(search(page)).toBeFocused()
-    await runByKeyboard(page, "update", "Update Project")
+    await runAndWaitForUpdate(page, () => runByKeyboard(page, "update", "Update Project"))
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
 
     await openMainMenuView(page)

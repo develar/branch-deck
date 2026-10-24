@@ -115,6 +115,27 @@ export async function runAndWaitForSync(page: Page, action: () => Promise<unknow
   await waitForSyncComplete(page, previousCount)
 }
 
+/**
+ * The answer of the page's next `command` (`/invoke/<command>`), however long the test lets it take; ask for it before
+ * the action that starts the command. It is the event of one step of a chain of commands, each of which takes seconds
+ * under load (Update Project: the fetch, the update, then the sync), so the assertion after it waits only for the page
+ * to show the answer, never for the whole chain within its 5 s
+ */
+export function nextAnswer(page: Page, command: string): Promise<unknown> {
+  return page.waitForResponse(response => response.url().endsWith(`/invoke/${command}`), { timeout: 0 })
+}
+
+/**
+ * Presses Update Project with `press` (its button, the menu item, the palette) and waits for the answer of the update,
+ * which comes after the fetch of the baseline and brings its toast and the state of the button; the sync of a clean
+ * update follows it (`runAndWaitForSync` around this for an assertion on the rebuilt rows)
+ */
+export async function runAndWaitForUpdate(page: Page, press: () => Promise<unknown>): Promise<void> {
+  const updated = nextAnswer(page, "update_project")
+  await press()
+  await updated
+}
+
 /** Waits until the page listens to `event`: one fired before a lazy page registered its listener is lost */
 export async function waitForTauriListener(page: Page, event: string): Promise<void> {
   await expect
