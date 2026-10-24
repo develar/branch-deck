@@ -564,7 +564,7 @@ describe("formatLandedWholeReason", () => {
 
 describe("the robot of a branch or of a whole stack", () => {
   it("matches the robots as the Rust side does: the cases of robot-match-cases.json", () => {
-    // the cases `find_branch_robot` passes too (`the_robots_match_their_branches_as_the_page_matches_them`)
+    // the cases `domain_policy::robot_match` passes too (`the_robots_match_their_branches_as_the_page_matches_them`)
     for (const it of robotMatchCases) {
       const robots = byId(...(it.robots as PatronusRobot[]))
       const found =

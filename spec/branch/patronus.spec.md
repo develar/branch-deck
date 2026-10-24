@@ -61,6 +61,7 @@ targets:
   - ../../src/hooks/useDismissesStaleReviews.ts
   - ../../crates/remote-facts/src/branch_rules.rs
   - ../../crates/sync-core/src/patronus_start.rs
+  - ../../crates/domain-policy/src/robot_match.rs
   - ../../src/lib/patronus-stack.ts
   - ../../src/lib/landed-stack.ts
   - ../../src/lib/whole-stack.ts
@@ -162,8 +163,10 @@ reports in it and closes it once merged.
 - The robots are `GET /app/rest/v1/robots?owner=me&repository=<name>&start=<time>`, newest first. A robot belongs to the
   virtual branch whose pushed name, `{prefix}/virtual/{name}`, is its source branch; a robot on a temporary ref (a Safe
   Push of the IDE or the CLI) belongs to the branch whose local or pushed tip it took. A running robot wins over a
-  finished one, then the newest.
+  finished one, then the newest. `bd` and the repository view match them with one rule (`domain_policy::robot_match`:
+  one index per list of robots); the page still matches them itself (`findBranchRobot`).
   [@test] ../../crates/patronus/src/service_test.rs (`lists_the_robots_newest_first_and_names_the_virtual_branch`)
+  [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `the_table_gets_the_robot_of_each_branch_and_whole_stack_that_has_one`)
   [@test] ../../src/lib/patronus.test.ts (`matches a robot started on the branch, and a Safe Push of a temporary ref by the local or the pushed tip`)
   [@test] ../../src/lib/patronus.test.ts (`prefers a running robot over a canceling one over a finished one, then the newest`)
 - Every command of Patronus, of a push and of a pull request names the repository only: Rust resolves the prefix
@@ -1258,8 +1261,9 @@ explicit choice of the user, offered only where the approvals count in a pull re
   robot, Request Review… and the creation of its pull request) is refused with that reason.
 - The app and `bd` decide what the robots land, landed and hold with one rule over the branch table of the last sync
   (`repository_model::patronus_view`, [Repository view](../../docs/design/git-operations.md#repository-view)):
-  - the robot of a branch is the one the rows match: running over canceling over finished, then the newest, then the
-    first of the list; both sides pass the same cases (`src/test-support/robot-match-cases.json`);
+  - the robot of a branch is the one the rows match (`domain_policy::robot_match`): running over canceling over
+    finished, then the newest, then the first of the list; both sides pass the same cases
+    (`src/test-support/robot-match-cases.json`);
   - of the robots of branches built on a branch, the first of the table lands it ("lands with"), and of those that run
     the first holds it: a canceling robot says it lands the branch and hides no running one;
   - a branch's own robot is never the robot of an ancestor it waits for: its Safe Push replaces it;
@@ -1270,7 +1274,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
     the branch now, so an amend below the robot's commit in the same sync is told by content.
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`, `the_robot_of_the_whole_stack_lands_every_branch_of_it`, `the_merged_robot_that_left_the_least_work_names_the_landing`, `a_dry_run_lands_nothing`)
   [@test] ../../crates/repository-model/src/patronus_view_content_test.rs (`the_hashes_answer_a_robot_at_its_tip_and_one_under_new_commits_without_git`, `a_root_restacked_below_a_running_robot_is_told_by_content_once`, `an_amend_below_the_robot_is_told_by_the_copies_the_sync_wrote`)
-  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robots_match_their_branches_as_the_page_matches_them`)
+  [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robots_match_their_branches_as_the_page_matches_them`)
   [@test] ../../src/lib/patronus.test.ts (`matches the robots as the Rust side does: the cases of robot-match-cases.json`)
 - What a running robot lands is what its commit has, not the stack as it is now: while it took the branches as they
   are (it runs on the tip of its branch, or on a commit of it with new ones on top) every branch it is built on, with

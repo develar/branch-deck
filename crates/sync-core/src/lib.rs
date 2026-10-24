@@ -60,8 +60,9 @@
 //!
 //! Patronus, by the content of the repository (no HTTP):
 //! - `patronus`: the Space repository the virtual branches are pushed to, the commits and the paths of a review
-//! - `patronus_start`: the robot of a branch or of the whole stack, the modes a profile allows, and the push that fails
-//!   a running Safe Push (whether a start can begin is `repository_model::patronus_view`)
+//! - `patronus_start`: whether a robot runs and pushes, the modes a profile allows, and the push that fails a running
+//!   Safe Push (which robot is a branch's is `domain_policy::robot_match`; whether a start can begin is
+//!   `repository_model::patronus_view`)
 //! - (the crate `repository-model` derives what the robots land, landed and hold of the branch table from these)
 //! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
 //! - `robot_landing`: what a merged robot landed of the branches, by content: the commits it tested, and those after

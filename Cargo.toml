@@ -15,6 +15,7 @@ members = [
   "crates/repository-model",
   "crates/history-rewrite",
   "crates/domain-types",
+  "crates/domain-policy",
   "crates/app-settings",
   "crates/sync-utils",
   "crates/cli-tools",

@@ -2,8 +2,8 @@
 
 The table of today's behaviour of both sides: what the app decides (`getBranchNextStepOf`, `getStackNextStepNow`,
 `readSafePush`) and what `bd` answers (`bd safe-push --check`, then the start itself) for the same situation. Data
-only: no crate reads this directory yet ([Rust as the source of the domain rules](../../../docs/design/rust-domain-authority.md),
-stage `s0c-scenarios`). Every expectation is today's answer, never the wished one; a case where the sides differ names
+only: the rules of this crate (`src/`) don't read it yet, the two tests below do ([Rust as the source of the domain
+rules](../../../docs/design/rust-domain-authority.md), stage `s0c-scenarios`). Every expectation is today's answer, never the wished one; a case where the sides differ names
 the discrepancy of the design doc's registry (`D1`–`D15`) or says why they differ by design (`asymmetry`). When a later
 stage makes a rule one, the case keeps one expectation and loses its `discrepancy`.
 

@@ -584,6 +584,7 @@ dependencies = [
  "bd-core",
  "clap",
  "commit-clustering",
+ "domain-policy",
  "domain-types",
  "git-ops",
  "github",
@@ -1774,6 +1775,16 @@ dependencies = [
  "precomputed-hash",
  "selectors",
  "tendril",
+]
+
+[[package]]
+name = "domain-policy"
+version = "0.1.0"
+dependencies = [
+ "domain-types",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4922,6 +4933,7 @@ name = "repository-model"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "domain-policy",
  "domain-types",
  "git-executor",
  "git-ops",
@@ -5806,6 +5818,7 @@ dependencies = [
  "anyhow",
  "branch-integration",
  "criterion",
+ "domain-policy",
  "domain-types",
  "git-executor",
  "git-ops",

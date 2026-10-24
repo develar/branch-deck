@@ -14,6 +14,7 @@
 //!   (`robot_landing`), once per state of the branches (`ContentMemo`).
 
 use crate::branch_table::BranchTable;
+use domain_policy::robot_match::{RobotIndex, RobotMatches, Tips, match_table};
 use domain_types::landing::{LandingRefusal, Subject};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::{
@@ -23,7 +24,7 @@ use domain_types::repository_view::{
 use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use sync_core::patronus_start::{find_branch_robot, find_stack_robot, is_pushing_robot, is_robot_active};
+use sync_core::patronus_start::{is_pushing_robot, is_robot_active};
 use sync_core::robot_landing::{robot_landings_of_grouped, robot_spans_of_grouped};
 use tracing::{debug, instrument};
 use trial_check::landing_gate::name_landing_robots;
@@ -39,30 +40,24 @@ pub struct ContentMemo {
   spans: HashMap<String, Option<Vec<BranchSpan>>>,
 }
 
-/// The robot of each branch and of each whole stack of the table, as the rows match them (`find_branch_robot`: started
-/// on the branch, or of a temporary ref at its local or remote tip); the page matches them itself, `bd` with this
+/// The robot of each branch and of each whole stack of the table (`domain_policy::robot_match`: started on the branch,
+/// or of a temporary ref at its local or remote tip); the page matches them itself, `bd` with this
 pub fn match_robots(table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot]) -> RobotMatch {
   fn remote_tip(fact: Option<&RemoteFact>) -> Option<&str> {
     fact.and_then(|fact| fact.remote_tip.as_deref())
   }
-  RobotMatch {
-    branches: table
-      .branches
-      .iter()
-      .filter_map(|branch| {
-        let robot = find_branch_robot(robots, &branch.name, table.tip_of(&branch.name), remote_tip(remote.branches.get(&branch.name)))?;
-        Some((branch.name.clone(), robot.id.clone()))
-      })
-      .collect(),
-    stacks: table
-      .stack_branches
-      .iter()
-      .filter_map(|stack| {
-        let robot = find_stack_robot(robots, &stack.root, stack.tip.as_deref(), remote_tip(remote.stacks.get(&stack.root)))?;
-        Some((stack.root.clone(), robot.id.clone()))
-      })
-      .collect(),
-  }
+  let branches = table.branches.iter().map(|branch| Tips {
+    of: &branch.name,
+    local: table.tip_of(&branch.name),
+    remote: remote_tip(remote.branches.get(&branch.name)),
+  });
+  let stacks = table.stack_branches.iter().map(|stack| Tips {
+    of: &stack.root,
+    local: stack.tip.as_deref(),
+    remote: remote_tip(remote.stacks.get(&stack.root)),
+  });
+  let RobotMatches { branches, stacks } = match_table(&RobotIndex::new(robots), branches, stacks);
+  RobotMatch { branches, stacks }
 }
 
 /// The robot took its subject as it is: its tip, or its remote branch while that has the same commits by content

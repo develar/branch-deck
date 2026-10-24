@@ -1,36 +1,9 @@
-use crate::patronus_start::{allows_push_mode, carried_ids, carried_words, find_branch_robot, find_stack_robot, is_push_into_robot_risky};
+use crate::patronus_start::{allows_push_mode, carried_ids, carried_words, is_push_into_robot_risky};
+use domain_types::fixtures::{robot, stack_robot};
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::Carried;
 use pretty_assertions::assert_eq;
-
-fn robot(id: &str, branch_name: Option<&str>, status: PatronusRobotStatus, start_time: u32) -> PatronusRobot {
-  PatronusRobot {
-    id: id.to_string(),
-    name: "IJPL-1 fix".to_string(),
-    status,
-    push_mode: PatronusPushMode::RebaseAutosquash,
-    branch_name: branch_name.map(str::to_string),
-    stack_root: None,
-    source_revision: Some("tip".to_string()),
-    target_branch: "master".to_string(),
-    start_time,
-    finish_time: None,
-    cancellation_reason: None,
-    url: format!("https://patronus/robot/{id}"),
-    pull_request: None,
-    profile: None,
-  }
-}
-
-/// A robot of the whole stack of `root`, started on its stack branch at `revision`
-fn stack_robot(id: &str, root: &str, status: PatronusRobotStatus, revision: &str) -> PatronusRobot {
-  PatronusRobot {
-    stack_root: Some(root.to_string()),
-    source_revision: Some(revision.to_string()),
-    ..robot(id, None, status, 1)
-  }
-}
 
 fn branch(name: &str) -> Subject {
   Subject::Branch { name: name.to_string() }
@@ -48,27 +21,6 @@ fn dry_run(robot: PatronusRobot) -> PatronusRobot {
 }
 
 #[test]
-fn the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision() {
-  let robots = vec![
-    robot("old", Some("IJPL-1"), PatronusRobotStatus::Failure, 1),
-    robot("new", Some("IJPL-1"), PatronusRobotStatus::Canceled, 3),
-    robot("running", Some("IJPL-1"), PatronusRobotStatus::Running, 2),
-    robot("other", Some("IJPL-2"), PatronusRobotStatus::Running, 4),
-  ];
-  assert_eq!(find_branch_robot(&robots, "IJPL-1", Some("tip"), None).map(|robot| robot.id.as_str()), Some("running"));
-  assert_eq!(find_branch_robot(&robots[..2], "IJPL-1", Some("tip"), None).map(|robot| robot.id.as_str()), Some("new"));
-
-  // a Safe Push from the IDE or the CLI: a temporary ref, matched by the local or the pushed tip
-  let temporary = vec![robot("cli", None, PatronusRobotStatus::Running, 5)];
-  assert_eq!(find_branch_robot(&temporary, "IJPL-1", Some("tip"), None).map(|robot| robot.id.as_str()), Some("cli"));
-  assert_eq!(
-    find_branch_robot(&temporary, "IJPL-1", Some("fixed"), Some("tip")).map(|robot| robot.id.as_str()),
-    Some("cli")
-  );
-  assert_eq!(find_branch_robot(&temporary, "IJPL-1", Some("fixed"), None), None);
-}
-
-#[test]
 fn a_push_into_the_branch_of_a_running_safe_push_is_risky_a_dry_run_or_another_branch_is_not() {
   let running = robot("r", Some("IJPL-1"), PatronusRobotStatus::Running, 1);
   assert!(is_push_into_robot_risky(&running, &branch("IJPL-1")));
@@ -79,23 +31,6 @@ fn a_push_into_the_branch_of_a_running_safe_push_is_risky_a_dry_run_or_another_b
   assert!(is_push_into_robot_risky(&whole, &whole_stack("IJPL-1")));
   assert!(!is_push_into_robot_risky(&whole, &branch("IJPL-1")));
   assert!(!is_push_into_robot_risky(&running, &whole_stack("IJPL-1")));
-}
-
-/// The robot of the whole stack starts from the stack branch: it is the stack's, never a branch's, even at a tip a
-/// branch has; a temporary ref at the tip of the stack branch is the stack's
-#[test]
-fn the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch() {
-  let robots = vec![
-    robot("auth", Some("auth"), PatronusRobotStatus::Failure, 1),
-    stack_robot("stack", "auth", PatronusRobotStatus::Running, "tip"),
-    stack_robot("other", "docs", PatronusRobotStatus::Running, "tip"),
-  ];
-  assert_eq!(find_branch_robot(&robots, "auth", Some("tip"), None).map(|robot| robot.id.as_str()), Some("auth"));
-  assert_eq!(find_branch_robot(&robots[1..], "login", Some("tip"), Some("tip")), None);
-  assert_eq!(find_stack_robot(&robots, "auth", Some("stack-tip"), None).map(|robot| robot.id.as_str()), Some("stack"));
-  assert_eq!(find_stack_robot(&robots[..1], "auth", Some("tip"), None), None, "a branch's robot is not the stack's");
-  let temporary = vec![robot("cli", None, PatronusRobotStatus::Running, 5)];
-  assert_eq!(find_stack_robot(&temporary, "auth", Some("fixed"), Some("tip")).map(|robot| robot.id.as_str()), Some("cli"));
 }
 
 #[test]
@@ -124,33 +59,4 @@ fn the_commits_a_robot_lands_are_named_by_their_number_and_ids() {
   assert_eq!(carried_ids(None), "");
   assert_eq!(carried_words("login", Some(&carried)), "4 commits of login");
   assert_eq!(carried_ids(Some(&carried)), " (aaaaaaaa, bbbbbbbb amended since, cccccccc, …)");
-}
-
-/// One case of `src/test-support/robot-match-cases.json`, which the page's `findBranchRobot` passes too
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MatchCase {
-  name: String,
-  robots: Vec<PatronusRobot>,
-  branch: Option<String>,
-  stack: Option<String>,
-  local_tip: Option<String>,
-  remote_tip: Option<String>,
-  expected: Option<String>,
-}
-
-/// The robots match their branches and whole stacks as the page matches them: the cases both run
-#[test]
-fn the_robots_match_their_branches_as_the_page_matches_them() {
-  let cases: Vec<MatchCase> = serde_json::from_str(include_str!("../../../src/test-support/robot-match-cases.json")).unwrap();
-  assert!(cases.len() >= 10);
-  for case in cases {
-    let (local, remote) = (case.local_tip.as_deref(), case.remote_tip.as_deref());
-    let found = match (&case.branch, &case.stack) {
-      (Some(branch), _) => find_branch_robot(&case.robots, branch, local, remote),
-      (None, Some(root)) => find_stack_robot(&case.robots, root, local, remote),
-      (None, None) => panic!("{}: no branch and no stack", case.name),
-    };
-    assert_eq!(found.map(|robot| robot.id.clone()), case.expected, "{}", case.name);
-  }
 }

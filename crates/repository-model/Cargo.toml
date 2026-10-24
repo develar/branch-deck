@@ -12,6 +12,7 @@ sync-core = { path = "../sync-core" }
 trial-check = { path = "../trial-check" }
 history-rewrite = { path = "../history-rewrite" }
 domain-types = { path = "../domain-types" }
+domain-policy = { path = "../domain-policy" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }

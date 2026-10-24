@@ -30,7 +30,7 @@ pub struct RemoteFacts {
 }
 
 /// Which robot belongs to each branch and to each whole stack (by root), as the asker matched them
-/// (`find_branch_robot`, `findBranchRobot`): by robot id
+/// (`domain_policy::robot_match`, `findBranchRobot`): by robot id
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

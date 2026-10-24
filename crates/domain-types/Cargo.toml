@@ -23,6 +23,8 @@ pretty_assertions.workspace = true
 default = []
 schemars = ["dep:schemars"]
 specta = ["dep:specta", "dep:specta-typescript"]
+# the builders of `fixtures`, for the tests of other crates (their dev-dependencies enable it)
+fixtures = []
 
 [lints]
 workspace = true

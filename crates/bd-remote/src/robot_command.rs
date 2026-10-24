@@ -11,6 +11,7 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::stack_summary::{WholeStack, whole_stack_of};
+use domain_policy::robot_match::RobotIndex;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::Subject;
@@ -22,7 +23,7 @@ use repository_model::branch_table::stack_ancestors;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_core::patronus_start::{find_branch_robot, find_stack_robot, is_robot_active};
+use sync_core::patronus_start::is_robot_active;
 use sync_core::robot_commits::robot_failure_report;
 use sync_core::stack_branch::read_stack_branches;
 use tokio::runtime::Runtime;
@@ -338,12 +339,13 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     id.clone()
   } else {
     let robots = list_robots(context, &service, &space)?;
+    let index = RobotIndex::new(&robots);
     let local_tips: HashMap<&str, &str> = grouping.listed.iter().map(|branch| (branch.name.as_str(), branch.tip.as_str())).collect();
     let robot_of = |branch: &str| {
       let full = to_final_branch_name(&context.prefix, branch).ok()?;
-      find_branch_robot(&robots, branch, local_tips.get(full.as_str()).copied(), grouping.remote_tips.get(&full).map(String::as_str))
+      index.branch_robot(branch, local_tips.get(full.as_str()).copied(), grouping.remote_tips.get(&full).map(String::as_str))
     };
-    let stack_robot = stack.and_then(|stack| find_stack_robot(&robots, &stack.root, stack.tip.as_deref(), grouping.remote_tips.get(&stack.branch_name).map(String::as_str)));
+    let stack_robot = stack.and_then(|stack| index.stack_robot(&stack.root, stack.tip.as_deref(), grouping.remote_tips.get(&stack.branch_name).map(String::as_str)));
     let found = match &whole {
       Some(WholeStack::Forking(_)) => stack_robot.map(|robot| (None, robot)),
       Some(WholeStack::Chain { leaf, .. }) => robot_of(leaf).map(|robot| ((leaf != name).then_some(leaf.as_str()), robot)),

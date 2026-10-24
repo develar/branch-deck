@@ -1,0 +1,20 @@
+[package]
+name = "domain-policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# The pure rules of the domain, one file per rule, over explicit slices of facts (docs/design/rust-domain-authority.md,
+# "Индекс правил"): no IO, no runtime, no git, only the types of `domain-types`. `cases/` holds the scenario table both
+# sides answer (`cases/README.md`)
+[dependencies]
+domain-types = { path = "../domain-types" }
+
+[dev-dependencies]
+domain-types = { path = "../domain-types", features = ["fixtures"] }
+pretty_assertions.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

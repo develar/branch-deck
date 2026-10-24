@@ -21,6 +21,7 @@ targets:
   - ../../crates/bd-remote/src/robot_command.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/sync-core/src/patronus_start.rs
+  - ../../crates/domain-policy/src/robot_match.rs
   - ../../crates/remote-facts/src/pull_requests.rs
   - ../../crates/remote-facts/src/pull_request_create.rs
   - ../../crates/remote-facts/src/review_readiness.rs
@@ -183,10 +184,11 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
 - A robot started on a stack branch must name the root of its stack (`PatronusRobot::stack_root`) and no branch, and
-  must belong to no branch, not even by its revision, in `bd` (`find_branch_robot`) as in the app
-  (`findBranchRobot`); `find_stack_robot` finds the robot of the whole stack.
+  must belong to no branch, not even by its revision, in `bd` and the repository view (`RobotIndex::branch_robot` of
+  `domain_policy::robot_match`) as in the app (`findBranchRobot`); `RobotIndex::stack_robot` finds the robot of the
+  whole stack.
   [@test] ../../crates/patronus/src/service_test.rs (`a_robot_of_the_stack_branch_names_the_root_of_its_stack_and_no_branch`)
-  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`)
+  [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
   [@test] ../../src/lib/patronus.test.ts (`never takes the robot of the whole stack, which runs on its stack branch, for a branch's`)
 - The pull request of a stack branch must be the stack's, by its root (`PullRequestsResult::stack_pull_requests`),
@@ -400,7 +402,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/sync-core/src/stack_sync_test.rs`, `stack_branch_test.rs`, `process_budget_test.rs`,
-  `patronus_start_test.rs`; `crates/remote-facts/src/stack_pull_request_test.rs`, `process_budget_test.rs`;
+  `patronus_start_test.rs`; `crates/domain-policy/src/robot_match_test.rs`;
+  `crates/remote-facts/src/stack_pull_request_test.rs`, `process_budget_test.rs`;
   `crates/bd-remote/src/status_test.rs`, `safe_push_test.rs`,
   `push_test.rs`, `robot_test.rs`.
 - `pnpm test:unit`: `src/stores/branch-sync.test.ts`, `src/lib/patronus.test.ts`, `src/lib/whole-stack.test.ts`,

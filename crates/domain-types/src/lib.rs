@@ -15,6 +15,7 @@
 //! - `cli_tools`: the `teamcity` and `youtrack` CLIs of Settings → Tools
 //! - `commit`: a commit of the branch as `git-ops` reads it (`Commit`, its mapping note), and as the page names it
 //! - `conflict`: the merge conflict of a sync, its analysis, and the conflicts a copy resolved by words
+//! - `fixtures` (the feature of the same name, for the tests of other crates): builders of robots
 //! - `error`: the stable error codes of `bd` and the app (`ErrorCode`), their exit codes and retries, the error a command
 //!   of the app answers (`ApiError`)
 //! - `issue_navigation`: the issue links of the IntelliJ IDEA configuration
@@ -53,6 +54,8 @@ pub mod cli_tools;
 pub mod commit;
 pub mod conflict;
 pub mod error;
+#[cfg(feature = "fixtures")]
+pub mod fixtures;
 pub mod issue_navigation;
 pub mod landed;
 pub mod landing;

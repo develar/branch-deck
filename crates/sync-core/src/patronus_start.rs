@@ -1,7 +1,9 @@
-//! Which robot belongs to a virtual branch, or to the whole stack of a root (its stack branch `{prefix}/stack/<root>`),
-//! as the app matches them (`src/lib/patronus.ts`), the words of a mode and of what a robot lands. Pure functions over
-//! the robots of the user; what they land, landed and hold is the repository view (`repository_model::patronus_view`).
+//! What a robot of the user does to a push and a start: whether it still runs and pushes, the push that fails it, the
+//! modes a profile allows, the words of a mode and of what a robot lands. Pure functions over the robots of the user;
+//! which robot belongs to a branch is `domain_policy::robot_match`, what they land, landed and hold is the repository
+//! view (`repository_model::patronus_view`).
 
+use domain_policy::robot_match::is_started_on;
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::Carried;
@@ -14,49 +16,6 @@ pub const fn is_robot_active(robot: &PatronusRobot) -> bool {
 /// Not a dry run: a success pushes the changes into the target branch
 pub fn is_pushing_robot(robot: &PatronusRobot) -> bool {
   robot.push_mode != PatronusPushMode::DryRun
-}
-
-/// The robot was started on the branch of `subject`: the virtual branch `{prefix}/virtual/<name>` of a branch, the stack
-/// branch `{prefix}/stack/<root>` of the whole stack of a root (every branch of the stack in one robot)
-fn is_started_on(robot: &PatronusRobot, subject: &Subject) -> bool {
-  match subject {
-    Subject::Branch { name } => robot.branch_name.as_deref() == Some(name),
-    Subject::WholeStack { root } => robot.stack_root.as_deref() == Some(root),
-  }
-}
-
-/// The robot of a virtual branch: one started on the branch, or a Safe Push of a temporary ref (the IDE, the CLI) on
-/// the local or the pushed tip of the branch. A robot of the whole stack (`stack_root`) is no branch's, whatever its
-/// revision. A running robot wins over a canceling one (a restart replaces it) over a finished one, then the newest,
-/// then the first of the list. The page matches them the same way (`findBranchRobot`): both pass the cases of
-/// `src/test-support/robot-match-cases.json`, read by `patronus_start_test.rs` and `src/lib/patronus.test.ts`.
-pub fn find_branch_robot<'a>(robots: &'a [PatronusRobot], branch_name: &str, local_tip: Option<&str>, remote_tip: Option<&str>) -> Option<&'a PatronusRobot> {
-  find_robot(robots, &Subject::Branch { name: branch_name.to_string() }, local_tip, remote_tip)
-}
-
-/// The robot of the whole stack of `root`: one started on its stack branch, or a Safe Push of a temporary ref on the
-/// local or the pushed tip of the stack branch; the same preference as `find_branch_robot`
-pub fn find_stack_robot<'a>(robots: &'a [PatronusRobot], root: &str, local_tip: Option<&str>, remote_tip: Option<&str>) -> Option<&'a PatronusRobot> {
-  find_robot(robots, &Subject::WholeStack { root: root.to_string() }, local_tip, remote_tip)
-}
-
-fn find_robot<'a>(robots: &'a [PatronusRobot], subject: &Subject, local_tip: Option<&str>, remote_tip: Option<&str>) -> Option<&'a PatronusRobot> {
-  let on_source = |robot: &PatronusRobot| match (&robot.branch_name, &robot.stack_root, &robot.source_revision) {
-    (Some(_), _, _) | (_, Some(_), _) => is_started_on(robot, subject),
-    (None, None, Some(revision)) => Some(revision.as_str()) == local_tip || Some(revision.as_str()) == remote_tip,
-    (None, None, None) => false,
-  };
-  // of equals the first of the list, as the page's index keeps it (`max_by_key` keeps the last, so the list reversed)
-  robots.iter().filter(|robot| on_source(robot)).rev().max_by_key(|robot| (activity(robot), robot.start_time))
-}
-
-/// Running, then canceling (it goes away; its restart runs), then finished
-const fn activity(robot: &PatronusRobot) -> u8 {
-  match robot.status {
-    PatronusRobotStatus::Running => 2,
-    PatronusRobotStatus::Canceling => 1,
-    _ => 0,
-  }
 }
 
 /// A push into the source branch makes its running Safe Push fail at the end ("branch was modified"); a dry run is not

@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 history-rewrite = { path = "../history-rewrite" }
 domain-types = { path = "../domain-types" }
+domain-policy = { path = "../domain-policy" }
 sync-utils = { path = "../sync-utils" }
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
@@ -30,6 +31,7 @@ default = []
 specta = ["dep:specta", "history-rewrite/specta", "domain-types/specta", "branch-integration/specta", "git-ops/specta"]
 
 [dev-dependencies]
+domain-types = { path = "../domain-types", features = ["fixtures"] }
 history-rewrite = { path = "../history-rewrite", features = ["test-commit"] }
 test-utils = { path = "../test-utils" }
 tempfile.workspace = true

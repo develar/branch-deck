@@ -19,6 +19,7 @@ sync-core = { path = "../sync-core" }
 remote-facts = { path = "../remote-facts" }
 trial-check = { path = "../trial-check" }
 domain-types = { path = "../domain-types" }
+domain-policy = { path = "../domain-policy" }
 sync-utils = { path = "../sync-utils" }
 youtrack = { path = "../youtrack" }
 clap = { version = "4.6", features = ["derive"] }

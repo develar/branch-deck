@@ -102,7 +102,7 @@ function preferredOnTips(index: RobotIndex, own: RankedRobot | undefined, tips: 
 
 /**
  * The robot of the whole stack of `root`: one started on its stack branch (`stackRoot`), or a Safe Push of a temporary
- * ref on the local or the pushed tip of the stack branch (`find_stack_robot` of `bd`); the same preference as
+ * ref on the local or the pushed tip of the stack branch (`RobotIndex::stack_robot` of `domain_policy::robot_match`); the same preference as
  * `findBranchRobot`
  */
 export function findStackRobot(

@@ -3903,7 +3903,7 @@ export type RobotLandedBranch = {
 
 /**
  *  Which robot belongs to each branch and to each whole stack (by root), as the asker matched them
- *  (`find_branch_robot`, `findBranchRobot`): by robot id
+ *  (`domain_policy::robot_match`, `findBranchRobot`): by robot id
  */
 export type RobotMatch = {
 	branches: { [key in string]: string },
