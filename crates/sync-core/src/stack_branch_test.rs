@@ -179,7 +179,10 @@ fn a_conflicting_build_names_the_commit_and_keeps_the_ref() {
     remote_statuses: None,
     failed: &HashMap::new(),
   };
-  let updates = finish_stack_branches(&finish, &sync, vec![Some(BuildResult::Built(build))]);
+  let finished = finish_stack_branches(&finish, &sync, vec![Some(BuildResult::Built(build))]);
+  let updates = finished.updates;
+
+  assert!(!finished.moved_elsewhere, "a conflict is no move of another process");
 
   assert_eq!(updates.len(), 1);
   assert_eq!(updates[0].state, StackBranchState::Conflict);
@@ -223,7 +226,10 @@ fn another_process_moving_the_stack_branch_keeps_its_tip_stale() {
     failed: &HashMap::new(),
   };
 
-  let updates = finish_stack_branches(&finish, &sync, vec![Some(BuildResult::Built(StackBuild::Built { tip: built }))]);
+  let finished = finish_stack_branches(&finish, &sync, vec![Some(BuildResult::Built(StackBuild::Built { tip: built }))]);
+  let updates = finished.updates;
+
+  assert!(finished.moved_elsewhere, "the sync asks for one more run (`SyncReport::retry`)");
 
   assert_eq!((updates[0].state, updates[0].tip.as_deref()), (StackBranchState::Stale, Some(moved.as_str())));
   let error = updates[0].error.clone().unwrap();

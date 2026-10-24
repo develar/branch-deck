@@ -1614,8 +1614,13 @@ rewrites между процессами через файл `s10`; `s12` ждё
 - **Уточнения планировщика (2026-10-24, по коду master `38ed2dd2`):**
   - Имя снимка: пока `get_repository_view` жив (его удаляет s7), снимок сессии и его части живут в
     `domain_types::session` под именем `TableView { version, sync, header, order, branches, stacks, sections }` с
-    `BranchView { head, commits, sync, remote }`; s7 добавляет `landing` и `facts_summary` и переименовывает тип в
+    `BranchView { head, commits, sync, copies, remote }`; s7 добавляет `landing` и `facts_summary` и переименовывает тип в
     `RepositoryView`, когда старый `RepositoryView` (`repository_view.rs`) исчезает вместе с командой.
+  - Части (s6-1, по замеру на `branch_table_large`): копии коммитов (`copies`: hash, статус, ошибка, resolved) — своя
+    часть, иначе каждое `BranchStatusUpdate` пересылало бы их снова, и патчи первого sync были бы больше его событий;
+    `commitCount` выводит страница из `commits`; `BaselineStatus` лежит в `sections.landed` вместе с landing и landed
+    (одно событие); `SyncStep` — `Grouping | Building | Detection`: detection и update check идут рядом со сборкой, и
+    ни одно событие не говорит, что осталось; `Version` — два `u32` (число в TypeScript, `u64` specta не экспортирует).
   - `SyncReport.retry` в коде нет: s6 вводит его в `sync-core`, выводя из `BranchMove::MovedElsewhere`
     (`branch_processor.rs:435`, `stack_branch.rs:555`); событие `BranchStatusUpdate { Error }` для `bd` не меняется.
   - `Clock` в коде нет: s6 вводит минимальный `sync_utils::clock::{Clock, SystemClock, TestClock}` для жизни сессии

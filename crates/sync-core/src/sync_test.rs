@@ -109,7 +109,6 @@ fn test_sync_branches_with_conflicting_commits() {
   // Test that we can get the commit list ahead of baseline
   let git_executor = GitCommandExecutor::new();
   let commits_vec = get_commit_list(&git_executor, test_repo.path().to_str().unwrap(), "origin/baseline").unwrap();
-  assert!(!commits_vec.is_empty());
   assert_eq!(commits_vec.len(), 5); // 3 bugfix + 2 feature commits
 
   // Test that grouping works correctly with conflict-prone commits

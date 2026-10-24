@@ -464,12 +464,22 @@ pub(crate) struct StackFinish<'a> {
   pub failed: &'a HashMap<String, BlockReason>,
 }
 
+/// What the finish of the stack branches reported
+pub(crate) struct FinishedStacks {
+  /// The update of each reported stack branch, in the order of `StackBranchSync::reported_roots`
+  pub updates: Vec<StackBranchUpdate>,
+  /// Another process moved (or deleted) a stack branch while the sync built it: its tip is not this sync's build, a
+  /// sync again rebuilds it (`SyncReport::retry`)
+  pub moved_elsewhere: bool,
+}
+
 /// Moves each planned stack branch whose members all built to its build, with compare-and-swap on the listed tip,
-/// deletes the obsolete ones in one transaction, and returns the update of each reported stack branch, in the order of
-/// `StackBranchSync::reported_roots`. `results` are the builds of `build_planned`, in the order of the plans
-pub(crate) fn finish_stack_branches(finish: &StackFinish<'_>, sync: &StackBranchSync, results: Vec<Option<BuildResult>>) -> Vec<StackBranchUpdate> {
+/// deletes the obsolete ones in one transaction, and returns the update of each reported stack branch. `results` are
+/// the builds of `build_planned`, in the order of the plans
+pub(crate) fn finish_stack_branches(finish: &StackFinish<'_>, sync: &StackBranchSync, results: Vec<Option<BuildResult>>) -> FinishedStacks {
   let StackBranchSync { plans, tips, kept, obsolete } = sync;
   let mut updates = Vec::with_capacity(plans.len() + kept.len());
+  let mut moved_elsewhere = false;
   for (plan, result) in plans.iter().zip(results) {
     let old_tip = tips.get(&plan.full_name).cloned();
     let mut update = stale_update(plan, old_tip.clone());
@@ -489,6 +499,8 @@ pub(crate) fn finish_stack_branches(finish: &StackFinish<'_>, sync: &StackBranch
         (Some(block), _) => blocked(&mut update, block),
         (None, Some(BuildResult::Remembered(StackBuild::Built { tip }) | BuildResult::Built(StackBuild::Built { tip }))) => {
           let (state, tip, error) = move_stack_branch(finish, &plan.full_name, tip, old_tip.as_deref());
+          moved_elsewhere |= matches!(error, Some(StackMoveError::MovedElsewhere(_)));
+          let error = error.map(StackMoveError::into_message);
           update.state = state;
           update.tip = tip;
           update.error = error;
@@ -507,7 +519,23 @@ pub(crate) fn finish_stack_branches(finish: &StackFinish<'_>, sync: &StackBranch
     updates.push(update);
   }
   delete_obsolete(finish.git_executor, finish.repository_path, obsolete);
-  updates
+  FinishedStacks { updates, moved_elsewhere }
+}
+
+/// Why a stack branch was not moved to its build
+enum StackMoveError {
+  /// Another process moved or deleted it since the sync listed it
+  MovedElsewhere(String),
+  /// The move failed otherwise
+  Failed(String),
+}
+
+impl StackMoveError {
+  fn into_message(self) -> String {
+    match self {
+      Self::MovedElsewhere(message) | Self::Failed(message) => message,
+    }
+  }
 }
 
 /// The update of a planned stack branch at `tip`, stale until its state is known
@@ -543,7 +571,7 @@ fn kept_update(root: &str, full_name: &str, why: &str, tips: &HashMap<String, St
 }
 
 /// Moves the stack branch to `tip` unless it is there: `(state, tip after, why it is stale)`
-fn move_stack_branch(finish: &StackFinish<'_>, full_name: &str, tip: String, old_tip: Option<&str>) -> (StackBranchState, Option<String>, Option<String>) {
+fn move_stack_branch(finish: &StackFinish<'_>, full_name: &str, tip: String, old_tip: Option<&str>) -> (StackBranchState, Option<String>, Option<StackMoveError>) {
   if old_tip == Some(tip.as_str()) {
     return (StackBranchState::Built, Some(tip), None);
   }
@@ -558,11 +586,15 @@ fn move_stack_branch(finish: &StackFinish<'_>, full_name: &str, tip: String, old
         Some(moved) => format!("Not updated: another process moved {full_name} to {} while this sync built it; sync again", short_id(moved)),
         None => format!("Not updated: another process deleted {full_name} while this sync built it; sync again"),
       };
-      (StackBranchState::Stale, moved, Some(error))
+      (StackBranchState::Stale, moved, Some(StackMoveError::MovedElsewhere(error)))
     }
     Err(e) => {
       warn!(stack = %full_name, error = %format!("{e:#}"), "cannot move the stack branch");
-      (StackBranchState::Stale, old_tip.map(str::to_string), Some(format!("Not updated: {e:#}")))
+      (
+        StackBranchState::Stale,
+        old_tip.map(str::to_string),
+        Some(StackMoveError::Failed(format!("Not updated: {e:#}"))),
+      )
     }
   }
 }

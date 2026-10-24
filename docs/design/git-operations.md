@@ -3159,6 +3159,26 @@ the robots, their matches and the remote facts the page sends: a push moves a re
 sync, the page knows it, the table doesn't, so the page's view reads the page's facts; `bd` reads the table's
 (`PatronusFacts::read`). The E2E server keeps it the same way from its own sync.
 
+The table state of a session (`table.rs`, `state.rs`, `patch.rs`; the types in `domain_types::session`) is the table as
+the events of its syncs leave it, cut into parts that change for different reasons: of each branch its head and its
+commits (with a grouping), its sync state (status, progress, error), the copies of its commits (with each commit the
+sync reports) and its remote status; the stack branches by root; the unassigned, archived, unapplied and landed
+sections. `TableState::apply` folds each `SyncEvent` in the order the sync sends it, by the rules of the page's applier:
+a branch grouped as before, with the same commits, which the last sync built without an error, a conflict or a block,
+keeps what its row shows until the sync reports it again (a quiet resync; its progress counts only while `Syncing`);
+any other grouped branch starts `Syncing` with the remote status it had; the archived names reconcile the integration
+infos and the "new" marks; a failed sync (`finish_sync`) brings back the table of the sync before, with the error.
+`View::diff` compares the state with the view sent last, part by part (`PartialEq`), and answers a `ViewPatch { base,
+next, changes }` of the parts that differ, so a window keeps the identity of every other part; `View::snapshot` is the
+view at the last patch. `Version { epoch, seq }`: the epoch is random per session, the sequence grows by one per patch,
+and a patch applies only to the view at its base in its epoch (`apply_patch`, the contract the page keeps; a lost patch
+costs a snapshot). On the 141 branches of `branch_table_large` the patches of a first sync, merged as in 16 ms, and its
+snapshot cost less than its `SyncEvent`s, and a sync that changes nothing costs at most 1 KiB (`state_test.rs`, B2 and
+B15 of [Rust as the Domain Authority](rust-domain-authority.md#бюджеты-производительности)). `SyncReport::retry` says
+that another process moved a virtual branch or a stack branch while the sync built it (`BranchMove::MovedElsewhere`):
+the branch reports an error, and the session syncs once more. The session that runs the state is the next step of
+`s6-session-table`; until it lands the page applies the `SyncEvent`s itself (`branch-sync.ts`).
+
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table
 are the robots, the robot of each branch and whole stack (`match_robots`, which the page does itself) and what the asker

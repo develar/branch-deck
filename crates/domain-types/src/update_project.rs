@@ -71,7 +71,7 @@ pub enum UpdateState {
 }
 
 /// The result of checking the branch against its upstream
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCheck {

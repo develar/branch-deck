@@ -12,6 +12,8 @@
 //!   (`RemoteActions`: the Patronus service with the Space repository, git, the tables); the flows are its methods
 //! - `branch_table`: the branch table a sync left: the branches in the order of the table, their tips and copies, the
 //!   stack branches, the parked branches, the remote facts of the sync (`remote_facts`), `stack_ancestors`
+//! - `patch`: the patches of a view by part, and the contract of applying one (`apply_patch`): only to the view at its
+//!   base, in the same epoch
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
 //!   (`sync_core::robot_landing`), once per state (`ContentMemo`)
 //! - `push_guard`: the checks of the app's push under the repository lock, by the rules of `bd push`: parked, landed
@@ -20,13 +22,20 @@
 //!   landed whole, not built, a robot on its last commit or one that lands a part of it; the words of the robot refusals
 //!   for both sides, and the whole sequence of the action (`start_robot`, `restart_robot`, `cancel_robot`) and of the
 //!   landing check of the popover (`check_landing`)
+//! - `state`: what a session sent its windows of the table (`View`): the patch of the parts that changed since
+//!   (`diff`), the snapshot at the version of the last patch
+//! - `table`: the branch table of a session as the events of its syncs leave it (`TableState::apply`), in the parts of
+//!   `domain_types::session`
 //! - `views`: what the app keeps to answer `get_repository_view`: the table of the last sync and the memo, by repository
 
 pub mod actions;
 pub mod branch_table;
+pub mod patch;
 pub mod patronus_view;
 pub mod push_guard;
 pub mod start_guard;
+pub mod state;
+pub mod table;
 pub mod views;
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ pub struct CommitInfo {
 }
 
 /// Struct to hold commit data returned by git CLI
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct Commit {

@@ -29,7 +29,7 @@ impl Ord for IntegrationConfidence {
 impl Eq for IntegrationConfidence {}
 
 /// Unified branch integration status
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum BranchIntegrationStatus {
@@ -54,7 +54,7 @@ pub enum BranchIntegrationStatus {
 }
 
 /// Unified branch integration info
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchIntegrationInfo {

@@ -14,7 +14,7 @@ use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
 use crate::remote_status::RemoteStatusMemo;
 use crate::repo_facts::{RepoFacts, read_repo_facts};
-use crate::stack_branch::{BuildResult, StackBranchSync, StackBuilds, StackFinish, build_planned, finish_stack_branches, plan_stack_branches};
+use crate::stack_branch::{BuildResult, FinishedStacks, StackBranchSync, StackBuilds, StackFinish, build_planned, finish_stack_branches, plan_stack_branches};
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::common::ListedBranch;
@@ -271,6 +271,11 @@ pub struct SyncReport {
   /// The stack branches as the `StackBranchUpdate` events sent them: of each stack that forks, then those kept for
   /// their remote branch
   pub stack_branches: Vec<StackBranchUpdate>,
+  /// Another process moved (or deleted) a virtual branch or a stack branch while this sync built it
+  /// (`BranchMove::MovedElsewhere`): the branch reports an error and its tip is not this sync's build, so the app syncs
+  /// once more, quietly, and the row says `Syncing` until then. `bd sync` reports the error and leaves the retry to
+  /// the caller
+  pub retry: bool,
 }
 
 /// Result of the sequential first phase of a sync
@@ -511,6 +516,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     remote_tips: facts.remote_tips.clone(),
     config,
     stack_branches: Vec::new(),
+    retry: false,
   };
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped,
@@ -1096,6 +1102,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     let (processed, stack_results) = tokio::join!(branch_processing, stack_building);
     let processed = processed?;
     let mut not_built = processed.failed.clone();
+    let branch_moved_elsewhere = !processed.moved_elsewhere.is_empty();
     not_built.extend(processed.moved_elsewhere.into_iter().map(|name| (name, BlockReason::Error)));
     // the stack branches once their members are built: the refs, the deletes and the events; then the unapplied
     // branches with their remote statuses
@@ -1108,7 +1115,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
           remote_statuses: remote_statuses.as_deref(),
           failed: &failed,
         };
-        let updates = finish_stack_branches(&finish, &stack_branches, stack_results);
+        let FinishedStacks { updates, moved_elsewhere } = finish_stack_branches(&finish, &stack_branches, stack_results);
         for update in &updates {
           let _ = progress.send(SyncEvent::StackBranchUpdate(Box::new(update.clone())));
         }
@@ -1118,17 +1125,18 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         // their writes to the object cache, here on the blocking pool
         drop(remote_statuses);
         drop(stack_builds);
-        updates
+        (updates, moved_elsewhere)
       })
       .await
       .map_err(|e| anyhow!("Stack branch task failed: {e}"))?;
-    anyhow::Ok((processed.tips, not_built, stack_updates))
+    anyhow::Ok((processed.tips, not_built, stack_updates, branch_moved_elsewhere))
   };
 
   // join (not try_join) so a failure on one side doesn't orphan the other
   let (processing_result, detection_result, update_check_result) = tokio::join!(processing, detection, update_check);
-  let (tips, not_built, stack_updates) = processing_result?;
+  let (tips, not_built, (stack_updates, stack_moved_elsewhere), branch_moved_elsewhere) = processing_result?;
   report.not_built = not_built;
+  report.retry = branch_moved_elsewhere || stack_moved_elsewhere;
   for (full_name, tip) in tips {
     match tip {
       Some(tip) => report.tips.insert(full_name, tip),

@@ -33,7 +33,7 @@ pub struct ResolvedFileSummary {
 }
 
 /// A conflicting file of a cherry-pick, as a conflict is reported: what the view lists before it reads the contents
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ConflictFile {
@@ -46,7 +46,7 @@ pub struct ConflictFile {
 /// A merge conflict of a cherry-pick, as a sync reports it: the commits, the conflicting files with their conflict
 /// counts and the conflict analysis, without file contents and diffs, which the views read from `file_diffs`
 /// (`get_file_merges`, `get_file_diffs`): a conflict in big files is megabytes, and the sync reports it at every run
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct MergeConflictInfo {
@@ -81,7 +81,7 @@ impl MergeConflictInfo {
 }
 
 /// A commit involved in a merge conflict: the applied commit, its original parent, the target, or one referenced in conflict markers
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ConflictCommit {
@@ -106,7 +106,7 @@ impl From<&Commit> for ConflictCommit {
 
 /// Represents a commit that exists in the source branch but is missing from the target branch.
 /// These commits might be causing merge conflicts. The view reads their diffs with `get_file_diffs`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct MissingCommit {
@@ -123,7 +123,7 @@ pub struct MissingCommit {
 }
 
 /// Analysis results for a merge conflict, including missing commits and divergence information.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ConflictAnalysis {
@@ -137,7 +137,7 @@ pub struct ConflictAnalysis {
 }
 
 /// Summary of how two branches have diverged from their common ancestor.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct DivergenceSummary {

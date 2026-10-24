@@ -27,6 +27,8 @@
 //! - `robot_failure`: why a robot failed and the commits it checked
 //! - `robot_landing`: what a merged robot landed and what a running one lands
 //! - `robot_stats`: the Safe Push statistics, the robots they keep and the command of the app
+//! - `session`: what the session of a repository sends a window: the snapshot of the branch table, its parts and its
+//!   versions, and the patches that follow it
 //! - `settings`: the settings of the app that Rust reads (`AppSettings`), the branch prefix of git and the resolved one
 //!   with its source
 //! - `setup`: what in the setup of the machine waits for the user (the Setup dot)
@@ -61,6 +63,7 @@ pub mod review_request;
 pub mod robot_failure;
 pub mod robot_landing;
 pub mod robot_stats;
+pub mod session;
 pub mod settings;
 pub mod setup;
 pub mod stack;
@@ -95,7 +98,7 @@ pub enum CommitSyncStatus {
 }
 
 /// Branch operation errors.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum BranchError {
   Generic(String),
