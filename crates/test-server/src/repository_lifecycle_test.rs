@@ -131,8 +131,10 @@ async fn deleting_a_repository_waits_for_its_landing_needs_and_forgets_its_views
 /// before the directory goes: the lock deletes its holder record, which is still there, and logs nothing
 #[tokio::test]
 async fn deleting_a_repository_releases_the_lock_its_test_held_before_the_directory_goes() {
-  let logged = capture_warnings();
+  // what is logged once the server started: its start warns of a `dist` without index.html, which CI builds only after
+  // the Rust tests
   let addr = start_test_server().await;
+  let logged = capture_warnings();
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
   post(&client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": true })).await;
