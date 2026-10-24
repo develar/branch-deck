@@ -44,8 +44,6 @@ pub struct Environment {
   pub lock_timeout: Duration,
   /// How long `bd lease return` waits for the Bazel servers of a slot to exit
   pub server_stop_timeout: Duration,
-  /// How long `bd lease return` waits for git's background maintenance to leave a slot
-  pub maintenance_timeout: Duration,
   /// The home directory `bd install` writes into
   pub home: Option<PathBuf>,
   /// The running binary, which `bd install` links to
@@ -80,7 +78,6 @@ impl Environment {
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
       server_stop_timeout: Duration::from_secs(30),
-      maintenance_timeout: Duration::from_mins(1),
       home: std::env::home_dir(),
       executable: std::env::current_exe().ok(),
       appimage: std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()).map(PathBuf::from),

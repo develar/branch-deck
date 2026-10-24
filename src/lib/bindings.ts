@@ -1560,8 +1560,8 @@ export type ErrorCode =
 /**  `bd lease adopt`: the pool holds the worktree already */
 "slot_in_pool" | 
 /**
- *  `bd lease return` and `adopt`: a process other than bd and its ancestors has its working directory in the worktree;
- *  the message names it. Nothing was changed
+ *  `bd lease return` and `adopt`: a process other than bd and its session has its working directory in the worktree;
+ *  `processes` names each with its argv and kind. Nothing was changed
  */
 "slot_busy" | 
 /**
@@ -1578,6 +1578,8 @@ export type ErrorCode =
 "branch_exists" | 
 /**  `bd lease adopt --move`: the worktree is on another volume than the pool directory; a move would copy every file */
 "other_volume" | 
+/**  `bd lease get`: the volume of the pool has less free space than `branchdeck.leaseMinFree` or `--min-free` asks */
+"low_disk_space" | 
 /**  No usable git executable */
 "git_not_found" | 
 /**  A git command failed */

@@ -176,7 +176,7 @@ fn clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing() {
   for slot in &slots {
     file(Path::new(slot), "tests/results/trace.zip", 4096);
   }
-  let mut busy = std::process::Command::new("sleep").arg("30").current_dir(&slots[1]).spawn().unwrap();
+  let mut busy = crate::lease_test::busy_in(&slots[1]);
 
   let (exit_code, dry_run) = fixture.run(&["lease", "clean", "--free", "--dry-run", &slots[2]]);
   assert_eq!((exit_code, &dry_run["dry_run"]), (0, &json!(true)), "{dry_run}");
@@ -243,4 +243,61 @@ fn a_slot_that_clean_cleans_is_reserved_against_a_get() {
   let mut expected = vec![(slot_path(&slot), "free".to_string()), (slot_path(&other), "ready".to_string())];
   expected.sort();
   assert_eq!(actual, expected);
+}
+
+/// A new slot cloned from the source leaves out what the `delete` rules of the source delete, but for their `except`
+/// entries, a link among them as the link: a slot starts as a returned one. A tracked file under a skipped path comes
+/// back with the checkout of the clone
+#[cfg(target_os = "macos")]
+#[test_log::test]
+fn a_cloned_slot_leaves_out_what_the_delete_rules_delete() {
+  let fixture = Fixture::new();
+  let rules = "[lease]\nclean = [\n  { delete = \"out/dev-run\", except = [\"jar-cache\"] },\n  { delete = \"out/deploy\" },\n  { delete = \"out/bazel-bin\" },\n  { delete = \"docs\" },\n]\n";
+  fixture.repo.create_commit_with_files(
+    "Add the clean rules",
+    &[(".gitignore", "/out/\n"), (".branchdeck.toml", rules), ("docs/guide.md", "tracked\n")],
+  );
+  let root = fixture.repo.path();
+  for path in [
+    "out/dev-run/jar-cache/j",
+    "out/dev-run/idea/lib.jar",
+    "out/deploy/installer.dmg",
+    "out/notes/handoff.md",
+    "docs/generated.html",
+  ] {
+    file(root, path, 4096);
+  }
+  std::os::unix::fs::symlink(root.join("out/deploy"), root.join("out/bazel-bin")).unwrap();
+  let got = fixture.get(&[]);
+  assert_eq!(got["created_by"], json!("clone"), "{got}");
+  let slot = Path::new(got["path"].as_str().unwrap());
+  for kept in ["out/dev-run/jar-cache/j", "out/notes/handoff.md", "docs/guide.md"] {
+    assert!(slot.join(kept).exists(), "{kept}");
+  }
+  for left_out in ["out/dev-run/idea", "out/deploy", "out/bazel-bin", "docs/generated.html"] {
+    assert!(slot.join(left_out).symlink_metadata().is_err(), "{left_out}");
+  }
+  assert_eq!(crate::lease_test::slot_git(got["path"].as_str().unwrap(), &["status", "--porcelain"]), "");
+}
+
+/// A return moves what a `delete` removes into the trash of the repository and deletes it after it freed the slot,
+/// counting its bytes, and deletes what a return that died before its delete left there; nothing stays in the trash
+#[cfg(unix)]
+#[test_log::test]
+fn a_return_deletes_through_the_trash_and_what_a_gone_run_left_there() {
+  let fixture = Fixture::new();
+  commit_rules(&fixture, RULES);
+  let path = path_of(&fixture.get(&[]));
+  file(Path::new(&path), "tests/results/trace.zip", 16384);
+  // the trash of a return whose process is gone: no process has the pid 0 with the start time 1
+  let trash = fixture.repo.path().join(".git/branch-deck/trash");
+  file(&trash, "0-1-gone/0/trace.zip", 8192);
+  assert!(fixture.status()["trash_bytes"].as_u64().unwrap() > 0);
+  let returned = fixture.give_back(&path);
+  let cleaned = returned["cleaned"].as_array().unwrap();
+  let results = cleaned.iter().find(|rule| rule["rule"] == json!("delete tests/results")).unwrap();
+  assert!(results["freed_bytes"].as_u64().unwrap() >= 16384, "{returned}");
+  assert!(!Path::new(&path).join("tests/results").exists());
+  assert_eq!(std::fs::read_dir(&trash).unwrap().count(), 0, "the trash is empty");
+  assert_eq!((returned.get("trash_left"), fixture.status().get("trash_bytes")), (None, None));
 }

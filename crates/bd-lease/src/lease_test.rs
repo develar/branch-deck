@@ -94,6 +94,14 @@ pub(crate) fn states(status: &Value) -> Vec<(String, String)> {
     .collect()
 }
 
+/// A `sleep` with its working directory in `dir`, in a process group of its own: a process of another session, which
+/// keeps a slot busy (a child in the test's group is of the session that runs bd, as the `jq` of its pipeline)
+#[cfg(unix)]
+pub(crate) fn busy_in(dir: &str) -> std::process::Child {
+  use std::os::unix::process::CommandExt;
+  std::process::Command::new("sleep").arg("30").current_dir(dir).process_group(0).spawn().unwrap()
+}
+
 /// The bug of the Treehouse pool: a free slot parked at a commit that a rewrite of master made unreachable was never
 /// reused. The pool reuses it, and only the diff to the new HEAD is written
 #[test_log::test]
@@ -172,7 +180,7 @@ fn a_busy_free_slot_is_skipped() {
   let fixture = Fixture::new();
   let first = path_of(&fixture.get(&[]));
   fixture.give_back(&first);
-  let mut sleep = std::process::Command::new("sleep").arg("30").current_dir(&first).spawn().unwrap();
+  let mut sleep = busy_in(&first);
   let (exit_code, second) = fixture.run(&["lease", "get"]);
   sleep.kill().unwrap();
   sleep.wait().unwrap();
@@ -180,8 +188,12 @@ fn a_busy_free_slot_is_skipped() {
   assert_ne!(path_of(&second), first);
   let skipped = &second["skipped"][0];
   assert_eq!(
-    (&skipped["path"], &skipped["reason"], &skipped["processes"][0]["pid"]),
-    (&json!(first), &json!("busy"), &json!(sleep.id()))
+    (&skipped["path"], &skipped["reason"], &skipped["processes"][0]),
+    (
+      &json!(first),
+      &json!("busy"),
+      &json!({ "pid": sleep.id(), "command": "sleep", "argv": "sleep 30", "kind": "other" })
+    )
   );
 }
 
@@ -629,8 +641,11 @@ struct FakeServer {
 #[cfg(unix)]
 impl FakeServer {
   fn start(workspace: &str, cwd: &Path, ignore_term: bool) -> Self {
+    use std::os::unix::process::CommandExt;
     let script = if ignore_term { "trap '' TERM; read line" } else { "read line" };
+    // a group of its own, as a Bazel server leads its own session
     let child = std::process::Command::new("sh")
+      .process_group(0)
       .args([
         "-c",
         script,
@@ -707,24 +722,34 @@ fn a_return_stops_the_bazel_servers_of_the_slot() {
   assert_eq!(states(&fixture.status())[0].1, "free");
 }
 
-/// `--keep-servers` keeps the refusal; a server that ignores SIGTERM keeps the slot busy; another process in the slot
-/// refuses before any server is signalled
+/// Another process in the slot refuses before any server is signalled, and the refusal names each process with its
+/// argv and kind; a server that ignores SIGTERM keeps the slot busy
 #[cfg(unix)]
 #[test_log::test]
-fn a_return_stops_no_server_it_should_keep_and_signals_no_other_process() {
+fn a_return_signals_no_other_process_and_a_server_that_does_not_exit_keeps_the_slot_busy() {
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
   let mut server = FakeServer::start(&path, Path::new(&path), false);
-  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return", "--keep-servers"]);
-  assert_error(&output, exit_code, (4, "slot_busy"));
-  assert!(server.running());
-
-  let mut other = std::process::Command::new("sleep").arg("30").current_dir(&path).spawn().unwrap();
+  let mut other = busy_in(&path);
   let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
   let _ = other.kill();
   let _ = other.wait();
   assert_error(&output, exit_code, (4, "slot_busy"));
-  assert!(output["error"]["message"].as_str().unwrap().contains(&format!("({})", other.id())), "{output}");
+  let mut processes: Vec<(u64, String)> = output["error"]["processes"]
+    .as_array()
+    .unwrap_or_else(|| panic!("{output}"))
+    .iter()
+    .map(|process| (process["pid"].as_u64().unwrap(), process["kind"].as_str().unwrap().to_string()))
+    .collect();
+  processes.sort();
+  let mut expected = vec![(u64::from(other.id()), "other".to_string()), (u64::from(server.pid()), "bazel_server".to_string())];
+  expected.sort();
+  assert_eq!(processes, expected);
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.contains(&format!("sleep ({}: sleep 30)", other.id())) && message.contains("stops the Bazel servers"),
+    "{output}"
+  );
   assert!(server.running(), "a refusal signals no server");
   drop(server);
 
@@ -733,27 +758,62 @@ fn a_return_stops_no_server_it_should_keep_and_signals_no_other_process() {
   environment.server_stop_timeout = Duration::from_millis(500);
   let (exit_code, output) = run_json(&environment, &["lease", "return"]);
   assert_error(&output, exit_code, (4, "slot_busy"));
-  assert!(output["error"]["message"].as_str().unwrap().contains(&format!("({})", stubborn.pid())), "{output}");
+  assert_eq!(output["error"]["processes"][0]["pid"], json!(stubborn.pid()), "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("did not exit on SIGTERM"), "{output}");
   assert!(stubborn.running());
   assert_eq!(states(&fixture.status())[0].1, "ready");
 }
 
-/// A free slot with a live Bazel server of its own is skipped as busy, also when the server's working directory is
-/// elsewhere: its argv names the slot
+/// A get stops the Bazel server of a free slot, also one whose working directory is elsewhere (its argv names the
+/// slot), and leases the slot; a server that does not exit skips the slot as busy
 #[cfg(unix)]
 #[test_log::test]
-fn a_get_skips_a_free_slot_under_a_live_bazel_server() {
+fn a_get_stops_the_bazel_server_of_a_free_slot_and_leases_it() {
   let fixture = Fixture::new();
   let first = path_of(&fixture.get(&[]));
   fixture.give_back(&first);
-  let server = FakeServer::start(&first, fixture.home.path(), false);
+  let mut server = FakeServer::start(&first, fixture.home.path(), false);
   let second = fixture.get(&[]);
-  assert_ne!(path_of(&second), first);
+  assert_eq!((path_of(&second), &second["reused"]), (first.clone(), &json!(true)), "{second}");
   assert_eq!(
-    (&second["skipped"][0]["reason"], &second["skipped"][0]["processes"][0]["pid"]),
-    (&json!("busy"), &json!(server.pid())),
+    (&second["stopped_servers"][0]["pid"], &second["stopped_servers"][0]["workspace"]),
+    (&json!(server.pid()), &json!(first)),
     "{second}"
   );
+  assert!(!server.running());
+  fixture.give_back(&first);
+
+  let stubborn = FakeServer::start(&first, fixture.home.path(), true);
+  let mut environment = fixture.environment(fixture.repo.path());
+  environment.server_stop_timeout = Duration::from_millis(500);
+  let (exit_code, third) = run_json(&environment, &["lease", "get"]);
+  assert_eq!(exit_code, 0, "{third}");
+  assert_ne!(path_of(&third), first);
+  assert_eq!(
+    (
+      &third["skipped"][0]["reason"],
+      &third["skipped"][0]["processes"][0]["pid"],
+      &third["skipped"][0]["processes"][0]["kind"]
+    ),
+    (&json!("busy"), &json!(stubborn.pid()), &json!("bazel_server")),
+    "{third}"
+  );
+  assert_eq!(states(&fixture.status())[0], (first, "free".to_string()));
+}
+
+/// A process in the slot that runs in the process group of bd (the `jq` of `bd lease return | jq`, the `caffeinate` of
+/// the agent) is of the session that returns the slot: it keeps no slot busy
+#[cfg(unix)]
+#[test_log::test]
+fn a_process_of_the_group_of_bd_does_not_keep_the_slot_busy() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let mut pipeline = std::process::Command::new("sleep").arg("30").current_dir(&path).spawn().unwrap();
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  let _ = pipeline.kill();
+  let _ = pipeline.wait();
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(states(&fixture.status())[0].1, "free");
 }
 
 /// A fake `git maintenance run --auto --detach` in `cwd`: `sh` named `git` in its argv, blocked in `read` on a pipe (no
@@ -763,6 +823,7 @@ fn fake_maintenance(cwd: &str) -> std::process::Child {
   use std::os::unix::process::CommandExt;
   let child = std::process::Command::new("sh")
     .arg0("git")
+    .process_group(0)
     .args(["-c", "read line", "maintenance", "run", "--auto", "--detach"])
     .current_dir(cwd)
     .stdin(std::process::Stdio::piped())
@@ -776,32 +837,18 @@ fn fake_maintenance(cwd: &str) -> std::process::Child {
   child
 }
 
-/// The return waits for git's background maintenance in the slot, then frees it; one that outlasts the wait refuses
-/// the return as `slot_busy` and is named; a get takes a free slot with it
+/// git's background maintenance in the slot (a repack after a commit, minutes in a large repository) keeps it busy for
+/// neither a return, which names it, nor a get
 #[cfg(unix)]
 #[test_log::test]
-fn the_return_waits_for_git_maintenance_and_a_get_ignores_it() {
+fn git_maintenance_keeps_no_slot_busy_and_is_named() {
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
   let mut stuck = fake_maintenance(&path);
-  let mut environment = fixture.environment(Path::new(&path));
-  environment.maintenance_timeout = Duration::from_millis(500);
-  let (exit_code, output) = run_json(&environment, &["lease", "return"]);
-  assert_error(&output, exit_code, (4, "slot_busy"));
-  assert!(output["error"]["message"].as_str().unwrap().contains(&format!("({})", stuck.id())), "{output}");
-
-  // it ends during the wait: the return goes on
-  let stdin = stuck.stdin.take().unwrap();
-  let closer = std::thread::spawn(move || {
-    std::thread::sleep(Duration::from_millis(1500));
-    drop(stdin);
-  });
-  let started = std::time::Instant::now();
   let returned = fixture.give_back(&path);
-  closer.join().unwrap();
-  stuck.wait().unwrap();
-  assert!(started.elapsed() >= Duration::from_secs(1), "the return waited");
-  assert_eq!(returned.get("error"), None);
+  let _ = stuck.kill();
+  let _ = stuck.wait();
+  assert_eq!(returned["maintenance"], json!([stuck.id()]), "{returned}");
 
   // a free slot with maintenance in it is reused, not skipped
   let mut running = fake_maintenance(&path);
@@ -809,6 +856,63 @@ fn the_return_waits_for_git_maintenance_and_a_get_ignores_it() {
   let _ = running.kill();
   let _ = running.wait();
   assert_eq!((path_of(&got), &got["reused"], got.get("skipped")), (path, &json!(true), None), "{got}");
+}
+
+/// A get refuses below the free space that `--min-free` or `branchdeck.leaseMinFree` asks, naming both and the free
+/// slots, with nothing leased; `--min-free 0` checks nothing; a size that does not parse is an invalid argument
+#[cfg(unix)]
+#[test_log::test]
+fn a_get_below_the_minimum_free_space_refuses_and_names_it() {
+  let fixture = Fixture::new();
+  let first = path_of(&fixture.get(&[]));
+  fixture.give_back(&first);
+  let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1P"]);
+  assert_error(&output, exit_code, (4, "low_disk_space"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.contains("1048576.0 GiB") && message.contains("1 free slot(s)") && message.contains("--min-free 0"),
+    "{output}"
+  );
+  assert_eq!(states(&fixture.status()), [(first, "free".to_string())]);
+
+  git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]);
+  let (exit_code, output) = fixture.run(&["lease", "get"]);
+  assert_error(&output, exit_code, (4, "low_disk_space"));
+  let got = fixture.get(&["--min-free", "0"]);
+  assert!(got["free_bytes"].as_u64().unwrap() > 0, "{got}");
+  fixture.give_back(&path_of(&got));
+
+  git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "lots"]);
+  let (exit_code, output) = fixture.run(&["lease", "get"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("branchdeck.leaseMinFree"), "{output}");
+  let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1 week"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+}
+
+/// A get records the process it ran for, the nearest ancestor that is no shell, and the status tells whether it runs;
+/// once it is gone, a get that adds a new slot names the lease, and the lease stays the holder's
+#[cfg(unix)]
+#[test_log::test]
+fn the_status_tells_whether_the_holder_of_a_lease_is_alive() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&["--holder", "gone-agent"]));
+  let lease = &fixture.status()["slots"][0]["lease"];
+  assert_eq!(lease["holder_alive"], json!(true), "{lease}");
+  assert!(lease["holder_pid"].as_u64().unwrap() > 1, "{lease}");
+
+  // the holder exits: a child's pid with its start time, once it has been reaped
+  let mut child = std::process::Command::new("true").spawn().unwrap();
+  let (pid, started) = (child.id(), sync_utils::process_scan::process_started(child.id()));
+  child.wait().unwrap();
+  let mut state: Value = serde_json::from_slice(&std::fs::read(fixture.state_file()).unwrap()).unwrap();
+  state["slots"][0]["lease"]["holder_pid"] = json!(pid);
+  state["slots"][0]["lease"]["holder_started"] = json!(started.unwrap_or(1));
+  std::fs::write(fixture.state_file(), serde_json::to_vec(&state).unwrap()).unwrap();
+  assert_eq!(fixture.status()["slots"][0]["lease"]["holder_alive"], json!(false));
+  let second = fixture.get(&[]);
+  assert_eq!(second["idle_leases"], json!([{ "path": path, "holder": "gone-agent" }]), "{second}");
+  assert_eq!(states(&fixture.status())[0], (path, "ready".to_string()));
 }
 
 /// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new
@@ -863,12 +967,15 @@ fn a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot() {
 
   #[cfg(unix)]
   {
-    let mut sleep = std::process::Command::new("sleep").arg("30").current_dir(&path).spawn().unwrap();
+    let mut sleep = busy_in(&path);
     let (exit_code, output) = fixture.run(&["lease", "return", "--workspace", &path, "--confirm-preserved"]);
     sleep.kill().unwrap();
     sleep.wait().unwrap();
     assert_error(&output, exit_code, (4, "slot_busy"));
-    assert!(output["error"]["message"].as_str().unwrap().contains(&format!("sleep ({})", sleep.id())), "{output}");
+    assert!(
+      output["error"]["message"].as_str().unwrap().contains(&format!("sleep ({}: sleep 30)", sleep.id())),
+      "{output}"
+    );
   }
   assert_eq!(states(&fixture.status())[0].1, "ready");
 
@@ -981,7 +1088,7 @@ fn adopt_adds_clean_linked_worktrees_and_refuses_the_rest() {
   #[cfg(unix)]
   {
     let busy = TestWorktree::detached(&fixture.repo);
-    let mut sleep = std::process::Command::new("sleep").arg("30").current_dir(&busy.path).spawn().unwrap();
+    let mut sleep = busy_in(&busy.path);
     let (exit_code, output) = fixture.run(&["lease", "adopt", &busy.path]);
     sleep.kill().unwrap();
     sleep.wait().unwrap();

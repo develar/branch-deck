@@ -3,7 +3,7 @@
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
 use bd_core::context::Environment;
-use bd_core::error::CliError;
+use bd_core::error::{CliError, ErrorExtra, ProcessKind, ProcessOutput};
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -11,11 +11,12 @@ use git_executor::git_info::GitInfo;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use history_rewrite::repository_lock::RepositoryLocked;
+use lease_pool::free_space::available_bytes;
 use lease_pool::lease::{
-  Adopted, CreatedBy, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core,
-  lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
+  Adopted, BusyProcess, CreatedBy, IdleLease, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, Pool, SkipReason, SlotState,
+  StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
 };
-use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age};
+use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age, parse_size};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write;
@@ -56,6 +57,10 @@ pub struct LeaseGetArgs {
   /// Create this branch at the source HEAD and check it out in the slot; an existing branch refuses
   #[arg(short = 'b', long, value_name = "NAME")]
   pub branch: Option<String>,
+  /// The free space the volume of the pool must have (`200G`, binary units; `0` checks nothing); default
+  /// `branchdeck.leaseMinFree`, else no check
+  #[arg(long, value_name = "SIZE")]
+  pub min_free: Option<String>,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -69,9 +74,6 @@ pub struct LeaseReturnArgs {
   /// Give up the unlanded commits and discard the local changes (`reset --hard`, `clean -fd`; ignored files stay)
   #[arg(long)]
   pub confirm_preserved: bool,
-  /// Refuse while a Bazel server of the worktree runs, instead of stopping it with SIGTERM
-  #[arg(long)]
-  pub keep_servers: bool,
   /// Apply none of the clean rules of `.branchdeck.toml`
   #[arg(long, conflicts_with_all = ["keep", "age"])]
   pub no_clean: bool,
@@ -139,7 +141,6 @@ pub struct LeaseContext {
   pub dirs: RepositoryDirs,
   pub lock_timeout: Duration,
   pub server_stop_timeout: Duration,
-  pub maintenance_timeout: Duration,
 }
 
 impl LeaseContext {
@@ -158,7 +159,6 @@ impl LeaseContext {
       dirs,
       lock_timeout: environment.lock_timeout,
       server_stop_timeout: environment.server_stop_timeout,
-      maintenance_timeout: environment.maintenance_timeout,
     })
   }
 }
@@ -205,8 +205,34 @@ pub struct LeaseGetOutput {
   /// The free slots passed over
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub skipped: Vec<SkippedOutput>,
+  /// The Bazel servers of the free slot that exited on the get's SIGTERM; their output bases stay on disk
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stopped_servers: Vec<StoppedServerOutput>,
+  /// The free bytes of the volume of the pool before the get; omitted where bd can't tell (Windows)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub free_bytes: Option<u64>,
+  /// With a new slot: the leases whose holder process is gone, which keep their slots from the pool; the user decides
+  /// whether to return them
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub idle_leases: Vec<IdleLeaseOutput>,
   /// Whether the processes were checked; false where bd can't see them (Windows)
   pub processes_checked: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct IdleLeaseOutput {
+  pub path: String,
+  pub holder: String,
+}
+
+fn idle_output(idle: &[IdleLease]) -> Vec<IdleLeaseOutput> {
+  idle
+    .iter()
+    .map(|lease| IdleLeaseOutput {
+      path: lease.path.clone(),
+      holder: lease.holder.clone(),
+    })
+    .collect()
 }
 
 #[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
@@ -240,28 +266,46 @@ pub enum SkippedReason {
   Busy,
 }
 
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct ProcessOutput {
-  pub pid: u32,
-  pub command: String,
-}
-
-fn processes_output(processes: &[(u32, String)]) -> Vec<ProcessOutput> {
+fn processes_output(processes: &[BusyProcess]) -> Vec<ProcessOutput> {
   processes
     .iter()
-    .map(|(pid, command)| ProcessOutput {
-      pid: *pid,
-      command: command.clone(),
+    .map(|process| ProcessOutput {
+      pid: process.pid,
+      command: process.name.clone(),
+      argv: process.command.clone(),
+      kind: if process.bazel_workspace.is_some() {
+        ProcessKind::BazelServer
+      } else {
+        ProcessKind::Other
+      },
+      workspace: process.bazel_workspace.clone(),
+    })
+    .collect()
+}
+
+fn stopped_output(servers: &[StoppedServer]) -> Vec<StoppedServerOutput> {
+  servers
+    .iter()
+    .map(|server| StoppedServerOutput {
+      pid: server.pid,
+      workspace: server.workspace.clone(),
+      output_base: server.output_base.clone(),
     })
     .collect()
 }
 
 pub fn lease_get(context: &LeaseContext, environment: &Environment, args: &LeaseGetArgs) -> Result<LeaseGetOutput, CliError> {
+  let min_free = match &args.min_free {
+    Some(size) => Some(parse_size(size).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("--min-free: {error:#}")))?),
+    None => None,
+  };
   let params = LeaseGetParams {
     source: &context.dirs,
     home: environment.home.as_deref(),
     holder: args.holder.clone(),
     branch: args.branch.clone(),
+    min_free,
+    server_timeout: context.server_stop_timeout,
     lock_timeout: context.lock_timeout,
   };
   let got = lease_get_core(&context.git, &params).map_err(lease_error)?;
@@ -306,6 +350,9 @@ pub fn lease_get(context: &LeaseContext, environment: &Environment, args: &Lease
         }
       })
       .collect(),
+    stopped_servers: stopped_output(&got.stopped_servers),
+    free_bytes: got.free_bytes,
+    idle_leases: idle_output(&got.idle),
     processes_checked: got.process_scan,
   })
 }
@@ -341,13 +388,20 @@ pub struct LeaseReturnOutput {
   /// The Bazel servers of the worktree that exited on the return's SIGTERM; their output bases stay on disk
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stopped_servers: Vec<StoppedServerOutput>,
+  /// The pids of git's background maintenance in the worktree (a repack after a commit), which keeps no worktree busy
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub maintenance: Vec<u32>,
+  /// What the trash kept: paths a clean rule moved there that could not be deleted once the worktree was free
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub trash_left: Vec<String>,
   /// The branch of the source that `content` checked
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_branch: Option<String>,
   /// The seeded paths removed
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub removed: Vec<String>,
-  /// What each clean rule of `.branchdeck.toml` did, before the slot was freed
+  /// What each clean rule of `.branchdeck.toml` did: a `delete` moves its paths into the trash before the slot is freed,
+  /// and they are deleted, and counted, after
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub cleaned: Vec<CleanedOutput>,
   /// Why the rules could not be read; the return succeeded anyway
@@ -372,7 +426,8 @@ pub enum LandedCheckOutput {
 pub struct CleanedOutput {
   /// `cargo <dir>` or `delete <path>`
   pub rule: String,
-  /// The bytes on disk it freed (`bd lease clean --dry-run`: would free)
+  /// The bytes on disk it freed (`bd lease clean --dry-run`: would free); blocks an APFS clone shares with another
+  /// checkout count too, though they are freed only with the last file that holds them
   pub freed_bytes: u64,
   pub ms: u64,
   /// Why the rule was skipped (a path out of the checkout, `.git`, a tracked file, a symlink) or failed partway
@@ -414,10 +469,8 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     workspace: &context.dirs,
     lease_id: args.lease_id.as_deref(),
     confirm_preserved: args.confirm_preserved,
-    keep_servers: args.keep_servers,
     clean: if args.no_clean { None } else { Some(args.overrides.overrides()?) },
     server_timeout: context.server_stop_timeout,
-    maintenance_timeout: context.maintenance_timeout,
     lock_timeout: context.lock_timeout,
   };
   let returned = lease_return_core(&context.git, &params).map_err(lease_error)?;
@@ -447,15 +500,9 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
       LandedCheck::Content { .. } => LandedCheckOutput::Content,
     }),
     joined: returned.joined,
-    stopped_servers: returned
-      .stopped_servers
-      .iter()
-      .map(|server| StoppedServerOutput {
-        pid: server.pid,
-        workspace: server.workspace.clone(),
-        output_base: server.output_base.clone(),
-      })
-      .collect(),
+    stopped_servers: stopped_output(&returned.stopped_servers),
+    maintenance: returned.maintenance.clone(),
+    trash_left: returned.trash_left.clone(),
     landed_branch: match &returned.landed_check {
       Some(LandedCheck::Content { branch }) => Some(branch.clone()),
       Some(LandedCheck::Reachability { .. }) | None => None,
@@ -478,6 +525,13 @@ pub struct LeaseStatusOutput {
   pub pool: Option<String>,
   /// In the order they joined the pool
   pub slots: Vec<SlotOutput>,
+  /// The free bytes of the volume of the pool; omitted where bd can't tell it (Windows, no pool directory)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub free_bytes: Option<u64>,
+  /// What the trash of the returns and the cleans holds, in bytes: what a run killed before its delete left behind; the
+  /// next return or clean deletes it
+  #[serde(default, skip_serializing_if = "is_zero_bytes")]
+  pub trash_bytes: u64,
   /// With --processes: whether the processes were checked; false where bd can't see them (Windows)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub processes_checked: Option<bool>,
@@ -500,7 +554,7 @@ pub struct SlotOutput {
   pub missing: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub lease: Option<LeaseOutput>,
-  /// With --processes: the processes in the slot, without bd and its ancestors
+  /// With --processes: the processes in the slot, without the session of bd, git's maintenance and `caffeinate`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub processes: Option<Vec<ProcessOutput>>,
 }
@@ -529,6 +583,14 @@ pub struct LeaseOutput {
   /// The process of the get
   pub pid: u32,
   pub reused: bool,
+  /// The process the lease was got for: the nearest ancestor of the get that is no shell (the coding agent, the
+  /// terminal); omitted for a lease of an older bd
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub holder_pid: Option<u32>,
+  /// Whether `holder_pid` still runs, with the start time the get recorded. A gone holder does not free the lease: the
+  /// slot may hold unlanded work, and a resumed session runs as another process
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub holder_alive: Option<bool>,
 }
 
 pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &LeaseStatusArgs) -> Result<LeaseStatusOutput, CliError> {
@@ -538,9 +600,12 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
     .ok()
     .and_then(|config| pool_dir(&config, &context.dirs.top_level, Path::new(&canonical_path(git_common_dir)), environment.home.as_deref()).ok());
   let (slots, process_scan) = lease_status_core(git_common_dir, args.processes).map_err(lease_error)?;
+  let trash_bytes = Pool::new(Path::new(&canonical_path(git_common_dir))).trash_bytes();
   Ok(LeaseStatusOutput {
     schema: SchemaVersion,
     repository: context.dirs.top_level.clone(),
+    free_bytes: pool.as_deref().and_then(available_bytes),
+    trash_bytes,
     pool: pool.map(|pool| pool.to_string_lossy().into_owned()),
     slots: slots
       .iter()
@@ -566,6 +631,8 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
           branch: lease.branch.clone(),
           pid: lease.pid,
           reused: lease.reused,
+          holder_pid: lease.holder_pid,
+          holder_alive: lease.holder_alive(),
         }),
         processes: status.processes.as_deref().map(processes_output),
       })
@@ -672,6 +739,10 @@ pub struct LeaseCleanOutput {
   pub targets: Vec<CleanTargetOutput>,
   /// The sum of `freed_bytes` of every rule of every target
   pub freed_bytes: u64,
+  /// How much more the volume of the checkout has free after the clean (`statfs` before and after): what the deletes
+  /// freed in truth, without the blocks APFS clones still share; omitted for a dry run and where bd can't tell
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub volume_freed_bytes: Option<u64>,
   /// Whether the processes were checked; false where bd can't see them (Windows)
   pub processes_checked: bool,
 }
@@ -684,6 +755,9 @@ pub struct CleanTargetOutput {
   pub skipped: Option<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub cleaned: Vec<CleanedOutput>,
+  /// What the trash kept: paths a rule moved there that could not be deleted
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub trash_left: Vec<String>,
 }
 
 /// `context` is of the checkout whose rules apply; a file that does not parse is `invalid_arguments`
@@ -697,13 +771,20 @@ pub fn lease_clean(context: &LeaseContext, environment: &Environment, args: &Lea
     overrides: args.overrides.overrides()?,
     lock_timeout: context.lock_timeout,
   };
+  let volume = Path::new(&context.dirs.top_level);
+  let before = available_bytes(volume);
   let (targets, process_scan) = lease_clean_core(&context.git, &params).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+  let volume_freed_bytes = match (before, available_bytes(volume)) {
+    (Some(before), Some(after)) if !args.dry_run => Some(after.saturating_sub(before)),
+    _ => None,
+  };
   let targets: Vec<CleanTargetOutput> = targets
     .iter()
     .map(|target| CleanTargetOutput {
       path: target.path.clone(),
       skipped: target.skipped.clone(),
       cleaned: cleaned_output(&target.cleaned),
+      trash_left: target.trash_left.clone(),
     })
     .collect();
   Ok(LeaseCleanOutput {
@@ -711,6 +792,7 @@ pub fn lease_clean(context: &LeaseContext, environment: &Environment, args: &Lea
     repository: context.dirs.top_level.clone(),
     dry_run: args.dry_run,
     freed_bytes: targets.iter().flat_map(|target| &target.cleaned).map(|cleaned| cleaned.freed_bytes).sum(),
+    volume_freed_bytes,
     targets,
     processes_checked: process_scan,
   })
@@ -735,11 +817,12 @@ fn refusal_error(refusal: &LeaseRefusal) -> CliError {
   let code = match refusal {
     LeaseRefusal::NoLease(_) | LeaseRefusal::Preparing { .. } => ErrorCode::NoLease,
     LeaseRefusal::LeaseMismatch { .. } => ErrorCode::LeaseMismatch,
-    LeaseRefusal::SlotBusy { .. } | LeaseRefusal::Returning { .. } => ErrorCode::SlotBusy,
+    LeaseRefusal::SlotBusy { .. } | LeaseRefusal::ServersRunning { .. } | LeaseRefusal::Returning { .. } => ErrorCode::SlotBusy,
     LeaseRefusal::UnlandedCommits { .. } => ErrorCode::UnlandedCommits,
     LeaseRefusal::DirtyWorktree { .. } | LeaseRefusal::DirtyCandidate { .. } => ErrorCode::DirtyWorktree,
     LeaseRefusal::BranchExists(_) => ErrorCode::BranchExists,
-    LeaseRefusal::InvalidBranch(_) => ErrorCode::InvalidArguments,
+    LeaseRefusal::InvalidBranch(_) | LeaseRefusal::InvalidSize { .. } => ErrorCode::InvalidArguments,
+    LeaseRefusal::LowDiskSpace { .. } => ErrorCode::LowDiskSpace,
     LeaseRefusal::NotASlot { .. } => ErrorCode::NotASlot,
     LeaseRefusal::InPool(_) => ErrorCode::SlotInPool,
     LeaseRefusal::NoCommits(_) => ErrorCode::NoBaseline,
@@ -755,9 +838,20 @@ fn refusal_error(refusal: &LeaseRefusal) -> CliError {
         let _ = write!(error.message, "; `paths` lists the first {} of {}: `git status` lists all", error.paths.len(), paths.len());
       }
     }
+    LeaseRefusal::SlotBusy { processes, .. } | LeaseRefusal::ServersRunning { processes, .. } => {
+      error.extra = Some(Box::new(ErrorExtra {
+        processes: processes_output(processes),
+        ..ErrorExtra::default()
+      }));
+    }
     _ => {}
   }
   error
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
+const fn is_zero_bytes(bytes: &u64) -> bool {
+  *bytes == 0
 }
 
 /// The first `PATH_LIMIT` paths, all of them when only one would be left out (`kept`)

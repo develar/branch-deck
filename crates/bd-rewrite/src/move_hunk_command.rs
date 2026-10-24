@@ -6,7 +6,7 @@ use crate::block_patch::PatchBlock;
 use crate::rewrite::{IdMapping, after_rewrite_exit_code, sync_after_rewrite};
 use bd_core::context::RepoContext;
 use bd_core::error::regroup_error;
-use bd_core::error::{CliError, ErrorBody};
+use bd_core::error::{CliError, ErrorBody, ErrorExtra};
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::{SyncOutput, lock};
 use domain_types::error::ErrorCode;
@@ -114,7 +114,7 @@ fn move_hunk_error(context: &RepoContext, error: MoveHunkError) -> CliError {
   match error {
     MoveHunkError::InvalidArguments(_) => CliError::new(ErrorCode::InvalidArguments, message),
     MoveHunkError::BlockNotFound { blocks, .. } => CliError {
-      blocks: Some(Box::new(blocks)),
+      extra: Some(Box::new(ErrorExtra { blocks, ..ErrorExtra::default() })),
       ..CliError::new(ErrorCode::BlockNotFound, message)
     },
     MoveHunkError::Conflict { commit, path, .. } => CliError {

@@ -1,18 +1,21 @@
 //! The clean rules of a slot (`bd lease return`, `bd lease clean`, spec/cli/lease.spec.md): the `[lease]` table of
 //! `.branchdeck.toml`, committed with the build layout it cleans. Two kinds only, and no command: a return must not run
-//! arbitrary code.
+//! arbitrary code. A get leaves out of a new slot what the `delete` rules delete, when it clones one (`clone_dir`).
 //!
 //! ```toml
 //! [lease]
 //! clean = [
 //!   { cargo = "target", keep = 8, age = "1h" },  # the stale units of every profile dir
 //!   { delete = "tests/results" },
+//!   { delete = "out/dev-run", except = ["jar-cache"] },  # what is in it, but for these entries
 //! ]
 //! ```
 //!
-//! A path of a rule is relative and normalized, stays inside the slot, never names `.git`, has no symlink on its way,
-//! and git tracks nothing under it (one `ls-files` for all rules); a rule that breaks one of these is skipped and
-//! reported, never applied. The walk follows no symlink.
+//! A path of a rule is relative and normalized, stays inside the slot, never names `.git`, has no symlink on its way
+//! (a `delete` may name a symlink itself, and removes the link), and git tracks nothing under it (one `ls-files` for
+//! all rules); a rule that breaks one of these is skipped and reported, never applied. The walk follows no symlink. A
+//! return and `bd lease clean` move what a `delete` removes into a trash directory first, a rename, and delete it once
+//! the slot is free again (`Trash`).
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -20,7 +23,8 @@ use git_ops::lease_slot::tracked_under;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
-use tracing::debug;
+use sync_utils::process_scan::{is_running, process_started};
+use tracing::{debug, warn};
 
 /// The file of the rules, at the root of a checkout
 pub const BRANCH_DECK_FILE: &str = ".branchdeck.toml";
@@ -38,23 +42,24 @@ pub enum CleanRule {
   /// The units of the profile dirs under `dir` (a dir with `.cargo-lock`): `build/<package>/<hash>` and
   /// `incremental/<crate>-<hash>` stay when they are among the `keep` newest of their group or younger than `age`
   Cargo { dir: String, keep: usize, age: Duration },
-  /// Remove `path`, a file or a directory
-  Delete { path: String },
+  /// Remove `path`, a file, a directory or a symlink; with `except`, the entries of the directory but the ones named
+  Delete { path: String, except: Vec<String> },
 }
 
 impl CleanRule {
-  /// The rule as the output names it: `cargo target`, `delete tests/results`
+  /// The rule as the output names it: `cargo target`, `delete tests/results`, `delete out/dev-run except jar-cache`
   pub fn describe(&self) -> String {
     match self {
       Self::Cargo { dir, .. } => format!("cargo {dir}"),
-      Self::Delete { path } => format!("delete {path}"),
+      Self::Delete { path, except } if except.is_empty() => format!("delete {path}"),
+      Self::Delete { path, except } => format!("delete {path} except {}", except.join(", ")),
     }
   }
 
   const fn path(&self) -> &str {
     match self {
       Self::Cargo { dir, .. } => dir.as_str(),
-      Self::Delete { path } => path.as_str(),
+      Self::Delete { path, .. } => path.as_str(),
     }
   }
 }
@@ -86,10 +91,44 @@ pub fn parse_clean_rules(text: &str) -> Result<Vec<ParsedRule>> {
   }
   let Some(clean) = lease.get("clean") else { return Ok(Vec::new()) };
   let clean = clean.as_array().ok_or_else(|| anyhow!("`lease.clean` is not an array"))?;
-  clean
+  let rules: Vec<ParsedRule> = clean
     .iter()
     .enumerate()
     .map(|(index, rule)| parse_rule(rule).map_err(|error| error.context(format!("lease.clean[{index}]"))))
+    .collect::<Result<_>>()?;
+  Ok(refuse_deletes_of_cargo_dirs(rules))
+}
+
+/// A `delete` whose path holds the dir of a `cargo` rule, without the entry on its way in `except`, would remove what
+/// the cargo rule keeps: it is reported, never applied
+fn refuse_deletes_of_cargo_dirs(rules: Vec<ParsedRule>) -> Vec<ParsedRule> {
+  let cargo_dirs: Vec<String> = rules
+    .iter()
+    .filter_map(|rule| match rule {
+      Ok(CleanRule::Cargo { dir, .. }) => Some(dir.clone()),
+      _ => None,
+    })
+    .collect();
+  rules
+    .into_iter()
+    .map(|rule| match rule {
+      Ok(CleanRule::Delete { path, except }) => {
+        let covered = cargo_dirs.iter().find(|dir| {
+          *dir == &path
+            || dir
+              .strip_prefix(&format!("{path}/"))
+              .is_some_and(|rest| !except.iter().any(|kept| rest.split('/').next() == Some(kept.as_str())))
+        });
+        match covered {
+          Some(dir) => {
+            let rule = CleanRule::Delete { path, except };
+            Err((rule.describe(), format!("it would delete {dir}, the dir of a cargo rule; name its entry in `except`")))
+          }
+          None => Ok(CleanRule::Delete { path, except }),
+        }
+      }
+      other => other,
+    })
     .collect()
 }
 
@@ -117,19 +156,40 @@ fn parse_rule(rule: &toml::Value) -> Result<ParsedRule> {
     let dir = string("cargo")?;
     (CleanRule::Cargo { dir: dir.clone(), keep, age }, dir)
   } else if rule.contains_key("delete") {
-    only(&["delete"])?;
+    only(&["delete", "except"])?;
     let path = string("delete")?;
-    (CleanRule::Delete { path: path.clone() }, path)
+    let except = match rule.get("except") {
+      Some(except) => except
+        .as_array()
+        .ok_or_else(|| anyhow!("`except` is not an array of names"))?
+        .iter()
+        .map(|name| name.as_str().map(str::to_string).ok_or_else(|| anyhow!("an entry of `except` is not a string")))
+        .collect::<Result<Vec<_>>>()?,
+      None => Vec::new(),
+    };
+    (CleanRule::Delete { path: path.clone(), except }, path)
   } else {
     bail!("unknown kind: a rule has `cargo` or `delete`");
   };
-  Ok(match normalize(&raw) {
+  let path = normalize(&raw).and_then(|path| match &kind {
+    CleanRule::Delete { except, .. } => except.iter().try_for_each(|name| check_entry_name(name)).map(|()| path),
+    CleanRule::Cargo { .. } => Ok(path),
+  });
+  Ok(match path {
     Ok(path) => Ok(match kind {
       CleanRule::Cargo { keep, age, .. } => CleanRule::Cargo { dir: path, keep, age },
-      CleanRule::Delete { .. } => CleanRule::Delete { path },
+      CleanRule::Delete { except, .. } => CleanRule::Delete { path, except },
     }),
     Err(reason) => Err((kind.describe(), reason)),
   })
+}
+
+/// An entry of `except`: the name of one entry of the directory, no path
+fn check_entry_name(name: &str) -> Result<(), String> {
+  if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+    return Err(format!("`except` entry {name:?} is not the name of an entry of the directory"));
+  }
+  Ok(())
 }
 
 /// The parameters of a call that change the rules of the file without an edit of it (`bd lease clean --keep 2`)
@@ -175,6 +235,34 @@ pub fn parse_age(text: &str) -> Result<Duration> {
   Ok(Duration::from_secs(number * seconds))
 }
 
+/// A size: a number and a binary unit, `200G` or `200GiB` (K, M, G, T, P; `B` or none for bytes), as `df -h` counts
+pub fn parse_size(text: &str) -> Result<u64> {
+  let text = text.trim();
+  let split = text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len());
+  let (number, unit) = text.split_at(split);
+  let number: u64 = number
+    .parse()
+    .map_err(|error| anyhow!("the size {text:?} is not a number and a unit, such as \"200G\" ({error})"))?;
+  let unit = unit.trim();
+  let unit = unit.strip_suffix("iB").or_else(|| unit.strip_suffix('B').filter(|rest| !rest.is_empty())).unwrap_or(unit);
+  let shift = match unit {
+    "" | "B" => 0,
+    "K" | "k" => 10,
+    "M" => 20,
+    "G" => 30,
+    "T" => 40,
+    "P" => 50,
+    _ => bail!("the size {text:?} has no unit K, M, G, T or P"),
+  };
+  number.checked_mul(1 << shift).ok_or_else(|| anyhow!("the size {text:?} is too large"))
+}
+
+/// `bytes` in GiB with one decimal, as a message names a size: `123.4 GiB`
+#[expect(clippy::cast_precision_loss, reason = "one decimal of a size in a message")]
+pub fn describe_size(bytes: u64) -> String {
+  format!("{:.1} GiB", bytes as f64 / f64::from(1u32 << 30))
+}
+
 /// `path` as a normalized relative path (`./a//b/` is `a/b`); an absolute path, `..`, `.git`, a backslash or nothing
 /// at all is refused with the reason
 fn normalize(path: &str) -> Result<String, String> {
@@ -205,16 +293,36 @@ fn normalize(path: &str) -> Result<String, String> {
 pub struct Cleaned {
   /// `cargo target`, `delete tests/results`
   pub rule: String,
-  /// The bytes on disk it freed, or would free in a dry run
+  /// The bytes on disk it freed, or would free in a dry run. Blocks that an APFS clone shares with another checkout
+  /// count too, though only the last of the files that hold them frees them
   pub freed_bytes: u64,
   pub elapsed: Duration,
   /// Why it was skipped (an unsafe path, a tracked file, a symlink) or failed partway
   pub error: Option<String>,
+  /// What it moved into the trash: `Trash::empty` deletes it and counts its bytes
+  pub trashed: Vec<PathBuf>,
 }
 
-/// Apply `rules` to `checkout`, or only measure them (`apply` false). One `ls-files` for the paths of all rules; a rule
-/// whose path is unsafe is reported and skipped. A failed rule never stops the others
-pub fn apply_clean_rules(git_executor: &GitCommandExecutor, checkout: &str, rules: &[ParsedRule], apply: bool) -> Vec<Cleaned> {
+/// How `apply_clean_rules` applies the rules
+#[derive(Clone, Copy)]
+pub enum CleanMode<'a> {
+  /// Measure only (`--dry-run`)
+  Measure,
+  /// Delete in place
+  Delete,
+  /// Move what a `delete` removes into the trash, a rename (in place on another volume); `Trash::empty` deletes it
+  Trash(&'a Trash),
+}
+
+impl CleanMode<'_> {
+  const fn applies(self) -> bool {
+    !matches!(self, Self::Measure)
+  }
+}
+
+/// Apply `rules` to `checkout`, or only measure them. One `ls-files` for the paths of all rules; a rule whose path is
+/// unsafe is reported and skipped. A failed rule never stops the others
+pub fn apply_clean_rules(git_executor: &GitCommandExecutor, checkout: &str, rules: &[ParsedRule], mode: CleanMode<'_>) -> Vec<Cleaned> {
   let valid: Vec<&CleanRule> = rules.iter().filter_map(|rule| rule.as_ref().ok()).collect();
   let paths: Vec<&str> = valid.iter().map(|rule| rule.path()).collect();
   let tracked = match tracked_under(git_executor, checkout, &paths) {
@@ -231,11 +339,13 @@ pub fn apply_clean_rules(git_executor: &GitCommandExecutor, checkout: &str, rule
           freed_bytes: 0,
           elapsed: Duration::ZERO,
           error: Some(reason.clone()),
+          trashed: Vec::new(),
         },
         Ok(rule) => {
+          let mut trashed = Vec::new();
           let result = match &tracked {
             Err(error) => Err(anyhow!("cannot tell what git tracks: {error}")),
-            Ok(tracked) => check_path(Path::new(checkout), rule.path(), tracked).and_then(|target| run_rule(rule, &target, apply)),
+            Ok(tracked) => check_path(Path::new(checkout), rule, tracked).and_then(|target| run_rule(rule, &target, mode, &mut trashed)),
           };
           let (freed_bytes, error) = match result {
             Ok(freed) => (freed, None),
@@ -246,45 +356,50 @@ pub fn apply_clean_rules(git_executor: &GitCommandExecutor, checkout: &str, rule
             freed_bytes,
             elapsed: started.elapsed(),
             error,
+            trashed,
           }
         }
       };
-      debug!(checkout = %checkout, rule = %outcome.rule, freed = outcome.freed_bytes, error = ?outcome.error, apply, "clean rule");
+      debug!(checkout = %checkout, rule = %outcome.rule, freed = outcome.freed_bytes, trashed = outcome.trashed.len(), error = ?outcome.error, apply = mode.applies(), "clean rule");
       outcome
     })
     .collect()
 }
 
-/// The target of a rule in `checkout`: no symlink on its way (the last component included), nothing under it that git
-/// tracks
-fn check_path(checkout: &Path, path: &str, tracked: &[String]) -> Result<PathBuf> {
+/// The target of a rule in `checkout`: no symlink on its way, nothing under it that git tracks. The last component may
+/// be a symlink for a `delete`, which removes the link and never follows it
+fn check_path(checkout: &Path, rule: &CleanRule, tracked: &[String]) -> Result<PathBuf> {
+  let path = rule.path();
   if let Some(file) = tracked.iter().find(|file| file.as_str() == path || file.starts_with(&format!("{path}/"))) {
     bail!("git tracks {file}");
   }
+  let parts: Vec<&str> = path.split('/').collect();
   let mut target = checkout.to_path_buf();
-  for part in path.split('/') {
+  for (index, part) in parts.iter().enumerate() {
     target.push(part);
-    if target.symlink_metadata().is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+    let last = index + 1 == parts.len();
+    if target.symlink_metadata().is_ok_and(|metadata| metadata.file_type().is_symlink()) && !(last && matches!(rule, CleanRule::Delete { .. })) {
       bail!("{} is a symlink, which a rule never follows", target.display());
     }
   }
   Ok(target)
 }
 
-fn run_rule(rule: &CleanRule, target: &Path, apply: bool) -> Result<u64> {
+fn run_rule(rule: &CleanRule, target: &Path, mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<u64> {
   let Ok(metadata) = target.symlink_metadata() else { return Ok(0) };
   match rule {
-    CleanRule::Delete { .. } => {
-      let size = disk_size(target);
-      if apply {
-        if metadata.is_dir() {
-          std::fs::remove_dir_all(target)
-        } else {
-          std::fs::remove_file(target)
-        }
-        .map_err(|error| anyhow!("cannot remove {}: {error}", target.display()))?;
+    CleanRule::Delete { except, .. } => {
+      if except.is_empty() || !metadata.is_dir() {
+        return remove_entry(target, mode, trashed);
       }
-      Ok(size)
+      let entries = std::fs::read_dir(target).map_err(|error| anyhow!("cannot read {}: {error}", target.display()))?;
+      let mut freed = 0;
+      for entry in entries.flatten() {
+        if !except.iter().any(|kept| entry.file_name() == kept.as_str()) {
+          freed += remove_entry(&entry.path(), mode, trashed)?;
+        }
+      }
+      Ok(freed)
     }
     CleanRule::Cargo { keep, age, .. } => {
       if !metadata.is_dir() {
@@ -296,11 +411,133 @@ fn run_rule(rule: &CleanRule, target: &Path, apply: bool) -> Result<u64> {
         let mut groups = classic_units(&profile);
         add_build_dir_units(&mut groups, &profile.join("build"));
         add_incremental_units(&mut groups, &profile.join("incremental"));
-        freed += remove_stale(groups, *keep, cutoff, apply)?;
+        freed += remove_stale(groups, *keep, cutoff, mode.applies())?;
       }
       Ok(freed)
     }
   }
+}
+
+/// Remove `path` (a file, a symlink, a directory with what is in it) as `mode` says: measure it, delete it in place, or
+/// move it into the trash, where its bytes are counted once it is deleted. On another volume than the trash it is
+/// deleted in place
+fn remove_entry(path: &Path, mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<u64> {
+  match mode {
+    CleanMode::Measure => Ok(disk_size(path)),
+    CleanMode::Delete => remove_measured(path).map_err(|error| anyhow!("cannot remove {}: {error}", path.display())),
+    CleanMode::Trash(trash) => match trash.move_in(path) {
+      Ok(moved) => {
+        trashed.push(moved);
+        Ok(0)
+      }
+      Err(error) => {
+        debug!(path = %path.display(), error = %error, "no move into the trash, deleting in place");
+        remove_measured(path).map_err(|error| anyhow!("cannot remove {}: {error}", path.display()))
+      }
+    },
+  }
+}
+
+/// Delete `path` and everything below it, symlinks as themselves, in one walk that counts the bytes on disk it freed
+pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
+  let metadata = match path.symlink_metadata() {
+    Ok(metadata) => metadata,
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+    Err(error) => return Err(error),
+  };
+  let own = allocated(&metadata);
+  if !metadata.is_dir() {
+    std::fs::remove_file(path)?;
+    return Ok(own);
+  }
+  let mut freed = own;
+  for entry in std::fs::read_dir(path)? {
+    freed += remove_measured(&entry?.path())?;
+  }
+  std::fs::remove_dir(path)?;
+  Ok(freed)
+}
+
+/// The directory a return or a clean moves what it deletes into, one per run: `<root>/<pid>-<start>-<uuid>` on the
+/// volume of the repository. A rename there is instant, so the slot is freed before the long delete; `empty` deletes
+/// it, and also the directories that runs whose process is gone left behind
+pub struct Trash {
+  root: PathBuf,
+  dir: PathBuf,
+}
+
+impl Trash {
+  /// The trash of this process under `root`, made on the first move
+  pub fn new(root: &Path) -> Self {
+    let pid = std::process::id();
+    let started = process_started(pid).unwrap_or(0);
+    Self {
+      root: root.to_path_buf(),
+      dir: root.join(format!("{pid}-{started}-{}", uuid::Uuid::new_v4())),
+    }
+  }
+
+  /// Move `path` into the trash, under a number of its own
+  fn move_in(&self, path: &Path) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(&self.dir)?;
+    let count = std::fs::read_dir(&self.dir)?.count();
+    let target = self.dir.join(count.to_string());
+    std::fs::rename(path, &target)?;
+    Ok(target)
+  }
+
+  /// Delete what `cleaned` moved into the trash, counting the bytes of each rule, then the directories of runs whose
+  /// process is gone. A path that can't be deleted stays in the trash and is named in the error of its rule, and in the
+  /// paths returned
+  pub fn empty(&self, cleaned: &mut [Cleaned]) -> Vec<String> {
+    let mut left = Vec::new();
+    for rule in cleaned.iter_mut() {
+      for path in std::mem::take(&mut rule.trashed) {
+        match remove_measured(&path) {
+          Ok(freed) => rule.freed_bytes += freed,
+          Err(error) => {
+            rule.error.get_or_insert_with(|| format!("cannot delete {} in the trash: {error}", path.display()));
+            left.push(path.display().to_string());
+          }
+        }
+      }
+    }
+    if left.is_empty() {
+      let _ = std::fs::remove_dir(&self.dir);
+    }
+    self.sweep();
+    left
+  }
+
+  /// Delete the trash directories of runs whose process is gone (killed by a timeout before it emptied its trash)
+  fn sweep(&self) {
+    let Ok(entries) = std::fs::read_dir(&self.root) else { return };
+    for entry in entries.flatten() {
+      let name = entry.file_name().to_string_lossy().into_owned();
+      let mut parts = name.splitn(3, '-');
+      let (Some(pid), Some(started)) = (parts.next().and_then(|pid| pid.parse().ok()), parts.next().and_then(|started| started.parse().ok())) else {
+        continue;
+      };
+      if entry.path() == self.dir || is_running(pid, Some(started).filter(|started| *started != 0)) {
+        continue;
+      }
+      match remove_measured(&entry.path()) {
+        Ok(freed) => debug!(trash = %entry.path().display(), freed, "deleted the trash of a run that is gone"),
+        Err(error) => warn!(trash = %entry.path().display(), error = %error, "cannot delete the trash of a run that is gone"),
+      }
+    }
+  }
+}
+
+/// The `delete` rules as a get leaves them out of a clone (`clone_dir`): each path with the entries it keeps
+pub fn clone_skips(rules: &[ParsedRule]) -> Vec<(String, Vec<String>)> {
+  rules
+    .iter()
+    .filter_map(|rule| match rule {
+      Ok(CleanRule::Delete { path, except }) => Some((path.clone(), except.clone())),
+      _ => None,
+    })
+    .collect()
 }
 
 /// The profile dirs under `dir`: the ones with `.cargo-lock`, at most `depth` levels down, symlinks not followed
@@ -441,7 +678,7 @@ fn last_built(unit: &Path) -> SystemTime {
 }
 
 /// The bytes on disk of `path` and of everything below it, symlinks counted as themselves
-fn disk_size(path: &Path) -> u64 {
+pub fn disk_size(path: &Path) -> u64 {
   let Ok(metadata) = path.symlink_metadata() else { return 0 };
   let own = allocated(&metadata);
   if !metadata.is_dir() {

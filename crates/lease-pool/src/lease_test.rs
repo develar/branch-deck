@@ -65,6 +65,7 @@ fn server(pid: u32, started: Option<u64>) -> ProcessInfo {
   ProcessInfo {
     pid,
     parent: 0,
+    group: 0,
     name: "bazel(fake)".to_string(),
     cwd: None,
     argv: vec!["bazel(fake)".to_string(), "--workspace_directory=/slot".to_string()],

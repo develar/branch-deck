@@ -24,10 +24,19 @@ pub struct CliError {
   pub branches: Vec<ErrorBranch>,
   /// The files the error is about, if any
   pub paths: Vec<String>,
-  /// The block ids of `block_not_found`; boxed, as every command returns this error
-  pub blocks: Option<Box<Vec<String>>>,
+  /// The lists of a few codes (`block_not_found`, `slot_busy`); boxed, as every command returns this error
+  pub extra: Option<Box<ErrorExtra>>,
   /// The review of `approvals_missing`; boxed, as every command returns this error
   pub review: Option<Box<ReviewSummary>>,
+}
+
+/// The lists of `CliError` that only a few codes fill
+#[derive(Debug, Default)]
+pub struct ErrorExtra {
+  /// The block ids of `block_not_found`
+  pub blocks: Vec<String>,
+  /// The processes of `slot_busy`
+  pub processes: Vec<ProcessOutput>,
 }
 
 impl CliError {
@@ -38,7 +47,7 @@ impl CliError {
       commits: Vec::new(),
       branches: Vec::new(),
       paths: Vec::new(),
-      blocks: None,
+      extra: None,
       review: None,
     }
   }
@@ -52,8 +61,9 @@ impl CliError {
         commits: self.commits.clone(),
         branches: self.branches.clone(),
         paths: self.paths.clone(),
-        blocks: self.blocks.as_deref().cloned().unwrap_or_default(),
+        blocks: self.extra.as_ref().map_or_default(|extra| extra.blocks.clone()),
         review: self.review.as_deref().cloned(),
+        processes: self.extra.as_ref().map_or_default(|extra| extra.processes.clone()),
         retryable: self.code.retryable(),
       },
     }
@@ -107,8 +117,34 @@ pub struct ErrorBody {
   /// approvals count
   #[serde(skip_serializing_if = "Option::is_none")]
   pub review: Option<ReviewSummary>,
+  /// The processes that work in the worktree of `slot_busy`, with their argv: no `ps` needed to tell them
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub processes: Vec<ProcessOutput>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,
+}
+
+/// A process that works in a worktree of the lease pool
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ProcessOutput {
+  pub pid: u32,
+  /// The command name, as `ps -o comm` shows it
+  pub command: String,
+  /// The arguments as one line, at most 200 characters
+  pub argv: String,
+  /// `bazel_server`: it serves only this worktree, and `bd lease return` stops it itself once no other process is in
+  /// the worktree; `other`: wait until it is done
+  pub kind: ProcessKind,
+  /// The `--workspace_directory` of a Bazel server
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessKind {
+  BazelServer,
+  Other,
 }
 
 /// A branch an error is about

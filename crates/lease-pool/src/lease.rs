@@ -4,8 +4,9 @@
 //! pool has a lock of its own (`leases.lock`), held only while the state is read and written, never across a git that
 //! writes a slot: two gets never wait for each other's checkouts, and no get waits for an update.
 
-use crate::clone_dir::clone_directory;
-use crate::lease_clean::{CleanOverrides, Cleaned, apply_clean_rules, read_clean_rules};
+use crate::clone_dir::{CloneSkips, clone_directory};
+use crate::free_space::available_bytes;
+use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, parse_size, read_clean_rules};
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
@@ -29,6 +30,13 @@ use tracing::{debug, instrument, warn};
 const STATE_DIR: &str = "branch-deck";
 const STATE_FILE: &str = "leases.json";
 const LOCK_FILE: &str = "leases.lock";
+/// The trash of the returns and the cleans, in `branch-deck/` of the common dir (`lease_clean::Trash`)
+const TRASH_DIR: &str = "trash";
+/// How many characters of the argv of a busy process an answer names
+const COMMAND_LIMIT: usize = 200;
+/// How long a return waits for a `HEAD.lock` of the slot that git's background maintenance holds (`pack-refs`,
+/// `reflog expire` of a `gc --auto`)
+const HEAD_LOCK_WAIT: Duration = Duration::from_secs(10);
 /// The file at the root of the source that names the ignored files a get copies into the slot
 pub const WORKTREE_INCLUDE: &str = ".worktreeinclude";
 /// How many unlanded commits a refused return names
@@ -91,6 +99,12 @@ pub struct Lease {
   /// Whether the get moved a free slot rather than adding a new one
   #[serde(default)]
   pub reused: bool,
+  /// The process the get ran for: the nearest ancestor that is no shell (`ProcessScan::session`, the coding agent or the
+  /// terminal), and when it started. `pid` is of the get itself, which exits at once
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub holder_pid: Option<u32>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub holder_started: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +128,61 @@ impl Lease {
   pub fn is_abandoned(&self) -> bool {
     self.state != LeaseState::Ready && !is_running(self.pid, self.process_started)
   }
+
+  /// Whether the process the lease was got for still runs; `None` when the get recorded none. A gone holder does not
+  /// free a lease: the slot may hold unlanded work, and a resumed session runs as another process
+  pub fn holder_alive(&self) -> Option<bool> {
+    self.holder_pid.map(|pid| is_running(pid, self.holder_started))
+  }
+}
+
+/// A process that works in a slot, as a refusal and the outputs name it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BusyProcess {
+  pub pid: u32,
+  /// The command name, as `ps -o comm` shows it
+  pub name: String,
+  /// The arguments as one line, at most 200 characters
+  pub command: String,
+  /// The workspace of a Bazel server: a return stops it, a get stops it in a free slot
+  pub bazel_workspace: Option<String>,
+}
+
+impl BusyProcess {
+  pub fn of(process: &ProcessInfo) -> Self {
+    Self {
+      pid: process.pid,
+      name: process.name.clone(),
+      command: process.command_line(COMMAND_LIMIT),
+      bazel_workspace: process.bazel_workspace().map(|workspace| display_path(&workspace)),
+    }
+  }
+}
+
+fn busy_processes(processes: &[&ProcessInfo]) -> Vec<BusyProcess> {
+  processes.iter().map(|process| BusyProcess::of(process)).collect()
+}
+
+/// A lease whose holder process is gone (`Lease::holder_alive`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdleLease {
+  pub path: String,
+  pub holder: String,
+}
+
+/// The `ready` leases of `store` whose holder process is gone
+fn idle_leases(store: &LeaseStore) -> Vec<IdleLease> {
+  store
+    .slots
+    .iter()
+    .filter_map(|slot| {
+      let lease = slot.lease.as_ref()?;
+      (lease.state == LeaseState::Ready && lease.holder_alive() == Some(false)).then(|| IdleLease {
+        path: slot.path.clone(),
+        holder: lease.holder.clone(),
+      })
+    })
+    .collect()
 }
 
 /// What the pool refuses; `bd` gives each its error code
@@ -127,8 +196,25 @@ pub enum LeaseRefusal {
   Returning { path: String, pid: u32 },
   #[error("The lease of {path} is {actual}, not {expected}")]
   LeaseMismatch { path: String, expected: String, actual: String },
-  #[error("Processes work in {path}: {}; stop them, or wait until they are done", describe_processes(.processes))]
-  SlotBusy { path: String, processes: Vec<(u32, String)> },
+  #[error("Processes work in {path}: {}; wait until they are done{}", describe_processes(.processes), servers_note(.processes))]
+  SlotBusy { path: String, processes: Vec<BusyProcess> },
+  #[error("Bazel servers of {path} did not exit on SIGTERM: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
+  ServersRunning { path: String, processes: Vec<BusyProcess> },
+  #[error(
+    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}. Free space (`bd lease clean --free`, the Bazel output bases of slots no longer used), or pass `--min-free 0`",
+    describe_size(*.available),
+    describe_size(*.required),
+    describe_idle(.idle)
+  )]
+  LowDiskSpace {
+    pool: String,
+    available: u64,
+    required: u64,
+    free_slots: usize,
+    idle: Vec<IdleLease>,
+  },
+  #[error("{key} {value:?}: {reason}")]
+  InvalidSize { key: String, value: String, reason: String },
   #[error(
     "HEAD of {path} has {} commit(s) that {}; land them first (`bd pick --from {path} --follow` in the shared checkout), or pass --confirm-preserved to give them up",
     .commits.len(),
@@ -155,8 +241,32 @@ pub enum LeaseRefusal {
   CannotMove { path: String, reason: String },
 }
 
-fn describe_processes(processes: &[(u32, String)]) -> String {
-  processes.iter().map(|(pid, name)| format!("{name} ({pid})")).collect::<Vec<_>>().join(", ")
+fn describe_processes(processes: &[BusyProcess]) -> String {
+  processes
+    .iter()
+    .map(|process| match &process.bazel_workspace {
+      Some(workspace) => format!("{} ({}, the Bazel server of {workspace})", process.name, process.pid),
+      None => format!("{} ({}: {})", process.name, process.pid, process.command),
+    })
+    .collect::<Vec<_>>()
+    .join(", ")
+}
+
+/// What a return does about the Bazel servers among `processes`: each serves only its slot, so the return stops it
+fn servers_note(processes: &[BusyProcess]) -> &'static str {
+  if processes.iter().any(|process| process.bazel_workspace.is_some()) {
+    "; the return stops the Bazel servers of the slot itself once no other process is there"
+  } else {
+    ""
+  }
+}
+
+fn describe_idle(idle: &[IdleLease]) -> String {
+  if idle.is_empty() {
+    return String::new();
+  }
+  let leases: Vec<String> = idle.iter().map(|lease| format!("{} ({})", lease.path, lease.holder)).collect();
+  format!("; leases whose holder process is gone: {}", leases.join(", "))
 }
 
 /// The pool state of one repository: its file and its lock in `$GIT_COMMON_DIR/branch-deck/`
@@ -181,6 +291,16 @@ impl Pool {
       Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(LeaseStore::default()),
       Err(error) => Err(anyhow!(error).context(format!("Cannot read the lease state {}", path.display()))),
     }
+  }
+
+  /// The trash of the returns and the cleans (`lease_clean::Trash`)
+  pub fn trash_dir(&self) -> PathBuf {
+    self.dir.join(TRASH_DIR)
+  }
+
+  /// The bytes on disk of what the trash holds: what a run killed before its delete left behind
+  pub fn trash_bytes(&self) -> u64 {
+    std::fs::read_dir(self.trash_dir()).map_or(0, |entries| entries.flatten().map(|entry| disk_size(&entry.path())).sum())
   }
 
   /// Run `change` on the state under the pool lock and write the state it leaves; the lock is released at once
@@ -258,8 +378,8 @@ pub struct SkippedSlot {
 pub enum SkipReason {
   /// Local changes: the slot stays free and marked dirty, and the next gets try it last
   Dirty { paths: Vec<String> },
-  /// Processes have their working directory in it
-  Busy { processes: Vec<(u32, String)> },
+  /// Processes have their working directory in it, or a Bazel server of it did not exit
+  Busy { processes: Vec<BusyProcess> },
 }
 
 pub struct LeaseGetParams<'a> {
@@ -271,6 +391,10 @@ pub struct LeaseGetParams<'a> {
   pub holder: Option<String>,
   /// A new branch at the source HEAD, checked out in the slot
   pub branch: Option<String>,
+  /// The free space the volume of the pool must have, over `branchdeck.leaseMinFree` (`--min-free`; 0 checks nothing)
+  pub min_free: Option<u64>,
+  /// How long the get waits for the Bazel servers of a free slot it asked to exit
+  pub server_timeout: Duration,
   pub lock_timeout: Duration,
 }
 
@@ -294,27 +418,30 @@ pub struct LeaseGot {
   pub cloned_from: Option<String>,
   pub pool_dir: PathBuf,
   pub skipped: Vec<SkippedSlot>,
+  /// The Bazel servers of the free slot that exited on the SIGTERM of the get
+  pub stopped_servers: Vec<StoppedServer>,
+  /// The free space of the volume of the pool before the get; `None` where the system does not tell
+  pub free_bytes: Option<u64>,
+  /// With a new slot: the leases whose holder process is gone, which keep their slots from the pool
+  pub idle: Vec<IdleLease>,
   /// Whether the processes were checked (`ProcessScan::Unavailable` on Windows)
   pub process_scan: bool,
 }
 
 /// The slot a get reserved under the pool lock
 enum Reserved {
-  Free {
-    path: String,
-    name: String,
-  },
+  /// With the Bazel servers of the slot, the only processes in it: the get stops them before the checkout
+  Free { path: String, name: String, servers: Vec<ProcessInfo> },
   /// A new slot at `path`; `template` is a free slot marked `templating` for its clone
-  New {
-    path: PathBuf,
-    template: Option<String>,
-  },
+  New { path: PathBuf, template: Option<String> },
 }
 
-/// Lease a slot at the HEAD of the source. Under the pool lock: a free slot of this repository (a linked worktree of the
-/// same common dir, no process in it, clean slots before dirty ones), its lease recorded as `preparing`. Then, without
-/// the lock: one `status` (a dirty slot is marked, skipped, and the next one tried), `checkout --force` to the source
-/// HEAD (only the diff is written), the seed. No free slot: a clone of a template (`add_cloned_slot`), else
+/// Lease a slot at the HEAD of the source. First the free space of the volume of the pool, when a minimum is set
+/// (`LowDiskSpace`). Under the pool lock: a free slot of this repository (a linked worktree of the same common dir, no
+/// process in it but its Bazel servers, clean slots before dirty ones), its lease recorded as `preparing`. Then,
+/// without the lock: its Bazel servers stopped (one that does not exit skips the slot as busy), one `status` (a dirty
+/// slot is marked, skipped, and the next one tried), `checkout --force` to the source HEAD (only the diff is written),
+/// the seed. No free slot: a clone of a template without what the `delete` rules delete (`add_cloned_slot`), else
 /// `worktree add`, the only full checkout. A failure after the lease was recorded gives the slot back
 #[instrument(skip_all, fields(source = %params.source.top_level))]
 pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
@@ -335,9 +462,37 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
   let pool_dir = pool_dir(&config, source, &git_common_dir, params.home)?;
   std::fs::create_dir_all(&pool_dir).with_context(|| format!("Cannot create the pool directory {}", pool_dir.display()))?;
   let pool_dir = PathBuf::from(canonical_path(&pool_dir));
-  let seeds = seed_paths(git_executor, source)?;
-  let scan = ProcessScan::scan();
   let pool = Pool::new(&git_common_dir);
+  let free_bytes = available_bytes(&pool_dir);
+  let min_free = match (params.min_free, &config.min_free) {
+    (Some(min_free), _) => min_free,
+    (None, Some(value)) => parse_size(value).map_err(|error| LeaseRefusal::InvalidSize {
+      key: "branchdeck.leaseMinFree".to_string(),
+      value: value.clone(),
+      reason: format!("{error:#}"),
+    })?,
+    (None, None) => 0,
+  };
+  if let Some(available) = free_bytes
+    && available < min_free
+  {
+    let store = pool.read()?;
+    bail!(LeaseRefusal::LowDiskSpace {
+      pool: display_path(&pool_dir),
+      available,
+      required: min_free,
+      free_slots: store.slots.iter().filter(|slot| slot.lease.is_none()).count(),
+      idle: idle_leases(&store),
+    });
+  }
+  let seeds = seed_paths(git_executor, source)?;
+  // the rules of the source leave out of a cloned slot what a return would delete; a file that can't be read clones all
+  let skips = CloneSkips::new(&clone_skips(&read_clean_rules(Path::new(source)).unwrap_or_else(|error| {
+    warn!(source = %source, error = %format!("{error:#}"), "cannot read the clean rules; a clone copies everything");
+    Vec::new()
+  })));
+  let scan = ProcessScan::scan();
+  let holder = scan.session();
   let pid = std::process::id();
   let lease = Lease {
     id: uuid::Uuid::new_v4().to_string(),
@@ -352,18 +507,44 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
     branch: params.branch.clone(),
     seeded: Vec::new(),
     reused: false,
+    holder_pid: holder.map(|process| process.pid),
+    holder_started: holder.and_then(|process| process.started),
   };
 
   let mut skipped = Vec::new();
   let mut tried = HashSet::new();
   let mut created_by = None;
   let mut cloned_from = None;
+  let mut stopped_servers = Vec::new();
+  let mut idle = Vec::new();
   loop {
     let reserved = pool.update(params.lock_timeout, |store| {
-      Ok(reserve(store, &git_common_dir, &pool_dir, &scan, &mut tried, &mut skipped, &lease))
+      let reserved = reserve(store, &git_common_dir, &pool_dir, &scan, &mut tried, &mut skipped, &lease);
+      if matches!(reserved, Reserved::New { .. }) {
+        idle = idle_leases(store);
+      }
+      Ok(reserved)
     })?;
     let (path, reused) = match reserved {
-      Reserved::Free { path, name } => {
+      Reserved::Free { path, name, servers } => {
+        if !servers.is_empty() {
+          let servers: Vec<&ProcessInfo> = servers.iter().collect();
+          let stopped = stop_servers(&servers, params.server_timeout);
+          let running: Vec<&ProcessInfo> = servers.iter().copied().filter(|server| !stopped.iter().any(|stopped| stopped.pid == server.pid)).collect();
+          stopped_servers.extend(stopped);
+          if !running.is_empty() {
+            debug!(slot = %path, servers = running.len(), "skipping a slot whose Bazel servers did not exit");
+            release_marker(&pool, params.lock_timeout, &path, &lease.id);
+            skipped.push(SkippedSlot {
+              name,
+              path,
+              reason: SkipReason::Busy {
+                processes: busy_processes(&running),
+              },
+            });
+            continue;
+          }
+        }
         let changes = slot_changes(git_executor, &path, config.untracked).map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         if !changes.is_empty() {
           debug!(slot = %path, changes = changes.len(), "skipping a dirty slot");
@@ -401,6 +582,7 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
           branch: params.branch.as_deref(),
           workers: config.workers,
           untracked: config.untracked,
+          skips: &skips,
         };
         let added = path
           .parent()
@@ -447,6 +629,9 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
       cloned_from,
       pool_dir,
       skipped,
+      stopped_servers,
+      free_bytes,
+      idle,
       process_scan: scan.is_available(),
     });
   }
@@ -456,7 +641,7 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
 /// reserve a free slot (clean ones first, the one returned last first, then in the order they joined the pool) or a new
 /// one. The slot returned last has the warmest index, fsmonitor daemon and build caches and the commit closest to the
 /// source; the order they joined left the other slots idle for days, cold and far behind. A free slot with a process
-/// in it is skipped as busy
+/// in it is skipped as busy; one with only its Bazel servers in it is reserved with them, for the get to stop them
 fn reserve(
   store: &mut LeaseStore,
   git_common_dir: &Path,
@@ -485,15 +670,16 @@ fn reserve(
         continue;
       }
       tried.insert(slot.path.clone());
-      // git's background maintenance writes nothing in the slot: no reason to skip it
-      let maintenance = scan.git_maintenance();
-      let inside = scan.inside(Path::new(&slot.path));
-      let processes = processes_of(&inside.into_iter().filter(|process| !maintenance.contains(&process.pid)).collect::<Vec<_>>());
-      if !processes.is_empty() {
+      // a Bazel server serves only its slot, and a free slot is the pool's: the get stops it. A `--watchfs` server could
+      // miss the events of the checkout and build stale
+      let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = scan.inside(Path::new(&slot.path)).into_iter().partition(|process| process.bazel_workspace().is_some());
+      if !others.is_empty() {
         skipped.push(SkippedSlot {
           name: slot.name.clone(),
           path: slot.path.clone(),
-          reason: SkipReason::Busy { processes },
+          reason: SkipReason::Busy {
+            processes: busy_processes(&others),
+          },
         });
         continue;
       }
@@ -501,6 +687,7 @@ fn reserve(
       return Reserved::Free {
         path: slot.path.clone(),
         name: slot.name.clone(),
+        servers: servers.into_iter().cloned().collect(),
       };
     }
   }
@@ -581,6 +768,8 @@ struct NewSlot<'a> {
   branch: Option<&'a str>,
   workers: CheckoutWorkers,
   untracked: UntrackedFiles,
+  /// What the clone leaves out: the `delete` rules of the source
+  skips: &'a CloneSkips,
 }
 
 /// Why a new slot failed
@@ -613,17 +802,19 @@ enum Cloned {
 }
 
 /// A new slot as an APFS clone of `request.template`, then the diff to `request.commit`:
-/// 1. `clonefile(2)` of the template to `<path>.cloning`, then the template is released;
+/// 1. `clonefile(2)` of the template to `<path>.cloning`, without what the `delete` rules of the source delete, then the
+///    template is released;
 /// 2. `worktree add --no-checkout`, its `.git` file moved over the cloned `.git` (a directory when the template is a
 ///    main checkout), `<path>.cloning` renamed to `<path>`;
 /// 3. the template's index copied in and refreshed (`refresh_cloned_index`);
 /// 4. `checkout --force` to the commit, `clean -fd`, one `status`: the changes and the untracked files of the
-///    template never reach the lease, and its ignored files stay as the warm cache
+///    template never reach the lease, and its ignored files stay as the warm cache. A tracked file under a skipped path
+///    comes back with the checkout
 fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, release_template: &dyn Fn()) -> Result<(), Cloned> {
   let path = request.path;
   let cloning = PathBuf::from(format!("{}.cloning", path.display()));
   let started = std::time::Instant::now();
-  let cloned = clone_directory(Path::new(request.template), &cloning);
+  let cloned = clone_directory(Path::new(request.template), &cloning, request.skips);
   release_template();
   if let Err(error) = cloned {
     let _ = std::fs::remove_dir_all(&cloning);
@@ -719,11 +910,6 @@ fn give_back(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, remove:
     Ok(()) => error.context(format!("The lease was rolled back: {path} is free again")),
     Err(release_error) => error.context(format!("The lease of {path} could not be rolled back ({release_error:#}): the next get frees it")),
   }
-}
-
-/// `(pid, name)` of each process
-fn processes_of(processes: &[&ProcessInfo]) -> Vec<(u32, String)> {
-  processes.iter().map(|process| (process.pid, process.name.clone())).collect()
 }
 
 /// The ignored paths that `.worktreeinclude` at the root of `source` names (`seed_candidates`), one `check-ignore`: a
@@ -900,12 +1086,8 @@ pub struct LeaseReturnParams<'a> {
   pub lease_id: Option<&'a str>,
   /// Give up the unlanded commits and discard the local changes
   pub confirm_preserved: bool,
-  /// Refuse while a Bazel server of the slot runs, instead of stopping it
-  pub keep_servers: bool,
   /// How long the return waits for the Bazel servers it asked to exit
   pub server_timeout: Duration,
-  /// How long the return waits for git's background maintenance (`git maintenance`, `git gc --auto`) to leave the slot
-  pub maintenance_timeout: Duration,
   /// Apply the clean rules of `.branchdeck.toml`, with these overrides; `None` (`--no-clean`) applies none
   pub clean: Option<CleanOverrides>,
   pub lock_timeout: Duration,
@@ -984,6 +1166,10 @@ pub struct LeaseReturned {
   pub joined: bool,
   /// The Bazel servers of the slot that exited on the SIGTERM of the return
   pub stopped_servers: Vec<StoppedServer>,
+  /// git's background maintenance in the slot, which does not keep it busy
+  pub maintenance: Vec<u32>,
+  /// What the trash kept: a path that could not be deleted once the slot was free
+  pub trash_left: Vec<String>,
   /// The seeded paths removed
   pub removed: Vec<String>,
   /// The branch the slot was on; it stays
@@ -1049,6 +1235,8 @@ const fn joined_return(slot: Slot, landed_check: Option<LandedCheck>, process_sc
     landed_check,
     joined: true,
     stopped_servers: Vec::new(),
+    maintenance: Vec::new(),
+    trash_left: Vec::new(),
     removed: Vec::new(),
     detached_branch: None,
     cleaned: Vec::new(),
@@ -1124,14 +1312,15 @@ fn return_once(
     None => {}
   }
   *checked = Some(slot.clone());
-  let scan = wait_for_git_maintenance(Path::new(&path), params.maintenance_timeout);
+  let scan = ProcessScan::scan();
   let inside = scan.inside(Path::new(&path));
+  let maintenance = scan.maintenance_inside(Path::new(&path));
   // the Bazel servers of the slot, which serve only it; every other process keeps the slot busy
-  let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = inside.iter().partition(|process| !params.keep_servers && process.bazel_workspace().is_some());
+  let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = inside.iter().partition(|process| process.bazel_workspace().is_some());
   if !others.is_empty() {
     bail!(LeaseRefusal::SlotBusy {
       path,
-      processes: processes_of(&inside),
+      processes: busy_processes(&inside),
     });
   }
   let (unlanded, landed_check) = unlanded_work(git_executor, &path, &lease)?;
@@ -1148,13 +1337,16 @@ fn return_once(
   }
   // only now, when nothing else refuses: a server that does not exit keeps the slot busy
   let stopped_servers = stop_servers(&servers, params.server_timeout);
-  let running: Vec<(u32, String)> = servers
+  let running: Vec<&ProcessInfo> = servers
     .iter()
+    .copied()
     .filter(|server| !stopped_servers.iter().any(|stopped| stopped.pid == server.pid))
-    .map(|server| (server.pid, server.name.clone()))
     .collect();
   if !running.is_empty() {
-    bail!(LeaseRefusal::SlotBusy { path, processes: running });
+    bail!(LeaseRefusal::ServersRunning {
+      path,
+      processes: busy_processes(&running),
+    });
   }
   // from here on the return acts on the slot: reserved under the pool lock, while the lease is still the one it
   // checked, so a retried return beside it, or one that another return overtook and whose slot a get leased meanwhile,
@@ -1164,11 +1356,12 @@ fn return_once(
     Reservation::Returning => return Ok(ReturnStep::WaitFor(Box::new(slot))),
     Reservation::Returned => return Ok(ReturnStep::Done(Box::new(joined_return(slot, Some(landed_check), scan.is_available())))),
   }
-  let returned = finish_return(git_executor, &path, &lease, &changes, params.clean);
+  let trash = Trash::new(&pool.trash_dir());
+  let returned = finish_return(git_executor, &path, &lease, &changes, params.clean, &trash);
   let FinishedReturn {
     removed,
     detached_branch,
-    cleaned,
+    mut cleaned,
     clean_error,
   } = match returned {
     Ok(finished) => finished,
@@ -1194,6 +1387,8 @@ fn return_once(
     slot.returned = Some(last_return + 1);
     Ok(())
   })?;
+  // the slot is free: the long delete of what the rules moved into the trash keeps no get waiting
+  let trash_left = trash.empty(&mut cleaned);
   Ok(ReturnStep::Done(Box::new(LeaseReturned {
     slot,
     discarded: changes,
@@ -1201,6 +1396,8 @@ fn return_once(
     landed_check: Some(landed_check),
     joined: false,
     stopped_servers,
+    maintenance,
+    trash_left,
     removed,
     detached_branch,
     cleaned,
@@ -1261,15 +1458,15 @@ struct FinishedReturn {
 }
 
 /// What a reserved return does to the slot: discard the `changes` it may give up, remove the seeded paths, detach HEAD
-/// and apply the clean rules
-fn finish_return(git_executor: &GitCommandExecutor, path: &str, lease: &Lease, changes: &[String], clean: Option<CleanOverrides>) -> Result<FinishedReturn> {
+/// and apply the clean rules, moving what a `delete` removes into `trash`
+fn finish_return(git_executor: &GitCommandExecutor, path: &str, lease: &Lease, changes: &[String], clean: Option<CleanOverrides>, trash: &Trash) -> Result<FinishedReturn> {
   if !changes.is_empty() {
     discard_slot_changes(git_executor, path)?;
   }
   let removed = remove_seeded(Path::new(path), &lease.seeded)?;
   let detached_branch = read_head(git_executor, path)?.and_then(|(_, branch)| branch);
   if detached_branch.is_some() {
-    detach_slot_head(git_executor, path)?;
+    detach_waiting_for_head_lock(git_executor, path)?;
   }
   // the rules of the source, as the seed is read; the slot's own when the source is gone. They never fail the return
   let rules_from = Some(Path::new(&lease.source))
@@ -1277,7 +1474,7 @@ fn finish_return(git_executor: &GitCommandExecutor, path: &str, lease: &Lease, c
     .unwrap_or_else(|| Path::new(path));
   let (cleaned, clean_error) = match clean.map(|overrides| read_clean_rules(rules_from).map(|rules| overrides.apply(rules))) {
     None => (Vec::new(), None),
-    Some(Ok(rules)) => (apply_clean_rules(git_executor, path, &rules, true), None),
+    Some(Ok(rules)) => (apply_clean_rules(git_executor, path, &rules, CleanMode::Trash(trash)), None),
     Some(Err(error)) => (Vec::new(), Some(format!("{error:#}"))),
   };
   Ok(FinishedReturn {
@@ -1288,21 +1485,21 @@ fn finish_return(git_executor: &GitCommandExecutor, path: &str, lease: &Lease, c
   })
 }
 
-/// A fresh scan once git's background maintenance (`ProcessScan::git_maintenance`) has left `slot`, or after `timeout`:
-/// a commit in the slot starts `git maintenance run --auto --detach`, whose repack keeps the slot as its working
-/// directory for half a minute and writes only the shared object store. One still there after the wait stays in the
-/// scan, so the return refuses as `slot_busy` and names it
-fn wait_for_git_maintenance(slot: &Path, timeout: Duration) -> ProcessScan {
-  let deadline = std::time::Instant::now() + timeout;
+/// Detach HEAD of the slot; while git's background maintenance holds `HEAD.lock` of the slot (`pack-refs`, `reflog
+/// expire` of a `gc --auto`, which the return does not wait for), retried for up to `HEAD_LOCK_WAIT`. The lock is told
+/// by its file, never by the words of git's error
+fn detach_waiting_for_head_lock(git_executor: &GitCommandExecutor, path: &str) -> Result<()> {
+  let head_lock = linked_worktree(Path::new(path)).map(|worktree| worktree.git_dir.join("HEAD.lock"));
+  let deadline = std::time::Instant::now() + HEAD_LOCK_WAIT;
   loop {
-    let scan = ProcessScan::scan();
-    let maintenance = scan.git_maintenance();
-    let waiting = scan.inside(slot).iter().filter(|process| maintenance.contains(&process.pid)).count();
-    if waiting == 0 || std::time::Instant::now() >= deadline {
-      return scan;
+    match detach_slot_head(git_executor, path) {
+      Ok(()) => return Ok(()),
+      Err(error) if head_lock.as_ref().is_some_and(|lock| lock.exists()) && std::time::Instant::now() < deadline => {
+        debug!(slot = %path, error = %format!("{error:#}"), "HEAD.lock of the slot is held, retrying the detach");
+        std::thread::sleep(Duration::from_millis(100));
+      }
+      Err(error) => return Err(error),
     }
-    debug!(slot = %slot.display(), processes = waiting, "waiting for git's maintenance to leave the slot");
-    std::thread::sleep(Duration::from_millis(250));
   }
 }
 
@@ -1374,8 +1571,8 @@ pub struct SlotStatus {
   pub state: SlotState,
   /// The directory is gone
   pub missing: bool,
-  /// With `processes`: the processes in it, except `bd` and its ancestors
-  pub processes: Option<Vec<(u32, String)>>,
+  /// With `processes`: the processes in it, except the session of `bd`, git's maintenance and `caffeinate`
+  pub processes: Option<Vec<BusyProcess>>,
 }
 
 /// Every slot of the pool from the state, no git: with `processes`, the process scan of each slot too
@@ -1396,7 +1593,7 @@ pub fn lease_status_core(git_common_dir: &Path, processes: bool) -> Result<(Vec<
         Some(_) => SlotState::Ready,
       };
       let missing = !Path::new(&slot.path).is_dir();
-      let processes = processes.then(|| processes_of(&scan.inside(Path::new(&slot.path))));
+      let processes = processes.then(|| busy_processes(&scan.inside(Path::new(&slot.path))));
       SlotStatus { slot, state, missing, processes }
     })
     .collect();
@@ -1426,6 +1623,8 @@ pub struct CleanTarget {
   /// Why it was not cleaned: a lease, a process in it
   pub skipped: Option<String>,
   pub cleaned: Vec<Cleaned>,
+  /// What the trash kept: a path that could not be deleted
+  pub trash_left: Vec<String>,
 }
 
 /// Apply the rules of `.branchdeck.toml` of the repository, read once, to the free slots, to `dirs`, or to the
@@ -1465,12 +1664,16 @@ pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanPa
     branch: None,
     seeded: Vec::new(),
     reused: false,
+    holder_pid: None,
+    holder_started: None,
   };
-  let targets = paths
+  let trash = Trash::new(&pool.trash_dir());
+  let mode = if params.apply { CleanMode::Trash(&trash) } else { CleanMode::Measure };
+  let mut targets: Vec<CleanTarget> = paths
     .into_iter()
     .map(|path| {
       let is_slot = store.slots.iter().any(|slot| slot.path == path);
-      let processes = processes_of(&scan.inside(Path::new(&path)));
+      let processes = busy_processes(&scan.inside(Path::new(&path)));
       // a slot is cleaned only under the `cleaning` marker, set while it is free, so no get leases it meanwhile; a dry
       // run deletes nothing and only reads the state again
       let leased = if !is_slot {
@@ -1496,14 +1699,23 @@ pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanPa
       let cleaned = if skipped.is_some() {
         Vec::new()
       } else {
-        apply_clean_rules(git_executor, &path, &rules, params.apply)
+        apply_clean_rules(git_executor, &path, &rules, mode)
       };
       if is_slot && params.apply && skipped.is_none() {
         release_marker(&pool, params.lock_timeout, &path, &marker.id);
       }
-      CleanTarget { path, skipped, cleaned }
+      CleanTarget {
+        path,
+        skipped,
+        cleaned,
+        trash_left: Vec::new(),
+      }
     })
     .collect();
+  // every slot is free again: the delete of what the rules moved into the trash keeps no get waiting
+  for target in &mut targets {
+    target.trash_left = trash.empty(&mut target.cleaned);
+  }
   Ok((targets, scan.is_available()))
 }
 
@@ -1528,7 +1740,7 @@ fn mark_for_clean(pool: &Pool, timeout: Duration, path: &str, marker: &Lease) ->
 pub enum Adopted {
   /// With `moved_from` when `--move` moved it into the pool directory
   Added {
-    slot: Slot,
+    slot: Box<Slot>,
     moved_from: Option<String>,
   },
   Refused {
@@ -1577,7 +1789,7 @@ pub fn lease_adopt_core(git_executor: &GitCommandExecutor, params: &LeaseAdoptPa
       Err(refusal) => Err(refusal),
     };
     outcomes.push(match adopted {
-      Ok((slot, moved_from)) => Adopted::Added { slot, moved_from },
+      Ok((slot, moved_from)) => Adopted::Added { slot: Box::new(slot), moved_from },
       Err(refusal) => Adopted::Refused { path, refusal },
     });
   }
@@ -1684,7 +1896,7 @@ fn adopt_one(git_executor: &GitCommandExecutor, pool: &Pool, git_common_dir: &Pa
   if pool.read()?.slots.iter().any(|slot| slot.path == path) {
     return Ok(Err(LeaseRefusal::InPool(path.to_string())));
   }
-  let processes = processes_of(&scan.inside(Path::new(path)));
+  let processes = busy_processes(&scan.inside(Path::new(path)));
   if !processes.is_empty() {
     return Ok(Err(LeaseRefusal::SlotBusy {
       path: path.to_string(),

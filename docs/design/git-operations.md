@@ -1327,14 +1327,26 @@ rename. A free slot is pool property, and a get replaces its content, so no ance
 `leases.lock` next to it, not the repository lock: a get never waits for an update, and the lock is held only while
 the state is read and written, never across a git that writes a slot.
 
+0. Free space: with `branchdeck.leaseMinFree` (or `--min-free`), a get whose pool volume has less free space
+   (`f_bavail` of one `statfs`, no git) refuses as `low_disk_space` before it reserves anything. The builds of a slot
+   write tens of gigabytes: in idea-1 a Bazel output base of 13 to 46 GB per slot (two with `community/`), next to
+   `out/`. The minimum is the machine's, so it is git config (the global one on the user's Mac: `200G`), not
+   `.branchdeck.toml`, which every developer of the repository shares; without it nothing is checked.
 1. Get: under the pool lock, a `preparing` lease whose process is gone (its pid and start time, `process_scan`) is
    freed, and a free slot whose directory is gone is dropped. The first free slot that is a linked worktree of the same
    common dir (its `.git` file and admin directory, no git process) and has no process in it is reserved, clean slots
    before the ones marked dirty, and among them the one returned last first (`returned`, the number of its return in
    the pool), then the ones never returned in the order they joined. The slot returned last has the warmest index,
    fsmonitor daemon and build caches and the commit closest to the source; by the order they joined alone, the first
-   slot served every lease and the others sat idle for days, cold and thousands of files behind. The lease is recorded as `preparing`, with the pid and its start time, and the lock
-   is released.
+   slot served every lease and the others sat idle for days, cold and thousands of files behind. A free slot whose only
+   processes are its Bazel servers is reserved with them, and the get stops them with SIGTERM before the checkout (one
+   that does not exit gives the slot back, skipped as busy): the slot is the pool's, and a `--watchfs` server can miss
+   the events of a large checkout. The lease is recorded as `preparing`, with the pid and its start time, and with the
+   process the get runs for (the nearest ancestor that is no shell: the agent, the terminal), and the lock is released.
+   The pid of the get is gone a moment later, so only the holder process tells whether a `ready` lease is still worked
+   in: 13 of the 15 slots of idea-1 were leased at once, some by sessions that had given up, and every further get
+   cloned the main checkout. A gone holder frees nothing (unlanded work, a resumed session runs as another process),
+   but a get that adds a slot names those leases (`idle_leases`), and `bd lease status` says `holder_alive`.
 2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below, which may write the
    slot's index (below). A dirty slot is freed again,
    marked dirty and skipped, and the next one is reserved. A clean one gets `checkout --force --detach <source HEAD>`
@@ -1376,7 +1388,14 @@ same tree takes several minutes.
    copied half written, and the source is where the user works.
 2. `clonefile(2)` of the template's top level to `<path>.cloning`, then the marker is released. The destination must
    not exist and must be on the same volume; any error (`EXDEV`, `ENOTSUP`, `EACCES` of a file it can't read) removes
-   what is left and falls back to `worktree add`.
+   what is left and falls back to `worktree add`. What the `delete` clean rules of the source delete is left out
+   (`lease_clean::clone_skips`): the directories on the way to such a path are made anew, the rest of each is cloned
+   entry by entry with `CLONE_NOFOLLOW`, the `except` entries of a rule are cloned, and the template's `.git` is left
+   out with them (step 3 replaces it). Without such rules it stays one call. A clone of the idea-1 main checkout carried
+   its whole `out/`: 188 GB and 760,000 files (heap dumps, installers, test runs of months), and its `bazel-*` links into
+   the output base of the main checkout, which an agent in the slot read until its first build there. The blocks were
+   shared, but five such clones kept them alive after the main checkout deleted its files. A tracked file under a
+   left-out path comes back with the checkout of step 5.
 3. `worktree add --no-checkout --lock --detach <path> <source HEAD>` writes only `<path>/.git` and the admin
    directory. That `.git` file replaces the cloned `.git` (the whole git directory of a main checkout: 0.2 s for the
    2,079 files of idea-1's), the empty `<path>` goes, and `<path>.cloning` becomes `<path>`; then `worktree unlock`.
@@ -1404,18 +1423,31 @@ the files, and the guards, none of which a return may take from the shared check
 path, and decides alone without a recorded branch, when the branch is gone, or when the pick can't tell
 (`range_unknown`, a merge in the range); the output names the check (`landed_check`).
 
-git's background maintenance keeps no lease either. A commit in a slot starts `git maintenance run --auto --detach`;
-it and its git children (`git repack -d -l --geometric=2 --write-midx`, `git multi-pack-index write`) keep the slot
-as their working directory for about 30 s in idea-1, and write only the shared object store. The return waits up to
-60 s for them (a `git maintenance` or a `git gc --auto` by argv, and every git below it in the parent chain), then
-goes on; one still there is `slot_busy`. A get does not skip a free slot for them.
+Which processes keep a slot busy was learned from 27 sessions of idea-1 (2026-10-19 to 24) whose returns were
+refused: mostly the Bazel server of the slot, then git's maintenance, the `caffeinate` of Claude Code and the `jq` of
+`bd lease return | jq`. The agents ran `ps` and `lsof` to tell them, some killed them, a kill was refused by the
+classifier of their harness, and some gave up and left the lease. So the scan leaves out what cannot hurt the slot,
+and a refusal names the rest with their argv and kind (`processes`).
+
+- The session that runs `bd`: `bd`, its ancestors and every process of their process groups. The shell of an agent's
+  tool call leads a group, so the other commands of its pipeline are in it; the `caffeinate` of the agent is in the
+  group of the agent. A background task of the agent leads a group of its own and counts.
+- git's background maintenance. A commit in a slot starts `git maintenance run --auto --detach`; it and its git
+  children (`git repack -d -l --geometric=2 --write-midx`, `git multi-pack-index write`) keep the slot as their
+  working directory for 2 to 17 minutes in idea-1 (`gc.auto 50000`), and write only the shared object store. Told by
+  argv (a `git maintenance` or a `git gc --auto`, and every git below it in the parent chain); the return names them
+  (`maintenance`). The detach of HEAD retries for up to 10 s while `HEAD.lock` of the slot exists, which `pack-refs`
+  or `reflog expire` of a `gc --auto` holds.
+- `caffeinate` of another session: it holds a power assertion and opens no file.
 
 A Bazel server of the slot (its argv has `--workspace_directory=` the slot or a directory in it, `community/` in
-idea-1) keeps no lease: Bazel derives its output base from the workspace path, so it serves only that slot. Once
-nothing else refuses, the return sends it SIGTERM, waits up to 30 s and names it in `stopped_servers`; the output
-base stays, and the next lease of the slot finds its disk cache. No other process is signalled, and any other process
-in the slot refuses the return before a server is. A get never reuses a slot under a live server: a `--watchfs`
-server can miss the events of a large checkout. Unlanded commits, local changes and a process in the slot refuse it; with
+idea-1) keeps no lease: Bazel derives its output base from the workspace path, so it serves only that slot (every
+server of the pool had its own, `MonorepoBazel/<md5 of the path>`). Once nothing else refuses, the return sends it
+SIGTERM, waits up to 30 s and names it in `stopped_servers`; the output base stays, and the next lease of the slot
+finds its disk cache. No other process is signalled, and any other process in the slot refuses the return before a
+server is. There is no flag to keep a server: `--keep-servers` turned the stop into a refusal that could never pass
+while the server ran, and a wrong note that a return stopped a shared server made agents pass it. Unlanded commits,
+local changes and a process of another session in the slot refuse it; with
 `--confirm-preserved` the changes go with `reset --hard HEAD` and `clean -fd`, and the ignored build outputs stay
 for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
 no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it. The return acts on the
@@ -1437,9 +1469,16 @@ recorded (the slot's own when the source is gone), after every check passed and 
 `cargo` (the stale units of the profile dirs of a target dir: the build-dir layout of Branch Deck, `build/<pkg>/<hash>`,
 and the classic one of idea-1, a unit `<name>-<16 hex>` across `deps/`, `.fingerprint/` and `build/`, whose files go
 together; a dry run on the idea-1 checkout found 27.9 of the 33 GB of `community/tools/vm/target` stale) or
-`delete` (a path); no command, as a return must not run arbitrary code. A path is normalized and relative, stays in the
-slot, names no `.git`, crosses no symlink, and git tracks nothing under it (one `ls-files -z` of all paths): a rule that
-breaks one is reported and skipped. A rule error never fails the return. `bd lease clean` applies the rules on
+`delete` (a path, a link as the link, or with `except` the entries of a directory but the named ones); no command, as a
+return must not run arbitrary code. A path is normalized and relative, stays in the slot, names no `.git`, crosses no
+symlink on its way, and git tracks nothing under it (one `ls-files -z` of all paths): a rule that breaks one is
+reported and skipped, and so is a `delete` that would remove the dir of a `cargo` rule. A rule error never fails the
+return. A `delete` moves its paths into the trash, a rename into `$GIT_COMMON_DIR/branch-deck/trash/<pid>-<start
+time>-<uuid>/`, and the trash is deleted once the slot is free, counting its bytes in the same walk: the first return
+of a slot cloned from the idea-1 main checkout deleted 760,000 files, longer than the tool call of an agent, and the
+lease must not stay `returning` meanwhile. The next return or clean deletes the trash of a run whose process is gone.
+`freed_bytes` counts blocks an APFS clone still shares with another checkout; `bd lease clean` adds
+`volume_freed_bytes`, the gain of the volume by `statfs`. `bd lease clean` applies the rules on
 demand, skipping a slot with a lease or a process; a free slot it cleans carries a `cleaning` marker under the pool
 lock meanwhile, so no get leases it (`a_slot_that_clean_cleans_is_reserved_against_a_get`). The rules are configured on purpose, so both delete by default (the
 user's decision): `--dry-run` only reports, `bd lease return --no-clean` applies none, and `--keep` and `--age` set the
@@ -1454,11 +1493,12 @@ the output base from the workspace path, so a moved slot starts with a cold outp
 
 The process scan (`crates/sync-utils/src/process_scan.rs`) reads the working directory and the argv of every process of
 the user: on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`) and
-`sysctl(KERN_PROCARGS2)`, on Linux from `/proc/<pid>/cwd` and `/proc/<pid>/cmdline`. It leaves out `bd` and its ancestors, and compares canonical paths by components. Windows has no
-scan: the outputs say `processes_checked: false`, and a lease never waits for it.
+`sysctl(KERN_PROCARGS2)`, on Linux from `/proc/<pid>/cwd` and `/proc/<pid>/cmdline`, with the process group
+(`pbi_pgid`, field 5 of `/proc/<pid>/stat`). It leaves out the session of `bd` (above), and compares canonical paths by
+components. Windows has no scan: the outputs say `processes_checked: false`, and a lease never waits for it.
 
-Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `crates/sync-utils/src/process_scan.rs`,
-`crates/bd-lease/src/lease_command.rs`.
+Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/clone_dir.rs`,
+`crates/lease-pool/src/free_space.rs`, `crates/sync-utils/src/process_scan.rs`, `crates/bd-lease/src/lease_command.rs`.
 
 #### Virtual branch sync
 

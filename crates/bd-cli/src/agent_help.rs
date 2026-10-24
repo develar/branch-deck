@@ -359,9 +359,12 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    command): `bd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
    prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, and `lease_id`; work and commit
    only there, never `git worktree add`. A free slot is moved to that HEAD (`reused`: only the diff is written); with
-   none free the pool adds one (`created_by`: `clone`, an APFS clone on macOS, or `checkout`). --branch <name> (-b) creates a branch there. `skipped` names free slots with
-   local changes (`dirty`) or processes in them (`busy`). `seeded`: ignored local files that `.worktreeinclude` names,
-   copied from the shared checkout.
+   none free the pool adds one (`created_by`: `clone`, an APFS clone on macOS without what the `delete` clean rules
+   delete, or `checkout`). --branch <name> (-b) creates a branch there. `skipped` names free slots with
+   local changes (`dirty`) or processes in them (`busy`); the get stops the Bazel servers of a free slot itself
+   (`stopped_servers`). `seeded`: ignored local files that `.worktreeinclude` names, copied from the shared checkout.
+   `low_disk_space` (exit 4): the volume of the pool has less free space than `branchdeck.leaseMinFree` asks; tell the
+   user, never pass --min-free 0 on your own. `idle_leases`: leases whose holder process is gone; the user decides.
 
 1. When `bd workspace` says `subject_branch.on` (`branchdeck.agentSubjectBranch`, off by default), write the prefix
    when you commit, never later; off, write the subject as the repository does, and the owner groups the commits
@@ -412,15 +415,20 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
 5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
-   content (a dry run of the pick decides, also after the owner rewrote the branch); land them with step 2 first; `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4): a process
-   works in it (a shell, a build); stop it or wait. A repeat after a timed-out call is safe: it waits for the running
-   return and answers `joined: true`. The return itself waits up to 60 s for git's background maintenance
-   (`git maintenance`, an automatic `git gc`, the repack they start). The Bazel servers of the worktree (`--workspace_directory` in it)
-   serve only it: the return stops them with SIGTERM (`stopped_servers`; their output bases stay), --keep-servers
-   refuses instead. --confirm-preserved discards the changes and gives up the
+   content (a dry run of the pick decides, also after the owner rewrote the branch); land them with step 2 first; `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4,
+   `processes`: each with `argv` and `kind`): a process of another session works in it (a shell, a build, a test run);
+   read `processes`, never `ps` or `lsof`, and wait until it is done; never kill it. A repeat after a timed-out call is
+   safe: it waits for the running return and answers `joined: true`. Not counted: your own session (bd, its ancestors
+   and their process groups: the `jq` of `bd lease return | jq`), git's background maintenance (`maintenance`: a
+   repack after a commit, which writes only the shared object store) and `caffeinate`. The Bazel servers of the
+   worktree (`--workspace_directory` in it, `kind: bazel_server`) serve only it, with an output base of their own: the
+   return stops them with SIGTERM once no other process is there (`stopped_servers`; their output bases stay), so
+   never run `bazel shutdown` or kill one first. --confirm-preserved discards the changes and gives up the
    commits, only when the user said so. `bd lease status` lists the slots and their leases from the pool state
-   (--processes adds the processes in each). The return applies the clean rules of `.branchdeck.toml` (`cleaned`:
-   stale cargo units, test artifacts; `clean_error` when the file does not parse, the return still succeeds):
+   (--processes adds the processes in each; `holder_alive`, `free_bytes`). The return applies the clean rules of
+   `.branchdeck.toml` (`cleaned`: stale cargo units, build output, test artifacts; a `delete` moves its paths into the
+   trash and deletes them once the slot is free; `clean_error` when the file does not parse, the return still
+   succeeds); notes that must outlive the return go outside the paths of the rules:
    `bd lease return --no-clean` applies none, and `bd lease return --keep <n> --age <duration>` changes every cargo
    rule for this call. `bd lease clean` applies the rules now (--free: the free slots; --dry-run only reports;
    --keep, --age as for the return). The rules are the user's choice: pass `bd lease return --no-clean` only when

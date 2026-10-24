@@ -169,8 +169,8 @@ pub enum ErrorCode {
   NotASlot,
   /// `bd lease adopt`: the pool holds the worktree already
   SlotInPool,
-  /// `bd lease return` and `adopt`: a process other than bd and its ancestors has its working directory in the worktree;
-  /// the message names it. Nothing was changed
+  /// `bd lease return` and `adopt`: a process other than bd and its session has its working directory in the worktree;
+  /// `processes` names each with its argv and kind. Nothing was changed
   SlotBusy,
   /// `bd lease return`: HEAD has commits that no branch, tag or remote branch holds (`commits`): land them first
   /// (`bd pick --from <worktree> --follow` in the shared checkout), or `--confirm-preserved` gives them up
@@ -182,6 +182,8 @@ pub enum ErrorCode {
   BranchExists,
   /// `bd lease adopt --move`: the worktree is on another volume than the pool directory; a move would copy every file
   OtherVolume,
+  /// `bd lease get`: the volume of the pool has less free space than `branchdeck.leaseMinFree` or `--min-free` asks
+  LowDiskSpace,
   /// No usable git executable
   GitNotFound,
   /// A git command failed
@@ -263,6 +265,7 @@ impl ErrorCode {
       | Self::DirtyWorktree
       | Self::BranchExists
       | Self::OtherVolume
+      | Self::LowDiskSpace
       | Self::Canceled => 4,
       Self::GitNotFound | Self::GitError | Self::NetworkError | Self::PatronusError | Self::Internal => 5,
     }

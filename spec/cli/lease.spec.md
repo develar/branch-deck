@@ -9,6 +9,9 @@ targets:
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/lease-pool/src/lease.rs
   - ../../crates/lease-pool/src/lease_clean.rs
+  - ../../crates/lease-pool/src/clone_dir.rs
+  - ../../crates/lease-pool/src/free_space.rs
+  - ../../crates/bd-core/src/error.rs
   - ../../.branchdeck.toml
   - ../../crates/sync-utils/src/process_scan.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
@@ -40,7 +43,11 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - A slot whose last commit a rewrite of master made unreachable is reused as any other free slot.
 - `bd lease status` answers from the state in milliseconds: no `git status` of any slot.
 - Concurrent gets never get the same slot, and never wait for each other's checkouts or for a `bd update`.
-- A return never loses work silently: unlanded commits, local changes and a process in the slot refuse it.
+- A return never loses work silently: unlanded commits, local changes and a process of another session in the slot
+  refuse it. Nothing that cannot hurt the slot refuses it: the session that returns it, git's background maintenance,
+  the Bazel servers of the slot, which the return stops itself.
+- A get never starts on a volume that the builds of the slot would fill (`branchdeck.leaseMinFree`), and a new slot
+  never carries the build output of the checkout it was cloned from.
 
 ## Non-goals
 
@@ -58,10 +65,29 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `slot` (the worktree id), `source_head`, `leased_at`, `reused`, `seeded` and `processes_checked`. A slot whose
   commit master no longer holds, after a rewrite of master, must be reused like any free slot.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
-- A free slot must be a linked worktree of the same git common dir whose directory exists, and no process other than
-  `bd` and its ancestors may have its working directory in it; a busy free slot is skipped (`skipped`, `reason:
-  "busy"`). The source may itself be a leased slot.
+- With a minimum free space, `--min-free <size>` or else `branchdeck.leaseMinFree` of the git config (a number and a
+  binary unit, `200G` or `200GiB`, K to P, as `df -h` counts; `0` and no setting check nothing), a get must refuse
+  before it reserves anything when the volume of the pool has less free space (`f_bavail` of `statfs`):
+  `low_disk_space` (exit 4), the message naming the free space and the minimum in GiB, the free slots and the leases
+  whose holder process is gone. A size that does not parse is `invalid_arguments`. The minimum is the machine's, so it
+  is git config, never `.branchdeck.toml`. A successful get prints `free_bytes`; where the system does not tell it
+  (Windows) nothing is checked.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_free_space_refuses_and_names_it`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_size_is_a_number_and_a_binary_unit`)
+- A free slot must be a linked worktree of the same git common dir whose directory exists, and no process of another
+  session may work in it; a busy free slot is skipped (`skipped`, `reason: "busy"`, `processes` [{`pid`, `command`,
+  `argv`, `kind`, `workspace`?}]). The source may itself be a leased slot.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_busy_free_slot_is_skipped`, `adopt_adds_clean_linked_worktrees_and_refuses_the_rest`)
+- A get must stop the Bazel servers of a free slot it reserved (`--workspace_directory` in the slot, wherever their
+  working directory is) with SIGTERM, wait up to 30 s, name them in `stopped_servers` and lease the slot: the slot is
+  the pool's, a server serves only it, and a `--watchfs` server could miss the events of the checkout and build
+  stale. A server that does not exit gives the slot back free and skips it as busy.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_stops_the_bazel_server_of_a_free_slot_and_leases_it`)
+- A get must record the process it runs for, the nearest ancestor that is no shell or wrapper (the coding agent, the
+  terminal), with its start time (`holder_pid`, `holder_started`): the `pid` of a lease is of the get, which exits at
+  once. A get that adds a new slot names the `ready` leases whose holder process is gone (`idle_leases`); the get
+  never frees them, since their slots may hold unlanded work and a resumed session runs as another process.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`the_status_tells_whether_the_holder_of_a_lease_is_alive`)
 - A free slot with local changes (one `status --porcelain=v1`, the repository's own `core.fsmonitor` applies) must be
   skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty;
   later gets must try a dirty slot after the clean ones. With no free slot left, the get must add a new slot
@@ -86,11 +112,20 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   must get the `.git` file of a `worktree add --no-checkout --lock` (unlocked once the clone is at its path, so the
   `worktree prune` of a get beside it never deletes the registration), the template's index refreshed with
   `core.checkStat=minimal`, then `checkout --force` to the source HEAD, `clean -fd` and a clean `status`: the
-  template's local changes, staged files and untracked files never reach the lease, its ignored files do. The
-  template must be free again afterwards, and the source unchanged.
+  template's local changes, staged files and untracked files never reach the lease, its ignored files do, but for
+  what the `delete` clean rules of the source delete: those paths are left out of the clone, but for their `except`
+  entries, a link among them as the link, and the `.git` of the template with them, so a new slot starts as a
+  returned one and a clone of a main checkout never copies its build output (in idea-1 188 GB and 760,000 files of
+  `out/`, its `bazel-*` links into the output base of the main checkout among them). The directories on the way to a
+  left-out path are made anew and the rest of each is cloned entry by entry (`clonefile` with `CLONE_NOFOLLOW`);
+  without such rules the whole tree is one `clonefile`. A tracked file under a left-out path comes back with the
+  checkout. A rules file that can't be read clones everything. The template must be free again afterwards, and the
+  source unchanged.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_new_slot_is_a_clone_of_the_source_without_its_local_work`, `a_new_slot_is_a_clone_of_a_free_slot`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_of_a_new_slot_by_a_clone`)
   [@test] ../../crates/git-ops/src/lease_slot_test.rs (`a_prune_while_a_cloned_slot_is_away_keeps_its_registration_until_the_unlock`)
+  [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_cloned_slot_leaves_out_what_the_delete_rules_delete`)
+  [@test] ../../crates/lease-pool/src/clone_dir_test.rs (`a_clone_leaves_out_the_skipped_paths_but_for_their_kept_entries`)
 - A clone that fails (another volume, no APFS, a file it can't read, not macOS) must leave nothing behind and fall
   back to `git worktree add` (`created_by: "checkout"`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_clone_that_fails_falls_back_to_a_checkout`)
@@ -117,9 +152,17 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - A get of a free slot must run a fixed number of git processes: the repository, the source HEAD, the pool config,
   one `status` and one `checkout` of the slot.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_and_return`)
-- The process scan must find a process by its working directory, compared by path components, and leave out `bd`
-  and its ancestors; a recorded start time must tell a process from a later one with the same pid.
-  [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_process_in_a_directory_is_inside_it_and_this_process_is_left_out`, `a_process_runs_only_with_the_start_time_it_was_recorded_with`)
+- The process scan must find a process by its working directory, compared by path components, or by the
+  `--workspace_directory` of a Bazel server, and leave out the session that runs `bd`: `bd`, its ancestors and every
+  process of a process group one of them is in (the `jq` of `bd lease return | jq`, the `caffeinate` of the agent;
+  not the group of the init process). A background task of the agent leads a group of its own and still counts.
+  Two more never work in a slot: git's background maintenance (a `git maintenance` or a `git gc --auto` and every git
+  below it in the parent chain, told by argv), which writes only the shared object store, and `caffeinate`, which
+  holds a power assertion and opens no file (a command it wraps is a process of its own and counts). A recorded start
+  time must tell a process from a later one with the same pid.
+  [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_process_in_a_directory_is_inside_it_and_this_process_and_its_group_are_left_out`, `a_process_runs_only_with_the_start_time_it_was_recorded_with`)
+  [@test] ../../crates/sync-utils/src/process_scan_test.rs (`the_session_is_the_ancestors_and_their_groups`, `git_maintenance_and_caffeinate_do_not_work_in_a_directory`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_process_of_the_group_of_bd_does_not_keep_the_slot_busy`)
 
 ### Return
 
@@ -128,7 +171,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   stays) and leave the slot at its commit.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_seed_copies_the_included_ignored_files_and_the_return_removes_them`, `a_lease_on_a_new_branch_keeps_the_branch_after_the_return`)
 - It must refuse, with nothing changed: a worktree without a lease (`no_lease`, exit 2), another `--lease-id`
-  (`lease_mismatch`, exit 2), a process other than `bd` and its ancestors in the worktree (`slot_busy`, exit 4), HEAD
+  (`lease_mismatch`, exit 2), a process of another session in the worktree (`slot_busy`, exit 4, `processes`
+  [{`pid`, `command`, `argv` (at most 200 characters), `kind`: `bazel_server` or `other`, `workspace`?}], the message
+  naming each with its argv, so no `ps` is needed to tell them), HEAD
   with commits that no branch, tag or remote branch holds (`unlanded_commits`, exit 4, `commits`, the message naming
   `bd pick --from <dir> --follow`), and local changes (`dirty_worktree`, exit 4, `paths`). The commits of the commit
   the slot was leased at never count as unlanded, also after a rewrite of master made them unreachable.
@@ -146,19 +191,20 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - The return must find the Bazel servers of the slot (a process whose argv has `--workspace_directory=<dir>`, `<dir>`
   the slot or inside it, such as `<slot>/community`), ask each to exit with SIGTERM once nothing else refuses, wait up
   to 30 s, and name them in `stopped_servers` (pid, workspace, output base). A server that does not exit keeps the
-  slot busy (`slot_busy`); `--keep-servers` refuses instead of stopping them. No other process is ever signalled: any
-  other process in the slot refuses as `slot_busy` before a server is signalled. Bazel derives the output base from
-  the workspace path, so a server serves only its slot, and the output base stays on disk: the next lease of the slot
-  gets the same one, with its disk action cache. A get skips a free slot under a live server as busy, also when the
-  server works elsewhere: a `--watchfs` server can miss the events of a large checkout, and its build could be stale.
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_stops_the_bazel_servers_of_the_slot`, `a_return_stops_no_server_it_should_keep_and_signals_no_other_process`, `a_get_skips_a_free_slot_under_a_live_bazel_server`)
+  slot busy (`slot_busy`, the message saying it did not exit on SIGTERM). No other process is ever signalled: any
+  other process in the slot refuses as `slot_busy` before a server is signalled, and the message says that the
+  return stops the servers itself. Bazel derives the output base from the workspace path, so a server serves only its
+  slot, and the output base stays on disk: the next lease of the slot gets the same one, with its disk action cache.
+  There is no flag to keep a server: with one, a return under a running server could never pass, the trap agents
+  fell into.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_stops_the_bazel_servers_of_the_slot`, `a_return_signals_no_other_process_and_a_server_that_does_not_exit_keeps_the_slot_busy`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`the_argv_comes_from_the_procargs_buffer_without_the_environment`)
-- The return must wait up to 60 s for git's background maintenance in the slot, then go on: a `git maintenance` or a
-  `git gc --auto` and every git below it in the parent chain (`git repack`, `git multi-pack-index write`), told by
-  argv. A commit in a slot starts `git maintenance run --auto --detach`, whose repack keeps the slot as its working
-  directory for about 30 s and writes only the shared object store. One still there after the wait refuses the return
-  as `slot_busy` and is named. A get must not skip a free slot for them.
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`the_return_waits_for_git_maintenance_and_a_get_ignores_it`)
+- git's background maintenance in the slot must keep neither a return nor a get from it, and the return names its
+  pids (`maintenance`): a commit in a slot starts `git maintenance run --auto --detach`, whose repack keeps the slot as
+  its working directory for minutes in a large repository (2 to 17 minutes in idea-1) and writes only the shared
+  object store. While a `gc --auto` holds `HEAD.lock` of the slot (`pack-refs`, `reflog expire`), the detach of HEAD
+  must be retried for up to 10 s; the lock is told by its file, never by the words of git's error.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`git_maintenance_keeps_no_slot_busy_and_is_named`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`git_maintenance_is_the_maintenance_and_the_gits_it_starts`)
 - Once its checks passed, the return must reserve the slot before it changes anything: under the pool lock, with CAS on
   the lease id, the lease becomes `returning`, and a get must pass the slot over. A repeat must join, never fail: a
@@ -190,20 +236,34 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
     `.fingerprint/` and `build/` (a build script and its run, `out/`), built at the newest mtime of its files;
   - in both, `incremental/<crate>-<hash>/` is a unit of its own, grouped by crate.
   The uplifted artifacts at the top of the profile dir (`debug/libavl_vm.rlib`, `debug/<bin>`) and `.cargo-lock` are
-  never touched. `{ delete = "<path>" }` removes a path.
+  never touched. `{ delete = "<path>" }` removes a path, a file, a directory or a symlink (the link, never its
+  target); `{ delete = "<dir>", except = ["<name>", …] }` removes every entry of the directory but the named ones
+  (names of direct entries, no path).
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`, `the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash`, `a_classic_unit_is_its_name_and_its_hash`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`)
 - An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
 - A rule must be skipped and reported (`error`), never applied, when its path is absolute, leaves the checkout with
-  `..`, names `.git`, names the checkout itself, has a symlink on its way or is one, or holds a file that git tracks
-  (one `ls-files -z` of the paths of all rules). The walk of a rule never follows a symlink.
-  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`an_unsafe_path_is_a_rule_that_is_reported`)
+  `..`, names `.git`, names the checkout itself, has a symlink on its way (a `cargo` dir that is one too), holds a file
+  that git tracks (one `ls-files -z` of the paths of all rules), or has an `except` entry that is no name of an entry;
+  and a `delete` whose path holds the dir of a `cargo` rule without naming the entry on its way in `except`, which
+  would remove what the cargo rule keeps. The walk of a rule never follows a symlink.
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`an_unsafe_path_is_a_rule_that_is_reported`, `a_delete_names_its_kept_entries_and_keeps_the_dirs_of_cargo_rules`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`an_unsafe_rule_is_skipped_and_reported`)
 - The return must read the file once, from the source checkout that the lease recorded (the slot's own when the
   source is gone), and apply the rules after all its checks passed, before it frees the slot: `cleaned` [{`rule`,
   `freed_bytes`, `ms`, `error`?}]. A file that can't be read or parsed (`clean_error`) and a failed rule never fail
   the return.
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`the_return_applies_the_clean_rules_of_the_source`, `a_bad_file_does_not_fail_the_return`)
+- What a `delete` removes must go into the trash first, a rename into `$GIT_COMMON_DIR/branch-deck/trash/<pid>-<start
+  time>-<uuid>/` (in place on another volume), so a return frees the slot before the long delete of a build output
+  and a timeout of the caller never leaves a lease `returning` while files go. Once the slot is free the return, and
+  `bd lease clean` once every slot it marked is free again, delete their trash, counting `freed_bytes` in the same
+  walk, and the trash of a run whose process is gone; a path that can't be deleted stays and is named in
+  `trash_left`. `freed_bytes` counts the blocks an APFS clone shares with another checkout too; `bd lease clean`
+  also prints `volume_freed_bytes`, what the volume gained (`statfs` before and after).
+  [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_return_deletes_through_the_trash_and_what_a_gone_run_left_there`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`)
 - `bd lease clean [--free] [--dry-run] [--keep <n>] [--age <duration>] [<dir>...]` must apply the rules of the checkout
   it runs in, read once, to the free slots (`--free`), to the given worktrees, or to that checkout. A slot of the pool
   with a lease or with a process in it is skipped (`skipped`); a checkout that is no slot is cleaned as asked. A free
@@ -215,15 +275,16 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - The rules are configured on purpose, so they apply by default: the return and `bd lease clean` delete what they
   name, as the user decided. `bd lease return --no-clean` applies none. `--keep <n>` and `--age <duration>`, on both
   commands, set `keep` and `age` of every cargo rule for that call without an edit of the file; a bad `--age` is
-  `invalid_arguments`. These are the only overrides: a `delete` rule has no parameter.
+  `invalid_arguments`. These are the only overrides: `except` of a `delete` rule is the file's.
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`no_clean_and_the_overrides_change_what_a_call_cleans`)
 
 ### Status
 
 - `bd lease status` must list every slot from the state alone, with its `path`, `state` (`free`, `preparing`,
-  `ready`, `templating`, `returning`, `cleaning`, `abandoned`), `dirty`, `missing` and `lease`; it must run no `git status`. `--processes` must add the
-  processes in each slot. It writes nothing.
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`the_status_reads_the_state_without_a_git_status`)
+  `ready`, `templating`, `returning`, `cleaning`, `abandoned`), `dirty`, `missing` and `lease` (with `holder_pid` and
+  `holder_alive`), the `free_bytes` of the volume of the pool and the `trash_bytes` a killed run left; it must run no
+  `git status`. `--processes` must add the processes in each slot. It writes nothing.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`the_status_reads_the_state_without_a_git_status`, `the_status_tells_whether_the_holder_of_a_lease_is_alive`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
 
 ### Adopt
@@ -247,7 +308,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 |---|---|
 | 2 | `invalid_arguments`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | `locked` (the pool lock, retryable) |
-| 4 | `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `no_baseline` (a source without commits) |
+| 4 | `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits) |
 
 - The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
@@ -264,9 +325,6 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   the process scan.
 
 ## Open Questions / Risks
-
-- `bd lease clean --free` reads the state again right before it cleans a free slot, but takes no pool lock while it
-  deletes: a get that leases the slot meanwhile finds a cargo unit or a test artifact gone, which costs a rebuild.
 
 - A clone copies what the template has at that moment: an ignored file that the template writes during the clone can
   be copied half written, and the checkout and the clean keep ignored files. A free slot is the preferred template

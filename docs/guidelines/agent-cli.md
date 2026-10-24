@@ -108,7 +108,7 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -810,7 +810,7 @@ through the guarded update. `--follow` moves the source worktree onto the new ti
 - A pick or a follow killed between the move and its files leaves the mark `refs/branch-deck/update-pending/<worktree
   id>`, as an update does; the next pick, update or undo lets the files follow first.
 
-### `bd lease get [--holder <label>] [-b <branch>]`, `return`, `status`, `adopt`
+### `bd lease get [--holder <label>] [-b <branch>] [--min-free <size>]`, `return`, `status`, `adopt`
 
 The pool of worktrees that agent sessions work in, one session per slot (`lease_pool::lease`, "Lease" in
 [Git Operations](../design/git-operations.md), the contract [bd lease](../../spec/cli/lease.spec.md)). A lease needs no
@@ -823,39 +823,55 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
  "skipped":[{"slot":"idea-1","path":"…/1/idea-1","reason":"dirty","paths":["left.txt"]}],"processes_checked":true}
 ```
 
-- `bd lease get` leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch there):
-  one `status` of the slot, then `checkout --force`, only the diff written (`reused: true`). A free slot with local
-  changes is skipped and marked dirty, one with a process in it is skipped as busy (`skipped`). No free slot: a new
-  one, `<pool>/<n>/<repository name>` (`reused: false`): on macOS an APFS clone of a free slot or of the source, then
-  the diff checked out (`created_by: "clone"`, `cloned_from`), else a full checkout (`created_by: "checkout"`). The pool is `~/.branch-deck/pool/<name>-<hash>`, or
+- `bd lease get` first checks the free space of the volume of the pool against `--min-free <size>`, else
+  `git config branchdeck.leaseMinFree <size>` (`200G`, binary units as `df -h`; `0` or no setting checks nothing):
+  less is `low_disk_space` (exit 4), the message naming both sizes, the free slots and the leases whose holder
+  process is gone. It leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch
+  there): one `status` of the slot, then `checkout --force`, only the diff written (`reused: true`). A free slot with
+  local changes is skipped and marked dirty, one with a process of another session in it is skipped as busy
+  (`skipped`, `processes`); the Bazel servers of a free slot are stopped with SIGTERM (`stopped_servers`). No free
+  slot: a new one, `<pool>/<n>/<repository name>` (`reused: false`): on macOS an APFS clone of a free slot or of the
+  source without what the `delete` clean rules delete, then the diff checked out (`created_by: "clone"`,
+  `cloned_from`), else a full checkout (`created_by: "checkout"`); with a new slot, `idle_leases` names the leases
+  whose holder process is gone. The pool is `~/.branch-deck/pool/<name>-<hash>`, or
   `git config branchdeck.leasePool <dir>`. The ignored files `.worktreeinclude` names are copied in (`seeded`).
-- `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved] [--keep-servers]` frees the slot of `--workspace`, `-C`
+  `free_bytes` is the free space before the get.
+- `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
   or the current directory: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
-  its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `slot_busy` (a process other than bd and its
-  ancestors in it), `unlanded_commits` (`commits` that no branch, tag or remote branch holds and that a dry run of
+  its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `slot_busy` (a process of another session
+  in it: `processes` [{`pid`, `command`, `argv`, `kind`: `bazel_server` or `other`, `workspace`}]), `unlanded_commits`
+  (`commits` that no branch, tag or remote branch holds and that a dry run of
   the pick onto the branch of the source would pick: land them with `bd pick --from <dir> --follow`),
-  `dirty_worktree` (`paths`). The return waits up to 60 s for git's background maintenance in the worktree (`git
-  maintenance`, `git gc --auto` and the gits they start), then goes on. A Bazel server of the worktree (`--workspace_directory` in it) is asked to exit with
-  SIGTERM, up to 30 s, and named in `stopped_servers`; `--keep-servers` refuses as `slot_busy` instead. `landed_check` says which check found the work landed: `reachability` or `content`
+  `dirty_worktree` (`paths`). Not counted: the session of bd (bd, its ancestors and the processes of their process
+  groups, such as the `jq` of a pipeline), git's background maintenance (`git maintenance`, `git gc --auto` and the
+  gits they start: `maintenance` names them; a detach of HEAD waits up to 10 s for a `HEAD.lock` they hold) and
+  `caffeinate`. A Bazel server of the worktree (`--workspace_directory` in it) is asked to exit with SIGTERM once no
+  other process is there, up to 30 s, and named in `stopped_servers`; one that does not exit is `slot_busy`.
+  `landed_check` says which check found the work landed: `reachability` or `content`
   (`landed_branch`). `--confirm-preserved` gives the commits up
   (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`. A repeat joins: a return
   retried while the first still runs waits for it, and a return that another return of the lease overtook changes
   nothing; both answer `joined: true`, with empty lists and no `landed_check` when they checked nothing.
 - `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
   `templating` (a get clones it into a new slot), `returning` (its return runs), `cleaning` (`bd lease clean` cleans
-  it) or `abandoned` (the get, the return or the clean of it died), `dirty`, `missing`, `lease`; no `git status`. `--processes` adds the
-  processes in each slot.
+  it) or `abandoned` (the get, the return or the clean of it died), `dirty`, `missing`, `lease` (`holder_pid`,
+  `holder_alive`: whether the process the get ran for still runs), `free_bytes`, `trash_bytes`; no `git status`.
+  `--processes` adds the processes in each slot.
 - `bd lease adopt [--move] <dir>...` adds clean linked worktrees of this repository as free slots where they are
   (`adopted`), and lists the refused ones with their code (`refused`: `not_a_slot`, `slot_in_pool`, `slot_busy`,
   `dirty_worktree`; exit 4). `--move` moves each into the pool directory with `git worktree move` (`moved_from`),
   only on the same volume (`other_volume`), and removes its old parent directory when it is left empty. A moved slot
   has a new path, so Bazel gives it a new, cold output base.
 - The return applies the clean rules of `.branchdeck.toml` (`[lease] clean`: `cargo`, the stale units of a target
-  dir; `delete`, a path) of the source checkout before it frees the slot: `cleaned` [{`rule`, `freed_bytes`, `ms`,
-  `error`}], a rule with an unsafe path (out of the slot, `.git`, tracked, a symlink) skipped with its `error`;
-  `clean_error` when the file does not parse, the return succeeds anyway; `--no-clean` applies none.
+  dir; `delete`, a path or a link, with `except` the entries of a directory but the named ones) of the source
+  checkout before it frees the slot: a `delete` moves its paths into the trash (`$GIT_COMMON_DIR/branch-deck/trash`),
+  and they are deleted and counted once the slot is free: `cleaned` [{`rule`, `freed_bytes`, `ms`, `error`}],
+  `trash_left`. A rule with an unsafe path (out of the slot, `.git`, tracked, a symlink on its way, a `delete` of a
+  cargo rule's dir) is skipped with its `error`; `clean_error` when the file does not parse, the return succeeds
+  anyway; `--no-clean` applies none. A get leaves out of a cloned slot what the `delete` rules delete.
   `bd lease clean [--free] [--dry-run] [<dir>...]` applies the rules now to the free slots, the given worktrees, or
-  the checkout of `-C`; it deletes by default, `--dry-run` only reports (`dry_run`, `freed_bytes`); a slot with a
+  the checkout of `-C`; it deletes by default, `--dry-run` only reports (`dry_run`, `freed_bytes`); `freed_bytes`
+  counts blocks an APFS clone shares too, `volume_freed_bytes` is what the volume gained; a slot with a
   lease or a process is `skipped`; a file that does not parse is `invalid_arguments`. On both commands `--keep <n>`
   and `--age <duration>` set `keep` and `age` of every cargo rule for that call.
 - `processes_checked: false`: the platform has no process scan (Windows), and nothing was refused for a process.

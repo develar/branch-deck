@@ -77,6 +77,9 @@ Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<r
   stale units of `target/`, the e2e artifacts); `bd lease clean --free` applies them to the free slots now
   (`--dry-run` only reports). Dependencies are built with workspace-wide features (`.cargo/config.toml`) and line
   tables only.
+- **Disk**: a get refuses as `low_disk_space` when the volume of the pool has less free space than
+  `branchdeck.leaseMinFree` (git config, the machine's: `200G` on the user's Mac); tell the user, never pass
+  `--min-free 0` on your own.
 - **E2E**: the mock server listens on 3030 in every checkout; when another worktree's server holds it, run
   `E2E_PORT=3031 pnpm e2e` (any free port). Global setup refuses a server that serves another checkout, because
   Playwright reuses whatever listens on the port.

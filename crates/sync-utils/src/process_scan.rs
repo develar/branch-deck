@@ -1,10 +1,11 @@
 //! The processes whose working directory is inside a directory, for the lease pool (`lease`): a slot with a process in
 //! it is busy, a shell or a build daemon there would see its files change. One scan reads every process of the user
 //! once: on macOS through libproc (`proc_listallpids`, `proc_pidinfo`), on Linux from `/proc`. Windows has no scan:
-//! `ProcessScan::Unavailable`, and a lease never waits for it. The scan leaves out this process and its ancestors (the
-//! shell and the agent that run `bd`). It reads the argv of each process too (`KERN_PROCARGS2` on macOS,
-//! `/proc/<pid>/cmdline` on Linux): a Bazel server names its workspace there (`--workspace_directory=`), and serves
-//! only that one, since Bazel derives its output base from the workspace path.
+//! `ProcessScan::Unavailable`, and a lease never waits for it. The scan leaves out the session that runs `bd`: this
+//! process, its ancestors and every process of their process groups (the `jq` of `bd lease return | jq`, the
+//! `caffeinate` of the agent). It reads the argv of each process too (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
+//! on Linux): a Bazel server names its workspace there (`--workspace_directory=`), and serves only that one, since Bazel
+//! derives its output base from the workspace path.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -15,6 +16,8 @@ pub struct ProcessInfo {
   pub pid: u32,
   /// The parent's pid; 0 when unknown
   pub parent: u32,
+  /// The process group (`pgid`); 0 when unknown
+  pub group: u32,
   /// The command name, as `ps -o comm` shows it
   pub name: String,
   /// The working directory, as the kernel resolved it (no symlinks); `None` when it can't be read (another user's)
@@ -78,14 +81,54 @@ impl ProcessInfo {
   fn works_in(&self, dir: &Path) -> bool {
     self.cwd.as_ref().is_some_and(|cwd| cwd.starts_with(dir)) || self.bazel_workspace().is_some_and(|workspace| workspace.starts_with(dir))
   }
+
+  /// `caffeinate` holds a power assertion and opens no file, whatever its working directory: Claude Code starts one in
+  /// the directory of a session to keep the Mac awake. A command it wraps is a process of its own and still counts
+  fn holds_only_its_directory(&self) -> bool {
+    self.name == "caffeinate"
+  }
+
+  /// The arguments as one line, at most `limit` characters (`…` at the cut); the name without them
+  pub fn command_line(&self, limit: usize) -> String {
+    let line = if self.argv.is_empty() { self.name.clone() } else { self.argv.join(" ") };
+    if line.chars().count() <= limit {
+      return line;
+    }
+    let mut cut: String = line.chars().take(limit.saturating_sub(1)).collect();
+    cut.push('…');
+    cut
+  }
 }
+
+/// Shells and wrappers that run a command for someone else: the holder of a lease is the nearest ancestor that is
+/// none of them (`ProcessScan::session`)
+const RUNNERS: &[&str] = &[
+  "sh",
+  "bash",
+  "zsh",
+  "dash",
+  "fish",
+  "ksh",
+  "tcsh",
+  "csh",
+  "nu",
+  "pwsh",
+  "env",
+  "nohup",
+  "timeout",
+  "xargs",
+  "time",
+  "sudo",
+  "bd",
+  "branch-deck",
+];
 
 /// The processes of one scan
 #[derive(Debug, Clone)]
 pub enum ProcessScan {
   Done {
     processes: Vec<ProcessInfo>,
-    /// This process and its ancestors
+    /// The session that runs this process: it, its ancestors and the processes of their groups
     own: HashSet<u32>,
   },
   /// No scan on this platform: nothing is known to be inside a directory
@@ -133,24 +176,66 @@ impl ProcessScan {
       .collect()
   }
 
-  /// The processes whose working directory, or the workspace of a Bazel server, is `dir` or below it, by path
-  /// components, except this process and its ancestors; `dir` is compared canonical, as the kernel names a working
-  /// directory
+  /// The processes that work in `dir`: their working directory, or the workspace of a Bazel server, is `dir` or below
+  /// it, by path components; `dir` is compared canonical, as the kernel names a working directory. Left out: the
+  /// session that runs this process (`own`), git's background maintenance (`git_maintenance`: it writes only the shared
+  /// object store) and `caffeinate`, which holds only its directory
   pub fn inside(&self, dir: &Path) -> Vec<&ProcessInfo> {
+    let maintenance = self.git_maintenance();
+    self
+      .in_directory(dir)
+      .into_iter()
+      .filter(|process| !maintenance.contains(&process.pid) && !process.holds_only_its_directory())
+      .collect()
+  }
+
+  /// The pids of git's background maintenance in `dir`, which `inside` leaves out
+  pub fn maintenance_inside(&self, dir: &Path) -> Vec<u32> {
+    let maintenance = self.git_maintenance();
+    self.in_directory(dir).iter().map(|process| process.pid).filter(|pid| maintenance.contains(pid)).collect()
+  }
+
+  /// The processes in `dir`, except the session of this process
+  fn in_directory(&self, dir: &Path) -> Vec<&ProcessInfo> {
     let Self::Done { processes, own } = self else { return Vec::new() };
     let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
     processes.iter().filter(|process| !own.contains(&process.pid) && process.works_in(&dir)).collect()
   }
+
+  /// The process this one works for: the nearest ancestor that is no shell or wrapper (`RUNNERS`), the coding agent or
+  /// the terminal; `None` without a scan or when the chain has none below the init process
+  pub fn session(&self) -> Option<&ProcessInfo> {
+    let Self::Done { processes, .. } = self else { return None };
+    let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|process| (process.pid, process)).collect();
+    let mut seen = HashSet::new();
+    let mut current = by_pid.get(&std::process::id())?.parent;
+    while current > 1 && seen.insert(current) {
+      let process = by_pid.get(&current)?;
+      if !RUNNERS.contains(&process.name.as_str()) {
+        return Some(process);
+      }
+      current = process.parent;
+    }
+    None
+  }
 }
 
-/// `pid` and the chain of its parents among `processes`
-fn own_processes(processes: &[ProcessInfo], pid: u32) -> HashSet<u32> {
-  let parents: HashMap<u32, u32> = processes.iter().map(|process| (process.pid, process.parent)).collect();
+/// The session of `pid` among `processes`: it, the chain of its parents, and every process of a group one of them is
+/// in (the other commands of its pipeline, what the agent above it runs in its own group). The group of the init
+/// process (pid 1) and an unknown group (0) are not counted
+pub(crate) fn own_processes(processes: &[ProcessInfo], pid: u32) -> HashSet<u32> {
+  let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|process| (process.pid, process)).collect();
   let mut own = HashSet::new();
+  let mut groups = HashSet::new();
   let mut current = pid;
   while current != 0 && own.insert(current) {
-    current = parents.get(&current).copied().unwrap_or(0);
+    let Some(process) = by_pid.get(&current) else { break };
+    if process.pid > 1 && process.group > 1 {
+      groups.insert(process.group);
+    }
+    current = process.parent;
   }
+  own.extend(processes.iter().filter(|process| groups.contains(&process.group)).map(|process| process.pid));
   own
 }
 
@@ -224,6 +309,7 @@ mod platform {
           Some(ProcessInfo {
             pid,
             parent: info.pbi_ppid,
+            group: info.pbi_pgid,
             name: name(&info),
             cwd: cwd(pid),
             argv: argv(pid),
@@ -349,6 +435,7 @@ mod platform {
           Some(ProcessInfo {
             pid,
             parent: stat.parent,
+            group: stat.group,
             name: stat.name,
             cwd: std::fs::read_link(dir.join("cwd")).ok(),
             argv: std::fs::read(dir.join("cmdline")).map_or_else(
@@ -387,6 +474,8 @@ mod platform {
   struct Stat {
     name: String,
     parent: u32,
+    /// Field 5, `pgrp`
+    group: u32,
     /// Field 22, `starttime`: clock ticks since boot
     started: u64,
     /// Field 3, `state`, is `Z`
@@ -404,6 +493,7 @@ mod platform {
       Some(Self {
         name,
         parent: fields.get(1)?.parse().ok()?,
+        group: fields.get(2)?.parse().ok()?,
         started: fields.get(19)?.parse().ok()?,
         zombie: fields.first() == Some(&"Z"),
       })

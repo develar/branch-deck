@@ -292,10 +292,12 @@ pub struct LeaseConfig {
   pub workers: CheckoutWorkers,
   /// From `status.showUntrackedFiles`
   pub untracked: UntrackedFiles,
+  /// `branchdeck.leaseMinFree`, as written (`200G`): the free space a get needs on the volume of the pool
+  pub min_free: Option<String>,
 }
 
-/// `branchdeck.leasePool`, whether `checkout.workers` is set, and `status.showUntrackedFiles`: one `config --type=path
-/// --get-regexp`, which exits with 1 when no key is set
+/// `branchdeck.leasePool`, whether `checkout.workers` is set, `status.showUntrackedFiles` and
+/// `branchdeck.leaseMinFree`: one `config --type=path --get-regexp`, which exits with 1 when no key is set
 pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<LeaseConfig> {
   let output = git_executor
     .cmd(
@@ -303,7 +305,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
         "config",
         "--type=path",
         "--get-regexp",
-        r"^(branchdeck\.leasepool|checkout\.workers|status\.showuntrackedfiles)$",
+        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|checkout\.workers|status\.showuntrackedfiles)$",
       ],
       repository,
     )
@@ -314,6 +316,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
     let (key, value) = line.split_once(' ').unwrap_or((line, ""));
     match key {
       "branchdeck.leasepool" if !value.is_empty() => config.pool = Some(value.to_string()),
+      "branchdeck.leaseminfree" if !value.is_empty() => config.min_free = Some(value.to_string()),
       "checkout.workers" => config.workers.configured = true,
       // the last value wins, as in git
       "status.showuntrackedfiles" => config.untracked = if value == "all" { UntrackedFiles::All } else { UntrackedFiles::Normal },

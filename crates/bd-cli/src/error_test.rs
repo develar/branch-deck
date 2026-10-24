@@ -72,6 +72,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::DirtyWorktree, 4, false),
   (ErrorCode::BranchExists, 4, false),
   (ErrorCode::OtherVolume, 4, false),
+  (ErrorCode::LowDiskSpace, 4, false),
   (ErrorCode::GitNotFound, 5, false),
   (ErrorCode::GitError, 5, false),
   (ErrorCode::NetworkError, 5, true),
