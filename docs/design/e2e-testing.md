@@ -166,7 +166,7 @@ Mock implementation:
   handlers over a route (`get_file_diffs`, `get_file_merges` and `sync_branches` adapt a channel;
   `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
   and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (112) and `PAGE_MOCKED` (4) are pinned; `PAGE_MOCKED` only goes down: a new command
+  bytes). The number of commands (129) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
@@ -223,14 +223,29 @@ Mock implementation:
   [@test] ../../src-tauri/src/api_error_contract_test.rs (`a_command_of_the_app_rejects_with_the_api_error_json_of_the_contract`)
   [@test] ../../crates/test-server/src/api_error_contract_test.rs (`a_command_of_the_server_answers_the_api_error_json_of_the_contract`)
   [@test] ../../crates/test-server/src/api_error_contract_test.rs (`a_panicked_command_of_the_server_fails_the_request`)
+  [@test] ../../crates/test-server/src/api_error_contract_test.rs (`a_command_with_a_channel_answers_the_api_error_json_of_the_contract_on_its_stream`)
   [@test] ../../crates/test-server/src/repository_lifecycle_test.rs (`a_failed_command_answers_with_its_api_error`)
 - **IPC counters**: the mock counts the backend commands of the page in `window.__ipcStats`: `invokes` by command,
   `requestBytes` and `responseBytes` (UTF-8 bytes of the parameters and the answers), `channelMessages` by command and
-  `channelBytes` (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`), and `pending`, the commands
-  whose answer has not been read; `reset()` zeroes the counts, not `pending`. It counts at the fetch of `/invoke/<cmd>`,
+  `channelBytes` (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`, and the patches of
+  `subscribe_view` for as long as its channel stays open), and `pending`, the commands whose answer has not been read
+  (`subscribe_view` until its answer, not its last patch); `reset()` zeroes the counts, not `pending`. It counts at the fetch of `/invoke/<cmd>`,
   so an answer of a `routeCommand` counts too; the commands the page answers itself (the store, event, window and log
   plugins, the sub-window handlers) do not. `pnpm perf:table` reads it
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view))
+- **Sessions**: the server hosts the sessions of its repositories as the app does (`session_routes.rs`, the same
+  `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` that stands still, so no session of a test
+  goes away by itself): `open_session`, `get_snapshot`, `sync`, `set_window_focus` and `unsubscribe_view` answer JSON;
+  `subscribe_view` is a long-lived event stream of its channel (`X-Progress-Channel`, the `patches` of the command):
+  `{ result }` with the subscription and its view first, then each `ViewPatch` as `{ progress }`, until
+  `unsubscribe_view` or the deletion of the repository, which closes its sessions first, so the stream ends and the
+  deletion does not wait for it. The mock answers the command at its `{ result }` and reads the stream on for the
+  channel (`OPEN_CHANNELS` of `tauri-mocks.ts`). A refusal (`no_branch_prefix`) is `{ result: { status: "error",
+  error } }` on the stream, the JSON of the app. A patch may reach the channel before the answer, in the app too: the
+  page keeps it until it has the view, and applies a patch only on its `base`.
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_subscription_answers_its_view_then_the_patches_up_to_the_version_a_sync_answers`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app`)
+  [@test] ../../crates/test-server/src/repository_lifecycle_test.rs (`deleting_a_repository_closes_its_sessions`)
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
   functions; Patronus and GitHub are asked through the app's own services behind fakes
   ([Remote services](#remote-services)); an answer that claude would give, and the review requests, come from a

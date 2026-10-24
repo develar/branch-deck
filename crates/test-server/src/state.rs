@@ -23,6 +23,11 @@ pub struct AppState {
   /// The waits of the rewrites, the pushes and the updates for a holder of the repository lock, by the channel of the
   /// page each reports on (`channel_commands`): `cancel_lock_wait` stops one
   pub lock_waits: history_rewrite::lock_wait::LockWaits,
+  /// The sessions of the repositories (`session_routes`), as the app hosts them; their syncs keep their tables in
+  /// `repository_views`
+  pub sessions: repository_model::session::Sessions,
+  /// The clock the sessions age on: it stands still, so no session of a test goes away by itself
+  pub session_clock: sync_utils::clock::TestClock,
 }
 
 impl AppState {

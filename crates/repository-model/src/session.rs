@@ -10,14 +10,14 @@
 //! server). A session opened again starts a new epoch, so a window that held the old one asks for a snapshot.
 
 use crate::runtime::{Message, spawn_actor};
-use crate::sync_scheduler::{Settled, SyncOutcome, SyncReason};
+use crate::sync_scheduler::Settled;
 use crate::table::TableState;
 use domain_types::error::ApiError;
-use domain_types::session::{TableView, ViewPatch};
+use domain_types::session::{SyncAnswer, SyncReason, TableView, Version, ViewPatch};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_core::sync::SyncReport;
@@ -37,9 +37,9 @@ pub struct SessionKey {
   pub prefix: String,
 }
 
-/// A window's subscription to the patches of a session
+/// A window's subscription to the patches of a session, unique within the registry (`u32`: a number in TypeScript)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SubscriptionId(pub u64);
+pub struct SubscriptionId(pub u32);
 
 /// The window that went away; the session drops its subscription
 #[derive(Debug)]
@@ -68,8 +68,8 @@ pub trait SessionHost: Send + Sync + 'static {
   /// progress, a detached HEAD) answers its `ApiError` code (`operation_in_progress`, `detached_head`)
   fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun;
 
-  /// Whether a window that gains focus syncs (the app's `autoSyncOnFocus`)
-  fn syncs_on_focus(&self) -> bool;
+  /// Whether a window of `key` that gains focus syncs (the app's `autoSyncOnFocus`)
+  fn syncs_on_focus(&self, key: &SessionKey) -> bool;
 }
 
 /// The reporter of a sync run: its events go to the session's mailbox, tagged with the run, so the events of a run that
@@ -95,15 +95,15 @@ impl domain_types::ProgressReporter for RunReporter {
 /// The request of a sync: resolves when the run that serves it ends (or with the check that found nothing changed),
 /// never after the follow-ups of the chain
 #[derive(Debug)]
-pub struct SyncTicket(pub(crate) oneshot::Receiver<Settled>);
+pub struct SyncTicket(pub(crate) oneshot::Receiver<Result<SyncAnswer, ApiError>>);
 
 impl SyncTicket {
-  /// How the request ended
+  /// How the request ended, with the version of the view after the run's last patch
   ///
   /// # Errors
   /// The `ApiError` of the run that served it (a deferred sync with its code), or an internal one when the session
   /// went away first
-  pub async fn wait(self) -> Result<SyncOutcome, ApiError> {
+  pub async fn wait(self) -> Result<SyncAnswer, ApiError> {
     self.0.await.unwrap_or_else(|_| Err(ApiError::internal("The session closed before its sync ended")))
   }
 }
@@ -172,14 +172,15 @@ impl Drop for Busy {
 
 /// A request of a sync as the actor keeps it until the run that serves it ends
 pub(crate) struct Waiter {
-  reply: oneshot::Sender<Settled>,
+  reply: oneshot::Sender<Result<SyncAnswer, ApiError>>,
   _busy: Busy,
 }
 
 impl Waiter {
-  pub(crate) fn settle(self, settled: Settled) {
+  /// Answers the request; `version` is the view's after the patch of what ended
+  pub(crate) fn settle(self, settled: Settled, version: Version) {
     // a caller that stopped waiting has nothing to hear
-    let _ = self.reply.send(settled);
+    let _ = self.reply.send(settled.map(|outcome| SyncAnswer { outcome, version }));
   }
 }
 
@@ -194,7 +195,7 @@ pub struct Sessions {
   host: Arc<dyn SessionHost>,
   clock: Arc<dyn Clock>,
   entries: Mutex<HashMap<SessionKey, Entry>>,
-  next_subscription: AtomicU64,
+  next_subscription: AtomicU32,
 }
 
 impl Sessions {
@@ -206,7 +207,7 @@ impl Sessions {
       host,
       clock,
       entries: Mutex::new(HashMap::new()),
-      next_subscription: AtomicU64::new(1),
+      next_subscription: AtomicU32::new(1),
     }
   }
 
@@ -244,9 +245,9 @@ impl Sessions {
     answer.await.ok().map(|view| (id, view))
   }
 
-  /// Ends a subscription; the last one makes the session idle
-  pub fn unsubscribe(&self, key: &SessionKey, id: SubscriptionId) {
-    if let Some(entry) = self.lock().get(key) {
+  /// Ends a subscription, of whichever session holds it; the last one makes its session idle
+  pub fn unsubscribe(&self, id: SubscriptionId) {
+    for entry in self.lock().values() {
       let _ = entry.mailbox.send(Message::Unsubscribe(id));
     }
   }
@@ -259,7 +260,7 @@ impl Sessions {
       let entry = entries.get(key)?;
       let _ = entry.mailbox.send(Message::Focus(focused));
     }
-    (focused && self.host.syncs_on_focus()).then(|| self.sync(key, SyncReason::Focus))
+    (focused && self.host.syncs_on_focus(key)).then(|| self.sync(key, SyncReason::Focus))
   }
 
   /// Asks the session of `key` for a sync, opening it; the ticket resolves when the run that serves the request ends
@@ -296,6 +297,41 @@ impl Sessions {
       entries.remove(key);
     }
     idle
+  }
+
+  /// Closes every session of `worktree` (all prefixes) now, whatever keeps it: its subscribers are dropped at once (their
+  /// streams end); a sync in flight ends unseen by any window, the requests it serves get its outcome and the ones queued
+  /// after it an internal error. The host calls it when the repository goes away (the E2E server's deletion of a test
+  /// repository); answers how many it closed
+  pub fn close_worktree(&self, worktree: &str) -> usize {
+    let mut entries = self.lock();
+    let closed: Vec<SessionKey> = entries.keys().filter(|key| key.worktree == worktree).cloned().collect();
+    for key in &closed {
+      if let Some(entry) = entries.remove(key) {
+        let _ = entry.mailbox.send(Message::Close);
+      }
+    }
+    closed.len()
+  }
+
+  /// Sweeps the sessions every `every` (wall time; what is idle is decided on the session clock) while the registry
+  /// lives: the app's timer. The E2E server sweeps after it moved its clock instead
+  pub fn sweep_every(self: &Arc<Self>, every: Duration) {
+    let sessions = Arc::downgrade(self);
+    self.runtime.spawn(async move {
+      let mut ticks = tokio::time::interval(every);
+      ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+      loop {
+        ticks.tick().await;
+        let Some(sessions) = sessions.upgrade() else {
+          break;
+        };
+        let removed = sessions.sweep();
+        if !removed.is_empty() {
+          tracing::debug!(?removed, "Removed the idle sessions");
+        }
+      }
+    });
   }
 
   fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<SessionKey, Entry>> {

@@ -136,7 +136,7 @@ fn ensure_repository_exists(state: &AppState, path: &str) -> Result<(), Rejectio
   repository_by_path(state, path).map(drop)
 }
 
-fn repository_by_path<'a>(state: &'a AppState, path: &str) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, Rejection> {
+pub(crate) fn repository_by_path<'a>(state: &'a AppState, path: &str) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, Rejection> {
   state
     .path_to_id
     .get(path)
@@ -253,7 +253,7 @@ fn prefix_inputs(state: &AppState, repository_path: &str) -> Result<TestPrefixIn
 
 /// The prefix a command of the repository at `repository_path` names its branches with, as the app's commands resolve it
 /// (`TestPrefixInputs::branch_prefix`, in a blocking step); an error for an unknown repository
-async fn branch_prefix_of(state: &AppState, repository_path: &str) -> Result<String, Rejection> {
+pub(crate) async fn branch_prefix_of(state: &AppState, repository_path: &str) -> Result<String, Rejection> {
   let inputs = prefix_inputs(state, repository_path)?;
   let path = repository_path.to_owned();
   Ok(run_command("read the branch prefix", move || inputs.branch_prefix(&path)).await?.0)

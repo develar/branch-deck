@@ -1,5 +1,6 @@
-use crate::sync_scheduler::{RunEnd, Settled, Step, SyncOutcome, SyncReason, SyncScheduler};
+use crate::sync_scheduler::{RunEnd, Settled, Step, SyncScheduler};
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::session::{SyncOutcome, SyncReason};
 use pretty_assertions::assert_eq;
 
 const SYNCED: Settled = Ok(SyncOutcome::Synced);

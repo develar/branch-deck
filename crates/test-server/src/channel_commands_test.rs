@@ -2,48 +2,15 @@
 //! whom for on the channel of the command, as SSE events before its answer, and Stop Waiting (`cancel_lock_wait` of the
 //! channel) ends the wait with nothing changed (the code `canceled`)
 
-use crate::test_support::{Named, command, create_repository, post, post_as, start_test_server};
+use crate::test_support::{Messages, Named, command, create_repository, post, post_as, start_test_server};
 use pretty_assertions::assert_eq;
-use serde_json::{Value, json};
-
-/// The JSON messages of an SSE answer, one by one
-struct Messages {
-  response: reqwest::Response,
-  buffer: String,
-}
-
-impl Messages {
-  async fn next(&mut self) -> Value {
-    loop {
-      if let Some(end) = self.buffer.find("\n\n") {
-        let event: String = self.buffer.drain(..end + 2).collect();
-        if let Some(data) = event.lines().find_map(|line| line.strip_prefix("data: ")) {
-          return serde_json::from_str(data).unwrap();
-        }
-        continue;
-      }
-      let chunk = tokio::time::timeout(std::time::Duration::from_mins(1), self.response.chunk())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-      self.buffer.push_str(&String::from_utf8_lossy(&chunk));
-    }
-  }
-}
+use serde_json::json;
 
 /// Parks `test-branch` on the channel `channel` while the server holds the lock of the repository: its messages
 async fn park_while_locked(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, path: &str, channel: u32) -> Messages {
   post(client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": true })).await;
   let park = json!({ "repositoryPath": path, "branches": [{ "branchName": "test-branch", "note": "later" }] });
-  let response = command(client, addr, Named::ByPath, "park_branches", &park)
-    .header("X-Progress-Channel", channel.to_string())
-    .send()
-    .await
-    .unwrap();
-  assert_eq!(response.status(), 200);
-  assert!(response.headers()["content-type"].to_str().unwrap().starts_with("text/event-stream"));
-  Messages { response, buffer: String::new() }
+  Messages::of_channel(command(client, addr, Named::ByPath, "park_branches", &park), channel).await
 }
 
 #[tokio::test]

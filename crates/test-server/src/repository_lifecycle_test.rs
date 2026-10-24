@@ -168,3 +168,25 @@ fn every_command_of_a_route_test_names_its_repository() {
   }
   assert_eq!(built_by_hand, [] as [String; 0], "a command request built outside test_support::command");
 }
+
+/// The deletion of a repository closes its sessions: the stream of a window still subscribed ends, so the deletion does
+/// not wait for it, and the session is gone
+#[tokio::test]
+async fn deleting_a_repository_closes_its_sessions() {
+  let (addr, state) = start_test_server_with_state().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  let mut messages = crate::session_routes_test::subscribe(&client, addr, &id, &path, 9).await;
+  crate::session_routes_test::subscription(&mut messages).await;
+  let key = repository_model::session::SessionKey {
+    worktree: path.clone(),
+    prefix: "user-name".to_string(),
+  };
+  assert!(state.sessions.is_open(&key));
+
+  let started = Instant::now();
+  delete_repository(&client, addr, &id, &path).await;
+  assert!(started.elapsed() < Duration::from_secs(30), "the deletion waited for the stream: {:?}", started.elapsed());
+  assert_eq!(messages.next_or_end().await, None, "the stream of the closed session ended");
+  assert!(!state.sessions.is_open(&key));
+}

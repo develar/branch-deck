@@ -3200,9 +3200,25 @@ The host supplies the sync (`SessionHost`; the app's is `GitSessionHost` with th
 keeps, `SessionEnvironment`). A session without subscribers runs nothing (a focus is `Skipped`, no git process), and
 `Sessions::sweep` removes it after two minutes without subscribers or operations on the session clock (`TestClock` in
 the tests); opened again it has a new epoch. `session_test.rs` pins the tickets, the recheck, the retry, the kept
-table, the late events, two worktrees and the life; `sync_scheduler_test.rs` the schedule. The app's windows still
-apply the `SyncEvent`s themselves (`branch-sync.ts`) until the next steps of `s6-session-table` move them onto the
-sessions.
+table, the late events, two worktrees and the life; `sync_scheduler_test.rs` the schedule.
+
+The hosts: the app's commands (`src-tauri/src/commands/session.rs`) and the E2E server's routes (`session_routes.rs`)
+resolve the session key from the repository path with the prefix the commands resolve (`PrefixInputs`, refused as
+`no_branch_prefix` without one): `open_session` answers the view, `get_snapshot` the view of an open session (null for
+one that is not: the window subscribes again), `subscribe_view` subscribes the calling window on a channel of
+`ViewPatch`es and answers its id with the view at that moment (`ViewSubscription`), `unsubscribe_view` ends it by id,
+`set_window_focus` answers the focus sync it started (null for none), and `sync` with a `SyncReason` answers when the
+run that serves it ended (`SyncAnswer`: the outcome and the version of the view after its last patch, which the window
+waits for, since the patch and the answer travel apart); a failure is the run's `ApiError`. The app's host
+(`GitSessionHost`) reads the git config for each sync (`ConfigSnapshot`, its git prefix kept for the commands after
+it, as `sync_branches` keeps it), takes the issue links and the object cache of `RepositoryStateCache`, and after a
+successful run keeps its table in `RepositoryViews` (`BranchTable::from_report` with the remote statuses a
+`RemoteStatusCollector` kept), which `get_repository_view` answers from. A Tauri channel of a page that went away never
+fails its send, so a window's subscriptions end with the window (`Destroyed`) and with each page load of it (a
+reload); the app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the sessions of a test
+repository when it deletes it (`Sessions::close_worktree`, which drops the subscribers at once). `sync_branches` and
+the `SyncEvent`s the windows apply themselves (`branch-sync.ts`) stay until the page moves onto the sessions
+(`s6-session-table`).
 
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table

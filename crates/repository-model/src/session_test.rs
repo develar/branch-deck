@@ -1,9 +1,10 @@
 use crate::runtime::{GitSessionHost, SessionEnvironment};
+use crate::session::SyncTicket;
 use crate::session::{IDLE_LIMIT, RunReporter, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun};
-use crate::sync_scheduler::{SyncOutcome, SyncReason};
 use crate::table::table_test::{branch_status, grouped, grouping, synced};
+use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::session::{BranchStatus, SyncState, TableView, ViewPatch};
+use domain_types::session::{BranchStatus, SyncOutcome, SyncReason, SyncState, TableView, ViewPatch};
 use domain_types::stack::BlockReason;
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -92,7 +93,7 @@ impl SessionHost for ScriptedHost {
     })
   }
 
-  fn syncs_on_focus(&self) -> bool {
+  fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     true
   }
 }
@@ -136,6 +137,11 @@ fn report(retry: bool, not_built: &[&str]) -> SyncReport {
   }
 }
 
+/// How the request of `ticket` ended, without the version of its answer
+async fn outcome(ticket: SyncTicket) -> Result<SyncOutcome, ApiError> {
+  ticket.wait().await.map(|answer| answer.outcome)
+}
+
 async fn snapshot(sessions: &Sessions, key: &SessionKey) -> TableView {
   sessions.get_snapshot(key).await.unwrap()
 }
@@ -156,9 +162,10 @@ async fn a_ticket_resolves_when_its_run_ends_not_the_chain() {
   let first = sessions.sync(&key, SyncReason::Manual);
   let second = sessions.sync(&key, SyncReason::AfterRewrite);
   // the follow-up is held by its gate: the first ticket does not wait for it
-  assert_eq!(first.wait().await, Ok(SyncOutcome::Synced));
+  assert_eq!(outcome(first).await, Ok(SyncOutcome::Synced));
   gate.notify_one();
-  assert_eq!(second.wait().await, Ok(SyncOutcome::Synced));
+  let second = second.wait().await.unwrap();
+  assert_eq!(second.outcome, SyncOutcome::Synced);
   assert_eq!(host.runs(), 2);
 
   let mut view = empty;
@@ -167,6 +174,8 @@ async fn a_ticket_resolves_when_its_run_ends_not_the_chain() {
   }
   let snapshot = snapshot(&sessions, &key).await;
   assert_eq!(view, snapshot);
+  // the answer names the version its run's last patch brought the view to
+  assert_eq!(second.version, snapshot.version);
   assert_eq!(snapshot.sync, SyncState::Idle);
   assert_eq!(snapshot.branches["auth"].sync.status, BranchStatus::Created);
 }
@@ -200,15 +209,15 @@ async fn a_focus_during_a_run_is_one_check_after_it() {
   let gate = Arc::new(Notify::new());
   host.push_gated(auth_built(), Ok(report(false, &[])), Some(Arc::clone(&gate)));
   let (sessions, key) = watched(&host).await;
-  assert_eq!(sessions.sync(&key, SyncReason::Open).wait().await, Ok(SyncOutcome::Synced));
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Open)).await, Ok(SyncOutcome::Synced));
   let checks_after_open = *host.checks.lock().unwrap();
 
   let manual = sessions.sync(&key, SyncReason::Manual);
   let focuses = [sessions.set_window_focus(&key, true).unwrap(), sessions.set_window_focus(&key, true).unwrap()];
   gate.notify_one();
-  assert_eq!(manual.wait().await, Ok(SyncOutcome::Synced));
+  assert_eq!(outcome(manual).await, Ok(SyncOutcome::Synced));
   for focus in focuses {
-    assert_eq!(focus.wait().await, Ok(SyncOutcome::Unchanged));
+    assert_eq!(outcome(focus).await, Ok(SyncOutcome::Unchanged));
   }
   assert_eq!(host.runs(), 2);
   // one read before the manual run, one check after the chain
@@ -240,7 +249,7 @@ async fn a_moved_branch_is_retried_once_and_syncing_until_then() {
   };
   assert!(matches!(during.sync, SyncState::Running { .. }));
   gate.notify_one();
-  assert_eq!(ticket.wait().await, Ok(SyncOutcome::Synced));
+  assert_eq!(outcome(ticket).await, Ok(SyncOutcome::Synced));
   assert_eq!(host.runs(), 2, "one retry");
 }
 
@@ -257,7 +266,7 @@ async fn a_failed_sync_keeps_the_table() {
   sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
   let synced = snapshot(&sessions, &key).await;
 
-  assert_eq!(sessions.sync(&key, SyncReason::Manual).wait().await, Err(ApiError::internal("broken")));
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Err(ApiError::internal("broken")));
   let failed = snapshot(&sessions, &key).await;
   assert_eq!(
     failed.sync,
@@ -267,7 +276,7 @@ async fn a_failed_sync_keeps_the_table() {
   );
   assert_eq!((&failed.order, &failed.branches), (&synced.order, &synced.branches));
 
-  assert_eq!(sessions.sync(&key, SyncReason::Manual).wait().await, Err(deferred));
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Err(deferred));
   let deferred_view = snapshot(&sessions, &key).await;
   assert_eq!(deferred_view.sync, SyncState::Idle);
   assert_eq!(deferred_view.branches, synced.branches);
@@ -288,15 +297,20 @@ impl SessionEnvironment for TestEnvironment {
     }
   }
 
-  fn syncs_on_focus(&self) -> bool {
+  fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     true
   }
 }
 
 /// Sessions that sync with `git`, on a clock the test moves
 fn with_git(git: GitCommandExecutor) -> (Sessions, TestClock) {
+  with_git_views(git, RepositoryViews::default())
+}
+
+/// `with_git` whose syncs keep their tables in `views`
+fn with_git_views(git: GitCommandExecutor, views: RepositoryViews) -> (Sessions, TestClock) {
   let clock = TestClock::new();
-  let host = Arc::new(GitSessionHost::new(git, TestEnvironment));
+  let host = Arc::new(GitSessionHost::new(git, views, TestEnvironment));
   (Sessions::new(tokio::runtime::Handle::current(), host, Arc::new(clock.clone())), clock)
 }
 
@@ -332,7 +346,8 @@ async fn two_worktrees_of_one_repository_are_two_sessions() {
   lane.git(&["add", "gamma.txt"]);
   lane.git(&["commit", "-q", "-m", "(gamma) Add gamma"]);
 
-  let (sessions, _clock) = with_git(GitCommandExecutor::new());
+  let views = RepositoryViews::default();
+  let (sessions, _clock) = with_git_views(GitCommandExecutor::new(), views.clone());
   let main = SessionKey {
     worktree: repo.path_str().to_string(),
     prefix: "test".to_string(),
@@ -344,12 +359,43 @@ async fn two_worktrees_of_one_repository_are_two_sessions() {
   };
   for key in [&main, &other] {
     sessions.subscribe(key, Box::new(Window::default())).await.unwrap();
-    assert_eq!(sessions.sync(key, SyncReason::Open).wait().await, Ok(SyncOutcome::Synced));
+    assert_eq!(outcome(sessions.sync(key, SyncReason::Open)).await, Ok(SyncOutcome::Synced));
   }
   let (main_view, other_view) = (snapshot(&sessions, &main).await, snapshot(&sessions, &other).await);
   assert_eq!(branch_names(&main_view), ["alpha", "beta"]);
   assert_eq!(branch_names(&other_view), ["gamma"]);
   assert_ne!(main_view.version.epoch, other_view.version.epoch);
+  // the table each sync finished answers the repository views of its worktree and prefix
+  let git = GitCommandExecutor::new();
+  for key in [&main, &other] {
+    let facts = views.guard_facts(&git, &key.worktree, &key.prefix, Vec::new());
+    assert!(facts.is_some(), "the views keep the table of {key:?}");
+  }
+}
+
+/// Closing the sessions of a worktree drops its windows at once, whatever keeps the session; the sessions of another
+/// worktree stay
+#[tokio::test]
+async fn closing_a_worktree_drops_its_sessions_and_their_windows() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  let (gone, kept) = (key("/gone"), key("/kept"));
+  let window = Window::default();
+  sessions.subscribe(&gone, Box::new(window.clone())).await.unwrap();
+  let other_prefix = SessionKey {
+    prefix: "other".to_string(),
+    ..gone.clone()
+  };
+  sessions.subscribe(&other_prefix, Box::new(Window::default())).await.unwrap();
+  sessions.subscribe(&kept, Box::new(Window::default())).await.unwrap();
+
+  assert_eq!(sessions.close_worktree("/gone"), 2);
+  assert!(!sessions.is_open(&gone) && !sessions.is_open(&other_prefix));
+  assert!(sessions.is_open(&kept));
+  // the actor dropped the subscriber: the window's stream ends
+  while Arc::strong_count(&window.patches) > 1 {
+    tokio::task::yield_now().await;
+  }
 }
 
 /// A session whose last window left runs nothing: a focus starts no git process; it is removed once idle for
@@ -366,12 +412,12 @@ async fn a_session_without_subscribers_runs_nothing_and_goes_away() {
   let (id, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
   let epoch = snapshot(&sessions, &key).await.version.epoch;
-  sessions.unsubscribe(&key, id);
+  sessions.unsubscribe(id);
 
   let processes = git.process_stats().unwrap().total();
   repo.create_commit("(ui) Add ui", "ui.rs", "// ui");
   let focus = sessions.set_window_focus(&key, true).unwrap();
-  assert_eq!(focus.wait().await, Ok(SyncOutcome::Skipped));
+  assert_eq!(outcome(focus).await, Ok(SyncOutcome::Skipped));
   assert_eq!(git.process_stats().unwrap().total(), processes, "no git process for a session no window shows");
 
   clock.advance(IDLE_LIMIT.checked_sub(Duration::from_secs(1)).unwrap());

@@ -16,17 +16,20 @@
 //!   the table with `Failed { error }`. A run whose report asks for a retry (`SyncReport::retry`) runs once more for the
 //!   same requests, its branches that were not built `Syncing` until then.
 
+use crate::branch_table::BranchTable;
 use crate::session::{Busy, RunReporter, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, Waiter};
 use crate::state::{View, new_epoch};
-use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncReason, SyncScheduler};
+use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::TableState;
+use crate::views::RepositoryViews;
 use domain_types::SyncEvent;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::session::{SyncState, SyncStep, TableView};
+use domain_types::session::{SyncReason, SyncState, SyncStep, TableView};
 use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
 use std::time::Duration;
+use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::sync::{SyncOptions, SyncReport, sync_branches};
 use sync_core::sync_inputs::sync_inputs_fingerprint;
 use sync_utils::span::in_current_span;
@@ -46,6 +49,8 @@ pub(crate) enum Message {
     reply: oneshot::Sender<TableView>,
   },
   Unsubscribe(SubscriptionId),
+  /// The session was removed from the registry: its subscribers go at once
+  Close,
   Snapshot(oneshot::Sender<TableView>),
   Focus(bool),
   Sync {
@@ -153,6 +158,11 @@ impl Actor {
       Message::Snapshot(reply) => {
         let _ = reply.send(self.view.snapshot());
       }
+      Message::Close => {
+        for _ in self.subscribers.drain(..) {
+          self.life.subscriber_left();
+        }
+      }
       Message::Focus(focused) => self.focused = focused,
       Message::Sync { reason, waiter } => {
         let decision = self.scheduler.request(reason, waiter, self.is_watched());
@@ -218,8 +228,9 @@ impl Actor {
 
   /// Resolves the waiters of a decision, then takes its next step
   fn follow(&mut self, decision: Decision<Waiter>) {
+    let version = self.view.version();
     for (waiter, settled) in decision.resolve {
-      waiter.settle(settled);
+      waiter.settle(settled, version);
     }
     match decision.next {
       Step::Nothing => {}
@@ -310,20 +321,24 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   /// reach): a deferred sync keeps its code
   fn api_error(&self, error: anyhow::Error) -> ApiError;
 
-  /// Whether a window that gains focus syncs
-  fn syncs_on_focus(&self) -> bool;
+  /// Whether a window of `key` that gains focus syncs (Settings, "Sync on focus")
+  fn syncs_on_focus(&self, key: &SessionKey) -> bool;
 }
 
-/// The host of the app's sessions: the syncs and the fingerprints run with git
+/// The host of the app's sessions: the syncs and the fingerprints run with git, and the table a sync finished goes on to
+/// the repository views (`RepositoryViews::keep`, which `get_repository_view` answers from until s7 moves the Patronus
+/// section into the session), with the remote statuses its events carried
 pub struct GitSessionHost<E> {
   git: GitCommandExecutor,
+  views: RepositoryViews,
   environment: Arc<E>,
 }
 
 impl<E> GitSessionHost<E> {
-  pub fn new(git: GitCommandExecutor, environment: E) -> Self {
+  pub fn new(git: GitCommandExecutor, views: RepositoryViews, environment: E) -> Self {
     Self {
       git,
+      views,
       environment: Arc::new(environment),
     }
   }
@@ -337,7 +352,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
   }
 
   fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun {
-    let (git, environment, key) = (self.git.clone(), Arc::clone(&self.environment), key.clone());
+    let (git, views, environment, key) = (self.git.clone(), self.views.clone(), Arc::clone(&self.environment), key.clone());
     Box::pin(async move {
       let options = {
         let (environment, key) = (Arc::clone(&environment), key.clone());
@@ -346,13 +361,18 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       let options = options
         .map_err(|error| ApiError::internal(format!("The sync preparation task failed: {error}")))?
         .map_err(|error| environment.api_error(error))?;
-      sync_branches(&git, &key.worktree, &key.prefix, reporter, options)
+      // the remote statuses among the events are kept for the table of the views
+      let reporter = RemoteStatusCollector::new(reporter);
+      let report = sync_branches(&git, &key.worktree, &key.prefix, reporter.clone(), options)
         .await
-        .map_err(|error| environment.api_error(error))
+        .map_err(|error| environment.api_error(error))?;
+      let table = BranchTable::from_report(&key.prefix, &report, &reporter.take_statuses());
+      views.keep(&key.worktree, &key.prefix, table);
+      Ok(report)
     })
   }
 
-  fn syncs_on_focus(&self) -> bool {
-    self.environment.syncs_on_focus()
+  fn syncs_on_focus(&self, key: &SessionKey) -> bool {
+    self.environment.syncs_on_focus(key)
   }
 }

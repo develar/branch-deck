@@ -49,6 +49,12 @@ impl Progress {
       let _ = sender.send(serde_json::json!({ "progress": message }));
     }
   }
+
+  /// Sends `message` to the channel; `false` without one or when its stream is gone, so a subscriber knows its window
+  /// went away
+  pub fn try_send(&self, message: &impl Serialize) -> bool {
+    self.sender.as_ref().is_some_and(|sender| sender.send(serde_json::json!({ "progress": message })).is_ok())
+  }
 }
 
 /// The answer of `command`, which reports on `progress`: SSE events of its messages and its answer when the page named

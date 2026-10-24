@@ -76,7 +76,8 @@ export const tauriMockScript = () => {
    * reached the mock server or a test's route of `/invoke/<cmd>` (`routeCommand` answers count too), counted at the
    * fetch; the plugin commands the page answers itself (store, event, window, log) are not. `requestBytes` and
    * `responseBytes` are the UTF-8 bytes of the parameters and of the answers, `channelMessages` and `channelBytes` the
-   * messages of a command's channel (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`); `pending`
+   * messages of a command's channel (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`, the patches
+   * of `subscribe_view`, counted under its name for as long as its channel stays open); `pending`
    * the commands whose answer has not been read yet. `reset()` zeroes the counts, not `pending`
    */
   const encoder = new TextEncoder()
@@ -200,10 +201,10 @@ export const tauriMockScript = () => {
     // Unwrap params if present - the frontend wraps parameters in { params: actualParams }
     // but the test server expects the parameters directly
     const actualPayload = payload?.params || payload
-    // a progress channel (`push_branch`, `update_project`, the `wait` of a rewrite) stays in the page: the server sends
-    // its messages as SSE events before the answer (`channel_commands.rs`), a test route by its key
-    // (`window.__progressChannels`, see `routePush`)
-    const channel = payload?.progress ?? payload?.wait
+    // a progress channel (`push_branch`, `update_project`, the `wait` of a rewrite, the `patches` of `subscribe_view`)
+    // stays in the page: the server sends its messages as SSE events before the answer (`channel_commands.rs`), a test
+    // route by its key (`window.__progressChannels`, see `routePush`)
+    const channel = payload?.progress ?? payload?.wait ?? payload?.patches
     const channelId = registerProgressChannel(channel)
 
     const init = {
@@ -217,7 +218,7 @@ export const tauriMockScript = () => {
     const { contentType, body } = await invokeServer(cmd, `/invoke/${cmd}`, init, async response => {
       await checkServerResponse(cmd, response)
       if (response.headers.get("content-type")?.includes("text/event-stream")) {
-        return { contentType: "application/json", body: await readChannelAnswer(cmd, response, channel) }
+        return { contentType: "application/json", body: await readChannelAnswer(cmd, response, channel, OPEN_CHANNELS.has(cmd)) }
       }
       return { contentType: response.headers.get("content-type"), body: await readAnswer(response) }
     })
@@ -269,24 +270,42 @@ export const tauriMockScript = () => {
   }
 
   /**
-   * The answer of a command with a channel, as SSE events (`channel_commands.rs`): each `{ progress }` goes to the
-   * channel's `onmessage` while the command runs, `{ result }` is its answer, as the bytes of the JSON answer
+   * The commands whose channel stays open after their answer: the patches of a session come on the `patches` of
+   * `subscribe_view` until `unsubscribe_view` or the deletion of the test repository (`session_routes.rs`)
    */
-  async function readChannelAnswer(cmd: string, response: Response, channel: any): Promise<ArrayBuffer> {
+  const OPEN_CHANNELS = new Set(["subscribe_view"])
+
+  /**
+   * The answer of a command with a channel, as SSE events (`channel_commands.rs`): each `{ progress }` goes to the
+   * channel's `onmessage`, `{ result }` is its answer, as the bytes of the JSON answer. The answer of a command whose
+   * channel stays open (`keepsOpen`) comes with its `{ result }`, and the stream is read on for the channel; that of
+   * another command once its stream ended
+   */
+  async function readChannelAnswer(cmd: string, response: Response, channel: any, keepsOpen: boolean): Promise<ArrayBuffer> {
     const reader = response.body?.getReader()
     if (!reader) {
       throw new Error("No response body")
     }
     let result: unknown = undefined
-    await parseSSEStream(cmd, reader, event => {
+    let answered: (result: unknown) => void = () => {}
+    const answer = new Promise<unknown>(resolve => (answered = resolve))
+    const read = parseSSEStream(cmd, reader, event => {
       if ("progress" in event) {
         channel.onmessage(event.progress)
       } else if ("result" in event) {
         result = event.result
+        answered(result)
       } else if (event.panicked === true) {
         throw new Error(`The mock server failed ${cmd}: the command panicked`)
       }
     })
+    if (keepsOpen) {
+      // a page that goes away ends the read with its fetch
+      read.catch(error => debug(`[SSE] The channel of ${cmd} ended:`, error))
+      result = await Promise.race([answer, read.then(() => result)])
+    } else {
+      await read
+    }
     if (result === undefined) {
       throw new Error(`The mock server answered ${cmd} without a result`)
     }

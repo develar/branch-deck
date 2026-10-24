@@ -64,6 +64,7 @@ use commands::repository_config::{get_repository_config, set_repository_config};
 use commands::repository_view::{get_repository_view, wait_landing_needs};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_review_requests, prune_review_refs};
 use commands::reword::reword;
+use commands::session::{SessionsState, get_snapshot, open_session, set_window_focus, subscribe_view, sync, unsubscribe_view};
 use commands::settings::{get_settings_changes, set_setting};
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
@@ -164,6 +165,12 @@ fn specta_builder() -> Builder<tauri::Wry> {
       get_patronus_target_branch,
       read_patronus_command_reply,
       sync_branches,
+      open_session,
+      get_snapshot,
+      subscribe_view,
+      unsubscribe_view,
+      set_window_focus,
+      sync,
       get_sync_inputs_fingerprint,
       resolve_branch_prefix,
       check_git_setup,
@@ -321,13 +328,23 @@ pub fn run() {
       }
     })
     .on_menu_event(handle_menu_event)
+    // a page that loads again (a reload) starts without the subscriptions of the one before
+    .on_page_load(|webview, payload| {
+      if payload.event() == tauri::webview::PageLoadEvent::Started
+        && let Some(state) = webview.try_state::<SessionsState>()
+      {
+        state.forget_window(webview.label());
+      }
+    })
     .setup(move |app| {
       ts_builder.mount_events(app);
 
       app.manage(GitCommandExecutor::new());
       app.manage(history_rewrite::lock_wait::LockWaits::default());
       app.manage(RepositoryStateCache::new());
-      app.manage(repository_model::views::RepositoryViews::default());
+      let views = repository_model::views::RepositoryViews::default();
+      app.manage(SessionsState::new(app.handle(), app.state::<GitCommandExecutor>().inner().clone(), views.clone()));
+      app.manage(views);
       app.manage(app_settings::branch_prefixes::BranchPrefixes::default());
       app.manage(BranchReviewMemo::new());
       // one cache of the files of a range for the reviews' lists and their diffs (`get_range_files`, `get_file_diffs`)
@@ -421,6 +438,7 @@ pub fn run() {
         app_handle.state::<ReviewFetchState>().0.forget(&label);
         app_handle.state::<SymbolSearchState>().0.forget(&label);
         app_handle.state::<SubWindowState>().forget(&label);
+        app_handle.state::<SessionsState>().forget_window(&label);
         title_bar::forget_window(&label);
         if label == app_settings::windows::MAIN_WINDOW {
           close_sub_windows(app_handle);

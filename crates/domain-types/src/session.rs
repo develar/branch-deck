@@ -17,7 +17,7 @@ use crate::landed::LandedBranch;
 use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
 use crate::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, RemoteStatusUpdate, UnappliedBranchInfo};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// The version of what a window holds of a session. `epoch` is random per process and session, `seq` grows by one with
@@ -40,6 +40,56 @@ impl Version {
       seq: self.seq.wrapping_add(1),
     }
   }
+}
+
+/// Why a session syncs (`repository_model::sync_scheduler` decides what runs)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum SyncReason {
+  /// ⌘R, the Sync button: always runs
+  Manual,
+  /// A window gained focus: runs when the inputs changed
+  Focus,
+  /// A rewrite, its undo or a fetch changed the branches: always runs, as a quiet follow-up while one is in flight
+  AfterRewrite,
+  /// A window opened the session: runs when the inputs changed, or joins the run in flight
+  Open,
+}
+
+/// How the request of a sync ended, when it did not fail
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum SyncOutcome {
+  /// A run served the request and succeeded
+  Synced,
+  /// Nothing a sync reads changed since the last successful sync: no run
+  Unchanged,
+  /// A focus of a session that no window shows: nothing ran
+  Skipped,
+}
+
+/// The answer of a request of a sync: how it ended, and the version of the view after the last patch of the run that
+/// served it. The patch and the answer travel apart, so a window whose view is older waits for the patch that brings
+/// it to `version`
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct SyncAnswer {
+  pub outcome: SyncOutcome,
+  pub version: Version,
+}
+
+/// A window's subscription to the patches of a session: its id (`unsubscribe_view`) and the view at the subscription,
+/// which the first patch on the channel follows. A patch may reach the window before this answer: the window keeps it
+/// until it has the view
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ViewSubscription {
+  pub id: u32,
+  pub view: TableView,
 }
 
 /// Whether a sync runs, and what it does

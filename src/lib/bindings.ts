@@ -268,6 +268,32 @@ export const commands = {
 	 *  after it) and the app's prefix of the settings; a repository without a prefix is refused before any event
 	 */
 	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("sync_branches", { params, progress })),
+	/**  Opens the session of the repository unless it is open, and answers its view; nothing syncs (`sync` with `open`) */
+	openSession: (params: SessionParams) => typedError<TableView, ApiError>(__TAURI_INVOKE("open_session", { params })),
+	/**
+	 *  The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
+	 *  null when the session is not open, so the window subscribes again
+	 */
+	getSnapshot: (params: SessionParams) => typedError<TableView | null, ApiError>(__TAURI_INVOKE("get_snapshot", { params })),
+	/**
+	 *  Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer has the
+	 *  view at the subscription, the channel every patch after it until `unsubscribe_view`, the window's close or its next
+	 *  page load
+	 */
+	subscribeView: (params: SessionParams, patches: Channel<ViewPatch>) => typedError<ViewSubscription, ApiError>(__TAURI_INVOKE("subscribe_view", { params, patches })),
+	/**  Ends a subscription of the calling window; the last one of a session makes it idle */
+	unsubscribeView: (params: UnsubscribeViewParams) => __TAURI_INVOKE<void>("unsubscribe_view", { params }),
+	/**
+	 *  A window of the repository gained or lost focus; a gained one syncs when what a sync reads changed and Settings sync
+	 *  on focus, and answers when that ends. Null when nothing was asked (focus lost, the setting off, the session not open)
+	 */
+	setWindowFocus: (params: WindowFocusParams) => typedError<SyncAnswer | null, ApiError>(__TAURI_INVOKE("set_window_focus", { params })),
+	/**
+	 *  Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
+	 *  the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
+	 *  `ApiError` (`operation_in_progress`, `detached_head`)
+	 */
+	sync: (params: SyncParams) => typedError<SyncAnswer, ApiError>(__TAURI_INVOKE("sync", { params })),
 	/**
 	 *  The fingerprint of what a sync reads (`sync_inputs_fingerprint`) under the prefix Rust resolves for the repository:
 	 *  the window syncs on focus only when it changed since the last sync, a changed prefix too
@@ -672,6 +698,24 @@ export type ApprovedReviewGroup = {
 	approvedBy: Person[],
 };
 
+/**  The parts of the archived section that changed */
+export type ArchivedChanges = {
+	names?: string[] | null,
+	newlyArchived?: string[] | null,
+	integration?: { [key in string]: BranchIntegrationInfo },
+	removedIntegration?: string[],
+};
+
+/**  The archived branches: their names as the sync found them, and the integration each detection reported */
+export type ArchivedSection = {
+	/**  In the order the sync reported them (the page sorts them by the integration date) */
+	names: string[],
+	/**  The branches a sync of this session archived and that are still archived, oldest mark first */
+	newlyArchived: string[],
+	/**  The integration of the archived branches whose detection reported */
+	integration: { [key in string]: BranchIntegrationInfo },
+};
+
 /**  What squashing the fixups of a range does, with the HEAD it was computed for */
 export type AutosquashPlan = {
 	head: string,
@@ -695,6 +739,15 @@ export type BackToYou = {
 	at: number,
 	/**  The login of who replied (a comment or a review); None for new commits */
 	repliedBy: string | null,
+};
+
+/**  The check of the checked out branch against the last fetched baseline */
+export type BaselineStatus = {
+	baselineBranch: string,
+	/**  `None` for a local baseline, which has nothing to update from */
+	update: UpdateCheck | null,
+	/**  Why the check failed, e.g. a rebase in progress */
+	checkError: string | null,
 };
 
 /**  A blob that the views ask for: by its id, and for a file of the working tree, by its path too */
@@ -739,8 +792,34 @@ export type BlockReason =
 /**  The parent is blocked itself */
 "Blocked";
 
+/**  The parts of one branch that changed */
+export type BranchChange = {
+	head?: BranchHead | null,
+	commits?: Commit[] | null,
+	sync?: BranchSync | null,
+	copies?: CommitSync[] | null,
+	remote?: BranchRemote | null,
+};
+
 /**  Branch operation errors. */
 export type BranchError = ({ Generic: string }) & { MergeConflict?: never } | ({ MergeConflict: MergeConflictInfo }) & { Generic?: never };
+
+/**  What the grouping says of a branch; a field without a value is absent */
+export type BranchHead = {
+	name: string,
+	latestCommitTime: number,
+	summary: string,
+	/**  The title of the branch's description (`bd describe`); `None` without one */
+	descriptionTitle?: string | null,
+	allCommitsHaveIssueReferences: boolean,
+	/**  Most frequent author email in this branch's commits */
+	myEmail?: string | null,
+	origin: BranchOrigin,
+	/**  The issue the branch belongs to */
+	issueKey?: string | null,
+	/**  Where the branch sits in its stack; `None` without stacked branches */
+	stack?: BranchStack | null,
+};
 
 /**  Unified branch integration info */
 export type BranchIntegrationInfo = {
@@ -805,6 +884,12 @@ export type BranchPatronus = {
 	landingNeeds: LandingNeeds,
 };
 
+/**  What the remote has of a branch */
+export type BranchRemote = {
+	/**  The last remote status a sync computed; `None` until one did, kept while the branch is rebuilt */
+	status: RemoteStatusUpdate | null,
+};
+
 export type BranchReview = {
 	/**  In the order of the chain: the root first */
 	segments: BranchReviewSegment[],
@@ -867,10 +952,36 @@ export type BranchStack = {
 	childPrecedesParent: boolean,
 };
 
+/**  The status of a branch in the table: `Syncing` until the sync reports how it ended */
+export type BranchStatus = "Syncing" | "Created" | "Updated" | "Unchanged" | "Error" | "MergeConflict" | "AnalyzingConflict" | "Blocked";
+
+/**  What the sync made of a branch */
+export type BranchSync = {
+	status: BranchStatus,
+	/**  The commits the sync reported while the branch was `Syncing` (the progress of its row) */
+	processedCount: number,
+	hasError: boolean,
+	/**  The error of the branch or of its last failed commit */
+	errorDetails?: BranchError | null,
+	/**  Why a `Blocked` branch was not rebuilt (its parent can't be built on); `None` otherwise */
+	blockedReason?: string | null,
+};
+
 /**  Status of a branch synchronization operation. */
 export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error" | "MergeConflict" | "AnalyzingConflict" | 
 /**  Not rebuilt: the parent branch of a stacked branch can't be built on */
 "Blocked";
+
+/**  A branch of the table, in the parts that change for different reasons */
+export type BranchView = {
+	head: BranchHead,
+	/**  Newest first, as the sync grouped them; they change only with a grouping */
+	commits: Commit[],
+	sync: BranchSync,
+	/**  What the sync made of each commit, in the order of `commits` */
+	copies: CommitSync[],
+	remote: BranchRemote,
+};
 
 /**  Result of browsing for a repository */
 export type BrowseResult = {
@@ -1075,6 +1186,16 @@ export type CommitInfo = {
 export type CommitReword = {
 	commit: string,
 	text: RewordText,
+};
+
+/**  What the sync made of a commit: its virtual copy; the fields are absent until the sync reported the commit */
+export type CommitSync = {
+	/**  The virtual copy the sync wrote or kept */
+	hash?: string | null,
+	status?: CommitSyncStatus | null,
+	error?: BranchError | null,
+	/**  The conflict of git that the copy resolved by words (`branchdeck.resolveByWords`) */
+	resolved?: WordResolutionSummary | null,
 };
 
 /**  Status of a commit synchronization. */
@@ -2283,6 +2404,19 @@ export type LandedRemoteCommit = {
 	subject: string,
 	/**  The baseline commit with its identity */
 	baselineCommit: string,
+};
+
+/**
+ *  The check of the checked out branch against the last fetched baseline and the commits that landed or are landing
+ *  with its update, as one event of the sync reports them (`SyncEvent::BaselineStatus`)
+ */
+export type LandedSection = {
+	/**  Whether the checked out branch can be updated onto the last fetched baseline; `None` until a sync reported it */
+	baseline: BaselineStatus | null,
+	/**  Local commits that the fetched baseline already has: the update drops them */
+	landing: LandedBranch[],
+	/**  Commits that landed with an update and that the user has not dismissed yet */
+	landed: LandedBranch[],
 };
 
 /**
@@ -3885,6 +4019,10 @@ export type SearchState = "complete" |
 /**  It stopped at the trial or time limit: another search may find more */
 "budget" | "canceled";
 
+export type SessionParams = {
+	repositoryPath: string,
+};
+
 export type SetRepositoryConfigParams = {
 	repositoryPath: string,
 	change: RepositoryConfigChange,
@@ -4367,6 +4505,16 @@ export type SymbolMode =
 /**  They also order and stack branches, and the conflict fix and the checks use them */
 "on";
 
+/**
+ *  The answer of a request of a sync: how it ended, and the version of the view after the last patch of the run that
+ *  served it. The patch and the answer travel apart, so a window whose view is older waits for the patch that brings
+ *  it to `version`
+ */
+export type SyncAnswer = {
+	outcome: SyncOutcome,
+	version: Version,
+};
+
 export type SyncBranchesParams = {
 	repositoryPath: string,
 };
@@ -4473,6 +4621,110 @@ export type SyncEvent =
 
 export type SyncInputsParams = {
 	repositoryPath: string,
+};
+
+/**  How the request of a sync ended, when it did not fail */
+export type SyncOutcome = 
+/**  A run served the request and succeeded */
+"synced" | 
+/**  Nothing a sync reads changed since the last successful sync: no run */
+"unchanged" | 
+/**  A focus of a session that no window shows: nothing ran */
+"skipped";
+
+export type SyncParams = {
+	repositoryPath: string,
+	reason: SyncReason,
+};
+
+/**  Why a session syncs (`repository_model::sync_scheduler` decides what runs) */
+export type SyncReason = 
+/**  ⌘R, the Sync button: always runs */
+"manual" | 
+/**  A window gained focus: runs when the inputs changed */
+"focus" | 
+/**  A rewrite, its undo or a fetch changed the branches: always runs, as a quiet follow-up while one is in flight */
+"afterRewrite" | 
+/**  A window opened the session: runs when the inputs changed, or joins the run in flight */
+"open";
+
+/**  Whether a sync runs, and what it does */
+export type SyncState = { kind: "idle" } | { kind: "running"; step: SyncStep } | 
+/**  The last sync failed; the table is the one of the sync before */
+{ kind: "failed"; error: ApiError };
+
+/**  The step of a running sync, as its events tell it */
+export type SyncStep = 
+/**  The commits ahead of the baseline are read and grouped */
+"grouping" | 
+/**  The branches are grouped and are being built */
+"building" | 
+/**
+ *  The branches and the stack branches are built; the detection of the archived branches or the update check still
+ *  runs (both run beside the build, and no event says which one is left)
+ */
+"detection";
+
+/**
+ *  The parts of a `TableView` a patch replaces; a part absent is unchanged. The keyed parts (branches, stacks, the
+ *  integration of the archived branches) carry only the keys that changed and the keys removed
+ */
+export type TableChanges = {
+	sync?: SyncState | null,
+	header?: TableHeader | null,
+	order?: string[] | null,
+	/**
+	 *  The branches whose parts changed. A branch the view lacks comes with its head and its commits; without its sync
+	 *  part it is `BranchSync::SYNCING`, without its copies none of its commits is reported, without its remote part it
+	 *  has no remote status
+	 */
+	branches?: { [key in string]: BranchChange },
+	removedBranches?: string[],
+	stacks?: { [key in string]: StackBranchUpdate },
+	removedStacks?: string[],
+	unassigned?: Commit[] | null,
+	archived?: ArchivedChanges | null,
+	unapplied?: UnappliedBranchInfo[] | null,
+	landed?: LandedSection | null,
+};
+
+/**  What the table as a whole was grouped and checked with */
+export type TableHeader = {
+	/**  The baseline the sync compared with (`origin/master`); empty before the first grouping */
+	baselineBranch: string,
+	/**  Stacked branches are on (`branchdeck.stacks`) */
+	stacksEnabled: boolean,
+	/**  Issue key -> branch name: the issue groups the commits were grouped with */
+	issueGroups: { [key in string]: string },
+	/**  Child -> parent: the stack parents the branches were placed with */
+	stackParents: { [key in string]: string },
+	/**  Branch -> note: the parked branches */
+	parked: { [key in string]: string },
+	/**  The issue links of the IntelliJ IDEA configuration, the last a sync found */
+	issueNavigationConfig: IssueNavigationConfig | null,
+};
+
+/**  The sections below the branch table */
+export type TableSections = {
+	/**  The commits no prefix and no issue key groups */
+	unassigned: Commit[],
+	archived: ArchivedSection,
+	/**  The unapplied branches, newest first */
+	unapplied: UnappliedBranchInfo[],
+	landed: LandedSection,
+};
+
+/**  The snapshot of the branch table of a session */
+export type TableView = {
+	version: Version,
+	sync: SyncState,
+	header: TableHeader,
+	/**  The names of the branches in the order of the table, as the sync grouped them (newest first) */
+	order: string[],
+	branches: { [key in string]: BranchView },
+	/**  The stack branches the last sync reported, by the root of their stack */
+	stacks: { [key in string]: StackBranchUpdate },
+	sections: TableSections,
 };
 
 /**  What the check found */
@@ -4737,6 +4989,10 @@ export type UnparkBranchesParams = {
 	branchNames: string[],
 };
 
+export type UnsubscribeViewParams = {
+	id: number,
+};
+
 /**  The result of checking the branch against its upstream */
 export type UpdateCheck = {
 	/**  The checked out branch, short name */
@@ -4886,6 +5142,36 @@ export type ValidateRepositoryPathParams = {
 	path: string,
 };
 
+/**
+ *  The version of what a window holds of a session. `epoch` is random per process and session, `seq` grows by one with
+ *  each patch. A patch applies only to the view at its `base`; any other view (a lost patch, another epoch) asks for a
+ *  snapshot. Both are `u32`, a number in TypeScript
+ */
+export type Version = {
+	epoch: number,
+	seq: number,
+};
+
+/**
+ *  The change of a view from `base` to `next` (`next` is `base.next()`): the parts that differ from the ones sent last,
+ *  each whole. A window applies it only to the view at `base`
+ */
+export type ViewPatch = {
+	base: Version,
+	next: Version,
+	changes: TableChanges,
+};
+
+/**
+ *  A window's subscription to the patches of a session: its id (`unsubscribe_view`) and the view at the subscription,
+ *  which the first patch on the channel follows. A patch may reach the window before this answer: the window keeps it
+ *  until it has the view
+ */
+export type ViewSubscription = {
+	id: number,
+	view: TableView,
+};
+
 export type WaitForGitHubBranchParams = {
 	repositoryPath: string,
 	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
@@ -4936,6 +5222,11 @@ export type WhitespacePolicy =
  *  (`IGNORE_WHITESPACES_CHUNKS`)
  */
 "ignoreBlankLines";
+
+export type WindowFocusParams = {
+	repositoryPath: string,
+	focused: boolean,
+};
 
 /**
  *  A copy whose cherry-pick conflicted in git and resolved by words (`word_resolve`): what its mapping note records and

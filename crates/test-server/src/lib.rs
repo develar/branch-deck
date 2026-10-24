@@ -25,6 +25,7 @@ pub mod cli_tools_fixtures;
 pub mod remote_fixtures;
 pub mod remote_host;
 pub mod review_fixtures;
+pub mod session_routes;
 pub mod state;
 pub mod static_files;
 pub mod tauri_command_bridge;
@@ -73,6 +74,9 @@ mod test_support;
 
 #[cfg(test)]
 mod channel_commands_test;
+
+#[cfg(test)]
+mod session_routes_test;
 
 #[cfg(test)]
 mod sse_test;
@@ -125,16 +129,26 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
   };
 
   // Create shared application state
-  let state = Arc::new(AppState {
-    repositories: DashMap::new(),
-    path_to_id: DashMap::new(),
-    git_executor,
-    test_root_dir,
-    templates,
-    // every repository of a run: a view of an evicted table would be empty
-    repository_views: repository_model::views::RepositoryViews::with_capacity(100_000),
-    branch_prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
-    lock_waits: history_rewrite::lock_wait::LockWaits::default(),
+  // every repository of a run: a view of an evicted table would be empty
+  let repository_views = repository_model::views::RepositoryViews::with_capacity(100_000);
+  let session_clock = sync_utils::clock::TestClock::new();
+  let state = Arc::new_cyclic(|state| {
+    let environment = session_routes::TestSessionEnvironment {
+      state: std::sync::Weak::clone(state),
+    };
+    let host = repository_model::runtime::GitSessionHost::new(git_executor.clone(), repository_views.clone(), environment);
+    AppState {
+      repositories: DashMap::new(),
+      path_to_id: DashMap::new(),
+      git_executor,
+      test_root_dir,
+      templates,
+      repository_views,
+      branch_prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
+      lock_waits: history_rewrite::lock_wait::LockWaits::default(),
+      sessions: repository_model::session::Sessions::new(tokio::runtime::Handle::current(), Arc::new(host), Arc::new(session_clock.clone())),
+      session_clock,
+    }
   });
 
   let app = create_app(Arc::clone(&state));
@@ -200,6 +214,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_repository_config", post(tauri_command_bridge::get_repository_config))
     .route("/invoke/set_repository_config", post(tauri_command_bridge::set_repository_config))
     .route("/invoke/sync_branches", post(tauri_command_bridge::sync_branches))
+    .route("/invoke/open_session", post(session_routes::open_session))
+    .route("/invoke/get_snapshot", post(session_routes::get_snapshot))
+    .route("/invoke/subscribe_view", post(session_routes::subscribe_view))
+    .route("/invoke/unsubscribe_view", post(session_routes::unsubscribe_view))
+    .route("/invoke/set_window_focus", post(session_routes::set_window_focus))
+    .route("/invoke/sync", post(session_routes::sync))
     .route("/invoke/get_sync_inputs_fingerprint", post(tauri_command_bridge::get_sync_inputs_fingerprint))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/reword", post(tauri_command_bridge::reword))
@@ -853,6 +873,8 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
     return Err(StatusCode::UNPROCESSABLE_ENTITY);
   };
   state.path_to_id.remove(&repo.path);
+  // a window's subscription streams until its session closes, and holds the repository while it does
+  state.sessions.close_worktree(&repo.path);
   // a sign-in the page left waiting on GitHub would hold the repository until its code expires
   if let Some(host) = repo.existing_remote() {
     host.end_sign_ins();

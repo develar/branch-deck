@@ -172,3 +172,42 @@ impl std::io::Write for CapturedWriter {
     Ok(())
   }
 }
+
+/// The JSON messages of an SSE answer (`channel_commands`), one by one
+pub(crate) struct Messages {
+  response: reqwest::Response,
+  buffer: String,
+}
+
+impl Messages {
+  /// The messages of `request` sent on the channel `channel` (`X-Progress-Channel`), which must answer an event stream
+  pub(crate) async fn of_channel(request: reqwest::RequestBuilder, channel: u32) -> Self {
+    let response = request.header(crate::channel_commands::PROGRESS_CHANNEL_HEADER, channel.to_string()).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert!(response.headers()["content-type"].to_str().unwrap().starts_with("text/event-stream"));
+    Self { response, buffer: String::new() }
+  }
+
+  /// The next message; the stream must have one within a minute
+  pub(crate) async fn next(&mut self) -> Value {
+    self.next_or_end().await.expect("the stream ended before its next message")
+  }
+
+  /// The next message, `None` once the stream ended
+  pub(crate) async fn next_or_end(&mut self) -> Option<Value> {
+    loop {
+      if let Some(end) = self.buffer.find("\n\n") {
+        let event: String = self.buffer.drain(..end + 2).collect();
+        if let Some(data) = event.lines().find_map(|line| line.strip_prefix("data: ")) {
+          return Some(serde_json::from_str(data).unwrap());
+        }
+        continue;
+      }
+      let chunk = tokio::time::timeout(std::time::Duration::from_mins(1), self.response.chunk())
+        .await
+        .expect("no message within a minute")
+        .unwrap()?;
+      self.buffer.push_str(&String::from_utf8_lossy(&chunk));
+    }
+  }
+}

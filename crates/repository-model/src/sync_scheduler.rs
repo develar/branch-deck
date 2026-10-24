@@ -13,33 +13,10 @@
 //! - A focus of a session without subscribers is skipped: no window shows it, so nothing runs.
 
 use domain_types::error::ApiError;
+use domain_types::session::{SyncOutcome, SyncReason};
 
 /// The number of a sync run within a session; the events and the end of an older run are dropped by it
 pub(crate) type RunId = u64;
-
-/// Why a session syncs
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SyncReason {
-  /// ⌘R, the Sync button: always runs
-  Manual,
-  /// A window gained focus: runs when the inputs changed
-  Focus,
-  /// A rewrite, its undo or a fetch changed the branches: always runs, as a quiet follow-up while one is in flight
-  AfterRewrite,
-  /// A window opened the session: runs when the inputs changed, or joins the run in flight
-  Open,
-}
-
-/// How the request of a sync ended, when it did not fail
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SyncOutcome {
-  /// A run served the request and succeeded
-  Synced,
-  /// Nothing a sync reads changed since the last successful sync: no run
-  Unchanged,
-  /// A focus of a session that no window shows: nothing ran
-  Skipped,
-}
 
 /// What a request or a run ended with
 pub(crate) type Settled = Result<SyncOutcome, ApiError>;
