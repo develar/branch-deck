@@ -1,7 +1,7 @@
 # Checking Linux and Windows (Docker, Parallels)
 
 **Status:** Active  
-**Updated:** 2026-10-19  
+**Updated:** 2026-10-24  
 **Tags:** [linux, windows, ci, cfg]
 
 ## Summary
@@ -28,6 +28,13 @@ tree-sitter finds no Windows headers.
   for `src-tauri` and runs cargo with its output in a file under `Z:`; start it with
   `prlctl exec "Windows 11" --current-user cmd /c Z:\<path>.bat`. `/XF .git` matters: the `.git` of a lease is a file
   that names a Mac path, and a copied one fails every git whose cwd is in the copy ("not a git repository: (NULL)").
-  The full suite takes about 19 minutes there.
+  The `.bat` also sets `__COMPAT_LAYER=RunAsInvoker`: the test binary of `bd-update` has "update" in its name, which
+  UAC's installer detection runs only elevated ("The requested operation requires elevation", os error 740, and
+  nextest lists no test). `prlctl exec` fails now and then with "PrlJob_GetRetCode: Invalid argument" (a long command
+  line, a `.bat` rewritten in place, a first call after a pause): keep the arguments short, write a changed `.bat`
+  under a new name, and try again. The full suite takes about 19 minutes there. A session beside another one in the
+  VM takes a source and a target directory of its own (`C:\dev\<name>`, a cold build of the tests takes about 8
+  minutes) with `CARGO_INCREMENTAL=0`: the disk has little free space, and the incremental caches of one full run and
+  one clippy took 18 GB.
 - **Commands**: the clippy of CI, `cargo clippy --workspace --all-targets --features branch-deck/auto-update -- -D
   warnings`, then `cargo nextest run --workspace` (or `-E 'test(/…/)'` for the tests of the change).

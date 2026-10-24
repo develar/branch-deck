@@ -14,7 +14,9 @@ failure-output = "immediate-final"
 # a test that passes on a retry is FLAKY, and the run still fails: a flaky test is a race to fix
 retries = 2
 flaky-result = "fail"
-global-timeout = "30m"
+# a bound for the whole run, past the slow-timeout of each test: the Windows runner takes about half an hour for the
+# suite, and a run cut by this bound fails with the tests it never started
+global-timeout = "60m"
 
 [profile.ci.junit]
 path = "junit.xml"

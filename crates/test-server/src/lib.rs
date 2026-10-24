@@ -85,12 +85,24 @@ use state::{AppState, TestRepository};
 use static_files::{serve_static_files, workspace_root};
 use test_utils::repo_template::templates;
 
+/// The app of a route test: it builds a template when the test first asks for it (`create_route_test_app_with_state`)
 pub async fn create_test_app() -> Router {
-  let (app, _state) = create_test_app_with_state().await;
+  let (app, _state) = create_route_test_app_with_state().await;
   app
 }
 
+/// The app of the E2E server: every template is built before it serves, so no page waits for one
 pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
+  create_app_and_state(true).await
+}
+
+/// The app of a route test: a template is built when a repository is first made of it. A test asks for one or two of
+/// the templates, and nextest runs each test in a process of its own, which would build all of them
+pub async fn create_route_test_app_with_state() -> (Router, Arc<AppState>) {
+  create_app_and_state(false).await
+}
+
+async fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
   // Create a single temp directory for all test repositories
   let test_root_dir = tempfile::tempdir().expect("Failed to create test root directory");
   tracing::info!("Test root directory created at: {:?}", test_root_dir.path());
@@ -99,7 +111,7 @@ pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
   let templates_dir = test_root_dir.path().join("templates");
 
   // Create test templates in the temp directory (each test instance gets its own templates)
-  if let Err(e) = create_test_templates(&templates_dir).await {
+  if all_templates && let Err(e) = create_test_templates(&templates_dir).await {
     tracing::error!("Failed to create test repositories: {}", e);
   }
 
@@ -110,6 +122,7 @@ pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
     git_executor: git_executor::git_command_executor::GitCommandExecutor::new(),
     test_root_dir,
     templates_dir,
+    template_builds: tokio::sync::Mutex::new(()),
     // every repository of a run: a view of an evicted table would be empty
     repository_views: repository_model::views::RepositoryViews::with_capacity(100_000),
     branch_prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
@@ -367,66 +380,100 @@ async fn health_check() -> Json<serde_json::Value> {
   Json(serde_json::json!({ "workspaceRoot": workspace_root() }))
 }
 
+/// How a template is built
+type TemplateBuild = fn(&std::path::Path) -> anyhow::Result<()>;
+
+/// Every template, by its name (`RepositoryTemplate::as_str`)
+const TEMPLATES: &[(&str, TemplateBuild)] = &[
+  ("simple", |path| templates::simple().build(path)),
+  ("simple_no_prefix", |path| templates::simple_no_prefix().build(path)),
+  ("unassigned", |path| templates::unassigned().build(path)),
+  ("conflict_unassigned", |path| templates::conflict_unassigned().build(path)),
+  ("conflict_branches", |path| templates::conflict_branches().build(path)),
+  ("single_unassigned", |path| templates::single_unassigned().build(path)),
+  ("issue_links", |path| templates::issue_links().build(path)),
+  ("issue_split", |path| templates::issue_split().build(path)),
+  ("issue_groups", |path| templates::issue_groups().build(path)),
+  ("issue_combine", |path| templates::issue_combine().build(path)),
+  ("fixups", |path| templates::fixups().build(path)),
+  ("long_subjects", |path| templates::long_subjects().build(path)),
+  ("commit_tree", |path| templates::commit_tree().build(path)),
+  ("commit_deleted", |path| templates::commit_deleted().build(path)),
+  ("commit_many_files", |path| templates::commit_many_files().build(path)),
+  ("commit_whitespace", |path| templates::commit_whitespace().build(path)),
+  ("symbol_navigation", |path| templates::symbol_navigation().build(path)),
+  ("script_colors", |path| templates::script_colors().build(path)),
+  ("stacked_branches", |path| templates::stacked_branches().build(path)),
+  ("stack_island", |path| templates::stack_island().build(path)),
+  ("readme_showcase", |path| templates::readme_showcase().build(path)),
+  ("branch_table_large", |path| templates::branch_table_large().build(path)),
+  ("stack_side_conflict", |path| templates::stack_side_conflict().build(path)),
+  ("stacked_issues", |path| templates::stacked_issues().build(path)),
+  ("stacked_conflict", |path| templates::stacked_conflict().build(path)),
+  ("conflict_fix", |path| templates::conflict_fix().build(path)),
+  ("conflict_words", |path| templates::conflict_words().build(path)),
+  ("resolved_words", |path| templates::resolved_words().build(path)),
+  ("stacked_ownership", |path| templates::stacked_ownership().build(path)),
+  ("stack_push_alone", |path| templates::stack_push_alone().build(path)),
+  ("stack_uses_parent", |path| templates::stack_uses_parent().build(path)),
+  ("landing_needs", |path| templates::landing_needs().build(path)),
+  ("stack_problems", |path| templates::stack_problems().build(path)),
+  ("branch_filter", |path| templates::branch_filter().build(path)),
+  ("empty-non-git", |path| templates::empty_non_git().build(path)),
+  ("empty_git", |path| templates::empty_git().build(path)),
+  ("bare", |path| templates::bare().build(path)),
+  ("archived_branches", |path| templates::archived_branches().build(path)),
+  ("behind_upstream", |path| templates::behind_upstream().build(path)),
+  ("update_conflict", |path| templates::update_conflict().build(path)),
+  ("update_words", |path| templates::update_words().build(path)),
+  ("update_conflict_wide", |path| templates::update_conflict_wide().build(path)),
+  ("update_blocked", |path| templates::update_blocked().build(path)),
+  ("landed_upstream", |path| templates::landed_upstream().build(path)),
+  ("amend_changes", |path| templates::amend_changes().build(path)),
+];
+
 pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Result<()> {
   // Build all templates in parallel, fresh on every launch
   let mut builds = tokio::task::JoinSet::new();
-  let mut template = |name: &'static str, build: fn(&std::path::Path) -> anyhow::Result<()>| {
+  for &(name, build) in TEMPLATES {
     let repo_path = target_dir.join(name);
     builds.spawn_blocking(move || {
       tracing::info!("Creating test repository template: {name}");
       build(&repo_path)
     });
-  };
-  template("simple", |path| templates::simple().build(path));
-  template("simple_no_prefix", |path| templates::simple_no_prefix().build(path));
-  template("unassigned", |path| templates::unassigned().build(path));
-  template("conflict_unassigned", |path| templates::conflict_unassigned().build(path));
-  template("conflict_branches", |path| templates::conflict_branches().build(path));
-  template("single_unassigned", |path| templates::single_unassigned().build(path));
-  template("issue_links", |path| templates::issue_links().build(path));
-  template("issue_split", |path| templates::issue_split().build(path));
-  template("issue_groups", |path| templates::issue_groups().build(path));
-  template("issue_combine", |path| templates::issue_combine().build(path));
-  template("fixups", |path| templates::fixups().build(path));
-  template("long_subjects", |path| templates::long_subjects().build(path));
-  template("commit_tree", |path| templates::commit_tree().build(path));
-  template("commit_deleted", |path| templates::commit_deleted().build(path));
-  template("commit_many_files", |path| templates::commit_many_files().build(path));
-  template("commit_whitespace", |path| templates::commit_whitespace().build(path));
-  template("symbol_navigation", |path| templates::symbol_navigation().build(path));
-  template("script_colors", |path| templates::script_colors().build(path));
-  template("stacked_branches", |path| templates::stacked_branches().build(path));
-  template("stack_island", |path| templates::stack_island().build(path));
-  template("readme_showcase", |path| templates::readme_showcase().build(path));
-  template("branch_table_large", |path| templates::branch_table_large().build(path));
-  template("stack_side_conflict", |path| templates::stack_side_conflict().build(path));
-  template("stacked_issues", |path| templates::stacked_issues().build(path));
-  template("stacked_conflict", |path| templates::stacked_conflict().build(path));
-  template("conflict_fix", |path| templates::conflict_fix().build(path));
-  template("conflict_words", |path| templates::conflict_words().build(path));
-  template("resolved_words", |path| templates::resolved_words().build(path));
-  template("stacked_ownership", |path| templates::stacked_ownership().build(path));
-  template("stack_push_alone", |path| templates::stack_push_alone().build(path));
-  template("stack_uses_parent", |path| templates::stack_uses_parent().build(path));
-  template("landing_needs", |path| templates::landing_needs().build(path));
-  template("stack_problems", |path| templates::stack_problems().build(path));
-  template("branch_filter", |path| templates::branch_filter().build(path));
-  template("empty-non-git", |path| templates::empty_non_git().build(path));
-  template("empty_git", |path| templates::empty_git().build(path));
-  template("bare", |path| templates::bare().build(path));
-  template("archived_branches", |path| templates::archived_branches().build(path));
-  template("behind_upstream", |path| templates::behind_upstream().build(path));
-  template("update_conflict", |path| templates::update_conflict().build(path));
-  template("update_words", |path| templates::update_words().build(path));
-  template("update_conflict_wide", |path| templates::update_conflict_wide().build(path));
-  template("update_blocked", |path| templates::update_blocked().build(path));
-  template("landed_upstream", |path| templates::landed_upstream().build(path));
-  template("amend_changes", |path| templates::amend_changes().build(path));
-
+  }
   while let Some(result) = builds.join_next().await {
     result?.map_err(|e| anyhow::anyhow!("Failed to create template: {e}"))?;
   }
   Ok(())
+}
+
+/// The template `name` in the templates directory, built now when it is missing (in a route test, or an E2E template
+/// whose build failed): into a directory of its own first, renamed into place once whole
+async fn ensure_template(state: &AppState, name: &'static str) -> anyhow::Result<PathBuf> {
+  let template_path = state.templates_dir.join(name);
+  let _building = state.template_builds.lock().await;
+  if template_path.exists() {
+    return Ok(template_path);
+  }
+  let build = TEMPLATES
+    .iter()
+    .find(|(known, _)| *known == name)
+    .map(|&(_, build)| build)
+    .ok_or_else(|| anyhow::anyhow!("no template {name}"))?;
+  let building = state.templates_dir.join(format!(".{name}.building"));
+  let target = template_path.clone();
+  tokio::task::spawn_blocking(in_current_span(move || {
+    let _ = std::fs::remove_dir_all(&building);
+    tracing::info!("Creating test repository template: {name}");
+    let built = build(&building).and_then(|()| Ok(std::fs::rename(&building, &target)?));
+    if built.is_err() {
+      let _ = std::fs::remove_dir_all(&building);
+    }
+    built
+  }))
+  .await??;
+  Ok(template_path)
 }
 
 #[derive(Serialize)]
@@ -625,12 +672,10 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
   let repo_dir = state.test_root_dir.path().join(&id);
   let path = repo_dir.to_string_lossy().to_string();
 
-  let template_path = state.templates_dir.join(request.template.as_str());
-
-  if !template_path.exists() {
-    tracing::error!("Template '{}' not found", request.template.as_str());
-    return Err(StatusCode::BAD_REQUEST);
-  }
+  let template_path = ensure_template(&state, request.template.as_str()).await.map_err(|e| {
+    tracing::error!("Template '{}' not found: {e}", request.template.as_str());
+    StatusCode::BAD_REQUEST
+  })?;
 
   // Create the repository directory first
   std::fs::create_dir_all(&repo_dir).map_err(|e| {

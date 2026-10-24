@@ -10,7 +10,7 @@ pub(crate) async fn start_test_server() -> SocketAddr {
 
 /// The server on a free port with its state, for a test that checks the files of the server
 pub(crate) async fn start_test_server_with_state() -> (SocketAddr, std::sync::Arc<crate::state::AppState>) {
-  let (app, state) = crate::create_test_app_with_state().await;
+  let (app, state) = crate::create_route_test_app_with_state().await;
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind to port");
   let addr = listener.local_addr().unwrap();
   tokio::spawn(async move {

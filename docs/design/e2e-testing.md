@@ -94,8 +94,11 @@ sequenceDiagram
 4. **Decision**: Mock Tauri Result type accurately
    **Rationale**: Tests must handle errors exactly as in production
 
-5. **Decision**: Pre-create templates at server startup
-   **Rationale**: Eliminates per-test repository creation overhead
+5. **Decision**: Pre-create templates at server startup; a route test of `crates/test-server`
+   (`create_route_test_app_with_state`) builds a template when it first makes a repository of it
+   **Rationale**: Eliminates per-test repository creation overhead. A route test runs in a process of its own
+   (nextest) and asks for one or two templates: building all 45 took each of them two minutes on a CI runner, and the
+   Windows run hit its time limit
 
 6. **Decision**: A reload starts from what the app wrote to its settings store, as a new window of the app starts from
    `settings.json` as it is now. The setup injects the initial values as `window.__TAURI_STORE__` from an init script,
