@@ -255,7 +255,9 @@ written, except by Update Project and the finish of its resolve session (their o
 | `replay --ref`, dropping commits that become empty | 2.54 | segment tips that are commit ids, not branches |
 
 The minimum is therefore **2.54** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`). On macOS a Homebrew git
-is preferred. On other platforms the upgrade hint names the git-core PPA (Ubuntu) and Git for Windows. Every failed
+is preferred, and its one `git version` gives both the check and the version. A successful discovery is kept for the
+process (`DISCOVERED` in `git_command_executor.rs`): every executor without a git of its own (`with_info`) shares it,
+instead of running `git version` again on its first command. On other platforms the upgrade hint names the git-core PPA (Ubuntu) and Git for Windows. Every failed
 discovery is one summary line, then the hint (`UPGRADE_HINT`), and the app shows the line as the title: "Cannot find
 Git: <reason>" for a git that is missing or fails to run (the macOS `/usr/bin/git` stub without the Command Line Tools
 exits with an `xcrun: error`, its first line is the reason), "Git 2.39 is too old: Branch Deck requires Git 2.54 or

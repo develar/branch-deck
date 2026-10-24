@@ -1,4 +1,5 @@
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -12,6 +13,19 @@ const TEST_USER_EMAIL: &str = "test@example.com";
 /// start one that holds `.git/objects/maintenance.lock`, and a clone of the repository at that moment fails with
 /// "failed to copy file to '.git/objects/maintenance.lock'"
 pub const NO_BACKGROUND_MAINTENANCE: [(&str, &str); 2] = [("maintenance.auto", "false"), ("gc.auto", "0")];
+
+/// The config of a `TestRepo`: `NO_BACKGROUND_MAINTENANCE`, the test user, `zdiff3` conflicts, no signing (a global
+/// signing setup must not make test commits prompt or fail) and no `core.autocrlf` (the system config of Git for
+/// Windows sets it to `true`, and the tests compare checked-out text with LF)
+const TEST_REPO_CONFIG: [(&str, &str); 7] = [
+  NO_BACKGROUND_MAINTENANCE[0],
+  NO_BACKGROUND_MAINTENANCE[1],
+  ("user.name", TEST_USER_NAME),
+  ("user.email", TEST_USER_EMAIL),
+  ("merge.conflictstyle", "zdiff3"),
+  ("commit.gpgsign", "false"),
+  ("core.autocrlf", "false"),
+];
 
 /// The repository-local variables of git (`git rev-parse --local-env-vars`). A test run inherits them from
 /// `git rebase --exec` (`GIT_DIR`) or a hook (`GIT_INDEX_FILE`), and a fixture command would then write into that
@@ -47,14 +61,40 @@ pub fn git_command() -> Command {
 
 /// Apply `NO_BACKGROUND_MAINTENANCE` to the repository (bare or not) at `repo_path`, right after it is created or cloned
 pub fn disable_background_maintenance(repo_path: &Path) {
-  for (key, value) in NO_BACKGROUND_MAINTENANCE {
-    let output = git_command()
-      .args(["config", key, value])
-      .current_dir(repo_path)
-      .output()
-      .unwrap_or_else(|e| panic!("git config {key} failed: {e}"));
-    assert!(output.status.success(), "git config {key}: {}", String::from_utf8_lossy(&output.stderr));
+  append_config(repo_path, &NO_BACKGROUND_MAINTENANCE);
+}
+
+/// Append `entries` (`section.key` or `section.subsection.key`, value) to the config file of the repository (bare or
+/// not) at `repo_path`, as `git config <key> <value>` of each would, without a git process per key: a fixture repository
+/// is set up by the thousand, and a process costs 5–10 ms on macOS and far more on Windows. Only for a repository no git
+/// process uses meanwhile, right after it is created or cloned
+///
+/// # Panics
+/// When `repo_path` has neither `.git/config` nor `config`, or the file cannot be written
+pub fn append_config(repo_path: &Path, entries: &[(&str, &str)]) {
+  let dot_git = repo_path.join(".git");
+  let file = if dot_git.is_dir() { dot_git.join("config") } else { repo_path.join("config") };
+  assert!(file.is_file(), "no config file of a repository at {}", repo_path.display());
+  let mut text = String::new();
+  for (key, value) in entries {
+    let (section, name) = key.rsplit_once('.').unwrap_or_else(|| panic!("not a config key: {key}"));
+    let header = match section.split_once('.') {
+      Some((section, subsection)) => format!("[{section} \"{}\"]", quoted(subsection)),
+      None => format!("[{section}]"),
+    };
+    let _ = writeln!(text, "{header}\n\t{name} = \"{}\"", quoted(value));
   }
+  let mut config = fs::OpenOptions::new()
+    .append(true)
+    .open(&file)
+    .unwrap_or_else(|e| panic!("cannot open {}: {e}", file.display()));
+  std::io::Write::write_all(&mut config, text.as_bytes()).unwrap_or_else(|e| panic!("cannot write {}: {e}", file.display()));
+}
+
+/// `text` inside the double quotes of a config value or subsection
+fn quoted(text: &str) -> String {
+  assert!(!text.contains('\n'), "a config value with a newline: {text:?}");
+  text.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// A repository whose initial commit is the baseline; `stacks` turns on stacked branches
@@ -141,12 +181,25 @@ pub fn commit_files_on_head(repo_path: &Path, message: &str, files: &[(&str, &st
   }
   git.execute_command(&add_args, path).map_err(|e| e.to_string())?;
   let date = format!("{timestamp} +0000");
-  git
-    .cmd(&["commit", "-m", message], path)
-    .env(&[("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())])
-    .text()
-    .map_err(|e| e.to_string())?;
-  git.execute_command(&["rev-parse", "HEAD"], path).map(|id| id.trim().to_string()).map_err(|e| e.to_string())
+  commit_in(&git, path, &["-m", message], &[("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())])
+}
+
+/// Runs `git commit` with `args` and `env` in `path` and returns the id of the new commit, which git prints in its
+/// summary line (in full with `core.abbrev=no`): no `rev-parse HEAD` after each commit of a fixture. Never `--quiet`,
+/// which prints no summary
+fn commit_in(git: &GitCommandExecutor, path: &str, args: &[&str], env: &[(&str, &str)]) -> Result<String, String> {
+  let mut all_args = vec!["-c", "core.abbrev=no", "commit"];
+  all_args.extend_from_slice(args);
+  let output = git.cmd(&all_args, path).env(env).text().map_err(|e| e.to_string())?;
+  commit_id_of_summary(&output).ok_or_else(|| format!("no commit id in the output of git commit: {output}"))
+}
+
+/// The full commit id of the summary line `git commit` prints, `[<branch>[ (root-commit)] <id>] <subject>`: the branch
+/// and the root-commit mark may be translated, the id is never abbreviated with `core.abbrev=no`
+pub(crate) fn commit_id_of_summary(output: &str) -> Option<String> {
+  let summary = output.lines().find_map(|line| line.strip_prefix('['))?;
+  let is_id = |word: &&str| matches!(word.len(), 40 | 64) && word.bytes().all(|byte| byte.is_ascii_hexdigit());
+  summary.split([' ', ']']).find(is_id).map(str::to_string)
 }
 
 /// Git test repository wrapper with helper methods
@@ -170,20 +223,12 @@ impl TestRepo {
 
     let repo_path = repo_path.to_str().unwrap();
 
-    // Pin the initial branch: tests assume `master` regardless of the user's `init.defaultBranch`
+    // Pin the initial branch: tests assume `master` regardless of the user's `init.defaultBranch`. No template: the
+    // sample hooks, `description` and `info/exclude` are 17 files written and deleted per repository, used by no test
     git_executor
-      .execute_command(&["init", "--initial-branch=master"], repo_path)
+      .execute_command(&["init", "--initial-branch=master", "--template="], repo_path)
       .unwrap_or_else(|e| panic!("Git init failed: {e}"));
-    disable_background_maintenance(dir.path());
-
-    // Configure git user for the test repo
-    Self::configure_git_user(&git_executor, repo_path).unwrap();
-
-    git_executor.execute_command(&["config", "merge.conflictstyle", "zdiff3"], repo_path).unwrap();
-    // A global signing setup must not make test commits prompt or fail
-    git_executor.execute_command(&["config", "commit.gpgsign", "false"], repo_path).unwrap();
-    // The system config of Git for Windows sets `core.autocrlf=true`, and the tests compare checked-out text with LF
-    git_executor.execute_command(&["config", "core.autocrlf", "false"], repo_path).unwrap();
+    append_config(dir.path(), &TEST_REPO_CONFIG);
 
     Self { dir, git_executor }
   }
@@ -216,11 +261,12 @@ impl TestRepo {
     &self.git_executor
   }
 
-  /// Configure Git user for a repository
-  fn configure_git_user(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(), anyhow::Error> {
-    git_executor.execute_command(&["config", "user.name", TEST_USER_NAME], repo_path)?;
-    git_executor.execute_command(&["config", "user.email", TEST_USER_EMAIL], repo_path)?;
-    Ok(())
+  /// Runs `git commit` with `args` and `env` and returns the id of the commit (`commit_in`)
+  ///
+  /// # Panics
+  /// When the commit fails or its output names no full commit id
+  pub fn commit_with(&self, args: &[&str], env: &[(&str, &str)]) -> String {
+    commit_in(&self.git_executor, self.path_str(), args, env).unwrap_or_else(|e| panic!("Git commit failed: {e}"))
   }
 
   /// Creates a commit with a file
@@ -248,39 +294,13 @@ impl TestRepo {
       .unwrap_or_else(|e| panic!("Git add failed: {e}"));
 
     // Commit with optional fixed timestamp
-    if let Some(ts) = timestamp {
-      let date_str = format!("{ts} +0000");
-      let env_vars = vec![("GIT_AUTHOR_DATE", date_str.as_str()), ("GIT_COMMITTER_DATE", date_str.as_str())];
-
-      if message.is_empty() {
-        self
-          .git_executor
-          .cmd(&["commit", "--allow-empty-message", "-m", ""], self.path_str())
-          .env(&env_vars)
-          .text()
-          .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
-      } else {
-        self
-          .git_executor
-          .cmd(&["commit", "-m", message], self.path_str())
-          .env(&env_vars)
-          .text()
-          .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
-      }
-    } else if message.is_empty() {
-      self
-        .git_executor
-        .execute_command(&["commit", "--allow-empty-message", "-m", ""], self.path_str())
-        .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
-    } else {
-      self
-        .git_executor
-        .execute_command(&["commit", "-m", message], self.path_str())
-        .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
-    }
-
-    // Get the commit hash
-    self.git_executor.execute_command(&["rev-parse", "HEAD"], self.path_str()).unwrap().trim().to_string()
+    let date = timestamp.map(|ts| format!("{ts} +0000"));
+    let env: Vec<(&str, &str)> = date
+      .iter()
+      .flat_map(|date| [("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())])
+      .collect();
+    let args: &[&str] = if message.is_empty() { &["--allow-empty-message", "-m", ""] } else { &["-m", message] };
+    self.commit_with(args, &env)
   }
 
   /// Creates a branch pointing to the current HEAD
@@ -342,13 +362,7 @@ impl TestRepo {
       add_args.push(filename);
     }
     self.git_executor.execute_command(&add_args, self.path_str()).unwrap();
-
-    self
-      .git_executor
-      .execute_command(&["commit", "-m", message], self.path_str())
-      .unwrap_or_else(|e| panic!("Git commit failed: {e}"));
-
-    self.head()
+    self.commit_with(&["-m", message], &[])
   }
 
   /// Commits the index with `files` added to it, written to the index only, never to the working tree, so that a name
@@ -371,8 +385,7 @@ impl TestRepo {
         .unwrap();
       self.git(&["update-index", "--add", "--cacheinfo", &format!("100644,{blob},{filename}")]);
     }
-    self.git(&["commit", "-q", "-m", message]);
-    self.head()
+    self.commit_with(&["-m", message], &[])
   }
 
   /// Set config value
@@ -509,18 +522,20 @@ impl TestRepo {
     (upstream, clone)
   }
 
-  /// Clone a repository into this directory
+  /// Clone a repository into this directory, with the config of a `TestRepo` but `merge.conflictstyle` and
+  /// `commit.gpgsign`, which `git clone -c` writes into the clone before it fetches
   pub fn clone_from(&self, source_path: &Path) -> Result<(), String> {
-    self
-      .git_executor
-      .execute_command(&["clone", "-c", "core.autocrlf=false", source_path.to_str().unwrap(), "."], self.path_str())
-      .map_err(|e| e.to_string())?;
-    disable_background_maintenance(self.path());
-
-    // Configure git user for the cloned repo
-    Self::configure_git_user(&self.git_executor, self.path_str()).map_err(|e| e.to_string())?;
-
-    Ok(())
+    let config: Vec<String> = TEST_REPO_CONFIG
+      .iter()
+      .filter(|(key, _)| !matches!(*key, "merge.conflictstyle" | "commit.gpgsign"))
+      .map(|(key, value)| format!("{key}={value}"))
+      .collect();
+    let mut args = vec!["clone"];
+    for entry in &config {
+      args.extend(["-c", entry.as_str()]);
+    }
+    args.extend([source_path.to_str().unwrap(), "."]);
+    self.git_executor.execute_command(&args, self.path_str()).map(|_| ()).map_err(|e| e.to_string())
   }
 
   /// Create and checkout a new branch
@@ -682,8 +697,7 @@ impl TestWorktree {
   pub fn commit(&self, message: &str, file: &str, content: &str) -> String {
     self.write(file, content);
     self.git(&["add", "--", file]);
-    self.git(&["commit", "-q", "-m", message]);
-    self.head()
+    commit_in(&self.git_executor, &self.path, &["-m", message], &[]).unwrap_or_else(|e| panic!("Git commit failed: {e}"))
   }
 
   pub fn head(&self) -> String {
@@ -772,14 +786,7 @@ impl<'a> ConflictTestBuilder<'a> {
       }
 
       // Create a commit with the deletions (may be empty, which is fine for deletion)
-      self
-        .repo
-        .git_executor
-        .execute_command(&["commit", "--allow-empty", "-m", self.target_message], self.repo.path_str())
-        .unwrap_or_else(|e| panic!("Failed to commit deletion: {e}"));
-
-      // Get the commit hash
-      self.repo.head()
+      self.repo.commit_with(&["--allow-empty", "-m", self.target_message], &[])
     } else {
       self.repo.create_commit_with_files(self.target_message, &self.target_files)
     };

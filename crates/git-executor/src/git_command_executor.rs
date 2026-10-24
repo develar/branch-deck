@@ -38,6 +38,10 @@ const BASE_CONFIG: [&str; 8] = [
   "i18n.logOutputEncoding=UTF-8",
 ];
 
+/// The git `GitInfo::discover` found, shared by every executor of the process that has no git of its own (`with_info`):
+/// each `new()` executor would otherwise run `git version` again on its first command
+static DISCOVERED: OnceLock<GitInfo> = OnceLock::new();
+
 #[derive(Clone, Debug, Default)]
 pub struct GitCommandExecutor {
   info: Arc<OnceLock<GitInfo>>,
@@ -101,15 +105,21 @@ impl GitCommandExecutor {
     }
   }
 
-  /// Git executable path and version, discovered on first use. A failed discovery is not cached.
+  /// Git executable path and version, discovered on first use, once per process (`DISCOVERED`). A failed discovery is
+  /// not cached.
   #[instrument(skip(self))]
   pub fn get_info(&self) -> Result<&GitInfo> {
     if let Some(info) = self.info.get() {
       return Ok(info);
     }
-    let info = GitInfo::discover().map_err(|e| anyhow!(e))?;
-    tracing::info!(git_version = %info.version, git_path = %info.path, "discovered git info");
-    // Another thread may have won the race; both discovered the same executable
+    let info = if let Some(info) = DISCOVERED.get() {
+      info.clone()
+    } else {
+      let info = GitInfo::discover().map_err(|e| anyhow!(e))?;
+      tracing::info!(git_version = %info.version, git_path = %info.path, "discovered git info");
+      // Another thread may have won the race; both discovered the same executable
+      DISCOVERED.get_or_init(|| info).clone()
+    };
     Ok(self.info.get_or_init(|| info))
   }
 

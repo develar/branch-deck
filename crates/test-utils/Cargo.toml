@@ -15,6 +15,8 @@ git-executor = { path = "../git-executor" }
 
 # The diff of the counts of `process_budget`
 pretty_assertions.workspace = true
+# The trace2 events of `process_budget::git_processes_of`
+serde_json.workspace = true
 
 # The empty object cache of the process budgets (`process_budget::empty_cache`)
 object-cache = { path = "../object-cache" }

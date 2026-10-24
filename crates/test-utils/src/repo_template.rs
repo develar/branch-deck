@@ -1,4 +1,4 @@
-use crate::git_test_utils::{disable_background_maintenance, git_command};
+use crate::git_test_utils::{NO_BACKGROUND_MAINTENANCE, append_config, git_command};
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
@@ -93,21 +93,15 @@ impl RepoTemplate {
     fs::create_dir_all(output_path)?;
 
     // Initialize git repository
-    git_command().args(["init", "--initial-branch=master"]).current_dir(output_path).output()?;
-    disable_background_maintenance(output_path);
-
-    // Configure git
-    git_command().args(["config", "user.name", "Test User"]).current_dir(output_path).output()?;
-
-    git_command().args(["config", "user.email", "test@example.com"]).current_dir(output_path).output()?;
-
-    // Set branch prefix if specified
+    git_command().args(["init", "--initial-branch=master", "--template="]).current_dir(output_path).output()?;
+    // the config in one write, not a process per key
+    let mut config = NO_BACKGROUND_MAINTENANCE.to_vec();
+    config.extend([("user.name", "Test User"), ("user.email", "test@example.com")]);
     if let Some(prefix) = &self.branch_prefix {
-      git_command().args(["config", "branchdeck.branchPrefix", prefix]).current_dir(output_path).output()?;
+      config.push(("branchdeck.branchPrefix", prefix));
     }
-    for (key, value) in &self.config {
-      git_command().args(["config", key, value]).current_dir(output_path).output()?;
-    }
+    config.extend(self.config.iter().map(|(key, value)| (key.as_str(), value.as_str())));
+    append_config(output_path, &config);
 
     // Track if we have any commits
     let has_commits = !self.commits.is_empty();

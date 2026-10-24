@@ -1,6 +1,8 @@
 //! The counts of the process budget tests (docs/design/git-operations.md, "Batch"): an executor that counts the git
-//! processes it starts, the assert of those counts by subcommand, the small fixed repositories the budgets count on and an empty object cache.
+//! processes it starts, the assert of those counts by subcommand, the git processes of a whole test process (fixtures
+//! included), the small fixed repositories the budgets count on and an empty object cache.
 
+use crate::env_vars::EnvVars;
 use crate::git_test_utils::TestRepo;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::{CacheConfig, ObjectCache};
@@ -68,4 +70,41 @@ pub fn empty_cache() -> (tempfile::TempDir, ObjectCache) {
   let dir = tempfile::tempdir().unwrap();
   let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
   (dir, cache)
+}
+
+/// The subcommands of the git processes `run` starts, in the order they started, whoever starts them in this test
+/// process: a fixture as well as the code under test, with an executor of its own or `git_command`.
+/// `GIT_TRACE2_EVENT` names a trace file while `run` runs (`EnvVars`: nextest runs a process per test); a process git
+/// starts for itself (a nested sid, `upload-pack` of a fetch) is left out
+///
+/// # Panics
+/// When no temporary directory can be created
+pub fn git_processes_of<T>(run: impl FnOnce() -> T) -> (T, Vec<String>) {
+  let dir = tempfile::tempdir().unwrap();
+  let trace = dir.path().join("trace2.json");
+  let result = {
+    let _env = EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
+    run()
+  };
+  let text = std::fs::read_to_string(&trace).unwrap_or_default();
+  let subcommands = text
+    .lines()
+    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    .filter(|event| event["event"] == "start" && !event["sid"].as_str().unwrap_or_default().contains('/'))
+    .map(|event| subcommand(event["argv"].as_array().map_or(&[], Vec::as_slice)))
+    .collect();
+  (result, subcommands)
+}
+
+/// The subcommand of `git <argv>`: the first word after the program and its options (`-c <name>=<value>` included)
+fn subcommand(argv: &[serde_json::Value]) -> String {
+  let mut words = argv.iter().skip(1).filter_map(serde_json::Value::as_str);
+  while let Some(word) = words.next() {
+    if word == "-c" || word == "-C" {
+      words.next();
+    } else if !word.starts_with('-') {
+      return word.to_string();
+    }
+  }
+  String::new()
 }

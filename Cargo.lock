@@ -6556,6 +6556,7 @@ dependencies = [
  "git-executor",
  "object-cache",
  "pretty_assertions",
+ "serde_json",
  "tempfile",
  "test-log",
  "tokio",

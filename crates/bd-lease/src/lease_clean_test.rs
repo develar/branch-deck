@@ -126,6 +126,8 @@ fn an_unsafe_rule_is_skipped_and_reported() {
   let repo = fixture.repo.path();
   std::os::unix::fs::symlink(outside.path(), repo.join("link")).unwrap();
   file(repo, "tests/results/trace.zip", 4096);
+  // a test repository has no hooks (`TestRepo::new` copies no template): the rule must find one to keep
+  file(repo, ".git/hooks/pre-commit", 10);
 
   let (exit_code, output) = fixture.run(&["lease", "clean"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -145,7 +147,7 @@ fn an_unsafe_rule_is_skipped_and_reported() {
   for ((_, error), says) in rules.iter().zip(["..", "absolute", ".git", "git tracks a.txt", "symlink"]) {
     assert!(error.as_deref().unwrap().contains(says), "{error:?}");
   }
-  assert!(outside.path().join("data/keep.txt").exists() && repo.join("a.txt").exists() && repo.join(".git/hooks").exists());
+  assert!(outside.path().join("data/keep.txt").exists() && repo.join("a.txt").exists() && repo.join(".git/hooks/pre-commit").exists());
   assert!(!repo.join("tests/results").exists());
 }
 

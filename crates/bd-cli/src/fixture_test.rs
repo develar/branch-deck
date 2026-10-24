@@ -245,13 +245,7 @@ pub fn git(repo: &TestRepo, args: &[&str]) -> String {
 pub fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
   git(repo, &["add", "-A"]);
   let date = format!("{timestamp} +0000");
-  repo
-    .git_executor()
-    .cmd(&["commit", "-m", message], repo.path().to_str().unwrap())
-    .env(&[("GIT_AUTHOR_DATE", &date), ("GIT_COMMITTER_DATE", &date)])
-    .text()
-    .unwrap_or_else(|e| panic!("commit {message:?} failed: {e}"));
-  repo.head()
+  repo.commit_with(&["-m", message], &[("GIT_AUTHOR_DATE", &date), ("GIT_COMMITTER_DATE", &date)])
 }
 
 /// The repository lock, held as another process would hold it, until the guard is dropped

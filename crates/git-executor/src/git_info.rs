@@ -22,6 +22,9 @@ impl GitInfo {
   /// Discover the git executable and check that it meets `MIN_VERSION` on every platform. An error is one summary line
   /// ("Cannot find Git: …" or "Git 2.39 is too old: …"), then how to install or upgrade Git
   pub fn discover() -> Result<Self, String> {
+    if let Some(info) = homebrew_git() {
+      return Ok(info);
+    }
     let git_path = get_git_path().map_err(|e| with_hint(&e))?;
     let info = Self::from_path(&git_path).map_err(|e| with_hint(&e))?;
     info.validate_minimum_version().map_err(|e| with_hint(&e))?;
@@ -30,18 +33,25 @@ impl GitInfo {
 
   /// Discover git for the command line, without the login-shell fallback of `discover`: `explicit_path` (the `BD_GIT`
   /// variable) if given, else `git` from `PATH`, else the Homebrew paths on macOS. The version is checked and an error
-  /// is formatted as in `discover`
+  /// is formatted as in `discover`. A git found without `explicit_path` is kept for the process (`CLI_DISCOVERED`): the
+  /// tests run `bd` many times in one process
   pub fn discover_for_cli(explicit_path: Option<&str>) -> Result<Self, String> {
+    /// The git of `discover_for_cli(None)`, once found
+    static CLI_DISCOVERED: std::sync::OnceLock<GitInfo> = std::sync::OnceLock::new();
+
     if let Some(path) = explicit_path {
       return Self::from_path(path)
         .and_then(|info| info.validate_minimum_version().map(|()| info))
         .map_err(|e| with_hint(&e));
     }
+    if let Some(info) = CLI_DISCOVERED.get() {
+      return Ok(info.clone());
+    }
 
     let mut first_error = None;
     for path in std::iter::once("git").chain(HOMEBREW_PATHS) {
       match Self::from_path(path).and_then(|info| info.validate_minimum_version().map(|()| info)) {
-        Ok(info) => return Ok(info),
+        Ok(info) => return Ok(CLI_DISCOVERED.get_or_init(|| info).clone()),
         Err(e) => {
           first_error.get_or_insert(e);
         }
@@ -107,21 +117,17 @@ const HOMEBREW_PATHS: [&str; 2] = [
 #[cfg(not(target_os = "macos"))]
 const HOMEBREW_PATHS: [&str; 0] = [];
 
+/// The first git of `HOMEBREW_PATHS` that meets `MIN_VERSION`, with the version its one `git version` answered
+fn homebrew_git() -> Option<GitInfo> {
+  HOMEBREW_PATHS
+    .iter()
+    .filter(|path| std::path::Path::new(path).exists())
+    .find_map(|path| GitInfo::from_path(path).ok().filter(|info| info.validate_minimum_version().is_ok()))
+}
+
+/// Without a git of Homebrew (`homebrew_git`), the git of the login shell; `discover` runs it and validates its version
 #[cfg(target_os = "macos")]
 fn get_git_path() -> Result<String, String> {
-  // Try Homebrew paths first
-  for path in &HOMEBREW_PATHS {
-    if std::path::Path::new(path).exists() {
-      // Check if this git meets version requirements
-      if let Ok(info) = GitInfo::from_path(path)
-        && info.validate_minimum_version().is_ok()
-      {
-        return Ok(path.to_string());
-      }
-    }
-  }
-
-  // Fall back to the git of the login shell; `discover` runs it and validates its version
   let output = Command::new("/bin/zsh")
     .args(["-l", "-c", "which git"])
     .output()
