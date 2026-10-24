@@ -86,15 +86,34 @@ impl TableState {
   /// The sync ended: on success the table is what its events left; on a failure the table of the sync before comes
   /// back, with the error
   pub fn finish_sync(&mut self, result: Result<(), ApiError>) {
-    let before = self.before_sync.take();
     match result {
-      Ok(()) => self.sync = SyncState::Idle,
+      Ok(()) => {
+        self.before_sync = None;
+        self.sync = SyncState::Idle;
+      }
       Err(error) => {
-        if let Some(before) = before {
-          self.parts = *before;
-          self.commit_index = index_commits(&self.parts.branches);
-        }
+        self.defer_sync();
         self.sync = SyncState::Failed { error };
+      }
+    }
+  }
+
+  /// The sync was refused before it built anything (a rebase in progress, a detached HEAD: `SyncDeferred`): the table
+  /// of the sync before comes back, and nothing failed
+  pub fn defer_sync(&mut self) {
+    if let Some(before) = self.before_sync.take() {
+      self.parts = *before;
+      self.commit_index = index_commits(&self.parts.branches);
+    }
+    self.sync = SyncState::Idle;
+  }
+
+  /// The sync runs once more for `branches` (`SyncReport::retry`: another process moved what it built): their rows say
+  /// `Syncing` until the retry reports them; the sync goes on, so a failed retry still restores the table before both
+  pub fn resync<'a>(&mut self, branches: impl IntoIterator<Item = &'a str>) {
+    for name in branches {
+      if let Some(branch) = self.parts.branches.get_mut(name) {
+        branch.sync = BranchSync::SYNCING;
       }
     }
   }

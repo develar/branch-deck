@@ -1886,7 +1886,9 @@ a `master` or `main`).
 The hash of these and the prefix is the fingerprint: the prefix Rust resolves for the repository
 (`get_sync_inputs_fingerprint` takes none from the page; the git prefix from the memo of `BranchPrefixes`, no process),
 so a changed prefix, the app's or the repository's own, changes it (`changes_with_the_prefix_alone`). The page reads it
-before each sync, so a commit made while the sync runs is a change, and keeps it with the result; a focus compares it. Not in it: the notes the sync writes, the
+before each sync, so a commit made while the sync runs is a change, and keeps it with the result; a focus compares it.
+A session's scheduler does the same (`repository_model::sync_scheduler`, [Repository view](#repository-view)): a run
+reads it first, or takes the one its focus check just read, and a successful run keeps it. Not in it: the notes the sync writes, the
 working tree (the paths that block an update are read by the next sync). The app keeps the issue links of a repository
 (`RepositoryStateCache::issue_config`) while `.idea/vcs.xml` has the stamp they were read with, the one the fingerprint
 hashes, so the sync that an edit of the links starts reads the new ones
@@ -3176,8 +3178,31 @@ costs a snapshot). On the 141 branches of `branch_table_large` the patches of a 
 snapshot cost less than its `SyncEvent`s, and a sync that changes nothing costs at most 1 KiB (`state_test.rs`, B2 and
 B15 of [Rust as the Domain Authority](rust-domain-authority.md#бюджеты-производительности)). `SyncReport::retry` says
 that another process moved a virtual branch or a stack branch while the sync built it (`BranchMove::MovedElsewhere`):
-the branch reports an error, and the session syncs once more. The session that runs the state is the next step of
-`s6-session-table`; until it lands the page applies the `SyncEvent`s itself (`branch-sync.ts`).
+the branch reports an error, and the session syncs once more.
+
+The sessions of the process (`session.rs`, `runtime.rs`, `sync_scheduler.rs`) run that state: one per worktree and
+branch prefix the caller resolved (`SessionKey`; two worktrees of one repository are two sessions), each an actor on
+the runtime whose mailbox takes every call (subscribe with the snapshot at that moment, snapshot, focus, sync, `apply`)
+and every event of its syncs. A run reads the fingerprint of the sync inputs first ([Sync inputs
+check](#sync-inputs-check)), then syncs with the mailbox as its reporter, so the events are tagged with the run and
+those of a run that is not in flight are dropped; it takes no repository lock, as the app's sync never does. Each
+event changes the state at once, and the patch of what changed goes to the subscribers at most every 16 ms (wall
+time), at once when a run starts, when its build ended (`UnappliedBranchesFound`: the tips are known before the
+detection and the update check end, which come as patches of their own), when it ends and after an `apply`. The
+schedule (`SyncScheduler`, the port of `syncChain`, `followUpRequested`, `recheckAfterChain` and `syncIfChanged` of
+`branch-sync.ts`): `Manual` and `AfterRewrite` always run, as one quiet follow-up while a run is in flight; `Focus` and
+`Open` run only when the fingerprint changed since the last successful sync, a focus during a run is one check after
+the chain, and a window that opens during a run is served by it; a `SyncReport::retry` runs once more for the same
+requests, the branches the run did not build `Syncing` meanwhile. A ticket (`SyncTicket`) resolves after the last
+patch of the run that serves its request, never after the follow-ups. A deferred sync (`SyncDeferred`) restores the
+table and keeps the state idle, its ticket gets the code; another failure restores the table with `Failed { error }`.
+The host supplies the sync (`SessionHost`; the app's is `GitSessionHost` with the options and the error conversion it
+keeps, `SessionEnvironment`). A session without subscribers runs nothing (a focus is `Skipped`, no git process), and
+`Sessions::sweep` removes it after two minutes without subscribers or operations on the session clock (`TestClock` in
+the tests); opened again it has a new epoch. `session_test.rs` pins the tickets, the recheck, the retry, the kept
+table, the late events, two worktrees and the life; `sync_scheduler_test.rs` the schedule. The app's windows still
+apply the `SyncEvent`s themselves (`branch-sync.ts`) until the next steps of `s6-session-table` move them onto the
+sessions.
 
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table

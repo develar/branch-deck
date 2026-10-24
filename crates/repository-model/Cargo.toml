@@ -18,7 +18,7 @@ object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
 sync-utils = { path = "../sync-utils" }
 moka = { workspace = true, features = ["sync"] }
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
 tracing.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true

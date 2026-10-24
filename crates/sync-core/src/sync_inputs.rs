@@ -1,5 +1,6 @@
-//! What a sync reads, as one cheap fingerprint: the window syncs on focus only when it changed since the last sync
-//! (docs/design/git-operations.md, "Sync inputs check").
+//! What a sync reads, as one cheap fingerprint: a focus syncs only when it changed since the last sync, the window's
+//! and the scheduler of a session's (`repository_model::sync_scheduler`) alike (docs/design/git-operations.md, "Sync
+//! inputs check").
 
 use crate::issue_navigation::issue_navigation_config_path;
 use anyhow::{Result, anyhow};
