@@ -1556,7 +1556,9 @@ next return or clean deletes the trash of a run whose process is gone. Only anot
 Windows a rename fails while a process works in the path or has a file of it open (a shell, a test binary, an
 indexer), and a delete in place there stopped at the held file and left half a directory, or half a unit whose
 fingerprint cargo then trusted. A path that stays held after the retry of `sync_utils::fs_retry` (about a second,
-the helper of every removal and rename, `fs_retry_scan_test.rs`) stays whole, the files of its unit moved before it
+the helper of every removal and rename, `fs_retry_scan_test.rs`; a read-only attribute, which Windows answers with the
+same "Access is denied", is cleared and the call tried again at once, so a read-only file is never taken for a held
+one) stays whole, the files of its unit moved before it
 go back, and the rule's `error` names it and says that a process holds it: Windows has no process scan to name the
 process, and its refusal of the move is the one fact needed. The next clean deletes it once the process let go.
 `freed_bytes` counts blocks an APFS clone still shares with another checkout; `bd lease clean` adds

@@ -1,4 +1,4 @@
-use crate::fs_retry::remove_dir_all;
+use crate::fs_retry::{remove_dir, remove_dir_all, remove_file, rename};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use test_utils::git_in_directory::GitInDirectory;
@@ -81,4 +81,28 @@ fn a_program_that_keeps_a_file_open_fails_the_removal_on_windows_after_a_second(
     assert!(!removed.exists());
   }
   drop(holder);
+}
+
+/// A read-only file and an empty read-only directory (git and Bazel write outputs read-only) are renamed and removed as
+/// any other, at once: on Windows the attribute fails a removal of a directory with "Access is denied", as a holder
+/// would, and is cleared instead of waited for, as git clears it for its own objects; elsewhere the calls go on
+#[test]
+fn a_read_only_file_and_directory_are_renamed_and_removed_at_once() {
+  let dir = tempfile::tempdir().unwrap();
+  let (file, moved, empty) = (dir.path().join("file"), dir.path().join("moved"), dir.path().join("empty"));
+  std::fs::write(&file, "read-only").unwrap();
+  std::fs::create_dir_all(&empty).unwrap();
+  for path in [&file, &empty] {
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(path, permissions).unwrap();
+  }
+  let started = Instant::now();
+
+  rename(&file, &moved).unwrap();
+  remove_file(&moved).unwrap();
+  remove_dir(&empty).unwrap();
+
+  assert!(!file.exists() && !moved.exists() && !empty.exists());
+  assert!(started.elapsed() < Duration::from_millis(500), "waited as for a holder: {:?}", started.elapsed());
 }

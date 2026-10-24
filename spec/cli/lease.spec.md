@@ -290,8 +290,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   so a return frees the slot before the long delete of a build output and a timeout of the caller never leaves a lease
   `returning` while files go. What a process keeps must stay whole in the checkout, never be deleted in place: on
   Windows a rename fails while a process works in the path or has a file of it open; after a retry of about a second
-  (`sync_utils::fs_retry`, which every removal and rename of the app goes through) the files of the unit moved before
-  it go back, and the `error` of the rule names the path and says that a process holds it (Windows has no process scan
+  (`sync_utils::fs_retry`, which every removal and rename of the app goes through; a read-only attribute, which fails a
+  call with the same "Access is denied", is cleared instead, as git clears it) the files of the unit moved before it go
+  back, and the `error` of the rule names the path and says that a process holds it (Windows has no process scan
   to name it): once the process let go, the next `bd lease clean` deletes it. The other paths of the rule go on. Once
   the slot is free the return, and `bd lease clean` once every slot it marked is free again, delete their trash,
   counting `freed_bytes` in the same walk, and the trash of a run whose process is gone; a path that can't be deleted
@@ -301,7 +302,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`)
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_held_unit_and_a_held_entry_stay_whole_and_the_next_clean_takes_them`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_held_entry_of_a_free_slot_stays_whole_until_its_process_exits`)
-  [@test] ../../crates/sync-utils/src/fs_retry_test.rs (`a_process_whose_current_directory_is_in_the_directory_delays_its_removal_until_it_exits`, `a_program_that_keeps_a_file_open_fails_the_removal_on_windows_after_a_second`)
+  [@test] ../../crates/sync-utils/src/fs_retry_test.rs (`a_process_whose_current_directory_is_in_the_directory_delays_its_removal_until_it_exits`, `a_program_that_keeps_a_file_open_fails_the_removal_on_windows_after_a_second`, `a_read_only_file_and_directory_are_renamed_and_removed_at_once`)
   [@test] ../../crates/git-executor/src/fs_retry_scan_test.rs (`every_removal_and_rename_waits_out_a_holder_on_windows`)
 - `bd lease clean [--free] [--dry-run] [--keep <n>] [--age <duration>] [<dir>...]` must apply the rules of the checkout
   it runs in, read once, to the free slots (`--free`), to the given worktrees, or to that checkout. A slot of the pool
