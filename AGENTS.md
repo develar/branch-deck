@@ -220,7 +220,9 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
   `data-sync-count`, an `aria-busy` that clears); an app timer runs with `page.clock.fastForward`, a debounced
   settings change with `waitForStorePersistence` (the key as the writer answered it, as a reload reads it). No
   `waitForTimeout`: under load
-  (several checkouts running e2e and cargo) any fixed wait is too short.
+  (several checkouts running e2e and cargo) any fixed wait is too short; Oxlint refuses it in `tests/`, and a
+  `setTimeout` in a spec, a fixture or a helper. A box or a point measured for a press waits for the facts that move
+  it: Patronus answers after the sync and moves the header row (`waitForHeaderFacts`).
 - **Locators**: role and accessible name first (`getByRole("menuitem", { name: "Review Changes" })`), `getByTestId` for
   what has no role or name; never CSS classes or DOM shape, which the theme and the React Compiler change.
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command

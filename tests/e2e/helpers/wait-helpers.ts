@@ -163,13 +163,6 @@ export async function waitForBranchDetailsExpanded(page: Page, branchName: strin
 }
 
 /**
- * Wait with timeout and return a default value if timeout
- */
-export async function waitWithTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
-  return Promise.race([promise, new Promise<T>(resolve => setTimeout(() => resolve(defaultValue), timeoutMs))])
-}
-
-/**
  * Wait for tooltip to appear with specific text
  */
 export async function waitForTooltip(page: Page, text: string, timeout = 5000): Promise<Locator> {

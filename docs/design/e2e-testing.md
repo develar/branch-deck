@@ -501,7 +501,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
 Optimizations:
 - Template pre-creation eliminates git init per test
 - Parallel test execution with independent state
-- Element-based waiting instead of fixed timeouts
+- Element-based waiting instead of fixed timeouts (Oxlint refuses `waitForTimeout` in `tests/` and a `setTimeout` in
+  a spec, a fixture or a helper, `vite.config.ts`)
 - Direct file operations for template copying
 
 ## References

@@ -3,7 +3,7 @@
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import type { Box } from "../helpers/header-helpers"
-import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
+import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, MIN_WINDOW, waitForHeaderFacts } from "../helpers/header-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { holdCommand, holdWithProgress } from "../helpers/wait-helpers"
@@ -40,6 +40,7 @@ test.describe("Header", () => {
   test("should not move while a sync runs", async ({ page }) => {
     const lastSync = page.getByTestId("last-sync-time")
     await expect(lastSync.getByText(/^Last synced/)).toBeVisible()
+    await waitForHeaderFacts(page)
     const before = await actionBoxes(page)
 
     // hold the sync until the layout is measured

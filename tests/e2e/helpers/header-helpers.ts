@@ -38,8 +38,22 @@ export async function zoomPage(page: Page, zoom: number, size: { width: number; 
   await page.setViewportSize({ width: Math.round(size.width / zoom), height: Math.round(size.height / zoom) })
 }
 
-/** The header is one line high and its controls are inside it, apart from each other; `zoom` is that of the page */
+/**
+ * Waits for the facts of the header of `behind_upstream`: Patronus answers after the sync, and its answer adds the
+ * user's move to the landing indicator, which at the minimum width moves Update Project and the start of the row by
+ * 12 px. A box measured before the answer is not where the control is after it, and a point between two controls
+ * (the 16 px gap that drags the window) is then on one of them
+ */
+export async function waitForHeaderFacts(page: Page): Promise<void> {
+  await expect(header(page).getByTestId("landing-moves")).toHaveText("1")
+}
+
+/**
+ * The header is one line high and its controls are inside it, apart from each other; `zoom` is that of the page.
+ * Measured once the header has its facts (`waitForHeaderFacts`)
+ */
 export async function expectHeaderControlsOnOneLine(page: Page, ids: string[], zoom = 1): Promise<Box> {
+  await waitForHeaderFacts(page)
   const headerBox = await boxOf(header(page))
   // the toolbar keeps its size at any page zoom
   expect(headerBox.height * zoom).toBeCloseTo(HEADER_HEIGHT, 0)

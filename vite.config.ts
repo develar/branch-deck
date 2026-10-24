@@ -8,6 +8,10 @@ import { BUNDLED_LANGUAGE_IDS, filterShikiLanguageList } from "./src/lib/diff/bu
 
 const SHIKI_WASM_STUB = "\0shiki-wasm-stub"
 
+/** Why a test has no fixed wait (AGENTS.md, E2E Tests): Oxlint refuses `waitForTimeout` and a sleep of a test */
+const FIXED_WAIT =
+  "A test waits for the state, never for time: under load any fixed wait is too short. Wait for the element or the event of the state (expect, expect.poll), run an app timer with page.clock"
+
 /**
  * Cuts Shiki down to what the diff view uses (docs/design/diff-view.md "Languages"): the grammars of
  * `BUNDLED_LANGUAGE_IDS`, no bundled theme (the diffs have their own), and no WebAssembly regex engine (the JavaScript
@@ -249,6 +253,19 @@ export default defineConfig({
         files: ["src/components/ui/**/*.tsx"],
         rules: {
           "react/only-export-components": "off",
+        },
+      },
+      {
+        files: ["tests/**/*.ts"],
+        rules: {
+          "no-restricted-properties": ["error", { property: "waitForTimeout", message: FIXED_WAIT }],
+        },
+      },
+      {
+        // the sleep of a test; the page script of the mock and the wait for the server before the first test keep theirs
+        files: ["tests/**/*.{spec,perf,shot}.ts", "tests/e2e/fixtures/**/*.ts", "tests/e2e/helpers/**/*.ts"],
+        rules: {
+          "no-restricted-globals": ["error", { name: "setTimeout", message: FIXED_WAIT }],
         },
       },
     ],

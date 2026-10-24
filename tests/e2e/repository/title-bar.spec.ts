@@ -2,17 +2,21 @@
 import type { Page } from "@playwright/test"
 import { expect, test, testWithConflicts } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
-import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, MIN_WINDOW } from "../helpers/header-helpers"
+import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, MIN_WINDOW, waitForHeaderFacts } from "../helpers/header-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
 import { availableReviewRequests, getYourTurnCard, openReviewWindow, reviewRequest } from "../helpers/review-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { waitForConflictViewer } from "../helpers/wait-helpers"
 
-/** The empty part of the main window's row, between the repository and the actions: it drags the window */
+/**
+ * The empty part of the main window's row, between the repository and the actions: it drags the window. Measured once
+ * the row has its facts: a press at a point measured before Patronus answered lands on Update Project
+ */
 async function emptyPartOfRow(page: Page): Promise<{ x: number; y: number }> {
+  await waitForHeaderFacts(page)
   // after the last control of the start: the switcher of the views of a repository, else the browse button
   const switcher = page.getByTestId("main-view-switcher")
   const start = await boxOf((await switcher.count()) > 0 ? switcher : page.getByTestId("browse-repository-button"))
@@ -401,10 +405,11 @@ test.describe("Keys of the native menu", () => {
     await syncAndWaitForBranches()
     await expect(page.getByTestId("main-menu-button")).toHaveCount(0)
     const sync = page.getByTestId("sync-button")
-    const count = await sync.getAttribute("data-sync-count")
+    const count = await finishedSyncCount(page)
     await page.keyboard.press("Control+KeyR")
-    await page.waitForTimeout(300)
-    await expect(sync).toHaveAttribute("data-sync-count", count!)
+    // Sync after the key syncs once: a sync of the key would hold Sync until it is done and count as one more
+    await runAndWaitForSync(page, () => sync.click())
+    await expect(sync).toHaveAttribute("data-sync-count", String(count + 1))
   })
 
   test("should send Sync and Settings from a sub-window to the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
