@@ -66,6 +66,16 @@ fn text(file: &DiffFile) -> &TextDiff {
   }
 }
 
+/// The service with time limits no comparison of these tests reaches: on a loaded machine the 1 s of `DIFF_LIMITS` for
+/// the lines of `many.txt` ran out, and the file became one block. A test of the limits gives its own
+/// (`a_diff_out_of_time_is_by_line_and_not_stored`)
+fn unhurried() -> FileDiffs {
+  FileDiffs::new(DiffLimits {
+    file: Duration::from_secs(60),
+    lines: Duration::from_secs(60),
+  })
+}
+
 fn open_cache(dir: &tempfile::TempDir) -> ObjectCache {
   ObjectCache::open_dir(dir.path(), &CacheConfig::default())
 }
@@ -77,7 +87,7 @@ fn commit(id: &str) -> DiffSource {
 #[test]
 fn a_commit_has_a_typed_diff_of_each_kind_of_file() {
   let (repo, root, second) = corpus();
-  let files = FileDiffs::default()
+  let files = unhurried()
     .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(&second), WhitespacePolicy::Default)
     .unwrap();
   let blob = |commit: &str, path: &str| Some(repo.rev_parse(&format!("{commit}:{path}")).unwrap());
@@ -132,7 +142,7 @@ fn a_commit_has_a_typed_diff_of_each_kind_of_file() {
 fn a_range_has_the_diffs_of_all_its_commits() {
   let (repo, root, second) = corpus();
   let range = DiffSource::Range { base: root, head: second };
-  let files = FileDiffs::default()
+  let files = unhurried()
     .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &range, WhitespacePolicy::Default)
     .unwrap();
   assert_eq!(text(file(&files, "new.txt")).blocks.len(), 1);
@@ -143,7 +153,7 @@ fn the_policy_keys_its_own_diff() {
   let repo = TestRepo::new();
   repo.create_commit_with_files("Initial", &[("a.txt", "a b\nc\n")]);
   let second = repo.create_commit_with_files("Spaces", &[("a.txt", "a  b\nc\n")]);
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let read = |policy| {
     let files = diffs
       .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(&second), policy)
@@ -161,7 +171,7 @@ fn a_diff_costs_one_list_and_one_cat_file_then_nothing() {
   let (repo, _, second) = corpus();
   let cache_dir = tempfile::tempdir().unwrap();
   let cache = open_cache(&cache_dir);
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let counting = repo.git_executor().with_process_stats("test");
   let first = diffs.read(&counting, repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default).unwrap();
   assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1), ("diff-tree".to_string(), 1)]);
@@ -174,9 +184,7 @@ fn a_diff_costs_one_list_and_one_cat_file_then_nothing() {
   // another app: the text diffs from the store; the binary and too large files read their blobs again
   let counting = repo.git_executor().with_process_stats("test");
   assert_eq!(
-    FileDiffs::default()
-      .read(&counting, repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
-      .unwrap(),
+    unhurried().read(&counting, repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default).unwrap(),
     first
   );
   assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1)]);
@@ -188,7 +196,7 @@ fn two_commits_with_the_same_blob_pair_share_its_diff() {
   repo.create_commit_with_files("Initial", &[("x.txt", "one\n"), ("y.txt", "one\n")]);
   let first = repo.create_commit_with_files("x", &[("x.txt", "two\n")]);
   let second = repo.create_commit_with_files("y", &[("y.txt", "two\n")]);
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let x = diffs
     .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(&first), WhitespacePolicy::Default)
     .unwrap();
@@ -211,7 +219,7 @@ fn the_working_tree_is_compared_with_head_by_the_ids_git_gives_its_files() {
   repo.git(&["add", "staged.txt"]);
 
   let counting = repo.git_executor().with_process_stats("test");
-  let files = FileDiffs::default()
+  let files = unhurried()
     .read(&counting, repo_path(&repo), &ObjectCache::disabled(), &DiffSource::Uncommitted, WhitespacePolicy::Default)
     .unwrap();
   assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1), ("status".to_string(), 1)]);
@@ -234,7 +242,7 @@ fn the_working_tree_is_compared_with_head_by_the_ids_git_gives_its_files() {
 #[test]
 fn the_texts_of_a_diff_come_from_memory() {
   let (repo, root, second) = corpus();
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let files = diffs
     .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(&second), WhitespacePolicy::Default)
     .unwrap();
@@ -259,7 +267,7 @@ fn the_texts_of_a_diff_come_from_memory() {
 
   // a blob no diff read: one cat-file
   let other = repo.rev_parse(&format!("{root}:gone.txt")).unwrap();
-  let fresh = FileDiffs::default();
+  let fresh = unhurried();
   let counting = repo.git_executor().with_process_stats("test");
   let texts = fresh.blob_texts(&counting, repo_path(&repo), &[BlobRequest { id: other.clone(), path: None }]).unwrap();
   assert_eq!(
@@ -278,7 +286,7 @@ fn a_working_tree_text_is_read_by_its_path_and_checked_against_its_id() {
   repo.create_commit_with_files("Initial", &[("a.txt", "one\n")]);
   write(&repo, "a.txt", b"changed\n");
   let id = repo.git(&["hash-object", "--no-filters", "a.txt"]).trim().to_string();
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let request = |id: &str, path: &str| BlobRequest {
     id: id.to_string(),
     path: Some(path.to_string()),
@@ -337,7 +345,7 @@ fn a_diff_out_of_time_is_by_line_and_not_stored() {
 #[test]
 fn the_model_is_json_with_a_kind() {
   let (repo, _, second) = corpus();
-  let files = FileDiffs::default()
+  let files = unhurried()
     .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(&second), WhitespacePolicy::Default)
     .unwrap();
   let json = serde_json::to_value(file(&files, "A.kt")).unwrap();
@@ -362,7 +370,7 @@ fn a_submodule_names_its_commits() {
   let root = repo.create_commit_with_files("Initial", &[("a.txt", "a\n")]);
   repo.git(&["update-index", "--add", "--cacheinfo", &format!("160000,{root},sub")]);
   let second = repo.create_commit_in_index("Submodule", &[]);
-  let files = FileDiffs::default()
+  let files = unhurried()
     .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(&second), WhitespacePolicy::Default)
     .unwrap();
   let submodule = file(&files, "sub");
@@ -390,7 +398,7 @@ fn a_blob_git_cannot_read_is_missing_and_not_cached() {
   git_ops::commit_files::read_commit_files_cached(repo.git_executor(), repo_path(&repo), &cache, std::slice::from_ref(&second)).unwrap();
   let blob = repo.rev_parse(&format!("{second}:a.txt")).unwrap();
   std::fs::remove_file(repo.path().join(".git/objects").join(&blob[..2]).join(&blob[2..])).unwrap();
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let files = diffs
     .read(repo.git_executor(), repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
     .unwrap();
@@ -411,7 +419,7 @@ fn the_stream_lists_the_files_then_the_files_in_view_first_and_their_scopes_afte
     policy: WhitespacePolicy::Default,
     priority_paths: priority.to_vec(),
   };
-  FileDiffs::default()
+  unhurried()
     .stream(repo.git_executor(), &ObjectCache::disabled(), &params, |event| events.push(event))
     .unwrap();
   let FileDiffEvent::Files { files } = &events[0] else { panic!("{:?}", events[0]) };
