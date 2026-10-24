@@ -257,6 +257,9 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await expect(nextSwitch).toBeChecked()
     await nextSwitch.click()
     await expect.poll(() => testStore.get("ai")).toMatchObject({ aiMode: "disabled" })
+    // the main window heard the change (`settings_changed` reaches it after the writer saved it): a creator opened
+    // before it would still ask for names
+    await waitForStorePersistence(page, "ai", value => (value as { aiMode?: string } | null)?.aiMode === "disabled")
 
     await clickGroupIntoBranchButton(page)
     await inlineBranchCreator.waitForVisible(page)

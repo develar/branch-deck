@@ -249,15 +249,19 @@ simpleTest.describe("Commit review", () => {
   simpleTest("should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
     const window = await openTreeReview(page)
-    const row = window.locator(".dv-row[data-kind=changed]").first()
-    await expect(row).toBeVisible()
-    const share = () => row.evaluate(element => element.children[0]!.getBoundingClientRect().width / element.getBoundingClientRect().width)
+    await expect(window.locator(".dv-row[data-kind=changed]").first()).toBeVisible()
+    // the painter paints a row anew when its texts arrive or the layout changes, so a handle of a row can be detached
+    // the moment after it was found: every look finds the row and measures it in one step of the page
+    const firstRow = () =>
+      window.evaluate(review => {
+        const row = review.querySelector(".dv-row[data-kind=changed]")!
+        const [left, right] = [...row.children].map(half => half.getBoundingClientRect())
+        return { share: left!.width / row.getBoundingClientRect().width, divider: { x: right!.x, y: right!.y + right!.height / 2 } }
+      })
+    const share = async () => (await firstRow()).share
     await expect.poll(share).toBeCloseTo(0.5, 2)
     // the divider is the line between the halves of a row
-    const line = async () => {
-      const box = (await row.locator('.dv-half[data-side="1"]').boundingBox())!
-      return { x: box.x, y: box.y + box.height / 2 }
-    }
+    const line = async () => (await firstRow()).divider
 
     const at = await line()
     await page.mouse.move(at.x, at.y)
