@@ -1,22 +1,21 @@
-import { execSync } from "child_process"
-import { realpathSync } from "fs"
+import { execFileSync, execSync } from "child_process"
+import { createHash } from "crypto"
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "fs"
+import { chromium } from "@playwright/test"
 import type { FullConfig } from "@playwright/test"
 import { TEST_SERVER_PORT, TEST_SERVER_URL } from "../helpers/test-server-url"
 
 /**
- * Check if Playwright browsers are installed
+ * Installs Chromium when the version of Playwright in node_modules has none yet (a new checkout, an update of
+ * `@playwright/test`); nothing to do otherwise, which a look at the file answers (`playwright install --dry-run` took a
+ * second and a half on a loaded Mac and answered "installed" for any state)
  */
-function checkPlaywrightBrowsers() {
-  try {
-    // Use --dry-run to quickly check if browsers are installed
-    execSync("playwright install --dry-run", { stdio: "pipe" })
-  } catch {
-    console.error("\n❌ Playwright browsers are not installed!\n")
-    console.error("Please run one of the following commands:")
-    console.error("  • pnpm setup:e2e           (recommended - installs with system dependencies)")
-    console.error("  • pnpm exec playwright install\n")
-    throw new Error("Playwright browsers missing. Run 'pnpm setup:e2e' to install them.")
+function ensureChromium() {
+  if (existsSync(chromium.executablePath())) {
+    return
   }
+  console.log("[Global Setup] Installing Chromium for this version of Playwright (pnpm setup:e2e installs all browsers)")
+  execSync("pnpm exec playwright install chromium", { stdio: "inherit" })
 }
 
 /**
@@ -59,17 +58,71 @@ async function checkServerCheckout() {
   }
 }
 
+/** What `pnpm build` reads: the page, its config and its dependencies; the unit tests beside the page are no part of it */
+const BUILD_INPUTS = [
+  "src",
+  "public",
+  "index.html",
+  "vite.config.ts",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "tsconfig*.json",
+  ":(exclude)src/**/*.test.ts",
+  ":(exclude)src/test-support",
+]
+
+/** The hash of the inputs `dist/` was built from, written after the build; a build empties `dist/`, and with it this file */
+const BUILT_INPUTS = "dist/.e2e-build-inputs"
+
 /**
- * Global setup for Playwright tests
- * This runs once before all tests and builds the frontend and sets up the test environment
+ * The hash of the build inputs as they are now, by git: the blob of every tracked file as the index has it, and the
+ * content of each file that differs from the index or is untracked but not ignored. An edit, a new file, a deletion and
+ * a checkout all change it, and only the changed files are read: reading all of `src/` takes seconds on a loaded Mac
  */
-async function globalSetup(_config: FullConfig) {
-  console.log("[Global Setup] Initializing test environment...")
+function buildInputsHash(): string {
+  const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } })
+  const changed = git("status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ...BUILD_INPUTS)
+  const hash = createHash("sha256")
+    .update(git("ls-files", "--stage", "-z", "--", ...BUILD_INPUTS))
+    .update(changed)
+  const entries = changed.split("\0").filter(Boolean)
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index]!
+    // a rename or a copy in the index names its source in the next entry, whose blob the index no longer has
+    if (entry[0] === "R" || entry[0] === "C") {
+      index++
+    }
+    const path = entry.slice(3)
+    hash.update(path).update("\0")
+    try {
+      hash.update(readFileSync(path))
+    } catch {
+      hash.update("deleted")
+    }
+  }
+  return hash.digest("hex")
+}
 
-  // Check if Playwright browsers are installed
-  checkPlaywrightBrowsers()
+function readBuiltInputs(): string | null {
+  try {
+    return readFileSync(BUILT_INPUTS, "utf8")
+  } catch {
+    return null
+  }
+}
 
-  // Build the frontend first; its output only when it fails
+/**
+ * Builds the frontend into `dist/` unless it was built from the inputs as they are now: a run after a run without a
+ * change of the page starts at once. Its output only when it fails
+ */
+function buildFrontend() {
+  const started = Date.now()
+  const inputs = buildInputsHash()
+  if (readBuiltInputs() === inputs) {
+    console.log(`[Global Setup] Frontend is up to date (${Date.now() - started} ms)`)
+    return
+  }
   try {
     execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() })
   } catch (error) {
@@ -77,6 +130,19 @@ async function globalSetup(_config: FullConfig) {
     console.error(`[Global Setup] Frontend build failed:\n${stdout?.toString() ?? ""}${stderr?.toString() ?? ""}`)
     throw error
   }
+  writeFileSync(BUILT_INPUTS, inputs)
+  console.log(`[Global Setup] Built the frontend in ${((Date.now() - started) / 1000).toFixed(1)} s`)
+}
+
+/**
+ * Global setup for Playwright tests
+ * This runs once before all tests and builds the frontend and sets up the test environment
+ */
+async function globalSetup(_config: FullConfig) {
+  console.log("[Global Setup] Initializing test environment...")
+
+  ensureChromium()
+  buildFrontend()
 
   // Verify the test server is running
   try {

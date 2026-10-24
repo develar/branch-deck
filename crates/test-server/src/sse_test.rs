@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 async fn start_test_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
-  let app = crate::create_test_app().await;
+  let app = crate::create_test_app();
 
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind to port");
   let addr = listener.local_addr().unwrap();

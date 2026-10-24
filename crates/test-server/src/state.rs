@@ -13,9 +13,8 @@ pub struct AppState {
   pub path_to_id: DashMap<String, String>, // path -> repository_id
   pub git_executor: GitCommandExecutor,
   pub test_root_dir: tempfile::TempDir,
-  pub templates_dir: PathBuf,
-  /// Held while a template that is missing is built (`ensure_template`)
-  pub template_builds: tokio::sync::Mutex<()>,
+  /// The templates the repositories are copied from, and the builds of the missing ones
+  pub templates: std::sync::Arc<crate::templates::Templates>,
   /// The table each repository's last sync finished, which `get_repository_view` answers from, as the app keeps it
   pub repository_views: repository_model::views::RepositoryViews,
   /// The git prefix of each repository, which the commands of the sync family resolve the prefix with, as the app keeps

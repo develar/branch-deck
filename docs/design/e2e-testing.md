@@ -94,11 +94,18 @@ sequenceDiagram
 4. **Decision**: Mock Tauri Result type accurately
    **Rationale**: Tests must handle errors exactly as in production
 
-5. **Decision**: Pre-create templates at server startup; a route test of `crates/test-server`
-   (`create_route_test_app_with_state`) builds a template when it first makes a repository of it
-   **Rationale**: Eliminates per-test repository creation overhead. A route test runs in a process of its own
-   (nextest) and asks for one or two templates: building all 45 took each of them two minutes on a CI runner, and the
-   Windows run hit its time limit
+5. **Decision**: The E2E server keeps its templates in a cache beside its executable (`target/debug/e2e-templates/`,
+   one directory per build of the server and version of git, `templates.rs`), builds the missing ones in the
+   background while it already serves, and a repository waits only for its own template; a route test of
+   `crates/test-server` (`create_route_test_app_with_state`) builds a template into its temporary directory when it
+   first makes a repository of it. A repository is one APFS clone of its template on macOS (`clone_dir` of
+   `lease-pool`), a copy elsewhere
+   **Rationale**: A template is built by the code of the server, so a new build of the server is the one change that
+   needs new templates; a run of the same build starts at once. Building all 45 took 9–11 s of every run on a quiet
+   Mac Studio (1784 git processes) and over a minute under load, and the server served nothing until they were done. A
+   route test runs in a process of its own (nextest) and asks for one or two templates: building all 45 took each of
+   them two minutes on a CI runner, and the Windows run hit its time limit. A copy of a template took 50 ms on a
+   loaded Mac and 167 ms on average during a full run of the Studio, the clone a few ms
 
 6. **Decision**: A reload starts from what the app wrote to its settings store, as a new window of the app starts from
    `settings.json` as it is now. The setup injects the initial values as `window.__TAURI_STORE__` from an init script,
@@ -118,9 +125,14 @@ sequenceDiagram
 ### Implementation Notes
 
 Template system:
-- **Templates**: `simple`, `unassigned`, `conflict_*`, `NO_REPO`, `empty-non-git`
-- **Location**: Built in parallel into the temporary directory of the server at startup
-- **Usage**: Copied to unique directory per test
+- **Templates**: `TEMPLATES` of `crates/test-server/src/templates.rs`, built by `test_utils::repo_template` with fixed
+  commit dates, so a cached template differs from a new one only in the ids of its store commits (issue groups, stack
+  parents); `NO_REPO` is a path without a directory
+- **Location**: the E2E server: `e2e-templates/<size and mtime of the executable>-git-<version>/` beside its
+  executable, the caches of the two builds before kept (a server of the build before may still run), a half-built
+  template of a stopped server removed after 10 minutes. A template is built into `.<name>.<pid>.building` and renamed
+  into place once whole, so two servers of one build never copy half a template. A route test: its temporary directory
+- **Usage**: cloned (macOS) or copied into a directory of its own per test, in a blocking task
 - **Git**: fixture code runs git through `git_command` (`crates/test-utils/src/git_test_utils.rs`), which removes the
   repository-local variables (`git rev-parse --local-env-vars`). Under `git rebase --exec` or a hook, an inherited
   `GIT_DIR` would otherwise send every template command into the developer's clone; `git_command_test` scans the test
@@ -521,11 +533,16 @@ log of the fake). No test answers a remote write in the page: the registry test 
   or a sync
 
 Optimizations:
-- Template pre-creation eliminates git init per test
+- Templates cached per build of the server and cloned per test: no git init per test, none per run
+- Global setup builds the frontend only when its inputs changed: the hash of `git ls-files --stage` and `git status`
+  of `src/` (without the unit tests), `public/`, `index.html` and the build config, with the content of the changed
+  files, is kept in `dist/.e2e-build-inputs` (a build empties `dist/`, and the hash with it). Hashing every file of
+  `src/` took 1.2–1.8 s on a loaded Mac, the git listing 40–80 ms; a build takes 2 s on a quiet Mac and tens of
+  seconds under load. Chromium is installed only when its executable is missing (`playwright install --dry-run`
+  answered "installed" for any state and cost 0.5 s twice per run)
 - Parallel test execution with independent state
 - Element-based waiting instead of fixed timeouts (Oxlint refuses `waitForTimeout` in `tests/` and a `setTimeout` in
   a spec, a fixture or a helper, `vite.config.ts`)
-- Direct file operations for template copying
 
 ## References
 
@@ -534,5 +551,5 @@ Optimizations:
 - Mock layer and snapshot formatter: `tests/e2e/setup/tauri-mocks.ts` (injected with `page.addInitScript`)
 - Snapshot capture and transition settling: `tests/e2e/helpers/aria-snapshot-helpers.ts`
 - Frontend: the test server serves the `pnpm build` output from `dist/`, with an SPA fallback to `index.html` for client routes such as `/conflicting-files`
-- Templates: generated by `pnpm e2e:regenerate` (`crates/test-server`)
+- Templates: `crates/test-server/src/templates.rs` (the cache), `crates/test-utils/src/repo_template.rs` (the repositories)
 - Related: [virtual-branches.md](virtual-branches.md)

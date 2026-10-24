@@ -49,6 +49,8 @@ sync-utils = { path = "../sync-utils" }
 youtrack = { path = "../youtrack", features = ["fake"] }
 tempfile.workspace = true
 fs_extra = "1.3.0"
+# the APFS clone of a template into the repository of a test (`clone_dir`)
+lease-pool = { path = "../lease-pool" }
 dashmap.workspace = true
 
 [dev-dependencies]

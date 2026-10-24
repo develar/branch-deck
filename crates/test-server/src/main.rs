@@ -47,7 +47,7 @@ async fn main() {
   tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer()).init();
 
   // Create and run the app (this returns both the app and the state)
-  let (app, state) = test_server::create_test_app_with_state().await;
+  let (app, state) = test_server::create_test_app_with_state();
 
   // E2E_PORT lets a second worktree run its own server
   let port = std::env::var("E2E_PORT").ok().and_then(|port| port.parse::<u16>().ok()).unwrap_or(3030);

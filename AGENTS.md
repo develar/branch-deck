@@ -129,7 +129,7 @@ pnpm install              # Install dependencies
 pnpm run tauri dev        # The full app (frontend + backend)
 UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'  # Write src/lib/bindings.ts
 pnpm dev                  # Only the Vite frontend (port 1420)
-pnpm build                # The frontend into dist/ (E2E global setup runs it)
+pnpm build                # The frontend into dist/ (E2E global setup runs it when its inputs changed)
 pnpm install-app          # Unsigned release build of the .app, copied to /Applications (macOS)
 
 pnpm test                 # test:backend + test:unit (Rust and Vitest; not E2E)
@@ -139,7 +139,7 @@ yonder run studio -- pnpm e2e  # The E2E suite there; --apply brings back what a
 cargo nextest run -R latest  # Rerun what failed or did not run in the last run (record on in the user config)
 pnpm test:unit            # Vitest (`vp test run`; src/**/*.test.ts)
 
-pnpm e2e                  # Playwright E2E tests (installs the browsers if needed; `pnpm setup:e2e` by hand)
+pnpm e2e                  # Playwright E2E tests (installs Chromium if needed; `pnpm setup:e2e` for every browser)
 pnpm e2e-up               # E2E tests that rewrite the snapshots
 DEBUG_E2E=1 pnpm e2e      # With the mock server's debug log and every page console line
 E2E_PORT=3031 pnpm e2e    # On another port when another checkout's mock server holds 3030
@@ -165,13 +165,14 @@ cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (d
 - **E2E**: a failed test carries the console errors of its pages as the `page errors` attachment. Run with
   `DEBUG_E2E=1` for the debug log of the mock server and every console line live; without it the server logs warnings
   and errors only (`TEST_SERVER_LOG`, not `RUST_LOG`, which `.cargo/config.toml` forces to debug), and a green run
-  prints none. "Executable doesn't exist": `pnpm setup:e2e` (needed after an update of `@playwright/test`).
+  prints none. Global setup installs Chromium when the version of Playwright has none; "Executable doesn't exist" of
+  another browser: `pnpm setup:e2e`.
 - **Types**: `pnpm lint:typecheck` isolates TypeScript errors.
 
 ## Agent Pitfalls
 Mistakes agents made here; each cost a session.
-- **One `pnpm e2e` per checkout**, even on two ports: each global setup runs `pnpm build`, which empties `dist/` under
-  the other run (timeouts in page setup, not test failures).
+- **One `pnpm e2e` per checkout**, even on two ports: a global setup that finds the frontend changed runs `pnpm build`,
+  which empties `dist/` under the other run (timeouts in page setup, not test failures).
 - **`CI=1` does not speed up E2E**: it means 1 worker, 2 retries and no reuse of a running server
   (`playwright.config.ts`). A test that fails only under parallel load is a race: fix the wait, don't serialize.
 - **Same-second commits are the same commit**: a `git replay` or cherry-pick of a commit onto its own parent within one
