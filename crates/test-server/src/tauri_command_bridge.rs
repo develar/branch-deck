@@ -1,6 +1,6 @@
 use crate::channel_commands::{answer_with_progress, canceled_by, canceled_code, progress_channel, register_wait, run_waiting};
 use crate::remote_host::PAGE_CLOCK_START;
-use app_api::api_error::{IntoApiError, patronus_error, undo_error};
+use app_api::api_error::{IntoApiError, no_branch_prefix, patronus_error, undo_error};
 use axum::{
   extract::State,
   http::{HeaderMap, StatusCode, header},
@@ -22,7 +22,7 @@ use domain_types::pull_request::{
 };
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
-use domain_types::settings::GitBranchPrefix;
+use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use domain_types::{ProgressReporter, SyncEvent};
 use file_diffs::model::{
@@ -63,8 +63,8 @@ use sync_core::github_repository::{GitHubRepository, parse_known_github_reposito
 use sync_core::patronus::{SpaceRepository, find_target_branch, required_target_branch};
 use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::repository_config::{
-  ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
-  write_global_config, write_repository_config,
+  ConfigScope, RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries,
+  with_stacks_off_clashes, write_global_config, write_repository_config,
 };
 use sync_core::robot_commits::robot_failure_report;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
@@ -200,19 +200,57 @@ pub struct GetBranchPrefixRequest {
   repository_path: String,
 }
 
-/// The local `branchdeck.branchPrefix` only, never the user's global config, so the tests are deterministic (a local
-/// prefix is the repository's own: `repository_scoped`); an empty path (the global config of the settings) is an empty
-/// prefix
-pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<GitBranchPrefix> {
+/// `resolve_branch_prefix` of the app with the local `branchdeck.branchPrefix` only, never the user's global config, so
+/// the tests are deterministic (a local prefix is the repository's own), and the app's prefix of the test's settings;
+/// an empty path (the settings without a repository) has no git prefix
+pub async fn resolve_branch_prefix(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<ResolvedBranchPrefix> {
   if request.repository_path.is_empty() {
-    return Ok(Json(GitBranchPrefix::default()));
+    let settings = requesting_repository(&state, &headers).map_or_default(|repository| repository.store.app());
+    return Ok(Json(app_settings::resolve::resolve_branch_prefix(
+      &GitBranchPrefix::default(),
+      settings.global_user_branch_prefix.as_deref(),
+    )));
   }
-  ensure_repository_exists(&state, &request.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the branch prefix", move || read_local_branch_prefix(&git_executor, &request.repository_path)).await
+  let inputs = prefix_inputs(&state, &request.repository_path)?;
+  run_command("read the branch prefix", move || inputs.fresh(&request.repository_path)).await
 }
 
-/// `branchdeck.branchPrefix` of the repository's local config (`get_branch_prefix_from_git_config`)
+/// What a command of the sync family resolves the prefix of a test repository with, as the app's `PrefixInputs`: the
+/// settings of the test, the git prefixes of the server, the local git prefix as the git read
+struct TestPrefixInputs {
+  git: git_executor::git_command_executor::GitCommandExecutor,
+  settings: domain_types::settings::AppSettings,
+  prefixes: app_settings::branch_prefixes::BranchPrefixes,
+}
+
+impl TestPrefixInputs {
+  /// The prefix of `repository_path` by the git prefix the server keeps, read once; blocking
+  fn branch_prefix(&self, repository_path: &str) -> anyhow::Result<String> {
+    let read_git = || read_local_branch_prefix(&self.git, repository_path);
+    Ok(self.prefixes.resolve(&self.settings, repository_path, read_git)?.prefix)
+  }
+
+  /// The prefix of `repository_path` by its git config read now, kept for the commands after it; blocking
+  fn fresh(&self, repository_path: &str) -> anyhow::Result<ResolvedBranchPrefix> {
+    Ok(
+      self
+        .prefixes
+        .refresh(&self.settings, repository_path, read_local_branch_prefix(&self.git, repository_path)?),
+    )
+  }
+}
+
+/// The inputs of the prefix of the test repository at `repository_path`; an error for an unknown one
+fn prefix_inputs(state: &AppState, repository_path: &str) -> Result<TestPrefixInputs, Rejection> {
+  let repository = repository_by_path(state, repository_path)?;
+  Ok(TestPrefixInputs {
+    git: state.git_executor.clone(),
+    settings: repository.store.app(),
+    prefixes: state.branch_prefixes.clone(),
+  })
+}
+
+/// `branchdeck.branchPrefix` of the repository's local config (the git read of `resolve_branch_prefix`)
 pub fn read_local_branch_prefix(git_executor: &git_executor::git_command_executor::GitCommandExecutor, repo_path: &str) -> anyhow::Result<GitBranchPrefix> {
   let (output, exit_code) = git_executor.execute_command_with_status(&["config", "--local", "branchdeck.branchPrefix"], repo_path)?;
   match exit_code {
@@ -266,10 +304,15 @@ pub struct SetRepositoryConfigRequest {
 /// developer's must not change. The answer is the read of `get_repository_config`
 pub async fn set_repository_config(State(state): State<Arc<AppState>>, Json(request): Json<SetRepositoryConfigRequest>) -> CommandResult<RepositoryConfig> {
   let git_executor = config_git(&state, &request.repository_path)?;
+  let inputs = prefix_inputs(&state, &request.repository_path)?;
   run_command("change the repository settings", move || {
     match request.scope {
       WriteScope::Local => write_repository_config(&git_executor, &request.repository_path, &request.change)?,
       WriteScope::Global => write_global_config(&git_executor, &request.change)?,
+    }
+    // the git prefix the later commands resolve with, as the app keeps it after the write
+    if request.change.key() == RepositoryConfigKey::BranchPrefix {
+      inputs.fresh(&request.repository_path)?;
     }
     read_test_repository_config(&git_executor, &request.repository_path)
   })
@@ -310,16 +353,15 @@ impl ProgressReporter for ChannelProgressReporter {
 pub struct SyncBranchesRequest {
   #[serde(rename = "repositoryPath")]
   repository_path: String,
-  #[serde(rename = "branchPrefix")]
-  branch_prefix: String,
 }
 
-/// The fingerprint of what a sync reads, as the app's command: a focus syncs only when it changed
+/// The fingerprint of what a sync reads under the prefix the server resolves, as the app's command: a focus syncs only
+/// when it changed
 pub async fn get_sync_inputs_fingerprint(State(state): State<Arc<AppState>>, Json(request): Json<SyncBranchesRequest>) -> CommandResult<String> {
-  ensure_repository_exists(&state, &request.repository_path)?;
-  let git_executor = state.git_executor.clone();
+  let inputs = prefix_inputs(&state, &request.repository_path)?;
   run_command("read the sync inputs", move || {
-    sync_core::sync_inputs::sync_inputs_fingerprint(&git_executor, &request.repository_path, &request.branch_prefix)
+    let branch_prefix = inputs.branch_prefix(&request.repository_path)?;
+    sync_core::sync_inputs::sync_inputs_fingerprint(&inputs.git, &request.repository_path, &branch_prefix)
   })
   .await
 }
@@ -327,7 +369,13 @@ pub async fn get_sync_inputs_fingerprint(State(state): State<Arc<AppState>>, Jso
 /// Streams the events of the sync once it is done; a failed sync answers with its error instead, as the app's command
 /// rejects (the page alert), without the events sent before the failure
 pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Json<SyncBranchesRequest>) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Rejection> {
-  ensure_repository_exists(&state, &request.repository_path)?;
+  // the prefix by the git config read now, as the app's sync resolves it from the config it reads; refused without one
+  let inputs = prefix_inputs(&state, &request.repository_path)?;
+  let path = request.repository_path.clone();
+  let branch_prefix = run_command("read the branch prefix", move || inputs.fresh(&path)).await?.0.prefix;
+  if branch_prefix.is_empty() {
+    return Err(failed("sync", no_branch_prefix()));
+  }
 
   // Create a channel for streaming events
   let (tx, rx) = mpsc::unbounded_channel();
@@ -338,7 +386,7 @@ pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Js
   // Run the sync directly (no need for tokio::spawn since this is already async)
   let git_executor = &state.git_executor;
   let repository_path = &request.repository_path;
-  let branch_prefix = &request.branch_prefix;
+  let branch_prefix = &branch_prefix;
   let progress = reporter.clone();
   let options = SyncOptions {
     issue_config: IssueConfigSource::Load,
@@ -563,20 +611,24 @@ pub async fn get_repository_view(
   State(state): State<Arc<AppState>>,
   Json(params): Json<domain_types::repository_view::GetRepositoryViewParams>,
 ) -> CommandResult<domain_types::repository_view::RepositoryView> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
+  let inputs = prefix_inputs(&state, &params.repository_path)?;
   let views = state.repository_views.clone();
   run_command("read the repository view", move || {
-    Ok::<_, anyhow::Error>(views.view(&git_executor, &ObjectCache::disabled(), &params))
+    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
+    Ok::<_, anyhow::Error>(views.view(&inputs.git, &ObjectCache::disabled(), &branch_prefix, &params))
   })
   .await
 }
 
 /// The wait of the page for the landing needs of the repository, by the real core, as the app answers it
 pub async fn wait_landing_needs(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::repository_view::WaitLandingNeedsParams>) -> CommandResult<u32> {
-  ensure_repository_exists(&state, &params.repository_path)?;
+  let inputs = prefix_inputs(&state, &params.repository_path)?;
   let views = state.repository_views.clone();
-  run_command("wait for the landing needs", move || Ok::<_, anyhow::Error>(views.wait_landing_needs(&params))).await
+  run_command("wait for the landing needs", move || {
+    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
+    Ok::<_, anyhow::Error>(views.wait_landing_needs(&branch_prefix, &params))
+  })
+  .await
 }
 
 /// Without the object cache, as every command of the mock server; nothing cancels it
@@ -1523,16 +1575,18 @@ pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(param
 }
 
 pub async fn delete_archived_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<()> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("delete the archived branch", move || delete_archived_branch_core(&git_executor, params)).await
+  let inputs = prefix_inputs(&state, &params.repository_path)?;
+  run_command("delete the archived branch", move || {
+    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
+    delete_archived_branch_core(&inputs.git, params, &branch_prefix)
+  })
+  .await
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetArchivedBranchCommitsRequest {
   repository_path: String,
-  branch_prefix: String,
   branch_name: String,
 }
 
@@ -1551,10 +1605,10 @@ pub async fn get_archived_branch_commits(
 }
 
 pub async fn delete_unapplied_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<()> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
+  let inputs = prefix_inputs(&state, &params.repository_path)?;
   run_command("delete the unapplied branch", move || {
-    sync_core::delete_archived_branch::delete_unapplied_branch_core(&git_executor, params)
+    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
+    sync_core::delete_archived_branch::delete_unapplied_branch_core(&inputs.git, params, &branch_prefix)
   })
   .await
 }
@@ -1580,11 +1634,11 @@ async fn own_commits(
   what: &'static str,
   read: fn(&git_executor::git_command_executor::GitCommandExecutor, &str, &str, &str, &str) -> anyhow::Result<Vec<domain_types::commit::Commit>>,
 ) -> CommandResult<Vec<domain_types::commit::Commit>> {
-  ensure_repository_exists(state, &request.repository_path)?;
-  let git_executor = state.git_executor.clone();
+  let inputs = prefix_inputs(state, &request.repository_path)?;
   run_command(what, move || {
-    let baseline_branch = history_rewrite::baseline::detect_baseline_branch(&git_executor, &request.repository_path)?;
-    read(&git_executor, &request.repository_path, &request.branch_prefix, &request.branch_name, &baseline_branch)
+    let branch_prefix = inputs.branch_prefix(&request.repository_path)?;
+    let baseline_branch = history_rewrite::baseline::detect_baseline_branch(&inputs.git, &request.repository_path)?;
+    read(&inputs.git, &request.repository_path, &branch_prefix, &request.branch_name, &baseline_branch)
   })
   .await
 }

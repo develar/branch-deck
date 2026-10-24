@@ -112,6 +112,12 @@ pub fn patronus_error(message: String) -> ApiError {
   ApiError::new(ErrorCode::PatronusError, message)
 }
 
+/// A sync of a repository whose branch prefix resolves to nothing (no app setting, no git config): `no_branch_prefix`,
+/// as `bd` answers it, in words that say where to set one
+pub fn no_branch_prefix() -> ApiError {
+  ApiError::new(ErrorCode::NoBranchPrefix, "Cannot sync without a branch prefix: set one in Settings → General")
+}
+
 /// `api_error` with the clock at `now` (seconds since the epoch), which `held_for` of a lock holder counts from
 pub(crate) fn api_error_at(error: &anyhow::Error, now: u64) -> ApiError {
   if let Some(api_error) = error.downcast_ref::<ApiError>() {

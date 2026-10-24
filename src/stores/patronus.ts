@@ -576,7 +576,7 @@ async function askRepositoryView(): Promise<void> {
   askedView = { key, robots: asking, branches: state.branches, stacks: state.stackBranches, table, inputs }
   const revision = ++viewRevision
   const asked = commands
-    .getRepositoryView({ repositoryPath: project.path, branchPrefix: getEffectiveBranchPrefix(), revision, robots: viewRobots(asking), matched, remote })
+    .getRepositoryView({ repositoryPath: project.path, revision, robots: viewRobots(asking), matched, remote })
     .then(result => {
       if (result.status === "error") {
         console.warn("Cannot read the repository view", result.error)
@@ -619,7 +619,7 @@ function waitForLandingNeeds(key: string, repositoryPath: string, after: number)
   }
   landingWait = key
   void commands
-    .waitLandingNeeds({ repositoryPath, branchPrefix: getEffectiveBranchPrefix(), after })
+    .waitLandingNeeds({ repositoryPath, after })
     .then(result => {
       if (result.status === "ok" && result.data !== after && key === currentKey()) {
         askedView = null

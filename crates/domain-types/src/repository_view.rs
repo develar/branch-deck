@@ -207,13 +207,13 @@ pub struct PatronusView {
   pub landed_by_robot: BTreeMap<String, Vec<RobotLandedBranch>>,
 }
 
-/// What the page asks of the branch table it shows
+/// What the page asks of the branch table it shows: the table of the repository's prefix, which Rust resolves
+/// (`BranchPrefixes`)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct GetRepositoryViewParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// The asker's counter of its inputs, echoed: an answer to an older one is dropped
   pub revision: u32,
   /// The robots that land or landed: active and merged, no dry runs
@@ -242,7 +242,6 @@ pub struct RepositoryView {
 #[serde(rename_all = "camelCase")]
 pub struct WaitLandingNeedsParams {
   pub repository_path: String,
-  pub branch_prefix: String,
   /// `landingGeneration` of the view the page has: the wait ends once a computation finished after it, or none runs
   pub after: u32,
 }

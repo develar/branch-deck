@@ -15,34 +15,29 @@ use tracing::instrument;
 pub struct DeleteArchivedBranchParams {
   pub repository_path: String,
   pub branch_name: String,
-  pub branch_prefix: String,
 }
 
 /// Deletes an archived branch (`<prefix>/archived/…`): one `for-each-ref` reads its tip and the worktree that has it
 /// checked out, and one ref transaction deletes it only from that tip (`branch-deck: delete <branch>`). A branch
 /// checked out in any worktree is refused, as `git branch -D` does: `update-ref` would delete it under the worktree
 #[instrument(skip(git_executor), fields(repo = %params.repository_path, branch = %params.branch_name))]
-pub fn delete_archived_branch_core(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams) -> Result<()> {
-  delete_kept_branch(git_executor, params, BranchKind::Archived)
+pub fn delete_archived_branch_core(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams, branch_prefix: &str) -> Result<()> {
+  delete_kept_branch(git_executor, params, branch_prefix, BranchKind::Archived)
 }
 
 /// `delete_archived_branch_core` of an unapplied branch (`<prefix>/unapplied/…`): its commits are gone for good unless
 /// a remote branch or another ref keeps them
 #[instrument(skip(git_executor), fields(repo = %params.repository_path, branch = %params.branch_name))]
-pub fn delete_unapplied_branch_core(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams) -> Result<()> {
-  delete_kept_branch(git_executor, params, BranchKind::Unapplied)
+pub fn delete_unapplied_branch_core(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams, branch_prefix: &str) -> Result<()> {
+  delete_kept_branch(git_executor, params, branch_prefix, BranchKind::Unapplied)
 }
 
-/// The delete of a branch under `<prefix>/<kind>/`
-fn delete_kept_branch(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams, kind: BranchKind) -> Result<()> {
-  let DeleteArchivedBranchParams {
-    repository_path,
-    branch_name,
-    branch_prefix,
-  } = params;
+/// The delete of a branch under `<branch_prefix>/<kind>/`
+fn delete_kept_branch(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams, branch_prefix: &str, kind: BranchKind) -> Result<()> {
+  let DeleteArchivedBranchParams { repository_path, branch_name } = params;
 
   // Safety checks: only allow deleting refs under <prefix>/<kind>/
-  if strip_branch_namespace(&branch_name, &branch_prefix, kind).is_none_or(str::is_empty) {
+  if strip_branch_namespace(&branch_name, branch_prefix, kind).is_none_or(str::is_empty) {
     bail!(
       "Can only delete {} branches under the configured branch prefix",
       if kind == BranchKind::Archived { "archived" } else { "unapplied" }

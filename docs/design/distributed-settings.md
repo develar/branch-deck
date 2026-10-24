@@ -150,6 +150,11 @@ sequenceDiagram
 - `bd`: reads the file once as it starts, by the same loader (`app_settings_of` in `crates/bd-core/src/context.rs`,
   `SettingsFile::load`), so it runs with the same values and defaults without the app; it resolves the branch prefix
   with `resolve_branch_prefix` and names its source in `bd status` (`prefix_source`).
+- The branch prefix in the app: the commands of the sync family resolve it in Rust per command, the app's prefix from
+  the writer's `AppSettings` and the git prefix from `BranchPrefixes` (`crates/app-settings/src/branch_prefixes.rs`);
+  the page shows what `resolve_branch_prefix` answers and asks again once the writer has another app prefix
+  (`onWriterChange` of `persistent-store.ts`: the change of another window, its own once answered), never on the change
+  of its store alone, which is before the writer has it ([Settings](../../spec/repository/settings.spec.md#branch-prefix-order)).
 - Page: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`; one
   `settings_changed` listener per page, started as the module loads (`listeningToSettings`), and the catch-up of a load
   through the version gate (`acceptSettingsChanges`, which `src/lib/sub-window.ts` calls with the answer of

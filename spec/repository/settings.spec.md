@@ -49,6 +49,8 @@ targets:
   - ../../src/stores/repository.ts
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/app-settings/src/resolve.rs
+  - ../../crates/app-settings/src/branch_prefixes.rs
+  - ../../src-tauri/src/commands/branch_prefix.rs
   - ../../crates/app-settings/src/service.rs
   - ../../crates/app-settings/src/windows.rs
   - ../../crates/domain-types/src/settings.rs
@@ -293,9 +295,10 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   streak of failures ("Cannot save the settings", `settings_save_failed`). The app saves what is unsaved before it
   quits (`RunEvent::ExitRequested`) and before Restart of the title bar setting (`restart_app`).
   [@test] ../../crates/app-settings/src/service_test.rs (`an_unwritable_directory_reports_the_error_once_a_streak_and_memory_keeps_the_value`, `a_flush_soon_after_a_patch_saves_it_without_waiting_for_the_debounce`)
-- The pages read only what every window has: the settings and the backend. The branch prefix field reads the prefix of
-  git for the selected repository itself (`get_branch_prefix_from_git_config`, again on focus), and stays enabled while
-  a sync runs: a sync reads the prefix when it starts, so a change names the branches of the next one.
+- The pages read only what every window has: the settings and the backend. The branch prefix field asks Rust for the
+  prefix of the selected repository itself (`resolve_branch_prefix`, again on focus and once the writer has another
+  app prefix), and stays enabled while a sync runs: a sync resolves the prefix when it starts, so a change names the
+  branches of the next one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`)
 
 ### Repository
@@ -420,25 +423,45 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 ### Branch prefix order
 
-- The branches of a repository are named by the specific prefix first, in the app as in `bd`
-  (`resolve_branch_prefix` in `crates/app-settings/src/resolve.rs`, `computeEffectiveBranchPrefix` in
-  `src/stores/repository.ts`): the repository's own `branchdeck.branchPrefix` (its local or worktree git config, or `git -c` and `GIT_CONFIG_*`),
-  else the app's prefix (General, `globalUserBranchPrefix`), else the one of the global or system git config. Each is
-  named as the branches are (trimmed, no trailing slash), and one that nothing is left of counts as unset. The
-  resolved prefix names its source (`ResolvedBranchPrefix { prefix, source }`: `cli`, `repository_config`,
-  `app_setting`, `global_config`, or `none` exactly when there is no prefix), as `prefix_source` of `bd status` does.
+- The branches of a repository are named by the specific prefix first, in the app as in `bd`, resolved in Rust only
+  (`resolve_branch_prefix` in `crates/app-settings/src/resolve.rs`): the repository's own `branchdeck.branchPrefix` (its
+  local or worktree git config, or `git -c` and `GIT_CONFIG_*`), else the app's prefix (General,
+  `globalUserBranchPrefix`), else the one of the global or system git config. Each is named as the branches are
+  (trimmed, no trailing slash), and one that nothing is left of counts as unset. The resolved prefix names its source
+  (`ResolvedBranchPrefix { prefix, source }`: `cli`, `repository_config`, `app_setting`, `global_config`, or `none`
+  exactly when there is no prefix), as `prefix_source` of `bd status` does.
   [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_is_named_as_the_branches_are_and_one_of_slashes_only_is_unset`, `the_source_is_written_in_snake_case`)
-- The prefix of git is read with its scope (`get_branch_prefix_from_git_config`: `GitBranchPrefix { prefix,
-  repositoryScoped }`, one `git config --show-scope`).
+- The prefix of git is read with its scope (one `git config --show-scope`; the global config alone for an empty path).
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`, `a_prefix_of_git_c_is_repository_scoped`)
-  [@test] ../../src/stores/repository.test.ts (`takes the repository's own git prefix, then the app's, then the global git prefix`, `names the branches as the backend does: no trailing slash`)
+- The commands of the sync family take no prefix from the page: `sync_branches`, `get_sync_inputs_fingerprint`,
+  `get_repository_view`, `wait_landing_needs`, `get_archived_branch_commits`, `get_unapplied_branch_commits`,
+  `delete_archived_branch` and `delete_unapplied_branch` resolve it per command, with the app's prefix of the settings
+  when the command starts and the git prefix of a memo by repository path (`BranchPrefixes` in
+  `crates/app-settings/src/branch_prefixes.rs`, a state of the app and of the E2E server), so a command pays no git
+  process for it. Each read of the git config keeps its git prefix there: the page's `resolve_branch_prefix`, the config
+  snapshot of every sync (which also names the prefix of that sync), and a write of `branchdeck.branchPrefix` in
+  Settings → Repository (a write to the global config forgets every repository's). The views of the last sync are kept
+  by the resolved prefix; a sync of a repository without a prefix is refused ("Cannot sync without a branch prefix: set
+  one in Settings → General").
+  [@test] ../../crates/app-settings/src/branch_prefixes_test.rs (`git_is_read_once_per_repository_and_the_app_prefix_of_each_command_applies`, `a_failed_read_keeps_nothing`, `a_refresh_replaces_the_git_prefix_and_a_clear_forgets_every_repository`)
+  [@test] ../../crates/test-server/src/branch_prefix_test.rs (`the_sync_names_the_branches_by_the_app_prefix_where_the_repository_sets_none`, `the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_synced`)
+  [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_the_prefix_alone`)
+  [@test] ../../src/stores/branch-sync.test.ts (`is Rust's: the sync names only the repository and waits for no load of the page`)
+- The page shows the names with what Rust resolved, deciding nothing: the main window asks `resolve_branch_prefix` for
+  the selected repository on open, on a switch, on the window's focus, after a write of the key in Settings →
+  Repository (`repository_config_changed`), and once the writer has another app prefix (`onWriterChange` of
+  `src/stores/settings/persistent-store.ts`: the change of any window, its own once answered). It keeps the answer
+  until the next one; General shows the repository's own prefix and the global git one from the answer's source.
+  [@test] ../../src/stores/repository.test.ts (`resolves again once the writer has another app prefix, not for a change of another field`)
+  [@test] ../../src/stores/settings/persistent-store.test.ts (`tells a reader of Rust the value the writer has: another window's change, its own once answered, no late echo`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`names the branches by the repository's own prefix over the app's, and says so in Settings`, `names the branches by the app's prefix where the repository has none`)
-- The main window caches the prefix of git per repository with its scope (`cachedBranchPrefix` of `recentProjects`:
-  `{ prefix, repositoryScoped }`), and names the branches by it until the load of the selected repository answers;
-  a switch drops the loaded prefix of the repository left. A cached text, as before the scope was kept, is a prefix
-  of the global config.
-  [@test] ../../src/stores/repository.test.ts (`takes the prefix cached for the repository until its load answers, then the loaded one`)
-  [@test] ../../src/stores/settings/repositorySettings.test.ts (`keeps the prefix with whether it is the repository's own`, `reads a text, as before the scope was kept, as a prefix of the global config`, `keeps no empty prefix and drops a malformed one, not the project`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should name the branches by the repository's own prefix over the app's, in the main window too`)
+- The main window caches the last answer per repository (`cachedBranchPrefix` of `recentProjects`: a
+  `ResolvedBranchPrefix`), and names the branches by it until the first answer for the selected repository; a switch
+  drops the answer of the repository left. A cached git prefix of before (a text, or `{ prefix, repositoryScoped }`)
+  reads as a prefix of its git config.
+  [@test] ../../src/stores/repository.test.ts (`names the branches by the cached prefix until Rust answers, then by the answer, which it caches`)
+  [@test] ../../src/stores/settings/repositorySettings.test.ts (`keeps the prefix the last resolve answered, with its source`, `reads the git prefix cached before, a text or with its scope, as a prefix of its git config`, `keeps no empty prefix and drops a malformed one, not the project`)
 
 ## User Experience
 

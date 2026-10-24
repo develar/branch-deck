@@ -110,7 +110,7 @@ export async function setupTestRepository(page: Page, templateName: string, opti
         storeData.recentProjects = [
           {
             path: repoBuilder.path,
-            cachedBranchPrefix: { prefix: "user-name", repositoryScoped: true },
+            cachedBranchPrefix: { prefix: "user-name", source: "repository_config" },
           },
         ]
       }

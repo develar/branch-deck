@@ -27,15 +27,15 @@ import {
 import { testBranch } from "@/stores/test-branch"
 
 // a function runs between the events, while the sync still streams them
-const { syncEvents, syncResult, toasts, inputs, held, repository, prefixLoad, projectUpdates, settledPlaceholders } = vi.hoisted(() => ({
+const { syncEvents, syncResult, toasts, inputs, held, repository, requests, projectUpdates, settledPlaceholders } = vi.hoisted(() => ({
   /** What the sync inputs fingerprint answers, and how often it was asked; `onRead` runs during a read */
   inputs: { fingerprint: "f1", reads: 0, onRead: null as (() => void) | null },
   /** While enabled, each sync waits after its events until a test finishes it: the syncs a test lets overlap */
   held: { enabled: false, calls: [] as { request: { repositoryPath: string }; channel: { onmessage: (event: SyncEvent) => void }; finish: (result?: unknown) => void }[] },
-  /** The repository a sync request names: the one selected, with the prefix loaded for it */
-  repository: { path: "/repo", prefix: "user" },
-  /** The pending load of the branch prefix the sync waits for */
-  prefixLoad: { current: null as Promise<void> | null },
+  /** The repository a sync request names: the one selected */
+  repository: { path: "/repo" },
+  /** What each sync and each read of the inputs sent to the backend */
+  requests: [] as unknown[],
   projectUpdates: [] as { path: string; update: unknown }[],
   settledPlaceholders: { count: 0 },
   syncEvents: { current: [] as (SyncEvent | (() => void))[] },
@@ -51,6 +51,7 @@ vi.mock("@tauri-apps/api/core", () => import("@/test-support/channel-mock"))
 vi.mock("@/lib/bindings", () => ({
   commands: {
     syncBranches: async (request: { repositoryPath: string }, channel: { onmessage: (event: SyncEvent) => void }) => {
+      requests.push(request)
       for (const event of syncEvents.current) {
         if (typeof event === "function") {
           event()
@@ -65,7 +66,8 @@ vi.mock("@/lib/bindings", () => ({
       }
       return syncResult.current
     },
-    getSyncInputsFingerprint: async () => {
+    getSyncInputsFingerprint: async (request: unknown) => {
+      requests.push(request)
       inputs.reads++
       const fingerprint = inputs.fingerprint
       inputs.onRead?.()
@@ -75,9 +77,8 @@ vi.mock("@/lib/bindings", () => ({
 }))
 
 vi.mock("@/stores/repository", () => ({
-  getLoadingPromise: () => prefixLoad.current,
   getSelectedProject: () => ({ path: repository.path }),
-  vcsRequestFactory: { createRequest: () => ({ repositoryPath: repository.path, branchPrefix: repository.prefix }) },
+  getSelectedRepositoryPath: () => repository.path,
 }))
 
 vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: (path: string, update: unknown) => projectUpdates.push({ path, update }) }))
@@ -139,7 +140,7 @@ describe("sync on focus", () => {
     // never synced: a sync
     await syncIfChanged()
     expect(branchSyncStore.getState().syncCount).toBe(1)
-    expect(branchSyncStore.getState().syncedInputs).toEqual({ repositoryPath: "/repo", branchPrefix: "user", fingerprint: "f1" })
+    expect(branchSyncStore.getState().syncedInputs).toEqual({ repositoryPath: "/repo", fingerprint: "f1" })
 
     // nothing changed: no sync, the check is told
     const reads = inputs.reads
@@ -156,61 +157,23 @@ describe("sync on focus", () => {
   })
 })
 
-describe("the branch prefix a sync waits for", () => {
+describe("the branch prefix of a sync", () => {
   beforeEach(() => {
     branchSyncStore.setState(branchSyncStore.getInitialState(), true)
     syncEvents.current = [branchesGrouped]
     syncResult.current = { status: "ok", data: null }
     inputs.fingerprint = "f1"
     repository.path = "/repo"
-    repository.prefix = "user"
-    vi.useFakeTimers()
+    requests.length = 0
   })
 
-  afterEach(() => {
-    prefixLoad.current = null
-    repository.path = "/repo"
-    repository.prefix = "user"
-    vi.useRealTimers()
-  })
-
-  it("syncs with the prefix of a load that takes longer than a few seconds, without an error", async () => {
-    // a busy machine: the git of the prefix load answers after 6 s
-    prefixLoad.current = new Promise(resolve =>
-      setTimeout(() => {
-        repository.prefix = "team"
-        prefixLoad.current = null
-        resolve()
-      }, 6000),
-    )
-    const synced = syncBranches()
-    await vi.advanceTimersByTimeAsync(6000)
-    await synced
+  it("is Rust's: the sync names only the repository and waits for no load of the page", async () => {
+    await syncBranches()
     expect(branchSyncStore.getState().syncError).toBeNull()
     expect(branchSyncStore.getState().syncCount).toBe(1)
-    expect(branchSyncStore.getState().syncedInputs).toEqual({ repositoryPath: "/repo", branchPrefix: "team", fingerprint: "f1" })
-  })
-
-  it("waits for the load of a repository selected while the first load ran", async () => {
-    prefixLoad.current = new Promise(resolve =>
-      setTimeout(() => {
-        // another repository is selected: its load starts as the first ends
-        repository.path = "/other"
-        prefixLoad.current = new Promise(next =>
-          setTimeout(() => {
-            repository.prefix = "other-prefix"
-            prefixLoad.current = null
-            next()
-          }, 3000),
-        )
-        resolve()
-      }, 3000),
-    )
-    const synced = syncBranches()
-    await vi.advanceTimersByTimeAsync(6000)
-    await synced
-    expect(branchSyncStore.getState().syncError).toBeNull()
-    expect(branchSyncStore.getState().syncedInputs).toEqual({ repositoryPath: "/other", branchPrefix: "other-prefix", fingerprint: "f1" })
+    // the read of the inputs, then the sync: neither carries a prefix
+    expect(requests).toEqual([{ repositoryPath: "/repo" }, { repositoryPath: "/repo" }])
+    expect(branchSyncStore.getState().syncedInputs).toEqual({ repositoryPath: "/repo", fingerprint: "f1" })
   })
 })
 

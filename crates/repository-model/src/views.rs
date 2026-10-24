@@ -106,12 +106,13 @@ impl RepositoryViews {
       .insert((repository_path.to_string(), branch_prefix.to_string()), Arc::new(SyncedTable { generation, table }));
   }
 
-  /// The view of the kept table with the asker's robots, matches and remote facts; empty before the first sync. Runs
-  /// git for the robots the hashes and the memo don't answer: call from a blocking context. The landing needs come from
-  /// the last computation of the same inputs, else they are unknown and computed in the background, through `cache`
-  #[instrument(skip_all, fields(repository_path = %params.repository_path, revision = params.revision))]
-  pub fn view(&self, git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &GetRepositoryViewParams) -> RepositoryView {
-    let key = (params.repository_path.clone(), params.branch_prefix.clone());
+  /// The view of the table kept for `branch_prefix` with the asker's robots, matches and remote facts; empty before the
+  /// first sync under that prefix. Runs git for the robots the hashes and the memo don't answer: call from a blocking
+  /// context. The landing needs come from the last computation of the same inputs, else they are unknown and computed in
+  /// the background, through `cache`
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_prefix, revision = params.revision))]
+  pub fn view(&self, git_executor: &GitCommandExecutor, cache: &ObjectCache, branch_prefix: &str, params: &GetRepositoryViewParams) -> RepositoryView {
+    let key = (params.repository_path.clone(), branch_prefix.to_owned());
     let Some(synced) = self.tables.get(&key) else {
       return RepositoryView {
         revision: params.revision,
@@ -194,12 +195,12 @@ impl RepositoryViews {
     (None, state.generation)
   }
 
-  /// Waits until no computation of the landing needs of the repository runs, or until one finished after the
+  /// Waits until no computation of the landing needs of the repository under `branch_prefix` runs, or until one finished after the
   /// `after`-th, at most `LANDING_WAIT`; returns the count of finished computations, which the page compares with the
   /// one of its view. Call from a blocking context
-  #[instrument(skip_all, fields(repository_path = %params.repository_path, after = params.after))]
-  pub fn wait_landing_needs(&self, params: &WaitLandingNeedsParams) -> u32 {
-    let Some(facts) = self.landing.get(&(params.repository_path.clone(), params.branch_prefix.clone())) else {
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_prefix, after = params.after))]
+  pub fn wait_landing_needs(&self, branch_prefix: &str, params: &WaitLandingNeedsParams) -> u32 {
+    let Some(facts) = self.landing.get(&(params.repository_path.clone(), branch_prefix.to_owned())) else {
       return 0;
     };
     let state = facts.lock();

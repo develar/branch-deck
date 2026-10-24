@@ -32,6 +32,10 @@ pub mod youtrack_fixtures;
 
 #[cfg(test)]
 mod api_error_contract_test;
+
+#[cfg(test)]
+mod branch_prefix_test;
+
 #[cfg(test)]
 mod command_registry_test;
 
@@ -108,6 +112,7 @@ pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
     templates_dir,
     // every repository of a run: a view of an evicted table would be empty
     repository_views: repository_model::views::RepositoryViews::with_capacity(100_000),
+    branch_prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
     lock_waits: history_rewrite::lock_wait::LockWaits::default(),
   });
 
@@ -165,7 +170,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/store/{repo_id}/{key}", axum::routing::delete(delete_store_value))
     // Tauri command endpoints
     .route("/invoke/validate_repository_path", post(tauri_command_bridge::validate_repository_path))
-    .route("/invoke/get_branch_prefix_from_git_config", post(tauri_command_bridge::get_branch_prefix_from_git_config))
+    .route("/invoke/resolve_branch_prefix", post(tauri_command_bridge::resolve_branch_prefix))
     .route("/invoke/check_git_setup", post(tauri_command_bridge::check_git_setup))
     .route("/invoke/get_repository_config", post(tauri_command_bridge::get_repository_config))
     .route("/invoke/set_repository_config", post(tauri_command_bridge::set_repository_config))
@@ -647,7 +652,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
       "recentProjects",
       serde_json::json!([{
         "path": path,
-        "cachedBranchPrefix": { "prefix": "user-name", "repositoryScoped": true }
+        "cachedBranchPrefix": { "prefix": "user-name", "source": "repository_config" }
       }]),
     ));
   }

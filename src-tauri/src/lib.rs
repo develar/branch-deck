@@ -36,7 +36,7 @@ use commands::add_issue_reference::add_issue_reference_to_commits;
 use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
 use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, delete_unapplied_branch, get_archived_branch_commits, get_unapplied_branch_commits};
-use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config};
+use commands::branch_prefix::{check_git_setup, resolve_branch_prefix};
 use commands::branch_review::{get_branch_review, get_file_owners, prefetch_branch_review};
 use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, get_setup_items, run_cli_tool_action};
 use commands::commit_files::{get_commit_files, get_commits_files};
@@ -158,7 +158,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     read_patronus_command_reply,
     sync_branches,
     get_sync_inputs_fingerprint,
-    get_branch_prefix_from_git_config,
+    resolve_branch_prefix,
     check_git_setup,
     get_repository_config,
     set_repository_config,
@@ -312,6 +312,7 @@ pub fn run() {
       app.manage(history_rewrite::lock_wait::LockWaits::default());
       app.manage(RepositoryStateCache::new());
       app.manage(repository_model::views::RepositoryViews::default());
+      app.manage(app_settings::branch_prefixes::BranchPrefixes::default());
       app.manage(BranchReviewMemo::new());
       // one cache of the files of a range for the reviews' lists and their diffs (`get_range_files`, `get_file_diffs`)
       let file_diffs = file_diffs::service::FileDiffs::default();

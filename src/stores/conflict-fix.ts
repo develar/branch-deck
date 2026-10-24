@@ -14,6 +14,7 @@ import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import type { OperationKey } from "@/stores/operations"
+import { getEffectiveBranchPrefix } from "@/stores/repository"
 
 /** The search of the fix of the conflicts of the last sync (spec/branch/conflict-fix.spec.md) */
 export interface ConflictFixState {
@@ -34,13 +35,13 @@ function conflictFixOperation(component: FixComponent): OperationKey {
   return { id: "apply-conflict-fix", subject: "conflict-fix", objects: branchesOfFix(component), kind: "rewrite" }
 }
 
-/** The repository, the prefix and the inputs of the last sync: a fix found for other ones is stale */
+/** The repository and the inputs of the last sync, its prefix among them: a fix found for other ones is stale */
 function fixKey(): string | null {
   const { syncedInputs, isSyncing } = branchSyncStore.getState()
   if (isSyncing || syncedInputs === null) {
     return null
   }
-  return `${syncedInputs.repositoryPath}\n${syncedInputs.branchPrefix}\n${syncedInputs.fingerprint}`
+  return `${syncedInputs.repositoryPath}\n${syncedInputs.fingerprint}`
 }
 
 // a sync changes what the fix is for: the running search stops, the next conflict view looks again
@@ -60,7 +61,7 @@ export async function requestConflictFix(force = false): Promise<void> {
   }
   const { syncedInputs } = branchSyncStore.getState()
   conflictFixStore.setState({ key, status: "searching", fix: null, error: null })
-  const result = await invokeCommand(() => commands.findConflictFix({ repositoryPath: syncedInputs!.repositoryPath, branchPrefix: syncedInputs!.branchPrefix }))
+  const result = await invokeCommand(() => commands.findConflictFix({ repositoryPath: syncedInputs!.repositoryPath, branchPrefix: getEffectiveBranchPrefix() }))
   if (conflictFixStore.getState().key !== key) {
     return
   }

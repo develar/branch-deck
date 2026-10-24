@@ -21,8 +21,8 @@ fn delete(git: &GitCommandExecutor, repo: &TestRepo, branch_name: &str) -> anyho
     DeleteArchivedBranchParams {
       repository_path: repo.path().to_str().unwrap().to_string(),
       branch_name: branch_name.to_string(),
-      branch_prefix: "test-user".to_string(),
     },
+    "test-user",
   )
 }
 
@@ -87,14 +87,13 @@ fn deletes_an_unapplied_branch_only_by_its_own_command() {
   let params = |branch_name: &str| DeleteArchivedBranchParams {
     repository_path: repo.path().to_str().unwrap().to_string(),
     branch_name: branch_name.to_string(),
-    branch_prefix: "test-user".to_string(),
   };
   let git = repo.git_executor();
   assert!(delete(git, &repo, unapplied).is_err());
-  assert!(delete_unapplied_branch_core(git, params(ARCHIVED)).is_err());
-  assert!(delete_unapplied_branch_core(git, params("test-user/unapplied/")).is_err());
+  assert!(delete_unapplied_branch_core(git, params(ARCHIVED), "test-user").is_err());
+  assert!(delete_unapplied_branch_core(git, params("test-user/unapplied/"), "test-user").is_err());
 
-  delete_unapplied_branch_core(git, params(unapplied)).unwrap();
+  delete_unapplied_branch_core(git, params(unapplied), "test-user").unwrap();
   assert!(!repo.branch_exists(unapplied));
   assert!(repo.branch_exists(ARCHIVED));
 }

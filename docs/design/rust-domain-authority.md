@@ -838,10 +838,10 @@ repository». Аудит всех функций в тот же день наш�
   (`a_sync_leaves_the_stack_parents_to_a_regroup_that_holds_the_lock`).
 - **Настройки до s5:** `bd` перечитывает непарсимый `settings.json` до 200 мс (запись плагина на месте), так что чтение
   рядом с записью приложения берёт префикс приложения (`the_prefix_of_the_app_is_read_while_the_app_rewrites_its_settings_file`);
-  `lib.rs` внедряет `{}` вместо непарсимого файла (`stored_settings`); sync ждёт загрузку префикса без 5-секундного
-  таймаута, и загрузку репозитория, выбранного за это время (`syncs with the prefix of a load that takes longer than a
-  few seconds, without an error`). Сделано (`fix/settings-config`); один писатель tmp + rename, летучие поля вне файла,
-  явный источник fallback в JSON и префикс в Rust (ожидание исчезает с параметром) остаются s5. Под-окно шлёт поля,
+  `lib.rs` внедряет `{}` вместо непарсимого файла (`stored_settings`); sync ждал загрузку префикса без 5-секундного
+  таймаута. Сделано (`fix/settings-config`); один писатель tmp + rename, летучие поля вне файла, явный источник
+  fallback в JSON и префикс в Rust остаются s5. В s5-6 ожидание исчезло вместе с параметром: sync называет только
+  репозиторий (`is Rust's: the sync names only the repository and waits for no load of the page`). Под-окно шлёт поля,
   которые изменило (`fields` у `store-set-request`), главное окно берёт только их, обновление не откатывает поля
   неотвеченных записей, а под-окно, начав слушать, спрашивает снимок (`store-snapshot-request`): изменение во время
   загрузки не теряется (`should keep the Activity panel the main window opened when a review window hides its sidebar
@@ -2126,7 +2126,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s2-types | приземлён |
 | s3-crates | приземлён |
 | s4-errors | приземлён |
-| s5-settings | в работе: s5-1 приземлён (`domain-types::settings`, crate `app-settings`: `SettingsFile`, defaults, `resolve_branch_prefix` с источником); s5-2 приземлён (`SettingsService`: патчи, версии, debounce диска, `flush`; потребителей ещё нет) |
+| s5-settings | в работе: s5-1 приземлён (`domain-types::settings`, crate `app-settings`: `SettingsFile`, defaults, `resolve_branch_prefix` с источником); s5-2 приземлён (`SettingsService`: патчи, версии, debounce диска, `flush`); s5-3 (окна пишут через `set_setting`, версии), s5-4 (`bd` читает через `app-settings`), s5-5 (под-окно берёт изменения своей загрузки); s5-6: семейство sync разрешает префикс в Rust (`BranchPrefixes`, команда `resolve_branch_prefix`), `computeEffectiveBranchPrefix` и ожидание префикса в `runSync` удалены |
 | s6-session-table | не начат |
 | s7-session-facts | не начат |
 | s8-policy | не начат |

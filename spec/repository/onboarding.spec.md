@@ -21,6 +21,8 @@ targets:
   - ../../src/lib/branch-prefix.ts
   - ../../src/stores/repository.ts
   - ../../src-tauri/src/commands/branch_prefix.rs
+  - ../../src-tauri/src/commands/sync_branches.rs
+  - ../../src/stores/branch-sync.ts
   - ../../src-tauri/src/menu.rs
   - ../../src/pages/IndexPage.tsx
   - ../../src/hooks/useMenuSync.ts
@@ -101,12 +103,11 @@ alert with the reason and the next step, never a raw Git error.
   has no field for it, as the prefix is set once and the welcome card asks for it while it is missing. The field saves
   on Enter and when it loses the focus, never on a key (the prefix names the branches of the sync and the robots of
   Patronus), refuses a prefix git cannot take in place, and Escape takes the typing back before it closes the window.
-  Empty, the prefix of git for the selected repository applies (the window reads it itself), shown as the placeholder.
-  A sync reads the prefix when it starts: a change during one names the branches of the next. A sync that starts while
-  the prefix of git loads (a selected repository, a changed config) waits for that load as long as it takes, also for
-  the load of a repository selected meanwhile, and never fails on a busy machine for a fixed timeout.
+  Empty, the prefix of the global git config applies (the window asks Rust itself, `resolve_branch_prefix`), shown as
+  the placeholder. A sync resolves the prefix in Rust when it starts: a change during one names the branches of the
+  next; a sync never waits for a load of the page, so a busy machine fails none for a timeout.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
-  [@test] ../../src/stores/branch-sync.test.ts (`syncs with the prefix of a load that takes longer than a few seconds, without an error`, `waits for the load of a repository selected while the first load ran`)
+  [@test] ../../src/stores/branch-sync.test.ts (`is Rust's: the sync names only the repository and waits for no load of the page`)
 - The specific prefix wins, in the app as in `bd` ([Settings](settings.spec.md#branch-prefix-order)): a repository
   whose own git config (local or worktree, or `git -c`) sets `branchdeck.branchPrefix` names its branches by it, whatever the field
   says; the field says so ("This repository uses its own prefix `user-name`", with "Open Repository Settings") and
@@ -116,8 +117,12 @@ alert with the reason and the next step, never a raw Git error.
 ### Before the first sync
 
 - Sync is disabled while the selected repository has no branch prefix (not while it loads), with the tooltip "Set the
-  branch prefix first".
+  branch prefix first". The page shows the prefix Rust resolved for the repository (`resolve_branch_prefix`, on open,
+  on a switch and on focus) and decides nothing by it: a sync names only the repository and resolves the prefix in Rust
+  from the git config it reads, waiting for no load of the page, and refuses a repository without one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`disables Sync with the reason while no branch prefix is set`)
+  [@test] ../../src/stores/branch-sync.test.ts (`is Rust's: the sync names only the repository and waits for no load of the page`)
+  [@test] ../../crates/test-server/src/branch_prefix_test.rs (`the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_synced`)
 - With a repository never synced and a prefix, the "Ready to Sync" card: what Sync does (groups the commits by the
   prefix of their subject, creates `<prefix>/virtual/<name>`, lists the rest as unassigned), that the working tree and
   the checked-out branch stay as they are, and when it syncs from then on (when it opens the repository, after each
@@ -131,10 +136,11 @@ alert with the reason and the next step, never a raw Git error.
   only when what a sync reads changed since the last sync (`syncIfChanged`, the fingerprint of
   [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), taken when the sync started, so a commit made
   while it ran counts): a commit, an amend or a finished rebase in the IDE, a fetch (of the baseline, also an upstream
-  other than `master` or `main`) or a push elsewhere, a regroup or a description by `bd`. Otherwise the focus reads the inputs once and syncs nothing, and the header says "Checked just
+  other than `master` or `main`) or a push elsewhere, a regroup or a description by `bd`, a changed prefix (the
+  fingerprint is of the prefix Rust resolves). Otherwise the focus reads the inputs once and syncs nothing, and the header says "Checked just
   now" instead of "Last synced 18 minutes ago", the age of the sync in its tooltip: the branches are as current as a
   sync would make them. A user who turned the setting off keeps it off.
-  [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`, `changes_with_the_upstream_of_the_checked_out_branch`)
+  [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`, `changes_with_the_upstream_of_the_checked_out_branch`, `changes_with_the_prefix_alone`)
   [@test] ../../src/stores/branch-sync.test.ts (`syncs only when what a sync reads changed since the last sync, one read otherwise`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
 - File → Auto-sync on Focus of the native menu is checked as the setting is: at startup as the backend's writer loaded

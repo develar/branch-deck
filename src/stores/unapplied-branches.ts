@@ -5,7 +5,7 @@ import type { Commit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure } from "@/lib/errors"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
+import { getSelectedProject } from "@/stores/repository"
 
 /**
  * A branch an unapply kept (`{prefix}/unapplied/<name>`), as the last sync listed it: its commits are not in HEAD, it
@@ -92,13 +92,13 @@ export async function loadUnappliedCommits(name: string): Promise<void> {
     return
   }
   update(name, () => ({ isLoadingCommits: true, loadError: undefined }))
-  const result = await commands.getUnappliedBranchCommits(getSelectedProject()?.path ?? "", getEffectiveBranchPrefix(), name)
+  const result = await commands.getUnappliedBranchCommits(getSelectedProject()?.path ?? "", name)
   update(name, () => (result.status === "ok" ? { commits: result.data, isLoadingCommits: false } : { loadError: result.error.message, isLoadingCommits: false }))
 }
 
 /** Deletes an unapplied branch; throws on a failure, the caller syncs afterwards */
 export async function deleteUnappliedBranch(name: string): Promise<void> {
-  const result = await commands.deleteUnappliedBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName: name, branchPrefix: getEffectiveBranchPrefix() })
+  const result = await commands.deleteUnappliedBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName: name })
   if (result.status !== "ok") {
     throw commandFailure(result.error)
   }

@@ -81,12 +81,13 @@ pub(crate) fn head(path: &str) -> String {
   String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
 
-/// Syncs the repository at `path` with the prefix `user-name` as the page does (`/invoke/sync_branches`), to the end of
-/// its event stream: the server keeps the branch table of it, which the checks of a push or a start read
+/// Syncs the repository at `path` as the page does (`/invoke/sync_branches`), under the prefix the server resolves (the
+/// `user-name` of the template), to the end of its event stream: the server keeps the branch table of it, which the
+/// checks of a push or a start read
 pub(crate) async fn sync(client: &reqwest::Client, addr: SocketAddr, path: &str) {
   let response = client
     .post(format!("http://{addr}/invoke/sync_branches"))
-    .json(&json!({ "repositoryPath": path, "branchPrefix": "user-name" }))
+    .json(&json!({ "repositoryPath": path }))
     .send()
     .await
     .unwrap();

@@ -5,42 +5,40 @@ import { Input } from "@/components/ui/input"
 import { BranchPrefixHelpDialog } from "@/components/repository/BranchPrefixHelp"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
-import { internalError } from "@/lib/api-error"
 import { commands } from "@/lib/bindings"
-import { INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
+import type { ResolvedBranchPrefix } from "@/lib/bindings"
+import { appPrefixOf, INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { openSettings } from "@/lib/settings-window"
-import { computeEffectiveBranchPrefix, repositoryOwnBranchPrefix } from "@/stores/repository"
-import type { BranchPrefixResult } from "@/stores/repository"
 import { setGlobalUserBranchPrefix, useAppSettings } from "@/stores/settings/appSettings"
+import { onWriterChange, snapshotValueOf } from "@/stores/settings/persistent-store"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
-
-/** Until this window's read of git answers */
-const NOT_READ: BranchPrefixResult = { status: "error", error: internalError("Not read") }
 
 /**
  * The branch prefix of every repository (`globalUserBranchPrefix`), saved on Enter and when the field loses the focus,
  * not on every key: the prefix names the branches of the sync and the robots of Patronus. Escape takes the typing back.
- * Empty, the prefix of git (`branchdeck.branchPrefix`) applies, its value the placeholder. The selected repository's own
- * git prefix wins over it (`computeEffectiveBranchPrefix`), which the field says, with the way to its page. A sync reads
- * the prefix when it starts, so a change during one names the branches of the next. Reads only what every window has:
- * the settings and git, not the stores of the main window.
+ * Empty, the prefix of the global git config (`branchdeck.branchPrefix`) applies, its value the placeholder. The selected
+ * repository's own git prefix wins over it, which the field says, with the way to its page: what Rust resolved for the
+ * repository (`resolve_branch_prefix`) and its source, shown as they are. A sync resolves the prefix when it starts, so a
+ * change during one names the branches of the next. Reads only what every window has: the settings and Rust, not the
+ * stores of the main window.
  */
 export function BranchPrefixSetting() {
   const saved = useAppSettings(state => state.globalUserBranchPrefix) ?? ""
   const path = useRecentProjects(projects => projects[0]?.path)
   const cachedPrefix = useRecentProjects(projects => projects[0]?.cachedBranchPrefix)
-  const gitResult = useGitBranchPrefix(path)
-  const gitPrefix = gitResult?.status === "ok" ? gitResult.data.prefix : ""
-  // the read of this window, else the prefix the main window cached for the repository
-  const repositoryPrefix = path === undefined ? "" : repositoryOwnBranchPrefix(gitResult?.status === "ok" ? gitResult.data : cachedPrefix)
+  // the answer of this window, else the prefix the main window cached for the repository
+  const resolved = useResolvedBranchPrefixOf(path) ?? (path === undefined ? null : (cachedPrefix ?? null))
+  const repositoryPrefix = resolved?.source === "repository_config" ? resolved.prefix : ""
+  // the global git prefix is known while it applies, that is while the app sets none
+  const globalPrefix = resolved?.source === "global_config" ? resolved.prefix : ""
   const [draft, setDraft] = useState<string | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
   const value = draft ?? saved
   const prefix = normalizeBranchPrefix(value)
   const invalid = prefix !== "" && !isValidBranchPrefix(prefix)
   // the names the prefix gives; the repository's own prefix has a line of its own. With one, an empty field names the
-  // branches of the other repositories by the global config, which this read doesn't see: no line
-  const named = repositoryPrefix === "" ? computeEffectiveBranchPrefix(prefix, cachedPrefix, gitResult ?? NOT_READ) : prefix
+  // branches of the other repositories by the global config, which this answer doesn't name: no line
+  const named = prefix || (repositoryPrefix === "" ? globalPrefix : "")
   const showsNames = repositoryPrefix === "" || prefix !== ""
 
   const save = () => {
@@ -68,7 +66,7 @@ export function BranchPrefixSetting() {
               setDraft(null)
             }
           }}
-          placeholder={(repositoryPrefix === "" && gitPrefix) || "your-name"}
+          placeholder={globalPrefix || "your-name"}
           aria-label="Branch prefix"
           aria-invalid={invalid || undefined}
           data-settings-focus="branchPrefix"
@@ -106,23 +104,34 @@ export function BranchPrefixSetting() {
 }
 
 /**
- * The prefix of git (`branchdeck.branchPrefix`) for the repository at `path`, or of the global config without one;
- * read again when the window gets the focus (the user may have run `git config` meanwhile). Null until it answers.
+ * The prefix Rust resolves for the repository at `path` (`resolve_branch_prefix`), or with the global git config
+ * alone without one; asked again when the window gets the focus (the user may have run `git config` meanwhile) and once
+ * the writer has another app prefix. Null until it answers, or when the repository cannot be read.
  */
-function useGitBranchPrefix(path: string | undefined): BranchPrefixResult | null {
-  const [read, setRead] = useState<{ path: string | undefined; result: BranchPrefixResult } | null>(null)
-  const [focusCount, setFocusCount] = useState(0)
-  useWindowFocus(() => setFocusCount(count => count + 1))
+function useResolvedBranchPrefixOf(path: string | undefined): ResolvedBranchPrefix | null {
+  const [read, setRead] = useState<{ path: string | undefined; prefix: ResolvedBranchPrefix | null } | null>(null)
+  const [askCount, setAskCount] = useState(0)
+  useWindowFocus(() => setAskCount(count => count + 1))
+  useEffect(() => {
+    let appPrefix: unknown = snapshotValueOf("appSettings")
+    return onWriterChange("appSettings", value => {
+      const prefix = appPrefixOf(value)
+      if (prefix !== appPrefixOf(appPrefix)) {
+        setAskCount(count => count + 1)
+      }
+      appPrefix = value
+    })
+  }, [])
   useEffect(() => {
     let current = true
-    void commands.getBranchPrefixFromGitConfig({ repositoryPath: path ?? "" }).then(result => {
+    void commands.resolveBranchPrefix({ repositoryPath: path ?? "" }).then(result => {
       if (current) {
-        setRead({ path, result })
+        setRead({ path, prefix: result.status === "ok" ? result.data : null })
       }
     })
     return () => {
       current = false
     }
-  }, [path, focusCount])
-  return read !== null && read.path === path ? read.result : null
+  }, [path, askCount])
+  return read !== null && read.path === path ? read.prefix : null
 }

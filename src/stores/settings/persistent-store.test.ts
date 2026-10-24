@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import { z } from "zod"
 import type { SettingsChange, SettingsPatch } from "@/lib/bindings"
-import { acceptSettingsChanges, createPersistentStore } from "@/stores/settings/persistent-store"
+import { acceptSettingsChanges, createPersistentStore, onWriterChange } from "@/stores/settings/persistent-store"
 
 interface SetCall {
   patch: SettingsPatch
@@ -152,6 +152,22 @@ describe("persistent store", () => {
     await lastSet().answer({ version: 40, key: "list", value: ["a"], origin: "review" })
     expect(lastSet().patch).toEqual({ kind: "value", key: "list", value: null })
     expect(store.getState().items).toEqual([])
+  })
+
+  it("tells a reader of Rust the value the writer has: another window's change, its own once answered, no late echo", async () => {
+    const store = objectStore("writer")
+    const heard: unknown[] = []
+    const stop = onWriterChange("writer", value => heard.push(value))
+    // the page's own change is not the writer's yet
+    store.setState({ a: "own" })
+    expect(heard).toEqual([])
+    await lastSet().answer({ version: 60, key: "writer", value: { a: "own" }, origin: "review" })
+    broadcast({ version: 61, key: "writer", value: { a: "main" }, origin: "main" })
+    broadcast({ version: 60, key: "writer", value: { a: "own" }, origin: "review" })
+    expect(heard).toEqual([{ a: "own" }, { a: "main" }])
+    stop()
+    broadcast({ version: 62, key: "writer", value: { a: "later" }, origin: "main" })
+    expect(heard).toHaveLength(2)
   })
 
   it("starts a key only the main window keeps empty in a sub-window and takes none of its changes", () => {

@@ -73,8 +73,8 @@ pub struct SyncOptions {
   /// The object cache of the repository, shared by the app and `bd`: the sync reads and writes the conflict views
   /// there (`ConflictMemo`); a disabled one (the default, `bd --no-cache`) analyses every conflict
   pub object_cache: ObjectCache,
-  /// The git config the caller read for the same operation (`bd`, which reads the branch prefix from it); `None`: the
-  /// sync reads it
+  /// The git config the caller read for the same operation (`bd` and the app's command, which resolve the branch prefix
+  /// from it); `None`: the sync reads it
   pub config: Option<ConfigSnapshot>,
 }
 

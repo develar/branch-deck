@@ -1,24 +1,17 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import { internalError } from "@/lib/api-error"
 import { commands } from "@/lib/bindings"
-import type { GitBranchPrefix, GitSetup } from "@/lib/bindings"
-import { normalizeBranchPrefix } from "@/lib/branch-prefix"
+import type { GitSetup, ResolvedBranchPrefix } from "@/lib/bindings"
+import { appPrefixOf } from "@/lib/branch-prefix"
 import { getErrorDetails, notifyError } from "@/lib/errors"
 import { VcsRequestFactory } from "@/lib/git/vcs-request"
 import { repositoryName } from "@/lib/repository-config"
-import { appSettingsStore, useAppSettings } from "@/stores/settings/appSettings"
+import { onWriterChange, snapshotValueOf } from "@/stores/settings/persistent-store"
 import { getRecentProjects, repositorySettingsStore, setRecentProjects, updateProject, useRecentProjects } from "@/stores/settings/repositorySettings"
 import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
 
-/** The prefix of git for the selected repository (`getBranchPrefixFromGitConfig`), with whether it is the repository's own */
-export type BranchPrefixResult = Awaited<ReturnType<typeof commands.getBranchPrefixFromGitConfig>>
-
-/** Before the first load of the selected repository answers: the prefix cached for it applies */
-const NOT_LOADED: BranchPrefixResult = { status: "error", error: internalError("Not loaded") }
-
-/** A repository git cannot read has no git prefix; the error is shown through `pathValidation` */
-const NO_GIT_PREFIX: BranchPrefixResult = { status: "ok", data: { prefix: "", repositoryScoped: false } }
+/** No prefix: a repository git cannot read (the error is shown through `pathValidation`), or one nothing sets a prefix for */
+export const NO_BRANCH_PREFIX: ResolvedBranchPrefix = { prefix: "", source: "none" }
 
 export interface PathValidation {
   valid: boolean
@@ -30,9 +23,11 @@ export interface PathValidation {
 
 export interface RepositoryState {
   pathValidation: PathValidation
-  /** `branchdeck.branchPrefix` of the selected repository as git resolves it (or of the global config), and its scope */
-  gitProvidedBranchPrefix: BranchPrefixResult
-  isLoadingBranchPrefix: boolean
+  /**
+   * The prefix the branches of the selected repository are named with, as Rust resolves it (`resolve_branch_prefix`),
+   * with its source; null until the first answer for the repository, while its cached prefix names the branches
+   */
+  branchPrefix: ResolvedBranchPrefix | null
   /** Git, the git identity and the suggested branch prefix (`check_git_setup`); `null` until the first check returns */
   gitSetup: GitSetup | null
 }
@@ -43,8 +38,7 @@ export interface RepositoryState {
  */
 export const repositoryStore = createStore<RepositoryState>(() => ({
   pathValidation: { valid: true },
-  gitProvidedBranchPrefix: NOT_LOADED,
-  isLoadingBranchPrefix: true,
+  branchPrefix: null,
   gitSetup: null,
 }))
 
@@ -107,48 +101,35 @@ export function useSelectedProjectField<K extends keyof ProjectMetadata>(field: 
 
 // ---- effective branch prefix ----
 
-/**
- * The git prefix of the repository: the one the load read, else the one cached for the repository until the load
- * answers
- */
-function gitBranchPrefixOf(cachedBranchPrefix: GitBranchPrefix | undefined, gitProvidedBranchPrefix: BranchPrefixResult): GitBranchPrefix | undefined {
-  return gitProvidedBranchPrefix.status === "ok" ? gitProvidedBranchPrefix.data : cachedBranchPrefix
+/** The prefix of the selected repository: the last answer of Rust, else the one cached for the repository until it answers */
+function effectiveBranchPrefix(branchPrefix: ResolvedBranchPrefix | null, cachedBranchPrefix: ResolvedBranchPrefix | undefined): ResolvedBranchPrefix {
+  return branchPrefix ?? cachedBranchPrefix ?? NO_BRANCH_PREFIX
 }
 
-/** The repository's own prefix (its local or worktree git config, or `git -c`), which wins over the app's; empty without one */
-export function repositoryOwnBranchPrefix(gitPrefix: GitBranchPrefix | undefined): string {
-  return gitPrefix?.repositoryScoped === true ? normalizeBranchPrefix(gitPrefix.prefix) : ""
+/** Whether the first answer of Rust for the selected repository is still out */
+export function useIsLoadingBranchPrefix(): boolean {
+  return useRepository(state => state.branchPrefix === null)
 }
 
 /**
- * The branch prefix of a repository, the specific one first, as `resolve_branch_prefix` of the backend (`bd` too): the
- * repository's own git prefix, else the app's prefix (`globalUserBranchPrefix`), else the git prefix of the global or
- * system config. The git prefix is the one cached for the repository until its load answers.
+ * The prefix the branches of the selected repository are named with, and its source: what Rust resolved (the
+ * repository's own git prefix, else the app's, else the global git prefix), shown as it is. Every command of the sync
+ * family resolves it again in Rust; the page decides nothing by it
  */
-export function computeEffectiveBranchPrefix(
-  globalUserBranchPrefix: string | undefined,
-  cachedBranchPrefix: GitBranchPrefix | undefined,
-  gitProvidedBranchPrefix: BranchPrefixResult,
-): string {
-  const gitPrefix = gitBranchPrefixOf(cachedBranchPrefix, gitProvidedBranchPrefix)
-  return repositoryOwnBranchPrefix(gitPrefix) || normalizeBranchPrefix(globalUserBranchPrefix) || normalizeBranchPrefix(gitPrefix?.prefix)
-}
-
-/** The prefix the branches of the selected repository are named with ({@link computeEffectiveBranchPrefix}) */
-export function useEffectiveBranchPrefix(): string {
-  const globalUserBranchPrefix = useAppSettings(state => state.globalUserBranchPrefix)
+export function useResolvedBranchPrefix(): ResolvedBranchPrefix {
+  const branchPrefix = useRepository(state => state.branchPrefix)
   const cachedBranchPrefix = useRecentProjects(projects => projects[0]?.cachedBranchPrefix)
-  const gitProvidedBranchPrefix = useRepository(state => state.gitProvidedBranchPrefix)
-  return computeEffectiveBranchPrefix(globalUserBranchPrefix, cachedBranchPrefix, gitProvidedBranchPrefix)
+  return effectiveBranchPrefix(branchPrefix, cachedBranchPrefix)
+}
+
+/** The prefix the branches of the selected repository are named with ({@link useResolvedBranchPrefix}) */
+export function useEffectiveBranchPrefix(): string {
+  return useResolvedBranchPrefix().prefix
 }
 
 /** Non-hook variant of {@link useEffectiveBranchPrefix} for event handlers and stores. */
 export function getEffectiveBranchPrefix(): string {
-  return computeEffectiveBranchPrefix(
-    appSettingsStore.getState().globalUserBranchPrefix,
-    getSelectedProject()?.cachedBranchPrefix,
-    repositoryStore.getState().gitProvidedBranchPrefix,
-  )
+  return effectiveBranchPrefix(repositoryStore.getState().branchPrefix, getSelectedProject()?.cachedBranchPrefix).prefix
 }
 
 /** Full git branch name of a virtual branch, e.g. `john/virtual/feature-auth`. */
@@ -219,22 +200,18 @@ export async function browseRepository(): Promise<void> {
   }
 }
 
-let loadingPromise: Promise<void> | null = null
-
-/** Pending branch prefix load, if any. Sync awaits it so it does not run with a stale prefix. */
-export function getLoadingPromise(): Promise<void> | null {
-  return loadingPromise
-}
-
+/** Checks the git setup of `project` and resolves its branch prefix; the sync does not wait: it resolves the prefix itself */
 export function triggerBranchPrefixLoad(project: ProjectMetadata | null): void {
   void loadGitSetup(project)
-  const promise = loadBranchPrefix(project)
-  loadingPromise = promise
-  void promise.finally(() => {
-    if (loadingPromise === promise) {
-      loadingPromise = null
-    }
-  })
+  void loadBranchPrefix(project)
+}
+
+/**
+ * Resolves the prefix of the selected repository again, keeping the one shown until Rust answers: on the window's
+ * focus (a `git config` meanwhile) and after a change of the app's prefix
+ */
+export function refreshBranchPrefix(): void {
+  void loadBranchPrefix(getSelectedProject())
 }
 
 /** Not awaited by sync: a sync without git fails on its own, with the same message */
@@ -255,56 +232,32 @@ async function loadBranchPrefix(project: ProjectMetadata | null): Promise<void> 
   const currentPath = project?.path
   // the selection may change while the command runs; a stale result must not overwrite the state of the new selection
   const isStale = () => getSelectedProject()?.path !== currentPath
+  const failed = (error: string, errorDetails: string) => {
+    if (!isStale()) {
+      repositoryStore.setState({ pathValidation: { valid: false, path: currentPath, error, errorDetails }, branchPrefix: NO_BRANCH_PREFIX })
+    }
+  }
 
-  repositoryStore.setState({ isLoadingBranchPrefix: true })
   try {
-    const result = await commands.getBranchPrefixFromGitConfig({ repositoryPath: currentPath || "" })
-
+    const result = await commands.resolveBranchPrefix({ repositoryPath: currentPath || "" })
     if (result.status === "error") {
-      if (isStale()) {
-        return
-      }
-
       // repository not accessible; the error message already contains context
-      repositoryStore.setState({
-        pathValidation: {
-          valid: false,
-          path: currentPath,
-          error: result.error.message,
-          errorDetails: result.error.message,
-        },
-        // the error is shown via pathValidation
-        gitProvidedBranchPrefix: NO_GIT_PREFIX,
-      })
+      failed(result.error.message, result.error.message)
       return
     }
 
     if (project != null) {
       updateProject(project.path, { cachedBranchPrefix: result.data.prefix === "" ? undefined : result.data })
     }
-
     if (!isStale()) {
-      // repository is accessible - clear any previous error
-      repositoryStore.setState({ gitProvidedBranchPrefix: result, pathValidation: { valid: true } })
+      // repository is accessible - clear any previous error; the same values keep their records (a focus asks again)
+      repositoryStore.setState(({ branchPrefix, pathValidation }) => ({
+        branchPrefix: branchPrefix?.prefix === result.data.prefix && branchPrefix.source === result.data.source ? branchPrefix : result.data,
+        pathValidation: pathValidation.valid && pathValidation.error == null ? pathValidation : { valid: true },
+      }))
     }
   } catch (error) {
-    if (isStale()) {
-      return
-    }
-
-    repositoryStore.setState({
-      pathValidation: {
-        valid: false,
-        path: currentPath,
-        error: `Repository not accessible: ${currentPath}`,
-        errorDetails: getErrorDetails(error),
-      },
-      gitProvidedBranchPrefix: NO_GIT_PREFIX,
-    })
-  } finally {
-    if (!isStale()) {
-      repositoryStore.setState({ isLoadingBranchPrefix: false })
-    }
+    failed(`Repository not accessible: ${currentPath}`, getErrorDetails(error))
   }
 }
 
@@ -323,6 +276,16 @@ export function initRepository(): void {
 
   triggerBranchPrefixLoad(getSelectedProject())
 
+  // the app's prefix as the writer has it: a change of it, from any window, names the branches anew once Rust has it
+  let appPrefix = appPrefixOf(snapshotValueOf("appSettings"))
+  const stopListening = onWriterChange("appSettings", value => {
+    const prefix = appPrefixOf(value)
+    if (prefix !== appPrefix) {
+      appPrefix = prefix
+      refreshBranchPrefix()
+    }
+  })
+
   let timer: ReturnType<typeof setTimeout> | undefined
   // only the path matters: cachedBranchPrefix updates must not trigger a reload
   const unsubscribe = repositorySettingsStore.subscribe((state, prevState) => {
@@ -332,7 +295,7 @@ export function initRepository(): void {
 
     // set synchronously so the UI does not render the "loaded" state of the new selection while the timer is pending; the
     // prefix of the repository left must not name the branches of the new one, its cached prefix does until the load
-    repositoryStore.setState({ isLoadingBranchPrefix: true, gitProvidedBranchPrefix: NOT_LOADED })
+    repositoryStore.setState({ branchPrefix: null })
     clearTimeout(timer)
     timer = setTimeout(() => {
       timer = undefined
@@ -344,6 +307,7 @@ export function initRepository(): void {
   disposeRepository = () => {
     clearTimeout(timer)
     unsubscribe()
+    stopListening()
     disposeRepository = null
   }
 }

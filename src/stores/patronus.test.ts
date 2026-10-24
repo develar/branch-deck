@@ -269,7 +269,7 @@ vi.mock("@/stores/branch-sync", () => ({
       parked: {},
       isSyncing: false,
       syncCount: branches.syncCount,
-      syncedInputs: branches.fingerprint === null ? null : { repositoryPath: "/repo", branchPrefix: "user", fingerprint: branches.fingerprint },
+      syncedInputs: branches.fingerprint === null ? null : { repositoryPath: "/repo", fingerprint: branches.fingerprint },
       baselineBranch: "origin/master",
     }),
     subscribe: () => () => {},
@@ -467,8 +467,8 @@ describe("holds", () => {
     await refreshPatronus("sync")
     await answerView({ branches: { login: landedWhole(robotOf("login", "r1"), true) } })
     // a merged dry run lands nothing: not sent; the robot of each branch as the rows match it
-    expect(patronus.viewCalls.map(call => [call.repositoryPath, call.branchPrefix, call.robots.map(it => it.id), call.matched])).toEqual([
-      ["/repo", "user", ["r1"], { branches: { login: "r1", auth: "dry" }, stacks: {} }],
+    expect(patronus.viewCalls.map(call => [call.repositoryPath, call.robots.map(it => it.id), call.matched])).toEqual([
+      ["/repo", ["r1"], { branches: { login: "r1", auth: "dry" }, stacks: {} }],
     ])
     expect(patronus.viewCalls[0]?.remote.branches.login).toEqual({ remoteTip: null, upToDate: false })
     expect(getPushHold("login")).toMatchObject({ kind: "landed", branch: "login" })
@@ -510,7 +510,7 @@ describe("holds", () => {
     computed()
     await vi.waitFor(() => expect(patronus.viewCalls).toHaveLength(2))
     await whenRepositoryViewCurrent()
-    expect(patronus.landingWaits).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", after: 0 }])
+    expect(patronus.landingWaits).toEqual([{ repositoryPath: "/repo", after: 0 }])
     expect(getLandingNeeds("auth")).toEqual([refusal])
     // known: no wait, no view again
     await whenRepositoryViewCurrent()

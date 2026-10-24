@@ -4,7 +4,7 @@ import { createStore } from "zustand/vanilla"
 import type { BranchIntegrationInfo, Commit, IntegrationConfidence, UpstreamCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure } from "@/lib/errors"
-import { getEffectiveBranchPrefix, getSelectedProject, vcsRequestFactory } from "@/stores/repository"
+import { getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
  * Archived branch, filled in progressively: a placeholder first, then integration info, then (lazily) its commits.
@@ -284,8 +284,8 @@ export async function loadCommitsForBranch(branchName: string): Promise<void> {
 
   updateArchivedBranch(branchName, it => ({ ...it, isLoadingCommits: true, loadError: undefined }))
   try {
-    const vcsRequest = vcsRequestFactory.createRequest()
-    const result = await commands.getArchivedBranchCommits(vcsRequest.repositoryPath, getEffectiveBranchPrefix(), branchName)
+    // the prefix is Rust's, resolved for the repository
+    const result = await commands.getArchivedBranchCommits(getSelectedRepositoryPath(), branchName)
     if (result.status === "ok") {
       updateArchivedBranch(branchName, it => ({ ...it, commits: result.data, hasLoadedCommits: true }))
     } else {
@@ -303,7 +303,6 @@ export async function deleteArchivedBranch(branchName: string): Promise<void> {
   const result = await commands.deleteArchivedBranch({
     repositoryPath: getSelectedProject()?.path ?? "",
     branchName,
-    branchPrefix: getEffectiveBranchPrefix(),
   })
   if (result.status !== "ok") {
     throw commandFailure(result.error)

@@ -3,7 +3,7 @@ import { useTauriListen } from "@/hooks/useTauriListen"
 import type { RepositoryConfigChanged } from "@/lib/repository-config"
 import { syncBranches } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
-import { getSelectedProject, triggerBranchPrefixLoad } from "@/stores/repository"
+import { getSelectedProject, refreshBranchPrefix } from "@/stores/repository"
 
 /**
  * The main window after a write of Settings → Repository, → Diffs & Merge or → Agents (`repository_config_changed`, sent by the
@@ -24,8 +24,8 @@ export function useRepositoryConfigChanges(): void {
     }
     switch (key) {
       case "branchPrefix":
-        // the sync waits for the load, so it names the branches by the new prefix
-        triggerBranchPrefixLoad(project)
+        // the names the page shows; the sync resolves the new prefix in Rust from the config it reads
+        refreshBranchPrefix()
         resync()
         break
       case "stacks":

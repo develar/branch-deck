@@ -29,7 +29,7 @@ import { MIN_ISLANDS_WIDTH } from "@/lib/zoom"
 import { syncIfChanged } from "@/stores/branch-sync"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
-import { getSelectedProject, initRepository } from "@/stores/repository"
+import { getSelectedProject, initRepository, refreshBranchPrefix } from "@/stores/repository"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 import { useSetupTracking } from "@/stores/setup"
 
@@ -124,6 +124,8 @@ export function IndexPage() {
   // "Auto-sync on Focus": the item of the native menu, and the sync when the window gets the focus
   useMenuSync()
   useWindowFocus(() => {
+    // a `git config` meanwhile: the names the page shows; the sync resolves the prefix in Rust itself
+    refreshBranchPrefix()
     void debouncedAutoSync()
   })
   // "Settings…" (⌘,) of every window and the buttons that open a page of it: only this window opens it, with the

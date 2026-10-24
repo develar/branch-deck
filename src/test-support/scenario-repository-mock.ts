@@ -8,7 +8,6 @@ export const useSelectedProjectField = () => undefined
 export const useEffectiveBranchPrefix = () => "test-user"
 export const getFullBranchName = (name: string) => `test-user/virtual/${name}`
 export const getFullStackBranchName = (root: string) => `test-user/stack/${root}`
-export const getLoadingPromise = () => null
 export const getSelectedRepositoryPath = (): string => "/repo"
 export const isSelectedRepository = (path: string) => path === "/repo"
 export const getRepositorySwitchReason = (path: string) => (path === "/repo" ? null : `${path} is no longer the open repository`)

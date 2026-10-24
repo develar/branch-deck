@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { useStore } from "zustand"
-import type { GitBranchPrefix, IssueNavigationConfig } from "@/lib/bindings"
+import type { IssueNavigationConfig, PrefixSource, ResolvedBranchPrefix } from "@/lib/bindings"
 import { stableStringify } from "@/lib/stable-stringify"
 import { createPersistentStore } from "./persistent-store"
 import type { ArrayStoreState } from "./persistent-store"
@@ -10,16 +10,27 @@ const IssueNavigationConfigSchema = z.object({
   links: z.array(z.object({ issueRegexp: z.string(), linkRegexp: z.string() })),
 }) satisfies z.ZodType<IssueNavigationConfig>
 
+/** The sources of `PrefixSource`, as `resolve_branch_prefix` names them */
+const PREFIX_SOURCES = ["cli", "repository_config", "app_setting", "global_config", "none"] as const satisfies readonly PrefixSource[]
+
+/** A cached prefix of before the source was kept: the git prefix, the repository's own or of the global config */
+function fromGitPrefix(value: unknown): unknown {
+  if (typeof value === "string") {
+    return { prefix: value, source: "global_config" }
+  }
+  if (typeof value === "object" && value !== null && "repositoryScoped" in value && "prefix" in value) {
+    return { prefix: value.prefix, source: value.repositoryScoped === true ? "repository_config" : "global_config" }
+  }
+  return value
+}
+
 /**
- * The prefix of git the last load read for the repository, with whether it is the repository's own: the branches are
- * named by it until the next load answers. A text, as before the scope was kept, is a prefix of the global config; a
- * malformed value is dropped
+ * The prefix the last `resolve_branch_prefix` of the repository answered, with its source: the branches are named by
+ * it until the next one answers. The git prefix cached before (a text, or `{ prefix, repositoryScoped }`) reads as a
+ * prefix of its git config; a malformed value is dropped
  */
 const CachedBranchPrefixSchema = z
-  .preprocess(
-    value => (typeof value === "string" ? { prefix: value, repositoryScoped: false } : value),
-    z.object({ prefix: z.string(), repositoryScoped: z.boolean() }) satisfies z.ZodType<GitBranchPrefix>,
-  )
+  .preprocess(fromGitPrefix, z.object({ prefix: z.string(), source: z.enum(PREFIX_SOURCES) }) satisfies z.ZodType<ResolvedBranchPrefix>)
   .optional()
   .catch(undefined)
   .transform(value => (value === undefined || value.prefix === "" ? undefined : value))

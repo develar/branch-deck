@@ -15,7 +15,6 @@ use test_utils::sync_fixtures::TestReporter;
 fn params(revision: u32) -> GetRepositoryViewParams {
   GetRepositoryViewParams {
     repository_path: "/repo".to_string(),
-    branch_prefix: "test".to_string(),
     revision,
     robots: Vec::new(),
     matched: RobotMatch::default(),
@@ -30,18 +29,14 @@ fn a_view_is_of_the_table_the_last_sync_finished() {
   let views = RepositoryViews::default();
   let git = GitCommandExecutor::new();
   let cache = ObjectCache::disabled();
-  let view = views.view(&git, &cache, &params(7));
+  let view = views.view(&git, &cache, "test", &params(7));
   assert_eq!((view.revision, view.table_generation, view.patronus.branches.len()), (7, 0, 0));
 
   views.keep("/repo", "test", BranchTable::default());
-  assert_eq!(views.view(&git, &cache, &params(8)).table_generation, 1);
+  assert_eq!(views.view(&git, &cache, "test", &params(8)).table_generation, 1);
   views.keep("/repo", "test", BranchTable::default());
-  assert_eq!(views.view(&git, &cache, &params(9)).table_generation, 2);
-  let other = GetRepositoryViewParams {
-    branch_prefix: "other".to_string(),
-    ..params(9)
-  };
-  assert_eq!(views.view(&git, &cache, &other).table_generation, 0);
+  assert_eq!(views.view(&git, &cache, "test", &params(9)).table_generation, 2);
+  assert_eq!(views.view(&git, &cache, "other", &params(9)).table_generation, 0);
 }
 
 /// Stacked branches synced: `util` adds `controlUrl`, `flow` uses it; the views keep the table of the sync
@@ -81,7 +76,7 @@ async fn the_landing_needs_are_unknown_until_computed_then_kept_while_the_inputs
   let (repo, views, _) = synced_views().await;
   let git = GitCommandExecutor::new().with_process_stats("test");
   let cache = ObjectCache::disabled();
-  let first = views.view(&git, &cache, &repo_params(&repo, Vec::new(), RobotMatch::default()));
+  let first = views.view(&git, &cache, "test", &repo_params(&repo, Vec::new(), RobotMatch::default()));
   assert_eq!(
     (needs(&first, "flow"), needs(&first, "util"), first.landing_generation),
     (&LandingNeeds::Unknown, &LandingNeeds::Unknown, 0)
@@ -89,14 +84,13 @@ async fn the_landing_needs_are_unknown_until_computed_then_kept_while_the_inputs
 
   let wait = WaitLandingNeedsParams {
     repository_path: repo.path_str().to_string(),
-    branch_prefix: "test".to_string(),
     after: first.landing_generation,
   };
-  assert_eq!(views.wait_landing_needs(&wait), 1);
+  assert_eq!(views.wait_landing_needs("test", &wait), 1);
   let processes = git.process_stats().unwrap().by_command().len();
   assert!(processes > 0, "the computation ran on the view's executor");
 
-  let known = views.view(&git, &cache, &repo_params(&repo, Vec::new(), RobotMatch::default()));
+  let known = views.view(&git, &cache, "test", &repo_params(&repo, Vec::new(), RobotMatch::default()));
   assert_eq!(known.landing_generation, 1);
   let LandingNeeds::Known { refusals } = needs(&known, "flow") else { panic!("{known:?}") };
   let [LandingRefusal::MissingDeclaration { fix, landing_in: None, .. }] = &refusals[..] else {
@@ -112,8 +106,8 @@ async fn the_landing_needs_are_unknown_until_computed_then_kept_while_the_inputs
   assert_eq!(needs(&known, "util"), &LandingNeeds::Known { refusals: Vec::new() });
 
   let before = git.process_stats().unwrap().total();
-  views.view(&git, &cache, &repo_params(&repo, Vec::new(), RobotMatch::default()));
-  assert_eq!(views.wait_landing_needs(&WaitLandingNeedsParams { after: 1, ..wait }), 1, "nothing computed again");
+  views.view(&git, &cache, "test", &repo_params(&repo, Vec::new(), RobotMatch::default()));
+  assert_eq!(views.wait_landing_needs("test", &WaitLandingNeedsParams { after: 1, ..wait }), 1, "nothing computed again");
   assert_eq!(git.process_stats().unwrap().total(), before);
 }
 
@@ -141,13 +135,15 @@ async fn a_running_safe_push_of_the_branch_the_start_needs_is_named() {
   let matched = match_robots(&table, &RemoteFacts::default(), &robots);
   let git = GitCommandExecutor::new();
   let cache = ObjectCache::disabled();
-  let first = views.view(&git, &cache, &repo_params(&repo, robots.clone(), matched.clone()));
-  views.wait_landing_needs(&WaitLandingNeedsParams {
-    repository_path: repo.path_str().to_string(),
-    branch_prefix: "test".to_string(),
-    after: first.landing_generation,
-  });
-  let view = views.view(&git, &cache, &repo_params(&repo, robots, matched));
+  let first = views.view(&git, &cache, "test", &repo_params(&repo, robots.clone(), matched.clone()));
+  views.wait_landing_needs(
+    "test",
+    &WaitLandingNeedsParams {
+      repository_path: repo.path_str().to_string(),
+      after: first.landing_generation,
+    },
+  );
+  let view = views.view(&git, &cache, "test", &repo_params(&repo, robots, matched));
   let LandingNeeds::Known { refusals } = needs(&view, "flow") else { panic!("{view:?}") };
   let [LandingRefusal::MissingDeclaration { landing_in, .. }] = &refusals[..] else {
     panic!("{refusals:?}")
@@ -170,7 +166,7 @@ async fn a_forgotten_repository_has_no_landing_computation_running_and_no_view()
   views.keep("/repo", "test", BranchTable::default());
   let git = GitCommandExecutor::new();
   let cache = ObjectCache::disabled();
-  let first = views.view(&git, &cache, &repo_params(&repo, Vec::new(), RobotMatch::default()));
+  let first = views.view(&git, &cache, "test", &repo_params(&repo, Vec::new(), RobotMatch::default()));
   assert_eq!(first.landing_generation, 0, "the computation started in the background");
   let facts = views
     .landing
@@ -181,6 +177,6 @@ async fn a_forgotten_repository_has_no_landing_computation_running_and_no_view()
   let state = facts.lock();
   assert_eq!((state.computing, state.generation), (None, 1), "the computation ended before forget returned");
   drop(state);
-  assert_eq!(views.view(&git, &cache, &repo_params(&repo, Vec::new(), RobotMatch::default())).table_generation, 0);
-  assert_eq!(views.view(&git, &cache, &params(1)).table_generation, 2, "another repository keeps its table");
+  assert_eq!(views.view(&git, &cache, "test", &repo_params(&repo, Vec::new(), RobotMatch::default())).table_generation, 0);
+  assert_eq!(views.view(&git, &cache, "test", &params(1)).table_generation, 2, "another repository keeps its table");
 }

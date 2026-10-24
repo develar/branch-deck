@@ -16,19 +16,23 @@ describe("ProjectMetadataSchema", () => {
 describe("cachedBranchPrefix", () => {
   const parse = (cachedBranchPrefix: unknown) => ProjectMetadataSchema.parse({ path: "/repo", cachedBranchPrefix }).cachedBranchPrefix
 
-  it("keeps the prefix with whether it is the repository's own", () => {
-    expect(parse({ prefix: "jane", repositoryScoped: true })).toEqual({ prefix: "jane", repositoryScoped: true })
-    expect(parse({ prefix: "jane", repositoryScoped: false })).toEqual({ prefix: "jane", repositoryScoped: false })
+  it("keeps the prefix the last resolve answered, with its source", () => {
+    expect(parse({ prefix: "jane", source: "app_setting" })).toEqual({ prefix: "jane", source: "app_setting" })
+    expect(parse({ prefix: "own", source: "repository_config" })).toEqual({ prefix: "own", source: "repository_config" })
   })
 
-  it("reads a text, as before the scope was kept, as a prefix of the global config", () => {
-    expect(parse("jane")).toEqual({ prefix: "jane", repositoryScoped: false })
+  it("reads the git prefix cached before, a text or with its scope, as a prefix of its git config", () => {
+    expect(parse("jane")).toEqual({ prefix: "jane", source: "global_config" })
+    expect(parse({ prefix: "jane", repositoryScoped: true })).toEqual({ prefix: "jane", source: "repository_config" })
+    expect(parse({ prefix: "jane", repositoryScoped: false })).toEqual({ prefix: "jane", source: "global_config" })
   })
 
   it("keeps no empty prefix and drops a malformed one, not the project", () => {
     expect(parse("")).toBeUndefined()
+    expect(parse({ prefix: "", source: "none" })).toBeUndefined()
     expect(parse({ prefix: "", repositoryScoped: true })).toBeUndefined()
     expect(parse(undefined)).toBeUndefined()
+    expect(parse({ prefix: "jane", source: "elsewhere" })).toBeUndefined()
     expect(ProjectMetadataSchema.parse({ path: "/repo", lastSyncTime: 1, cachedBranchPrefix: { prefix: 1 } })).toEqual({ path: "/repo", lastSyncTime: 1 })
   })
 })

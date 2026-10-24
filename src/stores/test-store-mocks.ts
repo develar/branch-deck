@@ -1,7 +1,7 @@
 /** Module mocks for tests of `@/stores/branch-sync` that set the store state directly; load them in `vi.mock` factories */
 export const repositoryMock = {
-  getLoadingPromise: () => null,
   getSelectedProject: () => null,
+  getSelectedRepositoryPath: () => "",
   useSelectedProject: () => null,
   vcsRequestFactory: { createRequest: () => ({}) },
 }

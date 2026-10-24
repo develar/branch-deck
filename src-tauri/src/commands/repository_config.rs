@@ -1,5 +1,8 @@
 use crate::operation::{operation, run_blocking, tauri_error};
+use app_settings::branch_prefixes::BranchPrefixes;
+use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
+use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use sync_core::repository_config::{RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, read_repository_config, set_config};
@@ -44,17 +47,35 @@ pub async fn get_repository_config(git_executor: State<'_, GitCommandExecutor>, 
 }
 
 /// Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
-/// read again
+/// read again. A write of the branch prefix keeps the git prefix the read found for the repository's later commands
+/// (`BranchPrefixes`); a global one forgets the prefix of every other repository, which may take it
 #[tauri::command]
-#[instrument(skip(app, git_executor))]
+#[instrument(skip(app, git_executor, settings, prefixes))]
 #[specta::specta]
-pub async fn set_repository_config(app: AppHandle, git_executor: State<'_, GitCommandExecutor>, params: SetRepositoryConfigParams) -> Result<RepositoryConfig, ApiError> {
+pub async fn set_repository_config(
+  app: AppHandle,
+  git_executor: State<'_, GitCommandExecutor>,
+  settings: State<'_, SettingsService>,
+  prefixes: State<'_, BranchPrefixes>,
+  params: SetRepositoryConfigParams,
+) -> Result<RepositoryConfig, ApiError> {
   operation(async move {
+    let (settings, prefixes) = (settings.app(), (*prefixes).clone());
     let git = (*git_executor).clone();
     let SetRepositoryConfigParams { repository_path, change, scope } = params;
     let key = change.key();
     let path = repository_path.clone();
     let config = run_blocking(move || set_config(&git, &path, &change, scope)).await?;
+    if key == RepositoryConfigKey::BranchPrefix {
+      if scope == WriteScope::Global {
+        prefixes.clear();
+      }
+      let git_prefix = GitBranchPrefix {
+        prefix: config.branch_prefix.value.clone().unwrap_or_default(),
+        repository_scoped: config.branch_prefix.scope.is_some_and(sync_core::repository_config::ConfigScope::is_repository_scoped),
+      };
+      prefixes.refresh(&settings, &repository_path, git_prefix);
+    }
     app
       .emit_to("main", REPOSITORY_CONFIG_CHANGED_EVENT, RepositoryConfigChanged { repository_path, key })
       .map_err(tauri_error)?;

@@ -2,14 +2,14 @@ use crate::resolve::{cli_branch_prefix, resolve_branch_prefix};
 use domain_types::settings::{GitBranchPrefix, PrefixSource, ResolvedBranchPrefix};
 use pretty_assertions::assert_eq;
 
-fn git(prefix: &str, repository_scoped: bool) -> GitBranchPrefix {
+pub(crate) fn git(prefix: &str, repository_scoped: bool) -> GitBranchPrefix {
   GitBranchPrefix {
     prefix: prefix.to_owned(),
     repository_scoped,
   }
 }
 
-fn resolved(prefix: &str, source: PrefixSource) -> ResolvedBranchPrefix {
+pub(crate) fn resolved(prefix: &str, source: PrefixSource) -> ResolvedBranchPrefix {
   ResolvedBranchPrefix {
     prefix: prefix.to_owned(),
     source,

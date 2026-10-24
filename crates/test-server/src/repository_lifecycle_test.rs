@@ -24,7 +24,7 @@ async fn a_failed_command_answers_with_its_api_error() {
     addr,
     &id,
     "get_archived_branch_commits",
-    &json!({ "repositoryPath": path, "branchPrefix": "user-name", "branchName": "user-name/archived/2025-01-01/no-such-branch" }),
+    &json!({ "repositoryPath": path, "branchName": "user-name/archived/2025-01-01/no-such-branch" }),
   )
   .send()
   .await
@@ -97,13 +97,14 @@ async fn ask_view(state: &std::sync::Arc<crate::state::AppState>, path: &str) ->
   let (views, git) = (state.repository_views.clone(), state.git_executor.clone());
   let params = GetRepositoryViewParams {
     repository_path: path.to_string(),
-    branch_prefix: "user-name".to_string(),
     revision: 1,
     robots: Vec::new(),
     matched: RobotMatch::default(),
     remote: RemoteFacts::default(),
   };
-  tokio::task::spawn_blocking(move || views.view(&git, &ObjectCache::disabled(), &params)).await.unwrap()
+  tokio::task::spawn_blocking(move || views.view(&git, &ObjectCache::disabled(), "user-name", &params))
+    .await
+    .unwrap()
 }
 
 /// The deletion at the end of a test removes the files once the computation of the landing needs a view started ended,
@@ -120,10 +121,9 @@ async fn deleting_a_repository_waits_for_its_landing_needs_and_forgets_its_views
   delete_repository(&client, addr, &id, &path).await;
   let wait = WaitLandingNeedsParams {
     repository_path: path.clone(),
-    branch_prefix: "user-name".to_string(),
     after: 0,
   };
-  assert_eq!(state.repository_views.wait_landing_needs(&wait), 0, "no computation is left to wait for");
+  assert_eq!(state.repository_views.wait_landing_needs("user-name", &wait), 0, "no computation is left to wait for");
   assert_eq!(ask_view(&state, &path).await.table_generation, 0, "the table of the sync is forgotten");
 }
 

@@ -204,14 +204,15 @@ test.describe("Settings → Repository", () => {
     await expect(field).toBeFocused()
     await expect(field).toHaveValue("user-name")
 
+    // an answer of before the write (a focus) names the old prefix: the one of the new prefix is awaited
+    const resolved = page.waitForResponse(async response => response.url().endsWith("/invoke/resolve_branch_prefix") && (await response.json()).prefix === "team")
     await field.fill("team/")
     await field.press("Enter")
     await expect(field).toHaveValue("team")
-    // the main window loads the prefix again and names the branches by it
+    // the main window asks Rust again and names the branches by the repository's new prefix; the sync resolves it too
+    expect(await (await resolved).json()).toEqual({ prefix: "team", source: "repository_config" })
     await expect(page.getByTestId("ready-to-sync-card")).toContainText("team/virtual/<name>")
-    const sync = page.waitForRequest(request => request.url().endsWith("/invoke/sync_branches"))
     await page.getByTestId("ready-to-sync-button").click()
-    expect((await sync).postDataJSON()).toMatchObject({ branchPrefix: "team" })
     await expect(findBranchRow(page, "test-branch")).toBeVisible()
 
     // General says so, with the way back here

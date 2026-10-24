@@ -71,6 +71,19 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   Ok(())
 }
 
+/// The app resolves the prefix per command (`BranchPrefixes`): a changed prefix (the app's, or the repository's own) is
+/// a changed fingerprint even where neither prefix names a branch yet, so the next focus syncs under the new one
+#[test]
+fn changes_with_the_prefix_alone() {
+  let repo = TestRepo::new();
+  let executor = GitCommandExecutor::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  let path = repo.path().to_str().unwrap();
+  let jane = sync_inputs_fingerprint(&executor, path, "jane").unwrap();
+  assert_eq!(sync_inputs_fingerprint(&executor, path, "jane").unwrap(), jane);
+  assert_ne!(sync_inputs_fingerprint(&executor, path, "john").unwrap(), jane);
+}
+
 /// The baseline of a branch that tracks another remote branch than `master` or `main` is that upstream (`@{u}`): a
 /// fetch of it changes what a sync reads
 #[test]

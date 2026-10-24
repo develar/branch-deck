@@ -26,6 +26,7 @@ import type {
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
+import { UserError } from "@/lib/git/vcs-request"
 import type { ParkedState } from "@/lib/parked"
 import { collectParkedStates } from "@/lib/parked"
 import { sameStringRecord } from "@/lib/record"
@@ -38,7 +39,7 @@ import { addTiming } from "@/lib/update-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
-import { getLoadingPromise, getSelectedProject, isSelectedRepository, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
+import { getSelectedProject, getSelectedRepositoryPath, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
 
@@ -183,7 +184,7 @@ export interface BranchSyncState {
    * The fingerprint of what the last successful sync read (`sync_inputs_fingerprint`), taken when it started, so a
    * commit made while it ran counts as a change; a focus syncs only when it differs (`syncIfChanged`)
    */
-  syncedInputs: { readonly repositoryPath: string; readonly branchPrefix: string; readonly fingerprint: string } | null
+  syncedInputs: { readonly repositoryPath: string; readonly fingerprint: string } | null
   /** When a focus last found the inputs as the last sync read them (ms): the header says "Checked just now" then */
   inputsCheckedAt: number | null
   /** Repository's baseline branch (e.g., "origin/master") */
@@ -1260,10 +1261,27 @@ function endRunRequests(requests: readonly RunRequest[]): void {
 /** Every request while a sync runs is the resync of a change (a rewrite, its Undo, a fetch): quiet, as they ask */
 const FOLLOW_UP_OPTIONS: SyncOptions = { autoScroll: false, autoExpand: false }
 
-/** The fingerprint of what a sync of the repository reads; null when git can't tell (the sync then runs anyway) */
-async function readSyncInputs(request: { repositoryPath: string; branchPrefix: string }): Promise<string | null> {
+/** What a sync names: the selected repository; Rust resolves the branch prefix of each command itself */
+interface SyncRequest {
+  readonly repositoryPath: string
+}
+
+/** The sync request of the selected repository; @throws UserError while none is selected */
+function syncRequest(): SyncRequest {
+  const repositoryPath = getSelectedRepositoryPath()
+  if (repositoryPath === "") {
+    throw new UserError("Please enter a repository path")
+  }
+  return { repositoryPath }
+}
+
+/**
+ * The fingerprint of what a sync of the repository reads under the prefix Rust resolves (a changed prefix changes it);
+ * null when git can't tell (the sync then runs anyway)
+ */
+async function readSyncInputs(request: SyncRequest): Promise<string | null> {
   try {
-    const result = await commands.getSyncInputsFingerprint({ repositoryPath: request.repositoryPath, branchPrefix: request.branchPrefix })
+    const result = await commands.getSyncInputsFingerprint({ repositoryPath: request.repositoryPath })
     return result.status === "ok" ? result.data : null
   } catch {
     return null
@@ -1271,16 +1289,10 @@ async function readSyncInputs(request: { repositoryPath: string; branchPrefix: s
 }
 
 /** Whether the last successful sync read these inputs of the repository it would sync now */
-function isSyncedWith(request: { repositoryPath: string; branchPrefix: string }, fingerprint: string | null): boolean {
+function isSyncedWith(request: SyncRequest, fingerprint: string | null): boolean {
   const state = branchSyncStore.getState()
   const known = state.syncedInputs
-  return (
-    known !== null &&
-    fingerprint === known.fingerprint &&
-    known.repositoryPath === request.repositoryPath &&
-    known.branchPrefix === request.branchPrefix &&
-    state.syncedRepositoryPath === request.repositoryPath
-  )
+  return known !== null && fingerprint === known.fingerprint && known.repositoryPath === request.repositoryPath && state.syncedRepositoryPath === request.repositoryPath
 }
 
 /**
@@ -1294,7 +1306,7 @@ export async function syncIfChanged(): Promise<void> {
     recheckAfterChain = true
     return
   }
-  const request = vcsRequestFactory.createRequest()
+  const request = syncRequest()
   const known = branchSyncStore.getState().syncedInputs
   if (known !== null && isSyncedWith(request, known.fingerprint)) {
     const inputs = await readSyncInputs(request)
@@ -1378,7 +1390,7 @@ async function runSyncChain(options: SyncOptions | undefined): Promise<void> {
   try {
     repositoryPath = await runSync(options)
     // another repository selected meanwhile has nothing to resync for these changes: its open syncs it
-    while (followUpRequested && (repositoryPath === null || repositoryPath === vcsRequestFactory.createRequest().repositoryPath)) {
+    while (followUpRequested && (repositoryPath === null || repositoryPath === getSelectedRepositoryPath())) {
       followUpRequested = false
       repositoryPath = await runSync(FOLLOW_UP_OPTIONS)
     }
@@ -1393,7 +1405,7 @@ async function runSyncChain(options: SyncOptions | undefined): Promise<void> {
   }
   if (recheckAfterChain) {
     recheckAfterChain = false
-    if (repositoryPath === vcsRequestFactory.createRequest().repositoryPath) {
+    if (repositoryPath === getSelectedRepositoryPath()) {
       void syncIfChanged()
     }
   }
@@ -1413,26 +1425,19 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
   let repositoryPath: string | null = null
 
   try {
-    // wait for a pending branch prefix load, so the sync does not run with a stale prefix: as long as it takes (it
-    // never rejects, and answers once its git does), and for the load of a repository selected meanwhile too; a fixed
-    // timeout failed the sync of a busy machine
-    for (let loading = getLoadingPromise(), waited: Promise<void> | null = null; loading !== null && loading !== waited; loading = getLoadingPromise()) {
-      waited = loading
-      await loading
-    }
-
-    const vcsRequest = vcsRequestFactory.createRequest()
-    repositoryPath = vcsRequest.repositoryPath
+    // the prefix is Rust's: the sync resolves it from the git config it reads, so nothing waits for the page's
+    const target = syncRequest()
+    repositoryPath = target.repositoryPath
     // before the sync: a commit made while it runs is a change the next focus syncs
-    const inputs = await readSyncInputs(vcsRequest)
+    const inputs = await readSyncInputs(target)
     const channel = new Channel<SyncEvent>()
     channel.onmessage = event => {
       if (generation === syncGeneration) {
-        queueSyncEvent(event, vcsRequest.repositoryPath, options)
+        queueSyncEvent(event, target.repositoryPath, options)
       }
     }
 
-    const result = await commands.syncBranches(vcsRequest, channel)
+    const result = await commands.syncBranches(target, channel)
     flushSyncEvents()
     if (generation !== syncGeneration) {
       // the branches of another repository replaced these meanwhile
@@ -1459,19 +1464,19 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
     // the repository of the sync, also when another one was selected since
     // the usual time of a sync is the share of the sync of an update (`update-progress.ts`): every sync teaches it
     const syncedAt = Date.now()
-    updateProject(vcsRequest.repositoryPath, project => ({
+    updateProject(target.repositoryPath, project => ({
       ...project,
       lastSyncTime: syncedAt,
       lastBranchCount: branchSyncStore.getState().branchOrder.length,
       updateTimings: addTiming(project.updateTimings, "sync", syncedAt - startedAt),
     }))
     branchSyncStore.setState({
-      syncedRepositoryPath: vcsRequest.repositoryPath,
-      syncedInputs: inputs === null ? null : { ...vcsRequest, fingerprint: inputs },
+      syncedRepositoryPath: target.repositoryPath,
+      syncedInputs: inputs === null ? null : { ...target, fingerprint: inputs },
       inputsCheckedAt: null,
     })
-    hideAfterSync(vcsRequest.repositoryPath)
-    void loadAutosquashPlan(vcsRequest.repositoryPath)
+    hideAfterSync(target.repositoryPath)
+    void loadAutosquashPlan(target.repositoryPath)
   } catch (error) {
     branchSyncStore.setState({ syncError: (error instanceof Error ? error.message : String(error)) || "Failed to sync branches" })
     console.error("Sync error:", error)

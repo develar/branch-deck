@@ -16,6 +16,9 @@ pub struct AppState {
   pub templates_dir: PathBuf,
   /// The table each repository's last sync finished, which `get_repository_view` answers from, as the app keeps it
   pub repository_views: repository_model::views::RepositoryViews,
+  /// The git prefix of each repository, which the commands of the sync family resolve the prefix with, as the app keeps
+  /// it (`resolve_branch_prefix`)
+  pub branch_prefixes: app_settings::branch_prefixes::BranchPrefixes,
   /// The waits of the rewrites, the pushes and the updates for a holder of the repository lock, by the channel of the
   /// page each reports on (`channel_commands`): `cancel_lock_wait` stops one
   pub lock_waits: history_rewrite::lock_wait::LockWaits,

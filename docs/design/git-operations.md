@@ -1735,8 +1735,10 @@ a `master` or `main`).
 4. The size and the modification time of `config`, `config.worktree` (descriptions, `branchdeck.stacks`, the
    upstream configuration) and `.idea/vcs.xml` (issue links).
 
-The hash of these and the prefix is the fingerprint. The page reads it before each sync, so a commit made while the
-sync runs is a change, and keeps it with the result; a focus compares it. Not in it: the notes the sync writes, the
+The hash of these and the prefix is the fingerprint: the prefix Rust resolves for the repository
+(`get_sync_inputs_fingerprint` takes none from the page; the git prefix from the memo of `BranchPrefixes`, no process),
+so a changed prefix, the app's or the repository's own, changes it (`changes_with_the_prefix_alone`). The page reads it
+before each sync, so a commit made while the sync runs is a change, and keeps it with the result; a focus compares it. Not in it: the notes the sync writes, the
 working tree (the paths that block an update are read by the next sync). The app keeps the issue links of a repository
 (`RepositoryStateCache::issue_config`) while `.idea/vcs.xml` has the stamp they were read with, the one the fingerprint
 hashes, so the sync that an edit of the links starts reads the new ones
@@ -2658,8 +2660,9 @@ no operation.
   `git config -z --show-scope --get-regexp` of the five keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
   `resolve_mode`, `branch_prefix`, `github_repository` and `descriptions`. A sync reads it once for the stack setting and the
-  description titles, or takes the one its caller read (`SyncOptions::config`): `bd` reads it once per command
-  (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
+  description titles, or takes the one its caller read (`SyncOptions::config`): the app's `sync_branches` reads it
+  before the sync, resolves the prefix of the sync from it and keeps its git prefix for the commands after it
+  (`BranchPrefixes`); `bd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
   `read_symbol_mode` and the configured GitHub repository of the pull requests are one snapshot each, for a caller that
   needs one key; `stacks_enabled` (`history_rewrite::stack`, which knows no `ConfigSnapshot`) is one
@@ -2691,10 +2694,14 @@ no operation.
   own (`GIT_CONFIG_GLOBAL`, `AppState::global_config_of`), which its config reads and writes use, so that no test
   reads or changes the config of the developer, and two tests that run at once share none.
 - **Branch prefix**: the backend's order (`resolve_branch_prefix` of `crates/app-settings/src/resolve.rs`, used by
-  `bd`) puts the specific prefix first: the repository's own (local, worktree or command scope), then the app's
-  `globalUserBranchPrefix`, then the global or system one, and names where the prefix came from
-  (`ResolvedBranchPrefix`).
-  `get_branch_prefix_from_git_config_sync` reads the value with its scope in one `git config -z --show-scope --get`.
+  `bd` and by every command of the app's sync family) puts the specific prefix first: the repository's own (local,
+  worktree or command scope), then the app's `globalUserBranchPrefix`, then the global or system one, and names where
+  the prefix came from (`ResolvedBranchPrefix`). `get_branch_prefix_from_git_config_sync` reads the value with its scope
+  in one `git config -z --show-scope --get`, for the page's `resolve_branch_prefix` and for the first command of a
+  repository; the app keeps the git prefix by repository path (`BranchPrefixes`), refreshed by each read of the config
+  (the page's command, the snapshot of a sync, a write of `branchdeck.branchPrefix`, a global one forgetting every
+  repository's), so the commands after it run no process for the prefix. The E2E server resolves the same way with the
+  local config alone.
 
 No other git config is written by the app, except the branch descriptions of `bd describe` and the global write above.
 `bd install` reads the agent keys of the global config alone (one `git config --global`), for the `agents` of its
@@ -2980,7 +2987,8 @@ builds it from the report of its sync and the statuses among its events (`bd sta
 tips only). The app keeps the table of the last sync of each repository and branch prefix (`RepositoryViews` in
 `views.rs`, written by `sync_branches` from the report it no longer drops and the statuses a `RemoteStatusCollector`
 kept while it forwarded every event to the page; a failed sync keeps the one before) and answers `get_repository_view`
-from it, with the robots, their matches and the remote facts the page sends: a push moves a remote branch without a
+from it, under the prefix it resolves for the repository as the sync did (`BranchPrefixes`, the page sends none), with
+the robots, their matches and the remote facts the page sends: a push moves a remote branch without a
 sync, the page knows it, the table doesn't, so the page's view reads the page's facts; `bd` reads the table's
 (`PatronusFacts::read`). The E2E server keeps it the same way from its own sync.
 

@@ -220,10 +220,10 @@ export const commands = {
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
-	 *  The view of the table the last sync of the repository finished: what the robots land, landed and hold
-	 *  (`patronus_view`), with the page's robots, their matches and what the page knows of the remote branches. Git only
-	 *  for robots the hashes and the memo don't answer; the landing needs of new inputs are computed in the background,
-	 *  through the object cache of the repository
+	 *  The view of the table the last sync of the repository under its prefix (Rust resolves it) finished: what the robots
+	 *  land, landed and hold (`patronus_view`), with the page's robots, their matches and what the page knows of the remote
+	 *  branches. Git only for robots the hashes and the memo don't answer; the landing needs of new inputs are computed in
+	 *  the background, through the object cache of the repository
 	 */
 	getRepositoryView: (params: GetRepositoryViewParams) => typedError<RepositoryView, ApiError>(__TAURI_INVOKE("get_repository_view", { params })),
 	/**
@@ -255,22 +255,32 @@ export const commands = {
 	getPatronusTargetBranch: (params: GetPatronusTargetBranchParams) => typedError<string | null, ApiError>(__TAURI_INVOKE("get_patronus_target_branch", { params })),
 	/**  How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason */
 	readPatronusCommandReply: (params: ReadPatronusCommandReplyParams) => typedError<PatronusCommandReply, ApiError>(__TAURI_INVOKE("read_patronus_command_reply", { params })),
-	/**  Synchronizes branches by grouping commits by prefix and creating/updating branches */
+	/**
+	 *  Synchronizes branches by grouping commits by prefix and creating/updating branches, named with the prefix Rust
+	 *  resolves from the git config the sync reads (one `ConfigSnapshot`, which also keeps the prefix for the commands
+	 *  after it) and the app's prefix of the settings; a repository without a prefix is refused before any event
+	 */
 	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("sync_branches", { params, progress })),
 	/**
-	 *  The fingerprint of what a sync reads (`sync_inputs_fingerprint`): the window syncs on focus only when it changed
-	 *  since the last sync
+	 *  The fingerprint of what a sync reads (`sync_inputs_fingerprint`) under the prefix Rust resolves for the repository:
+	 *  the window syncs on focus only when it changed since the last sync, a changed prefix too
 	 */
 	getSyncInputsFingerprint: (params: SyncInputsParams) => typedError<string, ApiError>(__TAURI_INVOKE("get_sync_inputs_fingerprint", { params })),
-	/**  `branchdeck.branchPrefix` with whether the repository's own config sets it */
-	getBranchPrefixFromGitConfig: (params: GetBranchPrefixParams) => typedError<GitBranchPrefix, ApiError>(__TAURI_INVOKE("get_branch_prefix_from_git_config", { params })),
+	/**
+	 *  The prefix the branches of the repository are named with, with where it came from: its git config read now (the
+	 *  global config alone for an empty path), which every later command of the repository resolves with
+	 *  (`BranchPrefixes`), and the app's prefix of the settings. The page shows the names with it, on open, on focus and
+	 *  after a change of either prefix; an inaccessible repository is an error
+	 */
+	resolveBranchPrefix: (params: GetBranchPrefixParams) => typedError<ResolvedBranchPrefix, ApiError>(__TAURI_INVOKE("resolve_branch_prefix", { params })),
 	/**  Git, the git identity and a branch prefix suggestion, checked when the window opens and on every repository change */
 	checkGitSetup: (params: GetBranchPrefixParams) => typedError<GitSetup, ApiError>(__TAURI_INVOKE("check_git_setup", { params })),
 	/**  The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository */
 	getRepositoryConfig: (params: GetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("get_repository_config", { params })),
 	/**
 	 *  Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
-	 *  read again
+	 *  read again. A write of the branch prefix keeps the git prefix the read found for the repository's later commands
+	 *  (`BranchPrefixes`); a global one forgets the prefix of every other repository, which may take it
 	 */
 	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("set_repository_config", { params })),
 	/**  Opens a native file dialog to browse for a git repository */
@@ -410,8 +420,8 @@ export const commands = {
 	 *  logged-out `claude` and its failures are outcomes
 	 */
 	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, ApiError>(__TAURI_INVOKE("suggest_branch_names", { params })),
-	getArchivedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchPrefix, branchName })),
-	getUnappliedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchPrefix, branchName })),
+	getArchivedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName })),
+	getUnappliedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchName })),
 	deleteUnappliedBranch: (params: DeleteArchivedBranchParams) => typedError<null, ApiError>(__TAURI_INVOKE("delete_unapplied_branch", { params })),
 	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, ApiError>(__TAURI_INVOKE("delete_archived_branch", { params })),
 	unapplyBranch: (params: UnapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<UnapplyBranchResult, ApiError>(__TAURI_INVOKE("unapply_branch", { params, wait })),
@@ -1174,7 +1184,6 @@ export type DeclaredParent = {
 export type DeleteArchivedBranchParams = {
 	repositoryPath: string,
 	branchName: string,
-	branchPrefix: string,
 };
 
 /**  The robots of one owner or of the user */
@@ -1998,10 +2007,12 @@ export type GetRepositoryConfigParams = {
 	repositoryPath: string,
 };
 
-/**  What the page asks of the branch table it shows */
+/**
+ *  What the page asks of the branch table it shows: the table of the repository's prefix, which Rust resolves
+ *  (`BranchPrefixes`)
+ */
 export type GetRepositoryViewParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  The asker's counter of its inputs, echoed: an answer to an older one is dropped */
 	revision: number,
 	/**  The robots that land or landed: active and merged, no dry runs */
@@ -2062,20 +2073,6 @@ export type GetRobotStatsParams = {
 
 export type GetUncommittedChangesParams = {
 	repositoryPath: string,
-};
-
-/**
- *  `branchdeck.branchPrefix` as git resolves it (system, global, local, worktree, command: the last one wins), and
- *  whether it is the repository's own
- */
-export type GitBranchPrefix = {
-	/**  Trimmed, empty if no config sets it */
-	prefix: string,
-	/**
-	 *  Set in the local or the worktree config of the repository, or by `git -c` / `GIT_CONFIG_*`: it wins over the app's
-	 *  prefix (`resolve_branch_prefix`)
-	 */
-	repositoryScoped: boolean,
 };
 
 /**  The conflict type of a path, as `merge-tree` names it (`CONFLICT (<type>)`) */
@@ -3002,6 +2999,19 @@ export type PrefetchBranchReviewParams = {
 	part: BranchReviewPart,
 };
 
+/**  Where the prefix of the branches came from; snake case, as every value of a `bd` output */
+export type PrefixSource = 
+/**  `--prefix` of `bd` */
+"cli" | 
+/**  `branchdeck.branchPrefix` of the repository's local or worktree config, or of `git -c` / `GIT_CONFIG_*` */
+"repository_config" | 
+/**  General → Branch prefix of the app (`globalUserBranchPrefix`) */
+"app_setting" | 
+/**  `branchdeck.branchPrefix` of the global or system git config */
+"global_config" | 
+/**  Nothing sets a prefix */
+"none";
+
 export type PruneReviewRefsParams = {
 	repositoryPath: string,
 	/**  The pull requests whose review refs stay */
@@ -3374,6 +3384,13 @@ export type RequestedReviewers = {
 	requested: string[],
 	/**  The logins it refused, each with its reason */
 	refused: RefusedReviewer[],
+};
+
+/**  The prefix the branches are named with, and where it came from; `source` is `None` exactly when `prefix` is empty */
+export type ResolvedBranchPrefix = {
+	/**  Normalized (`normalize_branch_prefix`): trimmed, no trailing slash */
+	prefix: string,
+	source: PrefixSource,
 };
 
 /**  A file of `WordResolutionSummary` */
@@ -4335,7 +4352,6 @@ export type SymbolMode =
 
 export type SyncBranchesParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 };
 
 /**  Progress events for sync operations */
@@ -4440,7 +4456,6 @@ export type SyncEvent =
 
 export type SyncInputsParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 };
 
 /**  What the check found */
@@ -4865,7 +4880,6 @@ export type WaitForGitHubBranchParams = {
 /**  What the page waits for while the landing needs of a branch are unknown (`wait_landing_needs`) */
 export type WaitLandingNeedsParams = {
 	repositoryPath: string,
-	branchPrefix: string,
 	/**  `landingGeneration` of the view the page has: the wait ends once a computation finished after it, or none runs */
 	after: number,
 };

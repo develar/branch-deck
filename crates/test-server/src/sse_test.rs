@@ -56,10 +56,7 @@ async fn test_sync_branches_sse_stream() {
     .post(format!("http://{addr}/invoke/sync_branches"))
     .header("Content-Type", "application/json")
     .header("Accept", "text/event-stream")
-    .json(&serde_json::json!({
-        "repositoryPath": registered_path,
-        "branchPrefix": "user-name"
-    }))
+    .json(&serde_json::json!({ "repositoryPath": registered_path }))
     .send()
     .await
     .expect("Failed to send sync request");

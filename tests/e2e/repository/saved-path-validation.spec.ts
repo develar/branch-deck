@@ -9,7 +9,7 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 test.describe("Repository Validation", () => {
   test("should display error for non-existent repository path", async ({ page, setupRepo }) => {
     // Use NO_REPO template which creates a path that doesn't exist on disk
-    // This will cause get_branch_prefix_from_git_config to return an error
+    // This will cause resolve_branch_prefix to return an error
     await setupRepo("NO_REPO", {
       prepopulateStore: true, // Auto-select the non-existent repository
       createRecentProject: true, // Create recent project entry for validation testing

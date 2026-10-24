@@ -1,37 +1,84 @@
 // @spec spec/repository/settings.spec.md
-import { describe, expect, it } from "vite-plus/test"
-import { internalError } from "@/lib/api-error"
-import type { GitBranchPrefix } from "@/lib/bindings"
-import { computeEffectiveBranchPrefix } from "@/stores/repository"
-import type { BranchPrefixResult } from "@/stores/repository"
+import { describe, expect, it, vi } from "vite-plus/test"
+import type { ResolvedBranchPrefix } from "@/lib/bindings"
+import { getEffectiveBranchPrefix, initRepository, repositoryStore } from "@/stores/repository"
 
-const loaded = (prefix: string, repositoryScoped: boolean): BranchPrefixResult => ({ status: "ok", data: { prefix, repositoryScoped } })
-const notLoaded: BranchPrefixResult = { status: "error", error: internalError("Not loaded") }
-const cached = (prefix: string, repositoryScoped: boolean): GitBranchPrefix => ({ prefix, repositoryScoped })
+const { resolves, projects, writerListeners, updates } = vi.hoisted(() => ({
+  /** The `resolve_branch_prefix` calls, each answered when the test answers it */
+  resolves: [] as { repositoryPath: string; answer: (prefix: ResolvedBranchPrefix) => Promise<void> }[],
+  /** The recent projects: the selected one first, with the prefix the last resolve of an earlier run cached */
+  projects: [{ path: "/repo", cachedBranchPrefix: { prefix: "cached", source: "app_setting" } as ResolvedBranchPrefix | undefined }],
+  writerListeners: new Map<string, (value: unknown) => void>(),
+  updates: [] as { path: string; update: unknown }[],
+}))
 
-// the cases of `resolve_branch_prefix` in crates/sync-core/src/branch_prefix_test.rs
-describe("computeEffectiveBranchPrefix", () => {
-  it("takes the repository's own git prefix, then the app's, then the global git prefix", () => {
-    expect(computeEffectiveBranchPrefix("app", undefined, loaded("", false))).toBe("app")
-    // the repository's own git prefix wins over the app's
-    expect(computeEffectiveBranchPrefix("app", undefined, loaded("local", true))).toBe("local")
-    // the app's prefix wins over the global git prefix
-    expect(computeEffectiveBranchPrefix("app", undefined, loaded("global", false))).toBe("app")
-    expect(computeEffectiveBranchPrefix(undefined, undefined, loaded("global", false))).toBe("global")
-    expect(computeEffectiveBranchPrefix("  ", undefined, loaded("global", false))).toBe("global")
-    expect(computeEffectiveBranchPrefix(undefined, undefined, loaded("", false))).toBe("")
+vi.mock("@/lib/bindings", () => ({
+  commands: {
+    resolveBranchPrefix: ({ repositoryPath }: { repositoryPath: string }) =>
+      new Promise(resolve => {
+        resolves.push({
+          repositoryPath,
+          answer: async prefix => {
+            resolve({ status: "ok", data: prefix })
+            await Promise.resolve()
+            await Promise.resolve()
+          },
+        })
+      }),
+    checkGitSetup: async () => ({ status: "ok", data: { git_error: null, identity_error: null, suggested_branch_prefix: "" } }),
+  },
+}))
+
+vi.mock("@/stores/settings/persistent-store", () => ({
+  // the app's prefix in the snapshot the window started from
+  snapshotValueOf: () => ({ globalUserBranchPrefix: "jane" }),
+  onWriterChange: (key: string, listener: (value: unknown) => void) => {
+    writerListeners.set(key, listener)
+    return () => writerListeners.delete(key)
+  },
+}))
+
+vi.mock("@/stores/settings/repositorySettings", () => ({
+  getRecentProjects: () => projects,
+  setRecentProjects: () => {},
+  updateProject: (path: string, update: unknown) => updates.push({ path, update }),
+  useRecentProjects: () => undefined,
+  repositorySettingsStore: { subscribe: () => () => {} },
+}))
+
+function lastResolve() {
+  const call = resolves.at(-1)
+  if (call === undefined) {
+    throw new Error("nothing was resolved")
+  }
+  return call
+}
+
+describe("the branch prefix of the selected repository", () => {
+  it("names the branches by the cached prefix until Rust answers, then by the answer, which it caches", async () => {
+    initRepository()
+    expect(repositoryStore.getState().branchPrefix).toBeNull()
+    expect(getEffectiveBranchPrefix()).toBe("cached")
+
+    const own: ResolvedBranchPrefix = { prefix: "own", source: "repository_config" }
+    expect(lastResolve().repositoryPath).toBe("/repo")
+    await lastResolve().answer(own)
+    expect(repositoryStore.getState().branchPrefix).toEqual(own)
+    expect(getEffectiveBranchPrefix()).toBe("own")
+    expect(updates).toEqual([{ path: "/repo", update: { cachedBranchPrefix: own } }])
   })
 
-  it("names the branches as the backend does: no trailing slash", () => {
-    expect(computeEffectiveBranchPrefix("app/", undefined, loaded("local/ ", true))).toBe("local")
-    expect(computeEffectiveBranchPrefix(" app/", undefined, loaded("", false))).toBe("app")
-  })
-
-  it("takes the prefix cached for the repository until its load answers, then the loaded one", () => {
-    expect(computeEffectiveBranchPrefix("app", cached("local", true), notLoaded)).toBe("local")
-    expect(computeEffectiveBranchPrefix("app", cached("global", false), notLoaded)).toBe("app")
-    expect(computeEffectiveBranchPrefix(undefined, cached("global", false), notLoaded)).toBe("global")
-    // the local prefix was removed since the cache: the load wins
-    expect(computeEffectiveBranchPrefix("app", cached("local", true), loaded("", false))).toBe("app")
+  it("resolves again once the writer has another app prefix, not for a change of another field", () => {
+    initRepository()
+    const asked = resolves.length
+    const appSettings = writerListeners.get("appSettings")!
+    appSettings({ globalUserBranchPrefix: "jane", zoom: 1.2 })
+    expect(resolves).toHaveLength(asked)
+    appSettings({ globalUserBranchPrefix: "john" })
+    expect(resolves).toHaveLength(asked + 1)
+    // the shown prefix stays until the answer: no frame without one
+    expect(repositoryStore.getState().branchPrefix).not.toBeNull()
+    appSettings({})
+    expect(resolves).toHaveLength(asked + 2)
   })
 })

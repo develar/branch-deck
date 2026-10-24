@@ -128,6 +128,27 @@ function refresh(sync: KeySync): void {
   }
 }
 
+/** The listeners of the changes the writer has of each key (`onWriterChange`) */
+const writerListeners = new Map<string, Set<(value: unknown) => void>>()
+
+/**
+ * Calls `listener` with the value of `key` as the writer has it, after each change of it the page takes: from any window,
+ * this one's once the writer answered its patch. A reader of Rust that depends on the key (the branch prefix Rust
+ * resolves with the app's prefix) asks again then, not when the store of the page changed, which is before the writer
+ * has the change. Returns the unsubscribe
+ */
+export function onWriterChange(key: string, listener: (value: unknown) => void): () => void {
+  let listeners = writerListeners.get(key)
+  if (listeners === undefined) {
+    listeners = new Set()
+    writerListeners.set(key, listeners)
+  }
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
 /** A change of the writer, from `settings_changed` or the answer of a patch: taken when it is newer than the last one */
 function accept(change: SettingsChange): void {
   const current = confirmed.get(change.key)
@@ -135,6 +156,9 @@ function accept(change: SettingsChange): void {
     return
   }
   confirmed.set(change.key, { value: change.value, version: change.version })
+  for (const listener of writerListeners.get(change.key) ?? []) {
+    listener(change.value)
+  }
   const sync = syncs.get(change.key)
   if (sync !== undefined && (isMainWindow || !sync.isMainOnly)) {
     refresh(sync)

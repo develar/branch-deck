@@ -32,7 +32,7 @@ async function markSyncedBefore(page: Page, otherPath?: string): Promise<void> {
     const projects = (window as any).__TAURI_STORE__.recentProjects
     projects[0].lastSyncTime = Date.now() - 60 * 60 * 1000
     if (otherPath !== undefined) {
-      projects.push({ path: otherPath, cachedBranchPrefix: { prefix: "user-name", repositoryScoped: true } })
+      projects.push({ path: otherPath, cachedBranchPrefix: { prefix: "user-name", source: "repository_config" } })
     }
   }, otherPath)
 }
@@ -99,18 +99,24 @@ test.describe("Onboarding", () => {
 
   test("names the branches by the repository's own prefix over the app's, and says so in Settings", async ({ page, setupRepo, testStore }) => {
     // the template sets branchdeck.branchPrefix user-name in .git/config
-    await setupRepo("simple", { prepopulateStore: true })
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    // the main window asks Rust again once the writer has the app's prefix
+    const resolved = page.waitForResponse(response => response.url().endsWith("/invoke/resolve_branch_prefix") && response.request().postDataJSON().repositoryPath === repo.path)
     const settings = await saveAppPrefix(page, "jane")
     await expect.poll(async () => ((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
+    // Rust resolves the repository's own prefix over the app's, and names its source
+    expect(await (await resolved).json()).toEqual({ prefix: "user-name", source: "repository_config" })
     const setting = settings.getByTestId("setting-branch-prefix")
     await expect(setting).toContainText("Branches are named jane/virtual/<name>")
     await expect(settings.getByTestId("setting-branch-prefix-repository")).toContainText("This repository uses its own prefix user-name")
 
-    // the main window names the branches of the repository by its own prefix, and so does the sync
+    // the main window names the branches of the repository by its own prefix; the sync names only the repository, Rust
+    // resolves the same prefix for it
     await expect(page.getByTestId("ready-to-sync-card")).toContainText("user-name/virtual/<name>")
     const sync = page.waitForRequest(request => request.url().endsWith("/invoke/sync_branches"))
     await page.getByTestId("ready-to-sync-button").click()
-    expect((await sync).postDataJSON()).toMatchObject({ branchPrefix: "user-name" })
+    expect((await sync).postDataJSON()).toEqual({ repositoryPath: repo.path })
+    await expect(findBranchRow(page, "test-branch")).toBeVisible()
   })
 
   test("names the branches by the app's prefix where the repository has none", async ({ page, setupRepo }) => {
