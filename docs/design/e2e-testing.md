@@ -509,8 +509,20 @@ log of the fake). No test answers a remote write in the page: the registry test 
 
 - **Constraint**: Tests must run in parallel without interference
 - **Solution**: Complete isolation via repository IDs
-- **Measurement** (2026-10-15, 230 tests, 14 workers on 18 cores): one worker creates a repository and loads the page in
-  ~170 ms and syncs it in ~270 ms; the full suite takes ~38 s, ~470 s of test time, a median test 2 s
+- **Measurement** (2026-10-24, 672 tests, 16 workers on the 20 cores of the Mac Studio, load 7-30 from other work):
+  ~150 s, ~2075 s of test time, a mean test 3.1 s (p50 2.8 s, p99 12 s). A test spends 17% in `setupRepo` (the
+  repository 177 ms, the page ~300 ms until Sync is enabled), 31% in its syncs (~1 s each, of which `sync_branches`
+  takes 519 ms on the server), 5% in the browser fixtures, the rest in its body; `wait_landing_needs` (384 ms) and
+  `get_branch_review_readiness` follow most syncs. The run is CPU-bound: the test server and its git processes used
+  374 s user and 817 s system time (about 136 git processes per test: `rev-parse` 25, `config` 23, `cat-file` 16,
+  `unpack-objects` after each small `fast-import` 8), the browsers and the workers 1084 s, so the wall time follows
+  the CPU work, not the waits. Measured and left as they are: Playwright's retry backoff of an expect (500 ms steps,
+  capped to 100 ms in a patched `playwright-core`) costs 5% of the test time and nothing of the wall time; reduced
+  motion would save 4%. On the loaded Mac (load 60-150) the same suite takes 145-180 s
+- **Timing summary** (`tests/e2e/setup/timing-reporter.ts`, a reporter of `playwright.config.ts`): every run prints
+  its start (global setup, the server, the workers), the slowest tests, and the stalled actions, a click or hover
+  that took ≥ 2 s and 20× the median action of the run (the ratio holds on a loaded machine, where every action is
+  slower): an overlay over its target, a toast to close (below). `tests/results/timing.json` keeps 20 of each
 - **Under load** (load average 80, several checkouts running e2e and cargo): a command takes seconds, so a test waits
   for the event a state comes with, never for one assertion to span two of them. A rewrite (move, rename, reword,
   squash, stack, undo) shows its result with the sync it starts: `runAndWaitForSync` (`data-sync-count`). What loads
