@@ -1766,6 +1766,15 @@ rewrites между процессами через файл `s10`; `s12` ждё
     Новые IPC: `set_demand` и `refresh_facts { family, reason: manual | after_write, subject?, recheck? }` (кнопка
     обновления, Check Approvals Again, список после комментария до s9). Удаляются сверх списка этапа `get_review_requests`,
     `get_patronus_robot_details`, `get_patronus_robot_problems`; `COMMAND_COUNT` 127 → 117.
+  - s7-2 (по коду): `seq` — один счётчик сессии (`repository_model::facts::Sequence`, в `TableState`): запуск sync
+    берёт номер при старте, запись (исход push, удаление archived и unapplied) — когда применяется, а не когда началась:
+    чтение, начатое во время записи, могло прочитать до неё; счётчик записей s6-6 удалён. `Fact<T>`/`FactState` —
+    в `domain_types::session`, `FactRecord` (правило факта без ответа, `inputs`, `FactTiming` для `refresh`) — в
+    `facts.rs`; первый факт `FactStore` — таблица последнего успешного sync с `ContentMemo` (`Sessions::table`,
+    `SessionHost::run` отвечает `SyncedTable`). C4 сделан: `read_sync_inputs` отвечает `SyncInputs { rest,
+    remote_refs }`, конец push кладёт `refs/remotes/origin/<имя>` в известные входы (`SyncScheduler::pushed`, и в то,
+    что прочли идущие проверка или запуск); push, на который ответила страница e2e (`pushed-in-page`), пишет только
+    таблицу.
   - `News` в s7 — переходы, которые знают аппликаторы фактов (робот слился, упал, отменён; approvals пришли; новые review
     requests), часть `news` вида с растущими id; страница показывает их как сегодня (toast, OS-уведомление, закрытие PR
     `landed-stack.ts` до s9); правило `domain-policy::news` — s8. Семейство `auth` — s11 (как в «Зависимостях этапов»):

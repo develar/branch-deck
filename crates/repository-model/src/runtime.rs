@@ -3,9 +3,12 @@
 //! (`SyncScheduler`) and the subscribers. Every call of `Sessions` and every event of a sync is a message; the actor
 //! handles them one at a time, so nothing of a session is shared or locked.
 //!
-//! - A run: the fingerprint of the inputs (on the blocking pool, unless the check read it just before), then the sync
-//!   with the mailbox as its reporter (`RunReporter`): its events come back as messages tagged with the run, and the
-//!   events of a run that is not in flight are dropped. The sync takes no repository lock (the app's sync never does).
+//! - A run: the inputs of the sync (on the blocking pool, unless the check read them just before), then the sync with
+//!   the mailbox as its reporter (`RunReporter`): its events come back as messages tagged with the run, and the events
+//!   of a run that is not in flight are dropped. The sync takes no repository lock (the app's sync never does). A
+//!   successful run leaves the table of the session's facts (`FactStore::table`), which a failed or deferred one keeps.
+//! - A push: its end writes the remote statuses it left into the table and the remote-tracking refs it moved into the
+//!   inputs the scheduler knows (`SyncScheduler::pushed`), so a focus after it compares equal and runs nothing.
 //! - Patches: each event changes the state at once; the patch of what changed goes out at most every
 //!   `PATCH_INTERVAL` (wall time, `Instant`: it only bounds the delay of the delivery), and at once at the start of a
 //!   run, when the build ended (`UnappliedBranchesFound`: the branches and the stack branches are built, so the tips are
@@ -18,22 +21,24 @@
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
 
 use crate::branch_table::BranchTable;
-use crate::session::{Busy, RunReporter, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, Waiter};
+use crate::facts::{FactStore, Observation, Seq, TableFacts};
+use crate::session::{Busy, RunReporter, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
 use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
-use crate::table::TableState;
+use crate::table::{RemoteSubject, TableState};
 use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{SyncReason, SyncState, SyncStep, TableView, Version};
 use domain_types::stack::BlockReason;
-use domain_types::{ProgressReporter, SyncEvent};
+use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::remote_status::RemoteStatusCollector;
-use sync_core::sync::{SyncOptions, SyncReport, sync_branches};
-use sync_core::sync_inputs::sync_inputs_fingerprint;
+use sync_core::sync::{SyncOptions, sync_branches};
+use sync_core::sync_inputs::{SyncInputs, read_sync_inputs};
 use sync_utils::span::in_current_span;
+use sync_utils::timestamp::unix_now;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -53,6 +58,8 @@ pub(crate) enum Message {
   /// The session was removed from the registry: its subscribers go at once
   Close,
   Snapshot(oneshot::Sender<TableView>),
+  /// The table of the last successful sync with the memo
+  Table(oneshot::Sender<Option<TableFacts>>),
   Focus(bool),
   Sync {
     reason: SyncReason,
@@ -63,18 +70,25 @@ pub(crate) enum Message {
     change: Box<dyn FnOnce(&mut TableState) + Send>,
     reply: oneshot::Sender<Version>,
   },
+  /// A push of `subjects` ended with the remote statuses it left, in their order (`None`: it failed); `reply` gets the
+  /// version of the view after its patch
+  PushEnded {
+    subjects: Vec<RemoteSubject>,
+    statuses: Option<Vec<RemoteStatusUpdate>>,
+    reply: oneshot::Sender<Version>,
+  },
   /// An event of the run `run`
   Event {
     run: RunId,
     event: Box<SyncEvent>,
   },
-  /// The fingerprint a check read
-  InputsRead(Option<String>),
+  /// The inputs a check read
+  InputsRead(Option<SyncInputs>),
   /// The run `run` ended, having read `inputs` before it
   RunFinished {
     run: RunId,
-    inputs: Option<String>,
-    result: Box<Result<SyncReport, ApiError>>,
+    inputs: Option<SyncInputs>,
+    result: Box<Result<SyncedTable, ApiError>>,
   },
 }
 
@@ -91,6 +105,8 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
     life,
     mailbox: mailbox.downgrade(),
     state: TableState::new(),
+    facts: FactStore::new(),
+    run_seq: Seq::default(),
     view: View::new(new_epoch()),
     scheduler: SyncScheduler::new(),
     subscribers: Vec::new(),
@@ -110,6 +126,9 @@ struct Actor {
   /// For the runs it starts; weak, so the actor ends with the registry's sender
   mailbox: mpsc::WeakUnboundedSender<Message>,
   state: TableState,
+  facts: FactStore,
+  /// The number of the run in flight (`TableState::begin_sync`), which its answer is applied with
+  run_seq: Seq,
   view: View,
   scheduler: SyncScheduler<Waiter>,
   subscribers: Vec<(SubscriptionId, Box<dyn Subscriber>)>,
@@ -163,6 +182,9 @@ impl Actor {
       Message::Snapshot(reply) => {
         let _ = reply.send(self.view.snapshot());
       }
+      Message::Table(reply) => {
+        let _ = reply.send(self.facts.table_facts());
+      }
       Message::Close => {
         for _ in self.subscribers.drain(..) {
           self.life.subscriber_left();
@@ -175,6 +197,20 @@ impl Actor {
       }
       Message::Apply { change, reply } => {
         change(&mut self.state);
+        self.flush();
+        let _ = reply.send(self.view.version());
+      }
+      Message::PushEnded { subjects, statuses, reply } => {
+        if let Some(statuses) = &statuses {
+          let prefix = &self.key.prefix;
+          let refs = subjects
+            .iter()
+            .zip(statuses)
+            .filter_map(|(subject, status)| Some((subject.remote_ref(prefix)?, status.remote_tip.clone())))
+            .collect();
+          self.scheduler.pushed(refs);
+        }
+        self.state.end_push(&subjects, statuses);
         self.flush();
         let _ = reply.send(self.view.version());
       }
@@ -208,25 +244,42 @@ impl Actor {
     }
   }
 
-  fn finish_run(&mut self, run: RunId, inputs: Option<String>, result: Result<SyncReport, ApiError>) {
+  fn finish_run(&mut self, run: RunId, inputs: Option<SyncInputs>, result: Result<SyncedTable, ApiError>) {
     if self.scheduler.running() != Some(run) {
       return;
     }
     let end = match &result {
-      Ok(report) => RunEnd::Succeeded { retry: report.retry },
+      Ok(synced) => RunEnd::Succeeded { retry: synced.report.retry },
       Err(error) => RunEnd::Failed(error.clone()),
     };
     let decision = self.scheduler.run_finished(run, inputs, end, self.is_watched());
     self.in_flight = None;
+    let observation = Observation {
+      seq: self.run_seq,
+      inputs: 0,
+      at: self.life.now(),
+      observed_at: unix_now(),
+    };
     match (&decision.next, result) {
-      (Step::Run { retry: true, .. }, Ok(report)) => {
+      (Step::Run { retry: true, .. }, Ok(synced)) => {
         // the branches another process moved meanwhile are built again by the retry
-        let rebuilt = report.not_built.iter().filter(|(_, reason)| **reason == BlockReason::Error).map(|(name, _)| name.as_str());
+        let rebuilt = synced
+          .report
+          .not_built
+          .iter()
+          .filter(|(_, reason)| **reason == BlockReason::Error)
+          .map(|(name, _)| name.as_str());
         self.state.resync(rebuilt);
       }
-      (_, Ok(_)) => self.state.finish_sync(Ok(())),
+      (_, Ok(synced)) => {
+        self.state.finish_sync(Ok(()));
+        let _ = self.facts.table.answer(observation, Ok(Arc::new(synced.table)));
+      }
       (_, Err(error)) if is_deferred(&error) => self.state.defer_sync(),
-      (_, Err(error)) => self.state.finish_sync(Err(error)),
+      (_, Err(error)) => {
+        let _ = self.facts.table.answer(observation, Err(error.clone()));
+        self.state.finish_sync(Err(error));
+      }
     }
     self.flush();
     self.follow(decision);
@@ -260,12 +313,13 @@ impl Actor {
     );
   }
 
-  fn start_run(&mut self, run: RunId, inputs: Option<String>) {
+  fn start_run(&mut self, run: RunId, inputs: Option<SyncInputs>) {
     let Some(mailbox) = self.mailbox.upgrade() else {
       return;
     };
     self.in_flight = Some(Busy::new(&self.life));
-    self.state.begin_sync();
+    self.run_seq = self.state.begin_sync();
+    self.facts.table.started(self.life.now());
     self.flush();
     let (host, key) = (Arc::clone(&self.host), self.key.clone());
     tokio::spawn(
@@ -319,7 +373,7 @@ fn prefix_changed(session_prefix: &str, config_prefix: &str) -> ApiError {
   )
 }
 
-async fn read_inputs(host: Arc<dyn SessionHost>, key: SessionKey) -> Option<String> {
+async fn read_inputs(host: Arc<dyn SessionHost>, key: SessionKey) -> Option<SyncInputs> {
   tokio::task::spawn_blocking(in_current_span(move || host.inputs(&key))).await.ok().flatten()
 }
 
@@ -356,9 +410,9 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   }
 }
 
-/// The host of the app's sessions: the syncs and the fingerprints run with git, and the table a sync finished goes on to
-/// the repository views (`RepositoryViews::keep`, which `get_repository_view` answers from until s7 moves the Patronus
-/// section into the session), with the remote statuses its events carried
+/// The host of the app's sessions: the syncs and their inputs run with git, and the table a sync finished, with the
+/// remote statuses its events carried, goes to the session and on to the repository views (`RepositoryViews::keep`,
+/// which `get_repository_view` answers from until the session derives the Patronus section itself)
 pub struct GitSessionHost<E> {
   git: GitCommandExecutor,
   views: RepositoryViews,
@@ -376,8 +430,8 @@ impl<E> GitSessionHost<E> {
 }
 
 impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
-  fn inputs(&self, key: &SessionKey) -> Option<String> {
-    sync_inputs_fingerprint(&self.git, &key.worktree, &key.prefix)
+  fn inputs(&self, key: &SessionKey) -> Option<SyncInputs> {
+    read_sync_inputs(&self.git, &key.worktree, &key.prefix)
       .inspect_err(|error| warn!(worktree = %key.worktree, "Cannot read the sync inputs: {error:#}"))
       .ok()
   }
@@ -395,15 +449,15 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       if prefix != key.prefix {
         return Err(prefix_changed(&key.prefix, &prefix));
       }
-      // the remote statuses among the events are kept for the table of the views
+      // the remote statuses among the events are kept for the table
       let collector = RemoteStatusCollector::new(reporter);
       let reporter = environment.reporter(&key, Arc::new(collector.clone()));
       let report = sync_branches(&git, &key.worktree, &key.prefix, reporter, options)
         .await
         .map_err(|error| environment.api_error(error))?;
       let table = BranchTable::from_report(&key.prefix, &report, &collector.take_statuses());
-      views.keep(&key.worktree, &key.prefix, table);
-      Ok(report)
+      views.keep(&key.worktree, &key.prefix, table.clone());
+      Ok(SyncedTable { report, table })
     })
   }
 

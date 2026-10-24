@@ -3,14 +3,16 @@
 //! the table from the report of its own sync or from a grouping, and reads the same view.
 //!
 //! The crate grows into the model of a repository (docs/design/rust-domain-authority.md): the sessions of the process
-//! own the table of each worktree and run its syncs (`session`, `runtime`, `sync_scheduler`); the facts they hold come
-//! in later stages. Besides them: the table of the last sync for `get_repository_view` (`branch_table`, `views`), the
+//! own the table of each worktree and run its syncs (`session`, `runtime`, `sync_scheduler`), and hold its facts
+//! (`facts`): the table of the last sync now, the facts of the remote services in the steps of s7-session-facts. Besides them: the table of the last sync for `get_repository_view` (`branch_table`, `views`), the
 //! rule of what the robots land (`patronus_view`) and the guards of the app's actions on the remote (`push_guard`,
 //! `start_guard`, run through `actions`). It holds what the checks and the remote services found and asks no remote
 //! service itself, except the Patronus client `RemoteActions` carries until the engine of the remote takes it.
 //!
 //! - `actions`: what the app's actions on the remote run on, the same for the app's commands and the E2E server's routes
 //!   (`RemoteActions`: the Patronus service with the Space repository, git, the tables); the flows are its methods
+//! - `facts`: the facts of a session, each with the number of the observation that answered it (`Seq`, one counter per
+//!   session) and the state of a fact without an answer (`FactRecord`); `FactStore`, the table of the last sync
 //! - `branch_table`: the branch table a sync left: the branches in the order of the table, their tips and copies, the
 //!   stack branches, the parked branches, the remote facts of the sync (`remote_facts`), `stack_ancestors`
 //! - `patch`: the patches of a view by part, and the contract of applying one (`apply_patch`): only to the view at its
@@ -41,6 +43,7 @@
 
 pub mod actions;
 pub mod branch_table;
+pub mod facts;
 pub mod patch;
 pub mod patronus_view;
 pub mod push_guard;

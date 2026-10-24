@@ -1,6 +1,7 @@
+use crate::branch_table::BranchTable;
 use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment};
 use crate::session::SyncTicket;
-use crate::session::{IDLE_LIMIT, RunReporter, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun};
+use crate::session::{IDLE_LIMIT, RunReporter, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
 use crate::table::RemoteSubject;
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
 use crate::views::RepositoryViews;
@@ -15,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sync_core::push::{PushBranchesOutcome, StackPushBranch};
 use sync_core::sync::{SyncDeferred, SyncOptions, SyncReport};
+use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::TestClock;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use tokio::sync::Notify;
@@ -52,7 +54,7 @@ struct Script {
 #[derive(Default)]
 struct ScriptedHost {
   scripts: Mutex<VecDeque<Script>>,
-  inputs: Mutex<Option<String>>,
+  inputs: Mutex<Option<SyncInputs>>,
   runs: Mutex<u32>,
   checks: Mutex<u32>,
   /// The reporter of every run, which a test may keep using after its run ended
@@ -76,8 +78,8 @@ impl ScriptedHost {
     self.scripts.lock().unwrap().push_back(Script { events, pace, result, gate: None });
   }
 
-  fn set_inputs(&self, inputs: &str) {
-    *self.inputs.lock().unwrap() = Some(inputs.to_string());
+  fn set_inputs(&self, rest: u64) {
+    *self.inputs.lock().unwrap() = Some(SyncInputs { rest, ..SyncInputs::default() });
   }
 
   fn runs(&self) -> u32 {
@@ -86,7 +88,7 @@ impl ScriptedHost {
 }
 
 impl SessionHost for ScriptedHost {
-  fn inputs(&self, _key: &SessionKey) -> Option<String> {
+  fn inputs(&self, _key: &SessionKey) -> Option<SyncInputs> {
     *self.checks.lock().unwrap() += 1;
     self.inputs.lock().unwrap().clone()
   }
@@ -107,7 +109,10 @@ impl SessionHost for ScriptedHost {
       if let Some(gate) = script.gate {
         gate.notified().await;
       }
-      script.result
+      script.result.map(|report| SyncedTable {
+        report,
+        table: BranchTable::default(),
+      })
     })
   }
 
@@ -222,7 +227,7 @@ async fn the_late_events_of_an_ended_run_are_dropped() {
 #[tokio::test]
 async fn a_focus_during_a_run_is_one_check_after_it() {
   let host = Arc::new(ScriptedHost::default());
-  host.set_inputs("f1");
+  host.set_inputs(1);
   host.push(auth_built(), Ok(report(false, &[])));
   let gate = Arc::new(Notify::new());
   host.push_gated(auth_built(), Ok(report(false, &[])), Some(Arc::clone(&gate)));
@@ -585,6 +590,59 @@ async fn a_push_without_a_sync_patches_the_remote_status_it_left() {
   host.push(events, Ok(report(false, &[])));
   sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
   assert_eq!(remote_tip(&snapshot(&sessions, &key).await, "auth").as_deref(), Some("fetched"), "no push runs any more");
+}
+
+/// A focus right after the session's own push syncs nothing (C4): the push moved the remote-tracking ref of what it sent,
+/// which a sync reads, and the session puts the ref into the inputs it knows without a git process, so the check reads
+/// the two processes of the inputs and finds them unchanged. A remote-tracking ref moved from elsewhere still syncs
+#[tokio::test]
+async fn a_focus_after_the_sessions_own_push_runs_no_sync() {
+  let repo = ahead_of_origin(&["(auth) Add auth"]);
+  let key = SessionKey {
+    worktree: repo.path_str().to_string(),
+    prefix: "test".to_string(),
+  };
+  let git = GitCommandExecutor::new().with_process_stats("sessions");
+  let (sessions, _clock) = with_git(git.clone());
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Open)).await, Ok(SyncOutcome::Synced));
+
+  let tip = repo.rev_parse("test/virtual/auth").unwrap();
+  let push = async {
+    repo.git(&["push", "-q", "origin", "test/virtual/auth"]);
+    Ok(pushed("auth", &tip))
+  };
+  sessions.push(&key, pushing("auth"), push).await.unwrap();
+  assert_eq!(repo.rev_parse("refs/remotes/origin/test/virtual/auth").unwrap(), tip, "the push moved the ref a sync reads");
+  let before = git.process_stats().unwrap().counts();
+  assert_eq!(outcome(sessions.set_window_focus(&key, true).unwrap()).await, Ok(SyncOutcome::Unchanged));
+  assert_eq!(processes_since(&git, &before), [("for-each-ref".to_string(), 1), ("rev-parse".to_string(), 1)]);
+
+  let baseline = repo.rev_parse("origin/master").unwrap();
+  repo.git(&["update-ref", "refs/remotes/origin/test/virtual/auth", &baseline]);
+  assert_eq!(outcome(sessions.set_window_focus(&key, true).unwrap()).await, Ok(SyncOutcome::Synced));
+}
+
+/// The session keeps the table of its last successful sync with the memo of its views: none before the first sync, the
+/// one a sync finished after it, and that one still after a sync that failed or was deferred
+#[tokio::test]
+async fn the_session_keeps_the_table_of_its_last_successful_sync() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, repo) = watched(&host).await;
+  assert!(sessions.table(&repo).await.is_none(), "no sync yet");
+  host.push(auth_built(), Ok(report(false, &[])));
+  sessions.sync(&repo, SyncReason::Manual).wait().await.unwrap();
+  let synced = sessions.table(&repo).await.expect("the table of the sync");
+
+  let deferred = ApiError::new(ErrorCode::OperationInProgress, "Not synced: rebase is in progress");
+  host.push(Vec::new(), Err(deferred));
+  host.push(Vec::new(), Err(ApiError::internal("the sync failed")));
+  sessions.sync(&repo, SyncReason::Manual).wait().await.unwrap_err();
+  sessions.sync(&repo, SyncReason::Manual).wait().await.unwrap_err();
+  let kept = sessions.table(&repo).await.expect("the table of the last successful sync");
+  assert!(Arc::ptr_eq(&kept.table, &synced.table));
+  assert!(Arc::ptr_eq(&kept.memo, &synced.memo));
+  assert!(sessions.table(&key("/other")).await.is_none(), "a session that is not open");
 }
 
 /// The outcome of a push goes to the session of the key its command resolved: the branch of the same name in another

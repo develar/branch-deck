@@ -1,11 +1,11 @@
 use crate::sync::{SyncOptions, sync_branches};
-use crate::sync_inputs::sync_inputs_fingerprint;
+use crate::sync_inputs::{SyncInputs, read_sync_inputs};
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
 
-fn fingerprint(git: &GitCommandExecutor, repo: &TestRepo) -> String {
-  sync_inputs_fingerprint(git, repo.path().to_str().unwrap(), "test").unwrap()
+fn fingerprint(git: &GitCommandExecutor, repo: &TestRepo) -> SyncInputs {
+  read_sync_inputs(git, repo.path().to_str().unwrap(), "test").unwrap()
 }
 
 fn git(git: &GitCommandExecutor, repo: &TestRepo, args: &[&str]) -> String {
@@ -43,6 +43,11 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   git(&executor, &repo, &["update-ref", "refs/remotes/origin/test/virtual/auth", &head]);
   let pushed = fingerprint(&executor, &repo);
   assert_ne!(pushed, fetched);
+  // the remote branches of the prefix are listed apart: what a push of this clone moved is replaced without git
+  assert_eq!(pushed.rest, fetched.rest);
+  let mut known = fetched;
+  known.set_remote_ref("refs/remotes/origin/test/virtual/auth".to_string(), Some(head.clone()));
+  assert_eq!(known, pushed);
   // `bd safe-push` of a whole stack pushes only its stack branch, `bd push --unapplied` an unapplied branch
   git(&executor, &repo, &["update-ref", "refs/remotes/origin/test/stack/auth", &head]);
   let stack_pushed = fingerprint(&executor, &repo);
@@ -67,7 +72,7 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   assert_ne!(fingerprint(&executor, &repo), stacked);
 
   // another prefix reads other branches
-  assert_ne!(sync_inputs_fingerprint(&executor, repo.path().to_str().unwrap(), "other")?, fingerprint(&executor, &repo));
+  assert_ne!(read_sync_inputs(&executor, repo.path().to_str().unwrap(), "other")?, fingerprint(&executor, &repo));
   Ok(())
 }
 
@@ -79,9 +84,9 @@ fn changes_with_the_prefix_alone() {
   let executor = GitCommandExecutor::new();
   repo.create_commit("Initial commit", "README.md", "# Test");
   let path = repo.path().to_str().unwrap();
-  let jane = sync_inputs_fingerprint(&executor, path, "jane").unwrap();
-  assert_eq!(sync_inputs_fingerprint(&executor, path, "jane").unwrap(), jane);
-  assert_ne!(sync_inputs_fingerprint(&executor, path, "john").unwrap(), jane);
+  let jane = read_sync_inputs(&executor, path, "jane").unwrap();
+  assert_eq!(read_sync_inputs(&executor, path, "jane").unwrap(), jane);
+  assert_ne!(read_sync_inputs(&executor, path, "john").unwrap(), jane);
 }
 
 /// The baseline of a branch that tracks another remote branch than `master` or `main` is that upstream (`@{u}`): a

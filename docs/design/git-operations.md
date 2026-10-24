@@ -1871,7 +1871,7 @@ none, its leaf is the whole stack. `crates/sync-core/src/stack_branch.rs`.
 
 #### Sync inputs check
 
-Auto-sync on Focus syncs only when what a sync reads changed since the last sync (`sync_inputs_fingerprint`,
+Auto-sync on Focus syncs only when what a sync reads changed since the last sync (`read_sync_inputs`,
 `crates/sync-core/src/sync_inputs.rs`), so it is on by default: a focus of an unchanged repository costs two git
 processes and three file stats, no object read (three processes when HEAD's branch tracks another remote branch than
 a `master` or `main`; `a_focus_with_unchanged_inputs_reads_only_the_fingerprint`). The session decides it, not the
@@ -1891,15 +1891,21 @@ page: the main window tells the session its focus (`set_window_focus`), and Rust
 4. The size and the modification time of `config`, `config.worktree` (descriptions, `branchdeck.stacks`, the
    upstream configuration) and `.idea/vcs.xml` (issue links).
 
-The hash of these and the prefix is the fingerprint: the prefix of the session (`SessionKey`, which Rust resolves for
-the repository; the git prefix from the memo of `BranchPrefixes`, no process), so a changed prefix, the app's or the
-repository's own, changes it (`changes_with_the_prefix_alone`), and is another session anyway. The session's scheduler
-reads it (`repository_model::sync_scheduler`, [Repository view](#repository-view)): a run reads it first, so a commit
-made while the sync runs is a change, or takes the one its focus check just read, and a successful run keeps it; a
-focus compares it. Not in it: the notes the sync writes, the
+The inputs (`SyncInputs`) are the remote branches of the prefix by name with their commits, listed apart, and the hash
+of the rest and the prefix: the prefix of the session (`SessionKey`, which Rust resolves for the repository; the git
+prefix from the memo of `BranchPrefixes`, no process), so a changed prefix, the app's or the repository's own, changes
+them (`changes_with_the_prefix_alone`), and is another session anyway. The session's scheduler reads them
+(`repository_model::sync_scheduler`, [Repository view](#repository-view)): a run reads them first, so a commit made
+while the sync runs is a change, or takes the ones its focus check just read, and a successful run keeps them; a focus
+compares them. The session's own push moves the remote-tracking refs of what it sent (`refs/remotes/origin/<full
+name>`, set by the push or by its fetch of a moved remote), and the table has its outcome already: the end of the push
+puts those refs, at the remote tips of its statuses, into the inputs the scheduler keeps (`SyncScheduler::pushed`, no
+git process), and into what a check or a run in flight read, which may be from before the push. So a focus right after
+a push compares equal and syncs nothing (C4; `a_focus_after_the_sessions_own_push_runs_no_sync`); a push the page of an
+E2E test answers moved no ref and writes only the table. Not in the inputs: the notes the sync writes, the
 working tree (the paths that block an update are read by the next sync). The app keeps the issue links of a repository
-(`RepositoryStateCache::issue_config`) while `.idea/vcs.xml` has the stamp they were read with, the one the fingerprint
-hashes, so the sync that an edit of the links starts reads the new ones
+(`RepositoryStateCache::issue_config`) while `.idea/vcs.xml` has the stamp they were read with, the one the inputs
+hash, so the sync that an edit of the links starts reads the new ones
 (`issue_config_follows_a_rewrite_of_vcs_xml`).
 
 #### Virtual commit reuse
@@ -3216,7 +3222,9 @@ Besides its syncs, the session writes into the table what its own operations did
 version of their patch): the remote statuses a push left (pushed, or fetched when the remote moved), keyed by what it
 sent (`RemoteSubject`: a virtual branch, the stack branch of a whole stack, an unapplied branch by the branch it was),
 and the deletion of an archived or unapplied branch. Such a write is newer than every event of the run in flight when
-it came (the writes are numbered against the start of each run), so that run never undoes it, neither a remote status
+it came (the runs and the writes take their numbers from the one counter of the session, `repository_model::facts::
+Sequence`: a run when it starts, a write when it is applied, since a read that started while a write ran may have read
+before it), so that run never undoes it, neither a remote status
 it computed before the push nor a branch it listed before the deletion, and a run that fails or is deferred brings back
 the table of before with the writes since. While a push of a subject runs (from its command on, so also while it
 waits for the lock or for another push of its ref; a push the page holds back until a sync ends does not run yet), a
@@ -3231,14 +3239,14 @@ statuses of the page's answer.
 The sessions of the process (`session.rs`, `runtime.rs`, `sync_scheduler.rs`) run that state: one per worktree and
 branch prefix the caller resolved (`SessionKey`; two worktrees of one repository are two sessions), each an actor on
 the runtime whose mailbox takes every call (subscribe with the snapshot at that moment, snapshot, focus, sync, `apply`)
-and every event of its syncs. A run reads the fingerprint of the sync inputs first ([Sync inputs
+and every event of its syncs. A run reads the sync inputs first ([Sync inputs
 check](#sync-inputs-check)), then syncs with the mailbox as its reporter, so the events are tagged with the run and
 those of a run that is not in flight are dropped; it takes no repository lock, as the app's sync never does. Each
 event changes the state at once, and the patch of what changed goes to the subscribers at most every 16 ms (wall
 time), at once when a run starts, when its build ended (`UnappliedBranchesFound`: the tips are known before the
 detection and the update check end, which come as patches of their own), when it ends and after an `apply`. The
 schedule (`SyncScheduler`, which replaced the chain of syncs each window ran itself): `Manual` and `AfterRewrite` always run, as one quiet follow-up while a run is in flight; `Focus` and
-`Open` run only when the fingerprint changed since the last successful sync, a focus during a run is one check after
+`Open` run only when the inputs changed since the last successful sync, a focus during a run is one check after
 the chain, and a window that opens during a run is served by it; a `SyncReport::retry` runs once more for the same
 requests, the branches the run did not build `Syncing` meanwhile. A ticket (`SyncTicket`) resolves after the last
 patch of the run that serves its request, never after the follow-ups. A deferred sync (`SyncDeferred`) restores the
@@ -3268,8 +3276,11 @@ run that serves it ended (`SyncAnswer`: the outcome and the version of the view 
 waits for, since the patch and the answer travel apart); a failure is the run's `ApiError`. The app's host
 (`GitSessionHost`) reads the git config for each sync (`ConfigSnapshot`, its git prefix kept for the commands after
 it and checked against the session's), takes the issue links and the object cache of `RepositoryStateCache`, and after a
-successful run keeps its table in `RepositoryViews` (`BranchTable::from_report` with the remote statuses a
-`RemoteStatusCollector` kept), which `get_repository_view` answers from. A Tauri channel of a page that went away never
+successful run answers its table (`SyncedTable`: the report and `BranchTable::from_report` with the remote statuses a
+`RemoteStatusCollector` kept) and keeps it in `RepositoryViews` too, which `get_repository_view` answers from. The
+session keeps that table as a fact (`FactStore::table`, `Loading` until a run succeeded, `Stale` with the error of a
+later run that failed; a deferred run changes nothing) with the memo of the content walks of its views, and answers
+both (`Sessions::table`). A Tauri channel of a page that went away never
 fails its send, so a window's subscriptions end with the window (`Destroyed`) and with each page load of it (a
 reload), and a subscription is kept for the page that asked for it (`WindowSubscriptions`): one that answers after that
 page went away ends at once; the app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the sessions of a test

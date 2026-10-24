@@ -83,7 +83,7 @@ branch built on it carries its commits, so it is parked with it.
   [@test] ../../crates/sync-core/src/parked_test.rs (`unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_they_are`)
 - The store must decide no group: a sync builds a parked branch as any other.
   [@test] ../../crates/sync-core/src/parked_test.rs (`a_sync_keeps_every_line_it_can_not_prove_dead`)
-- The ref must be in the fingerprint of the sync inputs, so a park in `bd` syncs the window on its next focus.
+- The ref must be in the inputs of a sync, so a park in `bd` syncs the window on its next focus.
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`)
 
 ### Park and unpark

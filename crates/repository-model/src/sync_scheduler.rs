@@ -6,14 +6,17 @@
 //! A request carries its waiter (`W`), which the scheduler hands back with the outcome when the run that serves it
 //! ends, never the chain after it: an update waits for its own sync, not for the follow-up a ⌘R during it asked for.
 //! - `Manual` and `AfterRewrite` always run: at once, or as the follow-up of the run in flight.
-//! - `Focus` and `Open` run only when what a sync reads changed since the last successful sync (`sync_inputs_fingerprint`,
-//!   one cheap read); a session that never synced runs at once. A focus while a run is in flight checks once after the
+//! - `Focus` and `Open` run only when what a sync reads changed since the last successful sync (`read_sync_inputs`, one
+//!   cheap read); a session that never synced runs at once. A push of the session moves the remote-tracking refs of
+//!   what it sent, which a sync reads: the scheduler replaces them in what it knows (`pushed`), so a focus after the
+//!   push syncs nothing (the table has the push's outcome already). A focus while a run is in flight checks once after the
 //!   chain: a commit in the IDE during a long sync is not lost, and a sync that saw it costs no second one. A window that
 //!   opens while a run is in flight is served by that run: its end is the table the window shows.
 //! - A focus of a session without subscribers is skipped: no window shows it, so nothing runs.
 
 use domain_types::error::ApiError;
 use domain_types::session::{SyncOutcome, SyncReason};
+use sync_core::sync_inputs::SyncInputs;
 
 /// The number of a sync run within a session; the events and the end of an older run are dropped by it
 pub(crate) type RunId = u64;
@@ -27,11 +30,11 @@ pub(crate) enum Step {
   Nothing,
   /// Read the fingerprint of the sync inputs, then `inputs_read`
   CheckInputs,
-  /// Start the run `run`; `inputs` is the fingerprint read just before, `None` makes the run read it first. `retry`: the
+  /// Start the run `run`; `inputs` are the inputs read just before, `None` makes the run read them first. `retry`: the
   /// silent repeat of a run whose report asked for it, which keeps the rows of that run `Syncing`
   Run {
     run: RunId,
-    inputs: Option<String>,
+    inputs: Option<SyncInputs>,
     retry: bool,
   },
 }
@@ -81,8 +84,12 @@ pub(crate) struct SyncScheduler<W> {
   follow_up: Vec<W>,
   /// The focuses while a run was in flight: one check after the chain serves them all
   recheck: Vec<W>,
-  /// The fingerprint of the inputs the last successful sync read; `None` before one, or when git could not tell
-  synced_inputs: Option<String>,
+  /// The inputs the last successful sync read, with the remote-tracking refs the session's pushes moved since; `None`
+  /// before one, or when git could not tell
+  synced_inputs: Option<SyncInputs>,
+  /// The remote-tracking refs the session's pushes moved while the check or the run in flight ran (at their commit, or
+  /// gone): it may have read them before, so they go into what it read
+  pushed_meanwhile: Vec<(String, Option<String>)>,
   last_run: RunId,
 }
 
@@ -94,6 +101,7 @@ impl<W> SyncScheduler<W> {
       follow_up: Vec::new(),
       recheck: Vec::new(),
       synced_inputs: None,
+      pushed_meanwhile: Vec::new(),
       last_run: 0,
     }
   }
@@ -151,12 +159,24 @@ impl<W> SyncScheduler<W> {
     }
   }
 
-  /// The fingerprint of the check came: the same as the last successful sync read ends the check; any other, or none
-  /// (git could not tell), runs, and that run serves the requests that waited for the check too
-  pub(crate) fn inputs_read(&mut self, inputs: Option<String>, watched: bool) -> Decision<W> {
+  /// A push of the session left the remote-tracking refs `refs`, each at its commit or gone (`None`): the table has its
+  /// outcome, so what the last successful sync read has them now, and so has what the check or the run in flight read
+  pub(crate) fn pushed(&mut self, refs: Vec<(String, Option<String>)>) {
+    if let Some(inputs) = self.synced_inputs.as_mut() {
+      with_pushed(inputs, &refs);
+    }
+    if self.phase != Phase::Idle {
+      self.pushed_meanwhile.extend(refs);
+    }
+  }
+
+  /// The inputs of the check came: the same as the last successful sync read ends the check; any other, or none (git
+  /// could not tell), runs, and that run serves the requests that waited for the check too
+  pub(crate) fn inputs_read(&mut self, inputs: Option<SyncInputs>, watched: bool) -> Decision<W> {
     if self.phase != Phase::Checking {
       return Decision::next(Step::Nothing);
     }
+    let inputs = self.with_pushed_meanwhile(inputs);
     if inputs.is_some() && inputs == self.synced_inputs {
       let mut resolve = self.serving.drain(..).map(|waiter| (waiter, Ok(SyncOutcome::Unchanged))).collect();
       self.phase = Phase::Idle;
@@ -169,13 +189,14 @@ impl<W> SyncScheduler<W> {
   }
 
   /// The run `run` ended, having read `inputs` before it; the end of another run than the one in flight is dropped
-  pub(crate) fn run_finished(&mut self, run: RunId, inputs: Option<String>, end: RunEnd, watched: bool) -> Decision<W> {
+  pub(crate) fn run_finished(&mut self, run: RunId, inputs: Option<SyncInputs>, end: RunEnd, watched: bool) -> Decision<W> {
     let Phase::Running { run: current, retried } = self.phase else {
       return Decision::next(Step::Nothing);
     };
     if run != current {
       return Decision::next(Step::Nothing);
     }
+    let inputs = self.with_pushed_meanwhile(inputs);
     let settled = match end {
       // one silent retry, for the same requests: its tip was not this run's build
       RunEnd::Succeeded { retry: true } if !retried => return Decision::next(self.start(None, true)),
@@ -215,11 +236,27 @@ impl<W> SyncScheduler<W> {
     }
   }
 
-  const fn start(&mut self, inputs: Option<String>, retry: bool) -> Step {
+  /// `inputs` with the refs the session's pushes moved while they were read and since
+  fn with_pushed_meanwhile(&mut self, inputs: Option<SyncInputs>) -> Option<SyncInputs> {
+    let pushed = std::mem::take(&mut self.pushed_meanwhile);
+    inputs.map(|mut inputs| {
+      with_pushed(&mut inputs, &pushed);
+      inputs
+    })
+  }
+
+  const fn start(&mut self, inputs: Option<SyncInputs>, retry: bool) -> Step {
     self.last_run += 1;
     let run = self.last_run;
     self.phase = Phase::Running { run, retried: retry };
     Step::Run { run, inputs, retry }
+  }
+}
+
+/// The remote-tracking refs a push moved, in `inputs`
+fn with_pushed(inputs: &mut SyncInputs, refs: &[(String, Option<String>)]) {
+  for (name, tip) in refs {
+    inputs.set_remote_ref(name.clone(), tip.clone());
   }
 }
 

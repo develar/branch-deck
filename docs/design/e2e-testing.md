@@ -190,10 +190,11 @@ Mock implementation:
   `/patronus` comment started, the build progress of a running robot's details, a refused landing gate, …), and the pushes
   (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`/`routeHeldPush`: the templates name the repository itself as
   `origin`, so a rejected or moved remote has nowhere to come from) are the one exception among the writes. Only the
-  remote is faked there: the outcome a push helper answers goes into the session of the repository first, as the app's
-  push puts it there (`answeredInSession` posts its remote statuses to `POST /sessions/pushed-in-page`, the server's
-  `Sessions::push`), and the answer names the version of that patch, so the rows show the status the push left from
-  the session, with no sync after it (a test that ends before its push is answered closed its pages and deleted its
+  remote is faked there: the outcome a push helper answers goes into the session of the repository first, as the end of
+  the app's push writes it into the table (`answeredInSession` posts its remote statuses to `POST
+  /sessions/pushed-in-page`, the server's `TableState::end_push` through `Sessions::apply`; unlike the app's push it
+  moved no remote-tracking ref, so the inputs the session knows stay), and the answer names the version of that patch,
+  so the rows show the status the push left from the session, with no sync after it (a test that ends before its push is answered closed its pages and deleted its
   repository: the server answers 410, and the answer, which no page reads, names no version). An answer
   counts where it is given: a helper that answers (a declared `function` at the outermost level, exported from
   `helpers/` or a spec's own, through the helpers it calls) counts its answers once per call, not once per definition,

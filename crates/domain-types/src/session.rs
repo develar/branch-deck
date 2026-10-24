@@ -6,7 +6,8 @@
 //! keeps the identity of every part it did not get.
 //!
 //! The names on the wire are the ones the page reads today (`branch-sync.ts`). The statuses are data: the texts, the
-//! marks of what to expand and the badges are the page's presentation of them.
+//! marks of what to expand and the badges are the page's presentation of them. A fact a service or a computation
+//! answers is a `Fact` with its `FactState` (the rule of a fact without an answer).
 
 use crate::branch_integration::BranchIntegrationInfo;
 use crate::commit::Commit;
@@ -40,6 +41,44 @@ impl Version {
       seq: self.seq.wrapping_add(1),
     }
   }
+}
+
+/// A fact of a session that a service or a computation answers (docs/design/rust-domain-authority.md, "Факты"): the
+/// value of the last answer, how it stands now, the number of the observation that answered it (`seq`, from the one
+/// counter of the session: an answer applies only when its observation is newer) and when it answered (Unix seconds).
+/// `value` is `None` until the first answer
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct Fact<T> {
+  pub value: Option<T>,
+  pub state: FactState,
+  pub seq: u32,
+  pub observed_at: u32,
+}
+
+/// How a fact stands. A fact without an answer is never "no": a read that fails is `Unavailable` with its reason, never
+/// an empty value, and never a `Loading` that lasts
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FactState {
+  /// No answer yet: from the open of the session (or a change of what it is of) until the first one
+  #[default]
+  Loading,
+  /// The value is the answer of the newest observation
+  Fresh,
+  /// The value is an earlier answer: the newest read failed (`reason`), or what the fact is of changed and it is being
+  /// read or computed again (`None`); nothing waits for it
+  Stale {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    reason: Option<ApiError>,
+  },
+  /// No answer: the read failed before any answer came
+  Unavailable { reason: ApiError },
+  /// Nothing asks for it (no window demands it)
+  Unknown,
 }
 
 /// Why a session syncs (`repository_model::sync_scheduler` decides what runs)

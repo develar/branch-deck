@@ -16,6 +16,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{info, instrument};
 
+/// The remote the pushes of the virtual branches go to: the remote-tracking refs `refs/remotes/origin/<full name>` they
+/// move are the ones a session replaces in its sync inputs
+pub const PUSH_REMOTE: &str = "origin";
+
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -283,7 +287,7 @@ impl PreparedPush {
   pub fn send(&self, git_executor: &GitCommandExecutor, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<PushBranchesOutcome> {
     let target = PushTarget {
       repository_path: &self.repository_path,
-      remote: "origin",
+      remote: PUSH_REMOTE,
       baseline: &self.baseline,
       my_email: self.my_email.as_deref(),
     };

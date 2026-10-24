@@ -9,6 +9,8 @@
 //! for `IDLE_LIMIT` on the session clock (`Clock`: `SystemClock` in the app, `TestClock` in the tests and the E2E
 //! server). A session opened again starts a new epoch, so a window that held the old one asks for a snapshot.
 
+use crate::branch_table::BranchTable;
+use crate::facts::TableFacts;
 use crate::runtime::{Message, spawn_actor};
 use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
@@ -23,6 +25,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_core::push::PushBranchesOutcome;
 use sync_core::sync::SyncReport;
+use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::Clock;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
@@ -58,14 +61,22 @@ pub trait Subscriber: Send + 'static {
 }
 
 /// A sync of a session in flight
-pub type SyncRun = Pin<Box<dyn Future<Output = Result<SyncReport, ApiError>> + Send>>;
+pub type SyncRun = Pin<Box<dyn Future<Output = Result<SyncedTable, ApiError>> + Send>>;
 
-/// What a session asks of its host: the sync itself, the fingerprint of what it reads, and whether a focus syncs.
+/// What a successful sync of a session left: its report and the table it built, with the remote statuses its events
+/// carried, which the session keeps as the table of its last sync (`Sessions::table`)
+#[derive(Debug)]
+pub struct SyncedTable {
+  pub report: SyncReport,
+  pub table: BranchTable,
+}
+
+/// What a session asks of its host: the sync itself, the inputs it reads, and whether a focus syncs.
 /// `runtime::GitSessionHost` runs them with git; a test runs a script
 pub trait SessionHost: Send + Sync + 'static {
-  /// The fingerprint of the sync inputs of the session (`sync_core::sync_inputs::sync_inputs_fingerprint`); `None` when
-  /// git cannot tell, which runs the sync. Blocking: the runtime calls it on the blocking pool
-  fn inputs(&self, key: &SessionKey) -> Option<String>;
+  /// The inputs of a sync of the session (`sync_core::sync_inputs::read_sync_inputs`); `None` when git cannot tell,
+  /// which runs the sync. Blocking: the runtime calls it on the blocking pool
+  fn inputs(&self, key: &SessionKey) -> Option<SyncInputs>;
 
   /// One sync of the session; its events go to `reporter`, the session's mailbox. A deferred sync (a rebase in
   /// progress, a detached HEAD) answers its `ApiError` code (`operation_in_progress`, `detached_head`)
@@ -130,6 +141,11 @@ impl SessionLife {
     };
     life.touch();
     life
+  }
+
+  /// The time on the session clock
+  pub(crate) fn now(&self) -> Duration {
+    self.clock.now()
   }
 
   fn touch(&self) {
@@ -237,6 +253,17 @@ impl Sessions {
     answer.await.ok()
   }
 
+  /// The table of the last successful sync of an open session, with the memo of the content walks of its views; `None`
+  /// for a session that is not open or never synced
+  pub async fn table(&self, key: &SessionKey) -> Option<TableFacts> {
+    let (reply, answer) = oneshot::channel();
+    let sent = self.lock().get(key).is_some_and(|entry| entry.mailbox.send(Message::Table(reply)).is_ok());
+    if !sent {
+      return None;
+    }
+    answer.await.ok().flatten()
+  }
+
   /// Subscribes a window to the session of `key`, opening it: the snapshot at the subscription, then every patch after
   /// it. `None` only when the session's actor is gone
   pub async fn subscribe(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>) -> Option<(SubscriptionId, TableView)> {
@@ -297,9 +324,10 @@ impl Sessions {
   /// The push of `subjects` (`RemoteSubject::of` each branch of its parameters, in their order) in the session of
   /// `key`, `push` being the host's guarded push: from now on a sync shows no remote status of them, and at the end the
   /// remote statuses the push left (pushed, or fetched when the remote moved) go into the table
-  /// (`TableState::end_push`), newer than any sync that started before; a push that fails, or whose future is dropped,
-  /// leaves the status a sync computed meanwhile. Answers the push's outcome with the version of the view after its
-  /// patch (`None`: the session is not open)
+  /// (`TableState::end_push`), newer than any sync that started before, and their remote-tracking refs into the inputs
+  /// the session knows, so a focus after it syncs nothing; a push that fails, or whose future is dropped, leaves the
+  /// status a sync computed meanwhile. Answers the push's outcome with the version of the view after its patch (`None`:
+  /// the session is not open)
   ///
   /// # Errors
   /// What the push failed with
@@ -431,10 +459,16 @@ struct RunningPush<'a> {
 
 impl RunningPush<'_> {
   fn end(&mut self, statuses: Option<Vec<RemoteStatusUpdate>>) -> Applied {
-    match self.subjects.take() {
-      Some(subjects) => self.sessions.apply(self.key, move |state| state.end_push(&subjects, statuses)),
-      None => Applied(None),
-    }
+    let Some(subjects) = self.subjects.take() else {
+      return Applied(None);
+    };
+    let (reply, version) = oneshot::channel();
+    let sent = self
+      .sessions
+      .lock()
+      .get(self.key)
+      .is_some_and(|entry| entry.mailbox.send(Message::PushEnded { subjects, statuses, reply }).is_ok());
+    Applied(sent.then_some(version))
   }
 }
 

@@ -14,12 +14,15 @@
 //! reported the stack branches (`stacks`) and the commits each branch left uncopied (`blocked_commits`).
 //!
 //! The session writes into the table outside a sync too (`OwnWrite`): the outcome of a push (`end_push`: the remote
-//! statuses it left) and the deletion of an archived or unapplied branch. Such a write is newer than every event of a
-//! run that started before it, so that run never undoes it (a remote status it computed before the push, an archived
-//! branch it listed before the deletion), and a failed run restores the table with it. While a push of a branch runs
+//! statuses it left) and the deletion of an archived or unapplied branch. The runs and the writes take their numbers
+//! from the one counter of the session (`Sequence` of `facts`): a run when it starts, a write when it is applied, so a
+//! write is newer than every event of a run that started before it, and that run never undoes it (a remote status it
+//! computed before the push, an archived branch it listed before the deletion); a failed run restores the table with it. While a push of a branch runs
 //! (`begin_push`), a sync shows no remote status of it: the status it computed is kept aside and shown only when the
 //! push fails, as the newest the session knows; a push that waits for a sync is not running yet.
 
+use crate::facts::{Seq, Sequence};
+use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::ApiError;
 use domain_types::session::{
   ArchivedSection, BaselineStatus, BranchHead, BranchRemote, BranchStatus, BranchSync, BranchView, CommitSync, LandedSection, SyncState, SyncStep, TableHeader, TableSections,
@@ -27,7 +30,7 @@ use domain_types::session::{
 use domain_types::stack::StackBranchUpdate;
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use sync_core::push::StackPushBranch;
+use sync_core::push::{PUSH_REMOTE, StackPushBranch};
 
 /// The parts of the table that a failed sync restores
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -56,12 +59,12 @@ pub struct TableState {
   before_sync: Option<Box<TableParts>>,
   /// The pushes in flight, by what they send
   pushes: HashMap<RemoteSubject, Push>,
-  /// The writes of the session since `before_sync` was taken, in order, each with its number (`write_count` after it);
-  /// empty while no sync runs
-  writes: Vec<(u64, OwnWrite)>,
-  write_count: u64,
-  /// `write_count` when the run in flight started: the writes after it win over its events
-  run_start: u64,
+  /// The writes of the session since `before_sync` was taken, in order, each with its number; empty while no sync runs
+  writes: Vec<(Seq, OwnWrite)>,
+  /// The counter of the observations of the session, the runs and the writes among them
+  sequence: Sequence,
+  /// The number of the run in flight: the writes after it win over its events
+  run: Seq,
 }
 
 /// What a push sends, as the table keys its remote status: a virtual branch by its name, the stack branch of the whole
@@ -86,6 +89,18 @@ impl RemoteSubject {
     } else {
       Self::Branch(name)
     }
+  }
+
+  /// The remote-tracking ref a push of the subject under `branch_prefix` moves (`refs/remotes/origin/<full name>`);
+  /// `None` for a name no branch can have
+  #[must_use]
+  pub fn remote_ref(&self, branch_prefix: &str) -> Option<String> {
+    let full_name = match self {
+      Self::Branch(name) => to_final_branch_name(branch_prefix, name),
+      Self::WholeStack(root) => to_stack_branch_name(branch_prefix, root),
+      Self::Unapplied(name) => qualified_branch_name(branch_prefix, BranchKind::Unapplied, name),
+    };
+    full_name.ok().map(|full_name| format!("refs/remotes/{PUSH_REMOTE}/{full_name}"))
   }
 }
 
@@ -159,14 +174,21 @@ impl TableState {
     &self.parts.sections
   }
 
-  /// A sync starts: it groups the commits first. The table stays as it is until its events come
-  pub fn begin_sync(&mut self) {
+  /// The number of an observation of the session that starts now (a read of a fact), from the counter of its runs and
+  /// writes
+  pub const fn next_seq(&mut self) -> Seq {
+    self.sequence.next()
+  }
+
+  /// A sync starts: it groups the commits first. The table stays as it is until its events come. Answers the number of
+  /// the run, newer than every write before it; a retry starts after the writes so far, so its events are newer too
+  pub fn begin_sync(&mut self) -> Seq {
     if !matches!(self.sync, SyncState::Running { .. }) {
       self.before_sync = Some(Box::new(self.parts.clone()));
     }
-    // a retry starts after the writes so far: its events are newer than they are
-    self.run_start = self.write_count;
+    self.run = self.sequence.next();
     self.sync = SyncState::Running { step: SyncStep::Grouping };
+    self.run
   }
 
   /// The sync ended: on success the table is what its events left; on a failure the table of the sync before comes
@@ -384,18 +406,19 @@ impl TableState {
 }
 
 impl TableState {
-  /// Writes into the table; while a sync runs, also into the writes its events never undo and its failure restores
+  /// Writes into the table, with the next number of the session; while a sync runs, also into the writes its events
+  /// never undo and its failure restores
   fn write(&mut self, write: OwnWrite) {
+    let seq = self.sequence.next();
     if self.before_sync.is_some() {
-      self.write_count += 1;
-      self.writes.push((self.write_count, write.clone()));
+      self.writes.push((seq, write.clone()));
     }
     write_into(&mut self.parts, write);
   }
 
-  /// Whether the session wrote what `matches` since the run in flight started
+  /// Whether the session wrote what `matches` after the run in flight started
   fn written_in_run(&self, matches: impl Fn(&OwnWrite) -> bool) -> bool {
-    self.writes.iter().any(|(number, write)| *number > self.run_start && matches(write))
+    self.writes.iter().any(|(seq, write)| *seq > self.run && matches(write))
   }
 
   /// What the table shows of `subject` after the remote status the running sync computed (`observed`, `None`: no remote

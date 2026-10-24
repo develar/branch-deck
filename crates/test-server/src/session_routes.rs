@@ -24,7 +24,7 @@ use repository_model::session::{SessionKey, Subscriber, SubscriberGone, Subscrip
 use repository_model::table::RemoteSubject;
 use serde::Deserialize;
 use std::sync::{Arc, Weak};
-use sync_core::push::{PushBranchesOutcome, StackPushBranch};
+use sync_core::push::StackPushBranch;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 
 /// What the syncs of the server's sessions take: the issue links read by the sync, the prefix of the local config read
@@ -173,17 +173,18 @@ pub struct PushedInPageRequest {
 }
 
 /// A push the page answered (`routePush` of push-helpers.ts: the templates name the repository itself as `origin`, so a
-/// test of a moved remote or of the progress fakes the remote there): its outcome goes into the session of the
-/// repository as the app's push puts it there (`Sessions::push`), and the answer is the version of the view whose patch
-/// has it (`None`: no window shows the repository), which the page's answer names as the app's command does
+/// test of a moved remote or of the progress fakes the remote there): its outcome goes into the table of the session
+/// of the repository as the end of the app's push writes it (`TableState::end_push`), and the answer is the version of
+/// the view whose patch has it (`None`: no window shows the repository), which the page's answer names as the app's
+/// command does. Unlike the app's push (`Sessions::push`) it moved no remote-tracking ref, so the inputs the session
+/// knows stay as they are
 pub async fn pushed_in_page(State(state): State<Arc<AppState>>, Json(request): Json<PushedInPageRequest>) -> CommandResult<Option<Version>> {
   let key = session_key(&state, &request.repository_path).await?;
-  let subjects = request.branches.iter().map(RemoteSubject::of).collect();
-  let outcome = PushBranchesOutcome::Pushed {
-    remote_statuses: request.remote_statuses,
-  };
-  let answer = state.sessions.push(&key, subjects, async { Ok(outcome) }).await;
-  answer
-    .map(|answer| Json(answer.version))
-    .map_err(|error| failed("apply the push of the page", ApiError::internal(format!("{error:#}"))))
+  let subjects: Vec<RemoteSubject> = request.branches.iter().map(RemoteSubject::of).collect();
+  let statuses = request.remote_statuses;
+  let applied = state.sessions.apply(&key, move |table| {
+    table.begin_push(&subjects);
+    table.end_push(&subjects, Some(statuses));
+  });
+  Ok(Json(applied.version().await))
 }

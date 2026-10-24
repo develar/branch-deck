@@ -19,7 +19,7 @@
 //! - `sync`: `sync_branches`, the guards, the grouping, one build per branch and the detection of the archived ones
 //! - `branch_processor`: the build of one virtual branch, then its ref move with compare-and-swap and its remote status
 //! - `repo_facts`: `RepoFacts`, what a sync reads once at its start: the baseline, HEAD, the branches under the prefix
-//! - `sync_inputs`: the fingerprint of what a sync reads, so that a focus syncs only when it changed
+//! - `sync_inputs`: what a sync reads (`read_sync_inputs`), so that a focus syncs only when it changed
 //! - `grouping`: the grouping of a sync without its builds, for the reads of `bd`
 //! - `stack_branch`: the stack branch `{prefix}/stack/<root>` of a stack that forks: all its commits in one branch
 //! - `issue_navigation`: the issue key patterns of `.idea/vcs.xml`

@@ -2,7 +2,8 @@ import type { Page } from "@playwright/test"
 // @spec spec/repository/onboarding.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchDetailsRow, pushFromRowMenu } from "../helpers/branch-helpers"
+import { expectPushedToast } from "../helpers/push-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, focusWindow, syncBranches, syncOnWindowFocus, viewEpoch } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -307,6 +308,19 @@ test.describe("Sync on focus", () => {
     await syncOnWindowFocus(page)
     await expect(findBranchRow(page, "feature-documentation")).toBeVisible()
     await expect(page.getByTestId("inputs-checked")).toHaveCount(0)
+  })
+
+  test("syncs nothing on the focus after its own push, the remote branch it moved known to the session", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the upstream of the template is a bare repository: the push is real and moves the remote branch a sync reads
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await pushFromRowMenu(page, "feature-auth")
+    await expectPushedToast(page, "feature-auth")
+    const syncs = await finishedSyncCount(page)
+
+    expect((await focusWindow(page))?.outcome).toBe("unchanged")
+    await expect(page.getByTestId("inputs-checked")).toHaveText("Checked just now")
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(syncs))
   })
 
   /**

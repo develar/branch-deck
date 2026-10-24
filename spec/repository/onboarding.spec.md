@@ -13,6 +13,7 @@ targets:
   - ../../src/hooks/useSyncOnOpen.ts
   - ../../src/model/store.ts
   - ../../crates/repository-model/src/sync_scheduler.rs
+  - ../../crates/sync-core/src/sync_inputs.rs
   - ../../crates/repository-model/src/session.rs
   - ../../src/stores/settings/repositoryState.ts
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
@@ -149,11 +150,11 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
   [@test] ../../src/model/store.test.ts (`keeps Sync busy from the request to the last patch of the run that serves it, and counts the runs that ended`)
 - Auto-sync on Focus (Settings → General, File → Auto-sync on Focus) is on by default and syncs on a focus
-  only when what a sync reads changed since the last sync of the session (the fingerprint of
-  [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), taken when the sync started, so a commit made
+  only when what a sync reads changed since the last sync of the session (the inputs of
+  [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), read when the sync started, so a commit made
   while it ran counts): a commit, an amend or a finished rebase in the IDE, a fetch (of the baseline, also an upstream
   other than `master` or `main`) or a push elsewhere, a regroup or a description by `bd`, a changed prefix (the
-  fingerprint is of the prefix Rust resolves). Otherwise the focus reads the inputs once (two git processes) and syncs nothing, and the header says "Checked just
+  inputs are of the prefix Rust resolves). Otherwise the focus reads the inputs once (two git processes) and syncs nothing, and the header says "Checked just
   now" instead of "Last synced 18 minutes ago", the age of the sync in its tooltip: the branches are as current as a
   sync would make them. A focus during a sync checks once after it, however many came. A user who turned the setting
   off keeps it off: a focus then starts no git process.
@@ -161,6 +162,13 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_runs_only_when_the_inputs_changed`, `a_focus_during_a_run_checks_the_inputs_once_after_the_chain`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_with_unchanged_inputs_reads_only_the_fingerprint`, `a_focus_during_a_run_is_one_check_after_it`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
+- The app's own push is no change for the focus: it moves the remote branches it sent, which a sync reads, but the
+  table has its outcome already, and the session puts those remote branches into the inputs it knows, so the focus right
+  after a Push syncs nothing ("Checked just now"). A push that ends while a sync or the check of a focus runs counts
+  too; a remote branch moved by another clone or a fetch elsewhere still syncs.
+  [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_after_the_sessions_own_push_runs_nothing`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_after_the_sessions_own_push_runs_no_sync`)
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs nothing on the focus after its own push, the remote branch it moved known to the session`)
 - A prefix changed in a terminal (`git config branchdeck.branchPrefix`) shows on the next focus: the window resolves the
   prefix again and opens the session under it, which it syncs as it opens a repository synced before, whichever of that
   resolve and the check of the focus (100 ms later) ends first, so the table is never the empty one of a session no
