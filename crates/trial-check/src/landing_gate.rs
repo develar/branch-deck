@@ -22,10 +22,13 @@ use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind, StackComm
 use domain_types::patronus::LandingAllowances;
 use domain_types::repository_view::RobotOf;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::revs::refs_and_config_hash;
 use history_rewrite::regroup::RegroupError;
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::hash::{Hash, Hasher};
 use tracing::instrument;
 
 /// The check of a start: what lands, its trial report and the names it misses
@@ -327,16 +330,21 @@ pub fn landing_check(
   })
 }
 
-/// `landing_check`, refused as `LandingRefused` when a refusal holds the start back: the start of the app runs it before
-/// it asks Patronus
-pub fn ensure_landing_starts(
-  git_executor: &GitCommandExecutor,
-  cache: &ObjectCache,
-  branch_prefix: &str,
-  params: &LandingGateParams,
-  landed: &HashSet<String>,
-) -> anyhow::Result<()> {
-  let check = landing_check(git_executor, cache, branch_prefix, params, landed)?;
+/// The inputs of `landing_check` of `params` with `landed`, as one hash: the refs and the config the session reads
+/// (`refs_and_config_hash`, two processes), the prefix, the subject, the overrides and the landed commits. The check is a
+/// function of them, so a check of the same inputs gives the same refusals: the start reuses the check of its popover
+/// (`RepositoryViews::landing_check`) instead of a session and a trial of its own. Equal only within one process
+pub fn landing_check_inputs(git_executor: &GitCommandExecutor, branch_prefix: &str, params: &LandingGateParams, landed: &HashSet<String>) -> anyhow::Result<u64> {
+  let mut hasher = DefaultHasher::new();
+  refs_and_config_hash(git_executor, &params.repository_path)?.hash(&mut hasher);
+  (branch_prefix, &params.branch_name, params.stack, params.allow.allow_dangling, params.allow.allow_missing).hash(&mut hasher);
+  landed.iter().collect::<BTreeSet<_>>().hash(&mut hasher);
+  Ok(hasher.finish())
+}
+
+/// `check` of the start `params`, refused as `LandingRefused` when a refusal holds the start back: the start of the app
+/// checks it before it asks Patronus
+pub fn ensure_landing_starts(params: &LandingGateParams, check: LandingCheck) -> anyhow::Result<()> {
   if check.refusals.is_empty() {
     return Ok(());
   }

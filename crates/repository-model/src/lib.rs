@@ -28,3 +28,6 @@ pub mod patronus_view;
 pub mod push_guard;
 pub mod start_guard;
 pub mod views;
+
+#[cfg(test)]
+mod process_budget_test;

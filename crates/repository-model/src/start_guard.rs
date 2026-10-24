@@ -15,11 +15,14 @@
 //! `check_start_from_pull_request` the same checks before the `/patronus` comment of the other route of a start: one
 //! list of the robots asked now (a failed list fails the action), the checks, then the landing gate and the target
 //! (`prepare_robot_start`) and the call of Patronus; `check_landing` is the landing check of the popover on the same
-//! robots. The words of the robot refusals are `bd`'s too (`start_refusal_text`).
+//! robots. Both checks go through `RepositoryViews::landing_check`, so a start right after the check of its popover
+//! reuses it while the refs, the config and the landed commits are the same. The words of the robot refusals are `bd`'s
+//! too (`start_refusal_text`).
 
 use crate::actions::RemoteActions;
 use crate::patronus_view::{branch_start_refusal, landed_commits, stack_start_refusal};
 use crate::push_guard::{GuardFacts, row_refusal};
+use crate::views::RepositoryViews;
 use anyhow::{Result, anyhow, bail};
 use domain_types::GroupedBranchInfo;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
@@ -36,7 +39,7 @@ use sync_core::patronus_start::{carried_ids, carried_words, is_robot_active, joi
 use sync_core::push::not_synced_refusal;
 use sync_utils::span::in_current_span;
 use tracing::instrument;
-use trial_check::landing_gate::{LandingCheck, LandingGateParams, ensure_landing_starts, landing_check};
+use trial_check::landing_gate::{LandingCheck, LandingGateParams, ensure_landing_starts};
 
 /// The branches of a start Patronus is asked for
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,12 +52,13 @@ pub struct RobotStartBranches {
 
 /// What the app checks before it asks Patronus to start `params`, after the checks of the repository view
 /// (`check_start`): the landing gate, as `bd safe-push` refuses it (`ensure_landing_starts`), with `landed_commits`, the
-/// commits (original ids) merged Safe Pushes landed as the view names them, whose names the target has; then the branch
-/// the robot pushes into. The full ref of the pushed virtual branch, or of the stack branch with `stack`, under
-/// `branch_prefix`
+/// commits (original ids) merged Safe Pushes landed as the view names them, whose names the target has, the check of
+/// the popover when its inputs are the same (`RepositoryViews::landing_check`); then the branch the robot pushes into.
+/// The full ref of the pushed virtual branch, or of the stack branch with `stack`, under `branch_prefix`
 pub fn prepare_robot_start(
   git_executor: &GitCommandExecutor,
   cache: &ObjectCache,
+  views: &RepositoryViews,
   branch_prefix: &str,
   params: &StartPatronusRobotParams,
   landed_commits: Vec<String>,
@@ -65,7 +69,8 @@ pub fn prepare_robot_start(
     stack: params.stack,
     allow: params.allow,
   };
-  ensure_landing_starts(git_executor, cache, branch_prefix, &gate, &landed_commits.into_iter().collect())?;
+  let check = views.landing_check(git_executor, cache, branch_prefix, &gate, &landed_commits.into_iter().collect())?;
+  ensure_landing_starts(&gate, check)?;
   let target_branch = required_target_branch(git_executor, &params.repository_path, &params.baseline_branch)?;
   let source = if params.stack {
     to_stack_branch_name(branch_prefix, &params.branch_name)?
@@ -299,7 +304,7 @@ impl RemoteActions<'_> {
   #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack, mode = ?params.mode))]
   pub async fn start_robot(&self, cache: impl FnOnce() -> ObjectCache + Send + 'static, params: &StartPatronusRobotParams) -> Result<PatronusRobot> {
     let (service, repository) = self.patronus()?;
-    let (git, start, prefix) = (self.git_executor.clone(), params.clone(), self.branch_prefix.to_owned());
+    let (git, views, start, prefix) = (self.git_executor.clone(), self.views.clone(), params.clone(), self.branch_prefix.to_owned());
     let branches = self
       .with_facts(&params.repository_path, "Nothing was started", move |facts| {
         if let Err(refusal) = check_start(facts, &start_subject(&start.branch_name, start.stack), start.mode) {
@@ -307,7 +312,7 @@ impl RemoteActions<'_> {
         }
         let mut landed: Vec<String> = landed_commits(&facts.view).into_iter().collect();
         landed.sort_unstable();
-        prepare_robot_start(&git, &cache(), &prefix, &start, landed)
+        prepare_robot_start(&git, &cache(), &views, &prefix, &start, landed)
       })
       .await?;
     service
@@ -341,8 +346,9 @@ impl RemoteActions<'_> {
         params.pull_request_number
       );
     };
-    let (git, path, mode, prefix, start) = (
+    let (git, views, path, mode, prefix, start) = (
       self.git_executor.clone(),
+      self.views.clone(),
       params.repository_path.clone(),
       params.mode,
       self.branch_prefix.to_owned(),
@@ -359,7 +365,8 @@ impl RemoteActions<'_> {
           stack: start.stack,
           allow: start.allow,
         };
-        ensure_landing_starts(&git, &cache(), &prefix, &gate, &landed_commits(&facts.view))
+        let check = views.landing_check(&git, &cache(), &prefix, &gate, &landed_commits(&facts.view))?;
+        ensure_landing_starts(&gate, check)
       })
       .await
   }
@@ -378,7 +385,7 @@ impl RemoteActions<'_> {
       let landed: HashSet<String> = views
         .guard_facts(&git, &params.repository_path, &prefix, robots)
         .map_or_default(|facts| landed_commits(&facts.view));
-      landing_check(&git, &cache(), &prefix, &params, &landed)
+      views.landing_check(&git, &cache(), &prefix, &params, &landed)
     }))
     .await?
   }

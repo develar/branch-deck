@@ -2645,8 +2645,15 @@ Anyway). It writes objects only, never a ref: the symbol graph costs one `log --
 `cat-file --batch` of the source blobs whose summaries the cache lacks, once per session. `bd safe-push` runs it in the
 session of its dangling references (`session_of_sync`, no second `log` of the commits); the app opens a session of the
 current grouping (`CheckSession::open`) before the push (`checkLandingBeforeStart`), and the start command checks again
-before it asks Patronus (`start_patronus_robot`, `ensure_landing_starts`), so no surface starts past it. The E2E server
-runs the same core without the object cache.
+before it asks Patronus (`start_patronus_robot`, `ensure_landing_starts`), so no surface starts past it. Both checks go
+through `RepositoryViews::landing_check`, which keeps the last checks of a repository with their inputs
+(`landing_check_inputs`: `git_ops::revs::refs_and_config_hash`, one `for-each-ref` of the checked-out branch and every
+branch, remote-tracking branch, store and notes ref and one `config --list -z`, with the prefix, the subject, the
+overrides and the landed commits): the check is a function of them, so the start right after the check of its
+popover (the push in between moves no local ref) answers from it with those two processes instead of a session and a
+trial (18 processes on the fixture of `repository-model`'s `process_budget_test`, a log of every commit ahead in the
+monorepo), and a commit, a sync, a fetch or a moved store in between checks anew. The E2E server runs the same core
+without the object cache, and keeps the checks the same way.
 
 The same rule answers before any start, for every branch (`landing_needs`, the landing needs of the
 [repository view](#repository-view)): one trial check of every branch (`CheckSession::check`, the dangling references

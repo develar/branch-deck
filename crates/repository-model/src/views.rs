@@ -7,8 +7,9 @@
 //! The landing needs (`trial_check::landing_gate::landing_needs`) are a fact with its inputs: the baseline, the tips of
 //! the table and the commits merged Safe Pushes landed. A view whose inputs have no answer yet says `unknown` and starts
 //! the computation in the background, one trial session for every branch; while the inputs stay, nothing is computed
-//! again. `wait_landing_needs` resolves once it finished, and the page asks the view again. `forget` drops what is kept
-//! of a repository once its computations ended, before the E2E server deletes it.
+//! again. `wait_landing_needs` resolves once it finished, and the page asks the view again. The landing check of a start
+//! (`landing_check`) is kept with its inputs too, so the start reuses the check of its popover. `forget` drops what is
+//! kept of a repository once its computations ended, before the E2E server deletes it.
 
 use crate::branch_table::BranchTable;
 use crate::patronus_view::{ContentMemo, landed_commits, match_robots, patronus_view, with_landing_needs};
@@ -20,17 +21,23 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
 use object_cache::cache::ObjectCache;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
-use trial_check::landing_gate::landing_needs_of;
+use trial_check::landing_gate::{LandingCheck, LandingGateParams, landing_check, landing_check_inputs, landing_needs_of};
 
 /// How many repositories and branch prefixes the app keeps the views of
 const KEPT: u64 = 32;
+
+/// How many landing checks of one repository and branch prefix are kept: those of the subjects the popovers asked last
+const KEPT_CHECKS: usize = 8;
+
+/// The last landing checks of one repository and branch prefix, each with the hash of its inputs, the oldest first
+type KeptChecks = Mutex<VecDeque<(u64, LandingCheck)>>;
 
 /// The table a sync finished, numbered
 pub(crate) struct SyncedTable {
@@ -77,6 +84,8 @@ pub struct RepositoryViews {
   tables: Cache<(String, String), Arc<SyncedTable>>,
   memos: Cache<(String, String), Arc<Mutex<ContentMemo>>>,
   landing: Cache<(String, String), Arc<LandingFacts>>,
+  /// The last landing checks with their inputs (`landing_check`)
+  checks: Cache<(String, String), Arc<KeptChecks>>,
   generation: Arc<AtomicU32>,
 }
 
@@ -94,6 +103,7 @@ impl RepositoryViews {
       tables: Cache::new(repositories),
       memos: Cache::new(repositories),
       landing: Cache::new(repositories),
+      checks: Cache::new(repositories),
       generation: Arc::new(AtomicU32::new(0)),
     }
   }
@@ -195,6 +205,35 @@ impl RepositoryViews {
     (None, state.generation)
   }
 
+  /// The landing check of the start `params` with `landed` (`trial_check::landing_gate::landing_check`): the one kept for
+  /// the same inputs (`landing_check_inputs`: the refs and the config, the subject, the overrides and the landed
+  /// commits), else a check now, kept. The start right after the check of its popover, and a second click, run the two
+  /// processes of the inputs instead of a session and a trial; a commit, a sync, a fetch or a moved store in between is
+  /// another input, checked anew. Call from a blocking context
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack))]
+  pub fn landing_check(
+    &self,
+    git_executor: &GitCommandExecutor,
+    cache: &ObjectCache,
+    branch_prefix: &str,
+    params: &LandingGateParams,
+    landed: &HashSet<String>,
+  ) -> anyhow::Result<LandingCheck> {
+    let inputs = landing_check_inputs(git_executor, branch_prefix, params, landed)?;
+    let kept = self.checks.get_with((params.repository_path.clone(), branch_prefix.to_owned()), Arc::default);
+    if let Some((_, check)) = lock_checks(&kept).iter().find(|(known, _)| *known == inputs) {
+      debug!("the landing check of these inputs is kept");
+      return Ok(check.clone());
+    }
+    let check = landing_check(git_executor, cache, branch_prefix, params, landed)?;
+    let mut kept = lock_checks(&kept);
+    if kept.len() == KEPT_CHECKS {
+      kept.pop_front();
+    }
+    kept.push_back((inputs, check.clone()));
+    Ok(check)
+  }
+
   /// Waits until no computation of the landing needs of the repository under `branch_prefix` runs, or until one finished after the
   /// `after`-th, at most `LANDING_WAIT`; returns the count of finished computations, which the page compares with the
   /// one of its view. Call from a blocking context
@@ -234,8 +273,16 @@ impl RepositoryViews {
     for (key, _) in self.memos.iter().filter(|(key, _)| key.0 == repository_path) {
       self.memos.invalidate(&*key);
     }
+    for (key, _) in self.checks.iter().filter(|(key, _)| key.0 == repository_path) {
+      self.checks.invalidate(&*key);
+    }
     ended
   }
+}
+
+/// The kept landing checks; a poisoned lock (a panic in a check) keeps what it had
+fn lock_checks(kept: &KeptChecks) -> MutexGuard<'_, VecDeque<(u64, LandingCheck)>> {
+  kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The inputs of the landing needs: the baseline, the tips of the branches of the table and the commits merged Safe
