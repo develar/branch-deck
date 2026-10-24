@@ -1,14 +1,16 @@
 use crate::command_error::CommandError;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use crate::window_requests::WindowRequests;
+use file_diffs::accio::{AccioCli, SymbolIndex};
 use file_diffs::model::{
   BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
 };
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
-use tauri::State;
 use tauri::ipc::Channel;
+use tauri::{State, Webview};
 use tracing::{instrument, warn};
 
 // jscpd:ignore-start: two Tauri commands with the same states; the command macro needs each signature in full
@@ -117,38 +119,67 @@ pub async fn get_blob_syntax(
   run_blocking(move || file_diffs.blob_syntax(&git, &params)).await.map(tauri::ipc::Response::new)
 }
 
+/// The symbol search of each window, the accio of its Go to Declaration or Find Usages: a newer search of the window,
+/// `cancel_symbol_search` of it, or its close kills the one in flight, which then answers `canceled`
+#[derive(Default)]
+pub struct SymbolSearchState(pub WindowRequests);
+
 /// The declarations a name in a diff of a review may mean, the most likely first (`file_diffs::declarations`): by the
 /// scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store,
-/// else in the index of the repository (`accio`)
+/// else in the index of the repository (`accio`), waited for as long as it runs
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, file_diffs, params), fields(path = %params.site.path, line = params.site.line))]
+#[instrument(skip(webview, searches, git_executor, repository_state, file_diffs, params), fields(path = %params.site.path, line = params.site.line))]
 #[specta::specta]
 pub async fn find_declaration(
+  webview: Webview,
+  searches: State<'_, SymbolSearchState>,
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   file_diffs: State<'_, FileDiffs>,
   params: FindDeclarationParams,
 ) -> Result<FoundDeclarations, CommandError> {
+  let search = searches.0.begin(webview.label());
   let (git, repository_state, file_diffs) = ((*git_executor).clone(), (*repository_state).clone(), (*file_diffs).clone());
   run_blocking(move || {
     let cache = repository_state.object_cache(&git, &params.repository_path);
+    let canceled = || search.is_superseded();
     // outside the review: accio, when this machine has it and the repository an index
-    let index = file_diffs::accio::AccioCli::discover().map(|accio| accio as &dyn file_diffs::accio::SymbolIndex);
-    file_diffs.find_declaration(&git, &cache, index, &params)
+    let index = AccioCli::discover().map(|accio| accio.search(&canceled));
+    file_diffs.find_declaration(&git, &cache, index.as_ref().map(|it| it as &dyn SymbolIndex), &params)
   })
   .await
 }
 
 /// The usages of a name in a diff of a review (`file_diffs::usages`): in its file, in the files of the review from the
-/// blobs the diffs read, then outside the review in the index of the repository (`accio`)
+/// blobs the diffs read, then outside the review in the index of the repository (`accio`), waited for as long as it runs
 #[tauri::command]
-#[instrument(skip(git_executor, file_diffs, params), fields(path = %params.site.path, line = params.site.line))]
+#[instrument(skip(webview, searches, git_executor, file_diffs, params), fields(path = %params.site.path, line = params.site.line))]
 #[specta::specta]
-pub async fn find_usages(git_executor: State<'_, GitCommandExecutor>, file_diffs: State<'_, FileDiffs>, params: FindDeclarationParams) -> Result<FoundUsages, CommandError> {
+pub async fn find_usages(
+  webview: Webview,
+  searches: State<'_, SymbolSearchState>,
+  git_executor: State<'_, GitCommandExecutor>,
+  file_diffs: State<'_, FileDiffs>,
+  params: FindDeclarationParams,
+) -> Result<FoundUsages, CommandError> {
+  let search = searches.0.begin(webview.label());
   let (git, file_diffs) = ((*git_executor).clone(), (*file_diffs).clone());
   run_blocking(move || {
-    let index = file_diffs::accio::AccioCli::discover().map(|accio| accio as &dyn file_diffs::accio::SymbolIndex);
-    file_diffs.find_usages(&git, index, &params)
+    let canceled = || search.is_superseded();
+    let index = AccioCli::discover().map(|accio| accio.search(&canceled));
+    file_diffs.find_usages(&git, index.as_ref().map(|it| it as &dyn SymbolIndex), &params)
+  })
+  .await
+}
+
+/// Kills the symbol search of the calling window in flight, if any (Escape or Cancel while it searches)
+#[tauri::command]
+#[instrument(skip(webview, searches))]
+#[specta::specta]
+pub async fn cancel_symbol_search(webview: Webview, searches: State<'_, SymbolSearchState>) -> Result<(), CommandError> {
+  operation(async move {
+    searches.0.cancel(webview.label());
+    Ok(())
   })
   .await
 }

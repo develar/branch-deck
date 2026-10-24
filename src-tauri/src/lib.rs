@@ -10,6 +10,7 @@ pub mod repository_state;
 pub mod stored_settings;
 pub mod title_bar;
 pub mod tracing_log;
+pub mod window_requests;
 pub mod zoom;
 
 #[cfg(test)]
@@ -42,7 +43,7 @@ use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_statu
 use commands::commit_files::{get_commit_files, get_commits_files};
 use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
 use commands::fetch_baseline::fetch_baseline;
-use commands::file_diffs::{find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
+use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::move_commits::move_commits_to_branch;
 use commands::parked_branches::{park_branches, unpark_branches};
@@ -209,6 +210,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_blob_texts,
     find_declaration,
     find_usages,
+    cancel_symbol_search,
     set_auto_sync_menu_checked,
     install_agent_cli,
     agent_cli_command,
@@ -317,6 +319,7 @@ pub fn run() {
       app.manage(file_diffs);
       app.manage(BranchNameSuggestionState::default());
       app.manage(ReviewFetchState::default());
+      app.manage(SymbolSearchState::default());
       app.manage(SubWindowState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(in_current_span(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir)));
@@ -374,7 +377,8 @@ pub fn run() {
         ..
       } = event
       {
-        app_handle.state::<ReviewFetchState>().forget(&label);
+        app_handle.state::<ReviewFetchState>().0.forget(&label);
+        app_handle.state::<SymbolSearchState>().0.forget(&label);
         app_handle.state::<SubWindowState>().forget(&label);
         title_bar::forget_window(&label);
         if label == "main" {

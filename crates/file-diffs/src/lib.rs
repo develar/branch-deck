@@ -19,6 +19,8 @@ pub mod usages;
 mod worktree;
 
 #[cfg(test)]
+mod accio_test;
+#[cfg(test)]
 mod blocks_test;
 #[cfg(test)]
 mod declarations_test;

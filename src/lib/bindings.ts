@@ -433,14 +433,16 @@ export const commands = {
 	/**
 	 *  The declarations a name in a diff of a review may mean, the most likely first (`file_diffs::declarations`): by the
 	 *  scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store,
-	 *  else in the index of the repository (`accio`)
+	 *  else in the index of the repository (`accio`), waited for as long as it runs
 	 */
 	findDeclaration: (params: FindDeclarationParams) => typedError<FoundDeclarations, CommandError>(__TAURI_INVOKE("find_declaration", { params })),
 	/**
 	 *  The usages of a name in a diff of a review (`file_diffs::usages`): in its file, in the files of the review from the
-	 *  blobs the diffs read, then outside the review in the index of the repository (`accio`)
+	 *  blobs the diffs read, then outside the review in the index of the repository (`accio`), waited for as long as it runs
 	 */
 	findUsages: (params: FindDeclarationParams) => typedError<FoundUsages, CommandError>(__TAURI_INVOKE("find_usages", { params })),
+	/**  Kills the symbol search of the calling window in flight, if any (Escape or Cancel while it searches) */
+	cancelSymbolSearch: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_symbol_search")),
 	/**
 	 *  Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
 	 *  for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
@@ -954,7 +956,12 @@ export type CommandErrorKind =
  *  The user stopped the wait for another holder of the repository lock (Stop Waiting, `cancel_lock_wait`): the
  *  command changed nothing
  */
-"lockWaitCanceled";
+"lockWaitCanceled" | 
+/**
+ *  A newer symbol search of the window, or the user (Escape, Cancel: `cancel_symbol_search`), canceled the search
+ *  (`SearchCanceled`): it answers nothing
+ */
+"searchCanceled";
 
 /**  Struct to hold commit data returned by git CLI */
 export type Commit = {

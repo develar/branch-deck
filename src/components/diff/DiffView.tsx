@@ -773,13 +773,8 @@ export function DiffView({
     painter.scrollTo(Math.max(top, layout.fileTop(index)))
     // the keys of the view (Back) work at the place shown, whether a choice closed or a view of a file opened
     scroller.current?.focus({ preventScroll: true })
-    // the row of the name is painted in a frame or two
-    const select = (attempt: number) => {
-      if (!painter.selectWord(index, side, place.line, place.column, place.endColumn) && attempt < 10) {
-        requestAnimationFrame(() => select(attempt + 1))
-      }
-    }
-    requestAnimationFrame(() => select(0))
+    // once the row of the name is painted with its text, whenever that is
+    painter.selectWord(index, side, place.line, place.column, place.endColumn)
   }, [layout, revealTick, painter, headerHeight])
 
   /** Back (⌘[) and Forward (⌘]): the places of the jumps */

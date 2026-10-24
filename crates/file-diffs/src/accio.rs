@@ -6,8 +6,12 @@
 //!   looked for first, without a process: accio keeps it in `<home>/<the first 16 hex of the blob id of the root path>`
 //!   (`index_dir` of its `index.rs`), `home` being `ACCIO_HOME`, `$XDG_CACHE_HOME/accio`, `%LOCALAPPDATA%\accio` on
 //!   Windows, else `~/.cache/accio`. A changed layout reads as no index: the review then looks only at its files.
-//! - **Bounded**: one process per lookup, a null stdin, killed after `TIMEOUT`. An index that fails or does not answer
-//!   fails no lookup: the review answers what it has, and says why the index did not (`Lenient`).
+//! - **No deadline, a cancel**: one process per lookup, a null stdin, waited for as long as it runs: a warm query of the
+//!   IntelliJ monorepo takes 0.03–0.4 s, one at a revision far from the commit of its index reads the changed files
+//!   first (2.8 s for 535 of them), and a loaded machine stretches either, so a fixed bound failed answers the user
+//!   still waited for. The caller cancels it (`AccioCli::search`): the process is killed within a poll interval and the
+//!   lookup fails with `SearchCanceled`, which answers nothing. An index that fails fails no lookup: the review answers
+//!   what it has, and says why the index did not (`Lenient`).
 //! - **Found** on `PATH` (the login shell's for an app started from the Finder), else in `~/.local/bin`, `~/.cargo/bin`
 //!   and Homebrew's directories.
 
@@ -17,12 +21,8 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
-use std::time::Duration;
-use sync_utils::child_process::{ChildProcessError, cached_login_shell_path, find_executable, run_child};
+use sync_utils::child_process::{ChildProcessError, cached_login_shell_path, find_executable, run_child_until_superseded};
 
-/// The time a lookup may take: a warm query of the IntelliJ monorepo takes 0.03–0.4 s, one at a revision far from the
-/// commit of its index reads the changed files first (2.8 s for 535 of them)
-const TIMEOUT: Duration = Duration::from_secs(5);
 /// The declarations a lookup answers at most
 const LIMIT: &str = "20";
 /// The usages a lookup answers at most
@@ -76,9 +76,27 @@ pub trait SymbolIndex: Send + Sync {
   fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>>;
 }
 
+/// The lookup was canceled (a newer navigation of the window, Escape, Cancel) and its query killed: it answers nothing
+#[derive(Debug)]
+pub struct SearchCanceled;
+
+impl std::fmt::Display for SearchCanceled {
+  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    formatter.write_str("the search was canceled")
+  }
+}
+
+impl std::error::Error for SearchCanceled {}
+
 /// The `accio` executable of this machine
 pub struct AccioCli {
   executable: PathBuf,
+}
+
+/// The lookups of one navigation: each query runs until it answers, and is killed once `canceled` turns true
+pub struct AccioSearch<'a> {
+  accio: &'a AccioCli,
+  canceled: &'a (dyn Fn() -> bool + Sync),
 }
 
 impl AccioCli {
@@ -95,6 +113,17 @@ impl AccioCli {
           .map(|executable| Self { executable })
       })
       .as_ref()
+  }
+
+  /// The index of the repository for one navigation, which the caller cancels through `canceled`
+  pub fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync)) -> AccioSearch<'a> {
+    AccioSearch { accio: self, canceled }
+  }
+
+  /// accio at `executable`, for a test
+  #[cfg(test)]
+  pub(crate) const fn at(executable: PathBuf) -> Self {
+    Self { executable }
   }
 }
 
@@ -139,20 +168,20 @@ struct Answer {
   hits: Vec<SymbolHit>,
 }
 
-impl AccioCli {
+impl AccioSearch<'_> {
   /// The JSON answer of `accio <command> … -- <query>` at `revision`; `None` without an index of the repository
   fn query<T: serde::de::DeserializeOwned>(&self, command_name: &str, limit: &str, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<T>> {
     if !index_dir(repository_root).is_some_and(|dir| dir.join("meta.json").is_file()) {
       return Ok(None);
     }
-    let mut command = Command::new(&self.executable);
+    let mut command = Command::new(&self.accio.executable);
     command.args([command_name, "--format", "json", "--limit", limit, "--project", repository_root]);
     if let Some(revision) = revision {
       command.args(["--ref", revision]);
     }
     command.arg("--").arg(query);
-    let output = run_child(&mut command, None, TIMEOUT, &|| false).map_err(|error| match error {
-      ChildProcessError::TimedOut => anyhow::anyhow!("no answer in {} s", TIMEOUT.as_secs()),
+    let output = run_child_until_superseded(&mut command, None, self.canceled).map_err(|error| match error {
+      ChildProcessError::Superseded => anyhow::Error::new(SearchCanceled),
       other => anyhow::anyhow!("{other:?}"),
     })?;
     if !output.status.success() {
@@ -162,7 +191,7 @@ impl AccioCli {
   }
 }
 
-impl SymbolIndex for AccioCli {
+impl SymbolIndex for AccioSearch<'_> {
   fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>> {
     Ok(self.query::<Answer>("symbol", LIMIT, repository_root, query, revision)?.map(|answer| answer.hits))
   }
@@ -172,7 +201,8 @@ impl SymbolIndex for AccioCli {
   }
 }
 
-/// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer
+/// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer;
+/// only a canceled one fails the lookup (`SearchCanceled`), which then answers nothing at all
 pub(crate) struct Lenient<'a> {
   index: &'a dyn SymbolIndex,
   error: std::cell::RefCell<Option<String>>,
@@ -186,12 +216,12 @@ impl<'a> Lenient<'a> {
     }
   }
 
-  pub(crate) fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Vec<SymbolHit> {
-    self.answered(self.index.symbols(repository_root, query, revision)).unwrap_or_default()
+  pub(crate) fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Vec<SymbolHit>> {
+    Ok(self.answered(self.index.symbols(repository_root, query, revision))?.unwrap_or_default())
   }
 
-  pub(crate) fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> References {
-    self.answered(self.index.references(repository_root, name, revision)).unwrap_or_default()
+  pub(crate) fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<References> {
+    Ok(self.answered(self.index.references(repository_root, name, revision))?.unwrap_or_default())
   }
 
   /// Why the index did not answer, as the review says it: none when it answered every query
@@ -199,12 +229,16 @@ impl<'a> Lenient<'a> {
     self.error.into_inner().map(|error| format!("accio did not answer: {error}"))
   }
 
-  fn answered<T>(&self, result: Result<Option<T>>) -> Option<T> {
-    result.unwrap_or_else(|error| {
-      tracing::warn!(error = %format!("{error:#}"), "the index of the repository did not answer");
-      self.error.borrow_mut().get_or_insert_with(|| format!("{error:#}"));
-      None
-    })
+  fn answered<T>(&self, result: Result<Option<T>>) -> Result<Option<T>> {
+    match result {
+      Err(error) if error.is::<SearchCanceled>() => Err(error),
+      Err(error) => {
+        tracing::warn!(error = %format!("{error:#}"), "the index of the repository did not answer");
+        self.error.borrow_mut().get_or_insert_with(|| format!("{error:#}"));
+        Ok(None)
+      }
+      Ok(answer) => Ok(answer),
+    }
   }
 }
 

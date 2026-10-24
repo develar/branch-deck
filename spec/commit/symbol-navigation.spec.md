@@ -6,6 +6,7 @@ targets:
   - ../../src/components/diff/DiffView.tsx
   - ../../src/components/diff/diff-painter.ts
   - ../../src/components/diff/SymbolChooser.tsx
+  - ../../src/components/diff/SymbolSearchStatus.tsx
   - ../../src/components/diff/DeclarationFileView.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
   - ../../src/hooks/useSymbolNavigation.ts
@@ -61,7 +62,19 @@ outside it.
   another commit (⌥↓) does nothing.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should open one file for a name clicked twice before the answer, so one Back returns to the review`)
   [@test] ../../src/lib/navigation-gate.test.ts (`joins a repeat of the same name: two ⌘B open one view`, `drops an answer whose subject changed, and one another name replaced`)
-- The declaration shown has its file open, the fold around it expanded, the view scrolled to it and its name selected.
+- No deadline cuts a search: the index is waited for as long as accio runs, since a loaded machine stretches a query of
+  0.03–3 s. While the answer has not come, the name shows "Looking for the declaration…" or "Finding usages…" (faded in
+  late, so a quick answer shows none) with Cancel; Escape or Cancel stops it, kills its accio, and its answer, if one
+  still comes, does nothing. A newer search of the window, ⌥↓ to another subject and the close of the window kill it
+  too; a killed search answers nothing (`searchCanceled`), never a toast.
+  [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should say that it searches while the backend answers, and stop the search on Escape and on Cancel`)
+  [@test] ../../src/lib/navigation-gate.test.ts (`drops the answer of a canceled navigation, and says whether one was in flight`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`waits_for_a_slow_index_as_long_as_it_runs`, `a_canceled_search_kills_its_query`)
+  [@test] ../../crates/file-diffs/src/usages_test.rs (`a_canceled_search_answers_nothing`)
+  [@test] ../../src-tauri/src/window_requests.rs (`a_window_supersedes_only_its_own_request`, `a_closed_window_supersedes_its_request`)
+- The declaration shown has its file open, the fold around it expanded, the view scrolled to it and its name selected
+  once its row is painted with its text, however long its text takes, and again when a new layout paints the row anew,
+  until the user presses or types in the view or selects elsewhere.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline a name under the pointer with the modifier, go to its declaration in a fold on a click, and back`)
 - A name declared in its own file by the scopes (a parameter, a local, a property of the class around it, a member
   declared after its use, a hoisted TypeScript function) must go there; the name of a declaration goes nowhere.
@@ -111,8 +124,7 @@ outside it.
   read their files, for their lines and the view of each. A cut answer says "The index has more usages outside the
   review"; nothing runs when accio is missing or has no index of the repository.
   [@test] ../../crates/file-diffs/src/usages_test.rs (`adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_the_side`)
-- An index that fails or does not answer in 5 s must take nothing from what the review knows: the usages of the review
-  stay, with "accio did not answer: <why>" under them, and a name without a declaration in the review says why in its
-  toast.
-  [@test] ../../crates/file-diffs/src/usages_test.rs (`an_index_that_does_not_answer_takes_nothing_from_the_review_and_says_why`)
-  [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should keep what the review knows and say why when the index of the repository does not answer`)
+- An index that fails must take nothing from what the review knows: the usages of the review stay, with "accio did not
+  answer: <why>" under them, and a name without a declaration in the review says why in its toast.
+  [@test] ../../crates/file-diffs/src/usages_test.rs (`an_index_that_fails_takes_nothing_from_the_review_and_says_why`)
+  [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should keep what the review knows and say why when the index of the repository fails`)

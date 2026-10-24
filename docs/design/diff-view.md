@@ -459,13 +459,17 @@ to 18 % over the `s` of the release profile, so it stays. The rules have golden 
 
 **Go to Declaration** ([Symbol Navigation](../../spec/commit/symbol-navigation.spec.md)). The painter finds the word
 under a point or at the selection (`wordAt`, `wordAtSelection`: the caret of the point, the offset of its code cell
-without the deleted parts of an Inline row) and selects a name once its row is painted (`selectWord`); the view draws
+without the deleted parts of an Inline row) and selects a name once its row is painted with its text, by every paint
+after the reveal, not by a count of frames, and again when a new layout paints the row anew, until the user presses or
+types in the view or selects elsewhere (`selectWord`); the view draws
 the underline of a link in a layer of its own (`.dv-links`), never in the rows the painter replaces. `find_declaration`
 (`crates/file-diffs/src/declarations.rs`) reads the name and its scopes from the tree (`code_symbols::navigate`),
 then the declarations of the review's files from the summaries of the `blob_summary` store and the texts the diffs
 read, so a jump starts no git process. A name the review does not declare is asked of the index of accio
 (`crates/file-diffs/src/accio.rs`, behind the `SymbolIndex` trait: the e2e server answers from a fixture of the test
-repository) at the commit of its side. A declaration in another file opens `DeclarationFileView` over the review: a
+repository) at the commit of its side, with no deadline: the view shows `SymbolSearchStatus` at the name while the
+answer has not come (faded in after 300 ms), whose Escape or Cancel drops the answer (`NavigationGate.cancel`) and kills
+the search of the window (`cancel_symbol_search`). A declaration in another file opens `DeclarationFileView` over the review: a
 `DiffView` of one synthetic added file (all its lines one block of the new side) in `plain` mode, which paints no
 changed background, so the file has the colours, the find and the navigation of a diff without a mode of its own.
 `CommitReviewCode` keeps a stack of these views with the name each jump started from; Back of the first view returns

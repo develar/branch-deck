@@ -1,7 +1,7 @@
 //! Find Usages in a review: the names of a local in its file, the names of a word in the files of the review from the
 //! texts the diffs read, then those outside the review that the index knows
 
-use crate::accio::{ReferenceHit, References, SymbolHit, SymbolIndex};
+use crate::accio::{ReferenceHit, References, SearchCanceled, SymbolHit, SymbolIndex};
 use crate::declarations_test::{params, review, single_file_params};
 use crate::fixture_test::{commit_all, process_counts, repo_path, write};
 use crate::model::FoundUsages;
@@ -120,32 +120,34 @@ fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_th
   assert_eq!(*index.queries.lock().unwrap(), [("outsider".to_string(), Some(commit))]);
 }
 
-/// An index that fails every query, as accio that does not answer in time
-struct FailingIndex;
+/// An index that fails every query with `error`: accio that exits with an error, or a search the window canceled
+struct FailingIndex(fn() -> anyhow::Error);
 
 impl SymbolIndex for FailingIndex {
   fn symbols(&self, _repository_root: &str, _query: &str, _revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
-    anyhow::bail!("no answer in 5 s")
+    Err(self.0())
   }
 
   fn references(&self, _repository_root: &str, _name: &str, _revision: Option<&str>) -> anyhow::Result<Option<References>> {
-    anyhow::bail!("no answer in 5 s")
+    Err(self.0())
   }
 }
 
+const EXITED: FailingIndex = FailingIndex(|| anyhow::anyhow!("accio exited with code 2"));
+
 #[test]
-fn an_index_that_does_not_answer_takes_nothing_from_the_review_and_says_why() {
+fn an_index_that_fails_takes_nothing_from_the_review_and_says_why() {
   let (repo, diffs, files) = review();
   let add = diffs
-    .find_usages(repo.git_executor(), Some(&FailingIndex), &params(&repo, &files, "src/Uses.kt", 4, "add"))
+    .find_usages(repo.git_executor(), Some(&EXITED), &params(&repo, &files, "src/Uses.kt", 4, "add"))
     .unwrap();
-  assert_eq!((add.usages.len(), add.index_error.as_deref()), (3, Some("accio did not answer: no answer in 5 s")));
+  assert_eq!((add.usages.len(), add.index_error.as_deref()), (3, Some("accio did not answer: accio exited with code 2")));
   // a declaration the review lacks: none, and why
   let any = diffs
     .find_declaration(
       repo.git_executor(),
       &object_cache::cache::ObjectCache::disabled(),
-      Some(&FailingIndex),
+      Some(&EXITED),
       &params(&repo, &files, "src/Uses.kt", 2, "Store"),
     )
     .unwrap();
@@ -154,9 +156,29 @@ fn an_index_that_does_not_answer_takes_nothing_from_the_review_and_says_why() {
     .find_declaration(
       repo.git_executor(),
       &object_cache::cache::ObjectCache::disabled(),
-      Some(&FailingIndex),
+      Some(&EXITED),
       &params(&repo, &files, "src/Uses.kt", 3, "Int"),
     )
     .unwrap();
-  assert_eq!((int.targets.len(), int.index_error.as_deref()), (0, Some("accio did not answer: no answer in 5 s")));
+  assert_eq!((int.targets.len(), int.index_error.as_deref()), (0, Some("accio did not answer: accio exited with code 2")));
+}
+
+#[test]
+fn a_canceled_search_answers_nothing() {
+  let (repo, diffs, files) = review();
+  let canceled = FailingIndex(|| anyhow::Error::new(SearchCanceled));
+  // the usages of the review are not answered alone, as if the index had none: the window asked for no answer
+  let add = diffs
+    .find_usages(repo.git_executor(), Some(&canceled), &params(&repo, &files, "src/Uses.kt", 4, "add"))
+    .unwrap_err();
+  assert!(add.is::<SearchCanceled>(), "{add:#}");
+  let int = diffs
+    .find_declaration(
+      repo.git_executor(),
+      &object_cache::cache::ObjectCache::disabled(),
+      Some(&canceled),
+      &params(&repo, &files, "src/Uses.kt", 3, "Int"),
+    )
+    .unwrap_err();
+  assert!(int.is::<SearchCanceled>(), "{int:#}");
 }

@@ -163,6 +163,12 @@ export class DiffPainter {
   private repaintQueued = false
   /** ⌘A selected the side of a file: a copy takes all its lines, painted or not */
   private selectAll: { file: number; side: number } | null = null
+  /**
+   * The name a reveal selected: selected once its row is painted with its text, however long that takes under load, and
+   * again when a paint drops it (a new layout paints every row again), until the user presses or types in the view or
+   * selects elsewhere
+   */
+  private revealedName: { file: number; side: number; line: number; start: number; end: number } | null = null
   /** The pages of tokens that arrived since the last repaint, as `blobId:page` */
   private readonly arrivedPages = new Set<string>()
   private textsChanged = false
@@ -208,6 +214,7 @@ export class DiffPainter {
     const onPointerDown = (event: PointerEvent) => this.onPointerDown(event)
     const onKeyDown = (event: KeyboardEvent) => this.onKeyDown(event)
     const onCopy = (event: ClipboardEvent) => this.onCopy(event)
+    const onSelectionChange = () => this.onSelectionChange()
     scroller.addEventListener("scroll", onScroll, { capture: true, passive: true })
     scroller.addEventListener("wheel", onWheel, { passive: true })
     scroller.addEventListener("click", onClick)
@@ -215,6 +222,7 @@ export class DiffPainter {
     scroller.addEventListener("keydown", onKeyDown)
     // a copy goes to the focused element, the body when the view is a block of its parent: the view reads the selection
     document.addEventListener("copy", onCopy)
+    document.addEventListener("selectionchange", onSelectionChange)
     scrollParent?.addEventListener("scroll", onParentScroll, { passive: true })
     // what the user scrolls with: the wheel, a touch, the scroll bar, the keys
     for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
@@ -234,6 +242,7 @@ export class DiffPainter {
       () => scroller.removeEventListener("pointerdown", onPointerDown),
       () => scroller.removeEventListener("keydown", onKeyDown),
       () => document.removeEventListener("copy", onCopy),
+      () => document.removeEventListener("selectionchange", onSelectionChange),
       () => scrollParent?.removeEventListener("scroll", onParentScroll),
       () => {
         for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
@@ -411,6 +420,7 @@ export class DiffPainter {
       }
     }
     this.requestTokens(wants)
+    this.selectRevealedName()
     if (this.firstScreen === "waiting" && firstScreenReady) {
       this.firstScreen = "tokens"
       setTimeout(() => this.finishFirstScreen(), FIRST_SCREEN_TOKENS_MS)
@@ -860,6 +870,8 @@ export class DiffPainter {
   /** With a column per side, a press on a side makes the others not selectable, so a selection stays on one side */
   private onPointerDown(event: PointerEvent): void {
     this.selectAll = null
+    // the user selects now: the name a reveal selected is selected no more
+    this.revealedName = null
     const scroller = this.root
     if (scroller === null) {
       return
@@ -875,6 +887,8 @@ export class DiffPainter {
 
   /** ⌘A (Ctrl+A off macOS) selects the side of the file at the top; a copy then takes all its lines */
   private onKeyDown(event: KeyboardEvent): void {
+    // a key of the user: the name a reveal selected is selected no more (⌘A selects all, Back reveals another)
+    this.revealedName = null
     const model = this.model
     const scroller = this.root
     if (model === null || scroller === null || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey) || event.code !== "KeyA") {
@@ -944,18 +958,39 @@ export class DiffPainter {
     }
   }
 
-  /** Selects the columns `[start, end)` of a line of a side once its row is painted; false while it is not */
-  selectWord(file: number, side: number, line: number, start: number, end: number): boolean {
-    const rows = this.model?.files[file]?.rows
-    const element = rows == null ? undefined : this.painted.get(file)?.get(rowOfLine(rows, side, line))?.element
-    const cell = element?.querySelector<HTMLElement>(`.dv-code[data-side="${side}"]`)
-    if (cell == null) {
-      return false
+  /**
+   * Selects the columns `[start, end)` of a line of a side, the name a reveal shows: now if its row is painted with its
+   * text, else once a paint paints it so (the text of a file outside the review comes after its layout, later under
+   * load), and again after a paint that dropped it. A later call replaces it; a press or a key in the view, or a
+   * selection elsewhere, ends it
+   */
+  selectWord(file: number, side: number, line: number, start: number, end: number): void {
+    this.revealedName = { file, side, line, start, end }
+    this.selectRevealedName()
+  }
+
+  private selectRevealedName(): void {
+    const name = this.revealedName
+    const rows = name === null ? null : this.model?.files[name.file]?.rows
+    const entry = name === null || rows == null ? undefined : this.painted.get(name.file)?.get(rowOfLine(rows, name.side, name.line))
+    if (entry === undefined || !entry.textsRead || holdsSelection(entry.element)) {
+      return
+    }
+    const cell = entry.element.querySelector<HTMLElement>(`.dv-code[data-side="${name!.side}"]`)
+    if (cell === null) {
+      return
     }
     const selection = document.getSelection()
     selection?.removeAllRanges()
-    selection?.addRange(cellRange(cell, start, end))
-    return true
+    selection?.addRange(cellRange(cell, name!.start, name!.end))
+  }
+
+  /** The selection moved out of the view (the user selected in another one): the name a reveal selected is let go */
+  private onSelectionChange(): void {
+    const anchor = document.getSelection()?.anchorNode ?? null
+    if (this.revealedName !== null && this.root !== null && anchor !== null && !this.root.contains(anchor)) {
+      this.revealedName = null
+    }
   }
 
   private onCopy(event: ClipboardEvent): void {

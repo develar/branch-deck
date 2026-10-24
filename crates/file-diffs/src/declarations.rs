@@ -170,11 +170,11 @@ impl FileDiffs {
     let revision = revision_of(params);
     let qualified = owner.map(|owner| format!("{owner}.{name}"));
     let mut hits = match &qualified {
-      Some(query) => index.symbols(&params.repository_path, query, revision),
+      Some(query) => index.symbols(&params.repository_path, query, revision)?,
       None => Vec::new(),
     };
     if hits.is_empty() {
-      hits = index.symbols(&params.repository_path, name, revision);
+      hits = index.symbols(&params.repository_path, name, revision)?;
     }
     let packages = imported_directories(site_summary, name);
     let mut hits: Vec<(i32, SymbolHit)> = hits

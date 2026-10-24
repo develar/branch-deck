@@ -3,6 +3,7 @@
 //! Serialized to the frontend as `{ "message": string, "kind": null, "operation_id": null }`, `kind` naming a refusal the
 //! page tells apart, `operation_id` the operation whose log lines tell what failed.
 
+use file_diffs::accio::SearchCanceled;
 use serde::Serialize;
 use sync_core::sync::SyncDeferred;
 
@@ -31,6 +32,9 @@ pub enum CommandErrorKind {
   /// The user stopped the wait for another holder of the repository lock (Stop Waiting, `cancel_lock_wait`): the
   /// command changed nothing
   LockWaitCanceled,
+  /// A newer symbol search of the window, or the user (Escape, Cancel: `cancel_symbol_search`), canceled the search
+  /// (`SearchCanceled`): it answers nothing
+  SearchCanceled,
 }
 
 impl CommandError {
@@ -45,10 +49,13 @@ impl CommandError {
 
 impl From<anyhow::Error> for CommandError {
   fn from(err: anyhow::Error) -> Self {
-    let kind = err.downcast_ref::<SyncDeferred>().map(|deferred| match deferred {
-      SyncDeferred::OperationInProgress(_) => CommandErrorKind::OperationInProgress,
-      SyncDeferred::DetachedHead => CommandErrorKind::DetachedHead,
-    });
+    let kind = err
+      .downcast_ref::<SyncDeferred>()
+      .map(|deferred| match deferred {
+        SyncDeferred::OperationInProgress(_) => CommandErrorKind::OperationInProgress,
+        SyncDeferred::DetachedHead => CommandErrorKind::DetachedHead,
+      })
+      .or_else(|| err.is::<SearchCanceled>().then_some(CommandErrorKind::SearchCanceled));
     // Alternate format includes the whole context chain: "outer: inner: root cause"
     Self {
       message: format!("{err:#}"),

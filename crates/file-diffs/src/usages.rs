@@ -76,7 +76,7 @@ impl FileDiffs {
       });
     };
     let index = Lenient::new(index);
-    let references = index.references(&params.repository_path, &found.name, revision_of(params));
+    let references = index.references(&params.repository_path, &found.name, revision_of(params))?;
     let more_outside = !references.complete;
     usages.extend(self.outside_usages(git, params, &found.name, language, references.hits)?);
     Ok(FoundUsages {

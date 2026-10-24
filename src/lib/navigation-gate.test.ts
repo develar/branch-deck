@@ -50,4 +50,20 @@ describe("NavigationGate", () => {
     gate.show("c2")
     expect(gate.finish(fourth)).toBe(true)
   })
+
+  it("drops the answer of a canceled navigation, and says whether one was in flight", () => {
+    const gate = new NavigationGate()
+    expect(gate.show("c1")).toBe(false)
+    expect(gate.cancel()).toBe(false)
+    const first = gate.start("usages\nA.kt:3:7")!
+    // Escape while the index searches: the list never opens, and the same name asks again at once
+    expect(gate.cancel()).toBe(true)
+    expect(gate.finish(first)).toBe(false)
+    const again = gate.start("usages\nA.kt:3:7")!
+    expect(again).not.toBeNull()
+    // ⌥↓ drops the one in flight and says so, for the backend to stop its search
+    expect(gate.show("c2")).toBe(true)
+    expect(gate.finish(again)).toBe(false)
+    expect(gate.show("c3")).toBe(false)
+  })
 })

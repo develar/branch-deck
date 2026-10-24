@@ -7,7 +7,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
-import { holdCommandCalls } from "../helpers/wait-helpers"
+import { holdCommandCalls, holdNextAnswer, recordCommand } from "../helpers/wait-helpers"
 
 // the `symbol_navigation` template: Uses.kt calls `store.add` of an untyped receiver (an `add` in Store.kt and in
 // Queue.kt) and `helper`, declared at the end of Store.kt, which its change at the top leaves in a fold
@@ -78,6 +78,15 @@ async function expectHelperShownAndBack(code: Locator): Promise<void> {
   await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Uses.kt" })
 }
 
+/** The file of `outsider` is open over the review once: one Back closes it and returns to the name in Uses.kt */
+async function expectOutsiderFileAndBack(page: Page): Promise<void> {
+  const fileView = page.getByTestId("declaration-file-view")
+  await expect(fileView).toContainText("src/Base.kt")
+  await page.keyboard.press(BACK)
+  await expect(fileView).toBeHidden()
+  await expect.poll(() => selected(page)).toEqual({ text: "outsider", path: "src/Uses.kt" })
+}
+
 /** ⌥F7 on `word` of the file `path`, selected by a double click */
 async function findUsagesOf(code: Locator, path: string, word: string): Promise<void> {
   const page = code.page()
@@ -85,6 +94,11 @@ async function findUsagesOf(code: Locator, path: string, word: string): Promise<
   await page.mouse.dblclick(at.x, at.y)
   await expect.poll(async () => (await selected(page)).text).toBe(word)
   await page.keyboard.press("Alt+F7")
+}
+
+/** Every command of the page has its answer: a held one the test released has reached the page */
+async function answered(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __ipcStats: { pending: number } }).__ipcStats.pending)).toBe(0)
 }
 
 /** The selected text and the file of the view it is in */
@@ -214,7 +228,6 @@ test.describe("Go to Declaration", () => {
   test("should open one file for a name clicked twice before the answer, so one Back returns to the review", async ({ page }) => {
     writeOutsiderIndex(repositoryPath)
     const code = await openNavigationReview(page)
-    const fileView = page.getByTestId("declaration-file-view")
     const at = await pointOf(code, "src/Uses.kt", "outsider")
     const held = await holdCommandCalls(page, "find_declaration")
     for (let click = 0; click < 2; click++) {
@@ -225,11 +238,49 @@ test.describe("Go to Declaration", () => {
     // the second click joins the first: one question reached the backend
     await expect.poll(() => held.calls.length).toBe(1)
     held.release()
-    await expect(fileView).toContainText("src/Base.kt")
-    await page.keyboard.press(BACK)
-    await expect(fileView).toBeHidden()
-    await expect.poll(() => selected(page)).toEqual({ text: "outsider", path: "src/Uses.kt" })
+    await expectOutsiderFileAndBack(page)
     expect(held.calls).toHaveLength(1)
+  })
+
+  test("should say that it searches while the backend answers, and stop the search on Escape and on Cancel", async ({ page }) => {
+    writeOutsiderIndex(repositoryPath)
+    const code = await openNavigationReview(page)
+    const cancels = await recordCommand(page, "cancel_symbol_search")
+    const at = await pointOf(code, "src/Uses.kt", "outsider")
+    const goToOutsider = async () => {
+      await page.keyboard.down(MODIFIER)
+      await page.mouse.click(at.x, at.y)
+      await page.keyboard.up(MODIFIER)
+    }
+
+    // Go to Declaration, its answer held: the search says so at the name, Escape stops it in the backend
+    const declaration = await holdNextAnswer(page, "find_declaration")
+    await goToOutsider()
+    const searching = page.getByRole("status", { name: "Looking for the declaration…" })
+    await expect(searching).toBeVisible()
+    await declaration.ran
+    await page.keyboard.press("Escape")
+    await expect(searching).toBeHidden()
+    await expect.poll(() => cancels.length).toBe(1)
+    declaration.release()
+    await answered(page)
+
+    // Find Usages, its answer held: Cancel stops it
+    const usages = await holdNextAnswer(page, "find_usages")
+    await findUsagesOf(code, "src/Uses.kt", "helper")
+    const finding = page.getByRole("status", { name: "Finding usages…" })
+    await expect(finding).toBeVisible()
+    await usages.ran
+    await finding.getByRole("button", { name: "Cancel" }).click()
+    await expect(finding).toBeHidden()
+    await expect.poll(() => cancels.length).toBe(2)
+    usages.release()
+    await answered(page)
+    await expect(page.getByTestId("symbol-chooser")).toBeHidden()
+
+    // the canceled answers opened nothing: the next jump opens one file, and one Back returns to the review
+    await goToOutsider()
+    await expectOutsiderFileAndBack(page)
   })
 })
 
@@ -283,15 +334,15 @@ test.describe("Find Usages", () => {
     await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Base.kt" })
   })
 
-  test("should keep what the review knows and say why when the index of the repository does not answer", async ({ page }) => {
-    writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ error: "no answer in 5 s" }))
+  test("should keep what the review knows and say why when the index of the repository fails", async ({ page }) => {
+    writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ error: "accio exited with code 2" }))
     const code = await openNavigationReview(page)
     await findUsagesOf(code, "src/Uses.kt", "helper")
     await expect(page.getByRole("listbox", { name: "Usages of helper" }).getByRole("option")).toHaveText([
       "callhelper(2)src/Uses.kt:4",
       "declarationfun helper(value: Int) = valuesrc/Store.kt:36",
     ])
-    await expect(page.getByTestId("symbol-chooser")).toContainText("accio did not answer: no answer in 5 s: the usages outside the review are missing")
+    await expect(page.getByTestId("symbol-chooser")).toContainText("accio did not answer: accio exited with code 2: the usages outside the review are missing")
     await page.keyboard.press("Escape")
     // a name the review does not declare: no declaration, and why
     const outsider = await pointOf(code, "src/Uses.kt", "outsider")
@@ -299,7 +350,7 @@ test.describe("Find Usages", () => {
     await page.mouse.click(outsider.x, outsider.y)
     await page.keyboard.up(MODIFIER)
     await expect(page.getByText("No declaration of outsider found")).toBeVisible()
-    await expect(page.getByText("accio did not answer: no answer in 5 s")).toBeVisible()
+    await expect(page.getByText("accio did not answer: accio exited with code 2")).toBeVisible()
   })
 
   test("should say when a name has no usage but its declaration", async ({ page }) => {

@@ -1,5 +1,5 @@
-//! Runs a CLI that is not git (`gh`, `claude`): input on stdin, both pipes drained while it runs, killed after a timeout
-//! or as soon as the caller no longer wants the answer.
+//! Runs a CLI that is not git (`gh`, `claude`, `accio`): input on stdin, both pipes drained while it runs, killed after
+//! a timeout (none for `run_child_until_superseded`) or as soon as the caller no longer wants the answer.
 
 use crate::span::in_current_span;
 use std::ffi::{OsStr, OsString};
@@ -49,6 +49,17 @@ impl ChildOutput {
 /// Runs `command` with `stdin` (None = no input), reading stdout and stderr while it runs, so a full pipe never blocks the
 /// child. The child is killed after `timeout`, and within one poll interval after `is_superseded` turns true.
 pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duration, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
+  run_until(command, stdin, Some(Instant::now() + timeout), is_superseded)
+}
+
+/// `run_child` without a deadline: the child runs as long as it takes, and is killed only within one poll interval after
+/// `is_superseded` turns true. For a child whose time depends on the load of the machine, where a fixed bound would fail
+/// a slow answer the user still waits for, and the user can cancel
+pub fn run_child_until_superseded(command: &mut Command, stdin: Option<Vec<u8>>, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
+  run_until(command, stdin, None, is_superseded)
+}
+
+fn run_until(command: &mut Command, stdin: Option<Vec<u8>>, deadline: Option<Instant>, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
   command
     .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
     .stdout(Stdio::piped())
@@ -64,12 +75,11 @@ pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duratio
   let stdout = read_pipe(child.stdout.take());
   let stderr = read_pipe(child.stderr.take());
 
-  let deadline = Instant::now() + timeout;
   let status = loop {
     let stop = match child.try_wait() {
       Ok(Some(status)) => break status,
       Ok(None) if is_superseded() => ChildProcessError::Superseded,
-      Ok(None) if Instant::now() >= deadline => ChildProcessError::TimedOut,
+      Ok(None) if deadline.is_some_and(|deadline| Instant::now() >= deadline) => ChildProcessError::TimedOut,
       Ok(None) => {
         std::thread::sleep(POLL_INTERVAL);
         continue;

@@ -1723,6 +1723,11 @@ pub async fn find_usages(State(state): State<Arc<AppState>>, Json(params): Json<
   .await
 }
 
+/// Nothing to kill: the index of a test repository is its fixture, read at once
+pub async fn cancel_symbol_search() -> Json<()> {
+  Json(())
+}
+
 #[derive(Deserialize)]
 pub struct SetAutoSyncMenuCheckedRequest {
   checked: bool,

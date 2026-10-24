@@ -322,7 +322,7 @@ Safe Push it allows.
   After the answer, the source is the one the range names.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_cancel_kills_the_fetch`, `a_stalled_fetch_is_killed`)
   [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`a_git_that_reports_nothing_for_the_idle_timeout_is_killed`, `progress_resets_the_idle_timeout`, `a_cancelled_git_is_killed`, `a_stopped_git_ends_every_process_it_started`)
-  [@test] ../../src-tauri/src/commands/review_requests.rs (`a_window_kills_only_its_own_fetch`, `a_closed_window_kills_its_fetch`)
+  [@test] ../../src-tauri/src/window_requests.rs (`a_window_supersedes_only_its_own_request`, `a_closed_window_supersedes_its_request`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - Changes (`D`, toggling) reviews the range in the island, the range review of a branch
   ([Branch Review](../branch/branch-review.spec.md)): the commits ("All Changes" `base..head`, then the commits newest

@@ -19,6 +19,12 @@ export type SymbolChoice = {
   returnFocus: HTMLElement | null
 } & ({ kind: "declarations"; targets: readonly DeclarationTarget[] } | { kind: "usages"; usages: readonly UsageTarget[]; moreOutside: boolean; indexError: string | null })
 
+/** A navigation the backend still answers, the index of the repository being searched: shown at the name, canceled by Escape or Cancel */
+export interface SymbolSearch {
+  kind: "declaration" | "usages"
+  at: { x: number; y: number }
+}
+
 /** The place of a target in the view */
 export function placeOf(target: DeclarationTarget): DeclarationPlace {
   return { path: target.path, side: target.side, line: target.line, column: target.column, endColumn: target.endColumn }
@@ -37,14 +43,31 @@ type SymbolAction = (site: DeclarationSite, at: { x: number; y: number }, reveal
  * declarations or the usages of the name in the files of the review, then in the index of the repository. One
  * declaration is shown at once (a file outside the review in a view of its own), several are offered; the usages are
  * a list; none is said in a toast. One navigation is in flight per view (`NavigationGate`): a repeat of the name joins
- * it, and an answer that arrives after another name or another subject (⌥↓) does nothing
+ * it, and an answer that arrives after another name or another subject (⌥↓) does nothing. The index is waited for as
+ * long as it runs, with no deadline: meanwhile `search` says so at the name, and `cancelSearch` (Escape, Cancel) drops
+ * the answer and kills the search of the window (`cancel_symbol_search`), as ⌥↓ and the close of the view do
  */
 export function useSymbolNavigation(files: readonly DiffViewFile[], revisions: DiffRevisions, openFile: (target: DeclarationTarget, from: DeclarationPlace | null) => void) {
   const [choice, setChoice] = useState<SymbolChoice | null>(null)
   // one navigation in flight per view; an answer for another subject or a newer name is dropped
   const [gate] = useState(() => new NavigationGate())
+  // the navigation in flight, by its ticket and the subject it was asked for: another subject shows none
+  const [searching, setSearching] = useState<(SymbolSearch & { ticket: number; subject: string }) | null>(null)
   const subject = `${revisions.old ?? ""}\n${revisions.new ?? ""}`
-  useEffect(() => gate.show(subject), [gate, subject])
+  useEffect(() => {
+    if (gate.show(subject)) {
+      stopBackendSearch()
+    }
+  }, [gate, subject])
+  // a view that goes takes its search along
+  useEffect(
+    () => () => {
+      if (gate.cancel()) {
+        stopBackendSearch()
+      }
+    },
+    [gate],
+  )
   /** The params of the backend and the way to show a target, for a name of the view */
   const prepare = (site: DeclarationSite, reveal: (place: DeclarationPlace) => boolean, from: DeclarationPlace | null) => {
     const repositoryPath = getDiffRepositoryPath()
@@ -69,7 +92,7 @@ export function useSymbolNavigation(files: readonly DiffViewFile[], revisions: D
 
   /** Asks the backend about a name of the view and answers with the way to show a target, or says why it cannot */
   const ask = <T>(
-    kind: string,
+    kind: SymbolSearch["kind"],
     call: (params: FindDeclarationParams) => Promise<CommandResult<T>>,
     failure: string,
     answer: (data: T, show: (target: DeclarationTarget) => void, at: { x: number; y: number }) => void,
@@ -83,8 +106,11 @@ export function useSymbolNavigation(files: readonly DiffViewFile[], revisions: D
       if (ticket === null) {
         return
       }
+      setSearching({ kind, at, ticket, subject })
       void invokeCommand(() => call(prepared.params)).then(result => {
-        if (!gate.finish(ticket)) {
+        setSearching(current => (current?.ticket === ticket ? null : current))
+        // a search a newer one of the window or the user canceled answers nothing
+        if (!gate.finish(ticket) || (result.status === "error" && result.error.kind === "searchCanceled")) {
           return
         }
         if (result.status === "error") {
@@ -114,5 +140,24 @@ export function useSymbolNavigation(files: readonly DiffViewFile[], revisions: D
     }
   })
 
-  return { goToDeclaration, findUsages, choice, closeChoice: () => setChoice(null) }
+  const cancelSearch = () => {
+    setSearching(null)
+    if (gate.cancel()) {
+      stopBackendSearch()
+    }
+  }
+
+  return {
+    goToDeclaration,
+    findUsages,
+    choice,
+    closeChoice: () => setChoice(null),
+    search: searching?.subject === subject ? { kind: searching.kind, at: searching.at } : null,
+    cancelSearch,
+  }
+}
+
+/** Kills the symbol search of this window in the backend, its accio; the answer it then gives is `searchCanceled` */
+function stopBackendSearch(): void {
+  void invokeCommand(() => commands.cancelSymbolSearch())
 }

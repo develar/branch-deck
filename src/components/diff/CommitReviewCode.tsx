@@ -8,6 +8,7 @@ import { DeclarationFileView } from "@/components/diff/DeclarationFileView"
 import { DiffView } from "@/components/diff/DiffView"
 import type { DeclarationPlace, DiffHeaderProps, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
 import { SymbolChooser } from "@/components/diff/SymbolChooser"
+import { SymbolSearchStatus } from "@/components/diff/SymbolSearchStatus"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
@@ -82,6 +83,8 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
     }
   }
   const inFile = useSymbolNavigation(files, { old: null, new: shownFile?.outside?.revision ?? null }, openFile)
+  // the search in flight of either view, at its name
+  const search = inReview.search ?? inFile.search
   return (
     <div className="relative h-full">
       <DiffView
@@ -104,6 +107,15 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
           onBack={back}
           onGoToDeclaration={inFile.goToDeclaration}
           onFindUsages={inFile.findUsages}
+        />
+      )}
+      {search !== null && (
+        <SymbolSearchStatus
+          search={search}
+          onCancel={() => {
+            inReview.cancelSearch()
+            inFile.cancelSearch()
+          }}
         />
       )}
       <SymbolChooser
