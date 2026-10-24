@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.31.0](https://github.com/develar/branch-deck/compare/v0.30.0...v0.31.0) (2026-10-24)
+
+
+### Features
+
+* **test-server:** a test holds the answers of the fakes, so it sees the page before them ([d27cfe3](https://github.com/develar/branch-deck/commit/d27cfe3ba9be8afec664470551b35805c5078a43))
+
+
+### Bug Fixes
+
+* **branch:** late facts move nothing under the pointer: the header holds its width, the view the layout of its last start ([3616adf](https://github.com/develar/branch-deck/commit/3616adf01c6f8d89bc7ea3957e94823eb1165c00))
+* **branch:** the next step waits with Checking… for a fact no answer told yet, never offers the step a later answer turns ([b7d5a25](https://github.com/develar/branch-deck/commit/b7d5a25c36e51b8c648b8434a12344651df2ef41))
+* **e2e:** a test acts on a Safe Push once its step is known, as the user can ([faea125](https://github.com/develar/branch-deck/commit/faea12524b039d6168ae7dedae9b5b0461fa92f7))
+* **git:** a write of the index waits for another process's index lock and removes an ownerless one ([9ef8908](https://github.com/develar/branch-deck/commit/9ef8908d74aaa4100a8eface597f1e3a7e09a195))
+* **settings:** a save of the settings never fails while bd or another reader has the file open on Windows ([ca344a6](https://github.com/develar/branch-deck/commit/ca344a6a09f8bdbcb76a68bc62eba51eeff8be07))
+* **startup:** a window shows on the frame its webview presented of its content, its budget counts from its shell, and the deadline of its load never shows a loaded page ([31a7f85](https://github.com/develar/branch-deck/commit/31a7f8546747ba905ac0547d13bcec6bfae5c169))
+* **windows:** a lock record, a lease and a trash directory of a gone process are told apart on Windows too ([b629afa](https://github.com/develar/branch-deck/commit/b629afaf5089745888291038d18c0c0a95aa9842))
+* **windows:** the process scan keeps one set of the answers a platform without a scan gives, so lint:cpd passes ([9b48b1f](https://github.com/develar/branch-deck/commit/9b48b1ffda6c9e7b875e52d6933810ca80051bcd))
+
+
+### Performance Improvements
+
+* **test-server:** a route test builds only the templates it asks for, and the CI run of Windows gets an hour ([2e503b0](https://github.com/develar/branch-deck/commit/2e503b03294062873beef97966db8dff348ac7b7))
+
 ## [0.30.0](https://github.com/develar/branch-deck/compare/v0.29.1...v0.30.0) (2026-10-24)
 
 
