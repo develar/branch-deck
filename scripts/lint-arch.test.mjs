@@ -31,6 +31,48 @@ test("a branch on the words of an error is refused, compared or searched", () =>
   ])
 })
 
+test("a branch on the words through a helper, a name, a switch, an index or a string of the error is refused", () => {
+  const source = [
+    'if (getErrorDetails(error) === "canceled") {}',
+    'if (describeError(result.error).includes("locked")) {}',
+    "const { message } = result.error",
+    'if (message === "canceled") {}',
+    "switch (result.error.message) {}",
+    'if (result.error["message"] === "x") {}',
+    'if (String(error).includes("x")) {}',
+    "const text = getErrorDetails(failure)",
+    'if (text.startsWith("Cannot")) {}',
+    "const { message: words } = error",
+    "switch (words) {}",
+    'if (result.error?.["message"] !== "x") {}',
+  ].join("\n")
+  assert.deepEqual(rulesOf(source), [
+    "1 message-control",
+    "2 message-control",
+    "4 message-control",
+    "5 message-control",
+    "6 message-control",
+    "7 message-control",
+    "9 message-control",
+    "11 message-control",
+    "12 message-control",
+  ])
+})
+
+test("the words bound to a name and shown, a string of another value and a field typed string are no branch", () => {
+  const source = [
+    "const { message } = result.error",
+    "notifyError(title, message)",
+    "const text = getErrorDetails(error)",
+    "toast.add({ description: text })",
+    'if (String(count) === "1") {}',
+    "type Failure = { message: string }",
+    'if (typeof message === "string") {}',
+    "if (message !== undefined) {}",
+  ].join("\n")
+  assert.deepEqual(rulesOf(source), [])
+})
+
 test("a check of the type, of null, an assignment and a read for the user are no branch", () => {
   const source = [
     'if (typeof error.message === "string") {}',

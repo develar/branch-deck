@@ -90,8 +90,8 @@ jobs:
         if: runner.os == 'macOS'
         run: pnpm exec node --test scripts/release-signing.test.mjs
 
-      - name: Type-check, find copies and check the test links of the specs
-        run: pnpm lint:typecheck && pnpm lint:cpd && pnpm lint:specs
+      - name: Type-check, find copies, check the test links of the specs and the architecture rules
+        run: pnpm lint:typecheck && pnpm lint:cpd && pnpm lint:specs && pnpm lint:arch
 
       - name: Check Rust formatting and clippy
         # bash: pwsh, the Windows default, fails a step only on the exit code of its last command
