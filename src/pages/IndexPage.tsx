@@ -122,7 +122,7 @@ export function IndexPage() {
   useWindowFocus(
     () => {
       // a `git config` meanwhile: the names the page shows; the sync resolves the prefix in Rust itself
-      refreshBranchPrefix()
+      void refreshBranchPrefix()
       void debouncedWindowFocus(true)
     },
     () => void debouncedWindowFocus(false),

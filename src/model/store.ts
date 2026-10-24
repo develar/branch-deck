@@ -12,11 +12,12 @@
  * (a run of the session, or a request of this window that has not answered yet), the count of the runs that ended, how
  * far the run is. A request (`requestSessionSync`, and a focus of the window, `setSessionWindowFocus`) resolves when
  * the run that serves it ended and its last patch reached the store (`SyncAnswer.version`); a command whose result the
- * session applied (a push, a deletion) waits the same way for the version it answers (`whenSessionViewAt`). The remote
- * status of a row is the session's: Rust orders a push's outcome against the syncs, so the store shows what it gets.
+ * session applied (a push, a deletion) waits the same way for the version it answers (`whenSessionViewAt`); an answer
+ * of another epoch than the view's subscribes the window again (`whenServedViewAt`). The remote status of a row is the
+ * session's: Rust orders a push's outcome against the syncs, so the store shows what it gets.
  */
 import { Channel } from "@tauri-apps/api/core"
-import type { BranchChange, BranchView, Commit, CommitSync, StackBranchUpdate, SyncAnswer, SyncReason, TableChanges, TableView, Version, ViewPatch } from "@/lib/bindings"
+import type { ApiError, BranchChange, BranchView, Commit, CommitSync, StackBranchUpdate, SyncAnswer, SyncReason, TableChanges, TableView, Version, ViewPatch } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
@@ -31,9 +32,9 @@ import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNa
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore, toRemoteStatus } from "@/stores/branch-sync"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
-import { getSelectedRepositoryPath, refreshBranchPrefix } from "@/stores/repository"
+import { getEffectiveBranchPrefix, getSelectedRepositoryPath, refreshBranchPrefix } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
-import { updateRepositoryState } from "@/stores/settings/repositoryState"
+import { getRepositoryState, updateRepositoryState } from "@/stores/settings/repositoryState"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
 
 /** The subscription of the window to the session of one repository */
@@ -124,13 +125,12 @@ export function whenSessionReady(): Promise<void> {
  * Resolves once the store has the view of the session of `repositoryPath` at `version` (the answer of a command whose
  * result the session applied: a push, the deletion of an archived or unapplied branch), so what runs next reads the
  * table with it; at once for no version (no session was open), and once the window holds no session of that repository
+ * (`whenServedViewAt`)
  */
-export function whenSessionViewAt(repositoryPath: string, version: Version | null): Promise<void> {
-  const target = session
-  if (version === null || target === null || target.repositoryPath !== repositoryPath) {
-    return Promise.resolve()
+export async function whenSessionViewAt(repositoryPath: string, version: Version | null): Promise<void> {
+  if (version !== null) {
+    await whenServedViewAt(repositoryPath, version, false)
   }
-  return whenViewAt(target, version)
 }
 
 function subscribe(repositoryPath: string): void {
@@ -153,6 +153,18 @@ function subscribe(repositoryPath: string): void {
     },
     (error: unknown) => fail(opened, error),
   )
+}
+
+/**
+ * The session the window subscribed to is gone, and its patches with it: the window subscribes to the session of the
+ * repository open now (another epoch), the table kept until its view comes
+ */
+function resubscribe(gone: Session): void {
+  gone.closed = true
+  if (gone.id !== null) {
+    void commands.unsubscribeView({ id: gone.id })
+  }
+  subscribe(gone.repositoryPath)
 }
 
 function fail(failed: Session, error: unknown): void {
@@ -210,8 +222,8 @@ function refresh(target: Session): void {
       return
     }
     if (result.data === null) {
-      // the session went away (it was idle): subscribe to the new one, the table stays until its view comes
-      subscribe(target.repositoryPath)
+      // the session went away (it was idle, its actor died)
+      resubscribe(target)
       return
     }
     install(target, result.data)
@@ -591,6 +603,49 @@ function whenViewAt(target: Session, version: Version): Promise<void> {
   })
 }
 
+/**
+ * Resolves once the window's session of `repositoryPath` has the view at `version`, the answer of a request (a sync, a
+ * focus, a push), with that session; null once the window holds no session of the repository, or one that did not
+ * serve the request. The window may hold another session than the one it asked: one it opened meanwhile (a new prefix,
+ * `useSyncOnOpen`), or one whose actor died and took the window's subscription with it, which the request opened again
+ * in a new epoch. So an answer of another epoch than the view's subscribes the window again, once, to the session open
+ * now, the table kept until its view comes; a view of yet another epoch then is of a session that did not serve it.
+ * While `busy` (a request of Sync), Sync is busy until the view has the version
+ */
+async function whenServedViewAt(repositoryPath: string, version: Version, busy: boolean): Promise<Session | null> {
+  let subscribedAgain = false
+  for (;;) {
+    const target = session
+    if (target === null || target.repositoryPath !== repositoryPath) {
+      return null
+    }
+    await target.ready
+    if (target !== session) {
+      continue
+    }
+    if (target.failure !== null || target.view === null) {
+      return null
+    }
+    if (target.view.version.epoch !== version.epoch) {
+      if (subscribedAgain) {
+        return null
+      }
+      subscribedAgain = true
+      resubscribe(target)
+      continue
+    }
+    if (target.view.version.seq >= version.seq) {
+      return target
+    }
+    if (busy) {
+      countRequest(target, 1)
+      await whenViewAt(target, version).finally(() => countRequest(target, -1))
+    } else {
+      await whenViewAt(target, version)
+    }
+  }
+}
+
 /** Counts a request of `target` that started (1) or answered (-1); Sync of the window shows the requests of its session */
 function countRequest(target: Session, delta: 1 | -1): void {
   target.pending += delta
@@ -604,7 +659,12 @@ function countRequest(target: Session, delta: 1 | -1): void {
  * store has its last patch, with the answer; null when the request failed. Sync is busy from the request. The last
  * successful sync is recorded for the repository (its time, the branch count, how long it took)
  */
-export async function requestSessionSync(reason: SyncReason): Promise<SyncAnswer | null> {
+export function requestSessionSync(reason: SyncReason): Promise<SyncAnswer | null> {
+  return askSync(reason, reason === "manual")
+}
+
+/** `requestSessionSync`; `askAgainOnPrefixChange`: a refusal for the prefix asks once more (`settle`) */
+async function askSync(reason: SyncReason, askAgainOnPrefixChange: boolean): Promise<SyncAnswer | null> {
   // the request is for the selected repository: one before the window subscribed (a click while the page still loads
   // the prefix), or after its subscription failed (no prefix then, an IPC failure), subscribes to its session first
   const selectedPath = getSelectedRepositoryPath()
@@ -626,7 +686,8 @@ export async function requestSessionSync(reason: SyncReason): Promise<SyncAnswer
       }
       return null
     }
-    return await settle(target, reason, startedAt, () => commands.sync({ repositoryPath: target.repositoryPath, reason }))
+    const askAgain = askAgainOnPrefixChange ? () => askSync(reason, false) : null
+    return await settle(target, reason, startedAt, () => commands.sync({ repositoryPath: target.repositoryPath, reason }), askAgain)
   } finally {
     countRequest(target, -1)
   }
@@ -658,57 +719,78 @@ export async function setSessionWindowFocus(focused: boolean): Promise<SyncAnswe
     }
     return null
   }
-  return settle(target, "focus", startedAt, () => commands.setWindowFocus({ repositoryPath: target.repositoryPath, focused }))
+  return settle(target, "focus", startedAt, () => commands.setWindowFocus({ repositoryPath: target.repositoryPath, focused }), null)
 }
 
 /**
  * The answer of a request of `target` (`sync`, `set_window_focus`): resolves when the store has the last patch of the
- * run that served it, which may come after the answer (Sync stays busy until then), and records it; null when nothing
- * was asked or the request failed. A deferred sync (a rebase in progress, a detached HEAD) is no failure: the user's own
- * (`manual`) says so in an `info` toast, any other waits silently. Nor is a sync of a session whose prefix the git config
- * no longer names (`prefix_changed`: a `git config` in a terminal): the page resolves the prefix again, and the window
- * opens and syncs the session under the new one (`useSyncOnOpen`)
+ * run that served it, which may come after the answer (Sync stays busy until then), and records it once the window
+ * shows the session that served it (`whenServedViewAt`); null when nothing was asked or the request failed
  */
-async function settle(target: Session, reason: SyncReason, startedAt: number, request: () => Promise<CommandResult<SyncAnswer | null>>): Promise<SyncAnswer | null> {
-  let answer: SyncAnswer | null
+async function settle(
+  target: Session,
+  reason: SyncReason,
+  startedAt: number,
+  request: () => Promise<CommandResult<SyncAnswer | null>>,
+  askAgain: (() => Promise<SyncAnswer | null>) | null,
+): Promise<SyncAnswer | null> {
+  let result: CommandResult<SyncAnswer | null>
   try {
-    const result = await request()
-    if (result.status === "error") {
-      const { code, message } = result.error
-      if (code === "prefix_changed") {
-        // the main window shows the prefix and opens the session under it
-        if (isMainWindow) {
-          refreshBranchPrefix()
-        }
-      } else if (code === "operation_in_progress" || code === "detached_head") {
-        if (reason === "manual") {
-          showToast({
-            type: "info",
-            title: message,
-            description: code === "operation_in_progress" ? "The branches sync once git finished it" : "Check out a branch to sync its commits",
-          })
-        }
-      } else {
-        failRequest(target, message, result.error)
-      }
-      return null
-    }
-    answer = result.data
+    result = await request()
   } catch (error) {
     failRequest(target, error instanceof Error ? error.message : String(error), error)
     return null
   }
+  if (result.status === "error") {
+    return refused(target, reason, result.error, askAgain)
+  }
+  const answer = result.data
   if (answer === null) {
     return null
   }
-  if (!viewReached(target, answer.version)) {
-    countRequest(target, 1)
-    await whenViewAt(target, answer.version).finally(() => countRequest(target, -1))
-  }
-  if (target === session && target.failure === null) {
-    recordSync(target.repositoryPath, answer, reason, startedAt)
+  const served = await whenServedViewAt(target.repositoryPath, answer.version, true)
+  if (served !== null) {
+    recordSync(served.repositoryPath, answer, reason, startedAt)
   }
   return answer
+}
+
+/**
+ * A request of `target` the session refused. A deferred sync (a rebase in progress, a detached HEAD) is no failure: the
+ * user's own (`manual`) says so in an `info` toast, any other waits silently. Nor is a sync of a session whose prefix
+ * the git config no longer names (`prefix_changed`: a `git config` in a terminal): the run resolved the prefix again,
+ * the page shows the new one, and the window opens the session under it, which it syncs for a repository synced before
+ * (`useSyncOnOpen`). Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is asked
+ * again once the page has the prefix: the session of the new prefix serves it
+ */
+async function refused(target: Session, reason: SyncReason, error: ApiError, askAgain: (() => Promise<SyncAnswer | null>) | null): Promise<SyncAnswer | null> {
+  const { code, message } = error
+  if (code === "prefix_changed") {
+    // only the main window shows the prefix and opens the session under it
+    if (!isMainWindow) {
+      return null
+    }
+    const resolved = refreshBranchPrefix()
+    if (askAgain === null) {
+      return null
+    }
+    await resolved
+    const repositoryPath = target.repositoryPath
+    const asksAgain = getSelectedRepositoryPath() === repositoryPath && getEffectiveBranchPrefix() !== "" && getRepositoryState(repositoryPath)?.lastSyncTime === undefined
+    return asksAgain ? askAgain() : null
+  }
+  if (code === "operation_in_progress" || code === "detached_head") {
+    if (reason === "manual") {
+      showToast({
+        type: "info",
+        title: message,
+        description: code === "operation_in_progress" ? "The branches sync once git finished it" : "Check out a branch to sync its commits",
+      })
+    }
+  } else {
+    failRequest(target, message, error)
+  }
+  return null
 }
 
 /** A request of the window's session that failed: Sync names why, until the next run */

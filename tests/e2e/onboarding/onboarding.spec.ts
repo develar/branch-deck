@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
-import { emitTauriEvent, finishedSyncCount, focusWindow, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, focusWindow, syncBranches, syncOnWindowFocus, viewEpoch } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { holdCommand, holdNextAnswer, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -163,6 +163,30 @@ test.describe("Onboarding", () => {
     await expect(card).toHaveCount(0)
   })
 
+  test("syncs under a prefix set in a terminal behind the window's back when Sync of the Ready to Sync card is pressed", async ({ page, setupRepo }) => {
+    // the template sets branchdeck.branchPrefix user-name in .git/config; the window keeps the focus, so no resolve of the
+    // prefix finds the change before the click
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    const card = page.getByTestId("ready-to-sync-card")
+    await expect(card).toContainText("user-name/virtual/<name>")
+    await repo.setBranchPrefixInTerminal("team")
+    const syncs = await recordCommand(page, "sync")
+
+    await card.getByTestId("ready-to-sync-button").click()
+
+    // the session of the old prefix refuses the run, and the click is asked again of the session of the new one
+    await expect(findBranchRow(page, "test-branch")).toBeVisible()
+    await expect(card).toHaveCount(0)
+    await expect(page.getByTestId("sync-button")).toBeEnabled()
+    expect(syncs).toEqual([
+      { repositoryPath: repo.path, reason: "manual" },
+      { repositoryPath: repo.path, reason: "manual" },
+    ])
+    expect(await repo.revision("team/virtual/test-branch")).toMatch(/^[0-9a-f]{40}$/)
+    // nothing was built under the prefix the config left
+    await expect(repo.revision("user-name/virtual/test-branch")).rejects.toThrow("404")
+  })
+
   test("syncs a repository synced before when the window opens it", async ({ page, setupRepo }) => {
     // a new window of a project synced an hour ago, Auto-sync on Focus off
     await setupRepo("behind_upstream", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
@@ -292,9 +316,7 @@ test.describe("Sync on focus", () => {
    * way the window ends on the session of the new prefix, synced once as an opened one
    */
   async function focusAfterPrefixSetInTerminal(page: Page, repo: TestRepositoryBuilder, held: "request" | "answer"): Promise<void> {
-    const syncButton = page.getByTestId("sync-button")
-    const epochOf = async () => (await syncButton.getAttribute("data-view-version"))?.split(":")[0]
-    const synced = await epochOf()
+    const synced = await viewEpoch(page)
     expect(synced).toBeDefined()
     await repo.setBranchPrefixInTerminal("team")
     const syncs = await recordCommand(page, "sync")
@@ -304,12 +326,7 @@ test.describe("Sync on focus", () => {
     await focused
     release()
 
-    await expect.poll(epochOf).not.toBe(synced)
-    await expect(findBranchRow(page, "test-branch")).toBeVisible()
-    await expect(syncButton).toBeEnabled()
-    expect(syncs).toEqual([{ repositoryPath: repo.path, reason: "open" }])
-    // the branches are built under the new prefix
-    expect(await repo.revision("team/virtual/test-branch")).toMatch(/^[0-9a-f]{40}$/)
+    await expectTeamSessionSyncedOnOpen(page, repo, synced, syncs)
   }
 
   test("syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its request", async ({

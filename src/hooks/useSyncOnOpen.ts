@@ -12,8 +12,9 @@ import { useEffectiveBranchPrefix, useIsLoadingBranchPrefix, useRepository, useS
  * session of the new one is another session, whose patches never mix with the late ones of the old
  * (`src/model/store.ts`). A change of the branch prefix after it loaded (a `git config` in a terminal, found on a
  * focus; a write of Settings) is another session too, which the window opens and syncs as it opens a repository: the
- * table is never the empty one of a session that no sync built. Without a prefix the window holds no session (one is
- * refused as `no_branch_prefix`): the welcome card asks for the prefix.
+ * table is never the empty one of a session that no sync built. A repository never synced waits here too; a Sync the
+ * user pressed that the session of the old prefix refused is asked again by the store (`src/model/store.ts`). Without a
+ * prefix the window holds no session (one is refused as `no_branch_prefix`): the welcome card asks for the prefix.
  */
 export function useSyncOnOpen(): void {
   const path = useSelectedProjectPath() ?? null

@@ -215,10 +215,11 @@ export function triggerBranchPrefixLoad(project: ProjectMetadata | null): void {
 
 /**
  * Resolves the prefix of the selected repository again, keeping the one shown until Rust answers: on the window's
- * focus (a `git config` meanwhile) and after a change of the app's prefix
+ * focus (a `git config` meanwhile), after a change of the app's prefix, and after a sync refused for it; resolves once
+ * the page has the answer
  */
-export function refreshBranchPrefix(): void {
-  void loadBranchPrefix(getSelectedProject())
+export function refreshBranchPrefix(): Promise<void> {
+  return loadBranchPrefix(getSelectedProject())
 }
 
 /** Not awaited by sync: a sync without git fails on its own, with the same message */
@@ -289,7 +290,7 @@ export function initRepository(): void {
     const prefix = appPrefixOf(value)
     if (prefix !== appPrefix) {
       appPrefix = prefix
-      refreshBranchPrefix()
+      void refreshBranchPrefix()
     }
   })
 

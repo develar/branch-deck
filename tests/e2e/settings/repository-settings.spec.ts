@@ -3,10 +3,10 @@ import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
-import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { windowCalls } from "../helpers/title-bar-helpers"
-import { holdNextAnswer, routeCommandError } from "../helpers/wait-helpers"
+import { holdNextAnswer, recordCommand, routeCommandError } from "../helpers/wait-helpers"
 
 /** docs stacks on ABC-1 (a level below it), or is a branch of its own */
 async function expectDocsStacked(page: Page, stacked: boolean): Promise<void> {
@@ -221,6 +221,26 @@ test.describe("Settings → Repository", () => {
     await expect(general).toContainText("This repository uses its own prefix team")
     await general.getByRole("button", { name: "Open Repository Settings" }).click()
     await expectSettingsOpened(page, { page: "repository", focus: "branchPrefix" }, 2)
+  })
+
+  test("should open and sync the session of a prefix written here, for a repository synced before", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the template sets branchdeck.branchPrefix user-name in .git/config
+    const repo = await setupRepo("simple")
+    await syncAndWaitForBranches()
+    const synced = await viewEpoch(page)
+    expect(synced).toBeDefined()
+    const window = await openRepositorySettings(page, "branchPrefix")
+    const field = row(window, "branchPrefix").getByRole("textbox", { name: "Branch prefix" })
+    await expect(field).toBeFocused()
+    await expect(field).toHaveValue("user-name")
+    const syncs = await recordCommand(page, "sync")
+
+    await field.fill("team")
+    await field.press("Enter")
+    await expect(field).toHaveValue("team")
+
+    // another session names the branches: the main window subscribes to it and syncs it as an opened repository, once
+    await expectTeamSessionSyncedOnOpen(page, repo, synced, syncs)
   })
 
   test("should give the prefix back to General once the repository's own is unset, and say so", async ({ page, setupRepo }) => {

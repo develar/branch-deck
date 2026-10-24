@@ -387,7 +387,8 @@ impl Sessions {
 
   /// Runs `action` on the entry of `key` under the registry's lock, creating the session first, so `sweep` never removes
   /// one between the lookup and the message. A session whose actor is gone (it panicked) opens again, in a new epoch:
-  /// its subscribers went with the actor, and the windows subscribe to the new one when their snapshot comes back empty
+  /// its subscribers went with the actor, and a window subscribes to the new one once the answer of a request (a sync, a
+  /// push) names another epoch than its view's (`whenServedViewAt` in `src/model/store.ts`)
   fn with_entry(&self, key: &SessionKey, action: impl FnOnce(&Entry)) {
     let mut entries = self.lock();
     if entries.get(key).is_some_and(Entry::is_dead) {

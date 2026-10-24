@@ -1,6 +1,25 @@
 import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
-import type { SyncOverrides } from "./test-repository"
+import { findBranchRow } from "./branch-helpers"
+import type { SyncOverrides, TestRepositoryBuilder } from "./test-repository"
+
+/** The epoch of the view the main window holds, from `data-view-version` (`epoch:seq`) of Sync; undefined without one */
+export async function viewEpoch(page: Page): Promise<string | undefined> {
+  return (await page.getByTestId("sync-button").getAttribute("data-view-version"))?.split(":")[0]
+}
+
+/**
+ * Waits until the main window holds another session than the one of `epoch`, the session of `repo` under the prefix
+ * `team`, and synced it once as an opened repository: test-branch shows, Sync is idle, the one sync the window asked
+ * since `syncs` began recording is `open`, and the branch is built under the new prefix
+ */
+export async function expectTeamSessionSyncedOnOpen(page: Page, repo: TestRepositoryBuilder, epoch: string | undefined, syncs: Record<string, unknown>[]): Promise<void> {
+  await expect.poll(() => viewEpoch(page)).not.toBe(epoch)
+  await expect(findBranchRow(page, "test-branch")).toBeVisible()
+  await expect(page.getByTestId("sync-button")).toBeEnabled()
+  expect(syncs).toEqual([{ repositoryPath: repo.path, reason: "open" }])
+  expect(await repo.revision("team/virtual/test-branch")).toMatch(/^[0-9a-f]{40}$/)
+}
 
 /**
  * Sync branches and wait for specific elements to appear

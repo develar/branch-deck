@@ -56,9 +56,11 @@ flowchart LR
   (`subscribe_view`, by path, the prefix Rust's) and applies each patch whose base is the version it holds
   (`applyViewPatch`, `src/model/patch.ts`, as `repository_model::patch` does): one of another epoch, or after a gap,
   asks for the snapshot (`get_snapshot`), one that came before the subscription answered waits for its view, a
-  session that went away is subscribed again. A patch builds again only the records of the branches and stacks it
+  session that went away is subscribed again, and so is one whose request answers another epoch than the view's (its
+  actor died and took the subscription with it). A patch builds again only the records of the branches and stacks it
   names; a branch whose state alone changed keeps its commits and their index, so the row of an untouched branch does
   not render again.
+  [@test] ../../src/model/store.test.ts (`takes the snapshot when a patch of another epoch comes: the session was opened again`, `subscribes again when the snapshot finds the session gone, keeping the table until the new view comes`, `subscribes again when a sync answers another epoch than its view's: the actor of the session died, and the sync opened it again`)
   - Updates of other stores run in the same pass: the issue links (`updateProject`), the archived names (marked new
     only for what this patch archived), the landed status, the unapplied branches.
   - Nothing depends on the moment of arrival in the page: the session orders a push against the syncs

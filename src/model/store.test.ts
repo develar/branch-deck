@@ -9,8 +9,8 @@ import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-supp
 
 const { toasts, archived, syncRecords, prefixLoads } = vi.hoisted(() => ({
   toasts: [] as { type?: string; title: string; description?: string }[],
-  /** How often the page resolved the prefix of the repository again (`refreshBranchPrefix`) */
-  prefixLoads: { count: 0 },
+  /** How often the page resolved the prefix of the repository again (`refreshBranchPrefix`), and the prefix it shows then */
+  prefixLoads: { count: 0, prefix: "team" },
   /** Each `updateFromArchivedNames` of the archived branches: the names, and the ones marked new */
   archived: { names: [] as [readonly string[], readonly string[]][], settled: 0 },
   /** What each sync that ended recorded of its repository (`repositoryState`) */
@@ -23,13 +23,16 @@ vi.mock("@/lib/toast-message", () => ({ showToast: (toast: { type?: string; titl
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: "/repo" }),
   getSelectedRepositoryPath: () => "/repo",
-  refreshBranchPrefix: () => {
+  refreshBranchPrefix: async () => {
     prefixLoads.count++
   },
+  getEffectiveBranchPrefix: () => prefixLoads.prefix,
 }))
 vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {} }))
 vi.mock("@/stores/settings/repositoryState", () => ({
   updateRepositoryState: (path: string, update: (state: object) => unknown) => syncRecords.push({ path, record: update({}) }),
+  // the repository state is what the syncs of the test recorded
+  getRepositoryState: (path: string) => syncRecords.findLast(it => it.path === path)?.record,
 }))
 vi.mock("@/stores/landed", () => ({ hideAfterSync: () => {}, setLandedStatus: () => {} }))
 vi.mock("@/stores/unapplied-branches", () => ({ setUnappliedBranches: () => {}, resetUnappliedBranches: () => {} }))
@@ -72,6 +75,7 @@ beforeEach(() => {
   archived.settled = 0
   syncRecords.length = 0
   prefixLoads.count = 0
+  prefixLoads.prefix = "team"
 })
 
 // a request left waiting would hold the tests after it
@@ -285,17 +289,70 @@ describe("a sync of the session", () => {
   })
 
   it("resolves the prefix again when the git config names another one than the session's, quietly", async () => {
+    // a repository synced before: the window syncs the session of the new prefix as it opens it (`useSyncOnOpen`)
     await open()
+    const first = requestSessionSync("manual")
     await send(grouping("a"))
+    ;(await nextSync(1)).answer()
+    await first
+    const changed = { ...internalError('The branch prefix of the repository is "team" now'), code: "prefix_changed" } as const
+    const manual = requestSessionSync("manual")
+    ;(await nextSync(2)).fail(changed)
+    expect(await manual).toBeNull()
+    // nothing failed meanwhile, and nothing asked again
+    expect(prefixLoads.count).toBe(1)
+    expect(fakeSessions.syncs).toHaveLength(2)
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false })
+    expect(toasts).toEqual([])
+    expect(syncRecords).toHaveLength(1)
+  })
+
+  it("asks the user's own sync of a repository never synced again once the page has the new prefix, Sync busy throughout", async () => {
+    await open()
     const changed = { ...internalError('The branch prefix of the repository is "team" now'), code: "prefix_changed" } as const
     const manual = requestSessionSync("manual")
     ;(await nextSync(1)).fail(changed)
-    expect(await manual).toBeNull()
-    // the window opens the session of the new prefix once the page has it (`useSyncOnOpen`); nothing failed meanwhile
+    // the run resolved the prefix again in Rust: the request asked again reaches the session of the new one
+    const again = await nextSync(2)
+    expect(again.params).toEqual({ repositoryPath: "/repo", reason: "manual" })
     expect(prefixLoads.count).toBe(1)
-    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false })
-    expect(toasts).toEqual([])
-    expect(syncRecords).toEqual([])
+    expect(branchSyncStore.getState().isSyncing).toBe(true)
+    await send(grouping("a"))
+    again.answer()
+    expect(await manual).toEqual({ outcome: "synced", version: { epoch: 1, seq: 1 } })
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false, syncedRepositoryPath: "/repo" })
+    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 1 }) }])
+
+    // a sync nobody asked of the window, and a repository left without a prefix, ask nothing again
+    syncRecords.length = 0
+    const quiet = requestSessionSync("afterRewrite")
+    ;(await nextSync(3)).fail(changed)
+    expect(await quiet).toBeNull()
+    prefixLoads.prefix = ""
+    const unnamed = requestSessionSync("manual")
+    ;(await nextSync(4)).fail(changed)
+    expect(await unnamed).toBeNull()
+    expect(fakeSessions.syncs).toHaveLength(4)
+    expect(prefixLoads.count).toBe(3)
+  })
+
+  it("subscribes again when a sync answers another epoch than its view's: the actor of the session died, and the sync opened it again", async () => {
+    await open()
+    await send(grouping("a"))
+    // the subscription of the window went with the actor: no patch of the new session reaches it
+    fakeSessions.dropSession("/repo", { ...emptyView({ epoch: 2, seq: 0 }), order: ["c"] })
+    const synced = requestSessionSync("manual")
+    const sync = await nextSync(1)
+    fakeSessions.send("/repo", grouping("c"))
+    expect(branchSyncStore.getState().branchOrder).toEqual(["a"])
+    sync.answer()
+    expect(await synced).toEqual({ outcome: "synced", version: { epoch: 2, seq: 1 } })
+    expect(fakeSessions.subscribeCalls).toHaveLength(2)
+    expect(branchSyncStore.getState()).toMatchObject({ viewVersion: { epoch: 2, seq: 1 }, branchOrder: ["c"], isSyncing: false, syncedRepositoryPath: "/repo" })
+    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 1 }) }])
+    // the next run's patches reach the window on its new subscription
+    await send({ ...running, ...grouping("c", "d") })
+    expect(branchSyncStore.getState().branchOrder).toEqual(["c", "d"])
   })
 
   it("names the failure of a refused request, and of a run the failed state of the view", async () => {

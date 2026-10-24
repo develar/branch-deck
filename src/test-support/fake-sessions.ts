@@ -159,6 +159,19 @@ export class FakeSessions {
     this.views.set(repositoryPath, view)
   }
 
+  /**
+   * The actor of the session of `repositoryPath` died: its subscriptions went with it, and the next request opens the
+   * session again, in a new epoch, `view` its view
+   */
+  dropSession(repositoryPath: string, view: TableView): void {
+    for (let index = this.subscriptions.length - 1; index >= 0; index--) {
+      if (this.subscriptions[index]!.repositoryPath === repositoryPath) {
+        this.subscriptions.splice(index, 1)
+      }
+    }
+    this.views.set(repositoryPath, view)
+  }
+
   releaseSubscriptions(): void {
     const held = this.heldSubscriptions
     this.heldSubscriptions = []

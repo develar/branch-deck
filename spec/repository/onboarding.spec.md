@@ -165,11 +165,15 @@ alert with the reason and the next step, never a raw Git error.
   prefix again and opens the session under it, which it syncs as it opens a repository synced before, whichever of that
   resolve and the check of the focus (100 ms later) ends first, so the table is never the empty one of a session no
   sync built. A run of the session under the old prefix builds nothing under it: it answers `prefix_changed`, which is
-  no failure, and the page resolves the prefix again. A prefix changed in Settings is another session the same way.
-  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its request`, `syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its answer`)
+  no failure, and the page resolves the prefix again. A Sync the user pressed that comes back so for a repository never
+  synced (the Ready to Sync card, while the window kept the focus) is asked again once the page has the new prefix, Sync
+  busy throughout: the session of the new prefix serves it, as no sync of an opened repository does. A prefix changed
+  in Settings is another session the same way.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its request`, `syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its answer`, `syncs under a prefix set in a terminal behind the window's back when Sync of the Ready to Sync card is pressed`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should open and sync the session of a prefix written here, for a repository synced before`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_run_under_a_prefix_the_config_left_builds_nothing`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_prefix_set_in_a_terminal_refuses_the_run_of_the_session_under_the_old_one`)
-  [@test] ../../src/model/store.test.ts (`resolves the prefix again when the git config names another one than the session's, quietly`)
+  [@test] ../../src/model/store.test.ts (`resolves the prefix again when the git config names another one than the session's, quietly`, `asks the user's own sync of a repository never synced again once the page has the new prefix, Sync busy throughout`)
 - The main window tells the session of its repository when it gains and loses the focus (`set_window_focus`, the last
   state of a quick succession, 100 ms); the session decides whether a gained one syncs, by the setting as Rust's
   writer has it (`SessionHost::syncs_on_focus`), and the page checks nothing. A focus of a session no window shows
