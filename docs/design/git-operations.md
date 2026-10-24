@@ -3447,6 +3447,13 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   would be a cheap one.
 - **The landing check reads `HEAD ^base` again** (`read_local` in `crates/sync-core/src/landed.rs`): one `log` per sync
   of a fresh process while an update is pending, though the commit list of the sync has those commits.
+- **`fastimport.unpackLimit=0`** (a `fast-import` keeps its pack, however small, instead of an `unpack-objects` into
+  loose objects; measured 2026-10-24 with `pnpm perf:monorepo` on two clones of the IntelliJ monorepo pinned at
+  `86be3572..7dfac19d`, load 8): on a fresh clone the `fast-import` time of a warm check fell from 135-154 to 78-82 ms,
+  but a pack is a file every lookup of a missing object reads, and nothing packs them in a repository like that one
+  (`maintenance.auto false`, `gc.auto 50000`). After 300 more `fast-import`s, 306 small packs against 854 loose
+  objects: an unchanged sync 0.11 -> 0.17 s, `commits` warm 0.79 -> 0.89 s, `check` warm 1.53 -> 1.70 s, cold 2.68 ->
+  3.07 s. git unpacks below 100 objects for this reason; the app keeps the default.
 
 ## References
 
