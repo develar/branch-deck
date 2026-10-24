@@ -282,8 +282,11 @@ async fn a_failed_sync_keeps_the_table() {
   assert_eq!(deferred_view.branches, synced.branches);
 }
 
-/// The environment of the app's sessions in a test: the default options, a deferred sync with its code
-struct TestEnvironment;
+/// The environment of the app's sessions in a test: the default options, a deferred sync with its code, and whether a
+/// focus syncs (Auto-sync on Focus)
+struct TestEnvironment {
+  syncs_on_focus: bool,
+}
 
 impl SessionEnvironment for TestEnvironment {
   fn sync_options(&self, _key: &SessionKey) -> anyhow::Result<SyncOptions> {
@@ -298,20 +301,41 @@ impl SessionEnvironment for TestEnvironment {
   }
 
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
-    true
+    self.syncs_on_focus
   }
 }
 
-/// Sessions that sync with `git`, on a clock the test moves
+/// Sessions that sync with `git`, on a clock the test moves; a focus syncs
 fn with_git(git: GitCommandExecutor) -> (Sessions, TestClock) {
   with_git_views(git, RepositoryViews::default())
 }
 
 /// `with_git` whose syncs keep their tables in `views`
 fn with_git_views(git: GitCommandExecutor, views: RepositoryViews) -> (Sessions, TestClock) {
+  with_environment(git, views, TestEnvironment { syncs_on_focus: true })
+}
+
+/// Sessions that sync with `git` in `environment`, their tables kept in `views`
+fn with_environment(git: GitCommandExecutor, views: RepositoryViews, environment: TestEnvironment) -> (Sessions, TestClock) {
   let clock = TestClock::new();
-  let host = Arc::new(GitSessionHost::new(git, views, TestEnvironment));
+  let host = Arc::new(GitSessionHost::new(git, views, environment));
   (Sessions::new(tokio::runtime::Handle::current(), host, Arc::new(clock.clone())), clock)
+}
+
+/// The processes `git` started since its counts were `before`, by subcommand
+fn processes_since(git: &GitCommandExecutor, before: &[(String, u32)]) -> Vec<(String, u32)> {
+  let earlier = |command: &str| before.iter().find(|(name, _)| name == command).map_or(0, |(_, count)| *count);
+  git
+    .process_stats()
+    .unwrap()
+    .counts()
+    .into_iter()
+    .map(|(command, count)| {
+      let since = count - earlier(&command);
+      (command, since)
+    })
+    .filter(|(_, count)| *count > 0)
+    .collect()
 }
 
 /// A repository on a bare `origin` that has its first commit, with a commit ahead of it for each subject
@@ -432,4 +456,38 @@ async fn a_session_without_subscribers_runs_nothing_and_goes_away() {
   let reopened = snapshot(&sessions, &key).await;
   assert_ne!(reopened.version.epoch, epoch, "a new epoch: a window of the old session asks for a snapshot");
   assert_eq!(reopened.version.seq, 0);
+}
+
+/// A focus of a session a window shows, with nothing a sync reads changed, reads the fingerprint (two processes) and
+/// syncs nothing; a lost focus and, with Auto-sync on Focus off, a gained one ask nothing and start no git process
+#[tokio::test]
+async fn a_focus_with_unchanged_inputs_reads_only_the_fingerprint() {
+  let repo = ahead_of_origin(&["(auth) Add auth"]);
+  let key = SessionKey {
+    worktree: repo.path_str().to_string(),
+    prefix: "test".to_string(),
+  };
+  for syncs_on_focus in [true, false] {
+    let git = GitCommandExecutor::new().with_process_stats("sessions");
+    let (sessions, _clock) = with_environment(git.clone(), RepositoryViews::default(), TestEnvironment { syncs_on_focus });
+    let window = Window::default();
+    sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+    sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
+    let synced = snapshot(&sessions, &key).await;
+    window.take();
+
+    let before = git.process_stats().unwrap().counts();
+    assert!(sessions.set_window_focus(&key, false).is_none(), "a lost focus asks nothing");
+    let focus = sessions.set_window_focus(&key, true);
+    if syncs_on_focus {
+      assert_eq!(outcome(focus.unwrap()).await, Ok(SyncOutcome::Unchanged));
+      assert_eq!(processes_since(&git, &before), [("for-each-ref".to_string(), 1), ("rev-parse".to_string(), 1)]);
+    } else {
+      assert!(focus.is_none(), "Auto-sync on Focus off: the session is told, nothing syncs");
+      assert_eq!(processes_since(&git, &before), []);
+    }
+    // no run: the view stays at its version, and the window got no patch
+    assert_eq!(snapshot(&sessions, &key).await, synced);
+    assert_eq!(window.take(), []);
+  }
 }

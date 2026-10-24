@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
-import { closeSession, openSession, requestSessionSync, whenSessionReady } from "@/model/store"
+import { closeSession, openSession, requestSessionSync, setSessionWindowFocus, whenSessionReady } from "@/model/store"
 import { branchSyncStore, getBranch, getStackBranch, setBranchPushing, setBranchPushWaiting, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
 import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
 
@@ -189,13 +189,48 @@ describe("a sync of the session", () => {
     expect(archived.settled).toBe(1)
   })
 
-  it("marks the check of a focus that found nothing changed, and records nothing", async () => {
+  it("tells the session the focus of the window, and marks the check of a gained one that found nothing changed", async () => {
+    // no repository: the window names none
+    expect(await setSessionWindowFocus(true)).toBeNull()
+    expect(fakeSessions.focusCalls).toEqual([])
     await open()
-    const checked = requestSessionSync("focus")
-    ;(await nextSync(1)).answer("unchanged")
-    await checked
+    const checked = setSessionWindowFocus(true)
+    const check = await nextSync(1)
+    expect(check.params).toEqual({ repositoryPath: "/repo", reason: "focus" })
+    // Sync is not busy for the check: a run it starts shows in the view
+    expect(branchSyncStore.getState().isSyncing).toBe(false)
+    check.answer("unchanged")
+    expect(await checked).toEqual({ outcome: "unchanged", version: { epoch: 1, seq: 0 } })
     expect(branchSyncStore.getState().inputsCheckedAt).not.toBeNull()
     expect(syncRecords).toEqual([])
+    // a lost focus, and a gained one while the backend's Auto-sync on Focus is off: told, nothing to wait for
+    expect(await setSessionWindowFocus(false)).toBeNull()
+    fakeSessions.syncsOnFocus = false
+    expect(await setSessionWindowFocus(true)).toBeNull()
+    expect(fakeSessions.focusCalls.map(it => it.focused)).toEqual([true, false, true])
+    expect(fakeSessions.syncs).toHaveLength(1)
+    // a lost focus asks for no sync: its failure leaves Sync as it is, a gained one's names itself
+    fakeSessions.focusFailure = { ...internalError("Cannot sync without a branch prefix"), code: "no_branch_prefix" }
+    expect(await setSessionWindowFocus(false)).toBeNull()
+    expect(branchSyncStore.getState().syncError).toBeNull()
+    expect(await setSessionWindowFocus(true)).toBeNull()
+    expect(branchSyncStore.getState().syncError).toBe("Cannot sync without a branch prefix")
+  })
+
+  it("records the sync a focus started, Sync busy from its answer to the run's last patch", async () => {
+    await open()
+    const focused = setSessionWindowFocus(true)
+    const check = await nextSync(1)
+    // the run's two patches are still on their way when the answer comes
+    fakeSessions.views.set("/repo", { ...fakeSessions.view("/repo"), version: { epoch: 1, seq: 2 } })
+    check.answer()
+    await vi.waitFor(() => expect(branchSyncStore.getState().isSyncing).toBe(true))
+    fakeSessions.views.set("/repo", { ...fakeSessions.view("/repo"), version: { epoch: 1, seq: 0 } })
+    await send({ ...running, ...grouping("a") })
+    await send(idle)
+    expect(await focused).toEqual({ outcome: "synced", version: { epoch: 1, seq: 2 } })
+    expect(branchSyncStore.getState()).toMatchObject({ isSyncing: false, syncCount: 1, syncedRepositoryPath: "/repo", inputsCheckedAt: null })
+    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 1 }) }])
   })
 
   it("is no failure when deferred: no error, the table as it was, an info toast only for a sync the user asked for", async () => {

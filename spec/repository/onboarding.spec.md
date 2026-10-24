@@ -13,6 +13,7 @@ targets:
   - ../../src/hooks/useSyncOnOpen.ts
   - ../../src/model/store.ts
   - ../../crates/repository-model/src/sync_scheduler.rs
+  - ../../crates/repository-model/src/session.rs
   - ../../src/stores/settings/repositoryState.ts
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/unassigned/UnassignedCommitsHelpPopover.tsx
@@ -147,17 +148,28 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
   [@test] ../../src/model/store.test.ts (`keeps Sync busy from the request to the last patch of the run that serves it, and counts the runs that ended`)
 - Auto-sync on Focus (Settings → General, File → Auto-sync on Focus) is on by default and syncs on a focus
-  only when what a sync reads changed since the last sync of the session (`sync` for a `focus`, the fingerprint of
+  only when what a sync reads changed since the last sync of the session (the fingerprint of
   [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), taken when the sync started, so a commit made
   while it ran counts): a commit, an amend or a finished rebase in the IDE, a fetch (of the baseline, also an upstream
   other than `master` or `main`) or a push elsewhere, a regroup or a description by `bd`, a changed prefix (the
-  fingerprint is of the prefix Rust resolves). Otherwise the focus reads the inputs once and syncs nothing, and the header says "Checked just
+  fingerprint is of the prefix Rust resolves). Otherwise the focus reads the inputs once (two git processes) and syncs nothing, and the header says "Checked just
   now" instead of "Last synced 18 minutes ago", the age of the sync in its tooltip: the branches are as current as a
-  sync would make them. A user who turned the setting off keeps it off.
+  sync would make them. A focus during a sync checks once after it, however many came. A user who turned the setting
+  off keeps it off: a focus then starts no git process.
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`, `changes_with_the_upstream_of_the_checked_out_branch`, `changes_with_the_prefix_alone`)
   [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_runs_only_when_the_inputs_changed`, `a_focus_during_a_run_checks_the_inputs_once_after_the_chain`)
-  [@test] ../../src/model/store.test.ts (`marks the check of a focus that found nothing changed, and records nothing`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_with_unchanged_inputs_reads_only_the_fingerprint`, `a_focus_during_a_run_is_one_check_after_it`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
+- The main window tells the session of its repository when it gains and loses the focus (`set_window_focus`, the last
+  state of a quick succession, 100 ms); the session decides whether a gained one syncs, by the setting as Rust's
+  writer has it (`SessionHost::syncs_on_focus`), and the page checks nothing. A focus of a session no window shows
+  syncs nothing and starts no git process. The answer of the check is recorded as a sync's: `unchanged` says "Checked
+  just now", a run it started counts as the sync of the repository. ⌘R during a sync asks the session for the same
+  check once after it (`sync` for a `focus`): a commit elsewhere during a long sync is synced, not lost.
+  [@test] ../../src/model/store.test.ts (`tells the session the focus of the window, and marks the check of a gained one that found nothing changed`, `records the sync a focus started, Sync busy from its answer to the run's last patch`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_session_without_subscribers_runs_nothing_and_goes_away`)
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`tells the session the focus, which syncs nothing once Auto-sync on Focus is off`)
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should not move while a sync runs`)
 - File → Auto-sync on Focus of the native menu is checked as the setting is: at startup as the backend's writer loaded
   `settings.json` (`AppSettings::auto_sync_on_focus`, on by default), then by the main window for every value of the
   setting, whichever window changed it (`set_auto_sync_menu_checked`); checking the item sets the setting

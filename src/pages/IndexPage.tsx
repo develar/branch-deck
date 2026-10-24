@@ -26,22 +26,18 @@ import { SETTINGS_WINDOW } from "@/lib/settings-window"
 import type { SettingsTarget } from "@/lib/settings-window"
 import { openSubWindow } from "@/lib/window-management"
 import { MIN_ISLANDS_WIDTH } from "@/lib/zoom"
-import { syncIfChanged } from "@/stores/branch-sync"
+import { setSessionWindowFocus } from "@/model/store"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
-import { getSelectedProject, initRepository, refreshBranchPrefix } from "@/stores/repository"
-import { appSettingsStore } from "@/stores/settings/appSettings"
+import { initRepository, refreshBranchPrefix } from "@/stores/repository"
 import { useSetupTracking } from "@/stores/setup"
 
 /**
- * Window focus handler: with "Auto-sync on Focus" (on by default) and a project selected, the session syncs when what a
- * sync reads changed since its last sync (`syncIfChanged`; during a sync, it checks once after it)
+ * The focus of the main window, told to the session of its repository when the window gains and loses it (the last
+ * state of a quick succession only): Rust decides whether a focus syncs, by Auto-sync on Focus (on by default) and only
+ * when what a sync reads changed since its last sync; during a sync, it checks once after it
  */
-const debouncedAutoSync = pDebounce(async () => {
-  if (appSettingsStore.getState().autoSyncOnFocus && getSelectedProject() !== null) {
-    await syncIfChanged()
-  }
-}, 100)
+const debouncedWindowFocus = pDebounce((focused: boolean) => setSessionWindowFocus(focused), 100)
 
 /** Opens the Settings window, or brings it to the front at `target` */
 function openSettingsWindow(target: SettingsTarget): void {
@@ -123,11 +119,14 @@ export function IndexPage() {
   useSyncOnOpen()
   // "Auto-sync on Focus": the item of the native menu, and the sync when the window gets the focus
   useMenuSync()
-  useWindowFocus(() => {
-    // a `git config` meanwhile: the names the page shows; the sync resolves the prefix in Rust itself
-    refreshBranchPrefix()
-    void debouncedAutoSync()
-  })
+  useWindowFocus(
+    () => {
+      // a `git config` meanwhile: the names the page shows; the sync resolves the prefix in Rust itself
+      refreshBranchPrefix()
+      void debouncedWindowFocus(true)
+    },
+    () => void debouncedWindowFocus(false),
+  )
   // "Settings…" (⌘,) of every window and the buttons that open a page of it: only this window opens it, with the
   // current settings as its snapshot
   useAppCommand<SettingsTarget | null>("open_settings", target => openSettingsWindow(target ?? {}))

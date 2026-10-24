@@ -9,12 +9,13 @@
  *
  * What a sync shows beyond the table is the page's presentation, derived here: the status texts of the rows, `isSyncing`
  * (a run of the session, or a request of this window that has not answered yet), the count of the runs that ended, how
- * far the run is. A request (`requestSessionSync`) resolves when the run that serves it ended and its last patch
- * reached the store (`SyncAnswer.version`).
+ * far the run is. A request (`requestSessionSync`, and a focus of the window, `setSessionWindowFocus`) resolves when
+ * the run that serves it ended and its last patch reached the store (`SyncAnswer.version`).
  */
 import { Channel } from "@tauri-apps/api/core"
 import type { BranchChange, BranchView, Commit, CommitSync, StackBranchUpdate, SyncAnswer, SyncReason, TableChanges, TableView, Version, ViewPatch } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { sameStringRecord, withoutKeys } from "@/lib/record"
@@ -515,16 +516,19 @@ function resetTable(): void {
   resetUnappliedBranches()
 }
 
-/** Resolves once the view of `target` is at `version` or past it, or `target` is no longer the window's session */
+/** Whether the view of `target` is at `version` or past it, or `target` is no longer the window's session */
+function viewReached(target: Session, version: Version): boolean {
+  return target !== session || target.failure !== null || (target.view !== null && (target.view.version.epoch !== version.epoch || target.view.version.seq >= version.seq))
+}
+
+/** Resolves once `viewReached` holds */
 function whenViewAt(target: Session, version: Version): Promise<void> {
-  const reached = () =>
-    target !== session || target.failure !== null || (target.view !== null && (target.view.version.epoch !== version.epoch || target.view.version.seq >= version.seq))
-  if (reached()) {
+  if (viewReached(target, version)) {
     return Promise.resolve()
   }
   return new Promise(resolve => {
     const listener = () => {
-      if (reached()) {
+      if (viewReached(target, version)) {
         viewListeners.delete(listener)
         resolve()
       }
@@ -543,9 +547,8 @@ function countRequest(target: Session, delta: 1 | -1): void {
 
 /**
  * Asks the session of the window for a sync (`sync`) and resolves when the run that serves the request ended and the
- * store has its last patch, with the answer; null when the request failed. A deferred sync (a rebase in progress, a
- * detached HEAD) is no failure: the user's own (`manual`) says so in an `info` toast, any other waits silently. The
- * last successful sync is recorded for the repository (its time, the branch count, how long it took)
+ * store has its last patch, with the answer; null when the request failed. Sync is busy from the request. The last
+ * successful sync is recorded for the repository (its time, the branch count, how long it took)
  */
 export async function requestSessionSync(reason: SyncReason): Promise<SyncAnswer | null> {
   // the request is for the selected repository: one before the window subscribed (a click while the page still loads
@@ -569,7 +572,51 @@ export async function requestSessionSync(reason: SyncReason): Promise<SyncAnswer
       }
       return null
     }
-    const result = await commands.sync({ repositoryPath: target.repositoryPath, reason })
+    return await settle(target, reason, startedAt, () => commands.sync({ repositoryPath: target.repositoryPath, reason }))
+  } finally {
+    countRequest(target, -1)
+  }
+}
+
+/**
+ * Tells the session of the window that the window gained (`true`) or lost the focus (`set_window_focus`). Rust decides
+ * whether a gained one syncs (Auto-sync on Focus, which it reads itself, and only when what a sync reads changed), and
+ * answers when that check, or the run it started, ended: the answer then is recorded as a sync's (`unchanged` says
+ * "Checked just now"). Null when nothing was asked (the focus lost, the setting off, no session) or the request failed.
+ * Sync is not busy for the check: a run it starts shows in the view
+ */
+export async function setSessionWindowFocus(focused: boolean): Promise<SyncAnswer | null> {
+  const target = session
+  if (target === null) {
+    return null
+  }
+  const startedAt = Date.now()
+  await target.ready
+  // a window without its session (no prefix, the repository went away) names none to the backend
+  if (target !== session || target.failure !== null) {
+    return null
+  }
+  if (!focused) {
+    // a lost focus asks for no sync: its failure is no failure of Sync
+    const result = await commands.setWindowFocus({ repositoryPath: target.repositoryPath, focused })
+    if (result.status === "error") {
+      console.error("Cannot tell the session that the window lost the focus", result.error)
+    }
+    return null
+  }
+  return settle(target, "focus", startedAt, () => commands.setWindowFocus({ repositoryPath: target.repositoryPath, focused }))
+}
+
+/**
+ * The answer of a request of `target` (`sync`, `set_window_focus`): resolves when the store has the last patch of the
+ * run that served it, which may come after the answer (Sync stays busy until then), and records it; null when nothing
+ * was asked or the request failed. A deferred sync (a rebase in progress, a detached HEAD) is no failure: the user's own
+ * (`manual`) says so in an `info` toast, any other waits silently
+ */
+async function settle(target: Session, reason: SyncReason, startedAt: number, request: () => Promise<CommandResult<SyncAnswer | null>>): Promise<SyncAnswer | null> {
+  let answer: SyncAnswer | null
+  try {
+    const result = await request()
     if (result.status === "error") {
       const { code, message } = result.error
       if (code === "operation_in_progress" || code === "detached_head") {
@@ -580,26 +627,37 @@ export async function requestSessionSync(reason: SyncReason): Promise<SyncAnswer
             description: code === "operation_in_progress" ? "The branches sync once git finished it" : "Check out a branch to sync its commits",
           })
         }
-      } else if (target === session) {
-        requestError = message || "Failed to sync branches"
-        console.error("Sync error:", result.error)
+      } else {
+        failRequest(target, message, result.error)
       }
       return null
     }
-    await whenViewAt(target, result.data.version)
-    if (target === session && target.failure === null) {
-      recordSync(target.repositoryPath, result.data, reason, startedAt)
-    }
-    return result.data
+    answer = result.data
   } catch (error) {
-    if (target === session) {
-      requestError = (error instanceof Error ? error.message : String(error)) || "Failed to sync branches"
-      console.error("Sync error:", error)
-    }
+    failRequest(target, error instanceof Error ? error.message : String(error), error)
     return null
-  } finally {
-    countRequest(target, -1)
   }
+  if (answer === null) {
+    return null
+  }
+  if (!viewReached(target, answer.version)) {
+    countRequest(target, 1)
+    await whenViewAt(target, answer.version).finally(() => countRequest(target, -1))
+  }
+  if (target === session && target.failure === null) {
+    recordSync(target.repositoryPath, answer, reason, startedAt)
+  }
+  return answer
+}
+
+/** A request of the window's session that failed: Sync names why, until the next run */
+function failRequest(target: Session, message: string, error: unknown): void {
+  if (target !== session) {
+    return
+  }
+  requestError = message || "Failed to sync branches"
+  console.error("Sync error:", error)
+  branchSyncStore.setState({ syncError: syncErrorOf(target.view) })
 }
 
 /** What a request that ended tells beyond the table: the repository is synced, or a focus found nothing changed */

@@ -4,9 +4,10 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
-import { emitTauriEvent, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, focusWindow, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
-import { routeCommandError } from "../helpers/wait-helpers"
+import { routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
@@ -261,24 +262,42 @@ test.describe("Deferred sync", () => {
 })
 
 test.describe("Sync on focus", () => {
+  /** Rewords the commit of feature-docs in a terminal, into feature-documentation: a change the next sync shows */
+  async function rewordDocsInTerminal(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+    await expandBranch(page, findBranchRow(page, "feature-docs"))
+    const hash = await getBranchDetailsRow(page, "feature-docs").locator("tr[data-row-id]").getAttribute("data-row-id")
+    await repo.reword(hash!, "(feature-documentation) Update documentation")
+  }
+
   test("syncs on focus only when what a sync reads changed, and says when it checked", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
     const syncs = await finishedSyncCount(page)
-    const checked = page.waitForResponse(response => response.url().endsWith("/invoke/sync"))
-    // on by default: a focus with nothing changed reads the inputs, and syncs nothing
-    await emitTauriEvent(page, "tauri://focus")
-    expect(((await (await checked).json()) as { outcome: string }).outcome).toBe("unchanged")
+    // on by default: the window tells its session, which reads the inputs, and syncs nothing when none changed
+    expect((await focusWindow(page))?.outcome).toBe("unchanged")
     await expect(page.getByTestId("inputs-checked")).toHaveText("Checked just now")
     expect(await finishedSyncCount(page)).toBe(syncs)
 
     // a commit reworded in a terminal: the next focus syncs it
-    await expandBranch(page, findBranchRow(page, "feature-docs"))
-    const hash = await getBranchDetailsRow(page, "feature-docs").locator("tr[data-row-id]").getAttribute("data-row-id")
-    await repo.reword(hash!, "(feature-documentation) Update documentation")
+    await rewordDocsInTerminal(page, repo)
     await syncOnWindowFocus(page)
     await expect(findBranchRow(page, "feature-documentation")).toBeVisible()
     await expect(page.getByTestId("inputs-checked")).toHaveCount(0)
+  })
+
+  test("tells the session the focus, which syncs nothing once Auto-sync on Focus is off", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links")
+    await syncAndWaitForBranches()
+    // File → Auto-sync on Focus unchecked: the setting the backend reads, once its writer has it
+    await emitTauriEvent(page, "auto_sync_on_focus_toggled", false)
+    await waitForStorePersistence(page, "appSettings", settings => (settings as { autoSyncOnFocus?: boolean } | undefined)?.autoSyncOnFocus === false)
+    await rewordDocsInTerminal(page, repo)
+    // the window still tells its session; the session asks nothing, and the rows stay as the last sync left them
+    expect(await focusWindow(page)).toBeNull()
+    await expect(findBranchRow(page, "feature-docs")).toBeVisible()
+    // the change was there to sync: Sync syncs it
+    await syncBranches(page)
+    await expect(findBranchRow(page, "feature-documentation")).toBeVisible()
   })
 
   test("checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it", async ({ page, setupRepo }) => {

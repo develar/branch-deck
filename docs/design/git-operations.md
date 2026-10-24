@@ -1868,7 +1868,9 @@ none, its leaf is the whole stack. `crates/sync-core/src/stack_branch.rs`.
 Auto-sync on Focus syncs only when what a sync reads changed since the last sync (`sync_inputs_fingerprint`,
 `crates/sync-core/src/sync_inputs.rs`), so it is on by default: a focus of an unchanged repository costs two git
 processes and three file stats, no object read (three processes when HEAD's branch tracks another remote branch than
-a `master` or `main`).
+a `master` or `main`; `a_focus_with_unchanged_inputs_reads_only_the_fingerprint`). The session decides it, not the
+page: the main window tells the session its focus (`set_window_focus`), and Rust reads the setting
+(`SessionHost::syncs_on_focus`); with it off, a focus starts no process.
 
 1. `rev-parse --path-format=absolute --git-dir --git-common-dir`: where `config` and `config.worktree` are.
 2. One `for-each-ref --format='%(HEAD)%(objectname) %(refname)%(if)%(HEAD)%(then) %(upstream)%(end)'` over the local
@@ -3203,14 +3205,17 @@ The host supplies the sync (`SessionHost`; the app's is `GitSessionHost` with th
 keeps, `SessionEnvironment`). A session without subscribers runs nothing (a focus is `Skipped`, no git process), and
 `Sessions::sweep` removes it after two minutes without subscribers or operations on the session clock (`TestClock` in
 the tests); opened again it has a new epoch. `session_test.rs` pins the tickets, the recheck, the retry, the kept
-table, the late events, two worktrees and the life; `sync_scheduler_test.rs` the schedule.
+table, the late events, the focus checks, two worktrees and the life; `sync_scheduler_test.rs` the schedule.
 
 The hosts: the app's commands (`src-tauri/src/commands/session.rs`) and the E2E server's routes (`session_routes.rs`)
 resolve the session key from the repository path with the prefix the commands resolve (`PrefixInputs`, refused as
 `no_branch_prefix` without one): `open_session` answers the view, `get_snapshot` the view of an open session (null for
 one that is not: the window subscribes again), `subscribe_view` subscribes the calling window on a channel of
 `ViewPatch`es and answers its id with the view at that moment (`ViewSubscription`), `unsubscribe_view` ends it by id,
-`set_window_focus` answers the focus sync it started (null for none), and `sync` with a `SyncReason` answers when the
+`set_window_focus` tells the session that a window gained or lost the focus and, for a gained one while the host
+syncs on focus (`SessionHost::syncs_on_focus`: Auto-sync on Focus as the app's `SettingsService` has it, the settings
+of the test repository on the E2E server), answers the `Focus` check or the run it started (null for a lost focus,
+the setting off or a session that is not open), and `sync` with a `SyncReason` answers when the
 run that serves it ended (`SyncAnswer`: the outcome and the version of the view after its last patch, which the window
 waits for, since the patch and the answer travel apart); a failure is the run's `ApiError`. The app's host
 (`GitSessionHost`) reads the git config for each sync (`ConfigSnapshot`, its git prefix kept for the commands after
@@ -3221,8 +3226,9 @@ fails its send, so a window's subscriptions end with the window (`Destroyed`) an
 reload); the app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the sessions of a test
 repository when it deletes it (`Sessions::close_worktree`, which drops the subscribers at once). The main window has
 no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; a switch of
-the repository or of its prefix is another subscription), applies its patches and asks `sync`, and no `SyncEvent`
-reaches a page. A test of the E2E server changes what the next run of a session reports (`sync_overrides.rs`: the
+the repository or of its prefix is another subscription), applies its patches, asks `sync` (Sync, ⌘R, after a
+change; ⌘R during a sync asks a `Focus` check after it) and tells the session its focus (`set_window_focus`, on focus
+and on blur, the last state of 100 ms; it checks no setting), and no `SyncEvent` reaches a page. A test of the E2E server changes what the next run of a session reports (`sync_overrides.rs`: the
 remote statuses of branches and stack branches, the issue links), through the reporter its `SessionEnvironment` puts
 around the run's (`SessionEnvironment::reporter`, the run's own by default), so the session, its patches and the views
 hold what such a sync makes.

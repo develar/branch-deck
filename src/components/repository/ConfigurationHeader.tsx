@@ -115,7 +115,7 @@ export function ConfigurationHeader() {
 
 /**
  * "Last synced 18 minutes ago", or "Checked just now" once a focus found nothing a sync reads changed since
- * (`syncIfChanged`): the branches are as current as a sync would make them, which the age of the sync alone hides
+ * (`setSessionWindowFocus`): the branches are as current as a sync would make them, which the age of the sync alone hides
  */
 function LastSyncTime({ lastSyncTime }: { lastSyncTime: number }) {
   const checkedAt = useBranchSync(state => state.inputsCheckedAt)

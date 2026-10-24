@@ -1205,9 +1205,10 @@ export async function syncBranches(reason: SyncReason): Promise<void> {
 }
 
 /**
- * The sync of a focus or of ⌘R during a sync: runs only when what a sync reads changed since the last one (a commit, a
- * fetch or a push elsewhere, a regroup by `bd`, a description), one cheap read otherwise; during a run, the session
- * checks once after it. A sync the user didn't ask for, so a deferred one (a rebase in the IDE) waits silently
+ * The sync of ⌘R during a sync (a commit elsewhere during a long sync that started before it): the session checks once
+ * after the run whether what a sync reads changed since (a commit, a fetch or a push elsewhere, a regroup by `bd`, a
+ * description), and syncs only then; a deferred one (a rebase in the IDE) waits silently. The focus of the window goes
+ * to the session itself (`setSessionWindowFocus`), which decides by Auto-sync on Focus
  */
 export async function syncIfChanged(): Promise<void> {
   await requestSessionSync("focus")

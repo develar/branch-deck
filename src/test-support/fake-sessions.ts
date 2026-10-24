@@ -1,8 +1,8 @@
 /**
- * The sessions of the backend for store tests, behind `subscribe_view`, `unsubscribe_view`, `get_snapshot` and `sync`
- * of a mocked `@/lib/bindings`: each repository has a view at a version, which `send` changes by a patch on it and
- * delivers to its subscribers, as the session in Rust does (`repository_model::session`); a sync waits until the test
- * answers it, with the version of the view then
+ * The sessions of the backend for store tests, behind `subscribe_view`, `unsubscribe_view`, `get_snapshot`, `sync` and
+ * `set_window_focus` of a mocked `@/lib/bindings`: each repository has a view at a version, which `send` changes by a
+ * patch on it and delivers to its subscribers, as the session in Rust does (`repository_model::session`); a sync, and
+ * the check of a gained focus while `syncsOnFocus`, waits until the test answers it, with the version of the view then
  */
 import type {
   ApiError,
@@ -18,6 +18,7 @@ import type {
   Version,
   ViewPatch,
   ViewSubscription,
+  WindowFocusParams,
 } from "@/lib/bindings"
 import { applyViewPatch } from "@/model/patch"
 
@@ -104,6 +105,12 @@ export class FakeSessions {
   snapshotAnswer: TableView | null | undefined = undefined
   /** The error each `subscribe_view` answers instead of a subscription while set (a repository without a prefix) */
   subscribeFailure: ApiError | null = null
+  /** Every `set_window_focus`, in order */
+  readonly focusCalls: WindowFocusParams[] = []
+  /** Whether a gained focus checks the session (Auto-sync on Focus, which the backend reads): a held `focus` sync then */
+  syncsOnFocus = true
+  /** The error each `set_window_focus` answers while set (the prefix went away meanwhile) */
+  focusFailure: ApiError | null = null
   private heldSubscriptions: (() => void)[] = []
   private nextId = 1
 
@@ -117,6 +124,9 @@ export class FakeSessions {
     this.heldSubscriptions = []
     this.snapshotAnswer = undefined
     this.subscribeFailure = null
+    this.focusCalls.length = 0
+    this.syncsOnFocus = true
+    this.focusFailure = null
   }
 
   view(repositoryPath: string): TableView {
@@ -186,14 +196,27 @@ export class FakeSessions {
       this.snapshotAnswer = undefined
       return { status: "ok", data: answer === undefined ? this.view(params.repositoryPath) : answer }
     },
-    sync: (params: SyncParams): Promise<Result<SyncAnswer>> =>
-      new Promise(resolve => {
-        this.syncs.push({
-          params,
-          answer: (outcome = "synced") => resolve({ status: "ok", data: { outcome, version: this.view(params.repositoryPath).version } }),
-          fail: error => resolve({ status: "error", error }),
-        })
-      }),
+    sync: (params: SyncParams): Promise<Result<SyncAnswer>> => this.hold(params),
+    setWindowFocus: (params: WindowFocusParams): Promise<Result<SyncAnswer | null>> => {
+      this.focusCalls.push(params)
+      if (this.focusFailure !== null) {
+        return Promise.resolve({ status: "error", error: this.focusFailure })
+      }
+      if (!params.focused || !this.syncsOnFocus) {
+        return Promise.resolve({ status: "ok", data: null })
+      }
+      return this.hold({ repositoryPath: params.repositoryPath, reason: "focus" })
+    },
+  }
+
+  private hold(params: SyncParams): Promise<Result<SyncAnswer>> {
+    return new Promise(resolve => {
+      this.syncs.push({
+        params,
+        answer: (outcome = "synced") => resolve({ status: "ok", data: { outcome, version: this.view(params.repositoryPath).version } }),
+        fail: error => resolve({ status: "error", error }),
+      })
+    })
   }
 }
 

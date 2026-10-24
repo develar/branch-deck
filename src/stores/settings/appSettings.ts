@@ -16,7 +16,7 @@ import { createPersistentStore, snapshotValueOf } from "./persistent-store"
 const RustFields = {
   // General → Branch prefix: the prefix of a repository whose git config sets none (`resolve_branch_prefix`)
   globalUserBranchPrefix: z.string().optional(),
-  // on: a focus syncs only when what a sync reads changed (`syncIfChanged`)
+  // on: a focus syncs only when what a sync reads changed; the session reads it (`SessionHost::syncs_on_focus`)
   autoSyncOnFocus: z.boolean().default(APP_SETTINGS_DEFAULTS.autoSyncOnFocus),
   // the zoom of the pages in every window (`useZoom`), read by the window builders too (`src-tauri/src/zoom.rs`)
   zoom: z.number().positive().default(APP_SETTINGS_DEFAULTS.zoom),

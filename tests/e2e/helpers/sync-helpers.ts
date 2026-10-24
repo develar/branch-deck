@@ -184,15 +184,46 @@ export async function syncFromMenu(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
 }
 
+/** What the session answered a gained focus of the window (`set_window_focus`): null when it asked nothing */
+export interface FocusAnswer {
+  outcome: string
+  version: { epoch: number; seq: number }
+}
+
 /**
- * Gives the window the focus and waits for the auto-sync it starts, which a focus starts only when what a sync reads
- * changed (a reword behind the app's back)
+ * Gives the window the focus and waits for what the session answers (`set_window_focus`, which syncs by Auto-sync on
+ * Focus and only when what a sync reads changed, a reword behind the app's back) and for its last patch in the page
  */
-export async function syncOnWindowFocus(page: Page): Promise<void> {
-  const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync"))
+export async function focusWindow(page: Page): Promise<FocusAnswer | null> {
+  const focusResponse = page.waitForResponse(response => response.url().endsWith("/invoke/set_window_focus") && (response.request().postDataJSON() as { focused: boolean }).focused)
   await emitTauriEvent(page, "tauri://focus")
-  await syncResponse
-  await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
+  const answer = (await (await focusResponse).json()) as FocusAnswer | null
+  if (answer !== null) {
+    await waitForViewVersion(page, answer.version)
+  }
+  return answer
+}
+
+/** Waits until the page holds the view of its session at `version` or past it (`data-view-version` of Sync) */
+export async function waitForViewVersion(page: Page, version: { epoch: number; seq: number }): Promise<void> {
+  const syncButton = page.locator('[data-testid="sync-button"]')
+  await expect
+    .poll(async () => {
+      const shown = await syncButton.getAttribute("data-view-version")
+      if (shown === null) {
+        return false
+      }
+      const [epoch, seq] = shown.split(":").map(Number)
+      return epoch !== version.epoch || seq! >= version.seq
+    })
+    .toBe(true)
+  await expect(syncButton).toBeEnabled()
+}
+
+/** Gives the window the focus and waits for the sync it starts, which a focus starts only when what a sync reads changed */
+export async function syncOnWindowFocus(page: Page): Promise<void> {
+  const answer = await focusWindow(page)
+  expect(answer?.outcome).toBe("synced")
 }
 
 /** What the next sync reports of `branch`: on the remote as it is (`SyncOverrides.remote`) */
