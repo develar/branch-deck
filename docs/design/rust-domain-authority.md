@@ -215,7 +215,11 @@ scan-тестов, не меняясь. Daemon не появляется: `bd` �
 2. **Один входной протокол.** Страница отправляет **intents** (что попросил пользователь) и **demand** (что она
    показывает). Она никогда не отправляет выводы: ни `needsPush`, ни `upToDate`, ни `matched`, ни `canStart`.
 3. **Факты несут свою достоверность.** `Fact<T>` различает Fresh, Stale(reason), Loading, Unavailable(reason) и
-   Unknown. Ни одно правило не превращает Unknown или Unavailable в разрешение или в «не требуется».
+   Unknown. Ни одно правило не превращает Unknown или Unavailable в разрешение или в «не требуется». Решение над
+   фактом Loading, Unknown или Unavailable — ожидание или блок с этим фактом как причиной, никогда действие, которое
+   следующий ответ заменит другим: «Safe Push», через три секунды ставший «Awaiting Review», успевал подтвердить старт
+   через API, чьи approvals не считаются (монорепозиторий, 2026-10-24; [Facts without an
+   answer](../../spec/branch/next-step.spec.md#facts-without-an-answer)).
 4. **Каждый внешний эффект планируется, допускается, перепроверяется перед собой и записывается.** Откатов нет;
    outcome называет, что произошло.
 5. **`bd` и приложение — два адаптера одной библиотеки.** Координация между процессами — на диске: repository lock,
@@ -398,6 +402,12 @@ confirmations }` для Safe Push и Dry Run — результат того ж�
 - Процент передачи и прошедшее время не входят в представление: они идут каналом операции (`OperationEvent::Progress`)
   в локальный store поверхности, как сегодня `pushProgressStore`.
 - Rust сливает патчи не чаще одного на 16 мс, пока sync идёт, — это заменяет flush в TS.
+- **Поздний факт не двигает раскладку.** Часть, чей факт ещё `Loading` (чип PR, шаг, Your Turn, счёт moves
+  заголовка), занимает место, которое займёт ответ: треки столбцов и острова над таблицей держат ширины и высоты
+  последнего установившегося кадра репозитория (`settledLayout` в `repositoryState`, сегодня `useSettledLayout`),
+  счёт moves — место одной цифры, полоса — всегда; после первого ответа каждого факта раскладка следует содержимому и
+  сохраняется для следующего старта. Строка, столбец и контрол заголовка не уходят из-под указателя ни при ответе
+  Patronus, ни GitHub, ни review requests.
 
 ### Demand
 
@@ -1620,6 +1630,12 @@ rewrites между процессами через файл `s10`; `s12` ждё
   (`retry_at` на токен в `GitHubService`, записи тоже получают отказ с причиной), и `domain-policy::refresh` не
   спрашивает до `retry_at`; токен и scope (`read:org`) — факт `auth`, чтения источников — single-flight; сессия
   знает `git_common_dir` и передаёт его в `RewriteOptions` и `UpdateOptions`, так что lock не стартует `rev-parse`.
+- **Факт без ответа** (правило приложения с 2026-10-24, `fix/first-frame-truth`): каждое семейство — `Loading` с
+  открытия сессии и смены репозитория до первого ответа, сегодня это `isPatronusPending` (Patronus не ответил или вид
+  роботов первого ответа списка не посчитан), `isPullRequestsLoading`, `isRobotProblemsPending` и readiness без
+  записи (`src/stores/patronus.ts`, `pull-requests.ts`, `review-readiness.ts`); неудача — `Unavailable(reason)`,
+  никогда вечный `Loading` и никогда «нет»: неудачный листинг PR — `Unavailable`, не пустой список. Вид роботов после
+  первого ответа при смене роботов — `Stale`, и строки его не ждут (иначе каждый опрос мигал бы строками).
 - **Удаляется:** `RobotMatch`, `RemoteFacts`, `askRepositoryView`, `remoteFactsIn`, `robotMatchIn`, `keptView`,
   таймеры `stores/patronus.ts`, `pull-requests.ts`, `review-readiness.ts`, `review-requests.ts:345`, `refresh-gate.ts`,
   `useDismissesStaleReviews.ts`, интервал `usePatronusRobotDetails.ts`, TS-половина фикстуры matching, IPC
@@ -1657,6 +1673,22 @@ rewrites между процессами через файл `s10`; `s12` ждё
   [таблицы](#ресурсы) (ref, поле PR, робот и его `lands`, tracking ref, worktree), не по репозиторию; ответ —
   `Run | Join{op} | Queue{op} | Busy{holder}`, где `Busy` только для держателя в другом процессе; `actions` получает
   `Queued{op}` («Update after Unstacking auth»), а не `Disabled` за идущей операцией или sync.
+- **Факт без ответа — правило `domain-policy`.** Решение next step, landing node и `LandDecision` над фактом
+  `Loading`, `Unknown` или `Unavailable` даёт строку 0 (`NextStep::Pending { fact }`): ожидание с фактом как причиной,
+  `actions` каждой поверхности `Disabled{Pending(fact)}`, узел ждёт и не считается ходом; Dry Run ждёт только Patronus;
+  причина ветки (строка 1, робот предка, блок, parked, операция) и известная landing need (строка 1′) перекрывают
+  её; landing needs не ждутся — gate старта проверяет их сам. Неудачный ответ — не «нет»: `Unavailable` PR оставляет
+  PR неизвестным (строки 5–10 не применяются, Safe Push подтверждается и называет причину). `Stale` readiness
+  сохраняет шаг и его подпись, действие — `Disabled{Pending(readiness)}`, тихий шаг остаётся. Табличные тесты s8
+  покрывают каждую строку `next-step.spec.md` с каждым входным фактом не `Fresh` (`Loading`, `Stale`, `Unavailable`,
+  `Unknown`): ни один вход не отвечает действием, которое тот же вход с `Fresh` заменил бы другим. Rust-версия держит
+  зелёными: `tests/e2e/next-step/facts-without-answer.spec.ts` (`should wait with Checking… for the pull requests and
+  the approvals, S and the menu saying why, then start the Safe Push they allow`, `should never offer Create Pull
+  Request… before GitHub lists the pull requests, and show a failed listing, not a missing pull request`),
+  `tests/e2e/repository/header.spec.ts` (`should keep its controls in place when Patronus answers after the sync`),
+  `tests/e2e/branch-row-layout/late-facts.spec.ts` (`should keep the rows and the columns where the last start left
+  them while Your Turn, the pull requests and the approvals come back`) и кейс `row-11-not-asked-yet` таблицы
+  сценариев (`asymmetry: byDesign`: `bd` спрашивает readiness до плана).
 - **Удаляется:** `branch-next-step.ts`, `landing-node.ts`, `safe-push-decision.ts`, правила `whole-stack.ts`,
   `parked.ts`, `push-summary.ts`; в `patronus.ts`: `canStartRobot`, `isStartBlocked`, `allowsPushMode`,
   `getRobotRestartAction`; в `stack.ts`: `needsPush`, `stackPushOrder`, `stackAskFirst`, `stackAncestors`; в
@@ -1899,6 +1931,11 @@ rewrites между процессами через файл `s10`; `s12` ждё
   webview представил страницу такой, какая она есть (`show_window`, на macOS `_doAfterNextPresentationUpdate:`), так
   что первый кадр несёт содержимое, а не слои прошлого кадра. s13 не меняет показ: она делает так, что этот первый кадр несёт кэшированные строки
   (`__BD_MODEL__`), и `markWindowContentReady` в `BranchCreator` срабатывает на них, не дожидаясь sync.
+- **Кэш помечен.** Кэшированный кадр несёт факты как `Cached`, не `Fresh`: шаги и узлы из кэша видны, их действия
+  `Disabled{Cached}` до свежего ответа своего факта, счёт moves заголовка из кэша не берётся (никакой цифры, которую
+  свежий ответ уберёт). Раскладка кадра — его строки; `settledLayout` (ширины треков и высота Your Turn, сегодня
+  `useSettledLayout`) остаётся для репозитория без кэша и после смены схемы, и поздний факт не двигает ни строку, ни
+  столбец, ни контрол заголовка ([Представление](#представление-снимок-и-патчи)).
 - **Удаляется:** стартовая последовательность чтений страницы (префикс, конфиг, статусы auth до первого кадра).
 - **Проверки:** B7, B13; холодный старт release-приложения измеряет владелец (Real App Checks); путь: Unstack на
   кэшированном кадре с удержанным первым sync — исполнен после его фиксации; фокус во время первого sync — без второго
