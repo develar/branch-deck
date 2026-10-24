@@ -142,7 +142,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     const branchRow = findBranchRow(page, "test-branch")
     await waitForBranchSyncComplete(page, "test-branch")
     // a sync that runs while the menu is open
-    const releaseSync = await holdCommand(page, "sync_branches")
+    const releaseSync = await holdCommand(page, "sync")
     const syncButton = page.getByTestId("sync-button")
     await syncButton.click()
     await expect(syncButton).toHaveAttribute("aria-busy", "true")

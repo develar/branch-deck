@@ -3,16 +3,19 @@
 //! family resolves it. `subscribe_view` is a long-lived event stream of its channel (`channel_commands`): its answer
 //! `{"result": …}` first, then each patch as `{"progress": <ViewPatch>}` until `unsubscribe_view` or the deletion of the
 //! repository (`delete_repository` closes its sessions, so the stream ends and the deletion does not wait for it); a
-//! failure answers `{"result": {"status": "error", "error": <ApiError>}}` on the stream, the JSON of the app.
+//! failure answers `{"result": {"status": "error", "error": <ApiError>}}` on the stream, the JSON of the app. The next run
+//! of a session takes the overrides a test set for its repository (`sync_overrides`).
 
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
 use crate::state::AppState;
+use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{CommandResult, Rejection, branch_prefix_of, failed, repository_by_path};
 use app_api::api_error::{api_error, no_branch_prefix};
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use domain_types::ProgressReporter;
 use domain_types::error::ApiError;
 use domain_types::session::{SyncAnswer, SyncReason, TableView, ViewPatch, ViewSubscription};
 use repository_model::runtime::SessionEnvironment;
@@ -37,6 +40,18 @@ impl SessionEnvironment for TestSessionEnvironment {
 
   fn api_error(&self, error: anyhow::Error) -> ApiError {
     api_error(error)
+  }
+
+  /// The overrides a test set for the next sync of the repository, taken by this run (`sync_overrides`)
+  fn reporter(&self, key: &SessionKey, reporter: Arc<dyn ProgressReporter>) -> Arc<dyn ProgressReporter> {
+    let overrides = self.state.upgrade().and_then(|state| {
+      let repository = repository_by_path(&state, &key.worktree).ok()?;
+      repository.sync_overrides.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+    });
+    match overrides {
+      Some(overrides) => Arc::new(OverridingReporter { inner: reporter, overrides }),
+      None => reporter,
+    }
   }
 
   /// "Sync on focus" of the settings of the test repository; a repository already deleted syncs nothing

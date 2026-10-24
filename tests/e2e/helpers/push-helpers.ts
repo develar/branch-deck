@@ -82,6 +82,20 @@ export function pushOutcome(branchName: string, result: PushResult = {}) {
   }
 }
 
+/** The branches of the `stacked_branches` template */
+export const STACKED_BRANCHES = ["auth", "login", "session", "oauth", "docs"]
+
+/** The branches of the `stack_island` template: its stack from `air`, and `auth`, `login` and `docs` */
+export const STACK_ISLAND_BRANCHES = ["air", "bazel", "bridge", "runtime", "side-fix", "deploy", "side-test", "auth", "login", "docs"]
+
+/**
+ * The remote statuses of `names` as a push of each left them (`pushOutcome`), for the remote statuses the next sync
+ * reports (`SyncOverrides.remote`)
+ */
+export function pushedRemotes(names: readonly string[], result: PushResult = {}) {
+  return Object.fromEntries(names.map(name => [name, pushOutcome(name, result).remoteStatus]))
+}
+
 /**
  * What each branch of a push answers, by branch (the stack branch of the whole stack of a root by `stack:<root>`,
  * `wholeStackResultKey`): a list answers the pushes of a branch in turn, its last result repeating

@@ -70,3 +70,61 @@ async fn a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app(
     assert_eq!(error["code"], "no_branch_prefix", "{command}: {error}");
   }
 }
+
+/// The next sync reports what a test set for it (`sync-overrides`): the remote status of a branch with the fields given
+/// and the newest of its unpushed commits kept, the issue links of a YouTrack user; the one after it leaves out a status set to null, so the branch keeps the one it
+/// had; the sync after that reports the server's own status again
+#[tokio::test]
+async fn the_next_sync_takes_the_overrides_of_its_repository_and_the_syncs_after_it_do_not() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  let mut messages = subscribe(&client, addr, &id, &path, 9).await;
+  subscription(&mut messages).await;
+  let links = json!({ "links": [{ "issueRegexp": "\\b[A-Z]+-\\d+\\b", "linkRegexp": "https://youtrack.test/issue/$0" }] });
+  let sync_with = |overrides: Value| {
+    let (client, path, id) = (client.clone(), path.clone(), id.clone());
+    async move {
+      if !overrides.is_null() {
+        post(&client, addr, &format!("/repositories/{id}/sync-overrides"), overrides).await;
+      }
+      let synced = post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
+      assert_eq!(synced["outcome"], "synced", "{synced}");
+      post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await
+    }
+  };
+  let remote_of = |view: &Value| {
+    let status = &view["branches"]["test-branch"]["remote"]["status"];
+    (status["remoteExists"].clone(), status["remoteTip"].clone())
+  };
+
+  let pushed = json!({ "remote": { "test-branch": { "remoteExists": true, "remoteTip": "test-branch-pushed", "keepUnpushed": 1 } }, "issueLinks": links });
+  let first = sync_with(pushed).await;
+  assert_eq!(remote_of(&first), (json!(true), json!("test-branch-pushed")), "{first}");
+  let unpushed = first["branches"]["test-branch"]["remote"]["status"]["unpushedCommits"]
+    .as_array()
+    .cloned()
+    .unwrap_or_default();
+  let copies = first["branches"]["test-branch"]["copies"].as_array().cloned().unwrap_or_default();
+  assert_eq!(unpushed.len(), 1, "the newest of the two commits the template has: {first}");
+  assert_eq!(unpushed[0], copies[0]["hash"], "the copy of the newest commit");
+  assert_eq!(first["header"]["issueNavigationConfig"], links);
+
+  let second = sync_with(json!({ "remote": { "test-branch": null } })).await;
+  assert_eq!(remote_of(&second), (json!(true), json!("test-branch-pushed")), "no status reported: the one before stays");
+
+  let third = sync_with(Value::Null).await;
+  assert_eq!(remote_of(&third), (json!(false), Value::Null), "the template has no remote: {third}");
+}
+
+/// A ref of the repository answers the commit it is at; an unknown one is not found
+#[tokio::test]
+async fn a_revision_of_the_repository_answers_its_commit() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, _) = create_repository(&client, addr).await;
+  let revision = |name: &str| client.get(format!("http://{addr}/repositories/{id}/revision?name={name}")).send();
+  let head: Value = revision("HEAD").await.unwrap().json().await.unwrap();
+  assert_eq!(head["id"].as_str().map(str::len), Some(40), "{head}");
+  assert_eq!(revision("no-such-branch").await.unwrap().status(), 404);
+}

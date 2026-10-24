@@ -22,10 +22,10 @@ use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::TableState;
 use crate::views::RepositoryViews;
-use domain_types::SyncEvent;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{SyncReason, SyncState, SyncStep, TableView};
 use domain_types::stack::BlockReason;
+use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
 use std::time::Duration;
@@ -323,6 +323,14 @@ pub trait SessionEnvironment: Send + Sync + 'static {
 
   /// Whether a window of `key` that gains focus syncs (Settings, "Sync on focus")
   fn syncs_on_focus(&self, key: &SessionKey) -> bool;
+
+  /// The reporter the sync of a run of `key` sends its events to, around the run's own (`reporter`): that one by
+  /// default. The E2E server puts there the overrides a test set for the next sync of its repository
+  /// (`test_server::sync_overrides`), so the table of the session and of the views is what a sync of such a repository
+  /// makes
+  fn reporter(&self, _key: &SessionKey, reporter: Arc<dyn ProgressReporter>) -> Arc<dyn ProgressReporter> {
+    reporter
+  }
 }
 
 /// The host of the app's sessions: the syncs and the fingerprints run with git, and the table a sync finished goes on to
@@ -362,11 +370,12 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
         .map_err(|error| ApiError::internal(format!("The sync preparation task failed: {error}")))?
         .map_err(|error| environment.api_error(error))?;
       // the remote statuses among the events are kept for the table of the views
-      let reporter = RemoteStatusCollector::new(reporter);
-      let report = sync_branches(&git, &key.worktree, &key.prefix, reporter.clone(), options)
+      let collector = RemoteStatusCollector::new(reporter);
+      let reporter = environment.reporter(&key, Arc::new(collector.clone()));
+      let report = sync_branches(&git, &key.worktree, &key.prefix, reporter, options)
         .await
         .map_err(|error| environment.api_error(error))?;
-      let table = BranchTable::from_report(&key.prefix, &report, &reporter.take_statuses());
+      let table = BranchTable::from_report(&key.prefix, &report, &collector.take_statuses());
       views.keep(&key.worktree, &key.prefix, table);
       Ok(report)
     })

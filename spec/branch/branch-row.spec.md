@@ -316,7 +316,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [What is outgoing](../repository/outgoing.spec.md#what-is-outgoing)), then the result of the sync ("created",
   "updated", "unchanged").
 - A branch a sync groups as it was, with the same commits, which the last sync built without a problem, must keep what
-  its row shows while the sync rebuilds it (a quiet resync, `isQuietResync`): its status, its node, its synced hashes,
+  its row shows while the sync rebuilds it (a quiet resync, `TableState` of the session): its status, its node, its synced hashes,
   until the sync reports it, so a sync of 35 branches doesn't turn every row to "syncing…" for a moment. Its push stays
   enabled: a push pressed during the sync waits for it with the spinner of a push and pushes the branch as the sync left
   it, over the remote status the sync brought (a fetch moved the remote branch: one push over its new tip, not a
@@ -325,8 +325,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   sync it ends with the same way, and pushes the branches as the rewrite left them.
   [@test] ../../src/lib/git/push.test.ts (`waits for the rewrite of its repository that runs and the sync it ends with, then pushes the branch as it left it`)
   [@test] ../../src/stores/operations.test.ts (`lets a push wait for the rewrites of its repository and the syncs they end with, the queued ones too`)
-  [@test] ../../src/stores/branch-sync.test.ts (`keeps what the row of an unchanged branch shows while the sync rebuilds it, and resets a changed or failed one`)
-  [@test] ../../src/stores/branch-sync.test.ts (`applies the remote status of a sync that a push of the branch waits for: the push sends over it after the wait`)
+  [@test] ../../crates/repository-model/src/table_test.rs (`a_quiet_resync_keeps_the_shown_state_and_a_changed_branch_starts_syncing`)
+  [@test] ../../src/model/store.test.ts (`keeps the records of the branches a patch leaves alone, and of the commits of a branch whose state alone changed`)
+  [@test] ../../src/model/store.test.ts (`applies the remote status of a sync that a push of the branch waits for: the push sends over it after the wait`)
   [@test] ../../src/lib/git/push-during-sync.test.ts (`pushes once, over the remote tip that the fetch of the sync it waited for brought`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once the sync finished, the row as it was meanwhile`)
 - A push of a branch the last sync did not build (a merge conflict, an error, a blocked parent) must push nothing and

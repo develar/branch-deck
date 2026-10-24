@@ -32,8 +32,6 @@ export function testBranch(name: string, parent: string | null, overrides: Parti
     statusText: "",
     processedCount: 0,
     hasError: false,
-    autoExpandRequested: false,
-    autoScrollRequested: false,
     latestCommitTime: 0,
     summary: "",
     descriptionTitle: null,

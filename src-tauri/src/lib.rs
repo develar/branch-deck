@@ -5,7 +5,6 @@ pub mod lock_wait;
 pub mod menu;
 pub mod operation;
 pub mod presentation;
-pub mod progress;
 pub mod repository_state;
 pub mod settings;
 pub mod title_bar;
@@ -70,8 +69,6 @@ use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
 use commands::stack_operations::{get_stack_independence, rename_branch, restack_branch, undo_regroup};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
-use commands::sync_branches::sync_branches;
-use commands::sync_inputs::get_sync_inputs_fingerprint;
 use commands::unapply_branch::{reapply_branch, unapply_branch, undo_reapply_branch, undo_unapply_branch};
 use commands::uncommitted_changes::get_uncommitted_changes;
 use commands::update_project::{dismiss_landed, update_project};
@@ -164,14 +161,12 @@ fn specta_builder() -> Builder<tauri::Wry> {
       post_patronus_command,
       get_patronus_target_branch,
       read_patronus_command_reply,
-      sync_branches,
       open_session,
       get_snapshot,
       subscribe_view,
       unsubscribe_view,
       set_window_focus,
       sync,
-      get_sync_inputs_fingerprint,
       resolve_branch_prefix,
       check_git_setup,
       get_repository_config,

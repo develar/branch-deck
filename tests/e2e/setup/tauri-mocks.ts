@@ -76,8 +76,8 @@ export const tauriMockScript = () => {
    * reached the mock server or a test's route of `/invoke/<cmd>` (`routeCommand` answers count too), counted at the
    * fetch; the plugin commands the page answers itself (store, event, window, log) are not. `requestBytes` and
    * `responseBytes` are the UTF-8 bytes of the parameters and of the answers, `channelMessages` and `channelBytes` the
-   * messages of a command's channel (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`, the patches
-   * of `subscribe_view`, counted under its name for as long as its channel stays open); `pending`
+   * messages of a command's channel (the SSE events of `get_file_diffs`, `get_file_merges`, the patches of
+   * `subscribe_view`, counted under its name for as long as its channel stays open); `pending`
    * the commands whose answer has not been read yet. `reset()` zeroes the counts, not `pending`
    */
   const encoder = new TextEncoder()
@@ -607,15 +607,6 @@ export const tauriMockScript = () => {
     get_file_diffs: async (cmd: string, payload: any) => handleStreamingCommand(cmd, { ...payload, progress: payload.events }),
     get_file_merges: async (cmd: string, payload: any) => handleStreamingCommand(cmd, { ...payload, progress: payload.events }),
 
-    // Special async commands
-    sync_branches: async (_cmd: string, payload: any) => {
-      if (payload && payload.progress) {
-        return handleStreamingCommand("sync_branches", payload)
-      }
-      // Fallback to proxy if no progress channel
-      return proxyToTestServer("sync_branches", payload)
-    },
-
     // a change of the settings: the test server's writer applies it, and the backend sends the change to every window
     // (`settings_changed`), this page and the other pages of a linked sub-window; the origin is this page's window. The
     // patches are recorded in `__e2eSettingsPatches`, the changes the backend sent in `__e2eEmittedEvents` of this page
@@ -712,9 +703,8 @@ export const tauriMockScript = () => {
     }
 
     tauriInternals.mockIPC(async (cmd: string, payload: any) => {
-      // Special handling for commands with Channel objects: `progress` of sync_branches, `events` of get_file_diffs and
-      // get_file_merges
-      const channelKey = cmd === "sync_branches" ? "progress" : cmd === "get_file_diffs" || cmd === "get_file_merges" ? "events" : null
+      // Special handling for commands with Channel objects: `events` of get_file_diffs and get_file_merges
+      const channelKey = cmd === "get_file_diffs" || cmd === "get_file_merges" ? "events" : null
       if (channelKey !== null && payload && payload[channelKey]) {
         // Store the onmessage handler before it gets lost
         const onmessageHandler = payload[channelKey].onmessage

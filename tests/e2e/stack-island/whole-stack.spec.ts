@@ -26,13 +26,13 @@ import {
   reviewer,
 } from "../helpers/pull-request-helpers"
 import type { PushRequest } from "../helpers/push-helpers"
-import { pushOutcome, routeHeldPush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
+import { pushedRemotes, pushOutcome, routeHeldPush, routePushBranches, STACKED_BRANCHES, wholeStackResultKey } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
 import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush, waitForStepFacts } from "../helpers/safe-push-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents, runAndWaitForAnswer } from "../helpers/sync-helpers"
-import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import { holdCommand, recordCommand } from "../helpers/wait-helpers"
 
@@ -100,12 +100,11 @@ async function pullRequestComments(repo: TestRepositoryBuilder): Promise<[number
 }
 
 /**
- * The next sync reports the stack branch of `root` on the remote at `stack-pushed`, rebuilt with a commit that remote
- * lacks: a pull request or a Safe Push put it there
+ * What the next sync reports of the stack branch of `root`: on the remote at `stack-pushed`, rebuilt with a commit that
+ * remote lacks; a pull request or a Safe Push put it there
  */
-async function stackBranchAheadOfRemote(page: Page, root: string): Promise<void> {
-  const remote = pushOutcome(root, { unpushedCommits: ["s1"], remoteTip: "stack-pushed" }).remoteStatus
-  await rewriteNextSyncEvents(page, event => (event.type === "stackBranchUpdate" && event.data.root === root ? { ...event, data: { ...event.data, remote } } : event))
+function stackBranchAheadOfRemote(root: string): SyncOverrides {
+  return { stacks: { [root]: { remote: pushOutcome(root, { unpushedCommits: ["s1"], remoteTip: "stack-pushed" }).remoteStatus } } }
 }
 
 /** The push of the header of the island of `root` (Push with Children, and the push of its stack branch alone) */
@@ -163,8 +162,10 @@ async function setupUnaskedStackPullRequest(
   syncAndWaitForBranches: () => Promise<void>,
   template: string,
   root: string,
+  syncOverrides?: SyncOverrides,
 ): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo(template, {
+    syncOverrides,
     patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
     // the code owner a collaborator, whom a review can be asked from
     pullRequests: withStackPullRequests({ ...availablePullRequests(), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }] }, { [root]: stackPullRequest(root, 12) }),
@@ -188,9 +189,8 @@ async function setupFailedWholeStackRobot(
   setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<void>,
 ): Promise<{ stackPushes: PushRequest[][]; release: () => void; repo: TestRepositoryBuilder }> {
-  await stackBranchAheadOfRemote(page, "air")
   const failed = wholeStackRobot("air", "whole", { status: "failure", sourceRevision: "stack-pushed", finishTime: 1704142800 })
-  const repo = await setupRepo("stack_island", { patronus: availableRobots(failed) })
+  const repo = await setupRepo("stack_island", { patronus: availableRobots(failed), syncOverrides: stackBranchAheadOfRemote("air") })
   await syncAndWaitForBranches()
   const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
   return { stackPushes, release, repo }
@@ -212,9 +212,9 @@ async function openWholeStackPopoverWithPullRequest(
   syncAndWaitForBranches: () => Promise<void>,
   answer: PatronusReviewRequirement | null,
 ): Promise<Locator> {
-  await rewriteNextRemoteStatus(page, status => (status.branchName === "air" || status.branchName === "bazel" ? pushOutcome(status.branchName).remoteStatus : status))
   const stack = stackPullRequest("air", 12, { reviewers: [reviewer("alice", "approved")] })
   const repo = await setupRepo("stack_island", {
+    syncOverrides: { remote: pushedRemotes(["air", "bazel"]) },
     patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
     pullRequests: withStackPullRequests(availablePullRequests(), { air: stack }),
   })
@@ -412,8 +412,7 @@ test.describe("Whole stack", () => {
     syncAndWaitForBranches,
   }) => {
     // the code owner of the whole stack has to approve in #12, and nobody asked him yet
-    await stackBranchAheadOfRemote(page, "air")
-    const repo = await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stack_island", "air")
+    const repo = await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stack_island", "air", stackBranchAheadOfRemote("air"))
     const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
     const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
     await expect(slot).toHaveAttribute("data-step", "requestReview")
@@ -867,14 +866,11 @@ test.describe("Whole stack", () => {
     ]
     const running = wholeStackRobot("auth", "whole", { sourceRevision: "stack-tip", pullRequest: { number: 12, url: stack.url } })
     const repo = await setupRepo("stacked_branches", { patronus: availableRobots(running), pullRequests: withStackPullRequests(availablePullRequests(...own), { auth: stack }) })
-    await rewriteNextSyncEvents(page, event => {
-      if (event.type === "remoteStatusUpdate" && event.data.branchName !== "docs") {
-        const remoteTip = `remote-${event.data.branchName}`
-        return { ...event, data: { ...event.data, remoteExists: true, remoteTip, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } }
-      }
+    const onRemote = (name: string) => [name, { remoteExists: true, remoteTip: `remote-${name}`, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true }]
+    await repo.setSyncOverrides({
+      remote: Object.fromEntries(STACKED_BRANCHES.filter(name => name !== "docs").map(onRemote)),
       // the robot runs on the stack branch as the remote has it, the commits the sync built
-      const remote = pushOutcome("auth", { remoteTip: "stack-tip" }).remoteStatus
-      return event.type === "stackBranchUpdate" ? { ...event, data: { ...event.data, remote } } : event
+      stacks: { auth: { remote: pushOutcome("auth", { remoteTip: "stack-tip" }).remoteStatus } },
     })
     await syncAndWaitForBranches()
     await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with the whole auth stack")
@@ -1008,12 +1004,11 @@ test.describe("Whole stack", () => {
     const failed = wholeStackRobot("air", "whole", { status: "failure", sourceRevision: "stack-pushed", finishTime: 1704139300 })
     const deploy = robot("deploy", "deploy-robot")
     const sideTest = robot("side-test", "side-test-robot")
-    await rewriteNextSyncEvents(page, event =>
-      event.type === "stackBranchUpdate" && event.data.root === "air"
-        ? { ...event, data: { ...event.data, remote: pushOutcome("air", { remoteTip: event.data.tip ?? "" }).remoteStatus } }
-        : event,
-    )
-    const repo = await setupRepo("stack_island", { patronus: availableRobots(failed, deploy, sideTest) })
+    // the remote has the stack branch as the sync built it
+    const repo = await setupRepo("stack_island", {
+      patronus: availableRobots(failed, deploy, sideTest),
+      syncOverrides: { stacks: { air: { tip: "stack-built", remote: pushOutcome("air", { remoteTip: "stack-built" }).remoteStatus } } },
+    })
     await syncAndWaitForBranches()
     const restartInOverview = (overview: Locator) => overview.getByRole("button", { name: "Restart Safe Push of the whole air stack" })
     // while they run, its restart waits for them: the robot of a branch lands a part of the stack

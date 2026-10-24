@@ -33,7 +33,7 @@ async fn set_app_prefix(client: &reqwest::Client, addr: SocketAddr, id: &str, pr
 
 /// Syncs the repository at `path` naming nothing but it: the status and the body
 async fn sync(client: &reqwest::Client, addr: SocketAddr, path: &str) -> (u16, String) {
-  let response = command(client, addr, Named::ByPath, "sync_branches", &json!({ "repositoryPath": path }))
+  let response = command(client, addr, Named::ByPath, "sync", &json!({ "repositoryPath": path, "reason": "manual" }))
     .send()
     .await
     .unwrap();

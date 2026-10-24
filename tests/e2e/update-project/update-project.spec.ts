@@ -120,7 +120,7 @@ test.describe("Update Project", () => {
     await expect.poll(async () => (await button.boundingBox())!.width).toBe(width)
 
     // the sync of the applied update is its last step: the toast says what happened at once, the bar goes on
-    const releaseSync = await holdCommand(page, "sync_branches")
+    const releaseSync = await holdCommand(page, "sync")
     update.release()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
     await expect(progress).toHaveAttribute("data-step", "sync")
@@ -183,7 +183,7 @@ test.describe("Update Project", () => {
     await expect(steps).toHaveText(["Fetched origin/master", "Checking the update onto origin/master…", "Update to origin/master", "Sync branches"])
 
     // the update ends with its check, the sync that follows it is Sync's
-    const releaseSync = await holdCommand(page, "sync_branches")
+    const releaseSync = await holdCommand(page, "sync")
     update.release()
     await expect(page.getByText("master is already up to date with origin/master")).toBeVisible()
     await expect(updateButton(page)).toHaveText("Update")

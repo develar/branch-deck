@@ -34,13 +34,13 @@ function conflictFixOperation(component: FixComponent): OperationKey {
   return { id: "apply-conflict-fix", subject: "conflict-fix", objects: branchesOfFix(component), kind: "rewrite" }
 }
 
-/** The repository and the inputs of the last sync, its prefix among them: a fix found for other ones is stale */
+/** The repository and the table the session left (`tableRevision`): a fix found for another table is stale */
 function fixKey(): string | null {
-  const { syncedInputs, isSyncing } = branchSyncStore.getState()
-  if (isSyncing || syncedInputs === null) {
+  const { syncedRepositoryPath, tableRevision, isSyncing } = branchSyncStore.getState()
+  if (isSyncing || syncedRepositoryPath === null) {
     return null
   }
-  return `${syncedInputs.repositoryPath}\n${syncedInputs.fingerprint}`
+  return `${syncedRepositoryPath}\n${tableRevision}`
 }
 
 // a sync changes what the fix is for: the running search stops, the next conflict view looks again
@@ -58,9 +58,9 @@ export async function requestConflictFix(force = false): Promise<void> {
   if (key === null || (!force && state.key === key && state.status !== "idle")) {
     return
   }
-  const { syncedInputs } = branchSyncStore.getState()
+  const repositoryPath = branchSyncStore.getState().syncedRepositoryPath!
   conflictFixStore.setState({ key, status: "searching", fix: null, error: null })
-  const result = await invokeCommand(() => commands.findConflictFix({ repositoryPath: syncedInputs!.repositoryPath }))
+  const result = await invokeCommand(() => commands.findConflictFix({ repositoryPath }))
   if (conflictFixStore.getState().key !== key) {
     return
   }
@@ -79,12 +79,12 @@ export function useConflictFix(enabled: boolean): ConflictFixState {
     conflictFixStore,
     useShallow(store => ({ key: store.key, status: store.status, fix: store.fix, error: store.error })),
   )
-  const syncedFingerprint = useStore(branchSyncStore, store => (store.isSyncing ? null : (store.syncedInputs?.fingerprint ?? null)))
+  const syncedTable = useStore(branchSyncStore, store => (store.isSyncing || store.syncedRepositoryPath === null ? null : store.tableRevision))
   useEffect(() => {
-    if (enabled && syncedFingerprint !== null) {
+    if (enabled && syncedTable !== null) {
       void requestConflictFix()
     }
-  }, [enabled, syncedFingerprint])
+  }, [enabled, syncedTable])
   return state
 }
 
@@ -127,14 +127,14 @@ export function fixStepsFor(branch: string | undefined): string[] | undefined {
  */
 export async function applyConflictFix(component: FixComponent): Promise<void> {
   const { fix } = conflictFixStore.getState()
-  const { syncedInputs } = branchSyncStore.getState()
-  if (fix === null || syncedInputs === null) {
+  const repositoryPath = branchSyncStore.getState().syncedRepositoryPath
+  if (fix === null || repositoryPath === null) {
     return
   }
   await runRewrite(
-    { ...conflictFixOperation(component), label: "Applying the fix", surface: APPLY_FIX_SURFACE, repositoryPath: syncedInputs.repositoryPath },
+    { ...conflictFixOperation(component), label: "Applying the fix", surface: APPLY_FIX_SURFACE, repositoryPath: repositoryPath },
     "Cannot apply the fix",
-    wait => commands.applyConflictFix({ repositoryPath: syncedInputs.repositoryPath, fingerprint: fix.fingerprint, plan: component.plan }, wait),
+    wait => commands.applyConflictFix({ repositoryPath: repositoryPath, fingerprint: fix.fingerprint, plan: component.plan }, wait),
     data => {
       if (data.kind === "stale") {
         return { sync: false, after: () => void requestConflictFix(true) }
@@ -155,7 +155,7 @@ export async function applyConflictFix(component: FixComponent): Promise<void> {
       conflictFixStore.setState({ key: null, status: "idle", fix: null })
       return {
         sync: true,
-        after: () => showUndoToast(fixTitle(component), () => undoRegroup(syncedInputs.repositoryPath, applied.undoToken, "Cannot undo the fix", "Undoing the fix"), description),
+        after: () => showUndoToast(fixTitle(component), () => undoRegroup(repositoryPath, applied.undoToken, "Cannot undo the fix", "Undoing the fix"), description),
       }
     },
   )

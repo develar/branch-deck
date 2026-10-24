@@ -58,8 +58,8 @@ import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { nextAnswer, rewriteNextRemoteStatus, runAndWaitForAnswer, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
-import type { PatronusLog, TestRepositoryBuilder } from "../helpers/test-repository"
+import { nextAnswer, runAndWaitForAnswer, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
+import type { PatronusLog, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
@@ -141,7 +141,12 @@ async function setupStarts(
   syncAndWaitForBranches: () => Promise<unknown>,
   ...robots: PatronusRobot[]
 ): Promise<TestRepositoryBuilder> {
-  const repo = await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusProfiles: { profiles: PROFILES } }, ...robots)
+  return setupStartsWith(page, setupRepo, syncAndWaitForBranches, {}, ...robots)
+}
+
+/** `setupStarts` with more `options` of the repository */
+async function setupStartsWith(...[page, setupRepo, syncAndWaitForBranches, options, ...robots]: Parameters<typeof setupRobotsWith>): Promise<TestRepositoryBuilder> {
+  const repo = await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusProfiles: { profiles: PROFILES }, ...options }, ...robots)
   await routePush(page, {})
   return repo
 }
@@ -149,21 +154,18 @@ async function setupStarts(
 /** What the fake did for a start of JIRA-456 that replaces its running robot `OLDER`: canceled it, started a new one */
 const REPLACED = { cancels: [OLDER.id], restarts: [], starts: [startRequest("JIRA-456").sourceBranch] }
 
-/** The next sync finds the commits of JIRA-456 on its remote branch, rebuilt since on a newer baseline: a start pushes nothing */
-async function remoteHasCommitsOfJira(page: Page): Promise<void> {
-  await rewriteNextRemoteStatus(page, status =>
-    status.branchName === "JIRA-456" ? { ...status, remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } : status,
-  )
+/** What the next sync reports: the commits of JIRA-456 on its remote branch, rebuilt since on a newer baseline; a start pushes nothing */
+const REMOTE_HAS_COMMITS_OF_JIRA: SyncOverrides = {
+  remote: { "JIRA-456": { remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } },
 }
 
-/** A Safe Push of an older commit of JIRA-456 runs; the remote branch has its commits (`remoteHasCommitsOfJira`) */
+/** A Safe Push of an older commit of JIRA-456 runs; the remote branch has its commits (`REMOTE_HAS_COMMITS_OF_JIRA`) */
 async function setupOlderWithPushedCommits(
   page: Page,
   setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
 ): Promise<TestRepositoryBuilder> {
-  await remoteHasCommitsOfJira(page)
-  return setupRobots(page, setupRepo, syncAndWaitForBranches, OLDER)
+  return setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { syncOverrides: REMOTE_HAS_COMMITS_OF_JIRA }, OLDER)
 }
 
 /**
@@ -650,9 +652,7 @@ test.describe("Patronus actions", () => {
     const repo = await setupRepo("issue_links", { patronus: availableRobots() })
     await addRecentProject(page)
     // the remote branch has the commits of JIRA-456: the start pushes nothing
-    await rewriteNextRemoteStatus(page, status =>
-      status.branchName === "JIRA-456" ? { ...status, remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } : status,
-    )
+    await repo.setSyncOverrides(REMOTE_HAS_COMMITS_OF_JIRA)
     await syncAndWaitForBranches()
     await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
     const check = await holdCommandCalls(page, "check_target_conflict")
@@ -696,8 +696,7 @@ test.describe("Patronus actions", () => {
 
   test("should wait to start until the remote status of the branch is loaded", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the first sync brings no remote status of JIRA-456
-    await rewriteNextRemoteStatus(page, status => (status.branchName === "JIRA-456" ? null : status))
-    const repo = await setupStarts(page, setupRepo, syncAndWaitForBranches)
+    const repo = await setupStartsWith(page, setupRepo, syncAndWaitForBranches, { syncOverrides: { remote: { "JIRA-456": null } } })
 
     const popover = await openSafePushWithKey(page, "JIRA-456")
     // nothing is claimed about the remote while it is unknown, and the start waits
@@ -942,7 +941,7 @@ test.describe("Patronus actions", () => {
       syncAndWaitForBranches: () => Promise<unknown>,
       ...pullRequests: PullRequest[]
     ): Promise<TestRepositoryBuilder> {
-      return setupGitHubWith(page, setupRepo, syncAndWaitForBranches, undefined, ...pullRequests)
+      return setupGitHubWith(page, setupRepo, syncAndWaitForBranches, {}, ...pullRequests)
     }
 
     /** `setupGitHub` with what the pre-check answers by branch; without, no review is needed (no `OWNERSHIP` files) */
@@ -950,11 +949,12 @@ test.describe("Patronus actions", () => {
       page: Page,
       setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
       syncAndWaitForBranches: () => Promise<unknown>,
-      reviewAnswers: Record<string, PatronusReviewRequirement> | undefined,
+      { reviewAnswers, syncOverrides }: { reviewAnswers?: Record<string, PatronusReviewRequirement>; syncOverrides?: SyncOverrides },
       ...pullRequests: PullRequest[]
     ): Promise<TestRepositoryBuilder> {
       const repo = await setupRepo("issue_links", {
         reviewAnswers,
+        syncOverrides,
         patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
         patronusProfiles: { profiles: PROFILES },
         pullRequests: { ...availablePullRequests(...pullRequests), users: [{ login: "alice-gh", name: "Alice" }] },
@@ -973,7 +973,7 @@ test.describe("Patronus actions", () => {
       setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
       syncAndWaitForBranches: () => Promise<unknown>,
     ) {
-      const repo = await setupGitHubWith(page, setupRepo, syncAndWaitForBranches, { "JIRA-456": REVIEW_REQUIRED })
+      const repo = await setupGitHubWith(page, setupRepo, syncAndWaitForBranches, { reviewAnswers: { "JIRA-456": REVIEW_REQUIRED } })
       const pushes = await routePush(page, {})
       return { repo, pushes }
     }
@@ -1098,8 +1098,7 @@ test.describe("Patronus actions", () => {
 
     test("should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // nothing to push: the start is the comment alone
-      await remoteHasCommitsOfJira(page)
-      const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7))
+      const repo = await setupGitHubWith(page, setupRepo, syncAndWaitForBranches, { syncOverrides: REMOTE_HAS_COMMITS_OF_JIRA }, pullRequest("JIRA-456", 7))
       // the 👍 comes, the fake Patronus lists the robot only later
       await startAcceptedWithoutRobot(page, repo)
       await expectHeldUntilListed(page, repo)
@@ -1112,7 +1111,7 @@ test.describe("Patronus actions", () => {
       })
       await addRecentProject(page)
       // nothing to push: the start is the comment alone
-      await remoteHasCommitsOfJira(page)
+      await repo.setSyncOverrides(REMOTE_HAS_COMMITS_OF_JIRA)
       await syncAndWaitForBranches()
       await expect(findBranchRow(page, "JIRA-456").getByTestId("pull-request-chip")).toBeVisible()
       await startAcceptedWithoutRobot(page, repo)

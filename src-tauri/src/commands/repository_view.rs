@@ -13,12 +13,12 @@ use repository_model::views::RepositoryViews;
 use tauri::State;
 use tracing::instrument;
 
-/// The view of the table the last sync of the repository under its prefix (Rust resolves it) finished: what the robots
+/// The view of the table the last sync of the session of the repository under its prefix (Rust resolves it) kept: what the robots
 /// land, landed and hold (`patronus_view`), with the page's robots, their matches and what the page knows of the remote
 /// branches. Git only for robots the hashes and the memo don't answer; the landing needs of new inputs are computed in
 /// the background, through the object cache of the repository
 #[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path, revision = params.revision, robots = params.robots.len()))]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, robots = params.robots.len()))]
 #[specta::specta]
 pub async fn get_repository_view(
   git_executor: State<'_, GitCommandExecutor>,

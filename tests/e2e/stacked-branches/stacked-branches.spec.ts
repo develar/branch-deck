@@ -30,7 +30,19 @@ import {
 } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubWrites, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
 import type { PushRequest } from "../helpers/push-helpers"
-import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
+import {
+  confirmForcePush,
+  expectPushedToast,
+  PUSH_TIME,
+  pushedRemotes,
+  pushedToast,
+  pushOutcome,
+  routeHeldPush,
+  routePush,
+  routePushBranches,
+  STACKED_BRANCHES,
+  wholeStackResultKey,
+} from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
 import {
   closeRefusal,
@@ -46,7 +58,7 @@ import {
 } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents, runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, holdCommandCalls, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -707,7 +719,7 @@ test.describe("Stacked branches", () => {
   })
 
   test("should offer Push with Children while a sync runs and when the root is pushed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_branches")
+    const repo = await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
     const { stackPushes, pushes } = await routePushBranches(page)
     const auth = findBranchRow(page, "auth")
@@ -727,10 +739,8 @@ test.describe("Stacked branches", () => {
 
     // a sync runs (its statuses of the template's remote replaced by the push's): the menu keeps the item enabled, and
     // the push waits for the sync
-    await rewriteNextRemoteStatus(page, status =>
-      status.branchName === "auth" ? { ...status, remoteExists: true, remoteTip: "auth-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: true } : status,
-    )
-    const releaseSync = await holdCommand(page, "sync_branches")
+    await repo.setSyncOverrides({ remote: { auth: { remoteExists: true, remoteTip: "auth-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: true } } })
+    const releaseSync = await holdCommand(page, "sync")
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
     await openContextMenu(page, auth)
@@ -752,7 +762,7 @@ test.describe("Stacked branches", () => {
   }) => {
     // the pull request of the whole auth stack is open: its stack branch follows the branches
     const stackPullRequest = pullRequest("auth", 12, { title: "The whole auth stack", headRefName: "user-name/stack/auth" })
-    await setupRepo("stacked_branches", { pullRequests: { ...availablePullRequests(), stackPullRequests: { auth: stackPullRequest } } })
+    const repo = await setupRepo("stacked_branches", { pullRequests: { ...availablePullRequests(), stackPullRequests: { auth: stackPullRequest } } })
     await syncAndWaitForBranches()
     const { stackPushes } = await routePushBranches(page)
     const auth = findBranchRow(page, "auth")
@@ -786,14 +796,9 @@ test.describe("Stacked branches", () => {
     await page.keyboard.press("Escape")
 
     // a sync rebuilds the stack branch with a commit its remote lacks, the branches stay as they are on the remote
-    await rewriteNextSyncEvents(page, event => {
-      if (event.type === "remoteStatusUpdate") {
-        return { ...event, data: pushOutcome(event.data.branchName).remoteStatus }
-      }
-      if (event.type === "stackBranchUpdate") {
-        return { ...event, data: { ...event.data, remote: pushOutcome("auth", { unpushedCommits: ["stack-1"], remoteTip: "stack-pushed" }).remoteStatus } }
-      }
-      return event
+    await repo.setSyncOverrides({
+      remote: pushedRemotes(STACKED_BRANCHES),
+      stacks: { auth: { remote: pushOutcome("auth", { unpushedCommits: ["stack-1"], remoteTip: "stack-pushed" }).remoteStatus } },
     })
     await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
     // the menu: the stack branch alone, named and leased on its remote head
@@ -1517,21 +1522,13 @@ test.describe("Stacked branches", () => {
         pullRequests: availablePullRequests(pullRequest("auth", 4, { headRefOid: "remote-auth" }), pullRequest("login", 5, { headRefOid: "remote-login" })),
       })
       // auth and login are on the remote as their pull requests show them; the robot takes oauth as this sync builds it
-      let taken = ""
       const onRemote = () =>
-        rewriteNextSyncEvents(page, event => {
-          if (event.type === "commitSynced" && event.data.branchName === "oauth" && taken === "") {
-            taken = event.data.newHash
-          }
-          if (event.type === "remoteStatusUpdate" && (event.data.branchName === "auth" || event.data.branchName === "login")) {
-            const remoteTip = `remote-${event.data.branchName}`
-            return { ...event, data: { ...event.data, remoteExists: true, remoteTip, commitsBehind: 0, fastForward: false } }
-          }
-          return event
+        repo.setSyncOverrides({
+          remote: Object.fromEntries(["auth", "login"].map(name => [name, { remoteExists: true, remoteTip: `remote-${name}`, commitsBehind: 0, fastForward: false }])),
         })
       await onRemote()
       await syncAndWaitForBranches()
-      expect(taken).toMatch(/^[0-9a-f]{40}$/)
+      const taken = await repo.revision("user-name/virtual/oauth")
       await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with oauth")
 
       // a new commit of auth behind the app's back: the sync rebuilds login and oauth on it, no hash is the robot's now

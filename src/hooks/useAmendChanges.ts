@@ -80,7 +80,7 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
       }
       // the table shows another repository after a switch: this one is synced when it opens
       if (isSelectedRepository(repositoryPath)) {
-        await syncBranches({ autoScroll: false, autoExpand: false })
+        await syncBranches("afterRewrite")
       }
       return result.data.data
     },

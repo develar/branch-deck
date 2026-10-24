@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
-import type { RemoteStatusUpdate, SyncEvent } from "../../../src/lib/bindings"
+import type { SyncOverrides } from "./test-repository"
 
 /**
  * Sync branches and wait for specific elements to appear
@@ -176,7 +176,7 @@ export async function enableAutoSyncOnFocus(page: Page): Promise<void> {
 
 /** Syncs as the Sync menu item (⌘R) does, also under a dialog, and waits for that sync */
 export async function syncFromMenu(page: Page): Promise<void> {
-  const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync_branches"))
+  const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync"))
   await emitTauriEvent(page, "sync_branches")
   await syncResponse
   await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
@@ -187,78 +187,18 @@ export async function syncFromMenu(page: Page): Promise<void> {
  * changed (a reword behind the app's back)
  */
 export async function syncOnWindowFocus(page: Page): Promise<void> {
-  const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync_branches"))
+  const syncResponse = page.waitForResponse(response => response.url().endsWith("/invoke/sync"))
   await emitTauriEvent(page, "tauri://focus")
   await syncResponse
   await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
 }
 
-/**
- * Rewrites the events of the next sync (`sync_branches`, the event stream of the test server) through `rewrite`: null
- * leaves the event out. The syncs after it are the server's as they are, unless `every` rewrites them all
- */
-export async function rewriteNextSyncEvents(page: Page, rewrite: (event: SyncEvent) => SyncEvent | null, { every = false }: { every?: boolean } = {}): Promise<void> {
-  await page.route(
-    "**/invoke/sync_branches",
-    async route => {
-      const response = await route.fetch()
-      const blocks = (await response.text()).split("\n\n").flatMap(block => {
-        const data = block.split("\n").find(line => line.startsWith("data: "))
-        if (data === undefined) {
-          return [block]
-        }
-        const event = JSON.parse(data.slice("data: ".length)) as SyncEvent
-        const rewritten = rewrite(event)
-        // an event kept as it is keeps its block
-        return rewritten === null ? [] : rewritten === event ? [block] : [`event: sync\ndata: ${JSON.stringify(rewritten)}`]
-      })
-      await route.fulfill({ response, body: blocks.join("\n\n") })
-    },
-    every ? undefined : { times: 1 },
-  )
+/** What the next sync reports of `branch`: on the remote as it is (`SyncOverrides.remote`) */
+export function pushedRemote(branch: string): SyncOverrides {
+  return { remote: { [branch]: { remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } } }
 }
 
-/**
- * Rewrites the remote status events of the next sync (`sync_branches`, the event stream of the test server, which
- * computes them from a remote the templates don't have) through `rewrite`: null leaves the event out, so the remote
- * status of that branch stays unloaded. The syncs after it are the server's as they are.
- */
-export async function rewriteNextRemoteStatus(page: Page, rewrite: (status: RemoteStatusUpdate) => RemoteStatusUpdate | null, options: { every?: boolean } = {}): Promise<void> {
-  await rewriteNextSyncEvents(
-    page,
-    event => {
-      if (event.type !== "remoteStatusUpdate") {
-        return event
-      }
-      const status = rewrite(event.data)
-      return status === null ? null : { ...event, data: status }
-    },
-    options,
-  )
-}
-
-/** `branch` on the remote as it is, as the remote status of the next sync says */
-export async function pushedOnNextSync(page: Page, branch: string): Promise<void> {
-  await rewriteNextRemoteStatus(page, pushed(branch))
-}
-
-/**
- * `branch` on the remote as it is in every sync of the page from now on, reloads included: a test of several starts,
- * whatever syncs run between them (a sync of the page before its reload would take a rewrite of the next sync)
- */
-export async function pushedOnEverySync(page: Page, branch: string): Promise<void> {
-  await rewriteNextRemoteStatus(page, pushed(branch), { every: true })
-}
-
-function pushed(branch: string): (status: RemoteStatusUpdate) => RemoteStatusUpdate {
-  return status => (status.branchName === branch ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status)
-}
-
-/** `branch` on the remote with one commit the remote lacks, as the remote status of the next sync says */
-export async function oneCommitUnpushedOnNextSync(page: Page, branch: string): Promise<void> {
-  await rewriteNextRemoteStatus(page, status =>
-    status.branchName === branch
-      ? { ...status, remoteExists: true, unpushedCommits: [status.unpushedCommits[0] ?? "new"], myUnpushedCount: 1, commitsBehind: 0, fastForward: true }
-      : status,
-  )
+/** What the next sync reports of `branch`: on the remote, which lacks only the newest of the commits the sync found unpushed */
+export function oneCommitUnpushedRemote(branch: string): SyncOverrides {
+  return { remote: { [branch]: { remoteExists: true, keepUnpushed: 1, myUnpushedCount: 1, commitsBehind: 0, fastForward: true } } }
 }

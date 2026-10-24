@@ -162,20 +162,20 @@ Mock implementation:
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
   entry with its reason (a page handler for the windows and the window menu), never both; a stale entry, or a route
-  or a handler without its command, fails; the nine
-  handlers over a route (`get_file_diffs`, `get_file_merges` and `sync_branches` adapt a channel;
+  or a handler without its command, fails; the eight
+  handlers over a route (`get_file_diffs` and `get_file_merges` adapt a channel;
   `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
   and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (129) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
+  bytes). The number of commands (127) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
   updater (`updater.rs`).
 - **The ratchet of page answers**: the fourth source of the registry test is the E2E tests themselves
   (`tests/e2e/**/*.ts`). It counts every answer a test gives in the page: each `routeCommand(page, "<name>", …)` and
-  each `.route("**/invoke/<name>", …)` whose handler fulfills with an answer of its own (a hold, a record and a
-  rewrite of the server's answer, `rewriteNextSyncEvents`, and a hold of the server's answer, `holdNextAnswer` (an
-  older answer that comes after a newer one), let the command run on the server: a rewrite binds
+  each `.route("**/invoke/<name>", …)` whose handler fulfills with an answer of its own (a hold, a record, a
+  rewrite of the server's answer and a hold of it, `holdNextAnswer` (an older answer that comes after a newer one), let
+  the command run on the server: a rewrite binds
   `const response = await route.fetch()` and passes that binding as the `response` of its `fulfill`; a `fulfill` of
   any other value, also one named `response`, is an answer, and a fetch bound any other way fails the scan). A write
   (`MUTATING`: the Patronus, GitHub and YouTrack writes, the sign-ins, the git writes, the app's settings) has no page
@@ -227,8 +227,8 @@ Mock implementation:
   [@test] ../../crates/test-server/src/repository_lifecycle_test.rs (`a_failed_command_answers_with_its_api_error`)
 - **IPC counters**: the mock counts the backend commands of the page in `window.__ipcStats`: `invokes` by command,
   `requestBytes` and `responseBytes` (UTF-8 bytes of the parameters and the answers), `channelMessages` by command and
-  `channelBytes` (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`, and the patches of
-  `subscribe_view` for as long as its channel stays open), and `pending`, the commands whose answer has not been read
+  `channelBytes` (the SSE events of `get_file_diffs` and `get_file_merges`, and the patches of `subscribe_view` for
+  as long as its channel stays open), and `pending`, the commands whose answer has not been read
   (`subscribe_view` until its answer, not its last patch); `reset()` zeroes the counts, not `pending`. It counts at the fetch of `/invoke/<cmd>`,
   so an answer of a `routeCommand` counts too; the commands the page answers itself (the store, event, window and log
   plugins, the sub-window handlers) do not. `pnpm perf:table` reads it
@@ -242,10 +242,24 @@ Mock implementation:
   deletion does not wait for it. The mock answers the command at its `{ result }` and reads the stream on for the
   channel (`OPEN_CHANNELS` of `tauri-mocks.ts`). A refusal (`no_branch_prefix`) is `{ result: { status: "error",
   error } }` on the stream, the JSON of the app. A patch may reach the channel before the answer, in the app too: the
-  page keeps it until it has the view, and applies a patch only on its `base`.
+  page keeps it until it has the view, and applies a patch only on its `base`. The sync button carries the version of
+  the view the page holds (`data-view-version`, `epoch:seq`) beside the count of the runs that ended
+  (`data-sync-count`), for a test that waits for a patch.
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_subscription_answers_its_view_then_the_patches_up_to_the_version_a_sync_answers`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app`)
   [@test] ../../crates/test-server/src/repository_lifecycle_test.rs (`deleting_a_repository_closes_its_sessions`)
+- **What a sync reports differently**: a template has no remote of its own, so a test that needs a branch on the
+  remote, a stack branch as a push or a pull request left it, or the issue links of a YouTrack user sets them for the
+  next run of the repository's session: `POST /repositories/{id}/sync-overrides` (`setSyncOverrides`, or the
+  `syncOverrides` option of `setupRepo` for the first sync) with `remote` (branch -> the fields of its
+  `RemoteStatusUpdate` that replace the computed ones, `keepUnpushed: n` for the newest `n` of the commits the sync
+  found the remote lacking; null: no status of the branch), `stacks` (root -> the fields of its `StackBranchUpdate`)
+  and `issueLinks`. The run that starts next takes them (`sync_overrides.rs`, through `SessionEnvironment::reporter`),
+  so the session's table, its patches to the page and the table of the views are what a sync of such a repository
+  makes, never a rewrite of the page's stream; the runs after it are the server's again. `GET
+  /repositories/{id}/revision?name=<rev>` answers the commit a ref is at (`repo.revision`), the copy a sync built.
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`the_next_sync_takes_the_overrides_of_its_repository_and_the_syncs_after_it_do_not`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_revision_of_the_repository_answers_its_commit`)
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
   functions; Patronus and GitHub are asked through the app's own services behind fakes
   ([Remote services](#remote-services)); an answer that claude would give, and the review requests, come from a

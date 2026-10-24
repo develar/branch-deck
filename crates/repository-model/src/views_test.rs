@@ -12,31 +12,37 @@ use sync_core::sync::{SyncOptions, sync_branches};
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
 
-fn params(revision: u32) -> GetRepositoryViewParams {
+fn params() -> GetRepositoryViewParams {
   GetRepositoryViewParams {
     repository_path: "/repo".to_string(),
-    revision,
     robots: Vec::new(),
     matched: RobotMatch::default(),
     remote: RemoteFacts::default(),
   }
 }
 
-/// Before the first sync the view is empty, of table 0; each finished sync numbers its table; the asker's revision comes
-/// back; another branch prefix has its own table
-#[test]
-fn a_view_is_of_the_table_the_last_sync_finished() {
-  let views = RepositoryViews::default();
+/// The branch count of the table kept for `repository_path` under `branch_prefix`; `None` before a sync kept one
+fn kept_branches(views: &RepositoryViews, repository_path: &str, branch_prefix: &str) -> Option<usize> {
+  views
+    .guard_facts(&GitCommandExecutor::new(), repository_path, branch_prefix, Vec::new())
+    .map(|facts| facts.table().branches.len())
+}
+
+/// Before the first sync under a prefix nothing is kept and the view is empty; the view reads the table the last sync
+/// kept, the next sync's table replaces it, and another branch prefix has its own
+#[tokio::test]
+async fn a_view_is_of_the_table_the_last_sync_kept() {
+  let (repo, views, table) = synced_views().await;
   let git = GitCommandExecutor::new();
   let cache = ObjectCache::disabled();
-  let view = views.view(&git, &cache, "test", &params(7));
-  assert_eq!((view.revision, view.table_generation, view.patronus.branches.len()), (7, 0, 0));
+  assert_eq!(kept_branches(&views, repo.path_str(), "other"), None);
+  let other = views.view(&git, &cache, "other", &repo_params(&repo, Vec::new(), RobotMatch::default()));
+  assert_eq!((other.landing_generation, other.patronus.branches.len()), (0, 0));
+  assert_eq!(kept_branches(&views, repo.path_str(), "test"), Some(table.branches.len()));
+  assert!(table.branches.len() > 1, "the sync kept its branches");
 
-  views.keep("/repo", "test", BranchTable::default());
-  assert_eq!(views.view(&git, &cache, "test", &params(8)).table_generation, 1);
-  views.keep("/repo", "test", BranchTable::default());
-  assert_eq!(views.view(&git, &cache, "test", &params(9)).table_generation, 2);
-  assert_eq!(views.view(&git, &cache, "other", &params(9)).table_generation, 0);
+  views.keep(repo.path_str(), "test", BranchTable::default());
+  assert_eq!(kept_branches(&views, repo.path_str(), "test"), Some(0));
 }
 
 /// Stacked branches synced: `util` adds `controlUrl`, `flow` uses it; the views keep the table of the sync
@@ -61,7 +67,7 @@ fn repo_params(repo: &TestRepo, robots: Vec<PatronusRobot>, matched: RobotMatch)
     repository_path: repo.path_str().to_string(),
     robots,
     matched,
-    ..params(1)
+    ..params()
   }
 }
 
@@ -177,6 +183,6 @@ async fn a_forgotten_repository_has_no_landing_computation_running_and_no_view()
   let state = facts.lock();
   assert_eq!((state.computing, state.generation), (None, 1), "the computation ended before forget returned");
   drop(state);
-  assert_eq!(views.view(&git, &cache, "test", &repo_params(&repo, Vec::new(), RobotMatch::default())).table_generation, 0);
-  assert_eq!(views.view(&git, &cache, "test", &params(1)).table_generation, 2, "another repository keeps its table");
+  assert_eq!(kept_branches(&views, repo.path_str(), "test"), None);
+  assert_eq!(kept_branches(&views, "/repo", "test"), Some(0), "another repository keeps its table");
 }

@@ -169,6 +169,6 @@ async function confirmDelete(name: string): Promise<void> {
     },
   )
   if (deleted) {
-    void syncBranches({ autoScroll: false, autoExpand: false })
+    void syncBranches("afterRewrite")
   }
 }

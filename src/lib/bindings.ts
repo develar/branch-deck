@@ -227,7 +227,7 @@ export const commands = {
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
-	 *  The view of the table the last sync of the repository under its prefix (Rust resolves it) finished: what the robots
+	 *  The view of the table the last sync of the session of the repository under its prefix (Rust resolves it) kept: what the robots
 	 *  land, landed and hold (`patronus_view`), with the page's robots, their matches and what the page knows of the remote
 	 *  branches. Git only for robots the hashes and the memo don't answer; the landing needs of new inputs are computed in
 	 *  the background, through the object cache of the repository
@@ -262,12 +262,6 @@ export const commands = {
 	getPatronusTargetBranch: (params: GetPatronusTargetBranchParams) => typedError<string | null, ApiError>(__TAURI_INVOKE("get_patronus_target_branch", { params })),
 	/**  How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason */
 	readPatronusCommandReply: (params: ReadPatronusCommandReplyParams) => typedError<PatronusCommandReply, ApiError>(__TAURI_INVOKE("read_patronus_command_reply", { params })),
-	/**
-	 *  Synchronizes branches by grouping commits by prefix and creating/updating branches, named with the prefix Rust
-	 *  resolves from the git config the sync reads (one `ConfigSnapshot`, which also keeps the prefix for the commands
-	 *  after it) and the app's prefix of the settings; a repository without a prefix is refused before any event
-	 */
-	syncBranches: (params: SyncBranchesParams, progress: Channel<SyncEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("sync_branches", { params, progress })),
 	/**  Opens the session of the repository unless it is open, and answers its view; nothing syncs (`sync` with `open`) */
 	openSession: (params: SessionParams) => typedError<TableView, ApiError>(__TAURI_INVOKE("open_session", { params })),
 	/**
@@ -294,11 +288,6 @@ export const commands = {
 	 *  `ApiError` (`operation_in_progress`, `detached_head`)
 	 */
 	sync: (params: SyncParams) => typedError<SyncAnswer, ApiError>(__TAURI_INVOKE("sync", { params })),
-	/**
-	 *  The fingerprint of what a sync reads (`sync_inputs_fingerprint`) under the prefix Rust resolves for the repository:
-	 *  the window syncs on focus only when it changed since the last sync, a changed prefix too
-	 */
-	getSyncInputsFingerprint: (params: SyncInputsParams) => typedError<string, ApiError>(__TAURI_INVOKE("get_sync_inputs_fingerprint", { params })),
 	/**
 	 *  The prefix the branches of the repository are named with, with where it came from: its git config read now (the
 	 *  global config alone for an empty path), which every later command of the repository resolves with
@@ -966,11 +955,6 @@ export type BranchSync = {
 	/**  Why a `Blocked` branch was not rebuilt (its parent can't be built on); `None` otherwise */
 	blockedReason?: string | null,
 };
-
-/**  Status of a branch synchronization operation. */
-export type BranchSyncStatus = "Created" | "Updated" | "Unchanged" | "Error" | "MergeConflict" | "AnalyzingConflict" | 
-/**  Not rebuilt: the parent branch of a stacked branch can't be built on */
-"Blocked";
 
 /**  A branch of the table, in the parts that change for different reasons */
 export type BranchView = {
@@ -2169,8 +2153,6 @@ export type GetRepositoryConfigParams = {
  */
 export type GetRepositoryViewParams = {
 	repositoryPath: string,
-	/**  The asker's counter of its inputs, echoed: an answer to an older one is dropped */
-	revision: number,
 	/**  The robots that land or landed: active and merged, no dry runs */
 	robots: PatronusRobot[],
 	matched: RobotMatch,
@@ -2283,30 +2265,6 @@ export type GitSetup = {
 	identity_error: string | null,
 	/**  The local part of the committer email as a branch name segment, empty if there is none */
 	suggested_branch_prefix: string,
-};
-
-export type GroupedBranchInfo = {
-	name: string,
-	commits: Commit[],
-	latestCommitTime: number,
-	summary: string,
-	/**
-	 *  The title of the branch's description (`branch.<name>.description`, which `bd describe` writes), shown instead of
-	 *  the summary; `None` without one, and from `group_commits_ahead_of_baseline`, whose callers read the whole
-	 *  descriptions themselves. Optional in TypeScript, as `stack`
-	 */
-	descriptionTitle?: string | null,
-	allCommitsHaveIssueReferences: boolean,
-	/**  Most frequent author email in this branch's commits */
-	myEmail: string | null,
-	origin: BranchOrigin,
-	/**  The issue the branch belongs to: the name of an issue branch, or the key every commit of a prefix branch carries */
-	issueKey: string | null,
-	/**
-	 *  Where the branch sits in its stack; `None` without stacked branches (`branchdeck.stacks`). Optional in TypeScript, so
-	 *  code that builds a `GroupedBranchInfo` needn't know about stacks
-	 */
-	stack?: BranchStack | null,
 };
 
 /**  Why a push of a branch won't land */
@@ -3513,9 +3471,6 @@ export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } |
 
 /**  The view of the branch table of the last sync */
 export type RepositoryView = {
-	revision: number,
-	/**  Counts the syncs whose table the view is of; 0 before the first */
-	tableGeneration: number,
 	/**
 	 *  Counts the finished computations of the landing needs of the repository: the page waits for the next one
 	 *  (`wait_landing_needs`) while a branch's are unknown, then asks the view again
@@ -4513,114 +4468,6 @@ export type SymbolMode =
 export type SyncAnswer = {
 	outcome: SyncOutcome,
 	version: Version,
-};
-
-export type SyncBranchesParams = {
-	repositoryPath: string,
-};
-
-/**  Progress events for sync operations */
-export type SyncEvent = 
-/**  Sent at the beginning with issue navigation configuration if found */
-{ type: "issueNavigationConfig"; data: {
-	config: IssueNavigationConfig | null,
-} } | 
-/**  Sent immediately after grouping commits */
-{ type: "branchesGrouped"; data: {
-	branches: GroupedBranchInfo[],
-	/**  Repository's baseline branch (e.g., "origin/master", "master") */
-	baselineBranch: string,
-	/**  Stacked branches are on (`branchdeck.stacks`): prefixes are read as `(parent/leaf)` */
-	stacks?: boolean,
-	/**  Issue key -> branch name: the issue groups (`refs/branch-deck/issue-groups`) the commits were grouped with */
-	issueGroups?: { [key in string]: string },
-	/**
-	 *  Child -> parent: the stack parents (`refs/branch-deck/stack-parents`) the branches were placed with; empty with
-	 *  stacked branches off
-	 */
-	stackParents?: { [key in string]: string },
-	/**
-	 *  Branch -> note: the parked branches (`refs/branch-deck/parked`), kept local and never pushed; also the lines of
-	 *  branches that group no commit on this HEAD
-	 */
-	parked?: { [key in string]: string },
-	/**
-	 *  The roots of the stack branches this sync reports, each with one `StackBranchUpdate` later: the stacks that fork
-	 *  and the stack branches kept for their remote branch; any other stack branch is gone
-	 */
-	stackBranches?: string[],
-} } | 
-/**  Sent for commits that don't match any prefix pattern */
-{ type: "unassignedCommits"; data: {
-	commits: Commit[],
-} } | 
-/**  Sent when a commit is successfully cherry-picked */
-{ type: "commitSynced"; data: {
-	branchName: string,
-	commitHash: string,
-	newHash: string,
-	status: CommitSyncStatus,
-	/**  The conflict of git that the copy resolved by words (`branchdeck.resolveByWords`); null for a copy without one */
-	resolved?: WordResolutionSummary | null,
-} } | 
-/**  Sent when a commit fails to cherry-pick */
-{ type: "commitError"; data: {
-	branchName: string,
-	commitHash: string,
-	error: BranchError,
-} } | 
-/**  Sent to mark commits as blocked due to earlier error */
-{ type: "commitsBlocked"; data: {
-	branchName: string,
-	blockedCommitHashes: string[],
-} } | 
-/**  Sent when a branch status changes (including during processing and completion) */
-{ type: "branchStatusUpdate"; data: {
-	branchName: string,
-	status: BranchSyncStatus,
-	error: BranchError | null,
-} } | 
-/**  Unified per-branch detection event for any status (Integrated, Orphaned, `NotIntegrated`, Partial) */
-{ type: "branchIntegrationDetected"; data: {
-	info: BranchIntegrationInfo,
-} } | 
-/**  Sent immediately when archived branches are found (before expensive detection) */
-{ type: "archivedBranchesFound"; data: {
-	branchNames: string[],
-	/**  The branches this sync archived, a subset of `branch_names` */
-	newlyArchived: string[],
-} } | 
-/**
- *  The unapplied branches (`{prefix}/unapplied/<name>`), newest first, with the remote status of those on the remote;
- *  sent once per sync, also empty, so the list clears
- */
-{ type: "unappliedBranchesFound"; data: {
-	branches: UnappliedBranchInfo[],
-} } | 
-/**  Sent when remote branch status is checked */
-{ type: "remoteStatusUpdate"; data: RemoteStatusUpdate } | 
-/**
- *  Sent for each stack branch `BranchesGrouped` announced, once the branches of its stack are built: its state, its
- *  tip and its remote status
- */
-{ type: "stackBranchUpdate"; data: StackBranchUpdate } | 
-/**
- *  Sent once after `BranchesGrouped`: whether the checked out branch can be updated onto the last fetched baseline
- *  (checked without the network). Both fields `None` for a local baseline, which has nothing to update from.
- */
-{ type: "baselineStatus"; data: {
-	baselineBranch: string,
-	update: UpdateCheck | null,
-	/**  Why the check failed, e.g. a rebase in progress; the sync itself does not fail */
-	checkError: string | null,
-	/**  Local commits that the fetched baseline already has: the update drops them */
-	landing: LandedBranch[],
-	/**  Commits that landed with an update (by Branch Deck or elsewhere) and that the user has not dismissed yet */
-	landed: LandedBranch[],
-} };
-
-export type SyncInputsParams = {
-	repositoryPath: string,
 };
 
 /**  How the request of a sync ended, when it did not fail */

@@ -8,7 +8,7 @@ test.describe("YouTrack sign-in", () => {
   test("should sign in in the browser to the YouTrack the issue links name, and sign out", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")
     const url = await youTrackUrlOf(repo)
-    await linkIssuesToYouTrack(page, url)
+    await linkIssuesToYouTrack(repo, url)
     await syncAndWaitForBranches()
     const { settings, youtrack, auth } = await openYouTrackSettings(page)
     await expect(auth).toHaveAttribute("data-status", "signedOut")
@@ -96,7 +96,7 @@ test.describe("YouTrack sign-in", () => {
     // the access token expired, and the Hub no longer knows the refresh token: the first lookup finds it out
     const repo = await setupRepo("issue_links", { youtrack: { issues: [openIssue("JIRA-456")], signedIn: "expired" } })
     const url = await youTrackUrlOf(repo)
-    await linkIssuesToYouTrack(page, url)
+    await linkIssuesToYouTrack(repo, url)
     await syncAndWaitForBranches()
     await issueKeyLink(page, "JIRA-456").hover()
     await expect(page.getByTestId("issue-popover").getByTestId("issue-sign-in")).toContainText("Your YouTrack sign-in expired: sign in again")

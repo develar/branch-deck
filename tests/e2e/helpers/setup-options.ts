@@ -84,6 +84,13 @@ export const SetupRepoOptionsSchema = z.object({
   reviewAnswers: z.any().optional(),
 
   /**
+   * What the first sync reports differently (a `SyncOverrides`, see `TestRepositoryBuilder.setSyncOverrides`), set
+   * before the page opens
+   * Default: undefined - the first sync reports what the server computes
+   */
+  syncOverrides: z.any().optional(),
+
+  /**
    * What the fake YouTrack holds (a `YouTrackFixture`, see `youtrack-helpers.ts`), set before the page opens, so the
    * window starts with its sign-in
    * Default: undefined - no issue, signed out

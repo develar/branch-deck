@@ -273,12 +273,15 @@ The header shows whether an update would apply cleanly, from a check that every 
   "Syncing branches…", without the shortcut, which does nothing then; the time of the last sync stays as it is, so
   nothing in the header moves. Before the first sync there is no time.
   [@test] ../../tests/e2e/repository/header.spec.ts (`should not move while a sync runs`)
-- One sync runs at a time in a window. A resync after a change, its Undo or a fetch asked while one runs share one
-  quiet sync after it, which reads what changed meanwhile; a focus or ⌘R while one runs checks once after it and syncs
-  only if what a sync reads changed. Sync keeps its spinner until the last of them ends, and a push pressed meanwhile
-  waits for it. The events of a sync a newer one replaced are dropped, and a sync records its time on its own
-  repository.
-  [@test] ../../src/stores/branch-sync.test.ts (`runs one quiet follow-up for every request made while a sync runs, Sync busy until it ends`, `lets a push wait for the end of the follow-up, not of the first sync`, `drops the events of a run a newer one replaced, and of a run of the repository the window left`, `checks once after a sync what a focus during it found changed: a sync only when the inputs changed`)
+- One sync runs at a time in the session of a repository, whichever window or command asks for it. A resync after a
+  change, its Undo or a fetch asked while one runs share one quiet sync after it, which reads what changed meanwhile; a
+  focus or ⌘R while one runs checks once after it and syncs only if what a sync reads changed. A request resolves at
+  the end of the run that serves it, never of the follow-ups after it; Sync keeps its spinner from the request until
+  the last patch of that run reached the window, and a push pressed meanwhile waits for it. The events of a run that
+  ended are dropped, and a sync records its time on its own repository.
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`, `the_late_events_of_an_ended_run_are_dropped`, `a_focus_during_a_run_is_one_check_after_it`)
+  [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_ticket_resolves_when_the_run_that_serves_it_ends`, `a_focus_during_a_run_checks_the_inputs_once_after_the_chain`)
+  [@test] ../../src/model/store.test.ts (`keeps Sync busy from the request to the last patch of the run that serves it, and counts the runs that ended`, `leaves a request of the session the window left to it: Sync of the next one is not busy, nothing of it is recorded`)
 - Sync has the tooltip "Sync branches ⌘R" (`Ctrl+R` off macOS) and its settings (auto-sync on focus) next to it; the
   menu item and ⌘R do what the button does, nothing while it is disabled for a reason. A
   failed sync turns it `destructive` with the error in its tooltip; with the page alert, the error shows twice at most.
@@ -352,7 +355,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/update-progress.test.ts (`takes the commits of its own sync, capped until the sync ends`)
   [@test] ../../src/lib/update-progress.test.ts (`learns what the steps took, without the wait for the lock and the sync, which learns from every sync`)
   [@test] ../../src/stores/update-project.test.ts (`changes the step only when the phase changes, and records what the steps took in the state of the repository once the update ends`)
-  [@test] ../../src/stores/branch-sync.test.ts (`resolves a requested sync at the end of its own run: the follow-up of a sync that runs, never a later one`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
 - While the update runs, its tooltip lists its steps instead of the state of the last check and "fetch and update":
   those done ("Fetched origin/master · 5.79 MiB", "Checked the update onto origin/master"), the running one ("Fetching
   origin/master…", or git's last progress line once git reports a stage; "Waiting for Branch Deck or bd to finish…",

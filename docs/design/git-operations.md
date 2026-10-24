@@ -1883,12 +1883,12 @@ a `master` or `main`).
 4. The size and the modification time of `config`, `config.worktree` (descriptions, `branchdeck.stacks`, the
    upstream configuration) and `.idea/vcs.xml` (issue links).
 
-The hash of these and the prefix is the fingerprint: the prefix Rust resolves for the repository
-(`get_sync_inputs_fingerprint` takes none from the page; the git prefix from the memo of `BranchPrefixes`, no process),
-so a changed prefix, the app's or the repository's own, changes it (`changes_with_the_prefix_alone`). The page reads it
-before each sync, so a commit made while the sync runs is a change, and keeps it with the result; a focus compares it.
-A session's scheduler does the same (`repository_model::sync_scheduler`, [Repository view](#repository-view)): a run
-reads it first, or takes the one its focus check just read, and a successful run keeps it. Not in it: the notes the sync writes, the
+The hash of these and the prefix is the fingerprint: the prefix of the session (`SessionKey`, which Rust resolves for
+the repository; the git prefix from the memo of `BranchPrefixes`, no process), so a changed prefix, the app's or the
+repository's own, changes it (`changes_with_the_prefix_alone`), and is another session anyway. The session's scheduler
+reads it (`repository_model::sync_scheduler`, [Repository view](#repository-view)): a run reads it first, so a commit
+made while the sync runs is a change, or takes the one its focus check just read, and a successful run keeps it; a
+focus compares it. Not in it: the notes the sync writes, the
 working tree (the paths that block an update are read by the next sync). The app keeps the issue links of a repository
 (`RepositoryStateCache::issue_config`) while `.idea/vcs.xml` has the stamp they were read with, the one the fingerprint
 hashes, so the sync that an edit of the links starts reads the new ones
@@ -2827,9 +2827,8 @@ no operation.
   `git config -z --show-scope --get-regexp` of the five keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
   `resolve_mode`, `branch_prefix`, `github_repository` and `descriptions`. A sync reads it once for the stack setting and the
-  description titles, or takes the one its caller read (`SyncOptions::config`): the app's `sync_branches` reads it
-  before the sync, resolves the prefix of the sync from it and keeps its git prefix for the commands after it
-  (`BranchPrefixes`); `bd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
+  description titles, or takes the one its caller read (`SyncOptions::config`): the app's session host reads it
+  before each sync of a session and keeps its git prefix for the commands after it (`BranchPrefixes`); `bd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
   `read_symbol_mode` and the configured GitHub repository of the pull requests are one snapshot each, for a caller that
   needs one key; `stacks_enabled` (`history_rewrite::stack`, which knows no `ConfigSnapshot`) is one
@@ -3154,18 +3153,21 @@ facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the
 work for it, `has_work_for_remote` in `remote_status.rs`; of each stack branch its `StackBranchUpdate::remote`); `bd`
 builds it from the report of its sync and the statuses among its events (`bd status` from a grouping, with the remote
 tips only). The app keeps the table of the last sync of each repository and branch prefix (`RepositoryViews` in
-`views.rs`, written by `sync_branches` from the report it no longer drops and the statuses a `RemoteStatusCollector`
-kept while it forwarded every event to the page; a failed sync keeps the one before) and answers `get_repository_view`
+`views.rs`, written by the session host after a successful run from its report and the statuses a
+`RemoteStatusCollector` kept while it forwarded every event to the session; a failed sync keeps the one before) and
+answers `get_repository_view`
 from it, under the prefix it resolves for the repository as the sync did (`BranchPrefixes`, the page sends none), with
 the robots, their matches and the remote facts the page sends: a push moves a remote branch without a
 sync, the page knows it, the table doesn't, so the page's view reads the page's facts; `bd` reads the table's
-(`PatronusFacts::read`). The E2E server keeps it the same way from its own sync.
+(`PatronusFacts::read`). The E2E server keeps it the same way from the syncs of its sessions. The page asks the view
+again only when the table changed (`tableRevision` of its store, which counts the patches that changed more than the
+state of a run), so no counter of the backend numbers the tables.
 
 The table state of a session (`table.rs`, `state.rs`, `patch.rs`; the types in `domain_types::session`) is the table as
 the events of its syncs leave it, cut into parts that change for different reasons: of each branch its head and its
 commits (with a grouping), its sync state (status, progress, error), the copies of its commits (with each commit the
 sync reports) and its remote status; the stack branches by root; the unassigned, archived, unapplied and landed
-sections. `TableState::apply` folds each `SyncEvent` in the order the sync sends it, by the rules of the page's applier:
+sections. `TableState::apply` folds each `SyncEvent` in the order the sync sends it, by the rules the page's applier had:
 a branch grouped as before, with the same commits, which the last sync built without an error, a conflict or a block,
 keeps what its row shows until the sync reports it again (a quiet resync; its progress counts only while `Syncing`);
 any other grouped branch starts `Syncing` with the remote status it had; the archived names reconcile the integration
@@ -3189,8 +3191,7 @@ those of a run that is not in flight are dropped; it takes no repository lock, a
 event changes the state at once, and the patch of what changed goes to the subscribers at most every 16 ms (wall
 time), at once when a run starts, when its build ended (`UnappliedBranchesFound`: the tips are known before the
 detection and the update check end, which come as patches of their own), when it ends and after an `apply`. The
-schedule (`SyncScheduler`, the port of `syncChain`, `followUpRequested`, `recheckAfterChain` and `syncIfChanged` of
-`branch-sync.ts`): `Manual` and `AfterRewrite` always run, as one quiet follow-up while a run is in flight; `Focus` and
+schedule (`SyncScheduler`, which replaced the chain of syncs each window ran itself): `Manual` and `AfterRewrite` always run, as one quiet follow-up while a run is in flight; `Focus` and
 `Open` run only when the fingerprint changed since the last successful sync, a focus during a run is one check after
 the chain, and a window that opens during a run is served by it; a `SyncReport::retry` runs once more for the same
 requests, the branches the run did not build `Syncing` meanwhile. A ticket (`SyncTicket`) resolves after the last
@@ -3211,14 +3212,18 @@ one that is not: the window subscribes again), `subscribe_view` subscribes the c
 run that serves it ended (`SyncAnswer`: the outcome and the version of the view after its last patch, which the window
 waits for, since the patch and the answer travel apart); a failure is the run's `ApiError`. The app's host
 (`GitSessionHost`) reads the git config for each sync (`ConfigSnapshot`, its git prefix kept for the commands after
-it, as `sync_branches` keeps it), takes the issue links and the object cache of `RepositoryStateCache`, and after a
+it), takes the issue links and the object cache of `RepositoryStateCache`, and after a
 successful run keeps its table in `RepositoryViews` (`BranchTable::from_report` with the remote statuses a
 `RemoteStatusCollector` kept), which `get_repository_view` answers from. A Tauri channel of a page that went away never
 fails its send, so a window's subscriptions end with the window (`Destroyed`) and with each page load of it (a
 reload); the app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the sessions of a test
-repository when it deletes it (`Sessions::close_worktree`, which drops the subscribers at once). `sync_branches` and
-the `SyncEvent`s the windows apply themselves (`branch-sync.ts`) stay until the page moves onto the sessions
-(`s6-session-table`).
+repository when it deletes it (`Sessions::close_worktree`, which drops the subscribers at once). The main window has
+no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; a switch of
+the repository or of its prefix is another subscription), applies its patches and asks `sync`, and no `SyncEvent`
+reaches a page. A test of the E2E server changes what the next run of a session reports (`sync_overrides.rs`: the
+remote statuses of branches and stack branches, the issue links), through the reporter its `SessionEnvironment` puts
+around the run's (`SessionEnvironment::reporter`, the run's own by default), so the session, its patches and the views
+hold what such a sync makes.
 
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table

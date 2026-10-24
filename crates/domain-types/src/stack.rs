@@ -1,7 +1,7 @@
 //! Stacked branches as a sync reports them (`history_rewrite::stack` computes them), and the syntax of a stack prefix:
 //! `(auth/login)` names the leaf `login` and its parent `auth` (`stack_path`, `stack_of`, `leaf_of`)
 use crate::branch_names::sanitize_branch_name;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Why a branch of a stack can't be placed; it never fails the other branches
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -87,7 +87,7 @@ pub enum ParentSource {
 }
 
 /// Why a branch is not rebuilt: its parent can't be built on
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum BlockReason {
   /// The parent can't be placed: a stack problem
@@ -133,7 +133,7 @@ pub struct BranchStack {
 }
 
 /// How the stack branch of a stack (`{prefix}/stack/<root>`) stands after a sync
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum StackBranchState {
   /// The ref is the build of the stack's commits as the sync grouped them: the only state whose ref may be pushed
@@ -149,7 +149,7 @@ pub enum StackBranchState {
 
 /// The member of a stack that keeps its stack branch from being built, and why: `Error` for a stack problem or a failed
 /// build, `Conflict` for a merge conflict of its own branch, `Blocked` when its parent can't be built on
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackMemberBlock {
@@ -159,7 +159,7 @@ pub struct StackMemberBlock {
 
 /// The commit of a stack branch whose copy conflicts with the commits of the stack before it, and the conflicting
 /// paths
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackBranchConflict {
@@ -171,7 +171,7 @@ pub struct StackBranchConflict {
 /// The stack branch of a stack after a sync: all commits of a stack that forks, in the order of the checked out
 /// branch's history, on the base of the sync, as one more virtual branch (`{prefix}/stack/<root>`), which a Safe Push
 /// of the whole stack lands in one robot. Sent once per stack branch the sync reports (`BranchesGrouped::stack_branches`)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackBranchUpdate {

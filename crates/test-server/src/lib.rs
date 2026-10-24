@@ -28,6 +28,7 @@ pub mod review_fixtures;
 pub mod session_routes;
 pub mod state;
 pub mod static_files;
+pub mod sync_overrides;
 pub mod tauri_command_bridge;
 pub mod templates;
 pub mod updater;
@@ -79,10 +80,7 @@ mod channel_commands_test;
 mod session_routes_test;
 
 #[cfg(test)]
-mod sse_test;
-
-#[cfg(test)]
-mod sync_event_bytes_test;
+mod patch_bytes_test;
 
 #[cfg(test)]
 mod templates_test;
@@ -164,6 +162,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/reword", post(reword_commit))
     .route("/repositories/{id}/commit", post(commit_on_head))
     .route("/repositories/{id}/repository-lock", post(hold_repository_lock))
+    .route("/repositories/{id}/sync-overrides", post(sync_overrides::set_sync_overrides))
+    .route("/repositories/{id}/revision", get(sync_overrides::get_revision))
     .route(
       "/repositories/{id}/pull-requests",
       post(remote_fixtures::set_pull_requests).get(remote_fixtures::get_github_log),
@@ -213,14 +213,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/check_git_setup", post(tauri_command_bridge::check_git_setup))
     .route("/invoke/get_repository_config", post(tauri_command_bridge::get_repository_config))
     .route("/invoke/set_repository_config", post(tauri_command_bridge::set_repository_config))
-    .route("/invoke/sync_branches", post(tauri_command_bridge::sync_branches))
     .route("/invoke/open_session", post(session_routes::open_session))
     .route("/invoke/get_snapshot", post(session_routes::get_snapshot))
     .route("/invoke/subscribe_view", post(session_routes::subscribe_view))
     .route("/invoke/unsubscribe_view", post(session_routes::unsubscribe_view))
     .route("/invoke/set_window_focus", post(session_routes::set_window_focus))
     .route("/invoke/sync", post(session_routes::sync))
-    .route("/invoke/get_sync_inputs_fingerprint", post(tauri_command_bridge::get_sync_inputs_fingerprint))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/reword", post(tauri_command_bridge::reword))
     .route("/invoke/move_commits_to_branch", post(tauri_command_bridge::move_commits_to_branch))
@@ -712,6 +710,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, se
     available_update: std::sync::RwLock::default(),
     cli_tools: Arc::new(cli_tools_fixtures::CliToolsHost::new(&state.app_data_of(id))),
     held_lock: std::sync::Mutex::default(),
+    sync_overrides: std::sync::Mutex::default(),
   };
   state.repositories.insert(id.to_string(), repo);
   Ok(())

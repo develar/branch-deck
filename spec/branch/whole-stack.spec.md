@@ -162,8 +162,10 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status_of_a_forking_stack`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
 - The app must keep the stack branches of the last sync by root (`useStackBranch`, `getStackBranch`; the full name by
-  `getFullStackBranchName`): a grouping keeps the ones it names as they were until their update and drops the others.
-  [@test] ../../src/stores/branch-sync.test.ts (`keeps the stack branch of each stack the sync reports, with its state and remote status`, `keeps what the last sync reported until the next one updates it, and drops a stack branch the grouping no longer announces`, `forgets the stack branches with the repository`)
+  `getFullStackBranchName`): a grouping keeps the ones it names as they were until their update and drops the others
+  (the session's table in Rust, whose patches the window applies by root).
+  [@test] ../../crates/repository-model/src/table_test.rs (`the_grouping_keeps_the_announced_stack_branches_and_the_baseline_status_fills_its_section`)
+  [@test] ../../src/model/store.test.ts (`keeps the stack branches the patches report until one changes or removes them`)
 
 ### The Safe Push of the whole stack
 

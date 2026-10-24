@@ -97,7 +97,6 @@ async fn ask_view(state: &std::sync::Arc<crate::state::AppState>, path: &str) ->
   let (views, git) = (state.repository_views.clone(), state.git_executor.clone());
   let params = GetRepositoryViewParams {
     repository_path: path.to_string(),
-    revision: 1,
     robots: Vec::new(),
     matched: RobotMatch::default(),
     remote: RemoteFacts::default(),
@@ -105,6 +104,11 @@ async fn ask_view(state: &std::sync::Arc<crate::state::AppState>, path: &str) ->
   tokio::task::spawn_blocking(move || views.view(&git, &ObjectCache::disabled(), "user-name", &params))
     .await
     .unwrap()
+}
+
+/// Whether the views keep a table of `path` under the prefix `user-name`: a sync of its session kept one
+fn keeps_table(state: &crate::state::AppState, path: &str) -> bool {
+  state.repository_views.guard_facts(&state.git_executor, path, "user-name", Vec::new()).is_some()
 }
 
 /// The deletion at the end of a test removes the files once the computation of the landing needs a view started ended,
@@ -116,7 +120,7 @@ async fn deleting_a_repository_waits_for_its_landing_needs_and_forgets_its_views
   let (id, path) = create_repository(&client, addr).await;
   sync(&client, addr, &path).await;
   let view = ask_view(&state, &path).await;
-  assert_eq!((view.table_generation > 0, view.landing_generation), (true, 0), "the computation started: {view:?}");
+  assert_eq!((keeps_table(&state, &path), view.landing_generation), (true, 0), "the computation started: {view:?}");
 
   delete_repository(&client, addr, &id, &path).await;
   let wait = WaitLandingNeedsParams {
@@ -124,7 +128,7 @@ async fn deleting_a_repository_waits_for_its_landing_needs_and_forgets_its_views
     after: 0,
   };
   assert_eq!(state.repository_views.wait_landing_needs("user-name", &wait), 0, "no computation is left to wait for");
-  assert_eq!(ask_view(&state, &path).await.table_generation, 0, "the table of the sync is forgotten");
+  assert!(!keeps_table(&state, &path), "the table of the sync is forgotten");
 }
 
 /// A test that ended while it held the repository lock (`holdRepositoryLock`) has it released with the deletion,

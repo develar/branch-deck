@@ -393,7 +393,7 @@ test.describe("Commit message", () => {
       await expect(editButton).toBeEnabled()
 
       // hold the sync until the checks are done
-      const releaseSync = await holdCommand(page, "sync_branches")
+      const releaseSync = await holdCommand(page, "sync")
       const syncDone = syncFromMenu(page)
 
       await expect(editButton).toBeDisabled()

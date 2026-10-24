@@ -12,7 +12,7 @@ import { routePush, routePushBranches } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
+import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, routeCommand } from "../helpers/wait-helpers"
 
@@ -66,10 +66,8 @@ async function setupAuthWithoutPullRequest(
   setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
 ) {
-  await rewriteNextRemoteStatus(page, status =>
-    status.branchName === "auth" ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
-  )
   const repo = await setupRepo("stacked_ownership", {
+    syncOverrides: { remote: { auth: { remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } } },
     patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
     // the code owner a collaborator; the next pull request created is #77
     pullRequests: { ...availablePullRequests(), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }], nextNumber: 77 },

@@ -16,11 +16,11 @@ import {
   wholeStackStartRequest,
 } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
+import { pushedRemotes, pushOutcome, routeHeldPush, routePush, routePushBranches, STACK_ISLAND_BRANCHES, wholeStackResultKey } from "../helpers/push-helpers"
 import { closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { rewriteNextSyncEvents, runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
+import { runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -222,10 +222,9 @@ test.describe("Stack island", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setupRepo("stack_island")
     // its pull request or Safe Push put the stack branch on the remote; the sync rebuilt it with 2 commits that remote lacks
     const stackRemote = (unpushedCommits: string[]) => pushOutcome("air", { unpushedCommits, remoteTip: "stack-pushed" }).remoteStatus
-    await rewriteNextSyncEvents(page, event => (event.type === "stackBranchUpdate" ? { ...event, data: { ...event.data, remote: stackRemote(["s1", "s2"]) } } : event))
+    const repo = await setupRepo("stack_island", { syncOverrides: { stacks: { air: { remote: stackRemote(["s1", "s2"]) } } } })
     await syncAndWaitForBranches()
     const { stackPushes } = await routePushBranches(page)
     const air = island(page, "air")
@@ -255,12 +254,7 @@ test.describe("Stack island", () => {
     await page.mouse.move(0, 0)
 
     // the branches stay on the remote, the stack branch is rebuilt again: the "⋯" pushes it alone
-    await rewriteNextSyncEvents(page, event => {
-      if (event.type === "remoteStatusUpdate") {
-        return { ...event, data: pushOutcome(event.data.branchName).remoteStatus }
-      }
-      return event.type === "stackBranchUpdate" ? { ...event, data: { ...event.data, remote: stackRemote(["s3"]) } } : event
-    })
+    await repo.setSyncOverrides({ remote: pushedRemotes(STACK_ISLAND_BRANCHES), stacks: { air: { remote: stackRemote(["s3"]) } } })
     await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
     await expect(push).toHaveAccessibleName("Push with Children (the whole stack branch)")
     await expect(push).toHaveText("1")
@@ -281,12 +275,7 @@ test.describe("Stack island", () => {
     const sideTest = robot("side-test", "side-test-robot")
     const repo = await setupRepo("stack_island", { patronus: availableRobots(deploy, sideTest), pullRequests: availablePullRequests() })
     // its pull request or a push put the stack branch on the remote; the sync rebuilt it with 2 commits that remote lacks
-    const onRemote = () =>
-      rewriteNextSyncEvents(page, event =>
-        event.type === "stackBranchUpdate"
-          ? { ...event, data: { ...event.data, remote: pushOutcome("air", { unpushedCommits: ["s1", "s2"], remoteTip: "stack-pushed" }).remoteStatus } }
-          : event,
-      )
+    const onRemote = () => repo.setSyncOverrides({ stacks: { air: { remote: pushOutcome("air", { unpushedCommits: ["s1", "s2"], remoteTip: "stack-pushed" }).remoteStatus } } })
     await onRemote()
     await syncAndWaitForBranches()
     const { stackPushes } = await routePushBranches(page)

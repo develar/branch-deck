@@ -558,8 +558,8 @@ let askedView: {
   readonly robots: Readonly<Record<string, PatronusRobot>>
   readonly branches: BranchSyncState["branches"]
   readonly stacks: BranchSyncState["stackBranches"]
-  /** The table the backend answers from: the fingerprint of what the last sync read, else the count of syncs */
-  readonly table: string | number
+  /** The table the backend answers from: its revision in the store (`tableRevision`) */
+  readonly table: number
   readonly inputs: string
 } | null = null
 /** The question in flight, and whether another one waits for it */
@@ -567,9 +567,8 @@ let viewInFlight: Promise<void> | null = null
 
 /**
  * Asks `get_repository_view` when its inputs changed: the robots (their record, which `mergeRobots` keeps while nothing
- * changed), the matches and remote facts of the branches, and the table a finished sync left (by the fingerprint of what
- * it read: a sync that read the same asks nothing). During a sync only a
- * change of the robots asks (the backend answers from the table of the last sync), so a merge says what it landed at
+ * changed), the matches and remote facts of the branches, and the table the session holds (by its revision: a sync that
+ * changed nothing of it asks nothing). During a sync only a change of the robots asks (the backend answers from the table of the last sync), so a merge says what it landed at
  * once. One question in flight; one that changes meanwhile is asked once it answered. Resolves once the view is of the
  * inputs as they are.
  */
@@ -586,8 +585,8 @@ async function askRepositoryView(): Promise<void> {
     return askRepositoryView()
   }
   const sameRobots = askedView?.key === key && askedView.robots === repository.robots
-  // the table of the backend is what the last sync read: a sync of the same inputs (`syncedInputs`) leaves the same one
-  const table = state.syncedInputs?.fingerprint ?? state.syncCount
+  // the table of the backend is the one of the session: a sync that changed nothing of it leaves the same revision
+  const table = state.tableRevision
   if (sameRobots && (state.isSyncing || (askedView?.branches === state.branches && askedView.stacks === state.stackBranches && askedView.table === table))) {
     return
   }
@@ -602,7 +601,7 @@ async function askRepositoryView(): Promise<void> {
   askedView = { key, robots: asking, branches: state.branches, stacks: state.stackBranches, table, inputs }
   const revision = ++viewRevision
   const asked = commands
-    .getRepositoryView({ repositoryPath: project.path, revision, robots: viewRobots(asking), matched, remote })
+    .getRepositoryView({ repositoryPath: project.path, robots: viewRobots(asking), matched, remote })
     .then(result => {
       if (result.status === "error") {
         console.warn("Cannot read the repository view", result.error)
@@ -613,7 +612,7 @@ async function askRepositoryView(): Promise<void> {
         return
       }
       const entry = patronusStore.getState().repositories[key]
-      if (result.data.revision === viewRevision && key === currentKey() && entry !== undefined) {
+      if (revision === viewRevision && key === currentKey() && entry !== undefined) {
         // the same view of the same robots (a sync that changed nothing): no store change, no selector of a row runs
         const view = keptView(entry.view, result.data.patronus)
         const viewListed = entry.viewListed || isOfListedRobots(entry, asking)

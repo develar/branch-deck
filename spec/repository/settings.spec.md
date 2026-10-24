@@ -473,13 +473,14 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_is_named_as_the_branches_are_and_one_of_slashes_only_is_unset`, `the_source_is_written_in_snake_case`)
 - The prefix of git is read with its scope (one `git config --show-scope`; the global config alone for an empty path).
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`, `a_prefix_of_git_c_is_repository_scoped`)
-- The commands of the sync family take no prefix from the page: `sync_branches`, `get_sync_inputs_fingerprint`,
+- The commands of the sync family take no prefix from the page: the session commands (`open_session`,
+  `subscribe_view`, `get_snapshot`, `sync`, `set_window_focus`, whose session is keyed by the resolved prefix),
   `get_repository_view`, `wait_landing_needs`, `get_archived_branch_commits`, `get_unapplied_branch_commits`,
   `delete_archived_branch` and `delete_unapplied_branch` resolve it per command, with the app's prefix of the settings
   when the command starts and the git prefix of a memo by repository path (`BranchPrefixes` in
   `crates/app-settings/src/branch_prefixes.rs`, a state of the app and of the E2E server), so a command pays no git
   process for it. Each read of the git config keeps its git prefix there: the page's `resolve_branch_prefix`, the config
-  snapshot of every sync (which also names the prefix of that sync), and a write of `branchdeck.branchPrefix` in
+  snapshot of every sync of a session, and a write of `branchdeck.branchPrefix` in
   Settings → Repository (a write to the global config forgets every repository's). The views of the last sync are kept
   by the resolved prefix; a sync of a repository without a prefix is refused ("Cannot sync without a branch prefix: set
   one in Settings → General"). The commands of Patronus, of a push, of a pull request, of the branch review and of the
@@ -490,7 +491,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../crates/app-settings/src/branch_prefixes_test.rs (`git_is_read_once_per_repository_and_the_app_prefix_of_each_command_applies`, `a_failed_read_keeps_nothing`, `a_refresh_replaces_the_git_prefix_and_a_clear_forgets_every_repository`)
   [@test] ../../crates/test-server/src/branch_prefix_test.rs (`the_sync_names_the_branches_by_the_app_prefix_where_the_repository_sets_none`, `the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_synced`)
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_the_prefix_alone`)
-  [@test] ../../src/stores/branch-sync.test.ts (`is Rust's: the sync names only the repository and waits for no load of the page`)
+  [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`)
 - The page shows the names with what Rust resolved, deciding nothing: the main window asks `resolve_branch_prefix` for
   the selected repository on open, on a switch, on the window's focus, after a write of the key in Settings →
   Repository (`repository_config_changed`), and once the writer has another app prefix (`onWriterChange` of

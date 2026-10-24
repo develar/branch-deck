@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
 import { DAY_ROBOTS, availableRobots, robot, setupRobots, setupRobotsWith, willFail } from "../helpers/patronus-helpers"
-import { emitTauriEvent, rewriteNextSyncEvents, runAndWaitForSync } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForSync } from "../helpers/sync-helpers"
 
 const { running: RUNNING, failed: FAILED, merged: MERGED } = DAY_ROBOTS
 
@@ -43,8 +43,7 @@ test.describe("Dock", () => {
       finishTime: 1704142800,
     })
     // the robot failed on the stack branch as the sync built it
-    await rewriteNextSyncEvents(page, event => (event.type === "stackBranchUpdate" && event.data.root === "air" ? { ...event, data: { ...event.data, tip: "stack-tip" } } : event))
-    await setupRepo("stack_island", { patronus: availableRobots(failed) })
+    const repo = await setupRepo("stack_island", { patronus: availableRobots(failed), syncOverrides: { stacks: { air: { tip: "stack-tip" } } } })
     await syncAndWaitForBranches()
     const states = page.locator(`[data-testid="stack-island"][data-stack-root="air"]`).getByTestId("stack-island-states")
     // the fix of the whole stack, then the branches, each a step of the user
@@ -52,14 +51,9 @@ test.describe("Dock", () => {
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ badgeCount: 1 })
 
     // the stack no longer forks: its stack branch stays for its remote branch, not rebuilt, and the stack lands in pieces
-    await rewriteNextSyncEvents(page, event =>
-      event.type === "stackBranchUpdate" && event.data.root === "air"
-        ? {
-            ...event,
-            data: { ...event.data, state: "Stale", members: [], tip: "stack-tip", error: "Not rebuilt: air heads no stack that forks; the ref stays for its remote branch" },
-          }
-        : event,
-    )
+    await repo.setSyncOverrides({
+      stacks: { air: { state: "Stale", members: [], tip: "stack-tip", error: "Not rebuilt: air heads no stack that forks; the ref stays for its remote branch" } },
+    })
     await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ badgeCount: null })
     // the header keeps what the branches hold

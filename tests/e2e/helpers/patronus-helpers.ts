@@ -17,7 +17,7 @@ import { dismissingApprovals } from "./pull-request-helpers"
 import { waitForStepFacts } from "./safe-push-helpers"
 import type { SetupRepoOptions } from "./setup-options"
 import { emitTauriEvent } from "./sync-helpers"
-import type { PatronusStartRequest, TestRepositoryBuilder } from "./test-repository"
+import type { PatronusStartRequest, SyncOverrides, TestRepositoryBuilder } from "./test-repository"
 import { routeCommand } from "./wait-helpers"
 
 /**
@@ -406,17 +406,19 @@ export const DAY_ROBOTS = {
 /**
  * issue_links on Space, mirrored to `acme/monorepo`, synced with `approved`, the pull request of `branch` whose approval
  * by the code owner Patronus counts (`APPROVED_BY_CODE_OWNER`), in a repository whose rules dismiss the approvals of a
- * pull request on a push of new commits
+ * pull request on a push of new commits; the first sync reports what `syncOverrides` sets
  */
 export async function setupApprovalsDismissedByPush(
   setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
   branch: string,
   approved: PullRequest,
+  syncOverrides?: SyncOverrides,
 ): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo("issue_links", {
     patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
     pullRequests: dismissingApprovals(approved),
+    syncOverrides,
   })
   await repo.setReviewAnswers({ answers: { [branch]: APPROVED_BY_CODE_OWNER } })
   await syncAndWaitForBranches()

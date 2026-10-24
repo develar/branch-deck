@@ -7,6 +7,7 @@ import { ShortcutHint } from "@/components/shared/ShortcutHint"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useSyncAvailability } from "@/hooks/useSyncAvailability"
 import { isMac } from "@/lib/platform"
+import { viewVersionKey } from "@/model/store"
 import { branchSyncStore, syncBranches, syncIfChanged, useBranchSync } from "@/stores/branch-sync"
 
 const SYNC_KBD = isMac ? "⌘R" : "Ctrl+R"
@@ -20,6 +21,7 @@ const SYNC_KBD = isMac ? "⌘R" : "Ctrl+R"
 export function SyncButton() {
   const isSyncing = useBranchSync(state => state.isSyncing)
   const syncCount = useBranchSync(state => state.syncCount)
+  const viewVersion = useBranchSync(state => viewVersionKey(state.viewVersion))
   const syncError = useBranchSync(state => state.syncError)
   const { canSync, reason } = useSyncAvailability()
 
@@ -32,7 +34,7 @@ export function SyncButton() {
       // a commit elsewhere during a long sync that started before it: synced after it, not lost
       void syncIfChanged()
     } else {
-      void syncBranches({ manual: true })
+      void syncBranches("manual")
     }
   })
 
@@ -51,7 +53,9 @@ export function SyncButton() {
             aria-busy={isSyncing || undefined}
             data-testid="sync-button"
             data-sync-count={syncCount}
-            onClick={() => void syncBranches({ manual: true })}
+            // the version of the session's view: a test waits for the patch of a sync by its change
+            data-view-version={viewVersion ?? undefined}
+            onClick={() => void syncBranches("manual")}
           />
         }
       >

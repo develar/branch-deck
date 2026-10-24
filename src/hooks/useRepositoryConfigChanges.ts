@@ -20,7 +20,7 @@ export function useRepositoryConfigChanges(): void {
     }
     const resync = () => {
       if (getRepositoryState(repositoryPath)?.lastSyncTime !== undefined) {
-        void syncBranches()
+        void syncBranches("afterRewrite")
       }
     }
     switch (key) {

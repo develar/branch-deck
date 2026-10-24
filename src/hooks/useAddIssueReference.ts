@@ -43,7 +43,7 @@ export async function addIssueReference(issueReference: string, branch: Branch):
       // refresh without auto-expand or auto-scroll; the table shows another repository after a switch: this one is
       // synced when it opens
       if (isSelectedRepository(repositoryPath)) {
-        await syncBranches({ autoScroll: false, autoExpand: false })
+        await syncBranches("afterRewrite")
       }
       return result.data
     },

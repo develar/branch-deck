@@ -19,7 +19,7 @@ async function rowsWhenReady(page: Page): Promise<number | null> {
 test.describe("The first frame of the main window", () => {
   test("should show the main window on the first rows of its sync, the table loading where they come until then", async ({ page, setupRepo }) => {
     // the first sync of the window, held: what the window shows before its rows
-    const release = await holdCommand(page, "sync_branches")
+    const release = await holdCommand(page, "sync")
     // the setup waits for Sync, which the held sync keeps disabled
     const setup = setupRepo("branch_filter", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO, syncedBranchCount: BRANCH_FILTER_ROWS })
 
@@ -66,7 +66,7 @@ test.describe("The first frame of the main window", () => {
 
   test("should show the main window when git defers its first sync, without a table that loads for ever", async ({ page, setupRepo }) => {
     // a rebase in progress: the sync on open ends without rows (`SyncDeferred`)
-    await routeCommandError(page, "sync_branches", { code: "operation_in_progress", message: "Not synced: a rebase is in progress" })
+    await routeCommandError(page, "sync", { code: "operation_in_progress", message: "Not synced: a rebase is in progress" })
     await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO, syncedBranchCount: 1 })
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
     await expect.poll(() => getSubWindowReadyOpen(page)).toBe(1)

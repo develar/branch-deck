@@ -1,60 +1,34 @@
 import { useMemo } from "react"
-import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
-import { batchTimer } from "@/lib/batch-timer"
 import type {
   AutosquashPlan,
   BranchError,
-  BranchIntegrationInfo,
   BranchOrigin,
   BranchStack,
-  BranchSyncStatus,
+  BranchStatus,
   Commit,
   CommitSyncStatus,
   DroppedCommit,
-  GroupedBranchInfo,
   RemoteStatusUpdate,
   StackBranchConflict,
   StackBranchState,
-  StackBranchUpdate,
   StackMemberBlock,
-  SyncEvent,
+  SyncReason,
   UpdateCheck,
+  Version,
   WordResolutionSummary,
 } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
-import { getSubjectLine, parseSubject } from "@/lib/commit"
-import { UserError } from "@/lib/git/vcs-request"
 import type { ParkedState } from "@/lib/parked"
 import { collectParkedStates } from "@/lib/parked"
-import { sameStringRecord } from "@/lib/record"
 import { stackIslandRoots } from "@/lib/stack-collapse"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
-import { showToast } from "@/lib/toast-message"
 import type { PushProgress } from "@/lib/transfer-progress"
-import { addTiming } from "@/lib/update-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
-import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
-import { hideAfterSync, setLandedStatus } from "@/stores/landed"
-import { getSelectedProject, getSelectedRepositoryPath, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
-import { updateProject } from "@/stores/settings/repositorySettings"
-import { updateRepositoryState } from "@/stores/settings/repositoryState"
-import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
-
-export interface SyncOptions {
-  autoScroll?: boolean
-  autoExpand?: boolean
-  targetBranchName?: string
-  /**
-   * The user asked for it (Sync, its menu item and key, the Ready to Sync card): a sync git defers (a rebase in
-   * progress, a detached HEAD) says so in an `info` toast; any other sync waits silently
-   */
-  manual?: boolean
-}
+import { nextRunNumber, requestSessionSync } from "@/model/store"
+import { getSelectedProject, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
 
 /** Commit augmented with its sync outcome. */
 export interface SyncedCommit extends Commit {
@@ -97,11 +71,10 @@ export interface RemoteStatus {
   droppedCommits: readonly DroppedCommit[]
 }
 
-export type BranchStatus = "Syncing" | BranchSyncStatus
-
 /**
- * Virtual branch, updated incrementally by sync events.
- * Immutable: every update creates a new record, so a component selecting one branch re-renders only when that branch changes.
+ * Virtual branch, built from the parts of its branch in the view of the session (`src/model/store.ts`).
+ * Immutable: a patch that changes a part of it creates a new record, so a component selecting one branch re-renders only
+ * when that branch changes.
  */
 export interface Branch {
   readonly name: string
@@ -114,8 +87,6 @@ export interface Branch {
   readonly processedCount: number
   readonly hasError: boolean
   readonly errorDetails?: BranchError
-  readonly autoExpandRequested: boolean
-  readonly autoScrollRequested: boolean
   readonly latestCommitTime: number
   readonly summary: string
   /** The title of the branch's description (`bd describe`), shown as written instead of the summary; null without one */
@@ -132,8 +103,6 @@ export interface Branch {
   /** Where the branch sits in its stack; null without stacked branches */
   readonly stack: BranchStack | null
 }
-
-type MutableBranch = { -readonly [K in keyof Branch]: Branch[K] }
 
 /**
  * The stack branch of a stack that forks (`{prefix}/stack/<root>`, `getFullStackBranchName`): all its commits in one more
@@ -172,21 +141,23 @@ export interface BaselineStatus {
 }
 
 export interface BranchSyncState {
-  /** A chain of syncs runs (`syncBranches`): true from its first run to the end of its follow-up */
+  /** A sync runs in the session, or a request of this window for one has not answered yet (`syncBranches`) */
   isSyncing: boolean
   /**
-   * Finished sync runs, failed ones included: the sync button exposes it so a test can wait for the next sync. A sync
-   * and its follow-up count two, `isSyncing` stays true between them.
+   * Finished sync runs of the session this window saw, failed ones included: the sync button exposes it so a test can
+   * wait for the next sync. A sync and its follow-up count two, `isSyncing` stays true between them.
    */
   syncCount: number
   syncError: string | null
-  /** The repository whose branches the store holds, set by its first successful sync; null before it */
+  /** The repository whose branches the store holds, set by the first request of a sync that ended; null before it */
   syncedRepositoryPath: string | null
+  /** The version of the session's view the store holds (`data-view-version`); null without one */
+  viewVersion: Version | null
   /**
-   * The fingerprint of what the last successful sync read (`sync_inputs_fingerprint`), taken when it started, so a
-   * commit made while it ran counts as a change; a focus syncs only when it differs (`syncIfChanged`)
+   * Counts the patches that changed the table, beyond the state of its sync: what the backend answers about the table
+   * (the repository view, the conflict fix) is asked again only when it changed
    */
-  syncedInputs: { readonly repositoryPath: string; readonly fingerprint: string } | null
+  tableRevision: number
   /** When a focus last found the inputs as the last sync read them (ms): the header says "Checked just now" then */
   inputsCheckedAt: number | null
   /** Repository's baseline branch (e.g., "origin/master") */
@@ -213,7 +184,7 @@ export interface BranchSyncState {
   autosquashPlan: AutosquashPlan | null
   /** null until a sync reported it */
   baselineStatus: BaselineStatus | null
-  /** The sync run (`requestSync`) whose grouping `branches` holds: their counts tell how far that run is; 0 before one */
+  /** The run of the session (`requestSync`) whose grouping `branches` holds: their counts tell how far it is; 0 before one */
   groupedRun: number
   /** Stacked branches are on for the repository (`branchdeck.stacks`), as the last grouping read it */
   stacksEnabled: boolean
@@ -238,7 +209,8 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   syncCount: 0,
   syncError: null,
   syncedRepositoryPath: null,
-  syncedInputs: null,
+  viewVersion: null,
+  tableRevision: 0,
   inputsCheckedAt: null,
   baselineBranch: null,
   branchOrder: [],
@@ -1008,11 +980,6 @@ function updateBranch(name: string, updater: (branch: Branch) => Branch): void {
   })
 }
 
-/** Clears the auto-expand/auto-scroll requests once a component has acted on them. */
-export function consumeAutoRequests(name: string): void {
-  updateBranch(name, branch => (branch.autoExpandRequested || branch.autoScrollRequested ? { ...branch, autoExpandRequested: false, autoScrollRequested: false } : branch))
-}
-
 /** The key of a push in flight (`pushingBranches`): the repository it started in and the branch */
 function pushKey(repositoryPath: string, name: string): string {
   return `${repositoryPath}\n${name}`
@@ -1088,7 +1055,7 @@ export function setBranchPushWaiting(name: string, waiting: boolean, repositoryP
 }
 
 /** Whether a push of the branch in the repository sends it now: a push that only waits does not */
-function isBranchSending(name: string, repositoryPath: string): boolean {
+export function isBranchSending(name: string, repositoryPath: string): boolean {
   return isBranchPushing(name, repositoryPath) && !waitingPushes.has(pushKey(repositoryPath, name))
 }
 
@@ -1223,108 +1190,29 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
   }
 }
 
-function updateCommit(branch: Branch, originalHash: string, patch: Partial<SyncedCommit>): readonly SyncedCommit[] {
-  const index = branch.commitIndex[originalHash]
-  if (index === undefined) {
-    return branch.commits
-  }
-  return branch.commits.with(index, { ...branch.commits[index]!, ...patch })
-}
-
 // ---- sync ----
 
 /**
- * The run whose events the store applies. Runs are serialized, yet a channel can deliver a message after its invoke
- * resolved, and a reset (another repository) makes a run stale: the events of an older run are dropped by it.
+ * Syncs the selected repository: asks its session (`src/model/store.ts`) for a sync run for `reason` and resolves when
+ * the run that serves the request ended and the table has its last patch. The session runs one sync at a time; a request
+ * while one runs is served by one quiet follow-up after it (`afterRewrite`, `manual`), or joins it (`open`).
+ * `isSyncing` stays true from the request to the end of that run, so a push waiting for it (`whenSynced`) never pushes
+ * refs a sync still rewrites.
  */
-let syncGeneration = 0
-/** The running chain of syncs, one sync at a time per window; null while none runs */
-let syncChain: Promise<void> | null = null
-/** A change asked for a sync while one ran: the chain syncs once more after it */
-let followUpRequested = false
-/** A focus or ⌘R came while a sync ran: once the chain ends, `syncIfChanged` checks what changed meanwhile */
-let recheckAfterChain = false
-
-/** A request of `requestSync`: told when the run that serves it starts and when it ends */
-interface RunRequest {
-  readonly started: (run: number) => void
-  readonly ended: () => void
-}
-
-/** The requests the next run serves: the first run of a chain, or the follow-up of a request made while one ran */
-let runRequests: RunRequest[] = []
-
-function endRunRequests(requests: readonly RunRequest[]): void {
-  for (const request of requests) {
-    request.ended()
-  }
-}
-
-/** Every request while a sync runs is the resync of a change (a rewrite, its Undo, a fetch): quiet, as they ask */
-const FOLLOW_UP_OPTIONS: SyncOptions = { autoScroll: false, autoExpand: false }
-
-/** What a sync names: the selected repository; Rust resolves the branch prefix of each command itself */
-interface SyncRequest {
-  readonly repositoryPath: string
-}
-
-/** The sync request of the selected repository; @throws UserError while none is selected */
-function syncRequest(): SyncRequest {
-  const repositoryPath = getSelectedRepositoryPath()
-  if (repositoryPath === "") {
-    throw new UserError("Please enter a repository path")
-  }
-  return { repositoryPath }
+export async function syncBranches(reason: SyncReason): Promise<void> {
+  await requestSessionSync(reason)
 }
 
 /**
- * The fingerprint of what a sync of the repository reads under the prefix Rust resolves (a changed prefix changes it);
- * null when git can't tell (the sync then runs anyway)
- */
-async function readSyncInputs(request: SyncRequest): Promise<string | null> {
-  try {
-    const result = await commands.getSyncInputsFingerprint({ repositoryPath: request.repositoryPath })
-    return result.status === "ok" ? result.data : null
-  } catch {
-    return null
-  }
-}
-
-/** Whether the last successful sync read these inputs of the repository it would sync now */
-function isSyncedWith(request: SyncRequest, fingerprint: string | null): boolean {
-  const state = branchSyncStore.getState()
-  const known = state.syncedInputs
-  return known !== null && fingerprint === known.fingerprint && known.repositoryPath === request.repositoryPath && state.syncedRepositoryPath === request.repositoryPath
-}
-
-/**
- * Auto-sync on Focus: syncs only when what a sync reads changed since the last one (a commit, a fetch or a push
- * elsewhere, a regroup by `bd`, a description), one cheap read otherwise; a sync the user didn't ask for, so a deferred
- * one (a rebase in the IDE) waits silently. While a sync runs, it checks once after it: a commit in the IDE during a
- * long sync that started before it is not lost, and a sync that saw it costs no second one.
+ * The sync of a focus or of ⌘R during a sync: runs only when what a sync reads changed since the last one (a commit, a
+ * fetch or a push elsewhere, a regroup by `bd`, a description), one cheap read otherwise; during a run, the session
+ * checks once after it. A sync the user didn't ask for, so a deferred one (a rebase in the IDE) waits silently
  */
 export async function syncIfChanged(): Promise<void> {
-  if (branchSyncStore.getState().isSyncing) {
-    recheckAfterChain = true
-    return
-  }
-  const request = syncRequest()
-  const known = branchSyncStore.getState().syncedInputs
-  if (known !== null && isSyncedWith(request, known.fingerprint)) {
-    const inputs = await readSyncInputs(request)
-    // a sync started during the read reads the inputs after it; one that ended during it is what `isSyncedWith` checks
-    if (branchSyncStore.getState().isSyncing) {
-      return
-    }
-    if (isSyncedWith(request, inputs)) {
-      branchSyncStore.setState({ inputsCheckedAt: Date.now() })
-      return
-    }
-  }
-  await syncBranches()
+  await requestSessionSync("focus")
 }
 
-/** Resolves once no sync runs: at once while none does, else at the end of the chain (its follow-up included) */
+/** Resolves once no sync runs and no request of this window waits: at once while none does */
 export function whenSynced(): Promise<void> {
   if (!branchSyncStore.getState().isSyncing) {
     return Promise.resolve()
@@ -1340,31 +1228,12 @@ export function whenSynced(): Promise<void> {
 }
 
 /**
- * Syncs the selected repository, one sync at a time: a request while one runs asks for one quiet follow-up after it,
- * which reads what changed meanwhile; all requests resolve when the chain ends. `isSyncing` stays true across the
- * chain, so a push waiting for it (`whenSynced`) never pushes refs a sync still rewrites, and the events of two runs
- * never mix.
+ * `syncBranches` after a rewrite, telling `onStart` the run that serves it (`groupedRun` tells when the branches are its
+ * own): an update waits for its own sync this way, and shows how far it is (`selectSyncFraction`)
  */
-export function syncBranches(options?: SyncOptions): Promise<void> {
-  if (syncChain !== null) {
-    followUpRequested = true
-    return syncChain
-  }
-  branchSyncStore.setState({ isSyncing: true })
-  syncChain = runSyncChain(options)
-  return syncChain
-}
-
-/**
- * `syncBranches`, but resolves when the run that serves this request ends, not the chain: the run that starts now, or the
- * follow-up of a sync that runs already. `onStart` gets the run (`groupedRun` tells when the branches are its own). An
- * update waits for its own sync this way: a ⌘R during it asks for a follow-up that belongs to Sync only.
- */
-export function requestSync(options: SyncOptions | undefined, onStart: (run: number) => void = () => {}): Promise<void> {
-  return new Promise(resolve => {
-    runRequests.push({ started: onStart, ended: resolve })
-    void syncBranches(options)
-  })
+export async function requestSync(onStart: (run: number) => void = () => {}): Promise<void> {
+  onStart(nextRunNumber())
+  await requestSessionSync("afterRewrite")
 }
 
 /**
@@ -1385,537 +1254,4 @@ export function selectSyncFraction(state: BranchSyncState, run: number): number 
     }
   }
   return total === 0 ? null : processed / total
-}
-
-async function runSyncChain(options: SyncOptions | undefined): Promise<void> {
-  let repositoryPath: string | null
-  try {
-    repositoryPath = await runSync(options)
-    // another repository selected meanwhile has nothing to resync for these changes: its open syncs it
-    while (followUpRequested && (repositoryPath === null || repositoryPath === getSelectedRepositoryPath())) {
-      followUpRequested = false
-      repositoryPath = await runSync(FOLLOW_UP_OPTIONS)
-    }
-  } finally {
-    syncChain = null
-    followUpRequested = false
-    branchSyncStore.setState({ isSyncing: false })
-    // a follow-up skipped for another repository: its requests have no run
-    const left = runRequests
-    runRequests = []
-    endRunRequests(left)
-  }
-  if (recheckAfterChain) {
-    recheckAfterChain = false
-    if (repositoryPath === getSelectedRepositoryPath()) {
-      void syncIfChanged()
-    }
-  }
-}
-
-/** One sync run, streaming its events into the store; never rejects. Returns the repository it synced, null if none. */
-async function runSync(options: SyncOptions | undefined): Promise<string | null> {
-  // the outcome of the last run is what stays
-  branchSyncStore.setState({ syncError: null })
-  const generation = ++syncGeneration
-  const startedAt = Date.now()
-  const served = runRequests
-  runRequests = []
-  for (const request of served) {
-    request.started(generation)
-  }
-  let repositoryPath: string | null = null
-
-  try {
-    // the prefix is Rust's: the sync resolves it from the git config it reads, so nothing waits for the page's
-    const target = syncRequest()
-    repositoryPath = target.repositoryPath
-    // before the sync: a commit made while it runs is a change the next focus syncs
-    const inputs = await readSyncInputs(target)
-    const channel = new Channel<SyncEvent>()
-    channel.onmessage = event => {
-      if (generation === syncGeneration) {
-        queueSyncEvent(event, target.repositoryPath, options)
-      }
-    }
-
-    const result = await commands.syncBranches(target, channel)
-    flushSyncEvents()
-    if (generation !== syncGeneration) {
-      // the branches of another repository replaced these meanwhile
-      return repositoryPath
-    }
-    if (result.status === "error") {
-      const code = result.error.code
-      if (code === "operation_in_progress" || code === "detached_head") {
-        // a precondition, not a failure: the branches stay as the last sync left them
-        if (options?.manual === true) {
-          showToast({
-            type: "info",
-            title: result.error.message,
-            description: code === "operation_in_progress" ? "The branches sync once git finished it" : "Check out a branch to sync its commits",
-          })
-        }
-        return repositoryPath
-      }
-      branchSyncStore.setState({ syncError: result.error.message || "Failed to sync branches" })
-      console.error("Sync error:", result.error)
-      return repositoryPath
-    }
-
-    // the repository of the sync, also when another one was selected since
-    // the usual time of a sync is the share of the sync of an update (`update-progress.ts`): every sync teaches it
-    // (`repositoryState`, a file of its own, so a sync never rewrites the user's settings)
-    const syncedAt = Date.now()
-    updateRepositoryState(target.repositoryPath, state => ({
-      ...state,
-      lastSyncTime: syncedAt,
-      lastBranchCount: branchSyncStore.getState().branchOrder.length,
-      updateTimings: addTiming(state.updateTimings, "sync", syncedAt - startedAt),
-    }))
-    branchSyncStore.setState({
-      syncedRepositoryPath: target.repositoryPath,
-      syncedInputs: inputs === null ? null : { ...target, fingerprint: inputs },
-      inputsCheckedAt: null,
-    })
-    hideAfterSync(target.repositoryPath)
-    void loadAutosquashPlan(target.repositoryPath)
-  } catch (error) {
-    branchSyncStore.setState({ syncError: (error instanceof Error ? error.message : String(error)) || "Failed to sync branches" })
-    console.error("Sync error:", error)
-  } finally {
-    // the events of a failed sync too
-    flushSyncEvents()
-    // a placeholder still waiting got no result, also after a failed sync; a newer sync (the follow-up) reports its own
-    if (generation === syncGeneration && !followUpRequested) {
-      settleArchivedPlaceholders()
-    }
-    branchSyncStore.setState(state => ({ syncCount: state.syncCount + 1 }))
-    endRunRequests(served)
-  }
-  return repositoryPath
-}
-
-function isFixupCommit(commit: Commit): boolean {
-  return parseSubject(getSubjectLine(commit.message)).autosquash !== ""
-}
-
-let autosquashPlanRequest = 0
-
-/** Loads the plan only if a commit is a fixup: most syncs find none and need no extra git process. */
-async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
-  const request = ++autosquashPlanRequest
-  const { branches, unassignedCommits } = branchSyncStore.getState()
-  const hasFixups = unassignedCommits.some(isFixupCommit) || Object.values(branches).some(branch => branch.commits.some(isFixupCommit))
-  if (!hasFixups) {
-    branchSyncStore.setState({ autosquashPlan: null })
-    return
-  }
-  const result = await invokeCommand(() => commands.getAutosquashPlan({ repositoryPath }))
-  // a later sync started its own request
-  if (request !== autosquashPlanRequest) {
-    return
-  }
-  if (result.status === "error") {
-    console.error("Failed to load the autosquash plan:", result.error)
-    branchSyncStore.setState({ autosquashPlan: null })
-    return
-  }
-  branchSyncStore.setState({ autosquashPlan: result.data })
-}
-
-/**
- * Forgets the branches of the previous repository when the window opens another one, so they never show under its
- * name. Pushes in flight keep their state: they finish in their own repository.
- */
-export function resetBranchSync(): void {
-  autosquashPlanRequest++
-  // the events of a sync of the previous repository not applied yet, and those still on their way
-  syncGeneration++
-  queuedSyncEvents = []
-  flushTimer.cancel()
-  branchSyncStore.setState({
-    syncError: null,
-    syncedRepositoryPath: null,
-    baselineBranch: null,
-    branchOrder: [],
-    branches: {},
-    unassignedCommits: [],
-    autosquashPlan: null,
-    baselineStatus: null,
-    stacksEnabled: false,
-    issueGroups: {},
-    stackParents: {},
-    parked: {},
-    stackBranches: {},
-  })
-  resetArchivedBranches()
-  resetUnappliedBranches()
-}
-
-// ---- sync events ----
-
-/**
- * How long sync events gather before one store update applies them, about a frame. The backend sends an event per
- * commit; applied one by one, each would re-run every selector of the store (docs/design/rendering-performance.md).
- */
-const SYNC_EVENT_FLUSH_MS = 16
-
-interface QueuedSyncEvent {
-  readonly event: SyncEvent
-  readonly repositoryPath: string
-  readonly options: SyncOptions | undefined
-}
-
-let queuedSyncEvents: QueuedSyncEvent[] = []
-// on the next task until the window showed: the main window waits hidden for the rows of its first sync
-const flushTimer = batchTimer(flushSyncEvents, SYNC_EVENT_FLUSH_MS)
-
-function queueSyncEvent(event: SyncEvent, repositoryPath: string, options: SyncOptions | undefined): void {
-  // decided on arrival, not at the flush: the push result is authoritative, and a push that ends before the flush
-  // would let a status the sync computed mid-push overwrite it. A push that only waits for this sync sends after it,
-  // over the status it brings: a fetch moved the remote branch, and the push goes over the new tip at once
-  if (event.type === "remoteStatusUpdate" && isBranchSending(event.data.branchName, repositoryPath)) {
-    return
-  }
-  queuedSyncEvents.push({ event, repositoryPath, options })
-  flushTimer.schedule()
-}
-
-/**
- * The store fields a batch of sync events changes, committed in one update. `patch.branches` is copied from the store
- * on the first change of a branch, then written in place.
- */
-interface SyncDraft {
-  readonly patch: Partial<BranchSyncState>
-  ownsBranches: boolean
-  /** The integration info of archived branches, applied in one update of their store */
-  integrationInfos: BranchIntegrationInfo[]
-}
-
-/**
- * Applies the queued sync events in one store update, in event order; the updates of other stores (the project, the
- * archived and landed branches) run during it, before the commit.
- */
-function flushSyncEvents(): void {
-  flushTimer.cancel()
-  const events = queuedSyncEvents
-  if (events.length === 0) {
-    return
-  }
-  queuedSyncEvents = []
-  const draft: SyncDraft = { patch: {}, ownsBranches: false, integrationInfos: [] }
-  for (const { event, repositoryPath, options } of events) {
-    applySyncEvent(draft, event, repositoryPath, options)
-  }
-  applyIntegrationInfos(draft)
-  if (Object.keys(draft.patch).length > 0) {
-    branchSyncStore.setState(draft.patch)
-  }
-}
-
-function applyIntegrationInfos(draft: SyncDraft): void {
-  if (draft.integrationInfos.length > 0) {
-    updateFromIntegrationInfos(draft.integrationInfos)
-    draft.integrationInfos = []
-  }
-}
-
-function draftBranches(draft: SyncDraft): Record<string, Branch> {
-  return draft.patch.branches ?? branchSyncStore.getState().branches
-}
-
-/** Updates one branch of the draft; no-op if the branch is unknown or the updater returns the same record */
-function updateDraftBranch(draft: SyncDraft, name: string, updater: (branch: Branch) => Branch): void {
-  const branches = draftBranches(draft)
-  const branch = branches[name]
-  if (branch === undefined) {
-    return
-  }
-  const next = updater(branch)
-  if (next === branch) {
-    return
-  }
-  if (!draft.ownsBranches) {
-    draft.patch.branches = { ...branches }
-    draft.ownsBranches = true
-  }
-  draft.patch.branches![name] = next
-}
-
-function applySyncEvent(draft: SyncDraft, event: SyncEvent, repositoryPath: string, options?: SyncOptions): void {
-  switch (event.type) {
-    case "issueNavigationConfig":
-      // the repository of the sync, also when another one was selected since
-      if (event.data.config) {
-        updateProject(repositoryPath, { issueNavigationConfig: event.data.config })
-      }
-      break
-    case "branchesGrouped":
-      applyBranchesGrouped(draft, event.data)
-      break
-    case "commitSynced":
-      applyCommitSynced(draft, event.data)
-      break
-    case "commitError":
-      applyCommitError(draft, event.data, options)
-      break
-    case "branchStatusUpdate":
-      applyBranchStatusUpdate(draft, event.data, options)
-      break
-    case "unassignedCommits":
-      draft.patch.unassignedCommits = event.data.commits
-      break
-    case "archivedBranchesFound":
-      // the names reconcile what the infos before them added
-      applyIntegrationInfos(draft)
-      updateFromArchivedNames(event.data.branchNames, event.data.newlyArchived)
-      break
-    case "unappliedBranchesFound":
-      setUnappliedBranches(event.data.branches.map(({ remote, ...info }) => ({ ...info, remoteStatus: remote === null ? null : toRemoteStatus(remote) })))
-      break
-    case "branchIntegrationDetected":
-      draft.integrationInfos.push(event.data.info)
-      break
-    case "remoteStatusUpdate": {
-      // one that arrived while the branch was pushing was dropped by `queueSyncEvent`
-      const remoteStatus = toRemoteStatus(event.data)
-      updateDraftBranch(draft, event.data.branchName, branch => withRemoteStatus(branch, remoteStatus))
-      break
-    }
-    case "stackBranchUpdate":
-      applyStackBranchUpdate(draft, event.data)
-      break
-    case "baselineStatus": {
-      const { landing, landed, ...status } = event.data
-      draft.patch.baselineStatus = { repositoryPath, ...status }
-      setLandedStatus(repositoryPath, landing, landed, status.update?.upstream ?? status.baselineBranch)
-      break
-    }
-    case "commitsBlocked":
-      // not displayed
-      break
-  }
-}
-
-function createBranchFromGroup(info: GroupedBranchInfo, remoteStatus: RemoteStatus | null): Branch {
-  const commitIndex: Record<string, number> = {}
-  info.commits.forEach((commit, index) => {
-    commitIndex[commit.originalHash] = index
-  })
-  return {
-    name: info.name,
-    commits: info.commits,
-    commitIndex,
-    commitCount: info.commits.length,
-    status: "Syncing",
-    statusText: "syncing…",
-    processedCount: 0,
-    hasError: false,
-    errorDetails: undefined,
-    autoExpandRequested: false,
-    autoScrollRequested: false,
-    latestCommitTime: info.latestCommitTime,
-    summary: info.summary,
-    descriptionTitle: info.descriptionTitle ?? null,
-    remoteStatus,
-    allCommitsHaveIssueReferences: info.allCommitsHaveIssueReferences,
-    myEmail: info.myEmail ?? null,
-    origin: info.origin,
-    issueKey: info.issueKey ?? null,
-    stack: info.stack ?? null,
-  }
-}
-
-/**
- * A branch the sync groups as it was, with the same commits, which the last sync built without a problem: its row keeps
- * what it shows while it is rebuilt, so a sync of 35 branches doesn't turn each row to "syncing…" for a moment
- */
-function isQuietResync(previous: Branch, info: GroupedBranchInfo): boolean {
-  if (
-    previous.hasError ||
-    previous.status === "Syncing" ||
-    previous.status === "Error" ||
-    previous.status === "MergeConflict" ||
-    previous.status === "AnalyzingConflict" ||
-    previous.status === "Blocked"
-  ) {
-    return false
-  }
-  return previous.commits.length === info.commits.length && info.commits.every((commit, index) => previous.commits[index]!.originalHash === commit.originalHash)
-}
-
-/** The record of a quiet resync: the grouping of now, the status and the synced hashes of the last sync until this one reports */
-function keepShownState(previous: Branch, info: GroupedBranchInfo): Branch {
-  return {
-    ...createBranchFromGroup(info, previous.remoteStatus),
-    status: previous.status,
-    statusText: previous.statusText,
-    commits: info.commits.map((commit, index) => {
-      const shown = previous.commits[index]!
-      return { ...commit, hash: shown.hash, status: shown.status }
-    }),
-  }
-}
-
-/**
- * Reconciles the branch list with the grouping result: backend order; a changed or new branch (re)starts in the syncing
- * state (an existing one is reset, which a fresh record keyed by the same name does), an unchanged one keeps what its
- * row shows (`isQuietResync`); branches no longer present are dropped. The last known remote status is kept until the
- * sync reports a fresh one, so the push button label does not flicker.
- */
-function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type: "branchesGrouped" }>["data"]): void {
-  // only the events of the current run are applied (`syncGeneration`)
-  draft.patch.groupedRun = syncGeneration
-  const previous = draftBranches(draft)
-  const branches: Record<string, Branch> = {}
-  const branchOrder: string[] = []
-  for (const info of data.branches) {
-    if (info.name in branches) {
-      continue
-    }
-    const shown = previous[info.name]
-    branches[info.name] = shown !== undefined && isQuietResync(shown, info) ? keepShownState(shown, info) : createBranchFromGroup(info, shown?.remoteStatus ?? null)
-    branchOrder.push(info.name)
-  }
-  const issueGroups = data.issueGroups ?? {}
-  // the same groups keep their record: a sync rarely changes them
-  const previousGroups = draft.patch.issueGroups ?? branchSyncStore.getState().issueGroups
-  const stackParents = data.stackParents ?? {}
-  const previousStackParents = draft.patch.stackParents ?? branchSyncStore.getState().stackParents
-  const parked = data.parked ?? {}
-  const previousParked = draft.patch.parked ?? branchSyncStore.getState().parked
-  Object.assign(draft.patch, {
-    baselineBranch: data.baselineBranch,
-    branches,
-    branchOrder,
-    stacksEnabled: data.stacks ?? false,
-    issueGroups: sameStringRecord(issueGroups, previousGroups) ? previousGroups : issueGroups,
-    stackParents: sameStringRecord(stackParents, previousStackParents) ? previousStackParents : stackParents,
-    parked: sameStringRecord(parked, previousParked) ? previousParked : parked,
-    stackBranches: announcedStackBranches(draft.patch.stackBranches ?? branchSyncStore.getState().stackBranches, data.stackBranches ?? []),
-  })
-  draft.ownsBranches = true
-}
-
-/** The stack branches a grouping announces, as the last sync left them until their update; the same record when it has them all */
-function announcedStackBranches(previous: Readonly<Record<string, StackBranch>>, roots: readonly string[]): Readonly<Record<string, StackBranch>> {
-  const kept: Record<string, StackBranch> = {}
-  for (const root of roots) {
-    const stackBranch = previous[root]
-    if (stackBranch !== undefined) {
-      kept[root] = stackBranch
-    }
-  }
-  return Object.keys(kept).length === Object.keys(previous).length ? previous : kept
-}
-
-function toStackBranch(update: StackBranchUpdate): StackBranch {
-  return {
-    root: update.root,
-    branchName: update.branchName,
-    members: update.members,
-    commitCount: update.commitCount,
-    state: update.state,
-    tip: update.tip,
-    blockedBy: update.blockedBy,
-    conflict: update.conflict,
-    error: update.error,
-    remoteStatus: update.remote === null ? null : toRemoteStatus(update.remote),
-  }
-}
-
-function applyStackBranchUpdate(draft: SyncDraft, update: StackBranchUpdate): void {
-  const stackBranches = draft.patch.stackBranches ?? branchSyncStore.getState().stackBranches
-  draft.patch.stackBranches = { ...stackBranches, [update.root]: toStackBranch(update) }
-}
-
-function applyCommitSynced(draft: SyncDraft, data: Extract<SyncEvent, { type: "commitSynced" }>["data"]): void {
-  const { branchName, commitHash, newHash, status, resolved } = data
-  updateDraftBranch(draft, branchName, branch => {
-    if (branch.commitIndex[commitHash] === undefined) {
-      return branch
-    }
-    return {
-      ...branch,
-      commits: updateCommit(branch, commitHash, { hash: newHash, status, resolved: resolved ?? null }),
-      processedCount: branch.processedCount + 1,
-    }
-  })
-}
-
-function applyCommitError(draft: SyncDraft, data: Extract<SyncEvent, { type: "commitError" }>["data"], options?: SyncOptions): void {
-  const { branchName, commitHash, error } = data
-  const autoExpand = options?.autoExpand ?? true
-  updateDraftBranch(draft, branchName, branch => {
-    const next: MutableBranch = {
-      ...branch,
-      // errors count as processed too
-      processedCount: branch.processedCount + 1,
-      commits: updateCommit(branch, commitHash, { status: "Error", error }),
-      statusText: error.MergeConflict ? "merge conflict" : (error.Generic ?? ""),
-      status: "Error",
-      hasError: true,
-      errorDetails: error,
-    }
-    if (autoExpand) {
-      next.autoExpandRequested = true
-      next.autoScrollRequested = options?.autoScroll ?? true
-    }
-    return next
-  })
-}
-
-function getStatusText(status: BranchSyncStatus): string {
-  switch (status) {
-    case "MergeConflict":
-      return "merge conflict"
-    case "AnalyzingConflict":
-      return "analyzing conflict…"
-    case "Error":
-      return "internal error"
-    default:
-      return status.toLowerCase()
-  }
-}
-
-function shouldRequestAutoExpand(branchName: string, status: BranchSyncStatus, options?: SyncOptions): boolean {
-  if (!(options?.autoExpand ?? true)) {
-    return false
-  }
-  // with a target branch, only that branch is expanded
-  if (options?.targetBranchName) {
-    return branchName === options.targetBranchName && (status === "Created" || status === "Updated")
-  }
-  // errors, conflicts and meaningful changes
-  return status === "Error" || status === "MergeConflict" || status === "Created" || status === "Updated"
-}
-
-function applyBranchStatusUpdate(draft: SyncDraft, data: Extract<SyncEvent, { type: "branchStatusUpdate" }>["data"], options?: SyncOptions): void {
-  const { branchName, status, error } = data
-  updateDraftBranch(draft, branchName, branch => {
-    if (status === "Blocked") {
-      // not an error of this branch: its parent can't be built on; the reason is the tooltip
-      return { ...branch, status, statusText: error?.Generic ?? "blocked" }
-    }
-    // a stack problem names itself as Rust says it ("conflicting parents"), not as a failure
-    const problem = status === "Error" ? branch.stack?.problems[0] : undefined
-    const next: MutableBranch = { ...branch, status, statusText: problem?.label ?? getStatusText(status) }
-    // the commits whose prefix the problem asks to reword carry the error mark, the others stay as they are
-    for (const hash of problem?.commits ?? []) {
-      next.commits = updateCommit(next, hash, { status: "Error" })
-    }
-    if (error) {
-      next.errorDetails = error
-      next.hasError = true
-    }
-    if (status === "MergeConflict" || status === "Error") {
-      next.hasError = true
-    }
-    if (shouldRequestAutoExpand(branchName, status, options)) {
-      next.autoExpandRequested = true
-      next.autoScrollRequested = options?.autoScroll ?? true
-    }
-    return next
-  })
 }

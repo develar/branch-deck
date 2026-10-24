@@ -23,7 +23,8 @@ more than the rows themselves:
 
 - **Rendering:** [React Compiler](https://react.dev/learn/react-compiler) memoizes every component and hook, so a
   subtree re-renders only when its inputs change.
-- **Selectors:** the store does less per update. Events gather for about a frame and are applied in one update.
+- **Selectors:** the store does less per update. The session in Rust gathers the events of a sync for about a frame
+  and sends one patch of what changed; the page applies a patch in one update.
   Derived structure (rows, stack children, the robot of a branch) is cached on what it is computed from. Records that
   a refresh answers unchanged keep their identity. A component selects the field it shows, not the record that holds
   it.
@@ -34,33 +35,39 @@ more than the rows themselves:
 
 ```mermaid
 flowchart LR
-    C[Channel: one event per commit] --> Q[queueSyncEvent]
-    Q -->|16 ms, or the sync's end| F[flushSyncEvents]
-    F --> D[draft: patch + one copy of branches]
-    D -->|one setState| S[branchSyncStore]
-    F -->|in event order| O[project, archived, landed stores]
+    E[sync events, one per commit] --> T[TableState of the session, Rust]
+    T -->|16 ms, a step, the run's end| P[ViewPatch: the parts that changed]
+    P -->|"Channel of subscribe_view"| A[src/model/store.ts: base and epoch checked]
+    A -->|one setState, the records of changed parts only| S[branchSyncStore]
+    A -->|the sections| O[project, archived, landed, unapplied stores]
     S --> R[structureOf: key of order, parents, issues]
-    R --> T[table rows, cached on the key]
+    R --> W[table rows, cached on the key]
     R --> K[stack children index]
 ```
 
-- **Batching.** `queueSyncEvent` (`src/stores/branch-sync.ts`) collects the channel's events. `flushSyncEvents` applies
-  them to a draft and commits the draft in one `setState`, about 16 ms later, or synchronously when
-  `commands.syncBranches` returns and in its `finally`. That keeps the order of the sync's end (archived placeholders
-  settled, then `isSyncing: false` once the chain of syncs ends, its follow-up included) unchanged. Runs are serialized,
-  and the events a superseded run's channel still delivers are dropped, so the queue never mixes two runs.
-  - The draft copies `branches` once, on the first change of a branch.
-  - Updates of other stores run during the flush, in event order: the issue links (`updateProject`), the archived
-    names, the landed status.
-  - The integration infos of the archived branches go into one `updateFromIntegrationInfos`, applied before any
-    `archivedBranchesFound` that follows them.
-  - What depends on the moment of arrival is decided in `queueSyncEvent`: a remote status for a branch whose push
-    sends it is dropped then. The push result is authoritative, and if the push ended before the flush, a check at the
-    flush would let the status the sync computed mid-push overwrite it. A push that only waits for the sync
+- **Batching in Rust.** The session of a worktree and its prefix (`repository_model::session`, its actor in
+  `runtime.rs`) folds the events of its sync into `TableState` (`table.rs`) and sends its subscribers a `ViewPatch`
+  of what changed (`state.rs`): at most one every 16 ms, at once on the start of a run, on its step from building to
+  detection and on its end. A patch names the parts of a branch that changed (`head`, `commits`, `sync`, `copies`,
+  `remote`), so the first sync of `branch_table_large` sends fewer bytes in its patches than its events had, and a
+  sync that changes nothing sends the state of its run only (`patch_bytes_test.rs` measures them). Late events of a
+  run that ended are dropped by its run id; a session opened again starts another epoch.
+- **Applying in the page.** `src/model/store.ts` subscribes the main window to the session of the selected repository
+  (`subscribe_view`, by path, the prefix Rust's) and applies each patch whose base is the version it holds
+  (`applyViewPatch`, `src/model/patch.ts`, as `repository_model::patch` does): one of another epoch, or after a gap,
+  asks for the snapshot (`get_snapshot`), one that came before the subscription answered waits for its view, a
+  session that went away is subscribed again. A patch builds again only the records of the branches and stacks it
+  names; a branch whose state alone changed keeps its commits and their index, so the row of an untouched branch does
+  not render again.
+  - Updates of other stores run in the same pass: the issue links (`updateProject`), the archived names (marked new
+    only for what this patch archived), the landed status, the unapplied branches.
+  - What depends on the moment of arrival is decided in the applier: a remote status for a branch whose push sends
+    it is not applied then. The push result is authoritative. A push that only waits for the sync
     (`setBranchPushWaiting`, the spinner of a push) gets the status: it reads the branch after the wait and pushes over
     it.
-  - Events are applied to the repository of their sync (the issue links go to its project), and `resetBranchSync`
-    drops the queued ones.
+  - `isSyncing` is true from the request (`sync`, `requestSessionSync`) until the store holds the version its answer
+    names (`SyncAnswer.version`), the last patch of the run that served it; a request of a session the window left
+    counts for that session only.
 - **Structure.** `structureOf` builds a key from the order and each branch's parent and issue, and reuses the previous
   structure while the key is the same.
   - `branchTableRowsIn` keeps one cache for all rows and one for a filter's `visible` set, so the ten subscribers share
@@ -141,16 +148,17 @@ Mac with other work beside it, master and the change measured in turns:
 
 The rule was three maps (`landingSpansIn`, `landedByIn`, `pushHoldsIn`) memoized in one slot on the identity of the
 branches, which every 16 ms batch of a sync copies: each batch computed them again. Now the backend decides it once
-for the table the sync left (`get_repository_view`, [Git Operations](git-operations.md#repository-view)) and the page
-indexes the answer (`factsOf` in `src/stores/patronus.ts`):
-- the page asks only when an input changed (the robots, the matches, the remote facts, what the sync read): a sync that
-  read the same inputs asks nothing, and the inputs are not even computed while the branches are the same objects;
+for the table the last sync of the session kept (`get_repository_view`, [Git Operations](git-operations.md#repository-view))
+and the page indexes the answer (`factsOf` in `src/stores/patronus.ts`):
+- the page asks only when an input changed (the robots, the matches, the remote facts, the table of the session by
+  its `tableRevision`, which counts the patches that changed more than the state of a run): a sync that changed nothing
+  of the table asks nothing, and the inputs are not even computed while the branches are the same objects;
 - an answer equal to the view the page has changes no store, and the facts of a view keep their objects while they are
   equal, so no row renders again for it;
 - the Dock waits for the view of the robots as they are (`useRepositoryViewCurrent`), so no badge comes and goes before
   it.
 
-[@test] ../../src/stores/patronus.test.ts (`keeps the store as it is when a view asked again says the same, so no row reads it again`, `asks the repository view after a sync only when the sync read other inputs: the backend's table is the same`)
+[@test] ../../src/stores/patronus.test.ts (`keeps the store as it is when a view asked again says the same, so no row reads it again`, `asks the repository view after a sync only when a patch changed the table: the backend's table is the same`)
 
 A sync that changes nothing cost little before and costs the same now. The rest of the per-row work
 (`getNextStepFacts` of each row on every change of a store) is not part of it.
@@ -159,13 +167,14 @@ A sync that changes nothing cost little before and costs the same now. The rest 
 
 `pnpm perf:table` counts the IPC of the page on the same template too, in every engine, from the counters of the Tauri
 mock (`window.__ipcStats`, [E2E Testing](e2e-testing.md)), each read once the page shows its state and no command is
-pending: the channel messages of the first sync and the commands invoked until its rows and chips
-(`firstSyncEvents`, `firstSyncInvokes`), the bytes of a sync that changes nothing (`resyncIpcBytes`: parameters,
-answers and channel messages), and the commands of a rest of the pointer on a row (`hoverIpc`, past the dwell of the
-intent, `page.clock.fastForward`), of its "⋯" menu opened by a right click (`menuIpc`) and of its robot's popover
-(`popoverIpc`). The counts are exact, the same in every run. What a sync sends, by event type and without the page,
-prints an ignored test of the mock server (`sync_event_bytes_test.rs`):
-`cargo nextest run -p test-server --run-ignored only -E 'test(/sync_event_bytes/)' --no-capture`.
+pending: the messages of the first sync and the commands invoked until its rows and chips (`firstSyncPatches`, the
+patches of the session on the channel of `subscribe_view`, before 2026-10-24 the events of `sync_branches`;
+`firstSyncInvokes`), the bytes of a sync that changes nothing (`resyncIpcBytes`: parameters, answers and channel
+messages), and the commands of a rest of the pointer on a row (`hoverIpc`, past the dwell of the intent,
+`page.clock.fastForward`), of its "⋯" menu opened by a right click (`menuIpc`) and of its robot's popover
+(`popoverIpc`). The counts are exact, the same in every run. What the session sends, its patches and their bytes
+without the page, prints an ignored test of the mock server (`patch_bytes_test.rs`):
+`cargo nextest run -p test-server --run-ignored only -E 'test(/patch_bytes/)' --no-capture`.
 
 | 2026-10-22 | first sync: events / invokes | sync that changes nothing: bytes | hover / menu / popover |
 |---|---|---|---|
@@ -259,7 +268,9 @@ output); `Symbol.for("react.memo_cache_sentinel")` in a build with `build.minify
 ## References
 
 - `vite.config.ts`: the plugin and its options
-- `src/stores/branch-sync.ts`: `queueSyncEvent`, `flushSyncEvents`, `structureOf`, `branchTableRowsIn`
+- `crates/repository-model/src/runtime.rs`, `state.rs`, `table.rs`: the session's fold of the events and its patches
+- `src/model/store.ts`, `src/model/patch.ts`: the page's applier of the patches
+- `src/stores/branch-sync.ts`: `structureOf`, `branchTableRowsIn`
 - `src/stores/file-merges.ts`: `useFileMerges`, the merges of the shown conflicts
 - `src/lib/patronus.ts`: `findBranchRobot` and its index
 - `src/router.ts`, `src/App.tsx`, `src/pages/IndexPage.tsx`: the lazy main page and dialogs

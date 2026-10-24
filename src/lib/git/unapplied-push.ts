@@ -45,7 +45,7 @@ export async function pushUnappliedBranch(name: string): Promise<void> {
       } else {
         showToast({ title: `Pushed ${branch.branch}`, description: `The remote keeps it as ${name}` })
       }
-      await syncBranches({ autoScroll: false, autoExpand: false })
+      await syncBranches("afterRewrite")
     },
     reason => toast.add({ type: "info", title: failureTitle, description: reason }),
   )

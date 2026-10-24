@@ -32,7 +32,7 @@ export async function animationsEnded(elements: Locator): Promise<void> {
 }
 
 /**
- * Holds every call of a Tauri command (e.g. `sync_branches`) in the mock until the returned function releases them, to
+ * Holds every call of a Tauri command (e.g. `sync`) in the mock until the returned function releases them, to
  * check the page while the command runs; then it goes on to the routes of the command registered before (a rewrite of
  * its answer), else to the test server
  */

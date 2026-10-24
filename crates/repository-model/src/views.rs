@@ -23,7 +23,6 @@ use object_cache::cache::ObjectCache;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 use sync_utils::span::in_current_span;
@@ -38,12 +37,6 @@ const KEPT_CHECKS: usize = 8;
 
 /// The last landing checks of one repository and branch prefix, each with the hash of its inputs, the oldest first
 type KeptChecks = Mutex<VecDeque<(u64, LandingCheck)>>;
-
-/// The table a sync finished, numbered
-pub(crate) struct SyncedTable {
-  generation: u32,
-  pub(crate) table: BranchTable,
-}
 
 /// The landing needs of every branch, by branch; a branch not listed needs nothing
 type Needs = BTreeMap<String, Vec<LandingRefusal>>;
@@ -81,12 +74,11 @@ const LANDING_WAIT: Duration = Duration::from_secs(120);
 /// The tables, the memos and the landing needs, by repository path and branch prefix. Cloning shares them
 #[derive(Clone)]
 pub struct RepositoryViews {
-  tables: Cache<(String, String), Arc<SyncedTable>>,
+  tables: Cache<(String, String), Arc<BranchTable>>,
   memos: Cache<(String, String), Arc<Mutex<ContentMemo>>>,
   landing: Cache<(String, String), Arc<LandingFacts>>,
   /// The last landing checks with their inputs (`landing_check`)
   checks: Cache<(String, String), Arc<KeptChecks>>,
-  generation: Arc<AtomicU32>,
 }
 
 impl Default for RepositoryViews {
@@ -104,46 +96,35 @@ impl RepositoryViews {
       memos: Cache::new(repositories),
       landing: Cache::new(repositories),
       checks: Cache::new(repositories),
-      generation: Arc::new(AtomicU32::new(0)),
     }
   }
 
   /// Keeps the table a sync of `repository_path` under `branch_prefix` finished
   pub fn keep(&self, repository_path: &str, branch_prefix: &str, table: BranchTable) {
-    let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
-    self
-      .tables
-      .insert((repository_path.to_string(), branch_prefix.to_string()), Arc::new(SyncedTable { generation, table }));
+    self.tables.insert((repository_path.to_string(), branch_prefix.to_string()), Arc::new(table));
   }
 
   /// The view of the table kept for `branch_prefix` with the asker's robots, matches and remote facts; empty before the
   /// first sync under that prefix. Runs git for the robots the hashes and the memo don't answer: call from a blocking
   /// context. The landing needs come from the last computation of the same inputs, else they are unknown and computed in
   /// the background, through `cache`
-  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_prefix, revision = params.revision))]
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_prefix))]
   pub fn view(&self, git_executor: &GitCommandExecutor, cache: &ObjectCache, branch_prefix: &str, params: &GetRepositoryViewParams) -> RepositoryView {
     let key = (params.repository_path.clone(), branch_prefix.to_owned());
-    let Some(synced) = self.tables.get(&key) else {
+    let Some(table) = self.tables.get(&key) else {
       return RepositoryView {
-        revision: params.revision,
-        table_generation: 0,
         landing_generation: 0,
         patronus: PatronusView::default(),
       };
     };
     let mut patronus = self.with_memo(&key, |memo| {
-      patronus_view(git_executor, &params.repository_path, &synced.table, &params.remote, &params.robots, &params.matched, memo)
+      patronus_view(git_executor, &params.repository_path, &table, &params.remote, &params.robots, &params.matched, memo)
     });
-    let (needs, landing_generation) = self.landing_needs(git_executor, cache, &key, &synced.table, landed_commits(&patronus));
+    let (needs, landing_generation) = self.landing_needs(git_executor, cache, &key, &table, landed_commits(&patronus));
     if let Some(needs) = needs {
-      with_landing_needs(&mut patronus, &synced.table, &needs);
+      with_landing_needs(&mut patronus, &table, &needs);
     }
-    RepositoryView {
-      revision: params.revision,
-      table_generation: synced.generation,
-      landing_generation,
-      patronus,
-    }
+    RepositoryView { landing_generation, patronus }
   }
 
   /// The facts the checks of the app's push read (`push_guard`): the kept table, `robots` as Rust read them, matched as
@@ -154,7 +135,7 @@ impl RepositoryViews {
   pub fn guard_facts(&self, git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, robots: Vec<PatronusRobot>) -> Option<GuardFacts> {
     let key = (repository_path.to_string(), branch_prefix.to_string());
     let synced = self.tables.get(&key)?;
-    let table = &synced.table;
+    let table = &*synced;
     let matched = match_robots(table, &table.remote, &robots);
     let view = self.with_memo(&key, |memo| patronus_view(git_executor, repository_path, table, &table.remote, &robots, &matched, memo));
     Some(GuardFacts::new(synced, robots, view))

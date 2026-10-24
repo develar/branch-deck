@@ -34,8 +34,8 @@ import { appSettingsStore } from "@/stores/settings/appSettings"
 import { useSetupTracking } from "@/stores/setup"
 
 /**
- * Window focus handler: with "Auto-sync on Focus" (on by default) and a project selected, syncs when what a sync reads
- * changed since the last one (`syncIfChanged`; during a sync, it checks once after it)
+ * Window focus handler: with "Auto-sync on Focus" (on by default) and a project selected, the session syncs when what a
+ * sync reads changed since its last sync (`syncIfChanged`; during a sync, it checks once after it)
  */
 const debouncedAutoSync = pDebounce(async () => {
   if (appSettingsStore.getState().autoSyncOnFocus && getSelectedProject() !== null) {

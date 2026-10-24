@@ -214,8 +214,6 @@ pub struct PatronusView {
 #[serde(rename_all = "camelCase")]
 pub struct GetRepositoryViewParams {
   pub repository_path: String,
-  /// The asker's counter of its inputs, echoed: an answer to an older one is dropped
-  pub revision: u32,
   /// The robots that land or landed: active and merged, no dry runs
   pub robots: Vec<PatronusRobot>,
   pub matched: RobotMatch,
@@ -227,9 +225,6 @@ pub struct GetRepositoryViewParams {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryView {
-  pub revision: u32,
-  /// Counts the syncs whose table the view is of; 0 before the first
-  pub table_generation: u32,
   /// Counts the finished computations of the landing needs of the repository: the page waits for the next one
   /// (`wait_landing_needs`) while a branch's are unknown, then asks the view again
   pub landing_generation: u32,

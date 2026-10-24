@@ -172,7 +172,7 @@ test.describe("Push button", () => {
 
   test("should push a branch pressed during a sync once the sync finished, the row as it was meanwhile", async ({ page }) => {
     const pushes = await routePush(page, {})
-    const releaseSync = await holdCommand(page, "sync_branches")
+    const releaseSync = await holdCommand(page, "sync")
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
     const row = findBranchRow(page, "JIRA-456")
@@ -195,7 +195,7 @@ test.describe("Push button", () => {
     await issueLinksRepo.commit("(pool) Add the pool config", { "pool.cfg": "size=10\n", "auth.cfg": "ttl=1\n" }, 1704182400)
     await issueLinksRepo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
     await issueLinksRepo.commit("(ABC-123) Raise the session ttl", { "auth.cfg": "ttl=2\n" }, 1704182520)
-    const releaseSync = await holdCommand(page, "sync_branches")
+    const releaseSync = await holdCommand(page, "sync")
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
     // the rows as they were: both pushes wait for the sync, the button and P

@@ -54,7 +54,7 @@ vi.mock("@/stores/branch-sync", () => ({
     syncs.count++
   },
   // the sync run of an applied update, ended by the test
-  requestSync: (_options: unknown, onStart: (run: number) => void) =>
+  requestSync: (onStart: (run: number) => void) =>
     new Promise<void>(resolve => {
       const run = syncs.requested.length + 1
       syncs.requested.push({ run, end: resolve })

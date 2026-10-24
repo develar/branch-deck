@@ -1,6 +1,6 @@
 use crate::channel_commands::{answer_with_progress, canceled_by, canceled_code, progress_channel, register_wait, run_waiting};
 use crate::remote_host::PAGE_CLOCK_START;
-use app_api::api_error::{IntoApiError, no_branch_prefix, patronus_error, undo_error};
+use app_api::api_error::{IntoApiError, patronus_error, undo_error};
 use axum::{
   extract::State,
   http::{HeaderMap, StatusCode, header},
@@ -24,7 +24,6 @@ use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
-use domain_types::{ProgressReporter, SyncEvent};
 use file_diffs::model::{
   BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
 };
@@ -61,13 +60,11 @@ use sync_core::branch_name_suggestion::clean_names;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::github_repository::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
 use sync_core::patronus::{SpaceRepository, find_target_branch, required_target_branch};
-use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries,
   with_stacks_off_clashes, write_global_config, write_repository_config,
 };
 use sync_core::robot_commits::robot_failure_report;
-use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -349,75 +346,6 @@ pub async fn check_git_setup(State(state): State<Arc<AppState>>, Json(request): 
     anyhow::Ok(sync_core::git_setup::check_git_setup(&git_executor, &request.repository_path))
   })
   .await
-}
-
-// Progress reporter that sends events through a channel
-#[derive(Clone)]
-struct ChannelProgressReporter {
-  sender: mpsc::UnboundedSender<SyncEvent>,
-}
-
-impl ProgressReporter for ChannelProgressReporter {
-  fn send(&self, event: SyncEvent) -> anyhow::Result<()> {
-    self.sender.send(event).map_err(|e| anyhow::anyhow!("Channel closed: {e}"))?;
-    Ok(())
-  }
-}
-
-#[derive(Deserialize)]
-pub struct SyncBranchesRequest {
-  #[serde(rename = "repositoryPath")]
-  repository_path: String,
-}
-
-/// The fingerprint of what a sync reads under the prefix the server resolves, as the app's command: a focus syncs only
-/// when it changed
-pub async fn get_sync_inputs_fingerprint(State(state): State<Arc<AppState>>, Json(request): Json<SyncBranchesRequest>) -> CommandResult<String> {
-  let inputs = prefix_inputs(&state, &request.repository_path)?;
-  run_command("read the sync inputs", move || {
-    let branch_prefix = inputs.branch_prefix(&request.repository_path)?;
-    sync_core::sync_inputs::sync_inputs_fingerprint(&inputs.git, &request.repository_path, &branch_prefix)
-  })
-  .await
-}
-
-/// Streams the events of the sync once it is done; a failed sync answers with its error instead, as the app's command
-/// rejects (the page alert), without the events sent before the failure
-pub async fn sync_branches(State(state): State<Arc<AppState>>, Json(request): Json<SyncBranchesRequest>) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Rejection> {
-  // the prefix by the git config read now, as the app's sync resolves it from the config it reads; refused without one
-  let inputs = prefix_inputs(&state, &request.repository_path)?;
-  let path = request.repository_path.clone();
-  let branch_prefix = run_command("read the branch prefix", move || inputs.fresh(&path)).await?.0.prefix;
-  if branch_prefix.is_empty() {
-    return Err(failed("sync", no_branch_prefix()));
-  }
-
-  // Create a channel for streaming events
-  let (tx, rx) = mpsc::unbounded_channel();
-
-  // Create a progress reporter that sends events through the channel and keeps the remote statuses for the table
-  let reporter = RemoteStatusCollector::new(ChannelProgressReporter { sender: tx });
-
-  // Run the sync directly (no need for tokio::spawn since this is already async)
-  let git_executor = &state.git_executor;
-  let repository_path = &request.repository_path;
-  let branch_prefix = &branch_prefix;
-  let progress = reporter.clone();
-  let options = SyncOptions {
-    issue_config: IssueConfigSource::Load,
-    ..Default::default()
-  };
-  let synced = sync_core::sync::sync_branches(git_executor, repository_path, branch_prefix, progress, options).await;
-  if let Ok(report) = &synced {
-    let table = repository_model::branch_table::BranchTable::from_report(branch_prefix, report, &reporter.take_statuses());
-    state.repository_views.keep(repository_path, branch_prefix, table);
-  }
-  if let Err(e) = synced {
-    // a deferred sync answers its code (`operation_in_progress`, `detached_head`), as the app's command does
-    return Err(failed("sync branches", e));
-  }
-
-  Ok(sse_events(rx, "sync"))
 }
 
 pub async fn move_commits_to_branch(

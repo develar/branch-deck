@@ -3,7 +3,6 @@ import { expect } from "@playwright/test"
 import type { YouTrackUser } from "../../../src/lib/bindings"
 import { getOpenedUrls } from "./pull-request-helpers"
 import { openSettingsWindow } from "./settings-helpers"
-import { rewriteNextSyncEvents } from "./sync-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"
 
 /**
@@ -85,10 +84,8 @@ export function youTrackHost(url: string): string {
  * The next sync links `[A-Z]+-\d+` to the issue pages of the YouTrack at `url`, as a repository of a YouTrack user does
  * (`.idea/vcs.xml`); the fixture of the templates links them to Jira, which other tests check
  */
-export async function linkIssuesToYouTrack(page: Page, url: string): Promise<void> {
-  await rewriteNextSyncEvents(page, event =>
-    event.type === "issueNavigationConfig" ? { ...event, data: { config: { links: [{ issueRegexp: "\\b[A-Z]+-\\d+\\b", linkRegexp: `${url}/issue/$0` }] } } } : event,
-  )
+export async function linkIssuesToYouTrack(repo: TestRepositoryBuilder, url: string): Promise<void> {
+  await repo.setSyncOverrides({ issueLinks: { links: [{ issueRegexp: "\\b[A-Z]+-\\d+\\b", linkRegexp: `${url}/issue/$0` }] } })
 }
 
 /**

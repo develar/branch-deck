@@ -16,7 +16,7 @@ async function setUp(
   youtrack: YouTrackFixture,
 ): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo("issue_links", { youtrack })
-  await linkIssuesToYouTrack(page, await youTrackUrlOf(repo))
+  await linkIssuesToYouTrack(repo, await youTrackUrlOf(repo))
   await syncAndWaitForBranches()
   return repo
 }
@@ -147,7 +147,7 @@ test.describe("YouTrack issue popover", () => {
 
     // the next start can't read the sign-in: an error that says so, Retry in it
     await repo.holdRemoteAnswers({ fail: ["youTrackAuth"] })
-    await linkIssuesToYouTrack(page, await youTrackUrlOf(repo))
+    await linkIssuesToYouTrack(repo, await youTrackUrlOf(repo))
     await page.reload()
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot read the YouTrack sign-in" })
     await expect(toast).toContainText("the fixture fails this read")

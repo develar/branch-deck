@@ -37,7 +37,7 @@ export function ReadyToSyncCard() {
           push elsewhere (Auto-sync on Focus, in the sync settings next to Sync).
         </p>
         <div className="flex items-center gap-2">
-          <Button size="sm" disabled={isSyncing} aria-busy={isSyncing || undefined} data-testid="ready-to-sync-button" onClick={() => void syncBranches({ manual: true })}>
+          <Button size="sm" disabled={isSyncing} aria-busy={isSyncing || undefined} data-testid="ready-to-sync-button" onClick={() => void syncBranches("manual")}>
             {isSyncing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
             Sync
           </Button>

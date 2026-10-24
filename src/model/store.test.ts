@@ -1,0 +1,327 @@
+// The page's side of a session on the fake sessions of the backend (`src/test-support/fake-sessions.ts`): the store
+// applies the patches of the session it subscribed to, and asks a sync of it
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
+import type { StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
+import { closeSession, openSession, requestSessionSync, whenSessionReady } from "@/model/store"
+import { branchSyncStore, getBranch, getStackBranch, setBranchPushing, setBranchPushWaiting, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
+import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
+
+const { toasts, archived, syncRecords } = vi.hoisted(() => ({
+  toasts: [] as { type?: string; title: string; description?: string }[],
+  /** Each `updateFromArchivedNames` of the archived branches: the names, and the ones marked new */
+  archived: { names: [] as [readonly string[], readonly string[]][], settled: 0 },
+  /** What each sync that ended recorded of its repository (`repositoryState`) */
+  syncRecords: [] as { path: string; record: unknown }[],
+}))
+
+vi.mock("@tauri-apps/api/core", () => import("@/test-support/channel-mock"))
+vi.mock("@/lib/bindings", async () => ({ commands: (await import("@/test-support/fake-sessions")).sessionCommands() }))
+vi.mock("@/lib/toast-message", () => ({ showToast: (toast: { type?: string; title: string; description?: string }) => toasts.push(toast) }))
+vi.mock("@/stores/repository", () => ({
+  getSelectedProject: () => ({ path: "/repo" }),
+  getSelectedRepositoryPath: () => "/repo",
+}))
+vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {} }))
+vi.mock("@/stores/settings/repositoryState", () => ({
+  updateRepositoryState: (path: string, update: (state: object) => unknown) => syncRecords.push({ path, record: update({}) }),
+}))
+vi.mock("@/stores/landed", () => ({ hideAfterSync: () => {}, setLandedStatus: () => {} }))
+vi.mock("@/stores/unapplied-branches", () => ({ setUnappliedBranches: () => {}, resetUnappliedBranches: () => {} }))
+vi.mock("@/stores/archived-branches", () => ({
+  updateFromArchivedNames: (names: readonly string[], marked: readonly string[]) => archived.names.push([names, marked]),
+  updateFromIntegrationInfos: () => {},
+  settleArchivedPlaceholders: () => {
+    archived.settled++
+  },
+  resetArchivedBranches: () => {},
+}))
+
+/** The window subscribed to the session of `repositoryPath`, its view in the store */
+async function open(repositoryPath = "/repo"): Promise<void> {
+  openSession(repositoryPath)
+  await whenSessionReady()
+}
+
+/** Sends `changes` as a patch of the session of /repo and waits until the store holds its version */
+async function send(changes: TableChanges, repositoryPath = "/repo"): Promise<Version> {
+  const { next } = fakeSessions.send(repositoryPath, changes)
+  await vi.waitFor(() => expect(branchSyncStore.getState().viewVersion).toEqual(next))
+  return next
+}
+
+/** The sync request the session got last, once it reached it */
+async function nextSync(count: number) {
+  await vi.waitFor(() => expect(fakeSessions.syncs).toHaveLength(count))
+  return fakeSessions.syncs[count - 1]!
+}
+
+const running: TableChanges = { sync: { kind: "running", step: "grouping" } }
+const idle: TableChanges = { sync: { kind: "idle" } }
+
+beforeEach(() => {
+  fakeSessions.reset()
+  branchSyncStore.setState(branchSyncStore.getInitialState(), true)
+  toasts.length = 0
+  archived.names.length = 0
+  archived.settled = 0
+  syncRecords.length = 0
+})
+
+// a request left waiting would hold the tests after it
+afterEach(async () => {
+  for (const sync of fakeSessions.syncs) {
+    sync.answer()
+  }
+  closeSession()
+  await whenSynced()
+})
+
+describe("the view of the session", () => {
+  it("names only the repository: the session resolves the prefix, and a sync waits for no load of the page", async () => {
+    await open()
+    const synced = requestSessionSync("manual")
+    const sync = await nextSync(1)
+    expect(fakeSessions.subscribeCalls).toEqual([{ repositoryPath: "/repo" }])
+    expect(sync.params).toEqual({ repositoryPath: "/repo", reason: "manual" })
+    await send(grouping("a", "b"))
+    sync.answer()
+    await synced
+    expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["a", "b"], syncError: null, syncedRepositoryPath: "/repo" })
+  })
+
+  it("takes the snapshot when a patch of another epoch comes: the session was opened again", async () => {
+    await open()
+    await send(grouping("a"))
+    // the session went away while idle and opened again: its patches start on a new epoch
+    fakeSessions.reopen("/repo", { ...emptyView({ epoch: 2, seq: 0 }), order: ["c"] })
+    fakeSessions.send("/repo", grouping("c"))
+    await vi.waitFor(() => expect(branchSyncStore.getState().viewVersion).toEqual({ epoch: 2, seq: 1 }))
+    expect(fakeSessions.snapshotCalls).toEqual(["/repo"])
+    expect(branchSyncStore.getState().branchOrder).toEqual(["c"])
+    expect(getBranch("a")).toBeUndefined()
+  })
+
+  it("takes the snapshot when the base of a patch is missing, and drops a patch the snapshot already has", async () => {
+    await open()
+    const first = fakeSessions.send("/repo", grouping("a"))
+    await vi.waitFor(() => expect(branchSyncStore.getState().viewVersion).toEqual(first.next))
+    // a patch the window missed: the next one is on a base it doesn't have
+    fakeSessions.views.set("/repo", { ...fakeSessions.view("/repo"), version: { epoch: 1, seq: 2 } })
+    const gap = fakeSessions.send("/repo", { ...grouping("a", "b"), sync: idle.sync })
+    await vi.waitFor(() => expect(branchSyncStore.getState().viewVersion).toEqual(gap.next))
+    expect(fakeSessions.snapshotCalls).toEqual(["/repo"])
+    expect(branchSyncStore.getState().branchOrder).toEqual(["a", "b"])
+    // delivered again (a late copy): the view already has it
+    fakeSessions.deliver("/repo", first)
+    expect(branchSyncStore.getState().viewVersion).toEqual(gap.next)
+    expect(fakeSessions.snapshotCalls).toHaveLength(1)
+  })
+
+  it("keeps the patches that come before the subscription answered, and applies them on its view", async () => {
+    fakeSessions.holdSubscriptions = true
+    openSession("/repo")
+    await vi.waitFor(() => expect(fakeSessions.subscriptions).toHaveLength(1))
+    // the view at the subscription is before this patch: the channel delivers it before the answer
+    const patch = fakeSessions.send("/repo", grouping("a"))
+    expect(branchSyncStore.getState().viewVersion).toBeNull()
+    fakeSessions.releaseSubscriptions()
+    await whenSessionReady()
+    expect(branchSyncStore.getState().viewVersion).toEqual(patch.next)
+    expect(branchSyncStore.getState().branchOrder).toEqual(["a"])
+    expect(fakeSessions.snapshotCalls).toEqual([])
+  })
+
+  it("subscribes again when the snapshot finds the session gone, keeping the table until the new view comes", async () => {
+    await open()
+    await send(grouping("a"))
+    // the session closed (its worktree went away) and opened again
+    fakeSessions.snapshotAnswer = null
+    fakeSessions.reopen("/repo", { ...emptyView({ epoch: 2, seq: 0 }), order: ["c"] })
+    fakeSessions.holdSubscriptions = true
+    fakeSessions.deliver("/repo", { base: { epoch: 2, seq: 0 }, next: { epoch: 2, seq: 1 }, changes: idle })
+    await vi.waitFor(() => expect(fakeSessions.subscribeCalls).toHaveLength(2))
+    expect(branchSyncStore.getState().branchOrder).toEqual(["a"])
+    fakeSessions.releaseSubscriptions()
+    await whenSessionReady()
+    expect(branchSyncStore.getState().branchOrder).toEqual(["c"])
+  })
+
+  it("forgets the table of the session it leaves: a late patch of it reaches nothing", async () => {
+    await open()
+    await send(grouping("a"))
+    openSession("/other")
+    await whenSessionReady()
+    expect(branchSyncStore.getState().branchOrder).toEqual([])
+    expect(fakeSessions.subscriptions.map(it => it.repositoryPath)).toEqual(["/other"])
+    fakeSessions.send("/repo", grouping("a", "b"))
+    expect(branchSyncStore.getState().branchOrder).toEqual([])
+  })
+})
+
+describe("a sync of the session", () => {
+  it("keeps Sync busy from the request to the last patch of the run that serves it, and counts the runs that ended", async () => {
+    await open()
+    // the view of the subscription settled the placeholders of the archived branches once already
+    archived.settled = 0
+    const synced = requestSessionSync("manual")
+    // busy from the click, before the run's first patch
+    expect(branchSyncStore.getState().isSyncing).toBe(true)
+    const sync = await nextSync(1)
+    await send({ ...running, ...grouping("a") })
+    // the answer comes before the run's last patch: the request waits for it
+    fakeSessions.views.set("/repo", { ...fakeSessions.view("/repo"), version: { epoch: 1, seq: 2 } })
+    sync.answer()
+    let ended = false
+    void synced.then(() => {
+      ended = true
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ended).toBe(false)
+    expect(branchSyncStore.getState().isSyncing).toBe(true)
+    fakeSessions.views.set("/repo", { ...fakeSessions.view("/repo"), version: { epoch: 1, seq: 1 } })
+    await send(idle)
+    expect(await synced).toEqual({ outcome: "synced", version: { epoch: 1, seq: 2 } })
+    expect(branchSyncStore.getState()).toMatchObject({ isSyncing: false, syncCount: 1, syncedRepositoryPath: "/repo" })
+    // every sync teaches the usual time of a sync, with the branch count
+    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 1, updateTimings: { sync: [expect.any(Number)] } }) }])
+    // once, after the run: a placeholder still waiting got no result
+    expect(archived.settled).toBe(1)
+  })
+
+  it("marks the check of a focus that found nothing changed, and records nothing", async () => {
+    await open()
+    const checked = requestSessionSync("focus")
+    ;(await nextSync(1)).answer("unchanged")
+    await checked
+    expect(branchSyncStore.getState().inputsCheckedAt).not.toBeNull()
+    expect(syncRecords).toEqual([])
+  })
+
+  it("is no failure when deferred: no error, the table as it was, an info toast only for a sync the user asked for", async () => {
+    await open()
+    await send(grouping("a"))
+    const deferred = { ...internalError("Not synced: a rebase is in progress"), code: "operation_in_progress" } as const
+    const quiet = requestSessionSync("afterRewrite")
+    ;(await nextSync(1)).fail(deferred)
+    expect(await quiet).toBeNull()
+    const manual = requestSessionSync("manual")
+    ;(await nextSync(2)).fail(deferred)
+    await manual
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false })
+    expect(toasts).toEqual([{ type: "info", title: "Not synced: a rebase is in progress", description: "The branches sync once git finished it" }])
+  })
+
+  it("names the failure of a refused request, and of a run the failed state of the view", async () => {
+    await open()
+    const refused = requestSessionSync("manual")
+    ;(await nextSync(1)).fail(internalError("boom"))
+    await refused
+    expect(branchSyncStore.getState().syncError).toBe("boom")
+    // the next run clears it, and its own failure names itself, the table kept
+    await send({ ...running, ...grouping("a") })
+    expect(branchSyncStore.getState().syncError).toBeNull()
+    await send({ sync: { kind: "failed", error: internalError("Cannot read HEAD") } })
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: "Cannot read HEAD", branchOrder: ["a"], syncCount: 1 })
+  })
+
+  it("leaves a request of the session the window left to it: Sync of the next one is not busy, nothing of it is recorded", async () => {
+    await open()
+    const old = requestSessionSync("manual")
+    const sync = await nextSync(1)
+    openSession("/other")
+    await whenSessionReady()
+    expect(branchSyncStore.getState().isSyncing).toBe(false)
+    fakeSessions.send("/repo", { ...running, ...grouping("a") })
+    sync.answer()
+    await old
+    expect(branchSyncStore.getState()).toMatchObject({ isSyncing: false, branchOrder: [], syncedRepositoryPath: null, syncCount: 0 })
+    expect(syncRecords).toEqual([])
+  })
+})
+
+describe("the table of the view", () => {
+  it("keeps the records of the branches a patch leaves alone, and of the commits of a branch whose state alone changed", async () => {
+    await open()
+    await send(grouping("a", "b"))
+    const { branches, branchOrder } = branchSyncStore.getState()
+    // a quiet resync: Rust keeps what the rows show, only the state of the run changes
+    await send(running)
+    expect(branchSyncStore.getState().branches).toBe(branches)
+    expect(branchSyncStore.getState().branchOrder).toBe(branchOrder)
+    // a's result: its record is new, its commits the same; b untouched
+    await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
+    expect(getBranch("a")).toMatchObject({ status: "Unchanged", statusText: "unchanged", processedCount: 1 })
+    expect(getBranch("a")!.commits).toBe(branches.a!.commits)
+    expect(getBranch("b")).toBe(branches.b)
+    // a copy of a's commit changes its commits
+    await send({ branches: { a: { copies: [{ hash: "a1-new", status: "Created" }] } } })
+    expect(getBranch("a")!.commits).toEqual([expect.objectContaining({ originalHash: "a1", hash: "a1-new", status: "Created" })])
+  })
+
+  it("shows the remote status of a patch, except while a push of the branch sends: the push's result is the one to show", async () => {
+    await open()
+    await send({ ...grouping("a", "b"), branches: { ...grouping("a", "b").branches, a: { ...grouping("a").branches!.a!, remote: { status: fakeRemoteStatus("a", 1) } } } })
+    const known = getBranch("a")!.remoteStatus
+    expect(known).toEqual(toRemoteStatus(fakeRemoteStatus("a", 1)))
+    setBranchPushing("a", true, "/repo")
+    await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 2) } }, b: { remote: { status: fakeRemoteStatus("b", 3) } } } })
+    expect(getBranch("a")!.remoteStatus).toBe(known)
+    expect(getBranch("b")!.remoteStatus!.commitsAhead).toBe(3)
+    setBranchPushing("a", false, "/repo")
+    // a patch without a remote part keeps the status the branch shows
+    await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
+    expect(getBranch("a")!.remoteStatus).toBe(known)
+    await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 4) } } } })
+    expect(getBranch("a")!.remoteStatus!.commitsAhead).toBe(4)
+  })
+
+  it("applies the remote status of a sync that a push of the branch waits for: the push sends over it after the wait", async () => {
+    await open()
+    await send(grouping("a"))
+    setBranchPushWaiting("a", true, "/repo")
+    // a fetch moved the remote branch: the sync the push waits for brings its new tip
+    await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 2, "moved") } } } })
+    expect(getBranch("a")!.remoteStatus).toMatchObject({ remoteTip: "moved", commitsAhead: 2 })
+    setBranchPushWaiting("a", false, "/repo")
+  })
+
+  it("keeps the stack branches the patches report until one changes or removes them", async () => {
+    await open()
+    const stack = (root: string, changes: Partial<StackBranchUpdate> = {}): StackBranchUpdate => ({
+      root,
+      branchName: `user/stack/${root}`,
+      members: [root, "b"],
+      commitCount: 2,
+      state: "Built",
+      tip: `${root}-tip`,
+      blockedBy: null,
+      conflict: null,
+      error: null,
+      remote: fakeRemoteStatus(`user/stack/${root}`, 2),
+      ...changes,
+    })
+    await send({ ...grouping("a", "b"), stacks: { a: stack("a"), x: stack("x", { members: [], state: "Stale", error: "Not rebuilt" }) } })
+    expect(getStackBranch("a")).toMatchObject({ branchName: "user/stack/a", members: ["a", "b"], state: "Built", tip: "a-tip" })
+    expect(getStackBranch("a")!.remoteStatus!.commitsAhead).toBe(2)
+    expect(getStackBranch("x")).toMatchObject({ state: "Stale", members: [] })
+    const before = branchSyncStore.getState().stackBranches
+    await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
+    expect(branchSyncStore.getState().stackBranches).toBe(before)
+    await send({ stacks: { a: stack("a", { state: "Blocked", blockedBy: { member: "b", reason: "Conflict" } }) }, removedStacks: ["x"] })
+    expect(getStackBranch("a")).toMatchObject({ state: "Blocked", blockedBy: { member: "b", reason: "Conflict" }, tip: "a-tip" })
+    expect(getStackBranch("x")).toBeUndefined()
+    closeSession()
+    expect(getStackBranch("a")).toBeUndefined()
+  })
+
+  it("marks new only the branches a patch archived: a mark the user dismissed stays dismissed", async () => {
+    await open()
+    await send({ archived: { names: ["x"], newlyArchived: ["x"] } })
+    await send({ archived: { names: ["x", "y"], newlyArchived: ["x", "y"] } })
+    expect(archived.names.slice(-2)).toEqual([
+      [["x"], ["x"]],
+      [["x", "y"], ["y"]],
+    ])
+  })
+})

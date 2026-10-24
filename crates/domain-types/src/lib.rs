@@ -124,7 +124,7 @@ pub struct UnappliedBranchInfo {
 }
 
 /// Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteStatusUpdate {
@@ -171,7 +171,7 @@ pub struct RemoteStatusUpdate {
 }
 
 /// A commit of the remote branch whose content the local branch lacks: a push drops it
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct DroppedCommit {
@@ -184,7 +184,7 @@ pub struct DroppedCommit {
 }
 
 /// A commit of the remote branch that is an older version of a commit of the baseline: a push replaces it
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct LandedRemoteCommit {
@@ -329,4 +329,12 @@ pub enum BranchOrigin {
 /// Progress reporter trait that abstracts away Tauri-specific channel
 pub trait ProgressReporter: Send + Sync {
   fn send(&self, event: SyncEvent) -> anyhow::Result<()>;
+}
+
+/// A shared reporter reports to the one it shares: a host that picks the reporter of a run at run time passes an
+/// `Arc<dyn ProgressReporter>`
+impl<T: ProgressReporter + ?Sized> ProgressReporter for std::sync::Arc<T> {
+  fn send(&self, event: SyncEvent) -> anyhow::Result<()> {
+    (**self).send(event)
+  }
 }

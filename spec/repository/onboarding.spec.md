@@ -11,6 +11,8 @@ targets:
   - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/SyncButton.tsx
   - ../../src/hooks/useSyncOnOpen.ts
+  - ../../src/model/store.ts
+  - ../../crates/repository-model/src/sync_scheduler.rs
   - ../../src/stores/settings/repositoryState.ts
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/unassigned/UnassignedCommitsHelpPopover.tsx
@@ -25,7 +27,7 @@ targets:
   - ../../crates/app-settings/src/resolve.rs
   - ../../crates/app-settings/src/branch_prefixes.rs
   - ../../crates/app-settings/src/service.rs
-  - ../../src-tauri/src/commands/sync_branches.rs
+  - ../../src-tauri/src/commands/session.rs
   - ../../src/stores/branch-sync.ts
   - ../../src-tauri/src/menu.rs
   - ../../src/pages/IndexPage.tsx
@@ -108,10 +110,11 @@ alert with the reason and the next step, never a raw Git error.
   on Enter and when it loses the focus, never on a key (the prefix names the branches of the sync and the robots of
   Patronus), refuses a prefix git cannot take in place, and Escape takes the typing back before it closes the window.
   Empty, the prefix of the global git config applies (the window asks Rust itself, `resolve_branch_prefix`), shown as
-  the placeholder. A sync resolves the prefix in Rust when it starts: a change during one names the branches of the
-  next; a sync never waits for a load of the page, so a busy machine fails none for a timeout.
+  the placeholder. The session of a repository is keyed by the prefix Rust resolves: a change of it is another
+  session, whose next sync names the branches by it; a sync never waits for a load of the page, so a busy machine
+  fails none for a timeout.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
-  [@test] ../../src/stores/branch-sync.test.ts (`is Rust's: the sync names only the repository and waits for no load of the page`)
+  [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`)
 - The specific prefix wins, in the app as in `bd` ([Settings](settings.spec.md#branch-prefix-order)): a repository
   whose own git config (local or worktree, or `git -c`) sets `branchdeck.branchPrefix` names its branches by it, whatever the field
   says; the field says so ("This repository uses its own prefix `user-name`", with "Open Repository Settings") and
@@ -125,7 +128,7 @@ alert with the reason and the next step, never a raw Git error.
   on a switch and on focus) and decides nothing by it: a sync names only the repository and resolves the prefix in Rust
   from the git config it reads, waiting for no load of the page, and refuses a repository without one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`disables Sync with the reason while no branch prefix is set`)
-  [@test] ../../src/stores/branch-sync.test.ts (`is Rust's: the sync names only the repository and waits for no load of the page`)
+  [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`)
   [@test] ../../crates/test-server/src/branch_prefix_test.rs (`the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_synced`)
 - With a repository never synced and a prefix, the "Ready to Sync" card: what Sync does (groups the commits by the
   prefix of their subject, creates `<prefix>/virtual/<name>`, lists the rest as unassigned), that the working tree and
@@ -141,9 +144,10 @@ alert with the reason and the next step, never a raw Git error.
   (`repository-state.json`): a sync never rewrites `settings.json`.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)
-  [@test] ../../src/stores/branch-sync.test.ts (`resolves a requested sync at the end of its own run: the follow-up of a sync that runs, never a later one`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
+  [@test] ../../src/model/store.test.ts (`keeps Sync busy from the request to the last patch of the run that serves it, and counts the runs that ended`)
 - Auto-sync on Focus (Settings → General, File → Auto-sync on Focus) is on by default and syncs on a focus
-  only when what a sync reads changed since the last sync (`syncIfChanged`, the fingerprint of
+  only when what a sync reads changed since the last sync of the session (`sync` for a `focus`, the fingerprint of
   [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), taken when the sync started, so a commit made
   while it ran counts): a commit, an amend or a finished rebase in the IDE, a fetch (of the baseline, also an upstream
   other than `master` or `main`) or a push elsewhere, a regroup or a description by `bd`, a changed prefix (the
@@ -151,7 +155,8 @@ alert with the reason and the next step, never a raw Git error.
   now" instead of "Last synced 18 minutes ago", the age of the sync in its tooltip: the branches are as current as a
   sync would make them. A user who turned the setting off keeps it off.
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`, `changes_with_the_upstream_of_the_checked_out_branch`, `changes_with_the_prefix_alone`)
-  [@test] ../../src/stores/branch-sync.test.ts (`syncs only when what a sync reads changed since the last sync, one read otherwise`)
+  [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_runs_only_when_the_inputs_changed`, `a_focus_during_a_run_checks_the_inputs_once_after_the_chain`)
+  [@test] ../../src/model/store.test.ts (`marks the check of a focus that found nothing changed, and records nothing`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
 - File → Auto-sync on Focus of the native menu is checked as the setting is: at startup as the backend's writer loaded
   `settings.json` (`AppSettings::auto_sync_on_focus`, on by default), then by the main window for every value of the
@@ -168,12 +173,14 @@ alert with the reason and the next step, never a raw Git error.
   out a branch to sync its commits"); a sync the app started (on open, on focus, after a change) waits silently.
   [@test] ../../crates/sync-core/src/sync_test.rs (`sync_waits_while_a_rebase_is_in_progress_or_head_is_detached`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`waits_while_a_rebase_is_in_progress`)
-  [@test] ../../src/stores/branch-sync.test.ts (`is no failure: no error, the branches as they were, an info toast only for a sync the user asked for`)
+  [@test] ../../src/model/store.test.ts (`is no failure when deferred: no error, the table as it was, an info toast only for a sync the user asked for`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in an info toast that a sync waits for git, and leaves the branches as they were`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
-- A switch to another repository forgets the branches of the previous one once its running sync is done: they never
-  show under the name of another repository.
+- A switch to another repository forgets the branches of the previous one at once, also while its sync runs: the
+  window ends its subscription to the session of that repository and subscribes to the session of the next, so a late
+  patch of the old one never shows under the name of another repository, and Sync of the next is not busy for it.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`forgets the branches of the previous repository on a switch`)
+  [@test] ../../src/model/store.test.ts (`forgets the table of the session it leaves: a late patch of it reaches nothing`, `leaves a request of the session the window left to it: Sync of the next one is not busy, nothing of it is recorded`)
 
 ### Repository problems
 

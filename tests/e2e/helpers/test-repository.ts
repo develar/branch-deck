@@ -1,11 +1,14 @@
 import type {
   BranchNameSuggestionOutcome,
+  IssueNavigationConfig,
   PatronusCommandReply,
   PatronusProfile,
   PatronusReviewRequirement,
   PatronusRobotProgress,
   PatronusRobotsResult,
+  RemoteStatusUpdate,
   ReviewRequestsResult,
+  StackBranchUpdate,
 } from "../../../src/lib/bindings"
 import type { GitHubFixture, GitHubLog } from "./pull-request-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
@@ -92,6 +95,25 @@ export interface CliToolsFixture {
   files?: Record<string, string>
 }
 
+/**
+ * What the next sync of the repository reports differently (`POST /repositories/{id}/sync-overrides`, which the run of
+ * its session that starts next takes, `crates/test-server/src/sync_overrides.rs`): what the server can't compute from a
+ * template, which has no remote of its own. The table of the session, its patches and the table Rust keeps for the
+ * checks are what a sync of such a repository makes; the syncs after it are the server's again
+ */
+export interface SyncOverrides {
+  /**
+   * Branch -> the fields of its remote status that replace the computed ones, and `keepUnpushed`: only the newest that
+   * many of the commits the sync found the remote lacking stay unpushed (their ids come with the sync); null: none, its
+   * status stays as it was
+   */
+  remote?: Record<string, (Partial<RemoteStatusUpdate> & { keepUnpushed?: number }) | null>
+  /** Stack root -> the fields of its stack branch that replace the reported ones (`remote` as a whole) */
+  stacks?: Record<string, Partial<StackBranchUpdate>>
+  /** The issue links the sync reports instead of the repository's (`.idea/vcs.xml`) */
+  issueLinks?: IssueNavigationConfig
+}
+
 export class TestRepositoryBuilder {
   private baseUrl = TEST_SERVER_URL
   public id: string = ""
@@ -168,6 +190,20 @@ export class TestRepositoryBuilder {
     }
     const data = await response.json()
     return data.commitId
+  }
+
+  /** The next sync of the repository reports `overrides` (`SyncOverrides`), replacing the ones no sync took yet */
+  async setSyncOverrides(overrides: SyncOverrides): Promise<void> {
+    await this.setFixture("sync-overrides", overrides)
+  }
+
+  /** The commit a ref of the repository is at, e.g. the copy of a branch a sync built (`user-name/virtual/<branch>`) */
+  async revision(name: string): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/revision?name=${encodeURIComponent(name)}`)
+    if (!response.ok) {
+      throw new Error(`Failed to resolve ${name}: ${response.status}`)
+    }
+    return ((await response.json()) as { id: string }).id
   }
 
   /**

@@ -35,7 +35,7 @@ test.describe("Combine branches", () => {
   })
 
   test("should drag a branch while a sync runs, say why the targets wait for it, and take the drop once it ended", async ({ page }) => {
-    const releaseSync = await holdCommand(page, "sync_branches")
+    const releaseSync = await holdCommand(page, "sync")
     const previousCount = await finishedSyncCount(page)
     const syncButton = page.getByTestId("sync-button")
     await syncButton.click()

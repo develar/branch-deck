@@ -22,7 +22,7 @@
 use crate::actions::RemoteActions;
 use crate::branch_table::BranchTable;
 use crate::start_guard::{stack_conflict_words, stack_not_built_words};
-use crate::views::{RepositoryViews, SyncedTable};
+use crate::views::RepositoryViews;
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::Subject;
@@ -48,18 +48,18 @@ const APP_OWN_HOLD_REMEDY: &str = "restart it on the current branch";
 /// The facts the checks read (`RepositoryViews::guard_facts`): the table of the last sync, the robots Rust read, and the
 /// Patronus view of both
 pub struct GuardFacts {
-  synced: Arc<SyncedTable>,
+  synced: Arc<BranchTable>,
   pub robots: Vec<PatronusRobot>,
   pub view: PatronusView,
 }
 
 impl GuardFacts {
-  pub(crate) const fn new(synced: Arc<SyncedTable>, robots: Vec<PatronusRobot>, view: PatronusView) -> Self {
+  pub(crate) const fn new(synced: Arc<BranchTable>, robots: Vec<PatronusRobot>, view: PatronusView) -> Self {
     Self { synced, robots, view }
   }
 
   pub fn table(&self) -> &BranchTable {
-    &self.synced.table
+    &self.synced
   }
 
   pub fn robot(&self, id: &str) -> Option<&PatronusRobot> {

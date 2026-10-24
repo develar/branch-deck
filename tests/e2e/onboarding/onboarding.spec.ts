@@ -113,9 +113,9 @@ test.describe("Onboarding", () => {
     // the main window names the branches of the repository by its own prefix; the sync names only the repository, Rust
     // resolves the same prefix for it
     await expect(page.getByTestId("ready-to-sync-card")).toContainText("user-name/virtual/<name>")
-    const sync = page.waitForRequest(request => request.url().endsWith("/invoke/sync_branches"))
+    const sync = page.waitForRequest(request => request.url().endsWith("/invoke/sync"))
     await page.getByTestId("ready-to-sync-button").click()
-    expect((await sync).postDataJSON()).toEqual({ repositoryPath: repo.path })
+    expect((await sync).postDataJSON()).toEqual({ repositoryPath: repo.path, reason: "manual" })
     await expect(findBranchRow(page, "test-branch")).toBeVisible()
   })
 
@@ -138,7 +138,7 @@ test.describe("Onboarding", () => {
     // the menu item (⌘R) does what the button does: nothing
     const syncRequests: string[] = []
     page.on("request", request => {
-      if (request.url().endsWith("/invoke/sync_branches")) {
+      if (request.url().endsWith("/invoke/sync")) {
         syncRequests.push(request.url())
       }
     })
@@ -249,7 +249,7 @@ test.describe("Deferred sync", () => {
     await syncAndWaitForBranches()
     const rows = await page.getByTestId("branch-row").count()
     // the backend refuses the sync while git is in the middle of a rebase (`SyncDeferred`)
-    await routeCommandError(page, "sync_branches", { code: "operation_in_progress", message: "Not synced: a rebase is in progress" })
+    await routeCommandError(page, "sync", { code: "operation_in_progress", message: "Not synced: a rebase is in progress" })
     await page.getByTestId("sync-button").click()
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Not synced: a rebase is in progress" })
     await expect(toast).toContainText("The branches sync once git finished it")
@@ -265,10 +265,10 @@ test.describe("Sync on focus", () => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
     const syncs = await finishedSyncCount(page)
-    const fingerprints = page.waitForResponse(response => response.url().endsWith("/invoke/get_sync_inputs_fingerprint"))
+    const checked = page.waitForResponse(response => response.url().endsWith("/invoke/sync"))
     // on by default: a focus with nothing changed reads the inputs, and syncs nothing
     await emitTauriEvent(page, "tauri://focus")
-    await fingerprints
+    expect(((await (await checked).json()) as { outcome: string }).outcome).toBe("unchanged")
     await expect(page.getByTestId("inputs-checked")).toHaveText("Checked just now")
     expect(await finishedSyncCount(page)).toBe(syncs)
 

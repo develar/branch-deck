@@ -17,21 +17,21 @@
 // - sameWidthTextMs: one layout after a text changed inside an element of a fixed width (a robot's time that ticks).
 //
 // The main thread of a sync (Chromium only, the CDP metrics of the page; docs/design/rendering-performance.md): what the
-// page spends on the events of a sync and what they derive, the hold and landing rule of the robots included:
+// page spends on the patches of a sync and what they derive, the hold and landing rule of the robots included:
 // - firstSyncScriptMs / firstSyncTaskMs: the script time and the task time of the first sync, until its rows and chips;
 // - resyncScriptMs / resyncTaskMs: the same of a sync that changes nothing;
 // - robotIpc: the requests of the repository view (`get_repository_view`) during both syncs.
 //
 // The IPC of the page (every engine; `window.__ipcStats` of the Tauri mock, docs/design/e2e-testing.md), each count
 // read once the page shows the state and no command is pending:
-// - firstSyncEvents / firstSyncInvokes: the channel messages of the first sync (`sync_branches`) and the commands the
-//   page invokes until its rows and chips;
-// - resyncIpcBytes: the bytes of the parameters, the answers and the channel messages of a sync that changes nothing;
+// - firstSyncPatches / firstSyncInvokes: the patches of the session the first sync sends the page (the channel of
+//   `subscribe_view`) and the commands the page invokes until its rows and chips;
+// - resyncIpcBytes: the bytes of the parameters, the answers and the patches of a sync that changes nothing;
 // - hoverIpc: the commands a rest of the pointer on a branch row invokes (the review read ahead);
 // - menuIpc: the commands the "⋯" menu of that row invokes, opened by a right click;
 // - popoverIpc: the commands the popover of its robot invokes, opened by a hover of its chip.
-// The events and the bytes of a sync on the Rust side, without the page:
-//   cargo nextest run -p test-server --run-ignored only -E 'test(/sync_event_bytes/)' --no-capture
+// The patches and the bytes of a sync on the Rust side, without the page:
+//   cargo nextest run -p test-server --run-ignored only -E 'test(/patch_bytes/)' --no-capture
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { CDPSession, Page } from "@playwright/test"
@@ -106,7 +106,7 @@ interface SyncMetrics {
 }
 
 interface IpcMetrics {
-  firstSyncEvents: number
+  firstSyncPatches: number
   firstSyncInvokes: number
   resyncIpcBytes: number
   hoverIpc: number
@@ -201,7 +201,7 @@ test.describe("Branch table performance", () => {
     }
     if (ipcRuns.length > 0) {
       results["ipc"] = {
-        firstSyncEvents: median(ipcRuns.map(run => run.firstSyncEvents)),
+        firstSyncPatches: median(ipcRuns.map(run => run.firstSyncPatches)),
         firstSyncInvokes: median(ipcRuns.map(run => run.firstSyncInvokes)),
         resyncIpcBytes: median(ipcRuns.map(run => run.resyncIpcBytes)),
         hoverIpc: median(ipcRuns.map(run => run.hoverIpc)),
@@ -283,7 +283,7 @@ test.describe("Branch table performance", () => {
       const popover = await settledIpc(page)
 
       ipcRuns.push({
-        firstSyncEvents: firstSync.channelMessages["sync_branches"] ?? 0,
+        firstSyncPatches: firstSync.channelMessages["subscribe_view"] ?? 0,
         firstSyncInvokes: invokeCount(firstSync),
         resyncIpcBytes: resync.requestBytes + resync.responseBytes + resync.channelBytes,
         hoverIpc: invokeCount(hover),

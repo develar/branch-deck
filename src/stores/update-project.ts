@@ -314,7 +314,7 @@ async function applyUpdate(repositoryPath: string): Promise<readonly FinishedSte
   // the branches were rebased: their rows are rebuilt, the last step of the update
   const syncing = advanceRun(run, "sync", Date.now())
   patchRunning(repositoryPath, running => ({ ...running, run: syncing }))
-  await requestSync({ autoScroll: false, autoExpand: false }, syncRun => {
+  await requestSync(syncRun => {
     patchRunning(repositoryPath, running => ({ ...running, syncRun }))
   })
   return syncing.done
@@ -327,7 +327,7 @@ async function applyUpdate(repositoryPath: string): Promise<readonly FinishedSte
  */
 function syncFetched(repositoryPath: string): void {
   if (getSelectedProject()?.path === repositoryPath) {
-    void syncBranches({ autoScroll: false, autoExpand: false })
+    void syncBranches("afterRewrite")
   }
 }
 

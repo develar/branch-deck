@@ -101,9 +101,9 @@ const { patronus, branches } = vi.hoisted(() => ({
   branches: {
     current: {} as Record<string, unknown>,
     stacks: {} as Record<string, unknown>,
-    /** The count of finished syncs and the fingerprint of what the last one read */
+    /** The count of finished syncs, and of the patches that changed the table of the session (`tableRevision`) */
     syncCount: 0,
-    fingerprint: null as string | null,
+    tableRevision: 0,
     /** The sync a merge waits for (`whenSynced`) ends with it */
     synced: Promise.resolve(),
     /** The repository the main window shows */
@@ -154,7 +154,7 @@ vi.mock("@/lib/bindings", async importOriginal => ({
       if (patronus.viewFailure !== null) {
         return { status: "error", error: internalError(patronus.viewFailure) }
       }
-      return { status: "ok", data: { revision: params.revision, tableGeneration: 1, landingGeneration: patronus.landingGeneration, patronus: patronus.view } }
+      return { status: "ok", data: { landingGeneration: patronus.landingGeneration, patronus: patronus.view } }
     },
     waitLandingNeeds: async (params: WaitLandingNeedsParams) => {
       patronus.landingWaits.push(params)
@@ -283,7 +283,7 @@ vi.mock("@/stores/branch-sync", () => ({
       parked: {},
       isSyncing: false,
       syncCount: branches.syncCount,
-      syncedInputs: branches.fingerprint === null ? null : { repositoryPath: "/repo", fingerprint: branches.fingerprint },
+      tableRevision: branches.tableRevision,
       baselineBranch: "origin/master",
     }),
     subscribe: () => () => {},
@@ -389,7 +389,7 @@ beforeEach(() => {
   notices.closedIn = []
   branches.stacks = {}
   branches.syncCount = 0
-  branches.fingerprint = null
+  branches.tableRevision = 0
   branches.synced = Promise.resolve()
   branches.selected = "/repo"
   resetLandedStacks()
@@ -550,18 +550,18 @@ describe("holds", () => {
     expect(getPushHold("auth")).toBe(hold)
   })
 
-  it("asks the repository view after a sync only when the sync read other inputs: the backend's table is the same", async () => {
-    branches.fingerprint = "inputs-1"
+  it("asks the repository view after a sync only when a patch changed the table: the backend's table is the same", async () => {
+    branches.tableRevision = 1
     patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-tip" }))
     await refreshPatronus("sync")
     await answerView({})
-    // another sync of the same inputs: nothing to ask
+    // another sync whose patches changed only the state of its run: nothing to ask
     branches.syncCount = 2
     await whenRepositoryViewCurrent()
     expect(patronus.viewCalls).toHaveLength(1)
     // a sync that read a commit: its table is new
     branches.syncCount = 3
-    branches.fingerprint = "inputs-2"
+    branches.tableRevision = 2
     await whenRepositoryViewCurrent()
     expect(patronus.viewCalls).toHaveLength(2)
   })

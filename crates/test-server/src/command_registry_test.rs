@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 130;
+const COMMAND_COUNT: usize = 128;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -70,7 +70,6 @@ const MUTATING: &[&str] = &[
   "cancel_symbol_search",
   "prune_review_refs",
   "fetch_baseline",
-  "sync_branches",
   "sync",
   "set_window_focus",
   "update_project",
@@ -308,7 +307,6 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
       "sign_out_of_youtrack",
       "sub_window_drawn",
       "sub_window_loaded",
-      "sync_branches",
       "wait_github_sign_in",
       "wait_youtrack_sign_in"
     ],
@@ -1040,7 +1038,7 @@ fn the_page_answer_scan_reads_routes_and_refuses_a_computed_name() {
       await held
       await route.fallback()
     })
-    await page.route("**/invoke/sync_branches", async route => {
+    await page.route("**/invoke/sync", async route => {
       const response = await route.fetch()
       await route.fulfill({ response, body: rewrite(await response.text()) })
     })
@@ -1099,7 +1097,7 @@ fn the_page_answer_scan_reads_routes_and_refuses_a_computed_name() {
   // a fetch bound any other way: the scan cannot tell a rewrite from an answer
   let unbound = r#"
     test("c", async ({ page }) => {
-      await page.route("**/invoke/sync_branches", async route => {
+      await page.route("**/invoke/sync", async route => {
         const [response] = [await route.fetch()]
         await route.fulfill({ response })
       })
@@ -1150,7 +1148,7 @@ fn the_page_answer_scan_counts_a_helper_once_per_call_through_the_helpers_it_cal
       await routeRobots(page)
     }
     async function setup(page: Page) {
-      await holdCommand(page, "sync_branches")
+      await holdCommand(page, "sync")
     }
     test.describe("robots", () => {
       test.beforeEach(async ({ page }) => {

@@ -51,7 +51,7 @@ export async function runRewrite<T>(
     // the sync shows the selected repository: a rewrite of another one (an Undo clicked after a switch) is synced
     // when it opens
     if (outcome.sync && (spec.repositoryPath === undefined || isSelectedRepository(spec.repositoryPath))) {
-      await syncBranches({ autoScroll: false, autoExpand: false })
+      await syncBranches("afterRewrite")
     }
     outcome.after?.()
     return result.data

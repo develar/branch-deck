@@ -36,8 +36,8 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popoverStart, safePushPopover, slotSafePush, waitForStepFacts } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, oneCommitUnpushedOnNextSync, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
-import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { emitTauriEvent, oneCommitUnpushedRemote, pushedRemote } from "../helpers/sync-helpers"
+import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, holdCommandCalls, recordCommand, routeCommand } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
@@ -64,12 +64,12 @@ async function setup(
   robots = availableRobots(),
   { unpushed = false, ...options }: { unpushed?: boolean } & Record<string, unknown> = {},
 ): Promise<TestRepositoryBuilder> {
-  if (!unpushed) {
-    await rewriteNextRemoteStatus(page, status =>
-      status.branchName === BRANCH ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
-    )
-  }
-  const repo = await setupRepo("issue_links", { patronus: { ...robots, githubRepository: "acme/monorepo" }, pullRequests: gitHubOf(...pullRequests), ...options })
+  const repo = await setupRepo("issue_links", {
+    patronus: { ...robots, githubRepository: "acme/monorepo" },
+    pullRequests: gitHubOf(...pullRequests),
+    syncOverrides: unpushed ? undefined : pushedRemote(BRANCH),
+    ...options,
+  })
   await repo.setReviewAnswers({ answers: { [BRANCH]: answer } })
   await syncAndWaitForBranches()
   await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
@@ -83,12 +83,16 @@ function gitHubOf(...pullRequests: PullRequest[]) {
 }
 
 /**
- * JIRA-456 not on the remote (as `rewriteNextRemoteStatus` before it leaves it), its approvals missing, no pull
- * request: the pushes of its "Create pull request" dialog, answered in the page, and its creations, recorded on the way
- * to the fake GitHub
+ * JIRA-456 not on the remote (or as `syncOverrides` has it), its approvals missing, no pull request: the pushes of its
+ * "Create pull request" dialog, answered in the page, and its creations, recorded on the way to the fake GitHub
  */
-async function setupUnpushedCreation(page: Page, setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>) {
-  const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true })
+async function setupUnpushedCreation(
+  page: Page,
+  setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  syncOverrides?: SyncOverrides,
+) {
+  const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true, syncOverrides })
   const pushes = await routePush(page, {})
   const creates = await recordCommand(page, "create_pull_request")
   return { pushes, creates, repo }
@@ -447,10 +451,8 @@ test.describe("Next step", () => {
   })
 
   test("should keep the dialog, with the reason, when the push would drop commits of the remote branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await rewriteNextRemoteStatus(page, status =>
-      status.branchName === BRANCH ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 2, fastForward: false, remoteTip: "theirs" } : status,
-    )
-    const { pushes, creates } = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches)
+    const theirs = { remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 2, fastForward: false, remoteTip: "theirs" }
+    const { pushes, creates } = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches, { remote: { [BRANCH]: theirs } })
     await slot(page).getByTestId("next-step").click()
     const dialog = createPullRequestDialog(page)
     await dialog.getByTestId("create-pull-request-submit").click()
@@ -531,8 +533,10 @@ test.describe("Next step", () => {
   test("should push the commits the remote lacks as the first step of Request Review…", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const unasked = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
     // a commit the remote lacks: the reviewers would see the old commits without the push
-    await oneCommitUnpushedOnNextSync(page, BRANCH)
-    const repo = await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked], availableRobots(), { unpushed: true })
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked], availableRobots(), {
+      unpushed: true,
+      syncOverrides: oneCommitUnpushedRemote(BRANCH),
+    })
     const pushes = await routePush(page, {})
     await expect(slot(page)).toHaveAttribute("data-step", "requestReview")
     const step = slot(page).getByTestId("next-step")
@@ -701,13 +705,8 @@ test.describe("Next step", () => {
 
   test("should offer only the push when it dismisses the approvals Patronus counts", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // JIRA-456 has a commit the remote lacks; the code owner approved #1078, and the rules dismiss stale reviews
-    await rewriteNextRemoteStatus(page, status =>
-      status.branchName === BRANCH
-        ? { ...status, remoteExists: true, unpushedCommits: [status.unpushedCommits[0] ?? "c1"], myUnpushedCount: 1, commitsBehind: 0, fastForward: true }
-        : status,
-    )
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "approved")] })
-    await setupApprovalsDismissedByPush(setupRepo, syncAndWaitForBranches, BRANCH, approved)
+    await setupApprovalsDismissedByPush(setupRepo, syncAndWaitForBranches, BRANCH, approved, oneCommitUnpushedRemote(BRANCH))
     // the remote still lacks a commit after each push: both surfaces can push
     const pushes = await routePush(page, { [BRANCH]: { unpushedCommits: ["c1"] } })
     const reason = "The push dismisses the approvals of #1078: push first, then ask for the review again"
