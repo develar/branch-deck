@@ -29,10 +29,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use sync_core::sync::{SyncOptions, SyncReport, sync_branches};
 use sync_core::sync_inputs::sync_inputs_fingerprint;
+use sync_utils::span::in_current_span;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
-use tracing::warn;
+use tracing::{Instrument, info_span, warn};
 
 /// The least time between two patches of a running sync
 pub const PATCH_INTERVAL: Duration = Duration::from_millis(16);
@@ -68,9 +69,12 @@ pub(crate) enum Message {
 }
 
 /// Starts the actor of the session `key` on `runtime` and answers its mailbox; the actor ends when every sender of the
-/// mailbox is gone (the registry's and those of its runs in flight)
+/// mailbox is gone (the registry's and those of its runs in flight). The actor and the checks and runs it starts log in
+/// the span `session{worktree prefix}`, a root: the actor outlives the command that opened it and serves the requests of
+/// every window, so it belongs to no one operation
 pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn SessionHost>, life: Arc<SessionLife>) -> mpsc::UnboundedSender<Message> {
   let (mailbox, messages) = mpsc::unbounded_channel();
+  let span = info_span!(parent: None, "session", worktree = %key.worktree, prefix = %key.prefix);
   let actor = Actor {
     key,
     host,
@@ -85,7 +89,7 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
     last_flush: None,
     in_flight: None,
   };
-  runtime.spawn(actor.run(messages));
+  span.in_scope(|| runtime.spawn(actor.run(messages).in_current_span()));
   mailbox
 }
 
@@ -230,10 +234,13 @@ impl Actor {
     };
     self.in_flight = Some(Busy::new(&self.life));
     let (host, key) = (Arc::clone(&self.host), self.key.clone());
-    tokio::spawn(async move {
-      let inputs = read_inputs(host, key).await;
-      let _ = mailbox.send(Message::InputsRead(inputs));
-    });
+    tokio::spawn(
+      async move {
+        let inputs = read_inputs(host, key).await;
+        let _ = mailbox.send(Message::InputsRead(inputs));
+      }
+      .in_current_span(),
+    );
   }
 
   fn start_run(&mut self, run: RunId, inputs: Option<String>) {
@@ -244,20 +251,23 @@ impl Actor {
     self.state.begin_sync();
     self.flush();
     let (host, key) = (Arc::clone(&self.host), self.key.clone());
-    tokio::spawn(async move {
-      // before the sync: a commit made while it runs is a change the next focus syncs
-      let inputs = match inputs {
-        Some(inputs) => Some(inputs),
-        None => read_inputs(Arc::clone(&host), key.clone()).await,
-      };
-      let reporter = RunReporter { run, mailbox: mailbox.clone() };
-      let result = host.run(&key, reporter).await;
-      let _ = mailbox.send(Message::RunFinished {
-        run,
-        inputs,
-        result: Box::new(result),
-      });
-    });
+    tokio::spawn(
+      async move {
+        // before the sync: a commit made while it runs is a change the next focus syncs
+        let inputs = match inputs {
+          Some(inputs) => Some(inputs),
+          None => read_inputs(Arc::clone(&host), key.clone()).await,
+        };
+        let reporter = RunReporter { run, mailbox: mailbox.clone() };
+        let result = host.run(&key, reporter).await;
+        let _ = mailbox.send(Message::RunFinished {
+          run,
+          inputs,
+          result: Box::new(result),
+        });
+      }
+      .in_current_span(),
+    );
   }
 
   /// Sends the patch of what changed since the last one to every subscriber; a subscriber that is gone is dropped
@@ -284,7 +294,7 @@ const fn is_deferred(error: &ApiError) -> bool {
 }
 
 async fn read_inputs(host: Arc<dyn SessionHost>, key: SessionKey) -> Option<String> {
-  tokio::task::spawn_blocking(move || host.inputs(&key)).await.ok().flatten()
+  tokio::task::spawn_blocking(in_current_span(move || host.inputs(&key))).await.ok().flatten()
 }
 
 /// What the app supplies to the syncs of its sessions besides git
@@ -331,7 +341,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
     Box::pin(async move {
       let options = {
         let (environment, key) = (Arc::clone(&environment), key.clone());
-        tokio::task::spawn_blocking(move || environment.sync_options(&key)).await
+        tokio::task::spawn_blocking(in_current_span(move || environment.sync_options(&key))).await
       };
       let options = options
         .map_err(|error| ApiError::internal(format!("The sync preparation task failed: {error}")))?
