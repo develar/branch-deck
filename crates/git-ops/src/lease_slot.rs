@@ -109,8 +109,9 @@ impl CheckoutWorkers {
 }
 
 /// Move the clean `slot` to `commit`, detached, or on the new `branch` created there. Only the paths that differ between
-/// the two commits are written. `--force` is safe after `slot_changes` found nothing: a case-insensitive file system
-/// hides a case-only rename from `status`, and a checkout without it then refuses. A `branch` that exists fails
+/// the two commits are written; every path in a slot that `register_slot` left without an index, the only full checkout
+/// of the pool. `--force` is safe after `slot_changes` found nothing: a case-insensitive file system hides a case-only
+/// rename from `status`, and a checkout without it then refuses. A `branch` that exists fails
 pub fn checkout_slot(git_executor: &GitCommandExecutor, slot: &str, commit: &str, branch: Option<&str>, workers: CheckoutWorkers) -> Result<()> {
   let args = match branch {
     Some(branch) => [workers.config(), &["checkout", "--quiet", "--force", "-b", branch, commit]].concat(),
@@ -120,33 +121,27 @@ pub fn checkout_slot(git_executor: &GitCommandExecutor, slot: &str, commit: &str
   Ok(())
 }
 
-/// A new slot at `path`, detached at `commit` or on the new `branch` created there: the only full checkout of the pool.
-/// `worktree prune` first, best effort, so the admin directory of a slot deleted by hand frees its name. The `-c` of
-/// `workers` reaches the checkout that `worktree add` starts, through `GIT_CONFIG_PARAMETERS`
-pub fn add_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path, commit: &str, branch: Option<&str>, workers: CheckoutWorkers) -> Result<()> {
-  let _ = git_executor.cmd(&["worktree", "prune"], repository).status();
+/// A new slot registered at `path`, detached at `commit`, without its files: `worktree add --force --no-checkout
+/// --detach`, which writes only `path/.git` and the admin directory; the files come from `checkout_slot` or from a
+/// clone of a template (`lease`). git writes the admin directory in several files, and every `worktree` command reads
+/// the admin directories of all worktrees, so the caller runs no other `worktree` command of the pool beside it.
+/// `--force` drops a registration of `path` whose directory is gone (a slot deleted by hand), so the path is free
+/// again, and overrides nothing else here, `commit` being an id; never a `worktree prune`, which deletes the admin
+/// directory that the `worktree add` of a get beside this one has just made, before git locks it.
+///
+/// `locked` adds `--lock`, until `unlock_slot`: a clone moves to `path` after the `.git` file of the registration, so
+/// `path` is away for a moment, and a `worktree prune` beside it (the user's, a gc's) would delete the admin directory
+/// of a worktree whose directory is gone
+pub fn register_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path, commit: &str, locked: bool) -> Result<()> {
   let path = path.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", path.display()))?;
-  let args = match branch {
-    Some(branch) => [workers.config(), &["worktree", "add", "--quiet", "-b", branch, path, commit]].concat(),
-    None => [workers.config(), &["worktree", "add", "--quiet", "--detach", path, commit]].concat(),
-  };
+  let lock: &[&str] = if locked { &["--lock"] } else { &[] };
+  let args = [&["worktree", "add", "--quiet", "--force", "--no-checkout"][..], lock, &["--detach", path, commit]].concat();
   git_executor.execute_command(&args, repository)?;
   Ok(())
 }
 
-/// A new slot registered at `path` without its files: `worktree add --no-checkout --lock --detach`, which writes only
-/// `path/.git` and the admin directory. The files come from a clone of a template (`lease`), moved to `path` after the
-/// `.git` file of the registration: `path` is away for a moment, and the `worktree prune` of a get beside this one
-/// would delete the admin directory of a worktree whose directory is gone, so it is locked until `unlock_slot`.
-/// `worktree prune` first, as `add_slot`
-pub fn register_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path, commit: &str) -> Result<()> {
-  let _ = git_executor.cmd(&["worktree", "prune"], repository).status();
-  let path = path.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", path.display()))?;
-  git_executor.execute_command(&["worktree", "add", "--quiet", "--no-checkout", "--lock", "--detach", path, commit], repository)?;
-  Ok(())
-}
-
-/// The lock of `register_slot` off the slot at `path`, once its files are there
+/// The lock of `register_slot` off the slot at `path`, once its files are there; it reads every admin directory, so it
+/// runs alone too (`register_slot`)
 pub fn unlock_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path) -> Result<()> {
   let path = path.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", path.display()))?;
   git_executor.execute_command(&["worktree", "unlock", path], repository)?;
@@ -187,7 +182,8 @@ pub fn clean_cloned_slot(git_executor: &GitCommandExecutor, slot: &str) -> Resul
 }
 
 /// Move the linked worktree `from` to `to` with `worktree move`, which renames the directory and fixes the links of its
-/// `.git` file and of its admin directory; never a plain rename. `to` must not exist
+/// `.git` file and of its admin directory; never a plain rename. `to` must not exist. It rewrites the admin directory
+/// and reads every other one, so it runs alone too (`register_slot`)
 pub fn move_slot(git_executor: &GitCommandExecutor, repository: &str, from: &str, to: &Path) -> Result<()> {
   let to = to.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", to.display()))?;
   git_executor.execute_command(&["worktree", "move", from, to], repository)?;

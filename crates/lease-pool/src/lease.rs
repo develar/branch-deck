@@ -2,7 +2,9 @@
 //! worktrees that agent sessions lease, one session per slot. The state in `$GIT_COMMON_DIR/branch-deck/leases.json` is
 //! the authority: a free slot is pool property, and a get replaces its content, so no ancestry proves anything. The
 //! pool has a lock of its own (`leases.lock`), held only while the state is read and written, never across a git that
-//! writes a slot: two gets never wait for each other's checkouts, and no get waits for an update.
+//! writes a slot: two gets never wait for each other's checkouts, and no get waits for an update. The `worktree`
+//! commands of the pool, which git can't run two at once, take a lock of their own (`worktrees.lock`,
+//! `Pool::worktree_command`).
 
 use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::available_bytes;
@@ -10,8 +12,8 @@ use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
-  CheckoutWorkers, LeaseConfig, UnlandedCommit, UntrackedFiles, add_slot, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths,
-  is_valid_branch_name, lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, start_deferred_maintenance, unlanded_commits, unlock_slot,
+  CheckoutWorkers, LeaseConfig, UnlandedCommit, UntrackedFiles, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name,
+  lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, start_deferred_maintenance, unlanded_commits, unlock_slot,
 };
 use git_ops::pick::commits_to_pick;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists};
@@ -37,6 +39,8 @@ const COMMAND_LIMIT: usize = 200;
 /// How long a return waits for a `HEAD.lock` of the slot that git's background maintenance holds (`pack-refs`,
 /// `reflog expire` of a `gc --auto`)
 const HEAD_LOCK_WAIT: Duration = Duration::from_secs(10);
+/// The lock of the `worktree` commands of the pool (`Pool::worktree_command`)
+const WORKTREES_LOCK_FILE: &str = "worktrees.lock";
 /// The file at the root of the source that names the ignored files a get copies into the slot
 pub const WORKTREE_INCLUDE: &str = ".worktreeinclude";
 /// How many unlanded commits a refused return names
@@ -315,9 +319,25 @@ impl Pool {
     Ok(result)
   }
 
+  /// Run the `worktree` command `command` under the lock of the pool's `worktree` commands (`worktrees.lock`): git
+  /// writes the admin directory of a new worktree in several files, and every `worktree` command reads the admin
+  /// directories of all worktrees, so one beside a registration read a file the registration had created and not yet
+  /// written (an empty `commondir`) and failed. The registration of a new slot, its unlock and the move of an adopt are
+  /// a moment each, none a checkout. Not the pool lock, which a git process under load would hold for seconds against
+  /// every get and return; the move of an adopt takes this lock inside the pool lock, and nothing takes the pool lock
+  /// inside this one
+  pub fn worktree_command<T>(&self, timeout: Duration, command: impl FnOnce() -> Result<T>) -> Result<T> {
+    let _lock = self.lock_at(WORKTREES_LOCK_FILE, timeout, "waiting for the lock of the pool's worktree commands")?;
+    command()
+  }
+
   fn lock(&self, timeout: Duration) -> Result<RepositoryLock> {
+    self.lock_at(LOCK_FILE, timeout, "waiting for the lease pool lock")
+  }
+
+  fn lock_at(&self, name: &str, timeout: Duration, waiting: &str) -> Result<RepositoryLock> {
     std::fs::create_dir_all(&self.dir).with_context(|| format!("Cannot create {}", self.dir.display()))?;
-    lock_file(self.dir.join(LOCK_FILE), timeout, &|| debug!("waiting for the lease pool lock"))
+    lock_file(self.dir.join(name), timeout, &|| debug!("{waiting}"))
   }
 
   /// A temporary file and a rename: a reader sees the old state or the new one
@@ -403,7 +423,7 @@ pub struct LeaseGetParams<'a> {
 pub enum CreatedBy {
   /// An APFS clone of a template (`clone_dir`), then the checkout of the diff
   Clone,
-  /// `git worktree add`: a full checkout
+  /// `git worktree add --no-checkout`, then a full checkout
   Checkout,
 }
 
@@ -442,7 +462,7 @@ enum Reserved {
 /// without the lock: its Bazel servers stopped (one that does not exit skips the slot as busy), one `status` (a dirty
 /// slot is marked, skipped, and the next one tried), `checkout --force` to the source HEAD (only the diff is written),
 /// the seed. No free slot: a clone of a template without what the `delete` rules delete (`add_cloned_slot`), else
-/// `worktree add`, the only full checkout. A failure after the lease was recorded gives the slot back
+/// a registration and the only full checkout. A failure after the lease was recorded gives the slot back
 #[instrument(skip_all, fields(source = %params.source.top_level))]
 pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
   let source = &params.source.top_level;
@@ -575,6 +595,8 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
           }
         };
         let request = NewSlot {
+          pool: &pool,
+          lock_timeout: params.lock_timeout,
           path: &path,
           source: params.source,
           template: &template_dir,
@@ -760,6 +782,9 @@ fn release_marker(pool: &Pool, timeout: Duration, path: &str, marker_id: &str) {
 
 /// A new slot to add
 struct NewSlot<'a> {
+  /// Its `worktree` commands run one at a time (`Pool::worktree_command`)
+  pool: &'a Pool,
+  lock_timeout: Duration,
   path: &'a Path,
   source: &'a RepositoryDirs,
   /// A free slot or the source checkout
@@ -780,8 +805,9 @@ enum Added {
   Registered(anyhow::Error),
 }
 
-/// Add the new slot of `request`: a clone of its template when the volume clones (`add_cloned_slot`), else `worktree
-/// add` with the parallel checkout
+/// Add the new slot of `request`: a clone of its template when the volume clones (`add_cloned_slot`), else a
+/// registration under the lock of the pool's `worktree` commands (`register_slot`), then the parallel checkout of
+/// every file without it
 fn add_new_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, release_template: &dyn Fn()) -> Result<CreatedBy, Added> {
   if CLONE_AVAILABLE {
     match add_cloned_slot(git_executor, request, release_template) {
@@ -790,7 +816,12 @@ fn add_new_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, releas
       Err(Cloned::Failed(error)) => return Err(error),
     }
   }
-  add_slot(git_executor, &request.source.top_level, request.path, request.commit, request.branch, request.workers).map_err(Added::NotRegistered)?;
+  let repository = &request.source.top_level;
+  request
+    .pool
+    .worktree_command(request.lock_timeout, || register_slot(git_executor, repository, request.path, request.commit, false))
+    .map_err(Added::NotRegistered)?;
+  checkout_slot(git_executor, &display_path(request.path), request.commit, request.branch, request.workers).map_err(Added::Registered)?;
   Ok(CreatedBy::Checkout)
 }
 
@@ -825,12 +856,16 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
     let _ = std::fs::remove_dir_all(&cloning);
     Cloned::Failed(Added::NotRegistered(error))
   };
-  register_slot(git_executor, &request.source.top_level, path, request.commit).map_err(failed)?;
+  let repository = &request.source.top_level;
+  request
+    .pool
+    .worktree_command(request.lock_timeout, || register_slot(git_executor, repository, path, request.commit, true))
+    .map_err(failed)?;
   let registered = |error: anyhow::Error| Cloned::Failed(Added::Registered(error));
   let swapped = swap_git_link(path, &cloning);
-  // the lock of the registration kept the `worktree prune` of a get beside this one from deleting the admin directory
-  // while `path` was away; a slot left as a free one must be prunable again once its directory is gone
-  let unlocked = unlock_slot(git_executor, &request.source.top_level, path);
+  // the lock of the registration kept a `worktree prune` beside this get (the user's, a gc's) from deleting the admin
+  // directory while `path` was away; a slot left as a free one must be prunable again once its directory is gone
+  let unlocked = request.pool.worktree_command(request.lock_timeout, || unlock_slot(git_executor, repository, path));
   swapped.map_err(|error| {
     let _ = std::fs::remove_dir_all(&cloning);
     registered(error)
@@ -1830,8 +1865,9 @@ fn add_slot_entry(pool: &Pool, lock_timeout: Duration, path: &str, moved_from: O
 }
 
 /// `--move`: under the pool lock, the next slot path, then `git worktree move` there (a rename on one volume, so the
-/// lock is held for a moment) and the free slot recorded. The parent of the old directory goes when it is left empty
-/// (`<treehouse pool>/<n>/`); the state file of Treehouse is not touched, and Treehouse sees the old path as missing
+/// lock is held for a moment; under the lock of the pool's `worktree` commands too) and the free slot recorded. The
+/// parent of the old directory goes when it is left empty (`<treehouse pool>/<n>/`); the state file of Treehouse is not
+/// touched, and Treehouse sees the old path as missing
 fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptParams<'_>, git_common_dir: &Path, pool_dir: &Path, path: &str) -> AdoptResult {
   if !same_volume(Path::new(path), pool_dir) {
     return Ok(Err(LeaseRefusal::OtherVolume {
@@ -1850,7 +1886,7 @@ fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptPa
     {
       return Ok(Err(cannot_move(error.to_string())));
     }
-    if let Err(error) = move_slot(git_executor, params.repository, path, &target) {
+    if let Err(error) = pool.worktree_command(params.lock_timeout, || move_slot(git_executor, params.repository, path, &target)) {
       if let Some(parent) = target.parent() {
         let _ = std::fs::remove_dir(parent);
       }

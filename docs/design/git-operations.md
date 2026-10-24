@@ -1327,6 +1327,17 @@ rename. A free slot is pool property, and a get replaces its content, so no ance
 `leases.lock` next to it, not the repository lock: a get never waits for an update, and the lock is held only while
 the state is read and written, never across a git that writes a slot.
 
+The `worktree` commands of the pool (the registration of a new slot, its unlock, the move of an adopt) run one at a
+time, under `worktrees.lock` beside it (`Pool::worktree_command`; the move takes it inside the pool lock, and nothing
+takes the pool lock inside it). git writes the admin directory of a new worktree in several files (`locked`, `gitdir`,
+`commondir`, `HEAD`), and every `worktree` command starts by reading the admin directories of all worktrees, so the
+`worktree add` of one get beside another read a `commondir` that had been created and not yet written, and failed
+("failed to read .git/worktrees/<name>/commondir"; `two_leases_never_get_the_same_slot` under load,
+`no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot`). Each is a moment, none a checkout. Not
+the pool lock: a git under load held it for seconds against every get and return, and a get beside them gave up after
+its 10 s. A `worktree` command of the user or of another tool beside a registration can still read it half written;
+git has no lock for it.
+
 0. Free space: with `branchdeck.leaseMinFree` (or `--min-free`), a get whose pool volume has less free space
    (`f_bavail` of one `statfs`, no git) refuses as `low_disk_space` before it reserves anything. The builds of a slot
    write tens of gigabytes: in idea-1 a Bazel output base of 13 to 46 GB per slot (two with `community/`), next to
@@ -1354,8 +1365,14 @@ the state is read and written, never across a git that writes a slot.
    case-insensitive file system `status` does not see a case-only rename, and a plain checkout then refuses.
 3. No free slot: a new slot at `<pool>/<n>/<repository name>`. The leaf keeps the name of the repository, which tools
    derive identity from. On macOS it is an APFS clone of a template (below); elsewhere, or when the clone fails,
-   `worktree prune`, best effort, then `worktree add --detach <path> <source HEAD>`, a full checkout. The output says
-   which: `created_by` `clone` or `checkout`.
+   `worktree add --force --no-checkout --detach <path> <source HEAD>` registers it (above), then `checkout --force
+   --detach <source HEAD>` (or `-b <branch>`) without the lock writes every file, the only full checkout. The output
+   says which: `created_by` `clone` or `checkout`. `--force` drops a registration of `<path>` whose directory is gone
+   (a slot deleted by hand), so the path is free again; it overrides nothing else here, the commit being an id. A get
+   runs no `worktree prune`: it ran one before its `worktree add`, and that prune deleted the admin directory the
+   `worktree add` of a get beside it had just made, before git wrote its `locked` file ("could not open
+   '.git/worktrees/<name>/locked' for writing"), and that get failed
+   (`a_slot_deleted_by_hand_gives_its_path_to_the_next_new_slot`).
 
 Both checkouts run with `-c checkout.workers=0`, one worker per core, unless the repository config sets
 `checkout.workers` (one `config --get-regexp` reads it with `branchdeck.leasePool`): git's default of one worker
@@ -1397,11 +1414,12 @@ same tree takes several minutes.
    the output base of the main checkout, which an agent in the slot read until its first build there. The blocks were
    shared, but five such clones kept them alive after the main checkout deleted its files. A tracked file under a
    left-out path comes back with the checkout of step 5.
-3. `worktree add --no-checkout --lock --detach <path> <source HEAD>` writes only `<path>/.git` and the admin
-   directory. That `.git` file replaces the cloned `.git` (the whole git directory of a main checkout: 0.2 s for the
-   2,079 files of idea-1's), the empty `<path>` goes, and `<path>.cloning` becomes `<path>`; then `worktree unlock`.
-   Between the two renames `<path>` is gone, and the `worktree prune` of a get beside this one would delete the admin
-   directory of a worktree without its directory: the lock keeps it
+3. `worktree add --force --no-checkout --lock --detach <path> <source HEAD>` (`--force` and the lock of the
+   `worktree` commands as above) writes only `<path>/.git` and the admin directory. That `.git` file replaces the
+   cloned `.git` (the whole git directory of a main checkout: 0.2 s for the 2,079 files of idea-1's), the empty
+   `<path>` goes, and `<path>.cloning` becomes `<path>`; then `worktree unlock`. Between the two renames `<path>` is
+   gone, and a `worktree prune` beside this get (the user's, a gc's) would delete the admin directory of a worktree
+   without its directory: the lock keeps it
    (`a_prune_while_a_cloned_slot_is_away_keeps_its_registration_until_the_unlock`).
 4. The template's `index` is copied into the admin directory and refreshed with `update-index -q --refresh` under
    `core.checkStat=minimal`, `core.trustctime=false` and `core.fsmonitor=false`. A clone keeps the mtime and the size

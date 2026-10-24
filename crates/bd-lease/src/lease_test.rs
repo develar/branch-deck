@@ -257,8 +257,8 @@ impl Drop for UnreadableFile {
   }
 }
 
-/// The checkouts of the pool (a reused slot, a cloned one, a `worktree add`) run with `checkout.workers=0`, one worker
-/// per core, unless the repository sets `checkout.workers` itself
+/// The checkouts of the pool (a reused slot, a cloned one, a new one after its `worktree add --no-checkout`) run with
+/// `checkout.workers=0`, one worker per core, unless the repository sets `checkout.workers` itself
 #[cfg(unix)]
 #[test_log::test]
 fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it() {
@@ -267,15 +267,20 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
   let _env = test_utils::env_vars::EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
   let parallel = |argv: &&Vec<String>| argv.windows(2).any(|pair| pair[0] == "-c" && pair[1] == "checkout.workers=0");
 
-  // a new slot by `worktree add`: the clone of the source fails on a file it can't read
+  // a new slot by a registration and a full checkout: the clone of the source fails on a file it can't read
   let unreadable = UnreadableFile::new(&fixture.repo);
   let added = fixture.get(&[]);
   drop(unreadable);
   assert_eq!(added["created_by"], json!("checkout"), "{added}");
-  let worktree_add = |gits: &[Vec<String>]| gits_of(gits, "worktree").iter().any(|argv| argv.contains(&"add".to_string()) && parallel(argv));
+  let registered = |gits: &[Vec<String>]| {
+    gits_of(gits, "worktree")
+      .iter()
+      .any(|argv| argv.contains(&"add".to_string()) && argv.contains(&"--no-checkout".to_string()))
+  };
   let gits = started_gits(&trace);
-  assert!(worktree_add(&gits), "{gits:?}");
-  // a reused slot, then a new one by a clone of the source on macOS, by `worktree add` elsewhere
+  let checkouts = gits_of(&gits, "checkout");
+  assert!(registered(&gits) && !checkouts.is_empty() && checkouts.iter().all(parallel), "{gits:?}");
+  // a reused slot, then a new one by a clone of the source on macOS, by a registration and a checkout elsewhere
   let path = path_of(&added);
   fixture.give_back(&path);
   fixture.repo.create_commit("Add c", "c.txt", "c\n");
@@ -288,7 +293,7 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
     assert_eq!(cloned["created_by"], json!("clone"), "{cloned}");
     assert!(checkouts.len() >= 2 && checkouts.iter().all(parallel), "{gits:?}");
   } else {
-    assert!(!checkouts.is_empty() && checkouts.iter().all(parallel) && worktree_add(&gits), "{gits:?}");
+    assert!(!checkouts.is_empty() && checkouts.iter().all(parallel) && registered(&gits), "{gits:?}");
   }
 
   fixture.give_back(&path);
@@ -950,7 +955,9 @@ fn the_status_tells_whether_the_holder_of_a_lease_is_alive() {
   assert_eq!(states(&fixture.status())[0], (path, "ready".to_string()));
 }
 
-/// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new
+/// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new. The two new
+/// slots are registered one after the other: a `worktree add` beside another read its half written admin directory
+/// ("failed to read .git/worktrees/<name>/commondir"), and a get's `worktree prune` deleted it
 #[test_log::test]
 fn two_leases_never_get_the_same_slot() {
   let fixture = Fixture::new();
@@ -974,6 +981,50 @@ fn two_leases_never_get_the_same_slot() {
   assert_eq!(unique.len(), 4, "{paths:?}");
   assert!(free.iter().all(|path| paths.contains(path)), "{paths:?} reuse {free:?}");
   assert_eq!(states(&fixture.status()).iter().filter(|(_, state)| state == "ready").count(), 4);
+}
+
+/// The `worktree add` that registers a new slot holds the lock of the pool's `worktree` commands (`worktrees.lock`), so
+/// no other `worktree` command of the pool reads its admin directory half written: a get that registers beside it
+/// waits, and one that can't wait is `locked`. The pool lock stays free: that get reserved its slot
+#[cfg(unix)]
+#[test_log::test]
+fn no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot() {
+  let fixture = Fixture::new();
+  let dir = tempfile::tempdir().unwrap();
+  let held = held_environment(&fixture, fixture.repo.path(), dir.path(), "*\" worktree add \"*");
+  let mut impatient = fixture.environment(fixture.repo.path());
+  impatient.lock_timeout = Duration::from_millis(200);
+  std::thread::scope(|scope| {
+    let get = scope.spawn(|| run_json(&held, &["lease", "get"]));
+    wait_until_held(dir.path(), &get);
+    let (exit_code, output) = run_json(&impatient, &["lease", "get"]);
+    // released before any assertion, so a failure never leaves the held get waiting
+    std::fs::write(dir.path().join("go"), "").unwrap();
+    assert_error(&output, exit_code, (3, "locked"));
+    assert!(output["error"]["message"].as_str().unwrap().contains("worktrees.lock"), "{output}");
+    let (exit_code, output) = get.join().unwrap();
+    assert_eq!(exit_code, 0, "{output}");
+  });
+  // the lock is free once the registration is done
+  let (exit_code, output) = run_json(&impatient, &["lease", "get"]);
+  assert_eq!(exit_code, 0, "{output}");
+}
+
+/// A slot deleted by hand leaves its registration behind: the next new slot takes its path and the registration over
+/// (`worktree add --force`). No get runs `worktree prune`, whose run beside the `worktree add` of another get deleted
+/// the admin directory that add had just made, and that get failed (`two_leases_never_get_the_same_slot`)
+#[test_log::test]
+fn a_slot_deleted_by_hand_gives_its_path_to_the_next_new_slot() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  fixture.give_back(&path);
+  std::fs::remove_dir_all(Path::new(&path).parent().unwrap()).unwrap();
+
+  let got = fixture.get(&[]);
+  assert_eq!((path_of(&got), &got["reused"]), (path.clone(), &json!(false)), "{got}");
+  let listed = git(&fixture.repo, &["worktree", "list", "--porcelain"]);
+  let registered = format!("worktree {}", git_path(&path));
+  assert_eq!(listed.lines().filter(|line| *line == registered).count(), 1, "{listed}");
 }
 
 /// A return refuses unlanded commits, a dirty tree and a busy slot, each with nothing changed; --confirm-preserved

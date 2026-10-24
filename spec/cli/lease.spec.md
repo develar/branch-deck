@@ -104,14 +104,14 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - Among the clean free slots a get must take the one returned last first, then the ones never returned in the order
   they joined the pool: the slot returned last has the warmest index and caches and the commit closest to the source.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_free_slot_returned_last_is_leased_first`)
-- The checkout of a reused slot and the `worktree add` of a new one must run with `-c checkout.workers=0` (one
-  worker per core), unless the repository config sets `checkout.workers`.
+- Every checkout of the pool (a reused slot, a clone, a new slot after its registration) must run with
+  `-c checkout.workers=0` (one worker per core), unless the repository config sets `checkout.workers`.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it`)
 - On macOS a new slot must be an APFS clone (`created_by: "clone"`, `cloned_from`) of a template: a free slot of this
   repository that the get passed over, marked `templating` while it is cloned, else the source checkout. The clone
-  must get the `.git` file of a `worktree add --no-checkout --lock` (unlocked once the clone is at its path, so the
-  `worktree prune` of a get beside it never deletes the registration), the template's index refreshed with
-  `core.checkStat=minimal`, then `checkout --force` to the source HEAD, `clean -fd` and a clean `status`: the
+  must get the `.git` file of a `worktree add --no-checkout --lock` (unlocked once the clone is at its path, so a
+  `worktree prune` beside it, the user's or a gc's, never deletes the registration), the template's index refreshed
+  with `core.checkStat=minimal`, then `checkout --force` to the source HEAD, `clean -fd` and a clean `status`: the
   template's local changes, staged files and untracked files never reach the lease, its ignored files do, but for
   what the `delete` clean rules of the source delete: those paths are left out of the clone, but for their `except`
   entries (a rule below a kept entry applies too), a link among them as the link, and the `.git` of the template with
@@ -128,7 +128,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_cloned_slot_leaves_out_what_the_delete_rules_delete`)
   [@test] ../../crates/lease-pool/src/clone_dir_test.rs (`a_clone_leaves_out_the_skipped_paths_but_for_their_kept_entries`, `a_rule_below_a_kept_entry_applies_too`)
 - A clone that fails (another volume, no APFS, a file it can't read, not macOS) must leave nothing behind and fall
-  back to `git worktree add` (`created_by: "checkout"`).
+  back to `git worktree add --no-checkout` and a full checkout (`created_by: "checkout"`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_clone_that_fails_falls_back_to_a_checkout`)
 - A new slot must be `<pool>/<n>/<repository name>`, so the leaf directory keeps the name of the repository. The pool
   directory is `~/.branch-deck/pool/<repository name>-<8 hex digits of the SHA-256 of the canonical common dir>`, or
@@ -138,6 +138,20 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - Two gets at the same time must never lease the same slot: each records its lease as `preparing` under the pool lock
   (`leases.lock`, not the repository lock), then moves its slot without the lock.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
+- The `worktree` commands of the pool (the registration of a new slot, its unlock, the move of an adopt) must run one
+  at a time, under `worktrees.lock` beside the state; a registration and an unlock without the pool lock, which no
+  git holds for a get: git writes the admin directory of a new worktree in several files, and a `worktree` command
+  beside it reads them half written (an empty `commondir`) and fails. A new slot is registered with
+  `worktree add --no-checkout` and gets its files after the lock, by a checkout or a clone; a get that can't wait for
+  the lock is `locked`.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`, `no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot`)
+- A get must run no `worktree prune`: run beside the `worktree add` of another get, it deletes the admin directory that
+  add has just made, before git locks it, and that get fails. A new slot is registered with `worktree add --force`,
+  which drops only a registration of its own path whose directory is gone (a slot deleted by hand): the next new slot
+  takes that path.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_slot_deleted_by_hand_gives_its_path_to_the_next_new_slot`)
+  [@test] ../../crates/git-ops/src/lease_slot_test.rs (`a_new_slot_takes_over_the_registration_of_a_slot_deleted_by_hand`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_of_a_new_slot_by_a_clone`)
 - `--branch <name>` (`-b`) must create the branch at the source HEAD and check it out in the slot; a branch that
   exists must be `branch_exists` (exit 4), an invalid name `invalid_arguments` (exit 2).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_lease_on_a_new_branch_keeps_the_branch_after_the_return`)
@@ -330,11 +344,16 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ## Testing / Local Run
 
-- `cargo nextest run -p bd-cli lease_test` runs the commands end to end on `TestRepo` fixtures, the pool in a
-  temporary home directory; `cargo nextest run -p sync-core lease_test process_scan_test` runs the seed patterns and
-  the process scan.
+- `cargo nextest run -p bd-lease lease_test` runs the commands end to end on `TestRepo` fixtures, the pool in a
+  temporary home directory; `cargo nextest run -p lease-pool lease_test` runs the seed patterns and
+  `cargo nextest run -p sync-utils process_scan_test` the process scan.
 
 ## Open Questions / Risks
+
+- A git outside the pool that reads every worktree (the user's `git worktree list` or `git checkout` of a branch, the
+  `worktree list` of `bd pick` and of a resolve session) beside the registration of a new slot can read its admin
+  directory half written and fail once: git takes no lock for it, and `worktrees.lock` covers only the pool's own
+  commands.
 
 - A clone copies what the template has at that moment: an ignored file that the template writes during the clone can
   be copied half written, and the checkout and the clean keep ignored files. A free slot is the preferred template
