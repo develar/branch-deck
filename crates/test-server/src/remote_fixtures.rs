@@ -3,7 +3,7 @@
 //! answer the page gets went through the real client and service. `remote_fixtures_test.rs` keeps each form faithful:
 //! the real parser of the wire form gives back the fixture.
 
-use crate::remote_host::{GITHUB_TOKEN, GITHUB_VIEWER, PAGE_CLOCK_START, RemoteHost};
+use crate::remote_host::{GITHUB_TOKEN, GITHUB_VIEWER, HeldAnswer, PAGE_CLOCK_START, RemoteHost};
 use crate::state::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -246,6 +246,31 @@ pub async fn set_patronus_start_refusal(Path(id): Path<String>, State(state): St
   let (host, _) = host_of(&state, &id)?;
   *host.patronus().start_refusal.lock().expect("patronus start refusal lock") = fixture.description;
   Ok(StatusCode::OK)
+}
+
+/// The answers of the fakes a test holds back (`POST /repositories/{id}/remote-gates`): `hold` from now on, `release`
+/// the held ones; a deleted repository releases them all
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteGatesFixture {
+  #[serde(default)]
+  pub hold: Vec<HeldAnswer>,
+  #[serde(default)]
+  pub release: Vec<HeldAnswer>,
+}
+
+/// Holds or releases answers of the fakes (`RemoteGatesFixture`): a held request reaches its fake and waits there
+pub async fn set_remote_gates(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<RemoteGatesFixture>) -> FixtureResult {
+  let (host, _) = host_of(&state, &id)?;
+  host.release_answers(&fixture.release);
+  host.hold_answers(&fixture.hold);
+  Ok(StatusCode::OK)
+}
+
+/// The held answers a request reached and waits at (`arrived`): the page asked, the answer is still to come
+pub async fn get_remote_gates(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let (host, _) = host_of(&state, &id)?;
+  Ok(Json(serde_json::json!({ "arrived": host.arrived_answers() })))
 }
 
 /// Sets the TeamCity checks and the problems Patronus answers for robots (`PatronusDetailsFixture`)

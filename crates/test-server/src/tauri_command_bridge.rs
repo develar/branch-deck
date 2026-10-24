@@ -1179,6 +1179,10 @@ pub async fn get_review_requests(
 ) -> CommandResult<domain_types::review_request::ReviewRequestsResult> {
   let repo = repository_by_path(&state, &params.repository_path)?;
   repo.review_request_calls.fetch_add(1, Ordering::SeqCst);
+  // a test that holds the answer (`/remote-gates`) sees the page before it
+  if let Some(host) = repo.existing_remote() {
+    host.pass_held(crate::remote_host::HeldAnswer::ReviewRequests).await;
+  }
   Ok(Json(repo.review_requests.read().expect("review request fixture lock").result.clone()))
 }
 

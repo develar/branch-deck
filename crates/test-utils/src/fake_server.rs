@@ -1,5 +1,6 @@
 //! A fake of an HTTP service on a loopback port of its own: the one way the fakes of the tests (`patronus::fake_patronus`,
-//! `github::fake_github`, `youtrack::fake_youtrack`) and the E2E test server (`remote_host.rs`) serve a router.
+//! `github::fake_github`, `youtrack::fake_youtrack`) and the E2E test server (`remote_host.rs`) serve a router; and the
+//! gate a fake holds a request at (`FakeGate`).
 
 use tracing::Instrument;
 
@@ -43,5 +44,55 @@ impl Drop for FakeServer {
     if let Some(task) = self.task.take() {
       task.abort();
     }
+  }
+}
+
+/// A gate that holds the requests a fake routes to it until `open`: a barrier for a test of what runs while a request is
+/// in flight (`FakeGitHub::hold`, `FakePatronus::hold`, the held answers of the E2E test server)
+pub struct FakeGate {
+  /// No permit is ever added: a held request waits until the semaphore is closed
+  semaphore: tokio::sync::Semaphore,
+  arrivals: std::sync::atomic::AtomicUsize,
+  arrived: tokio::sync::Notify,
+}
+
+impl Default for FakeGate {
+  fn default() -> Self {
+    Self {
+      semaphore: tokio::sync::Semaphore::new(0),
+      arrivals: std::sync::atomic::AtomicUsize::new(0),
+      arrived: tokio::sync::Notify::new(),
+    }
+  }
+}
+
+impl FakeGate {
+  /// Lets every held request and every later one through
+  pub fn open(&self) {
+    self.semaphore.close();
+  }
+
+  /// A request reached the gate (held now, or let through since)
+  pub fn has_arrived(&self) -> bool {
+    self.arrivals.load(std::sync::atomic::Ordering::SeqCst) > 0
+  }
+
+  /// Resolves once a request reached the gate
+  pub async fn arrived(&self) {
+    loop {
+      let notified = self.arrived.notified();
+      if self.has_arrived() {
+        return;
+      }
+      notified.await;
+    }
+  }
+
+  /// Waits here until the gate opens: the fake calls it before it answers a held request
+  pub async fn pass(&self) {
+    self.arrivals.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    self.arrived.notify_waiters();
+    // an error once the gate is open: the only way through
+    let _ = self.semaphore.acquire().await;
   }
 }

@@ -166,6 +166,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/patronus-profiles", post(remote_fixtures::set_patronus_profiles))
     .route("/repositories/{id}/patronus-start-refusal", post(remote_fixtures::set_patronus_start_refusal))
     .route(
+      "/repositories/{id}/remote-gates",
+      post(remote_fixtures::set_remote_gates).get(remote_fixtures::get_remote_gates),
+    )
+    .route(
       "/repositories/{id}/review-answers",
       post(review_fixtures::set_review_answers).get(review_fixtures::get_review_answers),
     )
@@ -918,6 +922,8 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   // a sign-in the page left waiting on GitHub would hold the repository until its code expires
   if let Some(host) = repo.existing_remote() {
     host.end_sign_ins();
+    // and an answer the test held at a fake until it is released
+    host.release_all_answers();
   }
   tokio::spawn(remove_repository(state, id, repo).in_current_span());
   Ok(StatusCode::ACCEPTED)

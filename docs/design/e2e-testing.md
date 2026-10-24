@@ -436,6 +436,17 @@ log of the fake). No test answers a remote write in the page: the registry test 
   the page clock until the app read the bot's reply), not the parameters the page sent; it records the page's
   parameters on their way to the server where they matter (`recordCommand`), and no test answers a pull request
   command, a review, a `/patronus` comment or the text of a new pull request in the page.
+- **Held answers**: `POST /repositories/{id}/remote-gates` (`holdRemoteAnswers({ hold, release })`) holds answers of
+  the fakes from now on, or releases them: `pullRequests` (GitHub's search of the user's pull requests, `POST /graphql`
+  whose body has `author:@me`), `robots` (the list of Patronus, `GET /app/rest/v1/robots`), `readiness` (the
+  pre-check, `POST /app/rest/v1/pre-merge-approval-required-check`) and `reviewRequests` (the bridge answers them from
+  their fixture, so they wait in `get_review_requests`). A held request reaches its fake and waits at a `FakeGate`
+  (`test_utils::fake_server`, the gate `FakeGitHub::hold` and `FakePatronus::hold` take), so the page shows what it
+  shows before the answer, and a release lets it through with what the fixture holds then. `GET` (`getArrivedAnswers`)
+  names the held answers a request reached: a test waits for that (`expect.poll`) before it asserts the page before
+  the answer, so the assertion is never vacuous, then releases and asserts the page after it. Set before the sync whose
+  answers it holds (a reload keeps it: the next start of the page); the deletion of the repository releases what is
+  still held, so no command outlives its test ([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer)).
 - **YouTrack**: the host holds `FakeYouTrack` (`crates/youtrack/src/fake_youtrack.rs`), a YouTrack with its Hub
   built in at `/hub`, on its own port (`youTrackUrlOf(repo)`, `http://127.0.0.1:<port>`: a test links the issue keys
   there, `linkIssuesToYouTrack(page, url)`), and the app's `YouTrackService` on the token file of the host's app data

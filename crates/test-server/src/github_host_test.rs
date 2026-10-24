@@ -270,3 +270,73 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
     json!({"status": "error", "error": {"code": "canceled", "message": "the sign-in was canceled", "details": null, "retry": "no", "operation_id": null}})
   );
 }
+
+/// Waits until a request of the page reached the held answer `answer` of the repository `id` (`/remote-gates`)
+async fn until_arrived(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, answer: &str) {
+  while !get(client, addr, &format!("/repositories/{id}/remote-gates")).await["arrived"]
+    .as_array()
+    .unwrap()
+    .contains(&json!(answer))
+  {
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+  }
+}
+
+/// A server with a repository of the simple template whose GitHub lists the pull request #7 of login: the server, its
+/// client, the repository's id and path
+async fn listing_login() -> (std::net::SocketAddr, reqwest::Client, String, String) {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, repository_path) = create_repository(&client, addr).await;
+  let fixture = available(BTreeMap::from([("login".to_string(), pull_request("login", 7))]), BTreeMap::new());
+  post(&client, addr, &format!("/repositories/{id}/pull-requests"), serde_json::to_value(fixture).unwrap()).await;
+  (addr, client, id, repository_path)
+}
+
+/// Starts `command` of the repository at `repository_path` in a task of its own: its answer, once given
+fn invoke(client: &reqwest::Client, addr: std::net::SocketAddr, command: &'static str, repository_path: &str) -> tokio::task::JoinHandle<Value> {
+  let client = client.clone();
+  let params = json!({"repositoryPath": repository_path});
+  tokio::spawn(async move { post(&client, addr, &format!("/invoke/{command}"), params).await })
+}
+
+/// A held answer (`/remote-gates`): the page's request reaches the fake and waits there, the fixture names it as
+/// arrived, and a release lets it through with what GitHub holds; the review requests, which the bridge answers from
+/// its fixture, are held there
+#[tokio::test]
+async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
+  let (addr, client, id, repository_path) = listing_login().await;
+  post(
+    &client,
+    addr,
+    &format!("/repositories/{id}/remote-gates"),
+    json!({"hold": ["pullRequests", "reviewRequests"]}),
+  )
+  .await;
+  assert_eq!(get(&client, addr, &format!("/repositories/{id}/remote-gates")).await, json!({"arrived": []}));
+
+  let listed = invoke(&client, addr, "get_pull_requests", &repository_path);
+  until_arrived(&client, addr, &id, "pullRequests").await;
+  let requests = invoke(&client, addr, "get_review_requests", &repository_path);
+  until_arrived(&client, addr, &id, "reviewRequests").await;
+  assert!(!listed.is_finished() && !requests.is_finished(), "a held answer came");
+
+  post(&client, addr, &format!("/repositories/{id}/remote-gates"), json!({"release": ["pullRequests"]})).await;
+  assert_eq!(listed.await.unwrap()["pullRequests"]["login"]["number"], 7);
+  assert!(!requests.is_finished(), "the review requests are still held");
+  post(&client, addr, &format!("/repositories/{id}/remote-gates"), json!({"release": ["reviewRequests"]})).await;
+  assert!(requests.await.unwrap().get("availability").is_some());
+  assert_eq!(get(&client, addr, &format!("/repositories/{id}/remote-gates")).await, json!({"arrived": []}));
+  delete_repository(&client, addr, &id, &repository_path).await;
+}
+
+/// A deleted repository releases what its test held: a command waiting at a fake ends instead of holding the deletion
+#[tokio::test]
+async fn a_deleted_repository_releases_the_answers_its_test_held() {
+  let (addr, client, id, repository_path) = listing_login().await;
+  post(&client, addr, &format!("/repositories/{id}/remote-gates"), json!({"hold": ["pullRequests"]})).await;
+  let listed = invoke(&client, addr, "get_pull_requests", &repository_path);
+  until_arrived(&client, addr, &id, "pullRequests").await;
+  delete_repository(&client, addr, &id, &repository_path).await;
+  assert!(tokio::time::timeout(std::time::Duration::from_mins(1), listed).await.is_ok(), "the held listing ended");
+}

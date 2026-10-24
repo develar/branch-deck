@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use sync_utils::span::in_current_span;
-use test_utils::fake_server::FakeServer;
+use test_utils::fake_server::{FakeGate, FakeServer};
 
 /// Rewrites a robot of an answer in place (`FakePatronus::robots_hook`); runs on the blocking pool, outside every lock
 /// of the fake: the hook of the test server runs git
@@ -24,6 +24,8 @@ pub type ReviewHook = Arc<dyn Fn(&serde_json::Value) -> Option<(u16, serde_json:
 #[derive(Default)]
 pub struct FakePatronus {
   status: Mutex<u16>,
+  /// By `METHOD /path`: the gates that hold its requests (`hold`)
+  holds: Mutex<HashMap<String, Arc<FakeGate>>>,
   pub list_calls: AtomicU32,
   pub update_calls: AtomicU32,
   pub detail_calls: AtomicU32,
@@ -129,6 +131,17 @@ pub struct FakePatronus {
 }
 
 impl FakePatronus {
+  /// Holds the requests to `method path` (without the query) until the gate it returns opens
+  pub fn hold(&self, method: &str, path: &str) -> Arc<FakeGate> {
+    let gate = Arc::new(FakeGate::default());
+    self.holds.lock().unwrap().insert(format!("{method} {path}"), Arc::clone(&gate));
+    gate
+  }
+
+  fn gate(&self, method: &axum::http::Method, path: &str) -> Option<Arc<FakeGate>> {
+    self.holds.lock().unwrap().get(&format!("{method} {path}")).cloned()
+  }
+
   pub fn set_status(&self, status: u16) {
     *self.status.lock().unwrap() = status;
   }
@@ -403,9 +416,18 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
   (fake, PatronusClient::new(url, "Branch Deck test"))
 }
 
+/// A request waits at its gate (`FakePatronus::hold`) before it is answered
+async fn held(State(fake): State<Arc<FakePatronus>>, request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+  if let Some(gate) = fake.gate(request.method(), request.uri().path()) {
+    gate.pass().await;
+  }
+  next.run(request).await
+}
+
 /// The routes of Patronus that `fake` answers
 #[expect(clippy::too_many_lines, reason = "one route table, each route a few lines")]
 pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
+  let gates = Arc::clone(&fake);
   axum::Router::new()
     .route(
       "/app/rest/v1/robots",
@@ -692,4 +714,5 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
       }),
     )
     .with_state(fake)
+    .layer(axum::middleware::from_fn_with_state(gates, held))
 }

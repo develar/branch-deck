@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
 use sync_core::patronus::SpaceRepository;
-use test_utils::fake_server::FakeServer;
+use test_utils::fake_server::{FakeGate, FakeServer};
 use youtrack::client::YouTrackClient;
 use youtrack::fake_youtrack::FakeYouTrack;
 use youtrack::service::YouTrackService;
@@ -77,6 +77,23 @@ pub struct RemoteHost {
   youtrack_service: YouTrackService,
   youtrack_sign_in: YouTrackSignInSession,
   git: GitCommandExecutor,
+  /// The answers a test holds at the fakes (`hold_answers`), each until it releases it or the repository is deleted
+  held: Mutex<HashMap<HeldAnswer, Arc<FakeGate>>>,
+}
+
+/// An answer of a fake a test holds back (`POST /repositories/{id}/remote-gates`): the request reaches the fake and
+/// waits there, so the page shows what it shows before the answer
+#[derive(Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HeldAnswer {
+  /// GitHub's search of the user's pull requests (`get_pull_requests`, `author:@me` of `remote_facts::pull_requests`)
+  PullRequests,
+  /// The review requests (`get_review_requests`, which the bridge answers from its fixture: held there)
+  ReviewRequests,
+  /// The list of the robots (`get_patronus_robots`, `GET /app/rest/v1/robots`)
+  Robots,
+  /// The pre-check of the code-owner review (`get_branch_review_readiness`)
+  Readiness,
 }
 
 impl RemoteHost {
@@ -142,6 +159,7 @@ impl RemoteHost {
       youtrack_service,
       youtrack_sign_in: YouTrackSignInSession::default(),
       git,
+      held: Mutex::default(),
     };
     host.set_github_signed_in(true);
     host
@@ -280,6 +298,53 @@ impl RemoteHost {
   pub fn end_sign_ins(&self) {
     self.github_sign_in.cancel();
     self.youtrack_sign_in.cancel();
+  }
+
+  /// Holds `answers` at their fakes from now on: a request waits there until `release_answers`
+  pub fn hold_answers(&self, answers: &[HeldAnswer]) {
+    let mut held = self.held.lock().expect("held answers lock");
+    for answer in answers {
+      let gate = match answer {
+        HeldAnswer::PullRequests => self.github.hold_with_body("POST", "/graphql", "author:@me"),
+        HeldAnswer::ReviewRequests => Arc::new(FakeGate::default()),
+        HeldAnswer::Robots => self.patronus.hold("GET", "/app/rest/v1/robots"),
+        HeldAnswer::Readiness => self.patronus.hold("POST", "/app/rest/v1/pre-merge-approval-required-check"),
+      };
+      if let Some(before) = held.insert(*answer, gate) {
+        before.open();
+      }
+    }
+  }
+
+  /// Lets the held requests of `answers` through, and the later ones
+  pub fn release_answers(&self, answers: &[HeldAnswer]) {
+    let mut held = self.held.lock().expect("held answers lock");
+    for answer in answers {
+      if let Some(gate) = held.remove(answer) {
+        gate.open();
+      }
+    }
+  }
+
+  /// Waits while `answer` is held: an answer the bridge gives itself (`get_review_requests`)
+  pub async fn pass_held(&self, answer: HeldAnswer) {
+    let gate = self.held.lock().expect("held answers lock").get(&answer).cloned();
+    if let Some(gate) = gate {
+      gate.pass().await;
+    }
+  }
+
+  /// The held answers a request reached (it waits at the gate now)
+  pub fn arrived_answers(&self) -> Vec<HeldAnswer> {
+    let held = self.held.lock().expect("held answers lock");
+    held.iter().filter(|(_, gate)| gate.has_arrived()).map(|(answer, _)| *answer).collect()
+  }
+
+  /// Lets every held request through: the repository is deleted, and no command may wait for a test that ended
+  pub fn release_all_answers(&self) {
+    for (_, gate) in self.held.lock().expect("held answers lock").drain() {
+      gate.open();
+    }
   }
 
   /// The fake YouTrack of the repository and its URL, the YouTrack of the issue links of a test

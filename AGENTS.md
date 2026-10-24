@@ -230,7 +230,8 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
   `routeCommandError`, not by breaking the repository.
 - **Remote answers come from the fakes**: Patronus, GitHub and YouTrack are fakes of each test repository behind the
   app's real services; a test sets their fixture (`setPatronus`, `setPullRequests`, `setYouTrack`, …) and asserts what
-  the fake got (`getPatronusLog`, `getGitHubLog`, `getYouTrack`). A page answer of a write (`routeCommand`, a
+  the fake got (`getPatronusLog`, `getGitHubLog`, `getYouTrack`). The page before an answer holds it at the fake
+  (`holdRemoteAnswers`, waited for with `getArrivedAnswers`), so the request has reached the backend. A page answer of a write (`routeCommand`, a
   fulfilling `page.route`) fails `command_registry_test.rs`, and each read's page answers are pinned and only go down
   ([Remote services](docs/design/e2e-testing.md#remote-services)).
 - **Linked**: every requirement of a spec names its test (`[@test]` with the exact test title, the link a line of its

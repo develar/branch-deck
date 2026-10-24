@@ -9,6 +9,12 @@ import type {
 } from "../../../src/lib/bindings"
 import type { GitHubFixture, GitHubLog } from "./pull-request-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
+
+/**
+ * An answer of a fake a test holds back (`HeldAnswer` of `remote_host.rs`): GitHub's search of the user's pull
+ * requests, the review requests, the list of the robots, the pre-check of the code-owner review
+ */
+export type HeldAnswer = "pullRequests" | "reviewRequests" | "robots" | "readiness"
 import type { YouTrackFixture, YouTrackLog } from "./youtrack-helpers"
 
 /** What reached the fake Patronus: the requests by kind, the robots whose problems and progress were asked, in order */
@@ -334,6 +340,20 @@ export class TestRepositoryBuilder {
   /** What the fakes of the CLIs were asked, in order: `brew install jetbrains/utils/youtrack`, `teamcity --version` */
   async getCliToolsLog(): Promise<string[]> {
     return (await this.getFixture<{ log: string[] }>("cli-tools")).log
+  }
+
+  /**
+   * Holds the answers `hold` of the fakes from now on and releases `release` (`/remote-gates`): a held request of the
+   * page reaches its fake and waits there, so a test sees the page before the answer, then after it. The deletion of
+   * the repository releases what is still held
+   */
+  async holdRemoteAnswers({ hold = [], release = [] }: { hold?: HeldAnswer[]; release?: HeldAnswer[] }): Promise<void> {
+    await this.setFixture("remote-gates", { hold, release })
+  }
+
+  /** The held answers a request of the page reached and waits at: the page asked, the answer is still to come */
+  async getArrivedAnswers(): Promise<HeldAnswer[]> {
+    return (await this.getFixture<{ arrived: HeldAnswer[] }>("remote-gates")).arrived
   }
 
   /**

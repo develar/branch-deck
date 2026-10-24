@@ -11,6 +11,7 @@ use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
+use test_utils::fake_server::FakeGate;
 
 /// One answer: a status, a JSON body and extra headers
 #[derive(Clone, Debug)]
@@ -66,52 +67,16 @@ pub struct FakeGitHub {
   /// Answers what no answer is scripted for
   repository: Option<Arc<FakeGitHubRepository>>,
   device_flow: Mutex<DeviceFlow>,
-  /// By `METHOD /path`: the gates that hold its requests (`hold`)
-  holds: Mutex<HashMap<String, Arc<FakeGate>>>,
+  /// The gates that hold the requests to a `METHOD /path` (`hold`), of a body with a text only (`hold_with_body`)
+  holds: Mutex<Vec<FakeHold>>,
 }
 
-/// A gate that holds the requests to one `METHOD /path` until `open`: a barrier for a test of what runs while a request
-/// is in flight
-pub struct FakeGate {
-  /// No permit is ever added: a held request waits until the semaphore is closed
-  semaphore: tokio::sync::Semaphore,
-  arrivals: std::sync::atomic::AtomicUsize,
-  arrived: tokio::sync::Notify,
-}
-
-impl Default for FakeGate {
-  fn default() -> Self {
-    Self {
-      semaphore: tokio::sync::Semaphore::new(0),
-      arrivals: std::sync::atomic::AtomicUsize::new(0),
-      arrived: tokio::sync::Notify::new(),
-    }
-  }
-}
-
-impl FakeGate {
-  /// Lets every held request and every later one through
-  pub fn open(&self) {
-    self.semaphore.close();
-  }
-
-  /// Resolves once a request reached the gate
-  pub async fn arrived(&self) {
-    loop {
-      let notified = self.arrived.notified();
-      if self.arrivals.load(std::sync::atomic::Ordering::SeqCst) > 0 {
-        return;
-      }
-      notified.await;
-    }
-  }
-
-  async fn pass(&self) {
-    self.arrivals.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    self.arrived.notify_waiters();
-    // an error once the gate is open: the only way through
-    let _ = self.semaphore.acquire().await;
-  }
+/// The requests to one `METHOD /path` a gate holds: every one, or those whose body has `body` (a GraphQL query of one
+/// search: `POST /graphql` serves them all)
+struct FakeHold {
+  key: String,
+  body: Option<String>,
+  gate: Arc<FakeGate>,
 }
 
 /// The device codes the fake issued, and what the user did with each
@@ -162,13 +127,36 @@ impl FakeGitHub {
 
   /// Holds the requests to `method path` (without the query) until the gate it returns opens
   pub fn hold(&self, method: &str, path: &str) -> Arc<FakeGate> {
+    self.hold_matching(method, path, None)
+  }
+
+  /// Holds the requests to `method path` whose body has `body` (the search of one GraphQL query) until the gate it
+  /// returns opens
+  pub fn hold_with_body(&self, method: &str, path: &str, body: &str) -> Arc<FakeGate> {
+    self.hold_matching(method, path, Some(body.to_string()))
+  }
+
+  fn hold_matching(&self, method: &str, path: &str, body: Option<String>) -> Arc<FakeGate> {
     let gate = Arc::new(FakeGate::default());
-    self.holds.lock().unwrap().insert(format!("{method} {path}"), Arc::clone(&gate));
+    let key = format!("{method} {path}");
+    let mut holds = self.holds.lock().unwrap();
+    holds.retain(|hold| hold.key != key || hold.body != body);
+    holds.push(FakeHold {
+      key,
+      body,
+      gate: Arc::clone(&gate),
+    });
     gate
   }
 
-  fn gate(&self, method: &Method, uri: &Uri) -> Option<Arc<FakeGate>> {
-    self.holds.lock().unwrap().get(&format!("{method} {}", uri.path())).cloned()
+  fn gate(&self, method: &Method, uri: &Uri, body: &[u8]) -> Option<Arc<FakeGate>> {
+    let key = format!("{method} {}", uri.path());
+    let text = String::from_utf8_lossy(body);
+    let holds = self.holds.lock().unwrap();
+    holds
+      .iter()
+      .find(|hold| hold.key == key && hold.body.as_ref().is_none_or(|marker| text.contains(marker.as_str())))
+      .map(|hold| Arc::clone(&hold.gate))
   }
 
   pub fn requests(&self) -> Vec<FakeRequest> {
@@ -308,7 +296,7 @@ pub fn router(fake: Arc<FakeGitHub>) -> axum::Router {
     let fake = Arc::clone(&fake);
     // on the blocking pool: the branch tips of a repository (`BranchTip`) may run git
     async move {
-      if let Some(gate) = fake.gate(&method, &uri) {
+      if let Some(gate) = fake.gate(&method, &uri, &body) {
         gate.pass().await;
       }
       tokio::task::spawn_blocking(move || fake.respond(&method, &uri, &headers, &body))
