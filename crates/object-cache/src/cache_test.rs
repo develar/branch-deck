@@ -799,3 +799,15 @@ fn a_lock_file_whose_semaphore_key_another_set_holds_is_made_again() {
     assert_eq!(inode(&lock), Some(before));
   }
 }
+
+/// Every environment syncs each commit (no `MDB_NOSYNC`, no `MDB_NOMETASYNC`): a commit without it costs 0.02 ms instead
+/// of ~4 ms, but a command writes a few transactions at most, and after a power loss without it LMDB promises no
+/// integrity unless the file system keeps the order of writes, so a wrong but readable entry could be read back
+/// (git-operations.md, "One write transaction per phase")
+#[test]
+fn an_environment_syncs_every_commit() {
+  let dir = tempfile::tempdir().unwrap();
+  let env = open_env(dir.path(), DEFAULT_MAP_SIZE).unwrap();
+  let flags = env.get_flags().unwrap();
+  assert_eq!(flags & (heed::EnvFlags::NO_SYNC | heed::EnvFlags::NO_META_SYNC).bits(), 0, "{flags:#x}");
+}

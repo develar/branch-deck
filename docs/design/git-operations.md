@@ -1992,7 +1992,17 @@ under `Default` (`file_diffs::blocks`).
 - **One write transaction per phase.** Each commit of a write transaction syncs the file (`F_FULLFSYNC` on macOS,
   ~4 ms) and holds the writer lock that parallel `bd` calls wait for, so callers write a batch, never one entry per
   transaction in a loop. The sync stays: without it (`MDB_NOSYNC`) a power loss can leave a wrong but readable tree
-  id in `merge_result`, and a check would build a branch from it.
+  id in `merge_result`, and a check would build a branch from it (LMDB keeps its integrity without the sync only on a
+  file system that keeps the order of writes, which APFS does not promise; LMDB stores no checksum).
+  `an_environment_syncs_every_commit` (`cache_test.rs`) pins it. Measured 2026-10-24 on the monorepo clone of `pnpm
+  perf:monorepo`: a write transaction of 20 entries takes 3.9-4.0 ms synced, 0.02 ms with `MDB_NOSYNC`, and as much
+  with `MDB_NOMETASYNC` as synced (LMDB on macOS syncs the data with `F_FULLFSYNC` and writes the meta page with
+  `O_DSYNC`, the cheap part); a command writes few transactions: a full sync 4, a cold `commits` 2, a cold `check` 7,
+  a warm one none, so the sync costs a cold command at most ~30 ms. Opening an existing cache and closing it takes
+  ~1 ms (four environments, their semaphores, `open.lock`; `bd status` 20 runs 1.19-1.22 s with the cache and
+  without it), a fresh one 18 ms (the first commit of each environment creates its databases): the app opens a
+  repository's cache once per process, `bd` once per command, and only a new cache (a test, an E2E repository) pays
+  the creation
 - **Never in the way.** The map size caps each environment; a full map clears the stores of that environment and the
   write is retried. What is bulky and cheap to read again never evicts what is costly: the diffs and merges of
   `file_diff` and `file_merge` in `cache/patches/` (512 MiB); the merges of `merge_result`, the trees of `commit_tree`
