@@ -6,7 +6,7 @@
 
 ## Summary
 
-The time of the Rust suite is the time of its git processes. A full run starts about 74,000 of them (2,620 tests, a
+The time of the Rust suite is the time of its git processes. A full run starts about 70,000 of them (2,640 tests, a
 process each under nextest), and a test's time follows its count: a git process costs about 5 ms on a quiet Mac, 40 to
 70 ms in a parallel run on the Studio (kernel time: one run spent 3,270 s in the kernel against 499 s in user code)
 and about 80 ms on the Windows runner of CI. So a fixture spends no process it can do without, a test waits for a
@@ -24,6 +24,10 @@ state and never for time, and a change that adds processes to many tests is meas
 - **A commit is two**: `create_commit*` and `commit_with` run `add` and `commit`, and the id comes from the summary line
   `git commit` prints with `core.abbrev=no`. Never a `rev-parse HEAD` after a commit of your own; `commit_with(args,
   env)` commits what a test staged itself.
+- **A history is two**: `TestRepo::with_history` (a new repository) and `commit_history` (on top of a branch) write
+  any number of commits with one `git fast-import` and check HEAD out with one `read-tree` (`test_utils::history`):
+  the commits `add` and `commit` would write, the same ids at the same times. `RepoTemplate::build` writes a template
+  so: its commits, its stores and `origin/master` in one stream. A test of 100 commits went 203 → 5 processes.
 - **Git is discovered once per process** (`DISCOVERED` of the executor, `discover_for_cli` without `BD_GIT`): a new
   `GitCommandExecutor::new()` costs nothing.
 - **The guard**: `a_fixture_starts_one_git_process_per_step` (`crates/test-utils/src/git_test_utils_test.rs`) pins the
@@ -40,6 +44,9 @@ state and never for time, and a change that adds processes to many tests is meas
 - **No sleep to wait**: wait for the state (a file a fake writes, a channel, `held`/`go` marks of a wrapped git as in
   `update_held_in_its_replay`). A wait of the code under test is a value of the test's environment
   (`Environment::lock_timeout` of the bd tests is 200 ms, the app's 10 s).
+- **A remote failure is asked again at once**: the clients of GitHub and Patronus wait a second before they ask again
+  after a transient failure, and bd's environment of the tests sets no wait (`Environment::remote_retry_delay`); a test
+  that fakes a 5xx still sees the retry.
 - **The order of a run**: `.config/nextest.toml` starts the binaries whose tests take longest first, so the end of a
   run is short tests.
 
@@ -65,9 +72,14 @@ the job summary (`scripts/slowest-tests.mjs`).
 | master `2e503b03` | 93,905 | 253 s (sum of the tests 4,908 s; user 499 s, sys 3,270 s) | the Studio, 20 slots, before monorepo lease checkouts loaded it |
 | the fixtures of `50a26f0f` | 73,704 (−21.5%) | | traced on the developer Mac |
 | A/B `09c39559` against `50a26f0f`…`6606cac4` | | CPU 1,048 / 1,024 s → 960 / 933 s (−9%); wall 302 / 244 s → 265 / 430 s | the developer Mac at load 60–190, two rounds in turns |
+| a fetch and an update read the baseline once (`c4748d00`) | 75,265 → 74,157 | | traced |
+| an operation reads its directories once (`650e296d`) | 74,299 → 71,600 | `bd sync` on the monorepo: full 157 → 156, unchanged 14 → 13 | traced; `pnpm perf:monorepo` |
+| master `15bcb360` against `2e503b03` | 93,914 → 70,293 (−25%) | 232 / 279 s → 208 / 220 s, user CPU 482 / 479 s → 390 / 394 s | the Studio, two rounds in turns, the new runs at the higher load (11–14 / 41–65 against 17–24 / 41–79) |
 
-The wall times of the A/B say nothing: the load of the other sessions changed by a factor of three between the runs.
-The process counts do not depend on it.
+The wall times of a loaded machine say little: the load of the other sessions changed by a factor of three between
+the runs of the first A/B. The process counts do not depend on it. What is left is mostly the code under test: about
+three quarters of the processes are the operations' own git, of which the sync reads the facts of its fetch again (the
+session of s7 of the rework is to own them).
 
 ## Temporary files on a RAM disk (macOS)
 

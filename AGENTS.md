@@ -93,8 +93,8 @@ Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<r
 ⚠️ **NEVER `cargo test`, ALWAYS `cargo nextest run`.** `cargo test` runs the tests of a binary as threads of one
 process, and a test that sets environment variables (`test_utils::env_vars::EnvVars`, sound only with a process per
 test) changes them under the others. `nextest` (`.config/nextest.toml`) runs a process per test, all in parallel
-(the suite starts about 74,000 git processes; 253 s on the 20 cores of a quiet Studio when they were 94,000, several
-times that on a loaded Mac); kills a test still running after 5 minutes (a hung git) and fails one whose
+(the suite starts about 70,000 git processes, 94,000 at 2e503b03; on the 20 cores of the Studio 208–220 s against
+232–279 s for 2e503b03 in turns, several times that on a loaded Mac); kills a test still running after 5 minutes (a hung git) and fails one whose
 git process outlives it; in CI (`NEXTEST_PROFILE=ci`) runs a failed test twice more, and one that passes on a retry is
 FLAKY and still fails the run, because a flaky test is a race to fix (locally no retries). With recording on in the user
 config (`[experimental] record = true` and `[record] enabled = true` in `~/.config/nextest/config.toml`),
@@ -102,8 +102,9 @@ config (`[experimental] record = true` and `[record] enabled = true` in `~/.conf
 
 **A test's time is its git processes** ([Fast Rust Tests](docs/guidelines/rust-tests.md)): a fixture repository is
 `TestRepo::new()` (one `git init`, its config appended by `append_config`), a commit `create_commit*` or `commit_with`
-(`add` and `commit`, the id from the summary, no `rev-parse HEAD`); never a `git config` process per key, a sleep, or a
-wall-clock limit an assertion depends on. `pnpm perf:test-processes measure|summarize|compare` counts the git
+(`add` and `commit`, the id from the summary, no `rev-parse HEAD`), a history of many commits `with_history` or
+`commit_history` (one `fast-import`); never a `git config` process per key, a sleep, or a wall-clock limit an
+assertion depends on. `pnpm perf:test-processes measure|summarize|compare` counts the git
 processes of every test, which the load of the machine does not change.
 
 **Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
