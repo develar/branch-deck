@@ -376,6 +376,12 @@ State isolation:
 - **Time**: `base-test.ts` installs the Playwright clock at a fixed time; it runs at real speed. A test that waits for
   a timer of the app (the 2 s "Copied" state of `useCopyToClipboard`) runs the clock past it with
   `page.clock.fastForward` instead of a real wait, which a loaded machine overruns
+- **Motion**: `base-test.ts` switches the enter animations off in every window of a test (a constructable sheet,
+  `[class*="animate-in"]:not([data-closed])`), so a popup, an inline form or a card is in place from its first frame.
+  On the Mac Studio Playwright found the first two frames of a menu's zoom equal, put the pointer where an item was in
+  them, and the grown item left it 3 px above: the hover open of "Whole Stack ›" closed in 22 of 40 runs of four
+  tests, a tooltip of an item never opened. The exits still run as the user sees them, so a popup reopened while it
+  closes stays tested; the reduced motion of the app is a test's own (`page.emulateMedia({ reducedMotion })`)
 - **Focus**: Base UI moves the focus into a dialog a frame after it opened (`requestAnimationFrame`, which the clock
   drives), often after the dialog's text came. A test that types into the dialog waits for `toBeFocused()` first and
   types with `page.keyboard`: `press` or `type` on an input without the focus focuses it with the caret at 0, and End
@@ -603,9 +609,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   after a sync shows with its own element: the autosquash plan with the fixup count of a row. Sync is enabled while
   the branch prefix still loads: the "Ready to Sync" card says it is loaded. The unassigned commits card above the
   table renders with the rows (a lazy chunk of it once came seconds later under load and moved the rows away from
-  the pointer of a hover). A menu zooms in as it opens, late
-  under load: an item hovered meanwhile moves away under the pointer and its leave cancels the hover open, so
-  `openSubmenu` hovers once the animations of the open menus ended (`animationsEnded`). A chain of commands gets a
+  the pointer of a hover). A menu zoomed in late under load, and an item hovered meanwhile moved away under the
+  pointer, its leave canceling the hover open: the zoom is off in a test now (**Motion** above), and `openSubmenu`
+  hovers once the exits of the menus ended (`animationsEnded`) and waits for the submenu. A chain of commands gets a
   wait per step: at a load of 150-220 on 18 cores each of them takes 2-5 s, and a 5 s assertion after the press that
   starts the chain failed. Update Project is a fetch, then the update, then its sync: `runAndWaitForUpdate` waits for
   the answer of `update_project` (`nextAnswer`, the page's next answer of a command, with the test's timeout), then the

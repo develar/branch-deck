@@ -29,6 +29,16 @@ export const test = base.extend({
     // Inject Tauri mocks before each navigation
     await page.addInitScript(tauriMockScript)
 
+    // a popup, a form or a card is in place from its first frame, in every window: its zoom and slide in are off.
+    // Playwright found the first frames of a zoom stable on a quick machine, the pointer went where the item was in
+    // them, and the grown item left it (a submenu closed, a tooltip never opened). The exit still runs, as the user
+    // sees it: a popup reopened while it closes stays tested
+    await context.addInitScript(() => {
+      const sheet = new CSSStyleSheet()
+      sheet.replaceSync('[class*="animate-in"]:not([data-closed]) { animation: none !important; }')
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
+    })
+
     // Set a fixed time for all tests to ensure consistent date/time display
     // Using Jan 2, 2024 10:00 AM UTC to match our test commits from Jan 1, 2024
     await context.clock.install({

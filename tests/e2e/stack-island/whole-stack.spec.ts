@@ -29,6 +29,7 @@ import type { PushRequest } from "../helpers/push-helpers"
 import { pushedRemotes, pushOutcome, routeHeldPush, routePushBranches, STACKED_BRANCHES, wholeStackResultKey } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
 import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush, waitForStepFacts } from "../helpers/safe-push-helpers"
+import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -51,7 +52,7 @@ async function openIslandMenu(page: Page, root: string): Promise<void> {
 /** Opens "Whole Stack ›" of the menu of a branch of the stack, its root's too (the right-click on its row) */
 async function openWholeStackSubmenu(page: Page, root: string): Promise<void> {
   await findBranchRow(page, root).click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+  await openSubmenu(page, "Whole Stack")
 }
 
 /** "Request Review…" of "Whole Stack ›" of the root's menu: its popover, which asks on #12, without code owners yet */
@@ -476,7 +477,7 @@ test.describe("Whole stack", () => {
 
     // "⋯" of the root's row: the same item, the same popover
     await findBranchRow(page, "auth").getByRole("button", { name: "More actions for auth" }).click()
-    await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+    await openSubmenu(page, "Whole Stack")
     await page.getByRole("menuitem", { name: "Request Review…" }).click()
     await expect(popover).toContainText("Request a review on #12")
     await expectPopoverAtSlot(popover, rootSlot)
@@ -486,7 +487,7 @@ test.describe("Whole stack", () => {
     // "⋯" of the root's preview: the preview closes, the popover opens at the root's row
     const preview = await openBranchPreview(page, "auth")
     await preview.getByRole("button", { name: "More actions for auth" }).click()
-    await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+    await openSubmenu(page, "Whole Stack")
     await page.getByRole("menuitem", { name: "Request Review…" }).click()
     await expect(preview).toHaveCount(0)
     await expect(popover).toHaveCount(1)
