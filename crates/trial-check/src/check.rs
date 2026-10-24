@@ -22,7 +22,7 @@ use domain_types::{BranchError, ProgressReporter, SyncEvent};
 use file_diffs::service::FileDiffs;
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::get_commit_list;
+use git_ops::commit_list::get_frozen_commit_list_with_handler;
 use git_ops::revs::resolve_commit;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
@@ -45,7 +45,7 @@ use sync_core::commit_owners::CommitOwners;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::config_snapshot::SymbolMode;
 use sync_core::grouping::branch_tips;
-use sync_core::sync::{SyncReport, seeded_tree_cache};
+use sync_core::sync::{BuildBase, SyncReport, seeded_tree_cache};
 use sync_utils::span::in_current_span;
 use tracing::instrument;
 
@@ -249,7 +249,7 @@ pub struct CheckSession {
   parent_states: Arc<Mutex<HashMap<BTreeSet<String>, ParentStates>>>,
   /// The tree and committer date of the commit the branches without a parent are built on, learned by the first check
   /// that builds on it: every check starts a tree cache of its own, which would read them again
-  base_facts: Arc<Mutex<Option<BaseFacts>>>,
+  base_facts: Arc<Mutex<Option<BuildBase>>>,
   /// The commits of the existing virtual branches down to a base, read by the first check that builds on it, shared
   /// with the sessions of `with_rewrite`: a plan never changes the branch tips, so one `log` serves every check
   existing_commits: Arc<Mutex<HashMap<String, Arc<ExistingCommits>>>>,
@@ -260,13 +260,6 @@ pub struct CheckSession {
 
 /// Parent -> its state, of the declared parents without commits (`empty_parent_states`)
 type ParentStates = HashMap<String, ParentState>;
-
-/// What a build reads of the commit it starts on (`TreeIdCache::get_committer_timestamp`)
-struct BaseFacts {
-  commit: String,
-  tree: String,
-  committer_timestamp: u32,
-}
 
 /// The line dependencies of the commits ahead of the baseline with their fixup units, by position in
 /// `snapshot().commits`: the base of the graphs that `stack_independence` and the conflict fix decide by
@@ -322,7 +315,13 @@ impl CheckSession {
     let symbols = report.config.symbol_mode().map_err(RegroupError::from)?;
     let resolve = report.config.resolve_mode().map_err(RegroupError::from)?;
     let snapshot = snapshot_of_sync(git_executor, repository_path, report)?;
-    Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, (symbols, resolve))
+    let session = Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, (symbols, resolve))?;
+    // the commit the sync built on and the baseline commit it grouped against: no check reads them again
+    Ok(Self {
+      base_facts: Arc::new(Mutex::new(report.base.clone())),
+      baseline_commit: Arc::new(OnceLock::from(Some(report.baseline_commit.clone()))),
+      ..session
+    })
   }
 
   fn open_with(
@@ -713,7 +712,7 @@ impl CheckSession {
       tree_id_cache.get_tree_id(git, repository, base),
       tree_id_cache.get_committer_timestamp(git, repository, base),
     ) {
-      *facts = Some(BaseFacts {
+      *facts = Some(BuildBase {
         commit: base.to_string(),
         tree,
         committer_timestamp,
@@ -1165,7 +1164,18 @@ impl ProgressReporter for CollectingReporter {
 /// baseline): one `log` of the commits ahead of the baseline, for the mapping notes the sync wrote. Under the
 /// repository lock the sync and the checks after it hold, no rewrite moved HEAD since
 fn snapshot_of_sync(git_executor: &GitCommandExecutor, repository_path: &str, report: &SyncReport) -> anyhow::Result<Snapshot> {
-  let commits = get_commit_list(git_executor, repository_path, &report.baseline)?;
+  let mut commits = Vec::new();
+  get_frozen_commit_list_with_handler(
+    git_executor,
+    repository_path,
+    &report.baseline_commit,
+    &report.head,
+    report.is_on_local_baseline(),
+    |commit| {
+      commits.push(commit);
+      Ok(())
+    },
+  )?;
   let Grouped { groups, forest, .. } = group_commits(&commits, &report.grouping);
   Ok(Snapshot {
     head: report.head.clone(),

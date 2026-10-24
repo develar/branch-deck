@@ -33,7 +33,7 @@ use git_ops::branch_description::Description;
 use git_ops::commit_list::get_frozen_commit_list_with_handler;
 use git_ops::commit_writer::{delete_stale_temp_refs, write_cache_notes};
 use git_ops::notes::write_commit_notes_with;
-use git_ops::revs::current_branch;
+use git_ops::revs::{current_branch, with_dirs_of};
 use git_ops::rewrite_guard::find_operation_in_progress;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
@@ -276,6 +276,26 @@ pub struct SyncReport {
   /// once more, quietly, and the row says `Syncing` until then. `bd sync` reports the error and leaves the retry to
   /// the caller
   pub retry: bool,
+  /// The commit the branches without a parent are built on, as the sync read it; `None` without branches. A trial
+  /// build after the sync starts from it without reading it again
+  pub base: Option<BuildBase>,
+}
+
+impl SyncReport {
+  /// Whether HEAD is the local baseline branch itself, as the sync walked the commits (`is_on_local_baseline`)
+  #[must_use]
+  pub fn is_on_local_baseline(&self) -> bool {
+    !self.baseline.contains('/') && self.branch == self.baseline
+  }
+}
+
+/// What a build reads of the commit it starts on (`TreeIdCache::get_committer_timestamp`): the parent of the oldest
+/// commit ahead of the baseline
+#[derive(Debug, Clone)]
+pub struct BuildBase {
+  pub commit: String,
+  pub tree: String,
+  pub committer_timestamp: u32,
 }
 
 /// Result of the sequential first phase of a sync
@@ -339,8 +359,8 @@ impl SyncDeferred {
   }
 }
 
-/// Refuses a sync with `SyncDeferred` while HEAD is not on a branch the user works on; returns the branch. Two git
-/// processes
+/// Refuses a sync with `SyncDeferred` while HEAD is not on a branch the user works on; returns the branch. One
+/// `symbolic-ref`, and a `rev-parse` when the operation knows no directories (`with_dirs_of`)
 pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String> {
   if let Some(operation) = find_operation_in_progress(git_executor, repository_path)? {
     return Err(SyncDeferred::OperationInProgress(operation).into());
@@ -366,6 +386,9 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   object_cache: &ObjectCache,
   progress: &P,
 ) -> Result<PreparedSync> {
+  // the directories once: the guards find the markers of an operation in progress, the facts `FETCH_HEAD` and the
+  // landed state in them
+  let git_executor = &with_dirs_of(git_executor, repository_path)?;
   // before any event: a deferred sync reports nothing
   let current_branch = check_sync_guards(git_executor, repository_path)?;
   // Use cached issue config if available (including a cached "none"), otherwise load it
@@ -500,7 +523,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
 
   let grouped = prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref(), &description_titles);
   let idle_parked: Vec<String> = grouping.parked.entries.keys().filter(|name| !branches.contains_key(*name)).cloned().collect();
-  let report = SyncReport {
+  let mut report = SyncReport {
     baseline: baseline_branch.clone(),
     baseline_commit: facts.baseline_commit.clone(),
     upstream: facts.upstream.clone(),
@@ -517,6 +540,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     config,
     stack_branches: Vec::new(),
     retry: false,
+    base: None,
   };
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped,
@@ -534,6 +558,11 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     && let Some(base) = &first_parent_id
   {
     tree_id_cache.get_committer_timestamp(git_executor, repository_path, base)?;
+    report.base = tree_id_cache.known_commit(base).map(|(tree, committer_timestamp)| BuildBase {
+      commit: base.clone(),
+      tree,
+      committer_timestamp,
+    });
   }
 
   Ok(PreparedSync {

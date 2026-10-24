@@ -1605,8 +1605,9 @@ Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `cra
 
 Virtual branches never touch HEAD, the index or the working tree.
 
-A sync starts with the guards of a rewrite without the merge check (`check_sync_guards`, one `rev-parse --git-path`
-for the operation markers and one `symbolic-ref HEAD`): while git is in the middle of a rebase, merge, cherry-pick or
+A sync reads the directories of the repository once (`with_dirs_of`: one `rev-parse`, none under `bd`, whose context
+read them), then the guards of a rewrite without the merge check (`check_sync_guards`: the operation markers in the
+git directory it read and one `symbolic-ref HEAD`): while git is in the middle of a rebase, merge, cherry-pick or
 revert, or HEAD is detached, the history of HEAD is not the branch the user works on, and a sync would archive the
 virtual branches of the groups the half-done history lacks. It is refused before any event as `SyncDeferred`: the app
 names it by the code of its `ApiError` (`operation_in_progress`, `detached_head`, `SyncDeferred::code`) and shows an `info` toast for a sync the user
@@ -1616,8 +1617,10 @@ asked for, nothing for one it started itself; `bd sync` answers `operation_in_pr
 needs it: `remote`; one `for-each-ref` of the checked out branch (its upstream: `%(upstream)`,
 `%(upstream:remotename)`, `%(upstream:remoteref)`, `%(upstream:short)`), the baseline candidates (`<first
 remote>/master`, `/main`, or the local ones) and the branches under the prefix, local (`%(worktreepath)`) and on
-`origin`; and one `rev-parse --git-path FETCH_HEAD --git-path branch-deck/landed.json HEAD^{commit}
-<baseline>^{commit}` (the landed state of the worktree, which the update check records, is no process of its own).
+`origin`. HEAD and the baseline commit are the tips that listing read, `FETCH_HEAD` and the landed state of the
+worktree (`branch-deck/landed.json`, which the update check records) paths in the git directory: no process of their
+own (without the directories, or for a branch without commits, one `rev-parse --git-path FETCH_HEAD --git-path
+branch-deck/landed.json HEAD^{commit} <baseline>^{commit}`).
 The listing reads refs, never a commit (`LISTED_BRANCH_ATOMS`): no `%(contents:subject)`, no `--sort=-committerdate`,
 which read the commit of every listed ref before the first rows. On the monorepo those were 452 refs (263 remote
 branches under the prefix, 162 archived ones): 0.09 s warm, 1 to 2 s from a cold pack, against 0.03 s for the refs
@@ -2316,7 +2319,10 @@ of the declared parents without commits (`empty_parent_states`: the detection no
 of a parent whose virtual branch lost its commits) are read once for each set of such parents, since a plan changes
 which parents have commits but never the tips; the tree and committer date of the commit the branches start on, the
 commits of the existing copies (`ExistingCommits`) and the baseline commit (the detection and the dangling-reference
-checks compare with it) once, also for the sessions of `with_rewrite`. Each check still runs the git processes of
+checks compare with it) once, also for the sessions of `with_rewrite`. A session after a sync (`CheckSession::of_sync`,
+the checks of `bd safe-push`) reads only the commits with the mapping notes the sync wrote, from the baseline commit
+to HEAD the sync froze, and the branch tips; the commit the branches start on and the baseline commit come from the
+report (`SyncReport::base`, `baseline_commit`). Each check still runs the git processes of
 building each branch the merge memo misses: a second check of the same plan runs none
 (`the_second_check_of_a_session`).
 
@@ -3436,7 +3442,7 @@ recovery hint (`git reset -q`).
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per sync |
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 2 `merge-base` and an `lstat` per path, the guards, the upstream and the commits from the sync's `RepoFacts`; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
-| The repository facts of a sync | the guards, the current branch, `remote`, the upstream and the baseline commit read again by the update check, the archive step and the detection, 15–17 processes | the guards (2) + `remote` + 1 `for-each-ref` + 1 `rev-parse`; 1 `rev-parse` more for an upstream that is no `master` or `main` |
+| The repository facts of a sync | the guards, the current branch, `remote`, the upstream and the baseline commit read again by the update check, the archive step and the detection, 15–17 processes | the directories (1 `rev-parse`, none under `bd`) + 1 `symbolic-ref` + `remote` + 1 `for-each-ref`; 1 `rev-parse` more for an upstream that is no `master` or `main` |
 | Conflict view | `ls-tree` + `cat-file` per revision, 1 `show` per missing commit | 1 `merge-tree` + 5: 1 `rev-list` (merge base and divergence), 2 `log`, 1 `cat-file` for all contents, 1 `diff-tree --stdin -p` for all patches; none, not even the merge, for a view the object cache remembers (`conflict_info`) |
 | Remote status of a branch in a sync | 1 `rev-parse` + 1–6 walks and checks | none when the branch, its remote and the baseline did not move since a status of this process; else none from the object cache for the same commits (`bd sync`), or 2 walks (the fast-forward from the walk of the remote commits), none when the remote branch is at the branch's tip, the remote tips read with the branches; 2 more to tell an amend from a rebased copy; 1 `reflog` per sync for the push times of all branches, read only when a status needs one |
 | A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |

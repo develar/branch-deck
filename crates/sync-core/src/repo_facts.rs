@@ -11,10 +11,10 @@ use anyhow::{Result, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, TEMP_REF_PREFIX, is_stale_temp_ref};
-use git_ops::revs::{current_branch, resolve_commit};
+use git_ops::revs::{current_branch, known_dirs, resolve_commit};
 use history_rewrite::baseline::{NoBaseline, baseline_candidates, no_baseline};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::instrument;
 
 /// The repository as a sync found it at its start; every step of the sync works from these
@@ -91,6 +91,10 @@ pub(crate) struct BaselineListing {
   pub conflict_tips: HashMap<String, String>,
   /// `(ref, tip)` of the stale temporary refs, when asked for (`is_stale_temp_ref`)
   pub stale_temp_refs: Vec<(String, String)>,
+  /// The commit of the checked out branch, as the listing found it; `None` for a detached HEAD or a branch without commits
+  pub head_tip: Option<String>,
+  /// The commit of the baseline, as the listing (or the `rev-parse` of an upstream that is no candidate) found it
+  pub baseline_tip: Option<String>,
 }
 
 /// The baseline of the checked out `branch` (`None` for a detached HEAD, which tracks nothing) and the branches under
@@ -167,11 +171,13 @@ pub(crate) fn read_baseline_listing(
   }
 
   // `@{u}` first, as `detect_baseline_branch` takes it: the upstream if it exists, else the first candidate that does
-  let upstream_exists = |upstream: &str| -> Result<bool> {
+  let mut resolved_upstream = None;
+  let mut upstream_exists = |upstream: &str| -> Result<bool> {
     if listed.contains_key(upstream) {
       return Ok(true);
     }
-    Ok(resolve_commit(git_executor, repo_path, upstream)?.is_some())
+    resolved_upstream = resolve_commit(git_executor, repo_path, upstream)?;
+    Ok(resolved_upstream.is_some())
   };
   let tracked_upstream = tracked.map(|tracked| tracked.upstream).filter(|upstream| !upstream.is_empty());
   let (baseline_ref, baseline) = match tracked_upstream {
@@ -181,6 +187,8 @@ pub(crate) fn read_baseline_listing(
       None => return Err(no_baseline(git_executor, repo_path, first_remote.is_some(), candidates)?),
     },
   };
+  let head_tip = current_ref.as_deref().and_then(|name| listed.get(name)).map(|tip| (*tip).to_string());
+  let baseline_tip = listed.get(baseline_ref.as_str()).map(|tip| (*tip).to_string()).or(resolved_upstream);
   Ok(BaselineListing {
     upstream: baseline_upstream_of(&remotes, &baseline, tracked),
     remotes,
@@ -190,6 +198,8 @@ pub(crate) fn read_baseline_listing(
     remote_tips,
     conflict_tips,
     stale_temp_refs,
+    head_tip,
+    baseline_tip,
   })
 }
 
@@ -222,7 +232,9 @@ pub fn read_baseline(git_executor: &GitCommandExecutor, repo_path: &str) -> Resu
 }
 
 /// Read the facts of a sync of `branch_prefix` on the checked out `branch`: the baseline and the branches of
-/// `read_baseline_listing`, and one `rev-parse` of HEAD, the baseline, `FETCH_HEAD` and the landed state
+/// `read_baseline_listing`; HEAD and the baseline are the commits it listed, `FETCH_HEAD` and the landed state paths of
+/// the directories the operation read (`known_dirs`). Without them, one `rev-parse` of HEAD, the baseline,
+/// `FETCH_HEAD` and the landed state
 #[instrument(skip(git_executor))]
 pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, branch_prefix: &str) -> Result<RepoFacts> {
   let BaselineListing {
@@ -234,7 +246,33 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     remote_tips,
     conflict_tips,
     stale_temp_refs,
+    head_tip,
+    baseline_tip,
   } = read_baseline_listing(git_executor, repo_path, Some(branch), Some(branch_prefix), true)?;
+  let (fetch_head, landed_state, head, baseline_commit) = match (known_dirs(git_executor, repo_path), head_tip, baseline_tip) {
+    (Some(dirs), Some(head), Some(baseline_commit)) => (dirs.git_path("FETCH_HEAD"), dirs.git_path(STATE_FILE), head, baseline_commit),
+    _ => read_head_and_baseline(git_executor, repo_path, &baseline, &baseline_ref)?,
+  };
+
+  Ok(RepoFacts {
+    branch: branch.to_string(),
+    upstream,
+    remotes,
+    baseline,
+    baseline_commit,
+    head,
+    fetched_at: modified_time(&fetch_head),
+    landed_state,
+    branches,
+    remote_tips,
+    conflict_tips,
+    stale_temp_refs,
+  })
+}
+
+/// `FETCH_HEAD`, the landed state, HEAD and the baseline from one `rev-parse`: `NoBaseline::NoCommits` for a
+/// repository without commits
+fn read_head_and_baseline(git_executor: &GitCommandExecutor, repo_path: &str, baseline: &str, baseline_ref: &str) -> Result<(PathBuf, PathBuf, String, String)> {
   let baseline_rev = format!("{baseline_ref}^{{commit}}");
   let (output, exit_code) = git_executor.execute_command_with_status(
     &[
@@ -258,21 +296,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     }
     bail!("Cannot resolve HEAD and {baseline}: {}", output.trim());
   };
-
-  Ok(RepoFacts {
-    branch: branch.to_string(),
-    upstream,
-    remotes,
-    baseline,
-    baseline_commit: baseline_commit.to_string(),
-    head: head.to_string(),
-    fetched_at: modified_time(Path::new(fetch_head)),
-    landed_state: PathBuf::from(landed_state),
-    branches,
-    remote_tips,
-    conflict_tips,
-    stale_temp_refs,
-  })
+  Ok((PathBuf::from(fetch_head), PathBuf::from(landed_state), head.to_string(), baseline_commit.to_string()))
 }
 
 #[cfg(test)]

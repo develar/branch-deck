@@ -107,6 +107,11 @@ impl TreeIdCache {
     }
   }
 
+  /// The tree and the committer date of `commit_id` when the cache has both, without git
+  pub fn known_commit(&self, commit_id: &str) -> Option<(String, u32)> {
+    Some((self.cache.get(commit_id)?.clone(), *self.committer_timestamps.get(commit_id)?))
+  }
+
   /// Get the committer date (unix seconds) of a commit; the same git call also caches its tree
   #[instrument(skip(self, git_executor), fields(commit_id = %commit_id))]
   pub fn get_committer_timestamp(&self, git_executor: &GitCommandExecutor, repo_path: &str, commit_id: &str) -> Result<u32, CopyCommitError> {

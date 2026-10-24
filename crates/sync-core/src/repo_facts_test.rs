@@ -2,10 +2,11 @@ use crate::baseline::resolve_baseline_upstream;
 use crate::repo_facts::{RepoFacts, read_baseline_listing, read_repo_facts};
 use branch_integration::common::{ListedBranch, list_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::revs::with_dirs_of;
 use history_rewrite::baseline::{NoBaseline, detect_baseline_branch};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
-use test_utils::git_test_utils::{TestRepo, git_command};
+use test_utils::git_test_utils::{TestRepo, TestWorktree, git_command};
 
 /// The facts of a sync of `test` on the checked out branch, and how many git processes they cost
 fn facts(repo: &TestRepo) -> (anyhow::Result<RepoFacts>, u32) {
@@ -87,6 +88,32 @@ fn the_upstream_of_the_checked_out_branch() {
   // the upstream is a candidate: the listing has it
   repo.git(&["config", "branch.master.merge", "refs/heads/master"]);
   assert_eq!(assert_facts(&repo, 3), "origin/master");
+}
+
+/// An operation that read its directories (`with_dirs_of`) takes HEAD and the baseline commit from the listing, and
+/// `FETCH_HEAD` and the landed state from the git directory: the facts of the `rev-parse`, without it; in a linked
+/// worktree, whose `FETCH_HEAD` and landed state are its own, too. An upstream that is no candidate is still resolved
+#[test]
+fn an_operation_that_knows_its_directories_reads_no_paths_and_no_commits() {
+  let repo = tracking_develop();
+  let lane = TestWorktree::detached(&repo);
+  lane.git(&["checkout", "-q", "-b", "lane"]);
+  lane.git(&["fetch", "-q", "origin", "master"]);
+  repo.git(&["config", "branch.lane.remote", "origin"]);
+  repo.git(&["config", "branch.lane.merge", "refs/heads/master"]);
+  for (path, branch, processes) in [(repo.path_str(), "master", 3), (lane.path.as_str(), "lane", 2)] {
+    let read = read_repo_facts(&GitCommandExecutor::new(), path, branch, "test").unwrap();
+    let git = with_dirs_of(&GitCommandExecutor::new(), path).unwrap().with_process_stats("test");
+    let known = read_repo_facts(&git, path, branch, "test").unwrap();
+    assert_eq!(
+      (&known.head, &known.baseline, &known.baseline_commit, &known.upstream, &known.remotes),
+      (&read.head, &read.baseline, &read.baseline_commit, &read.upstream, &read.remotes)
+    );
+    assert_eq!((&known.landed_state, known.fetched_at), (&read.landed_state, read.fetched_at));
+    // only the lane fetched, into a `FETCH_HEAD` of its own
+    assert_eq!(known.fetched_at.is_some(), branch == "lane");
+    assert_eq!(git.process_stats().unwrap().total(), processes, "remote, for-each-ref and the upstream of master");
+  }
 }
 
 #[test]

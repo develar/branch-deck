@@ -156,8 +156,8 @@ impl ProgressReporter for Discard {
 
 /// `bd sync` with the branch prefix of the repository's config (no `--prefix`): the processes of the core
 /// (`sync_branches` of the same repository), nothing else: the `rev-parse` of the context's directories takes the
-/// place of the guards', which find the markers of an operation in progress in the git directory the context read
-/// (`with_repository_dirs`). The lock is taken in the common git directory the context resolved; the one `git config`
+/// place of the core's (`with_dirs_of`), in which the guards find the markers of an operation in progress and the
+/// facts `FETCH_HEAD` and the landed state. The lock is taken in the common git directory the context resolved; the one `git config`
 /// of the context reads the prefix, and the sync takes the settings and the descriptions from it
 #[test]
 fn a_sync_with_the_prefix_of_the_config() {
@@ -253,7 +253,7 @@ fn a_push() {
       ("push", 1),
       ("remote", 2),
       ("rev-list", 2),
-      ("rev-parse", 2),
+      ("rev-parse", 1),
       ("show-ref", 1),
       ("symbolic-ref", 1),
       ("update-ref", 2),
@@ -306,7 +306,7 @@ fn a_push_beside_a_robot_started_before_a_restack() {
       ("push", 1),
       ("remote", 2),
       ("rev-list", 2),
-      ("rev-parse", 2),
+      ("rev-parse", 1),
       ("symbolic-ref", 1),
     ],
   );
@@ -601,13 +601,13 @@ const SAFE_PUSH_CHECK: &[(&str, u32)] = &[
   ("diff-tree", 1),
   ("fast-import", 3),
   ("for-each-ref", 2),
-  ("log", 8),
+  ("log", 7),
   ("merge-base", 1),
   ("merge-tree", 1),
   ("notes", 1),
   ("remote", 2),
   ("rev-list", 2),
-  ("rev-parse", 3),
+  ("rev-parse", 1),
   ("show-ref", 1),
   ("symbolic-ref", 1),
   ("update-ref", 2),
@@ -639,8 +639,9 @@ fn assert_safe_push_processes(context: &RepoContext, expected: &[(&str, u32)]) {
 /// (`remote`) and the Space settings (`cat-file`); the dangling references take the grouping from the report too and
 /// read the commits with their new mapping notes (`log`) and the branch tips (`for-each-ref`) for the trial; the
 /// landing gate reads the names the commits use and add for the missing declarations, in the same trial session: the
-/// changes of the commits (`log`) and the summaries of their source blobs (`cat-file`); the review (`log`, `diff-tree`)
-/// reads its own; and the target conflict check (`TARGET_CHECK`)
+/// changes of the commits (`log`) and the summaries of their source blobs (`cat-file`); the session takes the commit
+/// the sync built on and the baseline commit from the report (`SyncReport::base`, `baseline_commit`), not from git; the
+/// review (`log`, `diff-tree`) reads its own; and the target conflict check (`TARGET_CHECK`)
 #[test]
 fn a_safe_push_check() {
   let space = Space::new(&["(auth) Add login", "(ui) Add form"]);
@@ -714,13 +715,13 @@ fn a_safe_push_check_of_the_whole_stack() {
       ("diff-tree", 1),
       ("fast-import", 5),
       ("for-each-ref", 2),
-      ("log", 8),
+      ("log", 7),
       ("merge-base", 1),
       ("merge-tree", 1),
       ("notes", 1),
       ("remote", 2),
       ("rev-list", 4),
-      ("rev-parse", 3),
+      ("rev-parse", 1),
       ("show-ref", 2),
       ("symbolic-ref", 1),
       ("update-ref", 4),
