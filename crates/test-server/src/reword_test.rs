@@ -1,4 +1,4 @@
-use crate::test_support::{create_repository, head, post, post_error, start_test_server};
+use crate::test_support::{assert_stale_undo, create_repository, head, post, post_error, start_test_server};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::net::SocketAddr;
@@ -53,7 +53,8 @@ async fn a_reword_answers_the_undo_token_that_undo_regroup_takes() {
 }
 
 /// An undo whose branch moved on since the rewrite is stale for good: `undo_regroup` answers `undo_stale` with `retry:
-/// no`, as `bd undo` does (`ErrorCode::in_undo`), never `head_moved`, which tells the page that a retry may succeed
+/// no`, as `bd undo` does (`ErrorCode::in_undo`), never `head_moved`, which tells the page that a retry may succeed; its
+/// words say it can't be undone, not that a retry may help
 #[tokio::test]
 async fn undo_regroup_after_a_new_commit_answers_undo_stale_never_retried() {
   let (addr, client, path, previous) = repository().await;
@@ -62,6 +63,5 @@ async fn undo_regroup_after_a_new_commit_answers_undo_stale_never_retried() {
   let moved = commit_on_top(&path, "(test-branch) after the reword");
 
   let error = post_error(&client, addr, "/invoke/undo_regroup", json!({ "repositoryPath": path, "token": token })).await;
-  assert_eq!((&error["code"], &error["retry"]), (&json!("undo_stale"), &json!("no")), "{error}");
-  assert_eq!(head(&path), moved);
+  assert_stale_undo(&error, &path, &moved);
 }

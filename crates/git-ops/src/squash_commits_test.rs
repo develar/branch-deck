@@ -5,7 +5,7 @@ use super::revs::resolve_tree_id;
 use super::rewrite_guard::HeadMoved;
 use super::rewrite_plan::PreparedRewrite;
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
-use super::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
+use super::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head, restore_branch_head_with};
 use anyhow::Result;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -288,6 +288,73 @@ fn undo_is_refused_when_the_branch_moved() -> Result<()> {
   let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &later, &previous_head, "undo squash").expect_err("the trees differ");
   assert!(error.to_string().contains("other files"), "{error}");
   assert_eq!(repo.head(), later);
+  Ok(())
+}
+
+/// A `reference-transaction` hook that moves the branch between the check of an undo and its transaction, as a commit
+/// in a terminal could: git refuses the first transaction after it is installed (`prepared`, the locks held), and once
+/// git released the locks (`aborted`) the hook moves `branch_ref` to `moved_to` itself; every later transaction runs
+fn move_the_branch_in_the_next_transaction(repo: &TestRepo, branch_ref: &str, moved_to: &str) -> Result<()> {
+  let hooks = repo.path().join(".git/test-hooks");
+  std::fs::create_dir_all(&hooks)?;
+  let done = repo.path().join(".git/test-hook-done");
+  let hook = hooks.join("reference-transaction");
+  let done = done.to_str().unwrap();
+  std::fs::write(
+    &hook,
+    format!(
+      "#!/bin/sh\ncat >/dev/null\n[ -e '{done}' ] && exit 0\ncase \"$1\" in\n  prepared) exit 1 ;;\n  aborted) touch '{done}'; git update-ref {branch_ref} {moved_to} ;;\nesac\nexit 0\n"
+    ),
+  )?;
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))?;
+  }
+  repo.set_config("core.hooksPath", hooks.to_str().unwrap()).map_err(anyhow::Error::msg)
+}
+
+/// A branch that moves between the check and the transaction is `HeadMoved` too, with the commit it moved to: the
+/// failed transaction is explained by a new read of the branch
+#[test]
+fn undo_is_refused_when_the_branch_moved_during_the_transaction() -> Result<()> {
+  let (repo, previous_head, new_head) = squashed_a_b()?;
+  // a commit on top with the same files, so the check of the trees passes and only the moved branch refuses
+  let later = repo
+    .git(&["commit-tree", &format!("{new_head}^{{tree}}"), "-p", &new_head, "-m", "Later"])
+    .trim()
+    .to_string();
+  move_the_branch_in_the_next_transaction(&repo, "refs/heads/master", &later)?;
+
+  let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash")
+    .expect_err("the branch moved")
+    .into_anyhow();
+  let moved = error.downcast_ref::<HeadMoved>().unwrap_or_else(|| panic!("not HeadMoved: {error:#}"));
+  assert_eq!(
+    (moved.branch.as_str(), moved.expected.as_str(), moved.actual.as_str()),
+    ("master", new_head.as_str(), later.as_str())
+  );
+  assert_eq!(repo.head(), later);
+  Ok(())
+}
+
+/// A transaction that fails while the branch stays where the undo expects it, because a ref moved with it (`also`: the
+/// issue groups of an undo of a regroup) is elsewhere, is no `HeadMoved`: the branch did not move, and the error names
+/// the failed move; nothing moves
+#[test]
+fn undo_whose_other_ref_moved_is_not_head_moved() -> Result<()> {
+  let (repo, previous_head, new_head) = squashed_a_b()?;
+  repo.git(&["update-ref", "refs/branch-deck/issue-groups", &previous_head]);
+  let mut also = RefTransaction::new();
+  also.update("refs/branch-deck/issue-groups", &previous_head, Some(&new_head));
+
+  let error = restore_branch_head_with(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo regroup", &also)
+    .expect_err("the side ref is elsewhere")
+    .into_anyhow();
+  assert!(error.downcast_ref::<HeadMoved>().is_none(), "HeadMoved: {error:#}");
+  assert!(format!("{error:#}").starts_with("Cannot move branch master back"), "{error:#}");
+  assert_eq!(repo.head(), new_head);
+  assert_eq!(repo.rev_parse("refs/branch-deck/issue-groups").map_err(anyhow::Error::msg)?, previous_head);
   Ok(())
 }
 

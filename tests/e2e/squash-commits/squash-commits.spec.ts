@@ -3,11 +3,19 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithUnassigned } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit, shiftSelectCommit } from "../helpers/selection-helpers"
+import { syncFromMenu } from "../helpers/sync-helpers"
 
 const ISSUE = "ABC-123"
 
 function squashDialog(page: Page): Locator {
   return page.getByTestId("squash-dialog")
+}
+
+/** Selects "Add tokens" and "Add parser" (not adjacent: "Add lexer" is in between) and presses Squash of the selection */
+async function openSquashOfParserAndTokens(page: Page): Promise<void> {
+  await selectCommit(getBranchCommitRow(page, ISSUE, "Add tokens"))
+  await multiSelectCommit(getBranchCommitRow(page, ISSUE, "Add parser"))
+  await getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions").getByRole("button", { name: "Squash" }).click()
 }
 
 test.describe("Squash commits", () => {
@@ -19,9 +27,7 @@ test.describe("Squash commits", () => {
     await expandBranch(page, issueRow)
 
     // not adjacent: "Add lexer" stays in between; the dialog lists the commits oldest first, as the message reads
-    await selectCommit(getBranchCommitRow(page, ISSUE, "Add tokens"))
-    await multiSelectCommit(getBranchCommitRow(page, ISSUE, "Add parser"))
-    await getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions").getByRole("button", { name: "Squash" }).click()
+    await openSquashOfParserAndTokens(page)
 
     const dialog = squashDialog(page)
     await expect(dialog).toBeVisible()
@@ -44,6 +50,32 @@ test.describe("Squash commits", () => {
     await page.getByRole("button", { name: "Undo" }).click()
     await verifyCommitCount(issueRow, "3 commits")
     await expect(getBranchCommitRow(page, ISSUE, "Add tokens")).toBeVisible()
+  })
+
+  test("should refuse to undo a squash after a commit on top", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_split")
+    await syncAndWaitForBranches()
+    const issueRow = findBranchRow(page, ISSUE)
+    await expandBranch(page, issueRow)
+    await openSquashOfParserAndTokens(page)
+    await expect(squashDialog(page)).toBeVisible()
+    await page.keyboard.press("ControlOrMeta+Enter")
+    const squashed = page.locator("[data-slot=toast]").filter({ hasText: "Squashed 2 commits" })
+    await expect(squashed).toBeVisible()
+    await verifyCommitCount(issueRow, "2 commits")
+
+    // a commit in a terminal: the branch moved on since the squash, so its undo is stale for good
+    await repo.commit(`${ISSUE}: Add the grammar`, { "grammar.js": "export const grammar = {}\n" }, 1704300000)
+    await squashed.getByRole("button", { name: "Undo" }).click()
+    const refusal = page.locator("[data-slot=toast]").filter({ hasText: "Cannot undo the squash" })
+    await expect(refusal).toContainText(/moved: HEAD is .*; it can't be undone any more/)
+    await expect(refusal).not.toContainText("retry")
+
+    // nothing was undone: the next sync shows the squash and the new commit
+    await syncFromMenu(page)
+    await verifyCommitCount(issueRow, "3 commits")
+    await expect(getBranchCommitRow(page, ISSUE, "Add the grammar")).toBeVisible()
+    await expect(getBranchCommitRow(page, ISSUE, "Add tokens")).toHaveCount(0)
   })
 
   test("should offer squash in the context menu of two or more commits and cancel with Escape", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -221,6 +221,12 @@ fn rename_restack_unstack_and_undo() {
   let (exit_code, output) = run_in(&repo, &["undo", &unstack_token]);
   assert_error(&output, exit_code, 4, "undo_stale");
   assert_eq!(output["error"]["retryable"], json!(false));
+  // the words say it can't be undone, not that a retry may help
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.starts_with("The stack parents (") && message.ends_with("; it can't be undone any more"),
+    "{message}"
+  );
   let (exit_code, output) = run_in(&repo, &["undo", "not-a-token"]);
   assert_error(&output, exit_code, 2, "invalid_arguments");
 

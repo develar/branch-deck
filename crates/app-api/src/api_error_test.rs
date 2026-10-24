@@ -2,7 +2,10 @@ use crate::api_error::{CONTRACT_JSON, api_error, api_error_at, contract_cases, u
 use anyhow::{Context, anyhow};
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, LockHolderInfo, Retry};
 use file_diffs::accio::SearchCanceled;
+use git_ops::rewrite_guard::HeadMoved;
+use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLocked};
+use history_rewrite::store_lines::StoreMoved;
 use pretty_assertions::assert_eq;
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -113,4 +116,54 @@ fn api_error_answers_the_code_of_each_typed_error_that_bd_answers_and_an_undo_it
     .collect();
   assert_eq!(actual, expected);
   assert!(actual.contains(&("head_moved", ErrorCode::UndoStale, Retry::No)));
+}
+
+/// A stale undo says so in its words too: what moved and that it can't be undone, never the advice to read the state
+/// again and retry that the same error gives a rewrite; any other undo error keeps its words
+#[test]
+fn a_stale_undo_says_it_cannot_be_undone_instead_of_advising_a_retry() {
+  let head_moved = || HeadMoved {
+    branch: "master".to_string(),
+    expected: "1".repeat(40),
+    actual: "2".repeat(40),
+  };
+  let groups_moved = StoreMoved {
+    name: "issue groups",
+    store_ref: "refs/branch-deck/issue-groups",
+    expected: Some("3".repeat(40)),
+    actual: None,
+  };
+  let cases = [
+    anyhow::Error::new(head_moved()).context("Cannot undo the squash"),
+    anyhow::Error::new(RegroupError::HeadMoved(head_moved())),
+    anyhow::Error::new(RegroupError::GroupsMoved(groups_moved)),
+  ];
+  let words: Vec<_> = cases
+    .into_iter()
+    .map(|error| {
+      let error = undo_error(error);
+      (error.message, error.code)
+    })
+    .collect();
+  assert_eq!(
+    words,
+    [
+      (
+        "Branch master moved: HEAD is 22222222, not 11111111; it can't be undone any more".to_string(),
+        ErrorCode::UndoStale
+      ),
+      (
+        "Branch master moved: HEAD is 22222222, not 11111111; it can't be undone any more".to_string(),
+        ErrorCode::UndoStale
+      ),
+      (
+        "The issue groups (refs/branch-deck/issue-groups) moved: expected 33333333, found nothing; it can't be undone any more".to_string(),
+        ErrorCode::UndoStale
+      ),
+    ]
+  );
+  // a rewrite keeps the advice; an undo error of another code keeps its words
+  assert!(api_error(anyhow::Error::new(head_moved())).message.ends_with("; read it again and retry"));
+  let locked = undo_error(anyhow!("exit 128").context("Cannot move branch master back"));
+  assert_eq!((locked.code, locked.message.as_str()), (ErrorCode::Internal, "Cannot move branch master back: exit 128"));
 }

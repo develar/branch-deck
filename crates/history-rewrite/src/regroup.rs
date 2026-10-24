@@ -313,6 +313,16 @@ impl RegroupError {
     })
   }
 
+  /// The words of an undo that this error refuses because a ref moved on since the rewrite (`ErrorCode::in_undo`
+  /// makes it `undo_stale`): what moved, without the advice to retry; `None` for any other error, whose words stay
+  pub fn undo_message(&self) -> Option<String> {
+    match self {
+      Self::HeadMoved(moved) => Some(moved.undo_message()),
+      Self::GroupsMoved(moved) | Self::StacksMoved(moved) | Self::ParkedMoved(moved) => Some(moved.undo_message()),
+      _ => None,
+    }
+  }
+
   /// The commits the error is about
   pub fn commits(&self) -> &[String] {
     match self {

@@ -121,7 +121,8 @@ the code the `bd` command gives them: the types name it (`ParkError::code`, `Gua
 `UnapplyRefusal::code`, `ReapplyRefusal::code`), which the commands of `bd` (`park_error`, `unapply_error`,
 `reapply_error`, `update_command::core_error`) read too. An undo answers `ErrorCode::in_undo` of the code, in `bd undo`
 and in the undo commands of the app (`app_api::api_error::undo_error`): a ref that moved on since the operation is
-`undo_stale`. One table of the typed errors with their codes, `crates/update-core/src/error_cases.rs`, is what both
+`undo_stale`, in the words of `HeadMoved::undo_message` or `StoreMoved::undo_message` (`RegroupError::undo_message`):
+what moved and that it can't be undone any more, not the advice to retry. One table of the typed errors with their codes, `crates/update-core/src/error_cases.rs`, is what both
 sides are tested on (`error_code_test.rs` of `bd-update`, `park_error_test.rs` of `bd-rewrite`, `api_error_test.rs` of
 `app-api`): no crate calls both, as only the app and the e2e server depend on `app-api`. A lock file of git in the way of a ref move (`RefLocked`) is `locked` without
 `details`: its message names the file. Both adapters answer the JSON of

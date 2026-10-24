@@ -140,10 +140,15 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
     ));
   };
   undo_regroup_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(|error| {
+    // a ref moved on since the rewrite: the same token can never succeed, as for `update:` and `pick:`, and its words
+    // say so instead of the advice to retry; the token names no write of the issue groups or the stack parents: a wrong
+    // argument, not a wrong plan
+    let stale_words = error.undo_message();
     let mut error = regroup_error(error);
-    // a ref moved on since the rewrite: the same token can never succeed, as for `update:` and `pick:`; the token
-    // names no write of the issue groups or the stack parents: a wrong argument, not a wrong plan
     error.code = error.code.in_undo();
+    if let Some(words) = stale_words {
+      error.message = words;
+    }
     error
   })?;
   let head = head_after_undo(context, token.head.as_ref())?;

@@ -96,11 +96,27 @@ pub fn find_operation_in_progress(git_executor: &GitCommandExecutor, repo_path: 
 
 /// HEAD is not the commit a rewrite was computed for: read the history again and retry
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("Branch {branch} moved: HEAD is {}, not {}; read it again and retry", crate::revs::short_id(.actual), crate::revs::short_id(.expected))]
+#[error("{}; read it again and retry", self.what_moved())]
 pub struct HeadMoved {
   pub branch: String,
   pub expected: String,
   pub actual: String,
+}
+
+impl HeadMoved {
+  /// The words of an undo that this move refuses: the same undo can never succeed, so no advice to retry it
+  pub fn undo_message(&self) -> String {
+    format!("{}; it can't be undone any more", self.what_moved())
+  }
+
+  fn what_moved(&self) -> String {
+    format!(
+      "Branch {} moved: HEAD is {}, not {}",
+      self.branch,
+      crate::revs::short_id(&self.actual),
+      crate::revs::short_id(&self.expected)
+    )
+  }
 }
 
 /// A copy of the user's index in a temporary directory, for a dry run with `GIT_INDEX_FILE`; removed on drop

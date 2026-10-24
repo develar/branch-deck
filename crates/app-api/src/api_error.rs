@@ -36,10 +36,20 @@ pub fn api_error(error: anyhow::Error) -> ApiError {
 }
 
 /// The error an undo command answers for `error`: `api_error` with its code `in_undo` (`ErrorCode::in_undo`: a ref that
-/// moved on since the operation makes the token stale, `undo_stale`, never retried), as `bd undo` answers it; by value,
-/// for `map_err`
+/// moved on since the operation makes the token stale, `undo_stale`, never retried), as `bd undo` answers it, and for a
+/// stale one the words that say so instead of the advice to retry; by value, for `map_err`
 pub fn undo_error(error: anyhow::Error) -> ApiError {
-  api_error(error).in_undo()
+  let stale_words = error
+    .downcast_ref::<HeadMoved>()
+    .map(HeadMoved::undo_message)
+    .or_else(|| error.downcast_ref::<RegroupError>().and_then(RegroupError::undo_message));
+  let mut api_error = api_error(error).in_undo();
+  if api_error.code == ErrorCode::UndoStale
+    && let Some(words) = stale_words
+  {
+    api_error.message = words;
+  }
+  api_error
 }
 
 /// What a step of a command fails with, as its `ApiError`: a core's error through `api_error`, a message without a code

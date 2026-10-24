@@ -54,6 +54,13 @@ pub struct StoreMoved {
   pub actual: Option<String>,
 }
 
+impl StoreMoved {
+  /// The words of an undo that this move refuses: the same undo can never succeed
+  pub fn undo_message(&self) -> String {
+    format!("{self}; it can't be undone any more")
+  }
+}
+
 impl LineStore {
   /// The valid entries of the file and its other lines as problems: a line without a tab, a pair `validate` refuses, a
   /// key listed twice (neither entry is used). Blank lines are skipped

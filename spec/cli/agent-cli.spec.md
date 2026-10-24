@@ -209,10 +209,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `GuardRefusal::code`, `UnapplyRefusal::code`, `ReapplyRefusal::code`), local changes in the way of an unapply, a
   reapply or their undo are `uncommitted_overlap`, and an undo answers the code `in_undo` (`ErrorCode::in_undo`): a
   ref that moved on since the operation is `undo_stale`, never retried, in `bd undo` and in the undo commands of the
-  app alike. Both sides are tested on one table of the typed errors and their codes (`update_core::error_cases`).
+  app alike, its words saying what moved and that it can't be undone any more, never the advice to retry that a
+  rewrite refused by the same move gives. Both sides are tested on one table of the typed errors and their codes
+  (`update_core::error_cases`).
   [@test] ../../crates/bd-update/src/error_code_test.rs (`bd_answers_the_code_of_each_refusal_of_a_move_an_unapply_and_a_reapply_that_the_app_answers`, `bd_undo_answers_the_code_of_each_refusal_that_the_app_answers_and_a_moved_head_makes_it_stale`, `an_error_without_a_code_is_git_error_in_bd`)
   [@test] ../../crates/bd-rewrite/src/park_error_test.rs (`bd_answers_the_code_of_each_refusal_of_a_park_that_the_app_answers`, `a_park_that_fails_without_a_code_is_git_error_in_bd`)
-  [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_the_code_of_each_typed_error_that_bd_answers_and_an_undo_its_code_in_undo`)
+  [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_the_code_of_each_typed_error_that_bd_answers_and_an_undo_its_code_in_undo`, `a_stale_undo_says_it_cannot_be_undone_instead_of_advising_a_retry`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
   [@test] ../../crates/domain-types/src/error_test.rs (`an_undo_that_a_moved_ref_refuses_is_stale_and_never_retried`)
   [@test] ../../crates/test-server/src/reword_test.rs (`undo_regroup_after_a_new_commit_answers_undo_stale_never_retried`)
   [@test] ../../crates/test-server/src/squash_test.rs (`restore_branch_head_after_a_new_commit_answers_undo_stale_never_retried`)

@@ -356,7 +356,9 @@ test.describe("Commit message", () => {
 
       await rewordToast(page, hash).getByRole("button", { name: "Undo" }).click()
       const refusal = page.locator("[data-slot=toast]").filter({ hasText: "Cannot undo the reword" })
-      await expect(refusal).toContainText(/moved: HEAD is/)
+      // stale for good: the words say so, not that a retry may help
+      await expect(refusal).toContainText(/moved: HEAD is .*; it can't be undone any more/)
+      await expect(refusal).not.toContainText("retry")
 
       // nothing was undone: the next sync shows both rewords
       await syncFromMenu(page)

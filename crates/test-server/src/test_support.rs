@@ -65,6 +65,16 @@ pub(crate) async fn post_error(client: &reqwest::Client, addr: SocketAddr, path:
   answer["error"].clone()
 }
 
+/// Asserts that `error` is the answer of an undo whose branch moved on to `moved`: `undo_stale` with `retry: no`, in
+/// words that say it can't be undone, not that a retry may help, and the branch of the repository at `path` still at
+/// `moved`
+pub(crate) fn assert_stale_undo(error: &Value, path: &str, moved: &str) {
+  assert_eq!((&error["code"], &error["retry"]), (&json!("undo_stale"), &json!("no")), "{error}");
+  let message = error["message"].as_str().unwrap();
+  assert!(message.ends_with("; it can't be undone any more") && !message.contains("retry"), "{message}");
+  assert_eq!(head(path), moved);
+}
+
 /// The HEAD of the repository at `path`
 pub(crate) fn head(path: &str) -> String {
   let output = git_command().args(["rev-parse", "HEAD"]).current_dir(path).output().unwrap();

@@ -111,11 +111,14 @@ tree and the index are not touched, and an undo is a move of the branch back.
 - Undo must move the branch back to the commit before the squash in one transaction (`branch-deck: undo squash`),
   only if the branch still points at the squashed history and both have the same files; otherwise it is refused. A
   branch that moved on since (a commit on top, also one made between the check and the move) must be refused with
-  `undo_stale` (`retry: no`), as every undo of the app and `bd undo` answer it, never `internal`.
-  [@test] ../../crates/git-ops/src/squash_commits_test.rs (`undo_restores_the_previous_head`, `undo_is_refused_when_the_branch_moved`)
+  `undo_stale` (`retry: no`), as every undo of the app and `bd undo` answer it, never `internal`, in words that say
+  what moved and that it can't be undone any more, never the advice to retry. A transaction that fails while the
+  branch stays (a ref that moves with it is elsewhere) is no `undo_stale`.
+  [@test] ../../crates/git-ops/src/squash_commits_test.rs (`undo_restores_the_previous_head`, `undo_is_refused_when_the_branch_moved`, `undo_is_refused_when_the_branch_moved_during_the_transaction`, `undo_whose_other_ref_moved_is_not_head_moved`)
   [@test] ../../crates/history-rewrite/src/squash_test.rs (`undo_restores_the_previous_head_and_refuses_after_a_new_commit`)
   [@test] ../../crates/test-server/src/squash_test.rs (`restore_branch_head_after_a_new_commit_answers_undo_stale_never_retried`)
-  [@test] ../../tests/e2e/squash-commits/squash-commits.spec.ts (`should squash selected branch commits into the oldest one and undo it`)
+  [@test] ../../crates/app-api/src/api_error_test.rs (`a_stale_undo_says_it_cannot_be_undone_instead_of_advising_a_retry`)
+  [@test] ../../tests/e2e/squash-commits/squash-commits.spec.ts (`should squash selected branch commits into the oldest one and undo it`, `should refuse to undo a squash after a commit on top`)
 
 ## User Experience
 
