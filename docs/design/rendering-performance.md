@@ -186,19 +186,33 @@ used to download and compile the main window's tree before its own page: 61 modu
   resizable panels load only in the review window.
 - A sub-window is built hidden, on the canvas colour of the theme, and shows once its page settled the content of the
   latest open (`markWindowContentReady`: `WindowPage` on its render, a review once `DiffView` painted its first
-  screen), at most 300 ms after the page loaded (`sub_window_loaded`, the budget kept by the backend, because a
-  hidden page's timers are throttled). Nothing on that path waits for an animation frame: a hidden WKWebView runs
-  none, and a show from `requestAnimationFrame` waited 3 s for the fallback. The painter of `DiffView` paints in its
+  screen), at most 300 ms after the page committed its shell (`sub_window_drawn`, said by the first render of
+  `WindowTitleBar`; the budget kept by the backend, because a hidden page's timers are throttled). Nothing on that
+  path waits for an animation frame: a hidden WKWebView runs none, and a show from `requestAnimationFrame` waited 3 s
+  for the fallback. The painter of `DiffView` paints in its
   effects and its scroll events, never on an animation frame ([Diff View](diff-view.md)).
 - The main window is built hidden too and shows the same way (`show_when_settled`, `sub_window_ready`), on its first
   frame with content: the title row with the first rows of its sync, or with a state that has no rows (no repository,
   Welcome, Ready to Sync, an error), said by `BranchCreator` ([Title Bar](../../spec/repository/title-bar.spec.md#main-window)).
   It used to show right after its build: a bare canvas for about 0.3 s, then the title row over an empty body for
-  0.5 s, then the rows. Its budget is 1 s after the page loaded (the rows of the IntelliJ monorepo came about 0.6 s
-  after it), then the title row and the loading table show; 3 s after the build when the page never loads. Until the
-  window showed, the sync events apply on the next task (`batchTimer`): their 16 ms timer would wait for WebKit's
-  throttle of a hidden page, up to a second. The budgets run on the backend's clock (`show_when_budget_passes`), never
-  on a timer of the hidden page. The log has the time of the first rows from the build ("main open 812 ms: loaded
+  0.5 s, then the rows. Its budget is 1 s after the page committed its shell, the title row and the loading table
+  (the rows of the IntelliJ monorepo came about 0.6 s after the load), then the shell shows; 3 s after the load when
+  the page commits no shell, 3 s after the build when it never loads. The budget counted from the load once: at load
+  60–96 the first render may come long after it, and the budget showed a bare canvas. Each deadline holds only until
+  the page gets a stage further: the fallback of the build once showed a page that had loaded 2.26 s after the build,
+  0.74 s later, before its budget and with the warning that it did not load. Until the window showed, the sync events
+  apply on the next task (`batchTimer`): their 16 ms timer would wait for WebKit's throttle of a hidden page, up to a
+  second. The deadlines run on the backend's clock (`wait_for_deadline`), never on a timer of the hidden page.
+- The first frame of a window is its content: a window due to show waits for its webview to present the page as it
+  is (`show_window`, `-[WKWebView _doAfterNextPresentationUpdate:]`, then `[CATransaction flush]`), at most 1 s. A
+  page says its content settled from an effect, after React's commit and before WebKit's rendering update, and the
+  window used to be ordered in at once, 6–8 ms before the update that painted the rows: its first frames were the
+  layers of the frame before, the title row over an empty table (or the bare canvas when no frame had the shell yet),
+  for 25–80 ms in the check copy of the release app and for 0.67 s when the page was busy for 0.6 s after its ready,
+  as it is on a loaded machine. WebKit does not stop a hidden page: the remote layer tree paints and commits while the
+  window is hidden ("Should we suspend painting while not visible … Probably", `RemoteLayerTreeDrawingArea`), and no
+  reason freezes the layer tree then; the presentation answers 15–80 ms after the ready, and the window is ordered in
+  4–8 ms after it, on the rows ([Real App Checks](../guidelines/real-app-checks.md#an-agents-check-copy)). The log has the time of the first rows from the build ("main open 812 ms: loaded
   240") and, from the backend, what showed the window. A cold first start after an install on the monorepo ("main
   open 6199 ms: loaded 1506"): the budget showed the title row and the loading table 1.0 s after the load (WebKit's
   `window visible 1` 2.5 s after the build); the sync started 2.25 s after the build and sent its rows 3.7 s later,

@@ -2,7 +2,7 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { getSubWindowReadyOpen } from "../helpers/sub-window-helpers"
+import { getSubWindowReadyOpen, getWindowShell } from "../helpers/sub-window-helpers"
 import { holdCommand, routeCommandError } from "../helpers/wait-helpers"
 
 /** The repository was synced an hour ago: the window syncs it by itself when it opens it */
@@ -30,6 +30,9 @@ test.describe("The first frame of the main window", () => {
     await expect(loading).toContainText("Syncing branches…")
     await expect(page.getByTestId("sync-button")).toBeVisible()
     const loadingBox = await loading.boundingBox()
+    // the shell is said with the title row and the loading table: the 1 s budget of the rows counts from it, so the
+    // window the budget shows has them, never a bare canvas
+    await expect.poll(() => getWindowShell(page)).toEqual({ titleRows: 1, loadingTables: 1, branchRows: 0 })
     // the window is still hidden: the backend shows it by its budget if the rows take longer
     expect(await getSubWindowReadyOpen(page)).toBeNull()
 

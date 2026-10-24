@@ -3,6 +3,7 @@ import type { ComponentProps, ReactNode } from "react"
 import { cn } from "cn"
 import { WindowControls } from "@/components/repository/WindowControls"
 import { useWindowFrameState } from "@/hooks/useWindowFrameState"
+import { markWindowShellDrawn } from "@/lib/sub-window"
 import { drawsTitleBar, titleBar } from "@/lib/title-bar"
 import { installTitleBarMouse } from "@/lib/title-bar-mouse"
 import { useAppSettings } from "@/stores/settings/appSettings"
@@ -19,12 +20,15 @@ export interface WindowTitleBarProps extends Omit<ComponentProps<"header">, "chi
  * Where the page draws the title bar (`titleBar`) it is the title bar: its empty parts drag the window, a double click
  * and a right click do what the system's title bar does there (`installTitleBarMouse`), on macOS it starts after the
  * traffic lights (not in fullscreen, where they are hidden), on Windows and Linux it has the window buttons at the
- * start and the end the desktop puts them. Where the system title bar stays it is a row below it.
+ * start and the end the desktop puts them. Where the system title bar stays it is a row below it. Its first render is
+ * the shell of the window (`markWindowShellDrawn`).
  */
 export function WindowTitleBar({ children, end, className, style, ...props }: WindowTitleBarProps) {
   const frame = useWindowFrameState()
   const zoom = useAppSettings(state => state.zoom)
   useEffect(() => installTitleBarMouse(), [])
+  // the shell of the window is in the DOM: its content budget starts, a window built hidden never shows a bare canvas
+  useEffect(() => markWindowShellDrawn(), [])
   // the page rounds the corners of the window as the desktop's are (`cornerRadius`): square while the window fills the
   // screen or an edge of it, as GNOME's windows are
   const cornerRadius = titleBar.kind === "custom" && !frame.maximized && !frame.fullscreen && !frame.tiled ? titleBar.cornerRadius : 0

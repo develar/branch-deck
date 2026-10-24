@@ -113,6 +113,18 @@ export async function getSubWindowReadyOpen(page: Page): Promise<number | null> 
   return page.evaluate(() => (window as unknown as { __e2eSubWindowReady?: number }).__e2eSubWindowReady ?? null)
 }
 
+/** What the page had in its DOM when it said its shell is drawn (`sub_window_drawn`, recorded by the Tauri mock) */
+export interface WindowShell {
+  titleRows: number
+  loadingTables: number
+  branchRows: number
+}
+
+/** What the page had when it said its shell is drawn (`sub_window_drawn`), or null before it said it */
+export async function getWindowShell(page: Page): Promise<WindowShell | null> {
+  return page.evaluate(() => (window as unknown as { __e2eWindowShell?: WindowShell }).__e2eWindowShell ?? null)
+}
+
 /**
  * Opens the shown sub-window again with the data of a later open, as the backend does (`SubWindowUpdate::script`): the
  * new `__INIT_DATA__` and open, then `init-data-updated`; the settings the page has heard already (`settings_changed`)

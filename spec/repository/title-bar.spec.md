@@ -241,15 +241,34 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window on Ready to Sync, which waits for the user, not for a sync`)
   [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window when git defers its first sync, without a table that loads for ever`)
   [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_main_window_waits_for_its_first_rows_longer_and_takes_no_settings_with_its_load`)
-- It shows at most 1 s after its page loaded (`MAIN_CONTENT_BUDGET`; the rows of the first sync of the IntelliJ
-  monorepo came about 0.6 s after the page loaded) and 3 s after the build when its page never loads: a slow sync
-  shows the title row and the loading table, a broken page still shows. The loading table stands where the rows come:
-  the filter bar's room where the last sync had enough branches for it, the column heads and as many rows as the last
-  sync had (`lastBranchCount`), "Syncing branches…" after its delay; the rows take its room, nothing below moves.
-  The budgets run on the backend's clock (`show_when_budget_passes`), never on a timer of the page, which WebKit
-  throttles while the window is hidden: a page that says nothing after its load still shows.
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_backend_shows_a_main_window_whose_page_says_nothing_after_its_load_once_its_budget_passed`)
+- It shows at most 1 s after its page committed its shell (`MAIN_CONTENT_BUDGET`; the rows of the first sync of the
+  IntelliJ monorepo came about 0.6 s after the page loaded): the title row and the loading table, which the first
+  render of the title row says (`markWindowShellDrawn`, `sub_window_drawn`), so a slow sync shows them, never a bare
+  canvas, also when the page took long from its load to its first render. Each stage of the page sets the deadline of
+  the next, which holds only until the page gets there: the build waits 3 s for the load (`sub_window_loaded`), the
+  load 3 s for the shell, the shell the budget for the content. A page that loaded is never shown by the deadline of
+  its load (on the monorepo at load 90 a page loaded 2.26 s after the build, and that deadline showed the window 0.74 s
+  later with no content and the warning that the page did not load); a broken page still shows. The loading table
+  stands where the rows come: the filter bar's room where the last sync had enough branches for it, the column heads
+  and as many rows as the last sync had (`lastBranchCount`), "Syncing branches…" after its delay; the rows take its
+  room, nothing below moves. The deadlines run on the backend's clock (`wait_for_deadline`), never on a timer of the
+  page, which WebKit throttles while the window is hidden: a page that says nothing after its shell still shows.
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`a_page_that_loaded_is_never_shown_by_the_fallback_of_its_load`, `the_budget_of_the_content_counts_from_the_shell_not_from_the_load`)
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`a_page_that_loaded_and_draws_no_shell_shows_once_the_fallback_of_its_shell_passed`, `a_page_that_never_loads_shows_once_the_fallback_of_its_build_passed`)
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_backend_shows_a_main_window_whose_page_says_nothing_after_its_shell_once_its_budget_passed`)
   [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_first_rows_within_the_budget_show_the_main_window_and_the_budget_then_does_nothing`)
+  [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window on the first rows of its sync, the table loading where they come until then`)
+- The first frame of a window that shows is what its page has in its DOM then, never the layers of an earlier frame.
+  A page says its content settled from an effect, right after React committed it and before WebKit painted it; a
+  window shown then showed the frame before (the shell, or the bare canvas when no frame had the shell) until the next
+  rendering update reached the screen, 25 to 80 ms in the check copy of the release app and longer on a loaded
+  machine. So a window due to show (its content settled, or a deadline passed) shows once its webview presented the
+  page as it is (`show_window`, `next_presentation`): on macOS WebKit paints a hidden page and commits its layers to
+  the app's process as it does for a visible one, `-[WKWebView _doAfterNextPresentationUpdate:]` answers once the
+  layers of the next rendering update are there, and the app flushes them to the render server before it orders the
+  window in. At most 1 s (`PRESENTATION_BUDGET`): a webview that presents nothing shows its window as it is and the
+  backend logs it; a page that never loaded shows at once.
+  [@test] ../../src-tauri/src/presentation_test.rs (`a_window_due_to_show_waits_for_the_frame_its_webview_presents`, `a_webview_that_presents_nothing_shows_its_window_once_the_budget_passed`, `a_webview_that_tells_no_presentation_shows_its_window_at_once`)
 - The first rows wait for no commit of a branch they don't show: the listing of the sync reads refs only, never the
   subjects or the dates of the archived and the remote branches under the prefix (on the monorepo 452 refs, 1 to 2 s
   from a cold pack before the rows); the archive step reads the subjects and the committer times of the local tips
@@ -259,9 +278,11 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
 - While the window never showed, a batch of sync events applies on the next task, not on its 16 ms timer: WebKit
   throttles the timers of a hidden page to a second (`batchTimer`).
   [@test] ../../src/lib/batch-timer.test.ts (`runs a batch on the next task, no timer, while the window never showed, then on its timer once it showed`)
-- The page logs when its first frame with content came, from the build ("main open 812 ms: loaded 240"), which is
-  not when the window showed: the backend logs what showed it, the page ("the page settled its content, showing the
-  window") or the budget ("the page settled no content within its budget, showing the window").
+- The page logs when its first frame with content came, from the build, with its load and its shell ("main open 812
+  ms: loaded 240, shell 300"), which is not when the window showed: the backend logs what showed it, the page ("the
+  page settled its content, showing the window") or a deadline ("the page settled no content within its budget,
+  showing the window"; the warnings "the page loaded and drew no shell" and "the page of the window did not load"),
+  with how long the webview took to present the page (`presented_ms`).
 
 ### Sub-windows
 
@@ -287,15 +308,18 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   data. A new window is built hidden, on the canvas colour of the theme (not on Linux, where a rounded window is
   transparent), and shows once its page settled the content of
   the latest open (`sub_window_ready`: a page on its render, `WindowPage`; a review once its first diffs are
-  prepared), at most 300 ms after its page loaded (`sub_window_loaded`) and 3 s after the build without it, so it
-  never shows a blank frame nor the subject of an earlier open; no animation frame is waited for, a hidden window runs
-  none. An open while its page still loads is handed over at its load, the latest one winning, with the changes of the
+  prepared), at most 300 ms after its page committed its shell, its row (`sub_window_drawn`), 3 s after the load
+  without a shell and 3 s after the build without a load, so it never shows a blank frame nor the subject of an
+  earlier open; its first frame is that content, as the main window's ([Main window](#main-window)); no animation
+  frame is waited for, a hidden window runs none. An open while its page still loads is handed over at its load, the latest one winning, with the changes of the
   settings made meanwhile ([Settings](settings.spec.md)). The page logs the
   phases of each open ("commit-review open 96 ms: loaded 41, files 44, patch 47, engine 70, primed 88"). The opens are serialized: two quick opens build one window. A new window opens centred on the
   monitor of the main window, then where it was (the window state plugin, without the visibility); it has a taskbar
   entry (Windows, Linux). Escape that nothing in the page handled and ⌘W close it.
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`an_open_while_the_page_loads_waits_for_the_page`, `a_loaded_hidden_page_takes_an_open_and_shows_for_it`, `a_budget_shows_the_window_once_and_only_its_own_build`, `a_window_built_again_after_its_close_waits_for_its_page_again`)
-  [@test] ../../src/lib/sub-window.test.ts (`says the page loaded and its content settled without an animation frame, once per open`)
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`an_open_while_the_page_loads_waits_for_the_page`, `a_loaded_hidden_page_takes_an_open_and_shows_for_it`, `a_deadline_shows_the_window_once_and_only_its_own_build`, `a_window_built_again_after_its_close_waits_for_its_page_again`)
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`a_shell_counts_once_per_load_and_only_after_it`, `a_reopen_while_the_page_loads_shows_the_window_on_the_content_of_the_reopen`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the files while the patch is read, settle with the diffs, and step to a commit read beside it`)
+  [@test] ../../src/lib/sub-window.test.ts (`says the page loaded and its content settled without an animation frame, once per open`, `takes the settings changed while the page loaded once it listens, before it says its shell and its content`)
   [@test] ../../src/lib/open-timing.test.ts (`tells the phases of an open after its opener asked, the first time of each, once`)
 
 ## User Experience

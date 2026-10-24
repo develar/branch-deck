@@ -55,12 +55,13 @@ function currentOpen(): SubWindowOpen | undefined {
 }
 
 /**
- * The page of a window loaded and listens to the settings: the backend counts the content budget from now and hands
- * over the data of an open that came while the page loaded and the changes of the settings after the snapshot the
- * window was built with, which reached no listener; the page applies them by their versions before it says its content
- * settled (`markWindowContentReady`), so a zoom changed meanwhile is the window's when it shows. Once per page load, at
- * its start; the main window gets neither (it has one open and asks for the changes itself, `get_settings_changes`),
- * only its budget. No animation frame waits on this path: a hidden window runs none.
+ * The page of a window loaded and listens to the settings: the backend hands over the data of an open that came while
+ * the page loaded and the changes of the settings after the snapshot the window was built with, which reached no
+ * listener; the page applies them by their versions before it says its content settled (`markWindowContentReady`), so
+ * a zoom changed meanwhile is the window's when it shows. Once per page load, at its start; the main window gets
+ * neither (it has one open and asks for the changes itself, `get_settings_changes`). From now the backend waits for the
+ * shell of the page (`markWindowShellDrawn`), no longer for its load. No animation frame waits on this path: a hidden
+ * window runs none.
  */
 function announceWindowLoaded(): Promise<void> {
   if (currentLabel() === null) {
@@ -90,8 +91,31 @@ function announceWindowLoaded(): Promise<void> {
 /** Resolves once the backend answered the load of the page and the page applied what it handed over */
 const pageLoaded = announceWindowLoaded()
 
+let shellDrawn = false
+
+/**
+ * The page committed its shell, the title row of its window (`WindowTitleBar`; the main window's with its loading
+ * table, which the same render commits): the backend counts the content budget of the window from now, so a page whose
+ * content is slow shows its shell, never a bare canvas. Once per page load, after the load (`sub_window_loaded`), which
+ * the backend must have heard first. No animation frame waits on this path: a hidden window runs none.
+ */
+export function markWindowShellDrawn(): void {
+  if (shellDrawn || currentLabel() === null) {
+    return
+  }
+  shellDrawn = true
+  markOpenPhase(currentOpen(), "shell")
+  void pageLoaded
+    .then(() => commands.subWindowDrawn())
+    .then(result => {
+      if (result.status === "error") {
+        logError("Cannot show the sub-window", result.error)
+      }
+    })
+}
+
 /** Records a phase of the open the page shows, for its timing line (`markWindowContentReady`) */
-export function markSubWindowOpenPhase(phase: Exclude<OpenPhase, "loaded" | "ready">): void {
+export function markSubWindowOpenPhase(phase: Exclude<OpenPhase, "loaded" | "shell" | "ready">): void {
   markOpenPhase(currentOpen(), phase)
 }
 

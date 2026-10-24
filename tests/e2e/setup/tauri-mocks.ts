@@ -546,6 +546,16 @@ export const tauriMockScript = () => {
     // the page of a window loaded (`announceWindowLoaded`): no data of a later open, and the changes of the settings
     // after the snapshot the page started from, which the test server's writer has (none for the main window)
     sub_window_loaded: async (cmd: string) => proxyToTestServer(cmd, { since: startStoreVersion, origin: windowLabel }),
+    // the page committed its shell (`markWindowShellDrawn`): the backend would count the content budget from now; with
+    // the title rows, the loading tables and the branch rows the page had then
+    sub_window_drawn: async (cmd: string, payload: any) => {
+      ;(window as any).__e2eWindowShell = {
+        titleRows: document.querySelectorAll("header[data-title-bar]").length,
+        loadingTables: document.querySelectorAll("[data-testid=branch-table-loading]").length,
+        branchRows: document.querySelectorAll("[data-testid=branch-row]").length,
+      }
+      return proxyToTestServer(cmd, payload)
+    },
     // the page settled the content of an open (`markWindowContentReady`): the backend would show the window; with the
     // branch rows the page had then, which the main window waits for
     sub_window_ready: (_cmd: string, payload: any) => {

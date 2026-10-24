@@ -1928,3 +1928,9 @@ pub async fn sub_window_loaded(State(state): State<Arc<AppState>>, headers: Head
   };
   Ok(Json(serde_json::json!({ "update": null, "settings": settings })))
 }
+
+/// `sub_window_drawn` of the app, which counts the content budget of the window from the shell: this server shows no
+/// window; the page mock records what the page had when it said it
+pub async fn sub_window_drawn() -> Json<serde_json::Value> {
+  Json(serde_json::Value::Null)
+}

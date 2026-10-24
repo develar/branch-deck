@@ -4,7 +4,7 @@ import type { SettingsChange } from "@/lib/bindings"
 const { calls, listening } = vi.hoisted(() => {
   let listen = () => {}
   return {
-    calls: { loaded: 0, ready: [] as number[], lines: [] as string[], accepted: [] as SettingsChange[], order: [] as string[] },
+    calls: { loaded: 0, drawn: 0, ready: [] as number[], lines: [] as string[], accepted: [] as SettingsChange[], order: [] as string[] },
     // the page listens to the settings once `listen` resolves
     listening: { promise: new Promise<void>(resolve => (listen = resolve)), resolve: () => listen() },
   }
@@ -31,6 +31,11 @@ vi.mock("@/lib/bindings", () => ({
       // Actual Size of the main window while the page loaded
       return { status: "ok", data: { update: null, settings: [{ version: 4, key: "appSettings", value: {}, origin: "main" }] } }
     },
+    subWindowDrawn: async () => {
+      calls.drawn++
+      calls.order.push("drawn")
+      return { status: "ok", data: null }
+    },
     subWindowReady: async (openId: number) => {
       calls.ready.push(openId)
       calls.order.push("ready")
@@ -42,37 +47,45 @@ vi.mock("@/lib/bindings", () => ({
 const page = { __SUB_WINDOW_OPEN__: { id: 7, openedAt: Date.now() }, addEventListener: () => {}, dispatchEvent: () => true }
 
 let markWindowContentReady: () => void
+let markWindowShellDrawn: () => void
 
 beforeAll(async () => {
   // a hidden WKWebView runs no animation frames: nothing on the path to the show may wait for one
   vi.stubGlobal("requestAnimationFrame", () => 0)
   vi.stubGlobal("window", page)
-  ;({ markWindowContentReady } = await import("@/lib/sub-window"))
+  ;({ markWindowContentReady, markWindowShellDrawn } = await import("@/lib/sub-window"))
 })
 
 describe("the show of a sub-window", () => {
-  it("takes the settings changed while the page loaded once it listens, before it says its content settled", async () => {
-    // the content settles before the page listens: the load and the show wait for the listener
+  it("takes the settings changed while the page loaded once it listens, before it says its shell and its content", async () => {
+    // the shell and the content settle before the page listens: the load, the shell and the show wait for the listener
+    markWindowShellDrawn()
     markWindowContentReady()
     await Promise.resolve()
     expect(calls.loaded).toBe(0)
+    expect(calls.drawn).toBe(0)
     expect(calls.ready).toEqual([])
     listening.resolve()
     await vi.waitFor(() => expect(calls.ready).toEqual([7]))
-    // the changes made while the page loaded, applied before the window shows
+    // the changes made while the page loaded, applied before the window shows; the shell after the load, whose stage
+    // the backend needs first
     expect(calls.accepted.map(change => change.version)).toEqual([4])
-    expect(calls.order).toEqual(["settings", "ready"])
+    expect(calls.order).toEqual(["settings", "drawn", "ready"])
   })
 
   it("says the page loaded and its content settled without an animation frame, once per open", async () => {
     expect(calls.loaded).toBe(1)
     markWindowContentReady()
     expect(calls.lines).toHaveLength(1)
-    expect(calls.lines[0]).toMatch(/^commit-review open \d+ ms: loaded \d+$/)
+    expect(calls.lines[0]).toMatch(/^commit-review open \d+ ms: loaded \d+, shell \d+$/)
     // the next open of the window settles on its own
     page.__SUB_WINDOW_OPEN__ = { id: 8, openedAt: Date.now() }
     markWindowContentReady()
     await vi.waitFor(() => expect(calls.ready).toEqual([7, 8]))
     expect(calls.loaded).toBe(1)
+    // the shell of the page is said once per load, not once per open
+    markWindowShellDrawn()
+    await Promise.resolve()
+    expect(calls.drawn).toBe(1)
   })
 })

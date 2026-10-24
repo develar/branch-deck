@@ -1,5 +1,5 @@
 /** A phase of the open of a sub-window, in the order it usually comes */
-export type OpenPhase = "loaded" | "files" | "diffs" | "painted" | "ready"
+export type OpenPhase = "loaded" | "shell" | "files" | "diffs" | "painted" | "ready"
 
 interface OpenTiming {
   readonly id: number

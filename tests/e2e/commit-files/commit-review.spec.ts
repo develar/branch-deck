@@ -7,7 +7,15 @@ import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test
 import { activityButton, activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
-import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
+import {
+  getEmittedEvents,
+  getOpenedSubWindows,
+  getSubWindowReadyOpen,
+  getWindowShell,
+  openLinkedSubWindow,
+  openSubWindowPage,
+  reopenLinkedSubWindow,
+} from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
 import { holdCommand, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -484,6 +492,8 @@ testWithIssueLinks("should show the files while the patch is read, settle with t
   // the tree and the header of the file while the engine reads the diffs; the window waits for the diffs to show
   await expect(review.getByRole("tree", { name: "Changed files" })).toBeVisible()
   await expect(review.getByTestId("review-pending-files").getByTestId("review-file-header")).toHaveCount(1)
+  // its shell is said with its title row: the backend counts the 300 ms of its content from it, not from the load
+  await expect.poll(() => getWindowShell(review)).toMatchObject({ titleRows: 1 })
   expect(await getSubWindowReadyOpen(review)).toBeNull()
 
   release()

@@ -748,6 +748,7 @@ dependencies = [
  "app-settings",
  "bd-cli",
  "bd-core",
+ "block2",
  "branch-integration",
  "cli-tools",
  "domain-types",

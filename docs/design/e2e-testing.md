@@ -1,7 +1,7 @@
 # E2E Testing Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-22  
+**Updated:** 2026-10-24  
 **Tags:** [testing, playwright, mocking, snapshots]
 
 ## Problem
@@ -230,9 +230,12 @@ Mock implementation:
   `tests/e2e/helpers/title-bar-helpers.ts`: macOS, Windows, GNOME layouts, KDE). The browser says it is Windows, so the
   lone Alt tap of the main menu is on. `emit` and `emit_to` are recorded in `__e2eEmittedEvents`, not delivered
 - **Sub-windows**: `open_sub_window` is answered in the page and recorded in `__e2eSubWindows` (the label, the URL, the
-  title, the parsed data and the settings it starts from, `store`); `getOpenedSubWindows` reads them; `sub_window_ready` (the page painted) is answered in
+  title, the parsed data and the settings it starts from, `store`); `getOpenedSubWindows` reads them; `sub_window_ready` (the page settled its content) is answered in
   the page too, recorded in `__e2eSubWindowReady` (the open) and `__e2eWindowReadyRows` (the branch rows the page had
-  then: the main window, whose open the mock sets as its init script does, says it on its first rows). Two ways show a sub-window:
+  then: the main window, whose open the mock sets as its init script does, says it on its first rows);
+  `sub_window_drawn` (the page committed its shell) goes on to the server, which shows no window, and records in
+  `__e2eWindowShell` the title rows, the loading tables and the branch rows the page had then (`getWindowShell`). Two
+  ways show a sub-window:
   - in the same page, with the recorded data as `__INIT_DATA__` (`openSubWindowPage` in `sub-window-helpers.ts`), under
     the label `main`: for a window that only reads (the commit review, the branch review, the conflict windows); the
     main window's page is gone then;

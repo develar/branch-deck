@@ -4,6 +4,7 @@ pub mod legacy_model_cache;
 pub mod lock_wait;
 pub mod menu;
 pub mod operation;
+pub mod presentation;
 pub mod progress;
 pub mod repository_state;
 pub mod settings;
@@ -22,6 +23,8 @@ mod command_scan_test;
 mod log_rotation_test;
 #[cfg(test)]
 mod menu_test;
+#[cfg(test)]
+mod presentation_test;
 #[cfg(test)]
 mod repository_state_test;
 #[cfg(test)]
@@ -71,7 +74,9 @@ use commands::sync_inputs::get_sync_inputs_fingerprint;
 use commands::unapply_branch::{reapply_branch, unapply_branch, undo_reapply_branch, undo_unapply_branch};
 use commands::uncommitted_changes::get_uncommitted_changes;
 use commands::update_project::{dismiss_landed, update_project};
-use commands::window_management::{BuiltPage, SubWindowState, epoch_millis, open_script, open_sub_window, show_when_settled, sub_window_loaded, sub_window_ready};
+use commands::window_management::{
+  BuiltPage, SubWindowState, epoch_millis, open_script, open_sub_window, show_when_settled, sub_window_drawn, sub_window_loaded, sub_window_ready,
+};
 use commands::window_menu::show_window_menu;
 use commands::youtrack::{
   YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, set_youtrack_issue_state, sign_out_of_youtrack,
@@ -171,6 +176,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
       install_update,
       open_sub_window,
       sub_window_loaded,
+      sub_window_drawn,
       sub_window_ready,
       show_window_menu,
       restart_app,
@@ -383,13 +389,13 @@ pub fn run() {
           .disable_drag_drop_handler(),
       );
       // known before the page can load and say it drew its first rows
-      windows.built(app_settings::windows::MAIN_WINDOW, open, BuiltPage::Main);
+      let deadline = windows.built(app_settings::windows::MAIN_WINDOW, open, BuiltPage::Main);
       let window = builder.build()?;
       apply_zoom(&window, zoom);
       // built hidden (`with_title_bar`), it shows on its first frame with content, as a sub-window does: never a grey
       // canvas, nor a title row over an empty body
       prepare_title_bar(&window);
-      show_when_settled(app.handle().clone(), app_settings::windows::MAIN_WINDOW.to_owned(), open.id);
+      show_when_settled(app.handle().clone(), app_settings::windows::MAIN_WINDOW.to_owned(), deadline);
 
       Ok(())
     })

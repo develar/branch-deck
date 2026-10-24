@@ -278,6 +278,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/set_setting", post(tauri_command_bridge::set_setting))
     .route("/invoke/get_settings_changes", post(tauri_command_bridge::get_settings_changes))
     .route("/invoke/sub_window_loaded", post(tauri_command_bridge::sub_window_loaded))
+    .route("/invoke/sub_window_drawn", post(tauri_command_bridge::sub_window_drawn))
     .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
     .route("/invoke/install_agent_cli", post(tauri_command_bridge::install_agent_cli))
     .route("/invoke/agent_cli_status", post(tauri_command_bridge::agent_cli_status))

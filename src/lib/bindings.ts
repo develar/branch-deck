@@ -308,14 +308,20 @@ export const commands = {
 	openSubWindow: (params: OpenSubWindowParams) => typedError<null, ApiError>(__TAURI_INVOKE("open_sub_window", { params })),
 	/**
 	 *  The page of the calling window loaded and listens to the settings: a sub-window gets the data of an open that came
-	 *  while it loaded and the changes of the settings after the snapshot its window was built with, and the window shows
-	 *  once the page settled its content, at most its content budget from now (`CONTENT_BUDGET`, the main window's
-	 *  `MAIN_CONTENT_BUDGET`)
+	 *  while it loaded and the changes of the settings after the snapshot its window was built with. The window shows once
+	 *  the page settled its content, at most `DRAW_FALLBACK` from now when the page draws no shell (`sub_window_drawn`)
 	 */
 	subWindowLoaded: () => typedError<SubWindowLoaded, ApiError>(__TAURI_INVOKE("sub_window_loaded")),
 	/**
+	 *  The loaded page of the calling window committed its shell, the title row (the main window's with its loading table):
+	 *  the window shows once the page settled its content, at most the content budget of the page from now
+	 *  (`CONTENT_BUDGET`, the main window's `MAIN_CONTENT_BUDGET`), so a slow page shows its shell, never a bare canvas
+	 */
+	subWindowDrawn: () => typedError<null, ApiError>(__TAURI_INVOKE("sub_window_drawn")),
+	/**
 	 *  The page of the calling window settled the content of the open `open_id` (the main window: drew its first rows or
-	 *  the state without rows): the window shows if that is the latest open and the window is still hidden
+	 *  the state without rows): the window shows if that is the latest open and the window is still hidden, once its
+	 *  webview presented that content (`show_window`)
 	 */
 	subWindowReady: (openId: number) => typedError<null, ApiError>(__TAURI_INVOKE("sub_window_ready", { openId })),
 	/**
