@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use sync_utils::fs_retry;
 use sync_utils::span::in_current_span;
 use tracing::Instrument;
 
@@ -468,11 +469,11 @@ async fn ensure_template(state: &AppState, name: &'static str) -> anyhow::Result
   let building = state.templates_dir.join(format!(".{name}.building"));
   let target = template_path.clone();
   tokio::task::spawn_blocking(in_current_span(move || {
-    let _ = std::fs::remove_dir_all(&building);
+    let _ = fs_retry::remove_dir_all(&building);
     tracing::info!("Creating test repository template: {name}");
-    let built = build(&building).and_then(|()| Ok(std::fs::rename(&building, &target)?));
+    let built = build(&building).and_then(|()| Ok(fs_retry::rename(&building, &target)?));
     if built.is_err() {
-      let _ = std::fs::remove_dir_all(&building);
+      let _ = fs_retry::remove_dir_all(&building);
     }
     built
   }))
@@ -931,7 +932,8 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
 
 /// Releases the repository lock the test of a deleted repository left held, then waits for the commands still running
 /// for it (`hold_repository`) and for the computations of its landing needs (`RepositoryViews::forget`), then deletes
-/// its files
+/// its files (`fs_retry`: on Windows a process whose current directory is in them, or a scanner with a file open,
+/// blocks the removal until it lets go)
 async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepository) {
   // the lock first (`hold_repository_lock`), its holder record with it: a rewrite of the page that waits for it, as
   // long as its holder (this server) lives, runs and ends instead of keeping the deletion waiting
@@ -952,12 +954,12 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
     tracing::warn!("Failed to save the settings of {id}: {e}");
   }
   if repo.app_data.exists()
-    && let Err(e) = std::fs::remove_dir_all(&repo.app_data)
+    && let Err(e) = fs_retry::remove_dir_all(&repo.app_data)
   {
     tracing::warn!("Failed to remove the app data {}: {}", repo.app_data.display(), e);
   }
   let global_config = state.global_config_of(&id);
-  if let Err(e) = std::fs::remove_file(&global_config)
+  if let Err(e) = fs_retry::remove_file(&global_config)
     && e.kind() != std::io::ErrorKind::NotFound
   {
     tracing::warn!("Failed to remove the global config {}: {}", global_config.display(), e);
@@ -965,7 +967,7 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
 
   let directory = PathBuf::from(&repo.path);
   if directory.starts_with(state.test_root_dir.path()) {
-    let removed = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&directory)).await;
+    let removed = tokio::task::spawn_blocking(move || fs_retry::remove_dir_all(&directory)).await;
     match removed {
       Ok(Ok(())) => {}
       Ok(Err(e)) => tracing::warn!("Failed to remove repository directory {}: {}", repo.path, e),

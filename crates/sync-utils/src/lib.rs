@@ -1,5 +1,6 @@
 pub mod atomic_file;
 pub mod child_process;
+pub mod fs_retry;
 pub mod git_bool;
 pub mod issue_pattern;
 pub mod known_tools;
@@ -16,6 +17,8 @@ pub mod timestamp;
 mod atomic_file_test;
 #[cfg(test)]
 mod child_process_test;
+#[cfg(test)]
+mod fs_retry_test;
 #[cfg(test)]
 mod list_cut_test;
 #[cfg(test)]

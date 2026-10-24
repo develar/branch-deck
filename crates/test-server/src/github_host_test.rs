@@ -1,5 +1,5 @@
 use crate::remote_fixtures::fixture_pulls;
-use crate::test_support::{create_repository, delete_repository, post, start_test_server};
+use crate::test_support::{create_repository, delete_repository, head, post, start_test_server};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -108,16 +108,8 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository(&client, addr).await;
-  for branch in ["auth", "login"] {
-    let created = git_command()
-      .args(["branch", &format!("user-name/virtual/{branch}"), "HEAD"])
-      .current_dir(&repository_path)
-      .output()
-      .unwrap();
-    assert!(created.status.success());
-  }
-  let tip = git_command().args(["rev-parse", "HEAD"]).current_dir(&repository_path).output().unwrap();
-  let tip = String::from_utf8(tip.stdout).unwrap().trim().to_string();
+  branch_at_head(&repository_path, "user-name/virtual/auth");
+  let tip = branch_at_head(&repository_path, "user-name/virtual/login");
   let list = json!({"repositoryPath": repository_path});
   assert_eq!(
     post(&client, addr, "/invoke/get_pull_requests", list.clone()).await["availability"],
@@ -293,11 +285,27 @@ async fn listing_login() -> (std::net::SocketAddr, reqwest::Client, String, Stri
   (addr, client, id, repository_path)
 }
 
-/// Starts `command` of the repository at `repository_path` in a task of its own: its answer, once given
-fn invoke(client: &reqwest::Client, addr: std::net::SocketAddr, command: &'static str, repository_path: &str) -> tokio::task::JoinHandle<Value> {
-  let client = client.clone();
-  let params = json!({"repositoryPath": repository_path});
-  tokio::spawn(async move { post(&client, addr, &format!("/invoke/{command}"), params).await })
+/// Creates the branch `name` at HEAD of the repository at `path`: its tip, which the fake GitHub answers as the head
+/// commit of a pull request of the branch, from the files of the repository
+fn branch_at_head(path: &str, name: &str) -> String {
+  let created = git_command().args(["branch", name, "HEAD"]).current_dir(path).output().unwrap();
+  assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr));
+  head(path)
+}
+
+/// Starts `command` of the repository `id` at `repository_path` in a task of its own: its answer, once given. It names
+/// the repository as the page does (`X-Repository-Id`), so the deletion of the repository waits for it before it
+/// removes the files
+fn invoke(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, command: &'static str, repository_path: &str) -> tokio::task::JoinHandle<Value> {
+  let request = client
+    .post(format!("http://{addr}/invoke/{command}"))
+    .header(crate::REPOSITORY_ID_HEADER, id)
+    .json(&json!({"repositoryPath": repository_path}));
+  tokio::spawn(async move {
+    let response = request.send().await.unwrap();
+    assert_eq!(response.status(), 200, "{command}");
+    response.json().await.unwrap()
+  })
 }
 
 /// A held answer (`/remote-gates`): the page's request reaches the fake and waits there, the fixture names it as
@@ -315,9 +323,9 @@ async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
   .await;
   assert_eq!(get(&client, addr, &format!("/repositories/{id}/remote-gates")).await, json!({"arrived": []}));
 
-  let listed = invoke(&client, addr, "get_pull_requests", &repository_path);
+  let listed = invoke(&client, addr, &id, "get_pull_requests", &repository_path);
   until_arrived(&client, addr, &id, "pullRequests").await;
-  let requests = invoke(&client, addr, "get_review_requests", &repository_path);
+  let requests = invoke(&client, addr, &id, "get_review_requests", &repository_path);
   until_arrived(&client, addr, &id, "reviewRequests").await;
   assert!(!listed.is_finished() && !requests.is_finished(), "a held answer came");
 
@@ -330,13 +338,17 @@ async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
   delete_repository(&client, addr, &id, &repository_path).await;
 }
 
-/// A deleted repository releases what its test held: a command waiting at a fake ends instead of holding the deletion
+/// A deleted repository releases what its test held: a command waiting at a fake ends instead of holding the deletion,
+/// and the deletion removes the files only once it ended, so the git of the fake's answer still reads them (on Windows
+/// that git, its current directory in them, failed the removal under it)
 #[tokio::test]
 async fn a_deleted_repository_releases_the_answers_its_test_held() {
   let (addr, client, id, repository_path) = listing_login().await;
+  let tip = branch_at_head(&repository_path, "user-name/virtual/login");
   post(&client, addr, &format!("/repositories/{id}/remote-gates"), json!({"hold": ["pullRequests"]})).await;
-  let listed = invoke(&client, addr, "get_pull_requests", &repository_path);
+  let listed = invoke(&client, addr, &id, "get_pull_requests", &repository_path);
   until_arrived(&client, addr, &id, "pullRequests").await;
   delete_repository(&client, addr, &id, &repository_path).await;
-  assert!(tokio::time::timeout(std::time::Duration::from_mins(1), listed).await.is_ok(), "the held listing ended");
+  let listed = tokio::time::timeout(std::time::Duration::from_mins(1), listed).await.expect("the held listing ended");
+  assert_eq!(listed.unwrap()["pullRequests"]["login"]["headRefOid"], tip.as_str());
 }

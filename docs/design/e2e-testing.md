@@ -283,7 +283,12 @@ State isolation:
   repository lock its test held (`holdRepositoryLock`, also when the test failed before it released it), then deletes
   the files. Before, a test's cleanup deleted them under a running sync, file read or note write, and under the
   landing needs ("not a git repository", "bad object", "Unable to read current working directory"); and a wait of 10 s
-  in the cleanup was too short under load (`repository_lifecycle_test.rs`)
+  in the cleanup was too short under load (`repository_lifecycle_test.rs`). The deletion waits only for the commands
+  of a named repository: a route test that runs a command across it names the repository too (`invoke` of
+  `github_host_test.rs`), or the fake GitHub's git of a released answer runs in the files the deletion removes. The
+  removals go through `sync_utils::fs_retry`, which tries a sharing error again for about a second: on Windows a
+  process whose current directory is in the directory, or a scanner with a file open, blocks its removal until it
+  lets go, and the directory stays
 - **Port**: `E2E_PORT` (default 3030, `tests/e2e/helpers/test-server-url.ts`) sets the port of the server, the
   Playwright `baseURL` and the helpers; the mock script calls its page's origin. `/health` answers the checkout the
   server serves, and global setup refuses a server of another checkout: Playwright reuses whatever listens on the port

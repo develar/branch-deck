@@ -19,7 +19,7 @@ tracing.workspace = true
 libc = "0.2.191"
 
 # the start time of a process (`process_scan`: `OpenProcess`, `GetProcessTimes`) and the sharing errors that a rename
-# over an open file waits out (`atomic_file`)
+# or a removal waits out (`fs_retry`)
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
 

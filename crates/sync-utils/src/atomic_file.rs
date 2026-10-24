@@ -6,7 +6,7 @@
 //! `tempfile`'s `persist` returns as is); `std::fs::rename` then renames with POSIX semantics, which replace the file
 //! under the open handles of readers that share delete, as every `std::fs` open does. A program that opened the file
 //! without `FILE_SHARE_DELETE` (an antivirus, an indexer, an editor) blocks the rename until it closes it, so a
-//! rename that fails with a sharing error is tried again for about a second, as Git for Windows does.
+//! rename that fails with a sharing error is tried again for about a second (`fs_retry::rename`).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -40,7 +40,7 @@ pub fn write_atomically(path: &Path, content: &[u8], options: AtomicWrite) -> st
   let written = file.write_all(content).and_then(|()| if options.durable { file.sync_all() } else { Ok(()) });
   // closed before the rename: Windows renames an open file only when it was opened to share delete
   drop(file);
-  if let Err(error) = written.and_then(|()| rename_over(&temporary, path)) {
+  if let Err(error) = written.and_then(|()| crate::fs_retry::rename(&temporary, path)) {
     let _ = std::fs::remove_file(&temporary);
     return Err(error);
   }
@@ -61,30 +61,6 @@ fn create_temporary(path: &Path, open: &std::fs::OpenOptions) -> std::io::Result
       // left by a process that had this pid and was killed before its rename
       Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && passed_over < 100 => passed_over += 1,
       Err(error) => return Err(error),
-    }
-  }
-}
-
-#[cfg(not(windows))]
-fn rename_over(from: &Path, to: &Path) -> std::io::Result<()> {
-  std::fs::rename(from, to)
-}
-
-/// `std::fs::rename`, tried again while a program that holds `to` open without sharing delete blocks it
-#[cfg(windows)]
-fn rename_over(from: &Path, to: &Path) -> std::io::Result<()> {
-  use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION};
-  /// The waits before the tries after the first: about a second in all
-  const RETRY_DELAYS_MS: [u64; 8] = [1, 5, 10, 25, 50, 100, 250, 500];
-  let sharing = [ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION].map(u32::cast_signed);
-  let mut delays = RETRY_DELAYS_MS.iter();
-  loop {
-    match std::fs::rename(from, to) {
-      Err(error) if error.raw_os_error().is_some_and(|code| sharing.contains(&code)) => match delays.next() {
-        Some(&delay) => std::thread::sleep(std::time::Duration::from_millis(delay)),
-        None => return Err(error),
-      },
-      result => return result,
     }
   }
 }
