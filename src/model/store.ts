@@ -13,8 +13,10 @@
  * far the run is. A request (`requestSessionSync`, and a focus of the window, `setSessionWindowFocus`) resolves when
  * the run that serves it ended and its last patch reached the store (`SyncAnswer.version`); a command whose result the
  * session applied (a push, a deletion) waits the same way for the version it answers (`whenSessionViewAt`); an answer
- * of another epoch than the view's subscribes the window again (`whenServedViewAt`). The remote status of a row is the
- * session's: Rust orders a push's outcome against the syncs, so the store shows what it gets.
+ * of another epoch than the view's is of a session the window left while the session open now still has the view's
+ * epoch, and else subscribes the window again: its subscription went with the actor of its session (`whenServedViewAt`).
+ * The remote status of a row is the session's: Rust orders a push's outcome against the syncs, so the store shows what
+ * it gets.
  */
 import { Channel } from "@tauri-apps/api/core"
 import type { ApiError, BranchChange, BranchView, Commit, CommitSync, StackBranchUpdate, SyncAnswer, SyncReason, TableChanges, TableView, Version, ViewPatch } from "@/lib/bindings"
@@ -51,8 +53,12 @@ interface Session {
   closed: boolean
   /** A snapshot is asked (`get_snapshot`): the patches wait for it */
   refreshing: boolean
-  /** The sync requests of this window to the session that have not answered yet: Sync is busy from the click, before the run's first patch */
-  pending: number
+  /**
+   * The sync requests of this window to the session that have not answered yet: Sync is busy from the click, before the
+   * run's first patch. A subscription made again for a session that went away (`resubscribe`) shares the count of the
+   * one it replaces, whose requests are still in flight
+   */
+  readonly pending: { count: number }
   /** Resolves once the subscription answered or failed */
   ready: Promise<void>
 }
@@ -133,8 +139,8 @@ export async function whenSessionViewAt(repositoryPath: string, version: Version
   }
 }
 
-function subscribe(repositoryPath: string): void {
-  const opened: Session = { repositoryPath, view: null, early: [], id: null, failure: null, closed: false, refreshing: false, pending: 0, ready: Promise.resolve() }
+function subscribe(repositoryPath: string, pending: { count: number } = { count: 0 }): void {
+  const opened: Session = { repositoryPath, view: null, early: [], id: null, failure: null, closed: false, refreshing: false, pending, ready: Promise.resolve() }
   const channel = new Channel<ViewPatch>()
   channel.onmessage = patch => receive(opened, patch)
   session = opened
@@ -157,14 +163,14 @@ function subscribe(repositoryPath: string): void {
 
 /**
  * The session the window subscribed to is gone, and its patches with it: the window subscribes to the session of the
- * repository open now (another epoch), the table kept until its view comes
+ * repository open now (another epoch), the table kept until its view comes, Sync busy for the requests still in flight
  */
 function resubscribe(gone: Session): void {
   gone.closed = true
   if (gone.id !== null) {
     void commands.unsubscribeView({ id: gone.id })
   }
-  subscribe(gone.repositoryPath)
+  subscribe(gone.repositoryPath, gone.pending)
 }
 
 function fail(failed: Session, error: unknown): void {
@@ -269,7 +275,7 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
   if (!running && wasRunning) {
     update.syncCount = state.syncCount + 1
   }
-  update.isSyncing = running || (session?.pending ?? 0) > 0
+  update.isSyncing = running || (session?.pending.count ?? 0) > 0
   update.syncError = syncErrorOf(next)
 
   if (changes === null || changes.header != null) {
@@ -606,11 +612,13 @@ function whenViewAt(target: Session, version: Version): Promise<void> {
 /**
  * Resolves once the window's session of `repositoryPath` has the view at `version`, the answer of a request (a sync, a
  * focus, a push), with that session; null once the window holds no session of the repository, or one that did not
- * serve the request. The window may hold another session than the one it asked: one it opened meanwhile (a new prefix,
- * `useSyncOnOpen`), or one whose actor died and took the window's subscription with it, which the request opened again
- * in a new epoch. So an answer of another epoch than the view's subscribes the window again, once, to the session open
- * now, the table kept until its view comes; a view of yet another epoch then is of a session that did not serve it.
- * While `busy` (a request of Sync), Sync is busy until the view has the version
+ * serve the request. An answer of another epoch than the view's is of another session than the window's: of one the
+ * window left (a request sent before it opened the session of a new prefix, `useSyncOnOpen`), whose answer it drops,
+ * its subscription kept; or of one the request opened again, because the actor of the window's session died and took
+ * the subscription with it. Which one, the session open now says (`subscriptionHolds`): when it no longer has the
+ * view's epoch, the window subscribes again, once, the table kept until its view comes; a view of yet another epoch
+ * then is of a session that did not serve it. While `busy` (a request of Sync), Sync is busy until the view has the
+ * version
  */
 async function whenServedViewAt(repositoryPath: string, version: Version, busy: boolean): Promise<Session | null> {
   let subscribedAgain = false
@@ -626,8 +634,17 @@ async function whenServedViewAt(repositoryPath: string, version: Version, busy: 
     if (target.failure !== null || target.view === null) {
       return null
     }
-    if (target.view.version.epoch !== version.epoch) {
+    const viewEpoch = target.view.version.epoch
+    if (viewEpoch !== version.epoch) {
       if (subscribedAgain) {
+        return null
+      }
+      const holds = await subscriptionHolds(repositoryPath, viewEpoch)
+      // the window opened another session meanwhile, or a snapshot gave its view another epoch: look again
+      if (target !== session || target.view.version.epoch !== viewEpoch) {
+        continue
+      }
+      if (holds) {
         return null
       }
       subscribedAgain = true
@@ -646,11 +663,27 @@ async function whenServedViewAt(repositoryPath: string, version: Version, busy: 
   }
 }
 
+/**
+ * Whether the window's subscription to the session of `repositoryPath` holds: the session open now has the epoch of
+ * the view (`get_snapshot`). Not when none is open, or one of another epoch: the window's went away with its actor. A
+ * failed read changes nothing: the subscription is kept
+ */
+async function subscriptionHolds(repositoryPath: string, viewEpoch: number): Promise<boolean> {
+  const result = await commands.getSnapshot({ repositoryPath })
+  if (result.status === "error") {
+    console.error("Cannot read the branches of the repository", result.error)
+    return true
+  }
+  return result.data !== null && result.data.version.epoch === viewEpoch
+}
+
 /** Counts a request of `target` that started (1) or answered (-1); Sync of the window shows the requests of its session */
 function countRequest(target: Session, delta: 1 | -1): void {
-  target.pending += delta
-  if (target === session) {
-    branchSyncStore.setState({ isSyncing: target.view?.sync.kind === "running" || target.pending > 0, syncError: syncErrorOf(target.view) })
+  target.pending.count += delta
+  const shown = session
+  // the subscription made again for a session that went away counts the requests of the one it replaced
+  if (shown !== null && shown.pending === target.pending) {
+    branchSyncStore.setState({ isSyncing: shown.view?.sync.kind === "running" || shown.pending.count > 0, syncError: syncErrorOf(shown.view) })
   }
 }
 

@@ -347,12 +347,60 @@ describe("a sync of the session", () => {
     expect(branchSyncStore.getState().branchOrder).toEqual(["a"])
     sync.answer()
     expect(await synced).toEqual({ outcome: "synced", version: { epoch: 2, seq: 1 } })
+    // the session open now has another epoch than the view's: the window's subscription went with the actor
+    expect(fakeSessions.snapshotCalls).toEqual(["/repo"])
     expect(fakeSessions.subscribeCalls).toHaveLength(2)
     expect(branchSyncStore.getState()).toMatchObject({ viewVersion: { epoch: 2, seq: 1 }, branchOrder: ["c"], isSyncing: false, syncedRepositoryPath: "/repo" })
     expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 1 }) }])
     // the next run's patches reach the window on its new subscription
     await send({ ...running, ...grouping("c", "d") })
     expect(branchSyncStore.getState().branchOrder).toEqual(["c", "d"])
+  })
+
+  it("keeps Sync busy for the requests still in flight when it subscribes again: the subscription made again counts them", async () => {
+    await open()
+    await send(grouping("a"))
+    const first = requestSessionSync("manual")
+    const second = requestSessionSync("manual")
+    const queued = await nextSync(2)
+    const sync = fakeSessions.syncs[0]!
+    fakeSessions.dropSession("/repo", { ...emptyView({ epoch: 2, seq: 0 }), order: ["c"] })
+    fakeSessions.send("/repo", grouping("c"))
+    sync.answer()
+    expect(await first).toEqual({ outcome: "synced", version: { epoch: 2, seq: 1 } })
+    expect(fakeSessions.subscribeCalls).toHaveLength(2)
+    expect(branchSyncStore.getState()).toMatchObject({ viewVersion: { epoch: 2, seq: 1 }, branchOrder: ["c"], isSyncing: true })
+    queued.answer()
+    await second
+    expect(branchSyncStore.getState().isSyncing).toBe(false)
+  })
+
+  it("drops the late answer of the session of the prefix it left: its subscription to the new one holds, Sync busy for the request of the new one", async () => {
+    await open()
+    await send(grouping("a"))
+    const old = requestSessionSync("manual")
+    const oldSync = await nextSync(1)
+    const oldVersion = fakeSessions.view("/repo").version
+    // a prefix written in Settings: the window opens the session of the new prefix, in its own epoch, and syncs it
+    fakeSessions.reopen("/repo", { ...emptyView({ epoch: 2, seq: 0 }), order: ["c"] })
+    openSession("/repo")
+    await whenSessionReady()
+    const opened = requestSessionSync("open")
+    const openSync = await nextSync(2)
+    // the run of the old prefix had passed its check: it ends under the old prefix and answers its epoch
+    oldSync.answer("synced", oldVersion)
+    expect(await old).toEqual({ outcome: "synced", version: oldVersion })
+    expect(fakeSessions.snapshotCalls).toEqual(["/repo"])
+    expect(fakeSessions.subscribeCalls).toHaveLength(2)
+    expect(fakeSessions.subscriptions).toHaveLength(1)
+    expect(branchSyncStore.getState()).toMatchObject({ viewVersion: { epoch: 2, seq: 0 }, isSyncing: true, syncedRepositoryPath: null })
+    expect(syncRecords).toEqual([])
+    // the run of the new session ends: its answer is recorded, its patches reach the window on the subscription kept
+    await send(grouping("c", "d"))
+    openSync.answer()
+    expect(await opened).toEqual({ outcome: "synced", version: { epoch: 2, seq: 1 } })
+    expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["c", "d"], isSyncing: false, syncedRepositoryPath: "/repo" })
+    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 2 }) }])
   })
 
   it("names the failure of a refused request, and of a run the failed state of the view", async () => {

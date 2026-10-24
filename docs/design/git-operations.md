@@ -3240,7 +3240,7 @@ subscribers runs nothing (a focus is `Skipped`, no git process), and `Sessions::
 without subscribers or operations on the session clock (`TestClock` in the tests), and at once one whose actor is gone
 (a panic in a debug build; the release build aborts), which the next call opens again too; opened again a session has
 a new epoch, and its old subscribers are gone with the actor: a window subscribes again once the answer of its request
-names another epoch than its view's. `session_test.rs` pins the tickets, the recheck, the retry, the kept table, the late events, the focus
+names another epoch than its view's and `get_snapshot` finds no view of the view's epoch either. `session_test.rs` pins the tickets, the recheck, the retry, the kept table, the late events, the focus
 checks, the timing of the patches (on a paused clock), the prefix check, two worktrees and the life;
 `sync_scheduler_test.rs` the schedule.
 
@@ -3269,7 +3269,9 @@ repository does, `useSyncOnOpen`; a `prefix_changed` answer resolves the prefix 
 repository never synced, which no sync of an opened repository serves, is asked again of the session of the new
 prefix), applies its patches, asks `sync` (Sync, ⌘R, after a change; ⌘R during a sync asks a `Focus` check after it;
 an answer of another epoch than the view's subscribes the window again, once, to the session open now, the table kept
-until its view comes) and tells the session its focus (`set_window_focus`, on focus
+until its view comes and Sync busy for the requests still in flight, unless the session open now still has the view's
+epoch: then the answer is of a session the window left, the late answer of a prefix it left, and is dropped) and tells
+the session its focus (`set_window_focus`, on focus
 and on blur, the last state of 100 ms; it checks no setting), and no `SyncEvent` reaches a page. A sub-window that
 reads the table subscribes the same way, by the path of its repository and under its own label, with a store of its
 own: the review window of a branch takes the heads of its chain, the baseline and the branch of each commit of a

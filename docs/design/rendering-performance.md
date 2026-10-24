@@ -56,11 +56,14 @@ flowchart LR
   (`subscribe_view`, by path, the prefix Rust's) and applies each patch whose base is the version it holds
   (`applyViewPatch`, `src/model/patch.ts`, as `repository_model::patch` does): one of another epoch, or after a gap,
   asks for the snapshot (`get_snapshot`), one that came before the subscription answered waits for its view, a
-  session that went away is subscribed again, and so is one whose request answers another epoch than the view's (its
-  actor died and took the subscription with it). A patch builds again only the records of the branches and stacks it
+  session that went away is subscribed again, and so is one whose request answers another epoch than the view's while
+  the session open now has no view of the view's epoch either (its actor died and took the subscription with it); one
+  that does is the window's, so the answer is of a session the window left (the late answer of the prefix it left) and
+  is dropped, the subscription kept. A subscription made again counts the requests still in flight on the one it
+  replaces, so Sync stays busy for them. A patch builds again only the records of the branches and stacks it
   names; a branch whose state alone changed keeps its commits and their index, so the row of an untouched branch does
   not render again.
-  [@test] ../../src/model/store.test.ts (`takes the snapshot when a patch of another epoch comes: the session was opened again`, `subscribes again when the snapshot finds the session gone, keeping the table until the new view comes`, `subscribes again when a sync answers another epoch than its view's: the actor of the session died, and the sync opened it again`)
+  [@test] ../../src/model/store.test.ts (`takes the snapshot when a patch of another epoch comes: the session was opened again`, `subscribes again when the snapshot finds the session gone, keeping the table until the new view comes`, `subscribes again when a sync answers another epoch than its view's: the actor of the session died, and the sync opened it again`, `keeps Sync busy for the requests still in flight when it subscribes again: the subscription made again counts them`, `drops the late answer of the session of the prefix it left: its subscription to the new one holds, Sync busy for the request of the new one`)
   - Updates of other stores run in the same pass: the issue links (`updateProject`), the archived names (marked new
     only for what this patch archived), the landed status, the unapplied branches.
   - Nothing depends on the moment of arrival in the page: the session orders a push against the syncs

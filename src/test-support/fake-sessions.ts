@@ -30,10 +30,13 @@ interface Subscription {
   readonly channel: { onmessage: (patch: ViewPatch) => void }
 }
 
-/** A sync request the test answers: with the outcome and the version of the view then, or with an error */
+/**
+ * A sync request the test answers: with the outcome and the version of the view then (or `version`: the session that
+ * served it is not the one the fake holds now), or with an error
+ */
 export interface HeldSync {
   readonly params: SyncParams
-  answer(outcome?: SyncOutcome): void
+  answer(outcome?: SyncOutcome, version?: Version): void
   fail(error: ApiError): void
 }
 
@@ -226,7 +229,7 @@ export class FakeSessions {
     return new Promise(resolve => {
       this.syncs.push({
         params,
-        answer: (outcome = "synced") => resolve({ status: "ok", data: { outcome, version: this.view(params.repositoryPath).version } }),
+        answer: (outcome = "synced", version = this.view(params.repositoryPath).version) => resolve({ status: "ok", data: { outcome, version } }),
         fail: error => resolve({ status: "error", error }),
       })
     })
