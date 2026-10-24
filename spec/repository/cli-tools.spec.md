@@ -97,8 +97,8 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
   already), then `scoop install jetbrains/<tool>`, `scoop update <tool>`. choco needs an administrator and is not run.
   Without either the row shows the README's command (`winget install JetBrains.TeamCityCLI`, `irm
   https://jb.gg/youtrack-cli/install.ps1 | iex`). Which manager installed a CLI is told by its path (`Cellar`,
-  `WinGet`, `scoop`); winget's links and scoop's shims are looked in too, as the `PATH` of a running app lacks what was
-  installed after it started.
+  `WinGet`, `scoop`); winget's links, scoop's shims and `~/.local/bin` (the install script) are looked in after `PATH`,
+  as the `PATH` of a running app lacks what was installed after it started.
   [@test] ../../crates/cli-tools/src/package_manager_test.rs (`winget_installs_for_the_user_without_prompts_and_scoop_adds_its_bucket_first`, `the_path_of_a_binary_tells_its_manager_when_the_machine_has_it`)
   [@test] ../../crates/cli-tools/src/install_test.rs (`the_package_manager_of_the_machine_installs_teamcity`)
   [@test] ../../crates/cli-tools/src/install_test.rs (`installs_and_updates_through_homebrew_streaming_its_lines`, `a_teamcity_outside_homebrew_updates_itself`)

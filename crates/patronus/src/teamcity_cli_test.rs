@@ -118,8 +118,9 @@ fn the_cli_on_path_comes_first() {
   let empty = tempfile::tempdir().unwrap();
   let found = find_tool_in(&TEAMCITY, Some(home.path()), Some(empty.path().as_os_str()));
   if cfg!(windows) {
-    // Windows has no Homebrew and no ~/.local/bin convention: only PATH counts there
-    assert_eq!(found, None);
+    // Windows has no Homebrew: after PATH come winget's links and scoop's shims, which this home lacks, then the
+    // ~/.local/bin of the install script
+    assert_eq!(found, Some(in_home));
   } else {
     // Homebrew's, where it is installed, else the one in ~/.local/bin
     let found = found.unwrap();
