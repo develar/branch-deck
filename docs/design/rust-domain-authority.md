@@ -1681,6 +1681,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
     Мёртвый `batchTimer` (`src/lib/batch-timer.ts`, flush TS для скрытого окна) удалён: патчи сливает часы сессии в
     Rust, страница применяет каждый при доставке (требование `title-bar.spec.md`). Критерий выхода выполнен:
     `grep -rn SyncEvent src/` пуст (последним был doc comment `LandedSection` в `bindings.ts`).
+    `perf:table` по очереди с master `abaec1e3` (его события потоком): первый sync — меньше script и примерно тот же
+    task, sync без изменений — вдвое меньше script ([Rendering Performance](rendering-performance.md)); `bd status` и
+    `bd sync` (два sync и status на копиях одного репозитория) — тот же JSON, что у установленного `bd`.
 
 ### s7-session-facts
 

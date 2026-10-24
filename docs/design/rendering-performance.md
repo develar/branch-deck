@@ -171,6 +171,8 @@ A sync that changes nothing cost little before and costs the same now. The rest 
 | the `SyncEvent` channel, its events sent once the sync was done (the mock before) | 235–245 / 412–464 ms | 32–55 / 72–119 ms |
 | the `SyncEvent` channel, its events sent as the sync ran (as the app's channel sent them) | 387–465 / 749–908 ms | 66 / 112–142 ms |
 | the patches of the session | 345–395 / 779–967 ms | 31–50 / 71–97 ms |
+| the patches of the session, the stage landed, at load 42–84 | 408–455 / 1134–1321 ms | 39–44 / 114–136 ms |
+| the `SyncEvent` channel of master `abaec1e3`, streamed, in the same turns | 482–613 / 1031–1423 ms | 77–166 / 153–292 ms |
 
 The rows before 2026-10-24 measured less than the app spent: the mock server answered the sync command before the session
 with its `SyncEvent`s once the sync was done, so the page applied its 432 events in one or two batches and rendered the rows once,
@@ -178,7 +180,10 @@ with its `SyncEvent`s once the sync was done, so the page applied its 432 events
 goes in the mock too (at most one per `PATCH_INTERVAL`, 16 ms, `runtime.rs`), so the first sync now includes about 40
 renders of the progress of the rows, which show 0.3 s after the click instead of at the end. Measured in turns against
 master with its events sent the same way (a throwaway change of its mock), the first sync costs the same task time and
-less script, and a sync that changes nothing about half.
+less script, and a sync that changes nothing about half. Measured again in three turns once the stage landed, with
+the focus, the push outcomes, the review window and the late facts of master in, at a load of 42 to 84 on 18 cores
+(other sessions building and testing beside it): the first sync costs less script and about the same task time (10 %
+more in two turns, less in the third), a sync that changes nothing half the script and less task time.
 
 ### The IPC of the branch view
 
@@ -190,7 +195,9 @@ patches of the session on the channel of `subscribe_view`, before 2026-10-24 the
 messages), and the commands of a rest of the pointer on a row (`hoverIpc`, past the dwell of the intent,
 `page.clock.fastForward`), of its "⋯" menu opened by a right click (`menuIpc`) and of its robot's popover
 (`popoverIpc`). The counts are exact, the same in every run, except the patches: the session sends at most one per
-16 ms of the run, so their number follows how long the sync took. What the session sends, its patches and their bytes
+16 ms of the run, so their number follows how long the sync took; and the debounced writes of the settings
+(`set_setting`: the settled layout of the view, the record of the sync), which count where they fire, in the first
+sync or in the hover (the rows of the stage landed: 3 in the first sync of Chromium, 2 in the hover of WebKit). What the session sends, its patches and their bytes
 without the page, prints an ignored test of the mock server (`patch_bytes_test.rs`):
 `cargo nextest run -p test-server --run-ignored only -E 'test(/patch_bytes/)' --no-capture`.
 
@@ -200,6 +207,8 @@ without the page, prints an ignored test of the mock server (`patch_bytes_test.r
 | 2026-10-24, the `SyncEvent` channel on master | 432 / 11 | 201890 | 1 / 0 / 0–1 |
 | 2026-10-24, the patches of the session, Chromium | 65–77 / 10 | 24784 | 1 / 0 / 0 |
 | 2026-10-24, the patches of the session, WebKit | 49–71 / 10 | 24657–24784 | 1 / 0 / 0 |
+| 2026-10-24, the stage landed, Chromium | 63 / 12 | 25054 | 1 / 0 / 0 |
+| 2026-10-24, the stage landed, WebKit | 72 / 10 | 24784 | 3 / 0 / 0 |
 
 A sync on the `SyncEvent` channel sent every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and
 `remoteStatusUpdate` per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). A patch
