@@ -58,7 +58,8 @@ test.describe("Squash commits", () => {
     const issueRow = findBranchRow(page, ISSUE)
     await expandBranch(page, issueRow)
     await openSquashOfParserAndTokens(page)
-    await expect(squashDialog(page)).toBeVisible()
+    // the key reaches the dialog's handler only once the dialog moved the focus into its message
+    await expect(squashDialog(page).getByTestId("squash-message-editor")).toBeFocused()
     await page.keyboard.press("ControlOrMeta+Enter")
     const squashed = page.locator("[data-slot=toast]").filter({ hasText: "Squashed 2 commits" })
     await expect(squashed).toBeVisible()
