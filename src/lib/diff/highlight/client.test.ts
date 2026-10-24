@@ -1,12 +1,17 @@
 // @spec spec/commit/commit-files.spec.md
-import { describe, expect, it } from "vite-plus/test"
+import { beforeAll, describe, expect, it } from "vite-plus/test"
 import { HighlightClient, inProcessPort } from "@/lib/diff/highlight/client"
 import type { BlobWant, HighlightPort } from "@/lib/diff/highlight/client"
-import { createGrammarSource } from "@/lib/diff/highlight/grammars"
+import type { GrammarSource } from "@/lib/diff/highlight/engine"
 import type { HighlightAnswer, HighlightRequest } from "@/lib/diff/highlight/protocol"
 import { TokenCache } from "@/lib/diff/highlight/token-cache"
+import { GRAMMAR_WARM_UP_TIMEOUT, warmGrammarSource } from "@/test-support/grammar-source"
 
-const source = createGrammarSource()
+let source: Promise<GrammarSource>
+
+beforeAll(async () => {
+  source = Promise.resolve(await warmGrammarSource(["kotlin"]))
+}, GRAMMAR_WARM_UP_TIMEOUT)
 
 /** A port that records the requests and lets a test answer */
 function recordingPort(): HighlightPort & { requests: HighlightRequest[]; answer: (answer: HighlightAnswer) => void } {

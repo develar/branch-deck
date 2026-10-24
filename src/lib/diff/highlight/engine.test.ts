@@ -6,16 +6,17 @@ import { createGrammarSource } from "@/lib/diff/highlight/grammars"
 import { FONT_STYLE_SHIFT, PAGE_LINES, ROLE_MASK } from "@/lib/diff/highlight/protocol"
 import type { HighlightAnswer } from "@/lib/diff/highlight/protocol"
 import { SYNTAX_ROLES } from "@/lib/diff/islands-themes"
+import { GRAMMAR_WARM_UP_TIMEOUT, warmGrammarSource } from "@/test-support/grammar-source"
 
 type PageAnswer = Extract<HighlightAnswer, { type: "page" }>
 
 let source: GrammarSource
 
 beforeAll(async () => {
-  source = await createGrammarSource()
-  // the first compile of a grammar under a loaded test run is slow: warm it outside the tests
-  await Promise.all(["kotlin", "rust", "typescript"].map(language => source.grammar(language)))
-})
+  // every grammar the tests load, Markdown with the grammars it embeds; the fresh source of a test then finds their
+  // modules imported
+  source = await warmGrammarSource(["kotlin", "rust", "typescript", "java", "markdown"])
+}, GRAMMAR_WARM_UP_TIMEOUT)
 
 function engineOf(): { engine: HighlightEngine; answers: HighlightAnswer[] } {
   const answers: HighlightAnswer[] = []
@@ -136,7 +137,8 @@ describe("HighlightEngine", () => {
     expect(at(7, "emphasis")).toBe("foreground italic")
   })
 
-  it("loads the grammars a grammar embeds before it, so a file of one of them later leaves its grammar as it is", async () => {
+  // a fresh source loads every grammar Markdown embeds: the work of a warm-up, seconds under a loaded run
+  it("loads the grammars a grammar embeds before it, so a file of one of them later leaves its grammar as it is", { timeout: GRAMMAR_WARM_UP_TIMEOUT }, async () => {
     const fresh = await createGrammarSource()
     const markdown = await fresh.grammar("markdown")
     await fresh.grammar("yaml")
