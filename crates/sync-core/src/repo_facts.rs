@@ -199,6 +199,8 @@ pub(crate) fn read_baseline_listing(
 pub struct Baseline {
   pub name: String,
   pub upstream: Option<BaselineUpstream>,
+  /// The branch HEAD is on, as the read found it; `None` for a detached HEAD
+  pub branch: Option<String>,
 }
 
 /// The baseline of the checked out branch and its upstream from one read: `symbolic-ref`, `remote` and one
@@ -215,6 +217,7 @@ pub fn read_baseline(git_executor: &GitCommandExecutor, repo_path: &str) -> Resu
   Ok(Baseline {
     name: listing.baseline,
     upstream: listing.upstream,
+    branch,
   })
 }
 

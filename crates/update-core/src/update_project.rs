@@ -10,7 +10,7 @@ use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{Worktree, current_worktree, is_object_id, with_dirs_of};
 use git_ops::update_branch::{
-  CheckPurpose, LandedScope, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards,
+  CheckPurpose, LandedScope, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards_on,
   check_update_undo, finish_pending_update, pending_update, recheck_update,
 };
 use git_ops::word_resolve::ResolveMode;
@@ -177,10 +177,10 @@ pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, op
 
 /// `update_project_with`; with `Resolve::Yes`, a conflict starts a resolve session
 fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress), resolve: Resolve<'_>) -> Result<BdUpdate> {
-  let Baseline { name, upstream } = read_baseline(git_executor, repo_path)?;
+  let Baseline { name, upstream, branch } = read_baseline(git_executor, repo_path)?;
   let upstream = upstream.ok_or_else(|| anyhow::Error::new(NoUpstream { baseline: name }))?;
-  // refuse before the network: the check would refuse after it anyway
-  check_update_guards(git_executor, repo_path)?;
+  // refuse before the network: the check would refuse after it anyway; the branch is the one the baseline read found
+  check_update_guards_on(git_executor, repo_path, branch.as_deref())?;
 
   let (previous, fetched_at) = if options.fetch {
     on_progress(UpdatePhase::Fetching.into());

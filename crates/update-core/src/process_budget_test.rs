@@ -20,7 +20,7 @@ const UPDATE: &[(&str, u32)] = &[
   ("replay", 1),
   ("rev-list", 3),
   ("rev-parse", 5),
-  ("symbolic-ref", 6),
+  ("symbolic-ref", 5),
   ("update-index", 3),
   ("update-ref", 2),
 ];

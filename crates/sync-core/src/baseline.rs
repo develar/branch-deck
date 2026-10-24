@@ -273,7 +273,7 @@ fn with_landing(git_executor: &GitCommandExecutor, repo_path: &str, plan: Update
 /// The target's baseline and its remote-tracking ref; `None` for no baseline, the ref `None` for a local baseline
 pub fn baseline_tracking_ref(git_executor: &GitCommandExecutor, target: &str) -> Result<(Option<String>, Option<String>)> {
   match read_baseline(git_executor, target) {
-    Ok(Baseline { name, upstream }) => Ok((Some(name), upstream.map(|upstream| upstream.tracking_ref))),
+    Ok(Baseline { name, upstream, .. }) => Ok((Some(name), upstream.map(|upstream| upstream.tracking_ref))),
     Err(e) if e.downcast_ref::<NoBaseline>().is_some() => Ok((None, None)),
     Err(e) => Err(e),
   }

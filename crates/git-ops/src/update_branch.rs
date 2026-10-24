@@ -1078,6 +1078,15 @@ pub fn check_update_guards(git_executor: &GitCommandExecutor, repo_path: &str) -
   current_branch(git_executor, repo_path)?.ok_or_else(|| anyhow::Error::new(GuardRefusal::DetachedHead(DetachedHead.to_string())))
 }
 
+/// `check_update_guards` of a caller that read the branch of HEAD a moment ago (`branch`, `None` for a detached HEAD):
+/// no `symbolic-ref` again
+pub fn check_update_guards_on(git_executor: &GitCommandExecutor, repo_path: &str, branch: Option<&str>) -> Result<String> {
+  ensure_no_operation_in_progress(git_executor, repo_path).map_err(|e| anyhow::Error::new(GuardRefusal::OperationInProgress(format!("{e:#}"))))?;
+  branch
+    .map(str::to_string)
+    .ok_or_else(|| anyhow::Error::new(GuardRefusal::DetachedHead(DetachedHead.to_string())))
+}
+
 /// HEAD is no longer on the branch the move was checked for: a `git switch` since the check; nothing was changed
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("HEAD is {} now, not on {expected}; nothing was changed", .actual.as_deref().map_or_else(|| "detached".to_string(), |actual| format!("on {actual}")))]
