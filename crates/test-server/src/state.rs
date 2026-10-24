@@ -48,8 +48,8 @@ pub struct TestRepository {
   /// Held for reading by every request of the page mock for this repository (`hold_repository` in lib.rs) and for
   /// writing by `delete_repository`, so a repository is deleted only after the commands still running for it
   pub in_flight: std::sync::Arc<tokio::sync::RwLock<()>>,
-  /// The settings of the page: the writer of the app on `settings.json` in `app_data`, which `set_setting` and the
-  /// `/store` fixture routes change
+  /// The settings of the page: the writer of the app on `settings.json` and `repository-state.json` in `app_data`,
+  /// which `set_setting` and the `/store` fixture routes change
   pub store: app_settings::service::SettingsService,
   /// How often the app asked for pull requests, so a test can check the refresh policy
   pub pull_request_calls: AtomicU32,

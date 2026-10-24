@@ -2,6 +2,7 @@
 //! changes; the keys only the main window keeps (`MAIN_ONLY_KEYS`) reach no sub-window. One rule for the app
 //! (`src-tauri/src/settings.rs`) and the E2E server
 
+use crate::file::REPOSITORY_STATE_KEY;
 use crate::service::SettingsService;
 use domain_types::settings::SettingsChange;
 use serde_json::Value;
@@ -9,10 +10,11 @@ use serde_json::Value;
 /// The label of the main window
 pub const MAIN_WINDOW: &str = "main";
 
-/// The keys of `settings.json` only the main window reads and writes: the Activity log (`src/stores/activity.ts`) and
-/// the history of the robots (`src/stores/robot-history.ts`). The Activity window gets the log over its window link, not
-/// from the settings
-pub const MAIN_ONLY_KEYS: &[&str] = &["activity", "robotHistory"];
+/// The keys only the main window reads and writes: the Activity log (`src/stores/activity.ts`), the history of the
+/// robots (`src/stores/robot-history.ts`) and what the syncs record of each repository (`repositoryState`,
+/// `src/stores/settings/repositoryState.ts`), which changes with every sync. The Activity window gets the log over its
+/// window link, not from the settings
+pub const MAIN_ONLY_KEYS: &[&str] = &["activity", "robotHistory", REPOSITORY_STATE_KEY];
 
 /// Whether only the main window gets the key `key`
 #[must_use]

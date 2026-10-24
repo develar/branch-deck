@@ -11,7 +11,7 @@ import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { YourTurnCard } from "@/components/repository/YourTurnCard"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
-import { useEffectiveBranchPrefix, useIsLoadingBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
+import { useEffectiveBranchPrefix, useIsLoadingBranchPrefix, useRepository, useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
@@ -33,7 +33,7 @@ export function BranchCreator() {
   const isLoadingBranchPrefix = useIsLoadingBranchPrefix()
   const hasRecentProjects = useRecentProjects(projects => projects.length > 0)
   const selectedPath = useSelectedProjectPath()
-  const neverSynced = useSelectedProjectField("lastSyncTime") === undefined
+  const neverSynced = useSelectedRepositoryState("lastSyncTime") === undefined
   // a repository counts as selected as soon as a project is chosen
   const hasRepository = selectedPath !== undefined
   const hasSynced = hasRepository && syncedRepositoryPath === selectedPath

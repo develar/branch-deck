@@ -339,7 +339,8 @@ pub fn run() {
       // Initialize update state
       app.manage(SharedUpdateState::new(UpdateState::new(current_version)));
 
-      // the one writer of settings.json: every window starts from its copy and changes it through `set_setting`
+      // the one writer of settings.json and repository-state.json: every window starts from its copy and changes it
+      // through `set_setting`
       let app_data_dir = app.path().app_data_dir().unwrap_or_default();
       let settings_service = settings::open_settings(&app_data_dir)?;
       settings::report_save_errors(&settings_service, app.handle().clone());

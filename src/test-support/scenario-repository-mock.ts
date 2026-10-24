@@ -5,6 +5,7 @@ export const getEffectiveBranchPrefix = () => "test-user"
 export const useSelectedProject = () => ({ path: "/repo" })
 export const useSelectedProjectPath = () => "/repo"
 export const useSelectedProjectField = () => undefined
+export const useSelectedRepositoryState = () => undefined
 export const useEffectiveBranchPrefix = () => "test-user"
 export const getFullBranchName = (name: string) => `test-user/virtual/${name}`
 export const getFullStackBranchName = (root: string) => `test-user/stack/${root}`

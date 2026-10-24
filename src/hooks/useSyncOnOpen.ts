@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { branchSyncStore, resetBranchSync, syncBranches, useBranchSync } from "@/stores/branch-sync"
-import { useEffectiveBranchPrefix, useIsLoadingBranchPrefix, useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
+import { useEffectiveBranchPrefix, useIsLoadingBranchPrefix, useRepository, useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
 
 /**
  * Syncs a repository synced before when the window opens it, at start and on a switch, whether or not Auto-sync on
@@ -10,7 +10,7 @@ import { useEffectiveBranchPrefix, useIsLoadingBranchPrefix, useRepository, useS
  */
 export function useSyncOnOpen(): void {
   const path = useSelectedProjectPath() ?? null
-  const wasSynced = useSelectedProjectField("lastSyncTime") !== undefined
+  const wasSynced = useSelectedRepositoryState("lastSyncTime") !== undefined
   const isSyncing = useBranchSync(state => state.isSyncing)
   const isLoadingBranchPrefix = useIsLoadingBranchPrefix()
   const isValid = useRepository(state => state.pathValidation.valid)

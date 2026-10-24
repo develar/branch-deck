@@ -1,8 +1,11 @@
-//! `SettingsService`: the one writer of a settings file. Every change, from any window or from Rust, is a
-//! `SettingsPatch` that `set` applies to the copy in memory under one mutex, in the order it arrives, and answers at once
-//! with the `SettingsChange` (the new version and the whole key) that the caller sends to every window. The disk lags:
-//! one writer thread saves the stored form (`SettingsFile::save`: only the non-default fields, a temporary file renamed
-//! over the file) at most `debounce` after the first unsaved change, so a burst of changes costs one write; `flush`
+//! `SettingsService`: the one writer of the settings files of the app data directory. Every change, from any window or
+//! from Rust, is a `SettingsPatch` that `set` applies to the copy in memory under one mutex, in the order it arrives,
+//! and answers at once with the `SettingsChange` (the new version and the whole key) that the caller sends to every
+//! window. A key lives in one file (`StoreFile::of`): `repositoryState`, which every sync changes, in
+//! `repository-state.json`, every other key in `settings.json`, which so changes only when the user changes a setting;
+//! the versions count the changes of both. The disk lags: one writer thread saves the stored form of each changed file
+//! (`SettingsFile::save`: only the non-default fields, a temporary file renamed over the file) at most `debounce` after
+//! the first unsaved change, so a burst of changes costs one write, and a file nothing changed is not written; `flush`
 //! saves now and waits (the exit of the app). A failed save keeps the value in memory, is retried by the next change or
 //! flush, and is reported to `on_save_error` once per streak of failures.
 //!
@@ -10,8 +13,12 @@
 //! Rust knows with its default (`AppSettings`), so the page takes the defaults of these fields from Rust; the file keeps
 //! only what differs. A patch of a field Rust knows is validated: a value of the wrong type or out of range is refused,
 //! and nothing changes.
+//!
+//! A `settings.json` of before keeps the fields of `repositoryState` in its recent projects: the load moves them
+//! (`SettingsFile::take_repository_state`) into `repository-state.json`, which is saved within the debounce, and
+//! `settings.json` loses them with its next save, not before.
 
-use crate::file::SettingsFile;
+use crate::file::{REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, SETTINGS_FILE_NAME, SettingsFile};
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsChange, SettingsPatch};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -62,10 +69,53 @@ struct KeyChange {
   origin: String,
 }
 
+/// A file of the app data directory the service writes; each key lives in one
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StoreFile {
+  Settings,
+  RepositoryState,
+}
+
+impl StoreFile {
+  /// The order of a save: the state first, so values a load moved out of `settings.json` are on disk before a save of
+  /// `settings.json` drops them there
+  const SAVE_ORDER: [Self; 2] = [Self::RepositoryState, Self::Settings];
+
+  /// The file of `key`: `repositoryState` in `repository-state.json`, every other key in `settings.json`
+  fn of(key: &str) -> Self {
+    if key == REPOSITORY_STATE_KEY { Self::RepositoryState } else { Self::Settings }
+  }
+
+  const fn name(self) -> &'static str {
+    match self {
+      Self::Settings => SETTINGS_FILE_NAME,
+      Self::RepositoryState => REPOSITORY_STATE_FILE_NAME,
+    }
+  }
+}
+
+/// A file in memory, with the versions of its last change and of its last save
+#[derive(Default)]
+struct StoredFile {
+  content: SettingsFile,
+  /// The version of the last change of the file: none while nothing changed it since the load, `Some(0)` for values
+  /// the load moved into it
+  changed: Option<u32>,
+  /// The version of the last change the last successful save had; none before the first
+  saved: Option<u32>,
+}
+
+impl StoredFile {
+  fn is_unsaved(&self) -> bool {
+    self.changed > self.saved
+  }
+}
+
 #[derive(Default)]
 struct State {
-  file: SettingsFile,
-  /// The version of the last applied patch; 0 for the file as it was loaded
+  settings_file: StoredFile,
+  repository_state_file: StoredFile,
+  /// The version of the last applied patch; 0 for the files as they were loaded
   version: u32,
   /// The last change of each key changed since the load, a removed key too
   changes: BTreeMap<String, KeyChange>,
@@ -73,16 +123,63 @@ struct State {
   dirty_since: Option<Instant>,
   /// A flush waits for a save of every change before it
   flush_requested: bool,
-  /// The version of the last save the writer finished, and of the last one that succeeded
-  attempted: u32,
-  saved: u32,
-  /// The error of the last save when it failed; a failure after a success starts a new streak
+  /// The passes of the writer that started and that finished: a flush waits for a pass that started after it asked
+  passes_started: u64,
+  passes_finished: u64,
+  /// The error of the last failed save; a pass whose saves all succeed ends the streak
   last_error: Option<SaveError>,
   shutdown: bool,
 }
 
+impl State {
+  const fn file(&self, file: StoreFile) -> &StoredFile {
+    match file {
+      StoreFile::Settings => &self.settings_file,
+      StoreFile::RepositoryState => &self.repository_state_file,
+    }
+  }
+
+  const fn file_mut(&mut self, file: StoreFile) -> &mut StoredFile {
+    match file {
+      StoreFile::Settings => &mut self.settings_file,
+      StoreFile::RepositoryState => &mut self.repository_state_file,
+    }
+  }
+
+  /// The files as `SettingsFile::load` reads them from `directory`; the fields of `repositoryState` that a
+  /// `settings.json` of before keeps in its recent projects move into `repository-state.json`, where a value of the
+  /// same repository wins, being newer, and that file is due for a save
+  fn load(directory: &Path) -> Self {
+    let mut settings = SettingsFile::load(&directory.join(SETTINGS_FILE_NAME));
+    settings.other.remove(REPOSITORY_STATE_KEY);
+    let mut repository_state = SettingsFile::load(&directory.join(REPOSITORY_STATE_FILE_NAME));
+    repository_state.app = AppSettings::default();
+    repository_state.other.retain(|key, _| key == REPOSITORY_STATE_KEY);
+
+    let moved = settings.take_repository_state();
+    let mut state = Self::default();
+    if !moved.is_empty() {
+      let entries = repository_state.other.entry(REPOSITORY_STATE_KEY).or_insert_with(|| Value::Object(Map::new()));
+      if !entries.is_object() {
+        *entries = Value::Object(Map::new());
+      }
+      if let Value::Object(entries) = entries {
+        for (path, fields) in moved {
+          entries.entry(path).or_insert(fields);
+        }
+      }
+      state.repository_state_file.changed = Some(0);
+      state.dirty_since = Some(Instant::now());
+    }
+    state.settings_file.content = settings;
+    state.repository_state_file.content = repository_state;
+    state
+  }
+}
+
 struct Shared {
-  path: PathBuf,
+  /// The app data directory with the files
+  directory: PathBuf,
   debounce: Duration,
   state: Mutex<State>,
   /// Wakes the writer: a change, a flush, the shutdown
@@ -96,28 +193,33 @@ impl Shared {
   fn lock(&self) -> MutexGuard<'_, State> {
     self.state.lock().unwrap_or_else(PoisonError::into_inner)
   }
+
+  fn path_of(&self, file: StoreFile) -> PathBuf {
+    self.directory.join(file.name())
+  }
 }
 
-/// The one writer of a settings file (see the module documentation)
+/// The one writer of the settings files (see the module documentation)
 pub struct SettingsService {
   shared: Arc<Shared>,
   writer: Option<JoinHandle<()>>,
 }
 
 impl SettingsService {
-  /// The writer of the settings file `path`, loaded as `SettingsFile::load` reads it (a missing or broken file is the
-  /// defaults), saving `DEFAULT_DEBOUNCE` after a change
-  pub fn open(path: PathBuf) -> std::io::Result<Self> {
-    Self::open_with_debounce(path, DEFAULT_DEBOUNCE)
+  /// The writer of the settings files in the app data directory `directory` (`settings.json` and
+  /// `repository-state.json`), loaded as `SettingsFile::load` reads them (a missing or broken file is the defaults),
+  /// saving `DEFAULT_DEBOUNCE` after a change
+  pub fn open(directory: PathBuf) -> std::io::Result<Self> {
+    Self::open_with_debounce(directory, DEFAULT_DEBOUNCE)
   }
 
   /// `open` with another delay of the save
-  pub fn open_with_debounce(path: PathBuf, debounce: Duration) -> std::io::Result<Self> {
-    let file = SettingsFile::load(&path);
+  pub fn open_with_debounce(directory: PathBuf, debounce: Duration) -> std::io::Result<Self> {
+    let state = State::load(&directory);
     let shared = Arc::new(Shared {
-      path,
+      directory,
       debounce,
-      state: Mutex::new(State { file, ..State::default() }),
+      state: Mutex::new(state),
       wake: Condvar::new(),
       saved: Condvar::new(),
       on_save_error: Mutex::new(None),
@@ -126,23 +228,22 @@ impl SettingsService {
     let writer = std::thread::Builder::new()
       .name("settings-writer".to_owned())
       .spawn(in_current_span(move || write_loop(&writer_shared)))?;
+    // values the load moved wait for the debounce, as a change does
+    shared.wake.notify_one();
     Ok(Self { shared, writer: Some(writer) })
   }
 
-  /// The settings file this service writes
-  #[must_use]
-  pub fn path(&self) -> &Path {
-    &self.shared.path
-  }
-
-  /// Apply `patch` from `origin` to the settings in memory and answer the change for the windows; the save follows
-  /// within the debounce. A value of a field Rust knows that is invalid is refused and changes nothing
+  /// Apply `patch` from `origin` to the settings in memory and answer the change for the windows; the save of the
+  /// file of its key follows within the debounce. A value of a field Rust knows that is invalid is refused and changes
+  /// nothing
   pub fn set(&self, patch: SettingsPatch, origin: &str) -> Result<SettingsChange, SettingsError> {
     let mut state = self.shared.lock();
     let key = patch.key().to_owned();
-    let value = apply_patch(&mut state.file, patch)?;
+    let file = StoreFile::of(&key);
+    let value = apply_patch(&mut state.file_mut(file).content, patch)?;
     state.version += 1;
     let version = state.version;
+    state.file_mut(file).changed = Some(version);
     state.changes.insert(
       key.clone(),
       KeyChange {
@@ -164,21 +265,26 @@ impl SettingsService {
   /// Save every change made before now and wait for it; the error of that save when it failed
   pub fn flush(&self) -> Result<(), SettingsError> {
     let mut state = self.shared.lock();
-    let target = state.version;
-    if state.saved < target {
-      state.flush_requested = true;
-      self.shared.wake.notify_one();
-      while state.attempted < target || state.flush_requested {
-        state = self.shared.saved.wait(state).unwrap_or_else(PoisonError::into_inner);
-      }
-    }
-    if state.saved >= target {
+    let needed = StoreFile::SAVE_ORDER.map(|file| (file, state.file(file).changed));
+    if needed.iter().all(|&(file, _)| !state.file(file).is_unsaved()) {
       return Ok(());
     }
+    state.flush_requested = true;
+    let started_before = state.passes_started;
+    self.shared.wake.notify_one();
+    // the passes run one after another: once the one after those started before the request finished, it has saved
+    // every change of now
+    while state.passes_finished <= started_before {
+      state = self.shared.saved.wait(state).unwrap_or_else(PoisonError::into_inner);
+    }
+    let failed = needed.iter().find(|&&(file, changed)| state.file(file).saved < changed);
+    let Some(&(file, _)) = failed else {
+      return Ok(());
+    };
     Err(state.last_error.clone().map_or_else(
       || {
         SettingsError::Save(SaveError {
-          path: self.shared.path.clone(),
+          path: self.shared.path_of(file),
           error: Arc::new(std::io::Error::other("the save did not run")),
         })
       },
@@ -190,8 +296,9 @@ impl SettingsService {
   #[must_use]
   pub fn snapshot(&self) -> (u32, Value) {
     let state = self.shared.lock();
-    let mut values = state.file.other.clone();
-    values.insert(APP_SETTINGS_KEY.to_owned(), app_value(&state.file.app));
+    let mut values = state.settings_file.content.other.clone();
+    values.insert(APP_SETTINGS_KEY.to_owned(), app_value(&state.settings_file.content.app));
+    values.extend(state.repository_state_file.content.other.clone());
     (state.version, Value::Object(values))
   }
 
@@ -207,7 +314,7 @@ impl SettingsService {
       .map(|(key, change)| SettingsChange {
         version: change.version,
         key: key.clone(),
-        value: key_value(&state.file, key),
+        value: key_value(&state, key),
         origin: change.origin.clone(),
       })
       .collect();
@@ -218,7 +325,7 @@ impl SettingsService {
   /// The settings of the app as they are now
   #[must_use]
   pub fn app(&self) -> AppSettings {
-    self.shared.lock().file.app.clone()
+    self.shared.lock().settings_file.content.app.clone()
   }
 
   /// Call `listener` when a save fails after a save that succeeded (or the first save), not for each retry that fails
@@ -241,8 +348,8 @@ impl Drop for SettingsService {
   }
 }
 
-/// The writer thread: wait for a change that is `debounce` old, a flush or the shutdown; save a copy taken under the
-/// lock, outside it; record the outcome and wake the flushes
+/// The writer thread: wait for a change that is `debounce` old, a flush or the shutdown; save a copy of each changed
+/// file taken under the lock, outside it; record the outcome and wake the flushes
 fn write_loop(shared: &Shared) {
   let mut state = shared.lock();
   loop {
@@ -265,38 +372,51 @@ fn write_loop(shared: &Shared) {
       continue;
     }
 
-    let version = state.version;
+    state.passes_started += 1;
     state.dirty_since = None;
     state.flush_requested = false;
-    if state.saved >= version {
-      // a flush of what is saved already
-      state.attempted = version;
-      shared.saved.notify_all();
-      continue;
-    }
-    let file = state.file.clone();
+    #[expect(clippy::needless_collect, reason = "the copies are taken under the lock, the saves run outside it")]
+    let unsaved: Vec<(StoreFile, Option<u32>, SettingsFile)> = StoreFile::SAVE_ORDER
+      .into_iter()
+      .filter(|&file| state.file(file).is_unsaved())
+      .map(|file| (file, state.file(file).changed, state.file(file).content.clone()))
+      .collect();
     drop(state);
 
-    let result = file.save(&shared.path);
+    let results: Vec<(StoreFile, Option<u32>, std::io::Result<()>)> = unsaved
+      .into_iter()
+      .map(|(file, changed, content)| (file, changed, content.save(&shared.path_of(file))))
+      .collect();
 
     state = shared.lock();
-    state.attempted = state.attempted.max(version);
-    let report = match result {
-      Ok(()) => {
-        state.saved = state.saved.max(version);
+    let mut failure = None;
+    for (file, changed, result) in results {
+      match result {
+        Ok(()) => {
+          let stored = state.file_mut(file);
+          stored.saved = stored.saved.max(changed);
+        }
+        Err(error) => {
+          let error = SaveError {
+            path: shared.path_of(file),
+            error: Arc::new(error),
+          };
+          warn!(%error, version = changed, "the settings stay in memory until a save succeeds");
+          failure.get_or_insert(error);
+        }
+      }
+    }
+    let report = match failure {
+      None => {
         state.last_error = None;
         None
       }
-      Err(error) => {
-        let error = SaveError {
-          path: shared.path.clone(),
-          error: Arc::new(error),
-        };
-        warn!(%error, version, "the settings stay in memory until a save succeeds");
+      Some(error) => {
         let first_of_streak = state.last_error.replace(error.clone()).is_none();
         first_of_streak.then_some(error)
       }
     };
+    state.passes_finished += 1;
     shared.saved.notify_all();
     if let Some(error) = report {
       drop(state);
@@ -399,11 +519,10 @@ fn app_value(app: &AppSettings) -> Value {
   Value::Object(app.to_full())
 }
 
-/// The value of `key` as the windows get it; `null` when the file has no such key
-fn key_value(file: &SettingsFile, key: &str) -> Value {
+/// The value of `key` as the windows get it; `null` when its file has no such key
+fn key_value(state: &State, key: &str) -> Value {
   if key == APP_SETTINGS_KEY {
-    app_value(&file.app)
-  } else {
-    file.other.get(key).cloned().unwrap_or(Value::Null)
+    return app_value(&state.settings_file.content.app);
   }
+  state.file(StoreFile::of(key)).content.other.get(key).cloned().unwrap_or(Value::Null)
 }

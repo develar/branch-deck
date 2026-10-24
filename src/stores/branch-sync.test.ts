@@ -27,7 +27,7 @@ import {
 import { testBranch } from "@/stores/test-branch"
 
 // a function runs between the events, while the sync still streams them
-const { syncEvents, syncResult, toasts, inputs, held, repository, requests, projectUpdates, settledPlaceholders } = vi.hoisted(() => ({
+const { syncEvents, syncResult, toasts, inputs, held, repository, requests, projectUpdates, syncRecords, settledPlaceholders } = vi.hoisted(() => ({
   /** What the sync inputs fingerprint answers, and how often it was asked; `onRead` runs during a read */
   inputs: { fingerprint: "f1", reads: 0, onRead: null as (() => void) | null },
   /** While enabled, each sync waits after its events until a test finishes it: the syncs a test lets overlap */
@@ -37,6 +37,8 @@ const { syncEvents, syncResult, toasts, inputs, held, repository, requests, proj
   /** What each sync and each read of the inputs sent to the backend */
   requests: [] as unknown[],
   projectUpdates: [] as { path: string; update: unknown }[],
+  /** The repositories each sync recorded (`repositoryState`: the time, the branch count, the duration of the sync) */
+  syncRecords: [] as { path: string; record: unknown }[],
   settledPlaceholders: { count: 0 },
   syncEvents: { current: [] as (SyncEvent | (() => void))[] },
   /** What the sync answers after its events: ok unless a test says otherwise */
@@ -82,6 +84,9 @@ vi.mock("@/stores/repository", () => ({
 }))
 
 vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: (path: string, update: unknown) => projectUpdates.push({ path, update }) }))
+vi.mock("@/stores/settings/repositoryState", () => ({
+  updateRepositoryState: (path: string, update: (state: object) => unknown) => syncRecords.push({ path, record: update({}) }),
+}))
 
 vi.mock("@/stores/archived-branches", () => ({
   updateFromArchivedNames: () => {},
@@ -186,6 +191,7 @@ describe("one sync at a time", () => {
     inputs.onRead = null
     repository.path = "/repo"
     projectUpdates.length = 0
+    syncRecords.length = 0
     settledPlaceholders.count = 0
     toasts.length = 0
     held.calls.length = 0
@@ -323,7 +329,8 @@ describe("one sync at a time", () => {
     expect(ended).toBe(true)
     expect(branchSyncStore.getState().isSyncing).toBe(true)
     // every sync teaches the usual time of a sync
-    expect(projectUpdates.filter(it => typeof it.update === "function")).toHaveLength(2)
+    expect(syncRecords).toHaveLength(2)
+    expect(syncRecords[0]?.record).toMatchObject({ lastBranchCount: expect.any(Number), updateTimings: { sync: [expect.any(Number)] } })
   })
 
   it("ends the chain when a run throws", async () => {
@@ -344,7 +351,7 @@ describe("one sync at a time", () => {
     await followUp
     expect(held.calls).toHaveLength(1)
     expect(branchSyncStore.getState().isSyncing).toBe(false)
-    expect(projectUpdates.map(it => it.path)).toEqual(["/repo"])
+    expect(syncRecords.map(it => it.path)).toEqual(["/repo"])
   })
 
   it("settles the archived placeholders once, after the last run", async () => {

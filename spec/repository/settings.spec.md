@@ -7,6 +7,9 @@ targets:
   - ../../src-tauri/src/lib.rs
   - ../../src-tauri/src/settings.rs
   - ../../src-tauri/src/commands/settings.rs
+  - ../../crates/app-settings/src/service.rs
+  - ../../crates/app-settings/src/file.rs
+  - ../../src/stores/settings/repositoryState.ts
   - ../../src-tauri/src/zoom.rs
   - ../../src-tauri/src/commands/window_management.rs
   - ../../src-tauri/capabilities/settings.json
@@ -92,6 +95,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   opens with.
 - A button that needs a setting opens the page that has it, not the top of a long list.
 - The same settings in every window: every window writes them through the backend, which owns `settings.json`.
+- `settings.json` changes only when a setting changes: what a sync records of a repository lives beside it.
 
 ## Non-goals
 
@@ -261,7 +265,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   heard of it yet. A window sends its next change after the answer of the one before, so the writer gets them in
   order, and applies only a change newer than the last one it applied: a late answer or echo never rolls a setting
   back, and a change equal to a value the window had before still arrives (Actual Size after a review window hid its
-  sidebar at 110%). The Activity log and the robot history reach only the main window.
+  sidebar at 110%). The Activity log, the robot history and the state of the repositories reach only the main window.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should keep the Activity panel the main window opened when a review window hides its sidebar right after`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should follow Actual Size of the main window in a review window that changed another field in between`)
   [@test] ../../crates/app-settings/src/service_test.rs (`two_origins_that_patch_two_fields_of_one_key_at_once_keep_both`, `a_change_older_than_the_applied_version_is_an_echo`, `the_changes_since_a_snapshot_name_each_key_changed_after_it_once_with_its_value_now`)
@@ -286,6 +290,16 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   array left empty removes its key. Keys the backend does not know are kept as they are.
   [@test] ../../crates/app-settings/src/service_test.rs (`a_field_patch_merges_into_the_key_and_a_null_field_is_removed`, `a_field_patch_that_removes_the_last_field_removes_the_key`)
   [@test] ../../crates/app-settings/src/file_test.rs (`unknown_keys_round_trip`)
+- What each sync records of a repository (`repositoryState` by its path: when the last sync ended, how many branches it
+  had, how long the steps of a sync and of Update Project took) lives in a file of its own, `repository-state.json`
+  beside `settings.json`, behind the same writer and its versions, and only the main window has it: a sync writes that
+  file alone, never `settings.json`, which `bd` reads beside it. A `settings.json` of before that kept these fields in
+  its recent projects is read once: the writer moves them (a value the state file has for the repository wins), saves
+  the state file, and `settings.json` loses them with its next save; every other key of it is kept.
+  [@test] ../../crates/app-settings/src/service_test.rs (`a_patch_of_the_repository_state_leaves_the_settings_file_untouched`, `a_settings_file_of_before_moves_the_fields_of_a_sync_to_the_repository_state_and_drops_them_on_its_next_save`, `the_moved_values_of_a_settings_file_of_before_are_saved_without_a_change`)
+  [@test] ../../crates/app-settings/src/file_test.rs (`the_fields_of_the_repository_state_leave_the_recent_projects_by_path_and_nothing_else_changes`)
+  [@test] ../../crates/app-settings/src/windows_test.rs (`a_sub_window_gets_no_key_only_the_main_window_keeps`)
+  [@test] ../../src/stores/settings/repositoryState.test.ts (`sends the writer only the repository a sync changed, as one field of repositoryState`, `drops a malformed field or repository, never the others`)
 - Every window starts from the writer's copy of the settings, set before its page's scripts (`__TAURI_STORE__`, with
   its version `__TAURI_STORE_VERSION__`; `init_script` of `src-tauri/src/settings.rs`), and with the defaults from a
   settings file that does not parse (one cut within a write): it never starts without its settings because of a syntax

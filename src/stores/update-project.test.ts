@@ -64,14 +64,17 @@ vi.mock("@/stores/branch-sync", () => ({
 vi.mock("@/stores/landed", () => ({ addLandedUpdate: () => {} }))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/stores/settings/repositorySettings", () => ({
-  getRecentProjects: () => [],
-  updateProject: (path: string, update: { lastFetchTime?: number; updateTimings?: unknown }) => {
+  updateProject: (path: string, update: { lastFetchTime?: number }) => {
     if (update.lastFetchTime !== undefined) {
       fetchTimes.push(path)
     }
-    if (update.updateTimings !== undefined) {
-      timings.push({ path, timings: update.updateTimings })
-    }
+  },
+}))
+// the durations a run learns go to the state of the repository, never to the recent projects
+vi.mock("@/stores/settings/repositoryState", () => ({
+  getRepositoryState: () => undefined,
+  updateRepositoryState: (path: string, update: (state: { updateTimings?: unknown }) => { updateTimings?: unknown }) => {
+    timings.push({ path, timings: update({}).updateTimings })
   },
 }))
 vi.mock("@/stores/repository", () => ({
@@ -374,7 +377,7 @@ describe("the running update", () => {
     await update
   })
 
-  it("changes the step only when the phase changes, and learns what the steps took once the update ends", async () => {
+  it("changes the step only when the phase changes, and records what the steps took in the state of the repository once the update ends", async () => {
     const update = runUpdateProject()
     const fetch = await commandIn("/a", "fetch")
     fetch.progress.onmessage(PROGRESS)

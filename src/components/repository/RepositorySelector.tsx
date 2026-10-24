@@ -10,6 +10,7 @@ import { formatRelativeTime } from "@/lib/time"
 import { browseRepository, selectProject, useRepository } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
+import { useRepositoryStateField } from "@/stores/settings/repositoryState"
 
 interface RepositorySelectorProps {
   disabled?: boolean
@@ -83,14 +84,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
               <SelectItem key={item.value} value={item.value}>
                 <div className="flex flex-col">
                   <div className="whitespace-nowrap">{item.label}</div>
-                  {item.error ? (
-                    <div className="truncate text-xs text-destructive">{item.error}</div>
-                  ) : item.project.lastSyncTime ? (
-                    <div className="text-xs whitespace-nowrap text-muted-foreground">
-                      {item.project.lastBranchCount === 1 ? "1 branch" : `${item.project.lastBranchCount || 0} branches`}
-                      {` · ${formatRelativeTime(item.project.lastSyncTime)}`}
-                    </div>
-                  ) : null}
+                  {item.error ? <div className="truncate text-xs text-destructive">{item.error}</div> : <LastSyncLine path={item.value} />}
                 </div>
               </SelectItem>
             ))}
@@ -167,4 +161,19 @@ function formatPathWithTruncation(path: string, homeDir: string, maxLength: numb
     i--
   }
   return result
+}
+
+/** How many branches the last sync of the repository at `path` had and when it ran; nothing for one never synced */
+function LastSyncLine({ path }: { path: string }) {
+  const lastSyncTime = useRepositoryStateField(path, "lastSyncTime")
+  const lastBranchCount = useRepositoryStateField(path, "lastBranchCount") ?? 0
+  if (!lastSyncTime) {
+    return null
+  }
+  return (
+    <div className="text-xs whitespace-nowrap text-muted-foreground">
+      {lastBranchCount === 1 ? "1 branch" : `${lastBranchCount} branches`}
+      {` · ${formatRelativeTime(lastSyncTime)}`}
+    </div>
+  )
 }

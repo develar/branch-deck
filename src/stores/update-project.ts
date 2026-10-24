@@ -17,7 +17,8 @@ import { addLandedUpdate } from "@/stores/landed"
 import type { OperationKey } from "@/stores/operations"
 import { getOperationBlocker, getOperations, runOperation } from "@/stores/operations"
 import { getSelectedProject, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
-import { getRecentProjects, updateProject } from "@/stores/settings/repositorySettings"
+import { updateProject } from "@/stores/settings/repositorySettings"
+import { getRepositoryState, updateRepositoryState } from "@/stores/settings/repositoryState"
 
 /** How long the bar shows the end of a run (ms), so it reads as done; the buttons work again at once */
 export const END_HOLD_MS = 300
@@ -84,8 +85,9 @@ function patchRunning(repositoryPath: string, patch: (running: RunningUpdate) =>
   }
 }
 
+/** The durations the steps of the repository took before (`repositoryState`), which the bar of a run divides by */
 function timingsOf(repositoryPath: string) {
-  return getRecentProjects().find(it => it.path === repositoryPath)?.updateTimings
+  return getRepositoryState(repositoryPath)?.updateTimings
 }
 
 /** Takes the one-at-a-time slot of the repository for an update or a fetch; false when one runs there already */
@@ -107,7 +109,7 @@ function endRunning(repositoryPath: string, done: readonly FinishedStep[]): void
     return
   }
   if (done.length > 0) {
-    updateProject(repositoryPath, { updateTimings: learnTimings(timingsOf(repositoryPath), done) })
+    updateRepositoryState(repositoryPath, state => ({ ...state, updateTimings: learnTimings(state.updateTimings, done) }))
   }
   const ended: RunningUpdate = { ...running, endedAt: Date.now() }
   setRunning(repositoryPath, ended)

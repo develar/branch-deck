@@ -21,7 +21,9 @@ rolls the state back to a stale value while several writes are in flight.
 The backend owns the file: one `SettingsService` (`crates/app-settings/src/service.rs`, no Tauri, so the E2E server
 runs the same writer) holds the settings in memory, applies every change as a patch in the order it arrives, gives each
 change a version and saves the file at most 500 ms after the first unsaved change, to a temporary file renamed over it.
-`src-tauri` opens it on `settings.json` of the app data directory in `setup` (`src-tauri/src/settings.rs`).
+`src-tauri` opens it on the app data directory in `setup` (`src-tauri/src/settings.rs`). It writes two files there: the
+key `repositoryState`, what each sync records of a repository, in `repository-state.json`, every other key in
+`settings.json`, so the file of the user's settings, which `bd` reads, changes only when a setting changes.
 
 Each setting group of the page is a zustand vanilla store created by `createPersistentStore`
 (`src/stores/settings/persistent-store.ts`). It starts synchronously from `window.__TAURI_STORE__`, the writer's copy
@@ -38,6 +40,7 @@ read from the snapshot or received from the writer passes through the store's Zo
 flowchart TD
     subgraph Backend["Backend (src-tauri)"]
         Service[SettingsService] -->|tmp + rename, debounced 500 ms| File[(settings.json)]
+        Service -->|repositoryState| State[(repository-state.json)]
         Service -->|init_script| Snapshot["__TAURI_STORE__, __TAURI_STORE_VERSION__"]
     end
 
@@ -126,9 +129,10 @@ sequenceDiagram
    **Rationale**: zustand state must be an object. The writer and the file see the plain array.
 
 8. **Decision**: Keys only the main window keeps (`MAIN_ONLY_KEYS` in `crates/app-settings/src/windows.rs`: the
-   Activity log, the robot history) reach no sub-window: not in its snapshot, not in its changes.
-   **Rationale**: They are large and only the main window writes them; the Activity window gets the log of the selected
-   repository over its window link (`src/lib/activity-window-link.ts`).
+   Activity log, the robot history, the state of the repositories) reach no sub-window: not in its snapshot, not in its
+   changes.
+   **Rationale**: They are large or change with every sync, and only the main window writes them; the Activity window
+   gets the log of the selected repository over its window link (`src/lib/activity-window-link.ts`).
 
 9. **Decision**: The disk lags, the windows don't: a change is sent to every window at once, and the file is saved on
    one writer thread at most 500 ms after the first unsaved change. The app flushes on `RunEvent::ExitRequested`.
@@ -136,10 +140,23 @@ sequenceDiagram
    memory, is tried again by the next change or flush, and is told to the main window once per streak of failures
    (`settings_save_failed` → "Cannot save the settings").
 
+10. **Decision**: What a sync records of a repository (`repositoryState` by its path: `lastSyncTime`,
+    `lastBranchCount`, `updateTimings`) is a key of its own in a file of its own, `repository-state.json`, behind the
+    same writer: a key lives in one file (`StoreFile::of`), the versions count the changes of both, and a pass of the
+    writer saves only the files that changed. A `settings.json` of before kept these fields in each recent project:
+    the load moves them (`SettingsFile::take_repository_state`; a value the state file has for the repository wins) and
+    saves the state file within the debounce; `settings.json` loses them with its next save, not before.
+    **Rationale**: A sync runs on every focus that changed what it reads, and every Update Project learns its step
+    times: in `settings.json` each would rewrite the file `bd` reads beside it, and the user's settings would follow the
+    churn of the syncs. The state file is saved before `settings.json` in a pass, so the moved values are on disk before
+    `settings.json` drops them. `lastFetchTime` and the cached prefix stay in the recent projects: Update Project, an
+    action of the user, writes the first, and the second changes only with the prefix.
+
 ### Implementation Notes
 
-- Writer: `SettingsService` (`crates/app-settings/src/service.rs`): `set(patch, origin)` answers the change at once,
-  `snapshot()` and `changes_since(version)` for the windows, `flush()`, `on_save_error`. The file:
+- Writer: `SettingsService` (`crates/app-settings/src/service.rs`), opened on the app data directory:
+  `set(patch, origin)` answers the change at once, `snapshot()` (the keys of both files) and `changes_since(version)`
+  for the windows, `flush()` (a pass of the writer that started after it), `on_save_error`. A file:
   `SettingsFile` (`file.rs`): a tolerant load (a missing or broken file is the defaults, a field of the wrong type its
   default), the stored form, the atomic save. Which window gets which key: `windows.rs`.
 - Backend: `src-tauri/src/settings.rs` opens the writer, builds the settings part of every init script
@@ -159,11 +176,11 @@ sequenceDiagram
   `settings_changed` listener per page, started as the module loads (`listeningToSettings`), and the catch-up of a load
   through the version gate (`acceptSettingsChanges`, which `src/lib/sub-window.ts` calls with the answer of
   `sub_window_loaded`). Stores: `appSettings.ts`, `aiSettings.ts`,
-  `diff-view-settings.ts`, `repositorySettings.ts` in `src/stores/settings/`, the Activity log `src/stores/activity.ts`
+  `diff-view-settings.ts`, `repositorySettings.ts`, `repositoryState.ts` in `src/stores/settings/`, the Activity log `src/stores/activity.ts`
   and the robot history `src/stores/robot-history.ts`. They are module-level singletons; components read them with
   `useStore` selectors, non-React code with `getState()`.
-- E2E: the test server gives each test repository a `SettingsService` of its own on a file of its app data
-  (`TestRepository::store`); the page mock routes `set_setting`, `get_settings_changes` and `sub_window_loaded` (from
+- E2E: the test server gives each test repository a `SettingsService` of its own on its app data directory
+  (`TestRepository::store`), whose `/store` routes set any key, `repositoryState` too (`syncedAgoMs` of `setupRepo`); the page mock routes `set_setting`, `get_settings_changes` and `sub_window_loaded` (from
   the version of the snapshot the page started from) to it, sends the change to its page and the linked pages and
   records it in `__e2eEmittedEvents` of the page that asked, so a test asserts the versions (`getEmittedEvents`)
   ([E2E Testing](e2e-testing.md)).
@@ -187,7 +204,8 @@ sequenceDiagram
 - **Solution**: Synchronous initialization from the injected snapshot, before the React root renders.
 
 Optimizations:
-- The writer saves at most once per 500 ms of changes, on its own thread; `set_setting` answers before the save.
+- The writer saves at most once per 500 ms of changes, on its own thread; `set_setting` answers before the save. A
+  sync writes only the small `repository-state.json`.
 - A window sends only the fields that changed, and one patch per key at a time.
 - Equal incoming values are not applied, so selectors do not re-run.
 

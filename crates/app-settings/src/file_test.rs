@@ -152,3 +152,27 @@ fn a_save_replaces_the_file_and_leaves_no_temporary_file() {
   let names: Vec<_> = std::fs::read_dir(directory.path()).unwrap().map(|entry| entry.unwrap().file_name()).collect();
   assert_eq!(names, ["settings.json"]);
 }
+
+#[test]
+fn the_fields_of_the_repository_state_leave_the_recent_projects_by_path_and_nothing_else_changes() {
+  let mut settings = SettingsFile::parse(
+    r#"{"recentProjects":[{"path":"/a","lastSyncTime":1,"lastBranchCount":2,"updateTimings":{"fetch":[3]},"parkedCollapsed":true},{"lastSyncTime":4},"text",{"path":"/b"}],"other":{"lastSyncTime":5}}"#,
+  )
+  .unwrap();
+  let taken = settings.take_repository_state();
+  assert_eq!(
+    Value::Object(taken),
+    json!({ "/a": { "lastSyncTime": 1, "lastBranchCount": 2, "updateTimings": { "fetch": [3] } } })
+  );
+  assert_eq!(
+    Value::Object(settings.to_stored()),
+    json!({
+      "recentProjects": [{ "path": "/a", "parkedCollapsed": true }, { "lastSyncTime": 4 }, "text", { "path": "/b" }],
+      "other": { "lastSyncTime": 5 },
+    })
+  );
+  assert!(settings.take_repository_state().is_empty(), "taken once");
+
+  let mut not_a_list = SettingsFile::parse(r#"{"recentProjects":{"path":"/a","lastSyncTime":1}}"#).unwrap();
+  assert!(not_a_list.take_repository_state().is_empty());
+}

@@ -38,23 +38,8 @@ const CachedBranchPrefixSchema = z
 export const ProjectMetadataSchema = z.object({
   path: z.string(),
   cachedBranchPrefix: CachedBranchPrefixSchema,
-  lastSyncTime: z.number().optional(),
   /** When Update Project last fetched the baseline (ms); a fetch elsewhere shows through FETCH_HEAD */
   lastFetchTime: z.number().optional(),
-  /**
-   * The last durations of each step of Update Project and of a sync (ms), the shares of its progress
-   * (`update-progress.ts`); a malformed value is dropped, never the recent projects
-   */
-  updateTimings: z
-    .object({
-      fetch: z.array(z.number()).optional(),
-      check: z.array(z.number()).optional(),
-      apply: z.array(z.number()).optional(),
-      sync: z.array(z.number()).optional(),
-    })
-    .optional()
-    .catch(undefined),
-  lastBranchCount: z.number().optional(),
   /**
    * The Landed island hides the branches that landed up to this time (`landedAt`, Unix seconds): a sync hid them after
    * the user had seen them. Their chips stay until Dismiss.
@@ -74,7 +59,11 @@ const RepositorySettingsSchema = z.array(ProjectMetadataSchema).default([])
 
 export type ProjectMetadata = z.infer<typeof ProjectMetadataSchema>
 
-/** Recent projects, most recently selected first. `items[0]` is the selected project. */
+/**
+ * Recent projects, most recently selected first. `items[0]` is the selected project. What each sync records of a
+ * repository is not here but in `repositoryState` (`@/stores/settings/repositoryState`), which a sync changes without
+ * rewriting the user's settings.
+ */
 export const repositorySettingsStore = createPersistentStore("recentProjects", { schema: RepositorySettingsSchema, isArray: true, isMainOnly: false })
 
 export function useRecentProjects<T>(selector: (projects: ProjectMetadata[]) => T): T {

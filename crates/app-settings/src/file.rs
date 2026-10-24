@@ -1,5 +1,7 @@
 //! `settings.json`: one JSON object of the page's stores by key (`appSettings`, `recentProjects`, the diff view, …).
-//! Rust knows `appSettings` (`AppSettings`); every other key is kept raw, as the page wrote it. A load never fails: a
+//! Rust knows `appSettings` (`AppSettings`); every other key is kept raw, as the page wrote it. `repository-state.json`
+//! beside it has the same form with the one key `repositoryState`: what each sync of a repository records
+//! (`REPOSITORY_STATE_FIELDS`), so a sync never rewrites the file of the user's settings, which `bd` reads. A load never fails: a
 //! missing file is the defaults, a file that does not parse is the defaults with a warning, a field of the wrong type
 //! is its default. A save writes the stored form (only the fields that differ from their defaults, decision 5 of
 //! `docs/design/distributed-settings.md`) to a temporary file beside it and renames it over the file, so a reader never
@@ -14,6 +16,21 @@ use tracing::warn;
 /// The name of the settings file in the app data directory (the bundle identifier's): the app's writer opens it there,
 /// `bd` reads it there
 pub const SETTINGS_FILE_NAME: &str = "settings.json";
+
+/// The name of the file beside `settings.json` that keeps `repositoryState` (`REPOSITORY_STATE_KEY`)
+pub const REPOSITORY_STATE_FILE_NAME: &str = "repository-state.json";
+
+/// The key of what the syncs and the updates record of each repository, by its path: the one key of
+/// `repository-state.json`
+pub const REPOSITORY_STATE_KEY: &str = "repositoryState";
+
+/// The fields of a repository in `repositoryState`: when it was synced last, how many branches that sync had, how long
+/// the steps of Update Project and of a sync took. A settings file of before kept them in each project of
+/// `recentProjects` (`SettingsFile::take_repository_state`)
+pub const REPOSITORY_STATE_FIELDS: &[&str] = &["lastSyncTime", "lastBranchCount", "updateTimings"];
+
+/// The key of the recent projects, whose projects kept the fields of `repositoryState` before it
+const RECENT_PROJECTS_KEY: &str = "recentProjects";
 
 /// Why the text of a settings file is no settings
 #[derive(Debug, thiserror::Error)]
@@ -79,6 +96,29 @@ impl SettingsFile {
       stored.insert(APP_SETTINGS_KEY.to_owned(), Value::Object(app));
     }
     stored
+  }
+
+  /// The fields of `repositoryState` (`REPOSITORY_STATE_FIELDS`) that the projects of `recentProjects` still have, as
+  /// a settings file of before kept them, by the path of each project; taken out of the projects, so the next save of
+  /// the file has them no more. A project without a path keeps them, and nothing else of the file changes
+  pub fn take_repository_state(&mut self) -> Map<String, Value> {
+    let mut taken = Map::new();
+    let Some(Value::Array(projects)) = self.other.get_mut(RECENT_PROJECTS_KEY) else {
+      return taken;
+    };
+    for project in projects.iter_mut().filter_map(Value::as_object_mut) {
+      let Some(path) = project.get("path").and_then(Value::as_str).map(str::to_owned) else {
+        continue;
+      };
+      let fields: Map<String, Value> = REPOSITORY_STATE_FIELDS
+        .iter()
+        .filter_map(|field| project.remove(*field).map(|value| ((*field).to_owned(), value)))
+        .collect();
+      if !fields.is_empty() {
+        taken.insert(path, Value::Object(fields));
+      }
+    }
+    taken
   }
 
   /// Write the stored form to `path` atomically: a temporary file in the same directory, flushed, renamed over `path`.

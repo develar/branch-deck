@@ -41,6 +41,7 @@ import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNa
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getSelectedProject, getSelectedRepositoryPath, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
+import { updateRepositoryState } from "@/stores/settings/repositoryState"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
 
 export interface SyncOptions {
@@ -1463,12 +1464,13 @@ async function runSync(options: SyncOptions | undefined): Promise<string | null>
 
     // the repository of the sync, also when another one was selected since
     // the usual time of a sync is the share of the sync of an update (`update-progress.ts`): every sync teaches it
+    // (`repositoryState`, a file of its own, so a sync never rewrites the user's settings)
     const syncedAt = Date.now()
-    updateProject(target.repositoryPath, project => ({
-      ...project,
+    updateRepositoryState(target.repositoryPath, state => ({
+      ...state,
       lastSyncTime: syncedAt,
       lastBranchCount: branchSyncStore.getState().branchOrder.length,
-      updateTimings: addTiming(project.updateTimings, "sync", syncedAt - startedAt),
+      updateTimings: addTiming(state.updateTimings, "sync", syncedAt - startedAt),
     }))
     branchSyncStore.setState({
       syncedRepositoryPath: target.repositoryPath,

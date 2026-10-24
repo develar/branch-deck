@@ -38,6 +38,8 @@ vi.mock("@/stores/settings/persistent-store", () => ({
   },
 }))
 
+vi.mock("@/stores/settings/repositoryState", () => ({ useRepositoryStateField: () => undefined }))
+
 vi.mock("@/stores/settings/repositorySettings", () => ({
   getRecentProjects: () => projects,
   setRecentProjects: () => {},

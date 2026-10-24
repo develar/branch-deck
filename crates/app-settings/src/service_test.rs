@@ -27,11 +27,22 @@ fn settings_path(directory: &tempfile::TempDir) -> PathBuf {
   directory.path().join("settings.json")
 }
 
+fn repository_state_path(directory: &tempfile::TempDir) -> PathBuf {
+  directory.path().join("repository-state.json")
+}
+
+/// A service on a new empty app data directory, which lives as long as the directory it answers with
+fn opened(debounce: Duration) -> (tempfile::TempDir, SettingsService) {
+  let directory = tempfile::tempdir().unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), debounce).unwrap();
+  (directory, service)
+}
+
 #[test]
 fn the_changes_are_saved_in_the_order_they_arrive_so_the_last_one_is_on_disk() {
   let directory = tempfile::tempdir().unwrap();
   let path = settings_path(&directory);
-  let service = Arc::new(SettingsService::open_with_debounce(path.clone(), Duration::from_millis(1)).unwrap());
+  let service = Arc::new(SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::from_millis(1)).unwrap());
   #[expect(clippy::needless_collect, reason = "every thread starts before the first is joined")]
   let threads: Vec<_> = (0..4)
     .map(|thread| {
@@ -58,7 +69,7 @@ fn the_changes_are_saved_in_the_order_they_arrive_so_the_last_one_is_on_disk() {
 fn two_origins_that_patch_two_fields_of_one_key_at_once_keep_both() {
   let directory = tempfile::tempdir().unwrap();
   let path = settings_path(&directory);
-  let service = Arc::new(SettingsService::open_with_debounce(path.clone(), Duration::from_millis(1)).unwrap());
+  let service = Arc::new(SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::from_millis(1)).unwrap());
   let patch_in_a_loop = |origin: &'static str, field: &'static str| {
     let service = Arc::clone(&service);
     std::thread::spawn(move || {
@@ -83,7 +94,7 @@ fn two_origins_that_patch_two_fields_of_one_key_at_once_keep_both() {
 
 #[test]
 fn a_change_older_than_the_applied_version_is_an_echo() {
-  let service = SettingsService::open_with_debounce(tempfile::tempdir().unwrap().path().join("settings.json"), NEVER).unwrap();
+  let (_directory, service) = opened(NEVER);
   // the main window sets the zoom twice in a row; the broadcast of the first change reaches it after the second
   let first = service.set(app_fields(json!({ "zoom": 1.1 })), "main").unwrap();
   let second = service.set(app_fields(json!({ "zoom": 1.2 })), "main").unwrap();
@@ -108,7 +119,7 @@ fn a_change_older_than_the_applied_version_is_an_echo() {
 fn a_flush_soon_after_a_patch_saves_it_without_waiting_for_the_debounce() {
   let directory = tempfile::tempdir().unwrap();
   let path = settings_path(&directory);
-  let service = SettingsService::open_with_debounce(path.clone(), NEVER).unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), NEVER).unwrap();
   service.set(app_fields(json!({ "zoom": 1.5 })), "main").unwrap();
   assert!(!path.exists(), "the save waits for the debounce");
   let started = Instant::now();
@@ -122,7 +133,7 @@ fn a_flush_soon_after_a_patch_saves_it_without_waiting_for_the_debounce() {
 fn a_patch_is_saved_after_the_debounce_without_a_flush() {
   let directory = tempfile::tempdir().unwrap();
   let path = settings_path(&directory);
-  let service = SettingsService::open_with_debounce(path.clone(), Duration::from_millis(20)).unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::from_millis(20)).unwrap();
   service.set(app_fields(json!({ "systemTitleBar": true })), "rust").unwrap();
   let deadline = Instant::now() + Duration::from_secs(10);
   while !path.exists() {
@@ -136,7 +147,7 @@ fn a_patch_is_saved_after_the_debounce_without_a_flush() {
 fn the_service_saves_what_is_unsaved_when_it_is_dropped() {
   let directory = tempfile::tempdir().unwrap();
   let path = settings_path(&directory);
-  let service = SettingsService::open_with_debounce(path.clone(), NEVER).unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), NEVER).unwrap();
   service
     .set(
       SettingsPatch::Value {
@@ -155,32 +166,44 @@ fn a_reader_of_the_file_never_sees_a_missing_prefix_while_the_service_writes_it(
   let directory = tempfile::tempdir().unwrap();
   let path = settings_path(&directory);
   std::fs::write(&path, r#"{"appSettings":{"globalUserBranchPrefix":"jane"}}"#).unwrap();
-  let service = SettingsService::open_with_debounce(path.clone(), Duration::ZERO).unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::ZERO).unwrap();
+  // `bd` reads the prefix beside a sync, which records the repository at every step: a step in three changes the
+  // settings too
   let writer = std::thread::spawn(move || {
     for step in 0..300 {
-      // a big file, so a write that is not atomic is caught cut
-      let notes: Map<String, Value> = (0..50).map(|note| (format!("note{note}"), json!(format!("{step}-{note}")))).collect();
       service
-        .set(
-          SettingsPatch::Value {
-            key: "notes".to_owned(),
-            value: Value::Object(notes),
-          },
-          "main",
-        )
+        .set(fields("repositoryState", json!({ "/repo": { "lastSyncTime": step, "lastBranchCount": 50 } })), "main")
         .unwrap();
-      service
-        .set(app_fields(json!({ "globalUserBranchPrefix": if step % 2 == 0 { "john" } else { "jane" } })), "main")
-        .unwrap();
+      if step % 3 == 0 {
+        // a big file, so a write that is not atomic is caught cut
+        let notes: Map<String, Value> = (0..50).map(|note| (format!("note{note}"), json!(format!("{step}-{note}")))).collect();
+        service
+          .set(
+            SettingsPatch::Value {
+              key: "notes".to_owned(),
+              value: Value::Object(notes),
+            },
+            "main",
+          )
+          .unwrap();
+        service
+          .set(app_fields(json!({ "globalUserBranchPrefix": if step % 2 == 0 { "john" } else { "jane" } })), "main")
+          .unwrap();
+      }
       service.flush().unwrap();
     }
   });
+  let state_path = repository_state_path(&directory);
   let mut reads = 0;
   while !writer.is_finished() {
     let text = std::fs::read_to_string(&path).unwrap();
     let settings = SettingsFile::parse(&text).unwrap_or_else(|error| panic!("a cut file ({error}): {text}"));
     let prefix = settings.app.global_user_branch_prefix;
     assert!(matches!(prefix.as_deref(), Some("jane" | "john")), "read {prefix:?}");
+    if let Ok(text) = std::fs::read_to_string(&state_path) {
+      let state = SettingsFile::parse(&text).unwrap_or_else(|error| panic!("a cut repository state ({error}): {text}"));
+      assert!(state.other["repositoryState"]["/repo"]["lastSyncTime"].is_u64(), "{text}");
+    }
     reads += 1;
   }
   writer.join().unwrap();
@@ -194,7 +217,7 @@ fn an_unwritable_directory_reports_the_error_once_a_streak_and_memory_keeps_the_
   let blocked = directory.path().join("app-data");
   std::fs::write(&blocked, "").unwrap();
   let path = blocked.join("settings.json");
-  let service = SettingsService::open_with_debounce(path.clone(), NEVER).unwrap();
+  let service = SettingsService::open_with_debounce(blocked.clone(), NEVER).unwrap();
   let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
   service.on_save_error({
     let reports = Arc::clone(&reports);
@@ -231,7 +254,7 @@ fn an_unwritable_directory_reports_the_error_once_a_streak_and_memory_keeps_the_
 fn an_invalid_value_of_a_field_rust_knows_is_refused_and_changes_nothing() {
   let directory = tempfile::tempdir().unwrap();
   let path = settings_path(&directory);
-  let service = SettingsService::open_with_debounce(path.clone(), NEVER).unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), NEVER).unwrap();
   let before = service.snapshot();
   let table = [
     ("zoom", json!(0)),
@@ -267,7 +290,7 @@ fn an_invalid_value_of_a_field_rust_knows_is_refused_and_changes_nothing() {
 
 #[test]
 fn the_prefix_is_trimmed_and_a_blank_one_is_no_prefix() {
-  let service = SettingsService::open_with_debounce(tempfile::tempdir().unwrap().path().join("settings.json"), NEVER).unwrap();
+  let (_directory, service) = opened(NEVER);
   let change = service.set(app_fields(json!({ "globalUserBranchPrefix": "  jane \n" })), "main").unwrap();
   assert_eq!(change.value["globalUserBranchPrefix"], json!("jane"));
   assert_eq!(service.app().global_user_branch_prefix.as_deref(), Some("jane"));
@@ -285,7 +308,7 @@ fn the_snapshot_has_the_defaults_of_the_fields_rust_knows_and_the_file_keeps_onl
     "recentProjects": { "items": [{ "path": "/work/repo" }] },
   });
   std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
-  let service = SettingsService::open_with_debounce(path.clone(), NEVER).unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), NEVER).unwrap();
   let full_app = json!({
     "zoom": 1.25,
     "patronusNewApi": false,
@@ -304,7 +327,7 @@ fn the_snapshot_has_the_defaults_of_the_fields_rust_knows_and_the_file_keeps_onl
 
 #[test]
 fn the_changes_since_a_snapshot_name_each_key_changed_after_it_once_with_its_value_now() {
-  let service = SettingsService::open_with_debounce(tempfile::tempdir().unwrap().path().join("settings.json"), NEVER).unwrap();
+  let (_directory, service) = opened(NEVER);
   let (snapshot_version, _) = service.snapshot();
   service.set(app_fields(json!({ "zoom": 1.5 })), "main").unwrap();
   service.set(fields("diffViewSettings", json!({ "mode": "unified" })), "review").unwrap();
@@ -328,7 +351,7 @@ fn the_changes_since_a_snapshot_name_each_key_changed_after_it_once_with_its_val
 
 #[test]
 fn a_field_patch_merges_into_the_key_and_a_null_field_is_removed() {
-  let service = SettingsService::open_with_debounce(tempfile::tempdir().unwrap().path().join("settings.json"), NEVER).unwrap();
+  let (_directory, service) = opened(NEVER);
   service.set(fields("diffViewSettings", json!({ "mode": "unified", "wrap": true })), "main").unwrap();
   let change = service.set(fields("diffViewSettings", json!({ "wrap": null, "context": 3 })), "review").unwrap();
   assert_eq!(change.value, json!({ "mode": "unified", "context": 3 }));
@@ -354,7 +377,7 @@ fn a_field_patch_merges_into_the_key_and_a_null_field_is_removed() {
 
 #[test]
 fn a_field_patch_that_removes_the_last_field_removes_the_key() {
-  let service = SettingsService::open_with_debounce(tempfile::tempdir().unwrap().path().join("settings.json"), NEVER).unwrap();
+  let (_directory, service) = opened(NEVER);
   service.set(fields("diffView", json!({ "mode": "unified" })), "main").unwrap();
   let change = service.set(fields("diffView", json!({ "mode": null })), "review").unwrap();
   assert_eq!(change.value, Value::Null);
@@ -367,7 +390,7 @@ fn the_snapshot_of_a_cut_file_is_a_json_object_of_the_defaults() {
   let path = settings_path(&directory);
   for cut in ["", r#"{"appSettings": {"globalUserBra"#, "[1, 2]"] {
     std::fs::write(&path, cut).unwrap();
-    let service = SettingsService::open_with_debounce(path.clone(), NEVER).unwrap();
+    let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), NEVER).unwrap();
     let (version, snapshot) = service.snapshot();
     assert_eq!(version, 0);
     // the text the init script of a window embeds parses back as the same object
@@ -378,4 +401,84 @@ fn the_snapshot_of_a_cut_file_is_a_json_object_of_the_defaults() {
       "{cut:?}"
     );
   }
+}
+
+#[test]
+fn a_patch_of_the_repository_state_leaves_the_settings_file_untouched() {
+  let directory = tempfile::tempdir().unwrap();
+  let path = settings_path(&directory);
+  // not the form a save writes, so any save of the file would change its bytes
+  let text = r#"{"appSettings":{"zoom":1.5},"recentProjects":[{"path":"/repo"}]}"#;
+  std::fs::write(&path, text).unwrap();
+  let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::ZERO).unwrap();
+
+  for step in 1..=3 {
+    let change = service
+      .set(
+        fields("repositoryState", json!({ "/repo": { "lastSyncTime": step, "updateTimings": { "sync": [step] } } })),
+        "main",
+      )
+      .unwrap();
+    assert_eq!(change.value, json!({ "/repo": { "lastSyncTime": step, "updateTimings": { "sync": [step] } } }));
+    service.flush().unwrap();
+  }
+
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+  assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), modified);
+  assert_eq!(
+    read(&repository_state_path(&directory)),
+    json!({ "repositoryState": { "/repo": { "lastSyncTime": 3, "updateTimings": { "sync": [3] } } } })
+  );
+  assert_eq!(service.snapshot().1["repositoryState"]["/repo"]["lastSyncTime"], 3);
+
+  // a change of a setting writes the settings, and the repository state stays in its own file
+  service.set(app_fields(json!({ "zoom": 2 })), "main").unwrap();
+  service.flush().unwrap();
+  assert_eq!(read(&path), json!({ "appSettings": { "zoom": 2 }, "recentProjects": [{ "path": "/repo" }] }));
+}
+
+#[test]
+fn a_settings_file_of_before_moves_the_fields_of_a_sync_to_the_repository_state_and_drops_them_on_its_next_save() {
+  let directory = tempfile::tempdir().unwrap();
+  let path = settings_path(&directory);
+  let text = r#"{"recentProjects":[{"path":"/a","cachedBranchPrefix":{"prefix":"jane","source":"app_setting"},"lastSyncTime":10,"lastBranchCount":2,"updateTimings":{"sync":[5]},"lastFetchTime":7},{"path":"/b","lastSyncTime":20},{"path":"/c"}],"unknownKey":{"kept":true}}"#;
+  std::fs::write(&path, text).unwrap();
+  // the repository state of a later run of the app has /b already: it wins
+  std::fs::write(repository_state_path(&directory), r#"{"repositoryState":{"/b":{"lastSyncTime":30}}}"#).unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), NEVER).unwrap();
+
+  let (version, snapshot) = service.snapshot();
+  assert_eq!(version, 0);
+  let projects = json!([
+    { "path": "/a", "cachedBranchPrefix": { "prefix": "jane", "source": "app_setting" }, "lastFetchTime": 7 },
+    { "path": "/b" },
+    { "path": "/c" },
+  ]);
+  assert_eq!(snapshot["recentProjects"], projects);
+  let state = json!({
+    "/a": { "lastSyncTime": 10, "lastBranchCount": 2, "updateTimings": { "sync": [5] } },
+    "/b": { "lastSyncTime": 30 },
+  });
+  assert_eq!(snapshot["repositoryState"], state);
+
+  // the moved values are saved; the settings file keeps them until its next save
+  service.flush().unwrap();
+  assert_eq!(read(&repository_state_path(&directory)), json!({ "repositoryState": state }));
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+
+  service.set(app_fields(json!({ "zoom": 2 })), "main").unwrap();
+  service.flush().unwrap();
+  assert_eq!(
+    read(&path),
+    json!({ "appSettings": { "zoom": 2 }, "recentProjects": projects, "unknownKey": { "kept": true } })
+  );
+}
+
+#[test]
+fn the_moved_values_of_a_settings_file_of_before_are_saved_without_a_change() {
+  let directory = tempfile::tempdir().unwrap();
+  std::fs::write(settings_path(&directory), r#"{"recentProjects":[{"path":"/a","lastSyncTime":10}]}"#).unwrap();
+  drop(SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::ZERO).unwrap());
+  assert_eq!(read(&repository_state_path(&directory)), json!({ "repositoryState": { "/a": { "lastSyncTime": 10 } } }));
 }

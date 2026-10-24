@@ -331,7 +331,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   the progress of the update instead of the robots' ([Robots in the Dock](robots-indicator.spec.md#dock)).
   [@test] ../../src/stores/update-project.test.ts (`is busy through the sync of an applied update, its own run of it; the toast doesn't wait for the sync`)
 - The share of each step is its usual time in the repository: the median of its last 5 durations (fetch, check,
-  update of the files; the sync learns from every sync of the repository, the wait for the lock never), 3 s, 1.5 s,
+  update of the files; the sync learns from every sync of the repository, the wait for the lock never), kept in the
+  state of the repository (`repositoryState`, beside the settings, never in `settings.json`), 3 s, 1.5 s,
   0.8 s and 2 s before the first. Inside a step the progress is the fetch's percent of git, or the synced commits of
   the update's own sync run, when it is ahead of the time; else the time, `1 − e^(−t/usual)`: 63 % of the step at its
   usual time, never still. A step reaches at most 95 % of its share before it ends, and at each change of step the
@@ -347,7 +348,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/stores/update-project.test.ts (`lists every step of an update from its start, also when the last check found the branch up to date`)
   [@test] ../../src/lib/update-progress.test.ts (`takes the commits of its own sync, capped until the sync ends`)
   [@test] ../../src/lib/update-progress.test.ts (`learns what the steps took, without the wait for the lock and the sync, which learns from every sync`)
-  [@test] ../../src/stores/update-project.test.ts (`changes the step only when the phase changes, and learns what the steps took once the update ends`)
+  [@test] ../../src/stores/update-project.test.ts (`changes the step only when the phase changes, and records what the steps took in the state of the repository once the update ends`)
   [@test] ../../src/stores/branch-sync.test.ts (`resolves a requested sync at the end of its own run: the follow-up of a sync that runs, never a later one`)
 - While the update runs, its tooltip lists its steps instead of the state of the last check and "fetch and update":
   those done ("Fetched origin/master · 5.79 MiB", "Checked the update onto origin/master"), the running one ("Fetching

@@ -25,6 +25,13 @@ export const SetupRepoOptionsSchema = z.object({
   branchNameSuggestions: z.any().optional(),
 
   /**
+   * How long ago (ms) the last sync of the repository ended, as the writer of the settings records it in
+   * `repositoryState` (set through `/store` before the page opens): the window syncs a repository synced before by itself
+   * Default: undefined - never synced, the Ready to Sync card waits for Sync
+   */
+  syncedAgoMs: z.number().optional(),
+
+  /**
    * Additional store values to inject into the test
    * Default: empty object - Only used for specific test scenarios
    */

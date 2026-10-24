@@ -7,8 +7,18 @@ describe("ProjectMetadataSchema", () => {
     expect(ProjectMetadataSchema.parse({ path: "/repo", issueNavigationConfig })).toEqual({ path: "/repo", issueNavigationConfig })
   })
 
+  it("keeps no field a sync records: those are the state of the repository", () => {
+    expect(ProjectMetadataSchema.parse({ path: "/repo", lastSyncTime: 1, lastBranchCount: 2, updateTimings: { sync: [3] }, lastFetchTime: 4 })).toEqual({
+      path: "/repo",
+      lastFetchTime: 4,
+    })
+  })
+
   it("drops malformed issue links, not the project", () => {
-    expect(ProjectMetadataSchema.parse({ path: "/repo", lastSyncTime: 1, issueNavigationConfig: { links: [{ issueRegexp: 1 }] } })).toEqual({ path: "/repo", lastSyncTime: 1 })
+    expect(ProjectMetadataSchema.parse({ path: "/repo", parkedCollapsed: true, issueNavigationConfig: { links: [{ issueRegexp: 1 }] } })).toEqual({
+      path: "/repo",
+      parkedCollapsed: true,
+    })
     expect(ProjectMetadataSchema.parse({ path: "/repo", issueNavigationConfig: null })).toEqual({ path: "/repo" })
   })
 })
@@ -33,6 +43,6 @@ describe("cachedBranchPrefix", () => {
     expect(parse({ prefix: "", repositoryScoped: true })).toBeUndefined()
     expect(parse(undefined)).toBeUndefined()
     expect(parse({ prefix: "jane", source: "elsewhere" })).toBeUndefined()
-    expect(ProjectMetadataSchema.parse({ path: "/repo", lastSyncTime: 1, cachedBranchPrefix: { prefix: 1 } })).toEqual({ path: "/repo", lastSyncTime: 1 })
+    expect(ProjectMetadataSchema.parse({ path: "/repo", parkedCollapsed: true, cachedBranchPrefix: { prefix: 1 } })).toEqual({ path: "/repo", parkedCollapsed: true })
   })
 })

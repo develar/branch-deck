@@ -25,16 +25,16 @@ async function saveAppPrefix(page: Page, prefix: string): Promise<Page> {
   return settings
 }
 
-/** Marks the injected project as synced an hour ago; `otherPath` adds a second recent project, never synced */
-async function markSyncedBefore(page: Page, otherPath?: string): Promise<void> {
-  await page.addInitScript(otherPath => {
+/** The repository was synced an hour ago (`repositoryState`, set through the test server before the page opens) */
+const SYNCED_AN_HOUR_AGO = 60 * 60 * 1000
+
+/** Adds a second recent project, never synced, to the injected store */
+async function addRecentProject(page: Page, path: string): Promise<void> {
+  await page.addInitScript(path => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const projects = (window as any).__TAURI_STORE__.recentProjects
-    projects[0].lastSyncTime = Date.now() - 60 * 60 * 1000
-    if (otherPath !== undefined) {
-      projects.push({ path: otherPath, cachedBranchPrefix: { prefix: "user-name", source: "repository_config" } })
-    }
-  }, otherPath)
+    projects.push({ path, cachedBranchPrefix: { prefix: "user-name", source: "repository_config" } })
+  }, path)
 }
 
 test.describe("Onboarding", () => {
@@ -163,11 +163,8 @@ test.describe("Onboarding", () => {
   })
 
   test("syncs a repository synced before when the window opens it", async ({ page, setupRepo }) => {
-    await setupRepo("behind_upstream", { prepopulateStore: true })
-    // a new window of a project synced an hour ago, Auto-sync on Focus off (the injected store runs first, this
-    // script patches it)
-    await markSyncedBefore(page)
-    await page.reload()
+    // a new window of a project synced an hour ago, Auto-sync on Focus off
+    await setupRepo("behind_upstream", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
 
     // no click: the branches and Update show by themselves
     await expect(findBranchRow(page, "feature-auth")).toBeVisible()
@@ -177,8 +174,9 @@ test.describe("Onboarding", () => {
   })
 
   test("forgets the branches of the previous repository on a switch", async ({ page, setupRepo }) => {
-    const repo = await setupRepo("simple", { prepopulateStore: true })
-    await markSyncedBefore(page, "/nonexistent/branch-deck-e2e-other")
+    const repo = await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
+    // the injected store runs first, this script adds to it
+    await addRecentProject(page, "/nonexistent/branch-deck-e2e-other")
     await page.reload()
     const branchRows = page.getByTestId("branch-row")
     await expect(branchRows.first()).toBeVisible()

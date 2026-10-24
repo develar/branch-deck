@@ -18,7 +18,7 @@ import { useAppCommand } from "@/hooks/useAppCommand"
 import { useHasFilterBar } from "@/hooks/useBranchFilter"
 import { hasCustomTitleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
-import { useRepository, useSelectedProjectField, useSelectedProjectPath } from "@/stores/repository"
+import { useRepository, useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
 import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores/update-project"
 
 const UpdateBlockedDialog = lazy(() => import("@/components/repository/UpdateBlockedDialog").then(it => ({ default: it.UpdateBlockedDialog })))
@@ -40,7 +40,7 @@ export function ConfigurationHeader() {
   const hasFilterBar = useHasFilterBar(branchCount)
   const pathValidation = useRepository(state => state.pathValidation)
   const hasSelectedProject = useSelectedProjectPath() !== undefined
-  const lastSyncTime = useSelectedProjectField("lastSyncTime")
+  const lastSyncTime = useSelectedRepositoryState("lastSyncTime")
   const refusedUpdate = useRefusedUpdate()
   // mounted on the first refusal and kept, so the dialog animates and returns the focus when it closes
   const [isRefusedDialogMounted, setRefusedDialogMounted] = useState(false)

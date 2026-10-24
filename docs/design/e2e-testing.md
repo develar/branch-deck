@@ -105,6 +105,13 @@ sequenceDiagram
    conflict viewer, a collapsed stack) could not be tested; `sessionStorage` lives as long as the tab, so tests stay
    isolated.
 
+7. **Decision**: A repository synced before is the option `syncedAgoMs` of `setupRepo`: the setup sets the
+   `repositoryState` of the repository (its `lastSyncTime`) through the test server's writer (`/store/{repo}/{key}`)
+   and injects it, so the window syncs it on open as the app does.
+   **Rationale**: The writer is the app's (`SettingsService`), so the key lands in its own file
+   (`repository-state.json`) and the page's later patches of the key apply to the value the writer has; an init script
+   that edits `__TAURI_STORE__` changes only what the page starts from.
+
 ### Implementation Notes
 
 Template system:

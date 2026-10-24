@@ -11,6 +11,7 @@ targets:
   - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/SyncButton.tsx
   - ../../src/hooks/useSyncOnOpen.ts
+  - ../../src/stores/settings/repositoryState.ts
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/unassigned/UnassignedCommitsHelpPopover.tsx
   - ../../src/components/shared/CommandLine.tsx
@@ -131,7 +132,13 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says what Sync does before the first sync, then gives way to the branches`)
 - A repository synced before syncs when the window opens it, at start and on a switch, also with Auto-sync on Focus
   off: no card, the spinner of Sync in the header, then the branches and Update. A failed sync is the error alert and is not
-  repeated until the window opens the repository again (⌘R retries).
+  repeated until the window opens the repository again (⌘R retries). Synced before is what the last sync recorded of
+  the repository in `repositoryState` (when it ended, the "Last synced" of the header, and how many branches it had,
+  the line under the path in the repository selector), which the backend keeps beside the settings
+  (`repository-state.json`): a sync never rewrites `settings.json`.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)
+  [@test] ../../src/stores/branch-sync.test.ts (`resolves a requested sync at the end of its own run: the follow-up of a sync that runs, never a later one`)
 - Auto-sync on Focus (Settings → General, File → Auto-sync on Focus) is on by default and syncs on a focus
   only when what a sync reads changed since the last sync (`syncIfChanged`, the fingerprint of
   [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), taken when the sync started, so a commit made

@@ -9,6 +9,8 @@ import { repositoryName } from "@/lib/repository-config"
 import { onWriterChange, snapshotValueOf } from "@/stores/settings/persistent-store"
 import { getRecentProjects, repositorySettingsStore, setRecentProjects, updateProject, useRecentProjects } from "@/stores/settings/repositorySettings"
 import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
+import { useRepositoryStateField } from "@/stores/settings/repositoryState"
+import type { RepositoryStateEntry } from "@/stores/settings/repositoryState"
 
 /** No prefix: a repository git cannot read (the error is shown through `pathValidation`), or one nothing sets a prefix for */
 export const NO_BRANCH_PREFIX: ResolvedBranchPrefix = { prefix: "", source: "none" }
@@ -92,6 +94,11 @@ export function useSelectedProject(): ProjectMetadata | null {
 /** The path of the selected repository; re-renders only when another one is selected, not when its metadata changes */
 export function useSelectedProjectPath(): string | undefined {
   return useRecentProjects(projects => projects[0]?.path)
+}
+
+/** One field of what the syncs recorded of the selected repository (`repositoryState`); re-renders only when it changes */
+export function useSelectedRepositoryState<K extends keyof RepositoryStateEntry>(field: K): RepositoryStateEntry[K] | undefined {
+  return useRepositoryStateField(useSelectedProjectPath(), field)
 }
 
 /** One field of the selected repository's metadata; re-renders only when it changes */
