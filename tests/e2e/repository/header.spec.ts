@@ -3,7 +3,8 @@
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import type { Box } from "../helpers/header-helpers"
-import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, MIN_WINDOW, waitForHeaderFacts } from "../helpers/header-helpers"
+import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, headerBoxes, MIN_WINDOW } from "../helpers/header-helpers"
+import { availableRobots } from "../helpers/patronus-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { holdCommand, holdWithProgress } from "../helpers/wait-helpers"
@@ -40,7 +41,6 @@ test.describe("Header", () => {
   test("should not move while a sync runs", async ({ page }) => {
     const lastSync = page.getByTestId("last-sync-time")
     await expect(lastSync.getByText(/^Last synced/)).toBeVisible()
-    await waitForHeaderFacts(page)
     const before = await actionBoxes(page)
 
     // hold the sync until the layout is measured
@@ -100,5 +100,24 @@ test.describe("Header without a repository", () => {
     await expect(page.getByTestId("welcome-card")).toBeVisible()
     await header(page).getByTestId("settings-button").click()
     await expectSettingsOpened(page, {})
+  })
+})
+
+test.describe("Header before the answers", () => {
+  test("should keep its controls in place when Patronus answers after the sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await page.setViewportSize(MIN_WINDOW)
+    const repo = await setupRepo("behind_upstream", { patronus: availableRobots() })
+    await repo.holdRemoteAnswers({ hold: ["robots"] })
+    await syncAndWaitForBranches()
+    // the page asked Patronus, whose answer decides the user's move: none is counted before it
+    await expect.poll(() => repo.getArrivedAnswers()).toContain("robots")
+    await expect(header(page).getByTestId("landing-indicator")).toBeVisible()
+    await expect(header(page).getByTestId("landing-moves")).toHaveCount(0)
+    const before = await headerBoxes(page, HEADER_CONTROLS)
+
+    // Patronus answered: the move of feature-auth counts in the place the count kept
+    await repo.holdRemoteAnswers({ release: ["robots"] })
+    await expect(header(page).getByTestId("landing-moves")).toHaveText("1")
+    expect(await headerBoxes(page, HEADER_CONTROLS)).toEqual(before)
   })
 })

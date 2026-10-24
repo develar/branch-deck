@@ -45,8 +45,6 @@ export async function syncBranches(page: Page, waitForSelectors?: string[]): Pro
       },
       { timeout: 10000 },
     )
-    // the lazy unassigned commits card renders after the rows and moves them down, away from the pointer of a hover
-    await expect(page.getByTestId("unassigned-commits-loading")).toHaveCount(0)
   }
 }
 

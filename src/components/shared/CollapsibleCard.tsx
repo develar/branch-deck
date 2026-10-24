@@ -1,5 +1,5 @@
 import { useState } from "react"
-import type { DragEvent, KeyboardEvent, ReactNode } from "react"
+import type { DragEvent, KeyboardEvent, ReactNode, Ref } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
@@ -33,6 +33,8 @@ export interface CollapsibleCardProps {
   "data-testid"?: string
   /** The root of the stack of a stack island (`StackIslandCard`), which the keys find its header by */
   "data-stack-root"?: string
+  /** The card's element: what measures it (the height Your Turn keeps, `YourTurnSlot`) */
+  ref?: Ref<HTMLDivElement>
 }
 
 /**
@@ -56,6 +58,7 @@ export function CollapsibleCard({
   className,
   "data-testid": testId,
   "data-stack-root": stackRoot,
+  ref,
 }: CollapsibleCardProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen)
   const open = controlledOpen ?? uncontrolledOpen
@@ -63,6 +66,7 @@ export function CollapsibleCard({
 
   return (
     <Collapsible
+      ref={ref}
       open={open}
       onOpenChange={onOpenChange ?? setUncontrolledOpen}
       data-state={state}

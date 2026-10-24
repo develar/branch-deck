@@ -1,17 +1,22 @@
-import { createContext, use, useState } from "react"
+import { createContext, use, useEffect, useLayoutEffect, useState } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
+import { saveSettledLayout, settledTracks, useLayoutSettled, useSettledLayout } from "@/hooks/useSettledLayout"
 import type { BranchTrack, BranchTrackGroup } from "@/lib/branch-columns"
 import { ColumnRegistry, TRACK_CONTENT_CLASS, TRACK_ITEM_CLASS } from "@/lib/branch-columns"
+import { useSelectedProjectPath } from "@/stores/repository"
 
 const ColumnRegistryContext = createContext<ColumnRegistry | null>(null)
 
 /**
  * The branch view: the table and its stack islands, one card after the other, whose columns line up
- * (`ColumnRegistry`): the widths of the tracks are CSS variables of this element
+ * (`ColumnRegistry`): the widths of the tracks are CSS variables of this element. Until the facts of the remote are in,
+ * the tracks are at least as wide as once they were in the last time (`useSettledLayout`); then the view keeps its
+ * widths for the next start
  */
 export function BranchColumnsRoot({ children }: { children: ReactNode }) {
   const [registry] = useState(() => new ColumnRegistry())
+  useSettledColumns(registry)
   return (
     <div
       ref={element => {
@@ -24,6 +29,25 @@ export function BranchColumnsRoot({ children }: { children: ReactNode }) {
       <ColumnRegistryContext value={registry}>{children}</ColumnRegistryContext>
     </div>
   )
+}
+
+/** The floors of the tracks while the facts of the remote come, and what they settle at once they are in */
+function useSettledColumns(registry: ColumnRegistry): void {
+  const path = useSelectedProjectPath()
+  const settled = useLayoutSettled()
+  const floors = useSettledLayout()?.tracks ?? null
+  // before the first paint: the first frame stands where the settled one will
+  useLayoutEffect(() => {
+    registry.setFloors(settled ? null : floors)
+  }, [registry, settled, floors])
+  useEffect(() => {
+    if (!settled || path === undefined) {
+      return
+    }
+    // the widths the settled content gives, once its frame is laid out
+    const frame = requestAnimationFrame(() => saveSettledLayout(path, { tracks: settledTracks(registry.measured()) }))
+    return () => cancelAnimationFrame(frame)
+  }, [registry, settled, path])
 }
 
 /**

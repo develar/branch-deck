@@ -46,6 +46,7 @@ targets:
   - ../../src/hooks/useDockStatus.ts
   - ../../src/hooks/useReviewWindowBridge.ts
   - ../../src/components/repository/YourTurnCard.tsx
+  - ../../src/hooks/useSettledLayout.ts
   - ../../src/components/repository/ReviewRequestRow.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/components/review/PullRequestReview.tsx
@@ -220,6 +221,13 @@ Safe Push it allows.
   It is hidden off GitHub, without a token, with one GitHub rejects, and while neither waits; without access to the
   repository it keeps its rows with the hint.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while GitHub rejects the token or nothing waits, and show once something does`, `should show the island for a returned pull request alone`)
+- Its arrival moves no row: GitHub answers after the first rows, so until the facts of the remote are in
+  ([Facts without an answer](../branch/next-step.spec.md#facts-without-an-answer), the review requests among them) the
+  island keeps the height it had once they were in the last time (`settledLayout` of the repository state,
+  `YourTurnSlot`): its header with "Checking GitHub…" where it will be, or the island itself once it renders; then it
+  takes its own height (a request answered since closes the place, once), and that height is kept for the next start
+  and a switch back. A repository without that height (its first start) has no place held.
+  [@test] ../../tests/e2e/branch-row-layout/late-facts.spec.ts (`should keep the rows and the columns where the last start left them while Your Turn, the pull requests and the approvals come back`)
 - A `CollapsibleCard`, open by default; collapsed per repository (`reviewRequestsCollapsed` of the recent projects).
   The header: `UserCheckIcon`, "Your Turn", the count (all that wait: the count of the requests, and the returned
   pull requests), open and collapsed alike, as every island keeps its count; collapsed, "oldest waiting 2 days · 1

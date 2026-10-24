@@ -2,7 +2,7 @@
 import type { Page } from "@playwright/test"
 import { expect, test, testWithConflicts } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
-import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, MIN_WINDOW, waitForHeaderFacts } from "../helpers/header-helpers"
+import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, MIN_WINDOW } from "../helpers/header-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
 import { availableReviewRequests, getYourTurnCard, openReviewWindow, reviewRequest } from "../helpers/review-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
@@ -12,11 +12,11 @@ import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpe
 import { waitForConflictViewer } from "../helpers/wait-helpers"
 
 /**
- * The empty part of the main window's row, between the repository and the actions: it drags the window. Measured once
- * the row has its facts: a press at a point measured before Patronus answered lands on Update Project
+ * The empty part of the main window's row, between the repository and the actions: it drags the window. An answer of
+ * Patronus after the sync moves no control of the row (`should keep its controls in place when Patronus answers after
+ * the sync`), so a point measured before it is between the controls after it too
  */
 async function emptyPartOfRow(page: Page): Promise<{ x: number; y: number }> {
-  await waitForHeaderFacts(page)
   // after the last control of the start: the switcher of the views of a repository, else the browse button
   const switcher = page.getByTestId("main-view-switcher")
   const start = await boxOf((await switcher.count()) > 0 ? switcher : page.getByTestId("browse-repository-button"))

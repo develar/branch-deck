@@ -421,6 +421,16 @@ shows.
   while the track has content): a view without Patronus has no step column, a pushed view no push column.
 - **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The labels of
   the steps fit (`next-step.spec.md`); the cap is a backstop.
+- **Late facts move no column**: the answers of the remote come after the first rows (the pull request chips, the
+  steps, the robots), so until they are in ([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer))
+  each track is at least as wide as once they were in the last time (`ColumnRegistry.setFloors`, the `tracks` of
+  `settledLayout` in the repository state, `useSettledLayout`): a start or a switch back stands where the settled view
+  of the last time stood, and the answers fill the places they had. Once they are in, the floors go: the view follows
+  its content (a track that has less to show than the last time narrows then, once) and keeps its widths for the next
+  start. A repository's first start has no floors; within a window a repository settles once, so a late fact after it
+  (a new branch waiting for its readiness) moves only what it changes. Your Turn above the table holds its height the
+  same way ([Review Requests](../../spec/repository/review-requests.spec.md#card)), and the unassigned commits card
+  renders with the rows (no lazy chunk: one came seconds later under load and moved the table).
 - **Live values hold their own width**: a running robot is at least `13ch`, the compact push `min-w-16` (`⟳ 100%`),
   the Safe Push of a slot its width at rest while its start runs, so
   a tick of a time or a percent changes no column. A minimum lives on the element that changes, never in the column:

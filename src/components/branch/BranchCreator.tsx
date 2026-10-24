@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react"
+import { useEffect } from "react"
 import { CircleXIcon, GitBranchIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
@@ -8,14 +8,13 @@ import { GitSetupAlert } from "@/components/repository/GitSetupAlert"
 import { LandedCard } from "@/components/repository/LandedCard"
 import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
-import { YourTurnCard } from "@/components/repository/YourTurnCard"
+import { YourTurnSlot } from "@/components/repository/YourTurnCard"
+import { UnassignedCommitListCard } from "@/components/unassigned/UnassignedCommitListCard"
 import { markWindowContentReady } from "@/lib/sub-window"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
 import { useEffectiveBranchPrefix, useIsLoadingBranchPrefix, useRepository, useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
-
-const UnassignedCommitListCard = lazy(() => import("@/components/unassigned/UnassignedCommitListCard").then(it => ({ default: it.UnassignedCommitListCard })))
 
 /**
  * The branches view of the main window: onboarding, errors and the branch tables. What keeps the repository current (its
@@ -107,15 +106,14 @@ export function BranchCreator() {
         )
       )}
 
-      {/* after the first completed sync: never during Welcome or Ready to Sync */}
-      {hasSynced && <YourTurnCard />}
+      {/*
+        after the first completed sync: never during Welcome or Ready to Sync; until the facts of the remote are in, its
+        place as it was the last time
+      */}
+      <YourTurnSlot shown={hasSynced} reserve={hasRepository && !showWelcomeCard && !showReadyToSync && !hasError} />
 
-      {unassignedCommitCount > 0 && (
-        // the card comes after the table and moves it down: the marker says it is still to come (the E2E sync waits)
-        <Suspense fallback={<span hidden data-testid="unassigned-commits-loading" />}>
-          <UnassignedCommitListCard commits={unassignedCommits} />
-        </Suspense>
-      )}
+      {/* with the rows, never after them: a card that came later moved the table away from the pointer */}
+      {unassignedCommitCount > 0 && <UnassignedCommitListCard commits={unassignedCommits} />}
 
       <BranchTableCard isLoadingRows={isLoadingRows} />
 

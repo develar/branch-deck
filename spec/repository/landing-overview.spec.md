@@ -70,8 +70,12 @@ indicator, whose states were the same story told twice.
 - The header shows the button after Update Project, while a unit is on its way to master or in master, or a robot ran
   in the last day; hidden otherwise. Its icon is the node of the most urgent move (`needsFix`, then `yourStep`, then
   `ready`; a hollow neutral node without one), in the ring of a running Safe Push; then the number of the user's moves
-  (none at 0); then the bar.
+  (none at 0, its place kept: one digit wide); then the bar. It is as wide whatever the answers say, so an answer of
+  Patronus or GitHub after the sync moves no control of the header (at the minimum width a count that came moved
+  Update Project and the start of the row by 12 px); while the rows of a repository synced before are still to come,
+  the button holds its place, disabled (`landing-indicator-loading`).
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`, `should be hidden while nothing is on the way to master and nothing ran in the last day`)
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls in place when Patronus answers after the sync`)
 - The moves are the units whose node is filled, their branches that need a fix, the failed robots of no row (a
   temporary ref, a watched pull request) and the running Safe Pushes whose required check failed. A unit that waits for
   the first answer of Patronus counts no move, so the number does not change when the overview opens and asks; a unit
@@ -81,8 +85,8 @@ indicator, whose states were the same story told twice.
   [@test] ../../src/lib/landing-node.test.ts (`is the state after a running move of the row from its start on: Landing for a robot that comes, else Waiting`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
 - The bar has a segment per kind of the units on their way, in the order of the way: landing, waiting, ready, the
-  user's step, a fix; its width the commits of its units; light for a hollow node. None for a single kind: the node
-  says it.
+  user's step, a fix; its width the commits of its units; light for a hollow node. A single kind fills it, nothing on
+  the way leaves it empty: it is there either way, so a kind that comes moves nothing.
   [@test] ../../src/lib/landing-overview.test.ts (`has a segment per kind on the way, landing first and the user's moves last, its weight the commits`)
 - Its accessible name, the title of the overview: "On the way to master: 3 your move · 1 landing · 3 waiting · 1 in
   master", the parts that apply; "landing" counts the Safe Pushes that run and will not fail.
@@ -150,8 +154,9 @@ indicator, whose states were the same story told twice.
   [@test] ../../src/lib/check-counts.test.ts (`names the checks that failed, counts the ones beyond the first three, nothing while none failed`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should watch the robot of a reviewed pull request: listed by what it tests, its merge told`)
 - While the overview is open, each of its rows is a surface of the readiness of its branch (`useShowReviewReadiness`),
-  so the units of a collapsed stack get their answer too; while some wait, a line under the title says "Asking
-  Patronus about 5 branches…".
+  so the units of a collapsed stack get their answer too; while some wait for an answer of Patronus or GitHub
+  ([Facts without an answer](../branch/next-step.spec.md#facts-without-an-answer)), a line under the title says
+  "Checking 5 branches: Patronus and GitHub answer…".
 - Below a rule, the footer: the update state of the baseline with Update ([Update Project](update-project.spec.md)),
   the pull requests checked with Refresh ([Pull Requests](../branch/pull-requests.spec.md)), Patronus checked with
   Refresh ([Patronus](../branch/patronus.spec.md)).

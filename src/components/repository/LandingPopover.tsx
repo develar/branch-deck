@@ -59,7 +59,7 @@ export function LandingPopover({ overview, onClose, renderPullRequest, footer }:
         <PopoverTitle className="text-sm">{formatLandingTitle(overview)}</PopoverTitle>
         {overview.checking > 0 && (
           <PopoverDescription className="text-xs" data-testid="landing-checking">
-            {`Asking Patronus about ${formatBranchCount(overview.checking)}…`}
+            {`Checking ${formatBranchCount(overview.checking)}: Patronus and GitHub answer…`}
           </PopoverDescription>
         )}
       </div>

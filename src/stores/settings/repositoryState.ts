@@ -36,6 +36,15 @@ const RepositoryStateEntrySchema = z.object({
    * the user had seen them. Their chips stay until Dismiss.
    */
   landedHiddenUntil: z.number().optional().catch(undefined),
+  /**
+   * The layout of the branch view once the facts of the last start were in (`useSettledLayout`): the widths of the
+   * tracks of the branch columns and the height of Your Turn (px, 0 without it); the next start and a switch back
+   * reserve them until their own facts are in
+   */
+  settledLayout: z
+    .object({ tracks: z.record(z.string(), z.number()), yourTurn: z.number() })
+    .optional()
+    .catch(undefined),
 })
 
 /** A malformed repository is dropped, never the others */

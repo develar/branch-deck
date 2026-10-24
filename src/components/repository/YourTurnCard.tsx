@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react"
-import type { KeyboardEvent } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import type { KeyboardEvent, Ref } from "react"
 import { cn } from "cn"
 import { ExternalLinkIcon, RefreshCwIcon, SettingsIcon, UserCheckIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Spinner } from "@/components/ui/spinner"
 import { ReturnedPullRequestRow, ReviewRequestRow } from "@/components/repository/ReviewRequestRow"
 import { ReviewStatusLine } from "@/components/repository/ReviewStatusLine"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
@@ -13,6 +15,7 @@ import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import { useReviewPatronus } from "@/hooks/useReviewPatronus"
+import { saveSettledLayout, useLayoutSettled, useSettledLayout } from "@/hooks/useSettledLayout"
 import type { ReviewRequest } from "@/lib/bindings"
 import { neighbourRow } from "@/lib/branch-row-keys"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
@@ -37,6 +40,49 @@ import {
 } from "@/stores/review-requests"
 import { setReviewRequestsCollapsed, useRecentProjects } from "@/stores/settings/repositorySettings"
 
+/**
+ * The place of Your Turn above the branches: the island after the first sync (`shown`), and while the facts of the
+ * remote are not in the height it had once they were in the last time (`useSettledLayout`), holding the island's header
+ * as it checks, so the requests that come move no row; once they are in, its height is kept for the next start
+ */
+export function YourTurnSlot({ shown, reserve }: { shown: boolean; reserve: boolean }) {
+  const path = useSelectedProjectPath()
+  const settled = useLayoutSettled()
+  const layout = useSettledLayout()
+  const reserved = reserve ? (layout?.yourTurn ?? 0) : 0
+  const cardRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!settled || path === undefined) {
+      return
+    }
+    // the height the settled island gives (0 without it), once its frame is laid out
+    const frame = requestAnimationFrame(() => saveSettledLayout(path, { yourTurn: Math.round(cardRef.current?.getBoundingClientRect().height ?? 0) }))
+    return () => cancelAnimationFrame(frame)
+  }, [settled, path])
+  if (settled || reserved === 0) {
+    return shown ? <YourTurnCard cardRef={cardRef} /> : null
+  }
+  return (
+    <div className="flex flex-col" style={{ minHeight: reserved }} data-testid="your-turn-slot" aria-busy="true">
+      {shown ? <YourTurnCard cardRef={cardRef} checking /> : <YourTurnChecking />}
+    </div>
+  )
+}
+
+/** The header of Your Turn while GitHub hasn't answered yet, where the island stood the last time */
+function YourTurnChecking() {
+  return (
+    <Card className="flex-1 gap-0 py-0" data-testid="your-turn-checking">
+      <div className="flex items-center gap-2 px-4 py-2.5 sm:px-6">
+        <UserCheckIcon className="size-4 shrink-0 text-muted-foreground" />
+        <h2 className="shrink-0 text-sm font-semibold text-foreground">Your Turn</h2>
+        <Spinner className="size-3 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Checking GitHub…</span>
+      </div>
+    </Card>
+  )
+}
+
 /** The own pull requests of the table a reviewer handed back (`collectReturnedToYou`), in the table order */
 function useReturnedToYou(): readonly ReturnedPullRequest[] {
   const rows = useBranchTableRows()
@@ -50,7 +96,7 @@ function useReturnedToYou(): readonly ReturnedPullRequest[] {
  * handed back with changes requested. Hidden while neither waits, off GitHub, without a GitHub token or with a rejected
  * one; a failed refresh keeps the rows. Open by default, collapsed per repository.
  */
-export function YourTurnCard() {
+export function YourTurnCard({ checking = false, cardRef }: { checking?: boolean; cardRef?: Ref<HTMLDivElement> }) {
   const requests = useReviewRequests()
   const returned = useReturnedToYou()
   const repositoryPath = useSelectedProjectPath()
@@ -58,10 +104,12 @@ export function YourTurnCard() {
   // the first entrance slides in, as the Landed island; later the rows only fade
   const [entered] = useState(() => requests.length > 0 || returned.length > 0)
   if ((requests.length === 0 && returned.length === 0) || repositoryPath === undefined) {
-    return null
+    // its place is held while GitHub checks: the header says so
+    return checking ? <YourTurnChecking /> : null
   }
   return (
     <CollapsibleCard
+      ref={cardRef}
       data-testid="your-turn-card"
       open={!collapsed}
       onOpenChange={open => setReviewRequestsCollapsed(repositoryPath, !open)}

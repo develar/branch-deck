@@ -45,14 +45,22 @@ export const TRACK_GROUP_CLASS: Readonly<Record<BranchTrackGroup, string>> = {
   actions: "min-w-(--bd-group-actions)",
 }
 
-type Key = BranchTrack | `group-${BranchTrackGroup}`
+/** A track, or the label of a group's column */
+export type ColumnKey = BranchTrack | `group-${BranchTrackGroup}`
 
-/** The widths of the tracks of one branch view, written as CSS variables on its root */
+type Key = ColumnKey
+
+/**
+ * The widths of the tracks of one branch view, written as CSS variables on its root; while the facts of a start are not
+ * all in, at least the widths the view had once they were in the last time (`setFloors`), so a late answer that fills a
+ * track the way it did before moves no column
+ */
 export class ColumnRegistry {
   private readonly items = new Map<Element, { key: Key; width: number }>()
   private readonly written = new Map<string, string>()
   private root: HTMLElement | null = null
   private scheduled = false
+  private floors: Readonly<Partial<Record<Key, number>>> | null = null
   private readonly observer: ResizeObserver | null =
     typeof ResizeObserver === "undefined"
       ? null
@@ -70,6 +78,26 @@ export class ColumnRegistry {
     this.root = root
     this.written.clear()
     this.write()
+  }
+
+  /** The least width of each track from now on, null for none: the settled layout of the last start (`useSettledLayout`) */
+  setFloors(floors: Readonly<Partial<Record<Key, number>>> | null): void {
+    if (this.floors !== floors) {
+      this.floors = floors
+      this.write()
+    }
+  }
+
+  /**
+   * The widest item of each track as laid out now, without the floors: what the view settles at. Read from the items
+   * themselves, not from the observer, whose report of the frame that changed them comes after a frame callback
+   */
+  measured(): Partial<Record<Key, number>> {
+    const widths: Partial<Record<Key, number>> = {}
+    for (const [element, { key }] of this.items) {
+      widths[key] = Math.max(widths[key] ?? 0, Math.ceil(element.getBoundingClientRect().width))
+    }
+    return widths
   }
 
   /** Measures the content of an item of `track` (or the label of `group-<group>`) until the returned cleanup */
@@ -95,7 +123,7 @@ export class ColumnRegistry {
     if (root === null) {
       return
     }
-    const widths = new Map<Key, number>()
+    const widths = new Map<Key, number>(Object.entries(this.floors ?? {}) as [Key, number][])
     for (const { key, width } of this.items.values()) {
       widths.set(key, Math.max(widths.get(key) ?? 0, width))
     }
