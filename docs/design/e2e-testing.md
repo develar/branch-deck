@@ -122,6 +122,17 @@ sequenceDiagram
    (`repository-state.json`) and the page's later patches of the key apply to the value the writer has; an init script
    that edits `__TAURI_STORE__` changes only what the page starts from.
 
+8. **Decision**: The commands of the test server run without the object cache (`ObjectCache::disabled()`)
+   **Rationale**: Measured 2026-10-24 with a fresh cache per test repository where the app keeps it
+   (`$GIT_COMMON_DIR/branch-deck/cache`, opened on its first command, closed before its files go): 23,237 git
+   processes instead of 23,540 for 197 tests of patronus-actions, next-step, commit-files, stacked-branches,
+   update-project and move-commits (1.3%), because a test computes each thing once on a repository of its own, and the
+   run was no faster. It would cost four LMDB environments per test, opened and closed under `open.lock` and the lock of
+   the open environments, and their SysV semaphores on macOS, whose keys of the inode's low bits collide among
+   thousands of environments (78620377 recreates a colliding lock file). A cache shared by the repositories of a run
+   would hit across tests of one template and make a test's path depend on the tests before it. The remote facts stay
+   uncached anyway, so every call asks the fake (the readiness, the robot statistics)
+
 ### Implementation Notes
 
 Template system:
