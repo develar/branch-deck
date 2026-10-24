@@ -1611,6 +1611,22 @@ rewrites между процессами через файл `s10`; `s12` ждё
   один повтор, строка `Synced`; результат push в A после смены на B не трогает одноимённую ветку B; B1, B2
   ([Бюджеты](#бюджеты-производительности)); `perf:table` ≤ baseline; `bd status` без изменений.
 - **Критерий выхода:** страница не получает ни одного `SyncEvent`; `grep SyncEvent src/` пуст.
+- **Уточнения планировщика (2026-10-24, по коду master `38ed2dd2`):**
+  - Имя снимка: пока `get_repository_view` жив (его удаляет s7), снимок сессии и его части живут в
+    `domain_types::session` под именем `TableView { version, sync, header, order, branches, stacks, sections }` с
+    `BranchView { head, commits, sync, remote }`; s7 добавляет `landing` и `facts_summary` и переименовывает тип в
+    `RepositoryView`, когда старый `RepositoryView` (`repository_view.rs`) исчезает вместе с командой.
+  - `SyncReport.retry` в коде нет: s6 вводит его в `sync-core`, выводя из `BranchMove::MovedElsewhere`
+    (`branch_processor.rs:435`, `stack_branch.rs:555`); событие `BranchStatusUpdate { Error }` для `bd` не меняется.
+  - `Clock` в коде нет: s6 вводит минимальный `sync_utils::clock::{Clock, SystemClock, TestClock}` для жизни сессии
+    (остановка без подписчиков, удаление через 2 мин); s7 расширяет его на опрос (`/clock/advance`).
+  - Реле под-окон (`sub-window-link.ts`, `branch-review-window.ts`): в s6 к подписке на сессию переезжают только части
+    таблицы (`tips`, `baselineBranch`, `stackCommits`, коммиты веток); `items`, `menus` и `commitMenus` остаются в
+    реле до s8, потому что их строят правила TS, которые s8 переносит.
+  - `statusText`, `autoExpandRequested` и `autoScrollRequested` — презентация страницы: Rust шлёт `status` и проблему
+    стека, applier `src/model/store.ts` выводит текст и пометки раскрытия по `SyncOptions` билета `sync(reason)`.
+  - Удаление archived и unapplied ветки (C12) и push unapplied (C3) отвечают патчем сессии: команда применяет
+    результат к сессии (`Session::apply`), страница после неё sync не зовёт.
 
 ### s7-session-facts
 
