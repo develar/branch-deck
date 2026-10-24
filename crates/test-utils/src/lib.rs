@@ -7,6 +7,7 @@ pub mod fake_executable;
 pub mod fake_server;
 pub mod git_in_directory;
 pub mod git_test_utils;
+pub mod history;
 pub mod process_budget;
 pub mod repo_template;
 pub mod sync_fixtures;

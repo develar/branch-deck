@@ -1,4 +1,5 @@
 use crate::git_test_utils::{NO_BACKGROUND_MAINTENANCE, append_config, git_command};
+use crate::history::{HistoryCommit, HistoryStream};
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
@@ -103,43 +104,19 @@ impl RepoTemplate {
     config.extend(self.config.iter().map(|(key, value)| (key.as_str(), value.as_str())));
     append_config(output_path, &config);
 
-    // Track if we have any commits
-    let has_commits = !self.commits.is_empty();
-
-    // Create commits
-    for commit in self.commits {
-      // Write files, then stage them all at once
-      for (file_path, content) in &commit.files {
-        let full_path = output_path.join(file_path);
-        if let Some(parent) = full_path.parent() {
-          fs::create_dir_all(parent)?;
-        }
-        fs::write(&full_path, content)?;
-      }
-      for file_path in &commit.deleted {
-        fs::remove_file(output_path.join(file_path))?;
-      }
-      // `add` of a deleted path stages its deletion
-      git_command()
-        .args(["add", "--"])
-        .args(commit.files.iter().map(|(file_path, _)| file_path))
-        .args(&commit.deleted)
-        .current_dir(output_path)
-        .output()?;
-
-      // Commit with optional timestamp
-      let mut cmd = git_command();
-
-      // If timestamp is provided, set GIT_AUTHOR_DATE and GIT_COMMITTER_DATE
-      if let Some(ts) = commit.timestamp {
-        let date_str = format!("{ts} +0000");
-        cmd.env("GIT_AUTHOR_DATE", &date_str);
-        cmd.env("GIT_COMMITTER_DATE", &date_str);
-      }
-
-      cmd.args(["commit", "-m", &commit.message]).current_dir(output_path).output()?;
+    // the whole history in one `fast-import` and one checkout (`history`), not an `add` and a `commit` per commit
+    let mut history = HistoryStream::new("refs/heads/master");
+    for commit in &self.commits {
+      history.commit(&HistoryCommit {
+        message: commit.message.clone(),
+        files: commit.files.clone(),
+        deleted: commit.deleted.clone(),
+        timestamp: commit.timestamp,
+      });
     }
-
+    // for templates that simulate existing repositories with history, `origin/master` at the initial commit: the
+    // sync needs a baseline
+    history.reset_to_root("refs/remotes/origin/master");
     let stores = [
       (&self.issue_groups, "refs/branch-deck/issue-groups", "issue-groups", "Issue groups of Branch Deck"),
       (&self.stack_parents, "refs/branch-deck/stack-parents", "stack-parents", "Stack parents of Branch Deck"),
@@ -147,49 +124,15 @@ impl RepoTemplate {
     for (lines, store_ref, file, message) in stores.into_iter().filter(|(lines, ..)| !lines.is_empty()) {
       let mut lines = lines.clone();
       lines.sort();
-      write_store(output_path, (store_ref, file, message), &format!("{}\n", lines.join("\n")))?;
+      history.root_commit(store_ref, message, file, &format!("{}\n", lines.join("\n")));
     }
+    history.write(output_path)?;
 
-    // Add a fake origin remote pointing to self for testing
-    git_command().args(["remote", "add", "origin", "."]).current_dir(output_path).output()?;
-
-    // For templates that simulate existing repositories with history,
-    // create origin/master at the initial commit. This is needed for
-    // sync_branches to work properly.
-    if has_commits {
-      // Get the initial commit
-      let output = git_command().args(["rev-list", "--max-parents=0", "HEAD"]).current_dir(output_path).output()?;
-
-      let initial_commit = String::from_utf8(output.stdout)?.trim().to_string();
-
-      // Create origin/master at the initial commit
-      git_command()
-        .args(["update-ref", "refs/remotes/origin/master", &initial_commit])
-        .current_dir(output_path)
-        .output()?;
-    }
+    // a fake origin remote pointing to self for testing, as `git remote add origin .` writes it
+    append_config(output_path, &[("remote.origin.url", "."), ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")]);
 
     Ok(())
   }
-}
-
-/// Point the store ref at a root commit whose one file has `content`: `(ref, file, message)`
-fn write_store(output_path: &Path, (store_ref, file, message): (&str, &str, &str), content: &str) -> Result<()> {
-  let run = |args: &[&str], input: &str| -> Result<String> {
-    let mut child = git_command()
-      .args(args)
-      .current_dir(output_path)
-      .stdin(std::process::Stdio::piped())
-      .stdout(std::process::Stdio::piped())
-      .spawn()?;
-    std::io::Write::write_all(&mut child.stdin.take().expect("piped stdin"), input.as_bytes())?;
-    Ok(String::from_utf8(child.wait_with_output()?.stdout)?.trim().to_string())
-  };
-  let blob = run(&["hash-object", "-w", "--stdin"], content)?;
-  let tree = run(&["mktree"], &format!("100644 blob {blob}\t{file}\n"))?;
-  let commit = run(&["commit-tree", &tree, "-m", message], "")?;
-  run(&["update-ref", store_ref, &commit], "")?;
-  Ok(())
 }
 
 /// Pre-defined test repository templates

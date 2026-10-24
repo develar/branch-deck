@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Duration;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::history::HistoryCommit;
 
 const SHARED: &str = "one\ntwo\nthree\n";
 
@@ -186,13 +187,18 @@ fn run_at(path: &Path, args: &[&str]) -> (i32, Value) {
 #[cfg(unix)]
 fn clone_with_commits(n: usize, conflict_at: usize) -> (TestRepo, TestRepo) {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED)]);
-  for i in 1..=n {
-    if i == conflict_at {
-      clone.create_commit(&format!("(auth) Commit {i}"), "shared.txt", "one\nmine\nthree\n");
-    } else {
-      clone.create_commit(&format!("(auth) Commit {i}"), &format!("f{i}.txt"), &format!("{i}\n"));
-    }
-  }
+  // the local commits in one `fast-import`
+  let commits: Vec<HistoryCommit> = (1..=n)
+    .map(|i| {
+      let subject = format!("(auth) Commit {i}");
+      if i == conflict_at {
+        HistoryCommit::new(subject, &[("shared.txt", "one\nmine\nthree\n")])
+      } else {
+        HistoryCommit::new(subject, &[(&format!("f{i}.txt"), &format!("{i}\n"))])
+      }
+    })
+    .collect();
+  clone.commit_history("refs/heads/master", &commits);
   upstream.create_commit("Change line 2 upstream", "shared.txt", "one\ntheirs\nthree\n");
   (upstream, clone)
 }

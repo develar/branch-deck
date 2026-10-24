@@ -1,5 +1,6 @@
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::history::HistoryCommit;
 
 #[test]
 fn test_execute_command_lines() {
@@ -35,12 +36,11 @@ fn test_execute_command_lines() {
 
 #[test]
 fn test_execute_command_lines_performance() {
-  // Create a repo with many commits to test performance
-  let repo = TestRepo::new();
-
-  for i in 0..100 {
-    repo.create_commit(&format!("Commit {i}"), &format!("file{i}.txt"), &format!("content{i}"));
-  }
+  // a repository with many commits, written in one `fast-import`
+  let commits: Vec<HistoryCommit> = (0..100)
+    .map(|i| HistoryCommit::new(format!("Commit {i}"), &[(&format!("file{i}.txt"), &format!("content{i}"))]))
+    .collect();
+  let (repo, _) = TestRepo::with_history(&commits);
 
   let git_executor = GitCommandExecutor::new();
 

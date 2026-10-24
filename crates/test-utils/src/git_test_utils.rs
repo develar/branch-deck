@@ -1,3 +1,4 @@
+use crate::history::{HistoryCommit, HistoryStream};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::fmt::Write as _;
 use std::fs;
@@ -234,6 +235,37 @@ impl TestRepo {
     append_config(dir.path(), &TEST_REPO_CONFIG);
 
     Self { dir, git_executor }
+  }
+
+  /// A repository whose `master` has `commits`, written by one `fast-import` and checked out by one `read-tree`
+  /// (`history`): two processes for any number of commits, where `create_commit` costs two per commit. The ids of the
+  /// commits, in order
+  ///
+  /// # Panics
+  /// When git refuses the history, or a commit changes nothing
+  pub fn with_history(commits: &[HistoryCommit]) -> (Self, Vec<String>) {
+    let repo = Self::new();
+    let mut history = HistoryStream::new("refs/heads/master");
+    for commit in commits {
+      history.commit(commit);
+    }
+    let ids = history.write(repo.path()).unwrap_or_else(|e| panic!("cannot write the history: {e:#}"));
+    let ids = ids.into_iter().map(|id| id.expect("every commit of a history changes a file")).collect();
+    (repo, ids)
+  }
+
+  /// Commits `commits` on top of `branch` (`refs/heads/master`) with one `fast-import`, then checks HEAD out with one
+  /// `read-tree` (`history`): what `create_commit` of each does in two processes per commit. The ids of the commits
+  ///
+  /// # Panics
+  /// When git refuses the history
+  pub fn commit_history(&self, branch: &str, commits: &[HistoryCommit]) -> Vec<String> {
+    let mut history = HistoryStream::on_branch(branch);
+    for commit in commits {
+      history.commit(commit);
+    }
+    let ids = history.write(self.path()).unwrap_or_else(|e| panic!("cannot write the history: {e:#}"));
+    ids.into_iter().map(|id| id.expect("a commit of a continued history is always written")).collect()
   }
 
   /// Creates an empty temporary directory without initializing git
