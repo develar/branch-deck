@@ -3,6 +3,7 @@ import type { PatronusStartOptions } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
 import { closeMenus, openSubmenu } from "./selection-helpers"
+import { closeToast } from "./toast-helpers"
 import { animationsEnded } from "./wait-helpers"
 
 /** The merge profiles of master without any: a start runs the default checks */
@@ -57,10 +58,7 @@ export async function chooseProfile(page: Page, name: string): Promise<void> {
 
 /** Closes the sticky error toast of a start Patronus refused: it covers no menu of the next surface */
 export async function closeRefusal(page: Page): Promise<void> {
-  const refused = page.locator("[data-slot=toast]", { hasText: "Cannot start the Safe Push" })
-  // Base UI hides the close button from the accessibility tree
-  await refused.locator("[data-slot=toast-close]").click()
-  await expect(refused).toHaveCount(0)
+  await closeToast(page.locator("[data-slot=toast]", { hasText: "Cannot start the Safe Push" }))
 }
 
 /** The rows the path to the root is drawn through (`stack-path-lanes`) */

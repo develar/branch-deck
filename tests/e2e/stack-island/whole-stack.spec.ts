@@ -33,6 +33,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { closeToast } from "../helpers/toast-helpers"
 import { holdCommand, recordCommand } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
@@ -1067,8 +1068,11 @@ test.describe("Whole stack", () => {
     // the Safe Push of login lands auth, the root: the pull request of the whole stack shows a stack that is no more
     await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
     await emitTauriEvent(page, "tauri://focus")
-    await expect(page.locator("[data-slot=toast]").filter({ hasText: "login merged into master" })).toContainText("Safe Push · #12 no longer matches the auth stack: login landed")
+    const merged = page.locator("[data-slot=toast]").filter({ hasText: "login merged into master" })
+    await expect(merged).toContainText("Safe Push · #12 no longer matches the auth stack: login landed")
     expect(gitHubWrites(await repo.getGitHubLog())).toEqual([])
+    // read: closed, it would cover the items of the root's menu
+    await closeToast(merged)
 
     // the root's preview says it and asks in the root's row
     const preview = await openBranchPreview(page, "auth")

@@ -232,6 +232,9 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
   (several checkouts running e2e and cargo) any fixed wait is too short; Oxlint refuses it in `tests/`, and a
   `setTimeout` in a spec, a fixture or a helper. A box or a point measured for a press waits for the facts that move
   it: Patronus answers after the sync and moves the header row (`waitForHeaderFacts`).
+- **Close a read toast** before acting where it lies (`closeToast` of `tests/e2e/helpers/toast-helpers.ts`): the toasts
+  lie above menus and dialogs at the bottom right, and a click or hover under one waits until it times out (5 s, 10 s
+  with an action); five tests spent 7-9 s each this way.
 - **Locators**: role and accessible name first (`getByRole("menuitem", { name: "Review Changes" })`), `getByTestId` for
   what has no role or name; never CSS classes or DOM shape, which the theme and the React Compiler change.
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command

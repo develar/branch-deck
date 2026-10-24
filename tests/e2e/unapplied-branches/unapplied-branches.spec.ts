@@ -5,6 +5,7 @@ import { findBranchRow, getMoreButton } from "../helpers/branch-helpers"
 import { inlineDeleteConfirmation, submitInlineForm } from "../helpers/inline-form-helpers"
 import { routePushBranches } from "../helpers/push-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
+import { closeToast } from "../helpers/toast-helpers"
 import { routeCommandError } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own,
@@ -32,11 +33,15 @@ function unappliedRow(page: Page, name: string): Locator {
   return unappliedCard(page).locator(`tr[data-branch-name="user-name/unapplied/${name}"]`)
 }
 
-/** Unapplies `name` from its right-click menu, confirmed with Enter; resolves once the sync showed it */
+/**
+ * Unapplies `name` from its right-click menu, confirmed with Enter; resolves once the sync showed it and its toast is
+ * closed, which would cover the menus of the unapplied rows at the bottom
+ */
 async function unapplyFromMenu(page: Page, name: string): Promise<void> {
   await openUnapply(page, () => findBranchRow(page, name).click({ button: "right" }))
   await runAndWaitForSync(page, () => page.keyboard.press("Enter"))
   await expect(unappliedRow(page, name)).toBeVisible()
+  await closeToast(toast(page, `Unapplied ${name}`))
 }
 
 test.describe("Unapplied branches", () => {
@@ -56,6 +61,8 @@ test.describe("Unapplied branches", () => {
     await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT - 1)
     // the files followed: nothing is left as an uncommitted change
     await expect(page.getByTestId("uncommitted-changes-card")).toHaveCount(0)
+    // read: closed, its Undo would cover the menu of the row below
+    await closeToast(toast(page, "Unapplied docs"))
 
     // the "⋯" menu, confirmed with the button
     const ci = findBranchRow(page, "ci")

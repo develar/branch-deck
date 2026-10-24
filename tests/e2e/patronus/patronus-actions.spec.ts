@@ -60,6 +60,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { rewriteNextRemoteStatus, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { PatronusLog, TestRepositoryBuilder } from "../helpers/test-repository"
+import { closeToast } from "../helpers/toast-helpers"
 import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
@@ -1389,6 +1390,8 @@ test.describe("Patronus actions", () => {
         await pushedToast(page, "JIRA-456").getByRole("button", { name: "Create Pull Request…" }).click()
         const dialog = createPullRequestDialog(page)
         await expect(dialog.getByTestId("create-pull-request-unavailable")).toContainText("No GitHub token to see pull requests: GitHub's form opens the pull request instead.")
+        await closeToast(pushedToast(page, "JIRA-456"))
+        await expect(dialog).toBeVisible()
         await expect(dialog.getByTestId("create-pull-request-submit")).toHaveCount(0)
         await expect(dialog.getByTestId("create-pull-request-reviewers")).toHaveCount(0)
         await expect(dialog.getByTestId("create-pull-request-assign")).toHaveCount(0)

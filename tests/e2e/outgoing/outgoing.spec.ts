@@ -4,6 +4,7 @@ import { expectNothingToPush, findBranchRow, getPushButton } from "../helpers/br
 import type { DroppedCommit } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
+import { closeToast } from "../helpers/toast-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
@@ -218,6 +219,8 @@ test.describe("Push button", () => {
     await getPushButton(row).click()
     await expectPushedToast(page, "JIRA-456")
     await expectNothingToPush(row)
+    // read: closed, it would cover the button of the preview
+    await closeToast(pushedToast(page, "JIRA-456"))
 
     // the preview keeps the labelled button: disabled, it says why on hover
     const preview = await openBranchPreview(page, "JIRA-456")

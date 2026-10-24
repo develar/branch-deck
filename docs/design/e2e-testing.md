@@ -520,6 +520,12 @@ log of the fake). No test answers a remote write in the page: the registry test 
   the pointer of a hover). A menu zooms in as it opens, late
   under load: an item hovered meanwhile moves away under the pointer and its leave cancels the hover open, so
   `openSubmenu` hovers once the animations of the open menus ended (`animationsEnded`)
+- **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
+  covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,
+  which is until the toast times out (5 s, 10 s with an action). A test closes a toast it has read with its close
+  button before it acts there (`closeToast`, `toast-helpers.ts`), also over a dialog the toast's action opened. Five
+  tests waited 7-9 s each for a toast (2026-10-24: the unapply and reapply from both menus, the close of an orphaned
+  stack pull request, GitHub's form from the push toast, the disabled push of the preview)
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The warnings of the Patronus
   client and of the YouTrack and GitHub clients and services are left out (`patronus::client=error`, `youtrack=error`,
