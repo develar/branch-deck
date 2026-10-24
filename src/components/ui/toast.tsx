@@ -4,7 +4,8 @@
 // under the action; `renderText` of the `Toaster` for a text title and description (the app links their issue keys,
 // `App.tsx`; this file imports nothing of the app, which imports `toast` everywhere); the default `render` of the
 // action and the close button in the body, not a parameter default (React Compiler cannot compile a JSX parameter
-// default)
+// default); an action whose label ends with "…" (it opens a dialog or a popover) closes its toast when pressed
+// (`opensDialog`)
 "use client"
 
 import * as React from "react"
@@ -147,10 +148,21 @@ function renderToastText(text: React.ReactNode, part: "title" | "description", r
   return renderText !== undefined && typeof text === "string" && text !== "" ? renderText(text, part) : undefined
 }
 
+/**
+ * An action that asks for more before it acts ends with "…" (docs/guidelines/ux-writing.md) and opens a dialog or a
+ * popover: its toast closes when it is pressed, as the toasts lie above the dialogs (`z-[60]`) and would cover the
+ * footer of the dialog it opened until they time out
+ */
+function opensDialog(label: React.ReactNode): boolean {
+  return typeof label === "string" && label.endsWith("…")
+}
+
 function ToastList({ renderText }: { renderText?: ToastTextRenderer }) {
-  const { toasts } = ToastPrimitive.useToastManager<ToastData>()
+  const { toasts, close } = ToastPrimitive.useToastManager<ToastData>()
 
   return toasts.map(toastItem => {
+    const closeOnPress = opensDialog(toastItem.actionProps?.children) ? () => close(toastItem.id) : undefined
+    const action = <ToastAction onClick={closeOnPress} />
     const secondaryAction = toastItem.data?.secondaryAction
     // an action beside a title and a description squeezes them into a narrow column: it goes below them, as two do
     const stacked = secondaryAction !== undefined || (toastItem.description != null && toastItem.actionProps != null)
@@ -164,16 +176,25 @@ function ToastList({ renderText }: { renderText?: ToastTextRenderer }) {
             {stacked && (
               // the primary action first
               <div className="flex gap-2 pt-1">
-                <ToastAction />
+                {action}
                 {secondaryAction !== undefined && (
-                  <Button variant="ghost" size="sm" onClick={secondaryAction.onClick}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      secondaryAction.onClick()
+                      if (opensDialog(secondaryAction.label)) {
+                        close(toastItem.id)
+                      }
+                    }}
+                  >
                     {secondaryAction.label}
                   </Button>
                 )}
               </div>
             )}
           </div>
-          {!stacked && <ToastAction />}
+          {!stacked && action}
           <ToastClose />
         </ToastContent>
       </Toast>

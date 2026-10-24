@@ -217,6 +217,8 @@ test.describe("Pull request chip", () => {
     const toast = pushedToast(page, "feature-auth")
     await toast.getByRole("button", { name: "Create Pull Request…" }).click()
     await expect(dialog).toBeVisible()
+    // the action opened a dialog: its toast closed, never left over the footer of the dialog
+    await expect(toast).toHaveCount(0)
     // the baseline `origin/master` is `master` on the remote
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("feature-auth → master")
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue(AUTH_TITLE)

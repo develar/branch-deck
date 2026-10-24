@@ -39,7 +39,10 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
   - a created pull request: "Open Pull Request";
   - a Space merge request: "Open Merge Request";
   - the installed Agent CLI: "Copy Path".
-  A toast with an action stays 10 s (`ACTION_TOAST_TIMEOUT_MS`). A toast with a description and an action, or with two
+  A toast with an action stays 10 s (`ACTION_TOAST_TIMEOUT_MS`). An action that asks for more ends with "…" (below)
+  and opens a dialog or a popover: its toast closes when it is pressed (`opensDialog` of
+  `src/components/ui/toast.tsx`, for every toast and both of its actions), since a toast lies above the dialogs and
+  would cover the footer of the very dialog it opened until it timed out; tests waited 9 s for one there. A toast with a description and an action, or with two
   actions (the merged robot: Fetch, then "Open in Patronus", `data.secondaryAction` of `src/components/ui/toast.tsx`),
   has its actions below the text, the primary one first: beside it, a button squeezes the title into a narrow column.
   A toast of a title alone keeps its action beside it.
