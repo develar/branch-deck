@@ -1551,6 +1551,19 @@ rewrites между процессами через файл `s10`; `s12` ждё
   правки её сохраняет; повреждённый файл даёт парсимый init script; Real App Check первого кадра (единственный этап,
   где он нужен; выполняет владелец).
 - **Критерий выхода:** `grep -r "settings.json" src/ src-tauri/src crates/` показывает одного писателя.
+- **Итог (приземлён):** всё из «Удаляется» удалено: `git grep` по `MainStoreSync`, `SubWindowStoreSync`,
+  `EchoTracker`, `store-set-request`, `store-snapshot`, `LazyStore`, `store_cache`, `read_app_branch_prefix`,
+  `computeEffectiveBranchPrefix` вне этого документа пуст; zoom окна, меню и заголовок берут значения из `AppSettings`
+  писателя (`zoom.rs` получает уровень от строителя окна), `bd-core/context.rs` — `SettingsFile::load` (`app_settings_of`). `grep -r settings.json` показывает одного
+  писателя (`SettingsService` в `crates/app-settings/src/service.rs`, открытый в `src-tauri/src/settings.rs` и в
+  `TestRepository::store` e2e-сервера), остальное — комментарии, имя файла (`SETTINGS_FILE_NAME`) и тесты. Сверх
+  плана: летучие поля sync — ключ `repositoryState` в `repository-state.json` того же писателя (ключ → файл, одна
+  версия; загрузчик переносит их из `recentProjects` старого файла); `sub_window_loaded` отдаёт изменения после
+  версии сборки окна, главное окно догоняет `get_settings_changes`. Не сделано: `unapply_branch`, `reapply_branch` и
+  `find_conflict_fix` по-прежнему принимают `branch_prefix` от страницы, потому что их параметры — типы ядра, общие с
+  `bd`; их перевод — разделить параметры страницы и ядра (кандидат в s6 вместе с `SessionKey`). `lastFetchTime`
+  остаётся в `recentProjects`. Real App Check первого кадра (единственный этап, где он нужен) агенты не выполняли:
+  он ждёт владельца.
 
 ### s6-session-table
 
@@ -2126,7 +2139,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s2-types | приземлён |
 | s3-crates | приземлён |
 | s4-errors | приземлён |
-| s5-settings | в работе: s5-1 приземлён (`domain-types::settings`, crate `app-settings`: `SettingsFile`, defaults, `resolve_branch_prefix` с источником); s5-2 приземлён (`SettingsService`: патчи, версии, debounce диска, `flush`); s5-3 (окна пишут через `set_setting`, версии), s5-4 (`bd` читает через `app-settings`), s5-5 (под-окно берёт изменения своей загрузки); s5-6: семейство sync разрешает префикс в Rust (`BranchPrefixes`, команда `resolve_branch_prefix`), `computeEffectiveBranchPrefix` и ожидание префикса в `runSync` удалены; s5-7: команды Patronus, push, pull request, обзора ветки и независимости стека принимают только путь репозитория (`PrefixInputs`, `RemoteActions::new` с префиксом), `patronusNewApi` Rust читает сам, `VcsRequest` без префикса; s5-8: летучие поля sync (`lastSyncTime`, `lastBranchCount`, `updateTimings`) — ключ `repositoryState` в `repository-state.json` того же `SettingsService` (ключ → файл, одна версия), загрузчик переносит их из `recentProjects` старого файла; `lastFetchTime` остаётся в `recentProjects` |
+| s5-settings | приземлён: один писатель `SettingsService` (`app-settings`) для `settings.json` и `repository-state.json`, окна шлют патчи через `set_setting` и применяют версии, снимок в init script каждого окна, `restart_app` и выход через писателя, `bd` читает через `app-settings`; префикс разрешает Rust на каждую команду (`BranchPrefixes`, `PrefixInputs`) у семейств sync, Patronus, push, pull request, обзора ветки и независимости стека. Осталось: `unapply_branch`, `reapply_branch`, `find_conflict_fix` получают префикс страницы (параметры общие с `bd`); `lastFetchTime` в `recentProjects`; Real App Check первого кадра ждёт владельца (агенты его не выполняли) |
 | s6-session-table | не начат |
 | s7-session-facts | не начат |
 | s8-policy | не начат |

@@ -22,6 +22,9 @@ targets:
   - ../../src/lib/branch-prefix.ts
   - ../../src/stores/repository.ts
   - ../../src-tauri/src/commands/branch_prefix.rs
+  - ../../crates/app-settings/src/resolve.rs
+  - ../../crates/app-settings/src/branch_prefixes.rs
+  - ../../crates/app-settings/src/service.rs
   - ../../src-tauri/src/commands/sync_branches.rs
   - ../../src/stores/branch-sync.ts
   - ../../src-tauri/src/menu.rs

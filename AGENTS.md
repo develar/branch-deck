@@ -215,7 +215,8 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
   (`getOpenedSubWindows` is `[]` after the press), or follow it with a positive step the same press would have blocked.
 - **Wait for the state, never for time**: wait for the element or the event a state comes with (`runAndWaitForSync`,
   `data-sync-count`, an `aria-busy` that clears); an app timer runs with `page.clock.fastForward`, a debounced
-  settings write with `waitForStorePersistence` (the key as a reload reads it). No `waitForTimeout`: under load
+  settings change with `waitForStorePersistence` (the key as the writer answered it, as a reload reads it). No
+  `waitForTimeout`: under load
   (several checkouts running e2e and cargo) any fixed wait is too short.
 - **Locators**: role and accessible name first (`getByRole("menuitem", { name: "Review Changes" })`), `getByTestId` for
   what has no role or name; never CSS classes or DOM shape, which the theme and the React Compiler change.
@@ -457,8 +458,12 @@ The checklist:
   `catch` (use `promise.finally`), no JSX parameter default ([Rendering Performance](docs/design/rendering-performance.md)).
   `oxc-transform-react` is pinned to the range `@vitejs/plugin-react` declares; `pnpm update-deps` leaves it alone.
 - **State**: zustand vanilla stores (`createStore`) read with `useStore` selectors; select narrow slices: the compiler
-  memoizes renders, not selectors, which run on every store change. Persisted settings sync across windows
-  ([Distributed Settings](docs/design/distributed-settings.md)). Debounce user inputs where appropriate (`p-debounce`).
+  memoizes renders, not selectors, which run on every store change. A persisted setting is a `createPersistentStore`
+  (`src/stores/settings/persistent-store.ts`): it starts from the snapshot the backend injects and changes only through
+  the one writer in Rust (`set_setting` → `SettingsService` of `crates/app-settings/`), applying every window's changes
+  by version; no window and no Rust code writes `settings.json` beside it, and a rule on a setting (a default, the
+  branch prefix) is Rust's ([Distributed Settings](docs/design/distributed-settings.md)). Debounce user inputs where
+  appropriate (`p-debounce`).
 - **Base UI**: compose with the `render` prop (`<TooltipTrigger render={<Button />} />`), not `asChild`. Base UI emits
   `data-open`/`data-closed`; set `data-state` manually where E2E tests read it.
 - **shadcn workflow**: components are generated into `src/components/ui/` (`components.json`, style `base-rhea`). Run
@@ -542,7 +547,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Command palette (⌘K: the views, Activity, the commands of the app, Go to a branch) | `repository/command-palette` | `src/components/command-palette/CommandPalette.tsx`, `src/lib/command-palette.ts` |
 | Title bar and main menu | `repository/title-bar` | `src-tauri/src/title_bar.rs`, `src/components/shared/WindowTitleBar.tsx` |
 | Your Turn (review requests, the pull request review) | `repository/review-requests`, `repository/robots-indicator` | `src/components/review/`, `remote_facts::review_requests` |
-| Settings window | `repository/settings` | `src/components/settings/`, `crates/sync-core/src/repository_config.rs` |
+| Settings window; the settings of the app (one writer, versions, the branch prefix resolved in Rust) | `repository/settings` | `src/components/settings/`, `crates/app-settings/`, `src/stores/settings/persistent-store.ts`, `crates/sync-core/src/repository_config.rs` |
 | Branch review | `branch/branch-review` | `src/components/review/BranchReview.tsx`, `crates/git-ops/src/ownership.rs` |
 | Symbol dependencies | `commit/symbol-dependencies` ([Symbol Dependencies](docs/design/symbol-dependencies.md)) | `crates/code-symbols/`, `crates/trial-check/src/symbol_scan.rs` |
 | Zoom | `repository/zoom` | `src-tauri/src/zoom.rs` |
@@ -554,7 +559,7 @@ The rows and the menus of the main window: `branch/branch-row`, `commit/commit-r
 ### Design Documents
 - [Async Patterns and spawn_blocking](docs/design/async-patterns.md) - Explains async/sync boundaries and proper use of spawn_blocking
 - [Diff View](docs/design/diff-view.md) - Our own renderer on the blocks of the engine (`DiffView`: the row model, the exact layout, the highlight worker by blob id), for the 2-way diffs and the 3-way merges
-- [Distributed Settings Architecture](docs/design/distributed-settings.md) - Settings synchronization across windows
+- [Distributed Settings Architecture](docs/design/distributed-settings.md) - One writer of `settings.json` and `repository-state.json` in Rust (`SettingsService`): the windows send patches, apply changes by version, start from the snapshot of their init script; `bd` reads the same file; the branch prefix resolved per command
 - [Running Operations](docs/design/operations.md) - One registry of the actions that run: a second start joins, a rewrite waits for a rewrite, the spinner where it started, a rewrite lasts until its sync
 - [Rust as the Domain Authority](docs/design/rust-domain-authority.md) - The rework plan (Draft, in Russian): one Rust session owns the table, the facts and the running operations, `domain-policy` holds every rule in one file, every mutation is an intent through `prepare`/`execute`, bd and the app are two adapters; the stages and their progress
 - [Rendering Performance](docs/design/rendering-performance.md) - React Compiler, narrow selectors, sync events applied in batches, derived structure cached, lazy main page
@@ -623,7 +628,7 @@ crates/
 ├── repository-model/ # The model of a repository for the page and bd: the table of the last sync, the Patronus section (one rule), the guards of the app's push and robot actions
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
-├── app-settings/    # The settings file of the app (`settings.json`) for the app and bd: the tolerant load, the stored form, the atomic save; the order of the branch prefixes with its source (`resolve_branch_prefix`); no Tauri, no git
+├── app-settings/    # The settings of the app for the app and bd: the one writer of `settings.json` and `repository-state.json` (`SettingsService`: patches, versions, a debounced atomic save), the tolerant load, the keys of each window, the order of the branch prefixes with its source (`resolve_branch_prefix`, `BranchPrefixes`); no Tauri, no git
 ├── cli-tools/       # The teamcity and youtrack CLIs of Settings → Tools: status, install and update through Homebrew; no git, no service
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies

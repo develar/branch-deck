@@ -78,7 +78,7 @@ menu items are ours and call `Webview::set_zoom` (WKWebView `pageZoom`, WebView2
 - A window opens at the saved level: the window builders read it from the settings of the writer they inject
   (`AppSettings::zoom`, `src-tauri/src/settings.rs`) and zoom the webview before the first paint; a zoom that is no
   finite positive number is 100%.
-  [@test] ../../src-tauri/src/zoom_test.rs (`the_stored_zoom_is_the_app_settings_zoom`, `without_a_valid_stored_zoom_the_zoom_is_100_percent`)
+  [@test] ../../src-tauri/src/zoom_test.rs (`the_zoom_of_a_window_is_the_app_settings_zoom_of_the_file`, `without_a_valid_zoom_in_the_file_the_zoom_is_100_percent`)
 
 ### The toolbar
 

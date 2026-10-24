@@ -9,6 +9,10 @@ targets:
   - ../../src-tauri/src/commands/settings.rs
   - ../../crates/app-settings/src/service.rs
   - ../../crates/app-settings/src/file.rs
+  - ../../crates/app-settings/src/lib.rs
+  - ../../crates/bd-core/src/context.rs
+  - ../../src-tauri/src/title_bar.rs
+  - ../../crates/test-server/src/state.rs
   - ../../src/stores/settings/repositoryState.ts
   - ../../src-tauri/src/zoom.rs
   - ../../src-tauri/src/commands/window_management.rs
@@ -54,7 +58,6 @@ targets:
   - ../../crates/app-settings/src/resolve.rs
   - ../../crates/app-settings/src/branch_prefixes.rs
   - ../../src-tauri/src/commands/branch_prefix.rs
-  - ../../crates/app-settings/src/service.rs
   - ../../crates/app-settings/src/windows.rs
   - ../../crates/domain-types/src/settings.rs
   - ../../crates/sync-core/src/repository_config.rs
@@ -456,7 +459,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   snapshot of every sync (which also names the prefix of that sync), and a write of `branchdeck.branchPrefix` in
   Settings → Repository (a write to the global config forgets every repository's). The views of the last sync are kept
   by the resolved prefix; a sync of a repository without a prefix is refused ("Cannot sync without a branch prefix: set
-  one in Settings → General").
+  one in Settings → General"). The commands of Patronus, of a push, of a pull request, of the branch review and of the
+  independence of a stack name the repository only too and resolve the prefix the same way (`PrefixInputs` of
+  `src-tauri/src/commands/branch_prefix.rs`, [Patronus](../branch/patronus.spec.md)). The unapply, the reapply and the
+  conflict fix (`unapply_branch`, `reapply_branch`, `find_conflict_fix`), whose parameters `bd` shares, get the prefix
+  the page shows, the last answer of `resolve_branch_prefix`.
   [@test] ../../crates/app-settings/src/branch_prefixes_test.rs (`git_is_read_once_per_repository_and_the_app_prefix_of_each_command_applies`, `a_failed_read_keeps_nothing`, `a_refresh_replaces_the_git_prefix_and_a_clear_forgets_every_repository`)
   [@test] ../../crates/test-server/src/branch_prefix_test.rs (`the_sync_names_the_branches_by_the_app_prefix_where_the_repository_sets_none`, `the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_synced`)
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_the_prefix_alone`)

@@ -139,10 +139,10 @@ mod decision {
   #[test]
   fn reads_the_stored_setting() {
     // the settings as the writer loads the file (`SettingsFile`), the defaults for one that does not parse
-    let stored_system_title_bar = |text: &str| app_settings::file::SettingsFile::parse(text).map_or_default(|file| file.app).system_title_bar;
-    assert!(stored_system_title_bar(r#"{"appSettings":{"systemTitleBar":true}}"#));
-    assert!(!stored_system_title_bar(r#"{"appSettings":{}}"#));
-    assert!(!stored_system_title_bar("not json"));
+    let loaded_system_title_bar = |text: &str| app_settings::file::SettingsFile::parse(text).map_or_default(|file| file.app).system_title_bar;
+    assert!(loaded_system_title_bar(r#"{"appSettings":{"systemTitleBar":true}}"#));
+    assert!(!loaded_system_title_bar(r#"{"appSettings":{}}"#));
+    assert!(!loaded_system_title_bar("not json"));
   }
 
   #[test]

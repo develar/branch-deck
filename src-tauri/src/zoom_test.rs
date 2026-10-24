@@ -3,17 +3,17 @@ use app_settings::file::SettingsFile;
 
 /// The zoom a window is built with: the settings as the writer loads the file (`SettingsFile`), the defaults for one
 /// that does not parse
-fn stored_zoom(text: &str) -> f64 {
+fn loaded_zoom(text: &str) -> f64 {
   SettingsFile::parse(text).map_or_default(|file| file.app).zoom
 }
 
 #[test]
-fn the_stored_zoom_is_the_app_settings_zoom() {
-  assert!((stored_zoom(r#"{"appSettings":{"autoSyncOnFocus":false,"zoom":1.25}}"#) - 1.25).abs() < f64::EPSILON);
+fn the_zoom_of_a_window_is_the_app_settings_zoom_of_the_file() {
+  assert!((loaded_zoom(r#"{"appSettings":{"autoSyncOnFocus":false,"zoom":1.25}}"#) - 1.25).abs() < f64::EPSILON);
 }
 
 #[test]
-fn without_a_valid_stored_zoom_the_zoom_is_100_percent() {
+fn without_a_valid_zoom_in_the_file_the_zoom_is_100_percent() {
   for store in [
     "{}",
     "",
@@ -23,7 +23,7 @@ fn without_a_valid_stored_zoom_the_zoom_is_100_percent() {
     r#"{"appSettings":{"zoom":0}}"#,
     r#"{"appSettings":{"zoom":-2}}"#,
   ] {
-    assert!((stored_zoom(store) - 1.0).abs() < f64::EPSILON, "{store}");
+    assert!((loaded_zoom(store) - 1.0).abs() < f64::EPSILON, "{store}");
   }
 }
 

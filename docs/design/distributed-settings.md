@@ -167,9 +167,13 @@ sequenceDiagram
 - `bd`: reads the file once as it starts, by the same loader (`app_settings_of` in `crates/bd-core/src/context.rs`,
   `SettingsFile::load`), so it runs with the same values and defaults without the app; it resolves the branch prefix
   with `resolve_branch_prefix` and names its source in `bd status` (`prefix_source`).
-- The branch prefix in the app: the commands of the sync family resolve it in Rust per command, the app's prefix from
-  the writer's `AppSettings` and the git prefix from `BranchPrefixes` (`crates/app-settings/src/branch_prefixes.rs`);
-  the page shows what `resolve_branch_prefix` answers and asks again once the writer has another app prefix
+- The branch prefix in the app: a command that names branches resolves it in Rust per command, from the repository
+  path alone (`PrefixInputs` in `src-tauri/src/commands/branch_prefix.rs`: the app's prefix from the writer's
+  `AppSettings`, the git prefix from `BranchPrefixes` of `crates/app-settings/src/branch_prefixes.rs`, a memo by path
+  that each read of the git config refreshes); so do the sync family, Patronus, the push, the pull requests, the branch
+  review and the independence of a stack, and the views of the last sync are kept by the prefix resolved. Only the
+  unapply, the reapply and the conflict fix still get the prefix the page shows, as their parameters are `bd`'s too. The
+  robot commands read `patronusNewApi` from the writer the same way. The page shows what `resolve_branch_prefix` answers and asks again once the writer has another app prefix
   (`onWriterChange` of `persistent-store.ts`: the change of another window, its own once answered), never on the change
   of its store alone, which is before the writer has it ([Settings](../../spec/repository/settings.spec.md#branch-prefix-order)).
 - Page: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`; one
@@ -211,8 +215,17 @@ Optimizations:
 
 ## References
 
+- Types that cross a window or a process: `crates/domain-types/src/settings.rs` (`AppSettings`, `SettingsPatch`,
+  `SettingsChange`, `GitBranchPrefix`, `ResolvedBranchPrefix`)
 - Writer: `crates/app-settings/src/service.rs`, `crates/app-settings/src/file.rs`, `crates/app-settings/src/windows.rs`
-- Backend: `src-tauri/src/settings.rs`, `src-tauri/src/commands/settings.rs`, `src-tauri/src/commands/window_management.rs`
-- Page: `src/stores/settings/persistent-store.ts`
+- Branch prefix: `crates/app-settings/src/resolve.rs`, `crates/app-settings/src/branch_prefixes.rs`,
+  `src-tauri/src/commands/branch_prefix.rs`
+- Backend: `src-tauri/src/settings.rs`, `src-tauri/src/commands/settings.rs`, `src-tauri/src/commands/window_management.rs`,
+  `restart_app` in `src-tauri/src/title_bar.rs`, the flush on exit in `src-tauri/src/lib.rs`
+- `bd`: `app_settings_of` in `crates/bd-core/src/context.rs`
+- Page: `src/stores/settings/persistent-store.ts`, `src/stores/settings/repositoryState.ts`, `src/stores/repository.ts`
+  (the resolved prefix), `src/lib/sub-window.ts` (the catch-up of a load)
+- E2E: `crates/test-server/src/state.rs` (`TestRepository::store`, `AppState::branch_prefixes`),
+  `tests/e2e/setup/tauri-mocks.ts`
 - Spec: [Settings](../../spec/repository/settings.spec.md) ("Writes through the backend")
 - Plan: [Rust как источник предметных правил](rust-domain-authority.md), stage `s5-settings`
