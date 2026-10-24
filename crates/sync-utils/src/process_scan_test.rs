@@ -1,6 +1,4 @@
-use crate::process_scan::ProcessScan;
-#[cfg(unix)]
-use crate::process_scan::{is_running, process_started};
+use crate::process_scan::{ProcessScan, is_running, process_started};
 
 /// A child that sleeps in a directory in a process group of its own is inside it; this process, the parent of the
 /// child, never is, and neither is a child in its group (the other commands of a pipeline that runs `bd`)
@@ -26,18 +24,31 @@ fn a_process_in_a_directory_is_inside_it_and_this_process_and_its_group_are_left
   assert!(!own);
 }
 
-/// A recorded start time tells the process from another one that got its pid later
-#[cfg(unix)]
+/// A recorded start time tells the process from another one that got its pid later; once it exited it never runs, on
+/// Windows also while the handle of its `Child` still keeps its pid
 #[test]
 fn a_process_runs_only_with_the_start_time_it_was_recorded_with() {
-  let mut sleeping = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+  let mut sleeping = if cfg!(windows) {
+    let mut ping = std::process::Command::new("ping");
+    ping.args(["-n", "60", "127.0.0.1"]);
+    ping
+  } else {
+    let mut sleep = std::process::Command::new("sleep");
+    sleep.arg("60");
+    sleep
+  }
+  .stdout(std::process::Stdio::null())
+  .spawn()
+  .unwrap();
   let pid = sleeping.id();
   let started = process_started(pid).unwrap();
   assert!(is_running(pid, Some(started)));
   assert!(is_running(pid, None));
   assert!(!is_running(pid, Some(started + 1)));
+  assert!(is_running(std::process::id(), Some(process_started(std::process::id()).unwrap())));
   sleeping.kill().unwrap();
   sleeping.wait().unwrap();
+  assert_eq!(process_started(pid), None);
   assert!(!is_running(pid, Some(started)));
   assert!(!is_running(pid, None));
 }

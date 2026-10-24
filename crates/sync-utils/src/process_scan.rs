@@ -1,7 +1,8 @@
 //! The processes whose working directory is inside a directory, for the lease pool (`lease`): a slot with a process in
 //! it is busy, a shell or a build daemon there would see its files change. One scan reads every process of the user
 //! once: on macOS through libproc (`proc_listallpids`, `proc_pidinfo`), on Linux from `/proc`. Windows has no scan:
-//! `ProcessScan::Unavailable`, and a lease never waits for it. The scan leaves out the session that runs `bd`: this
+//! `ProcessScan::Unavailable`, and a lease never waits for it; it tells the start of a process by its pid
+//! (`process_started`), as the other two do. The scan leaves out the session that runs `bd`: this
 //! process, its ancestors and every process of their process groups (the `jq` of `bd lease return | jq`, the
 //! `caffeinate` of the agent). It reads the argv of each process too (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
 //! on Linux): a Bazel server names its workspace there (`--workspace_directory=`), and serves only that one, since Bazel
@@ -248,8 +249,9 @@ pub(crate) fn own_processes(processes: &[ProcessInfo], pid: u32) -> HashSet<u32>
   own
 }
 
-/// When the process `pid` started, in a unit of the platform (microseconds on macOS, clock ticks since boot on Linux),
-/// so a pid that the system gave to another process since tells apart; `None` when unknown (Windows, a gone process)
+/// When the process `pid` started, in a unit of the platform (microseconds on macOS, clock ticks since boot on Linux,
+/// 100 ns since 1601 on Windows), so a pid that the system gave to another process since tells apart; `None` when
+/// unknown (a gone process, one that exited, one the system won't describe to this process)
 pub fn process_started(pid: u32) -> Option<u64> {
   platform::started(pid)
 }
@@ -266,20 +268,23 @@ pub fn terminate(pid: u32) -> bool {
   platform::terminate(pid)
 }
 
-/// Whether the process that had `pid` and started at `started` still runs. Without a start time (Windows) it counts as
-/// running: a lease is never taken from a process that may live. Where the system tells no process its start, not
-/// even this one's (a sandbox that denies the process info, macOS), this process runs and another one while it still
-/// exists to the kernel (`kill(pid, 0)`): the start time then can't tell a reused pid apart, but a gone process never
-/// counts as running. Elsewhere a process whose start the system won't tell has exited (a zombie)
+/// Whether the process that had `pid` and started at `started` still runs. A process whose start the system won't tell
+/// has exited (a zombie on Linux; on Windows one that a handle still keeps), unless it exists but is hidden from this
+/// process (`runs_unseen`): where the system tells no process its start, not even this one's (a sandbox that denies the
+/// process info, macOS), this process runs and another one while it still exists to the kernel (`kill(pid, 0)`), and
+/// on Windows a process that won't open for this user (another user's, a protected one) runs. The start time then
+/// can't tell a reused pid apart, but a gone process never counts as running. A platform that tells no start at all
+/// counts every process as running: a lease is never taken from a process that may live
 pub fn is_running(pid: u32, started: Option<u64>) -> bool {
   match (started, platform::started(pid)) {
     (Some(started), Some(now)) => now == started,
     (None, Some(_)) => true,
-    (_, None) => !platform::SCAN_AVAILABLE || (process_info_denied() && (pid == std::process::id() || platform::exists_unseen(pid))),
+    (_, None) => platform::runs_unseen(pid),
   }
 }
 
 /// Whether the system tells this process not even its own start: a sandbox denies the process info
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn process_info_denied() -> bool {
   static DENIED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
   *DENIED.get_or_init(|| platform::started(std::process::id()).is_none())
@@ -313,8 +318,6 @@ mod platform {
   use std::os::unix::ffi::OsStrExt;
   use std::path::PathBuf;
 
-  pub(super) const SCAN_AVAILABLE: bool = true;
-
   pub(super) fn processes() -> Option<Vec<ProcessInfo>> {
     Some(
       pids()?
@@ -339,9 +342,9 @@ mod platform {
     bsd_info(pid).map(|info| start_time(&info))
   }
 
-  /// A process that still exists, where libproc gives no process its info (a sandbox denies it)
-  pub(super) fn exists_unseen(pid: u32) -> bool {
-    super::unix_exists(pid)
+  /// This process, or one that still exists, where libproc gives no process its info (a sandbox denies it)
+  pub(super) fn runs_unseen(pid: u32) -> bool {
+    super::process_info_denied() && (pid == std::process::id() || super::unix_exists(pid))
   }
 
   /// `started` is microseconds since the epoch (`start_time`)
@@ -453,8 +456,6 @@ mod platform {
   use super::ProcessInfo;
   use std::path::Path;
 
-  pub(super) const SCAN_AVAILABLE: bool = true;
-
   /// The pids of `/proc`
   fn pids() -> Option<impl Iterator<Item = u32>> {
     let entries = std::fs::read_dir("/proc").ok()?;
@@ -528,10 +529,10 @@ mod platform {
     )
   }
 
-  /// `/proc` tells a zombie, which `kill(pid, 0)` would count, from a running process: what it doesn't show is gone
-  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scan of macOS")]
-  pub(super) fn exists_unseen(_pid: u32) -> bool {
-    false
+  /// `/proc` tells a zombie, which `kill(pid, 0)` would count, from a running process: what it doesn't show is gone,
+  /// but this process runs where a sandbox hides `/proc` from it
+  pub(super) fn runs_unseen(pid: u32) -> bool {
+    super::process_info_denied() && pid == std::process::id()
   }
 
   pub(super) fn terminate(pid: u32) -> bool {
@@ -569,11 +570,70 @@ mod platform {
   }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(windows)]
+#[expect(unsafe_code, reason = "Win32: the start time of a process (OpenProcess, GetProcessTimes, GetExitCodeProcess)")]
 mod platform {
   use super::ProcessInfo;
+  use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+  use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, FILETIME, STILL_ACTIVE};
+  use windows_sys::Win32::System::Threading::{GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
-  pub(super) const SCAN_AVAILABLE: bool = false;
+  /// No scan of the working directories: reading another process's needs its memory
+  pub(super) const fn processes() -> Option<Vec<ProcessInfo>> {
+    None
+  }
+
+  /// The creation time of the process, while it runs: a process that exited keeps its pid as long as a handle to it is
+  /// open, with its exit code in place of `STILL_ACTIVE`
+  pub(super) fn started(pid: u32) -> Option<u64> {
+    let process = open(pid).ok()?;
+    let mut exit_code = 0;
+    // SAFETY: the handle is open while `process` lives, and the code goes into a local
+    if unsafe { GetExitCodeProcess(process.as_raw_handle(), &raw mut exit_code) } == 0 || exit_code != STILL_ACTIVE.cast_unsigned() {
+      return None;
+    }
+    let (mut created, mut exited, mut kernel, mut user) = (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
+    // SAFETY: the handle is open while `process` lives, and the four times go into locals
+    let read = unsafe { GetProcessTimes(process.as_raw_handle(), &raw mut created, &raw mut exited, &raw mut kernel, &raw mut user) };
+    (read != 0).then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+  }
+
+  /// A process that won't open for this user (another user's, a protected one): it exists, its start can't be read
+  pub(super) fn runs_unseen(pid: u32) -> bool {
+    open(pid).is_err_and(|error| error.raw_os_error() == Some(ERROR_ACCESS_DENIED.cast_signed()))
+  }
+
+  /// No `ProcessInfo` without the scan
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn started_at(_started: u64) -> Option<std::time::SystemTime> {
+    None
+  }
+
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn processes_with_open_file(_path: &std::path::Path) -> Option<Vec<u32>> {
+    None
+  }
+
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn terminate(_pid: u32) -> bool {
+    false
+  }
+
+  /// The process `pid`, opened only to query it; an error when it is gone (`ERROR_INVALID_PARAMETER`) or won't open
+  fn open(pid: u32) -> std::io::Result<OwnedHandle> {
+    // SAFETY: plain arguments; a non-null result is a handle that nothing else owns
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+      return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: the handle just opened, owned from here on and closed when dropped
+    Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
+  }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+mod platform {
+  use super::ProcessInfo;
 
   pub(super) const fn processes() -> Option<Vec<ProcessInfo>> {
     None
@@ -584,8 +644,9 @@ mod platform {
     None
   }
 
+  /// No start of any process: every one counts as running
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
-  pub(super) fn exists_unseen(_pid: u32) -> bool {
+  pub(super) fn runs_unseen(_pid: u32) -> bool {
     true
   }
 

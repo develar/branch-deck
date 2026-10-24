@@ -583,7 +583,8 @@ resolve session under it) after its fetch and its check, for the witness, the lo
 `--continue --dry-run` take none. A holder writes who it is next to the lock (`branch-deck.lock.holder`: the command line, the pid, the start of
 the process and the time, through a temporary file and a rename) once it has the lock, and deletes it before it
 releases it, so the error of a wait names the holder; the lock file itself can't carry it, Windows refuses to read a
-locked file. A record whose process is gone (`process_scan::is_running`) names nobody. A record of this process always
+locked file. A record whose process is gone (`process_scan::is_running`: its pid and start time, on Windows through
+`OpenProcess` and `GetProcessTimes`) names nobody. A record of this process always
 names it, and one whose process the system won't describe (a sandbox that denies the process info on macOS) names its
 holder while `kill(pid, 0)` still finds the process: otherwise the app would wait for a live holder it can't see, say
 whom for nowhere, and refuse after 10 s. A core finds the file with one
@@ -1567,7 +1568,9 @@ The process scan (`crates/sync-utils/src/process_scan.rs`) reads the working dir
 the user: on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`) and
 `sysctl(KERN_PROCARGS2)`, on Linux from `/proc/<pid>/cwd` and `/proc/<pid>/cmdline`, with the process group
 (`pbi_pgid`, field 5 of `/proc/<pid>/stat`). It leaves out the session of `bd` (above), and compares canonical paths by
-components. Windows has no scan: the outputs say `processes_checked: false`, and a lease never waits for it.
+components. Windows has no scan: the outputs say `processes_checked: false`, and a lease never waits for it. It does
+tell the start of a process by its pid (`OpenProcess`, `GetProcessTimes`; one that exited while a handle keeps its pid
+has an exit code), so a lease, a trash directory or a lock record of a gone process is told apart there too.
 
 Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/clone_dir.rs`,
 `crates/lease-pool/src/free_space.rs`, `crates/sync-utils/src/process_scan.rs`, `crates/bd-lease/src/lease_command.rs`.

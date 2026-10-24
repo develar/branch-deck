@@ -18,9 +18,10 @@ tracing.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
-# the sharing errors that a rename over an open file waits out (`atomic_file`)
+# the start time of a process (`process_scan`: `OpenProcess`, `GetProcessTimes`) and the sharing errors that a rename
+# over an open file waits out (`atomic_file`)
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
 pretty_assertions.workspace = true
