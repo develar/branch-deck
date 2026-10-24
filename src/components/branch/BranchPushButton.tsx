@@ -47,6 +47,11 @@ export interface BranchPushButtonProps {
    * whole stack show in the island header, the button only the push of the branch itself
    */
   stackPushInHeader?: boolean
+  /**
+   * Why the button is disabled where it keeps its place without acting (`firstPushWait`: a first push the landing of
+   * the branch makes, the answer it waits for); its description says it
+   */
+  waits?: string | null
 }
 
 /**
@@ -61,7 +66,7 @@ export interface BranchPushButtonProps {
  * Push pushes it, which its button in the slot shows) and the hover the last
  * progress line of git, with the amount and the rate when that line lacks them.
  */
-export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut, stackPushInHeader = false }: BranchPushButtonProps) {
+export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut, stackPushInHeader = false, waits = null }: BranchPushButtonProps) {
   // a stack push from this row shows what it pushes, unless the island header shows it
   const startedStackPush = useStackPush(branch.name)
   const stackPush = stackPushInHeader ? null : startedStackPush
@@ -80,7 +85,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   const processing = useObjectBusy(branch.name) !== null
   const push = usePushButton(branch, isPushing)
   const request = usePushConfirmRequest(branch.name, confirmTarget)
-  const disabled = push.disabled || processing || starting !== null
+  const disabled = push.disabled || processing || starting !== null || (waits !== null && !isPushing)
 
   const [open, setOpen] = useState(false)
   // the click on a push that drops remote commits: the description asks before the push
@@ -195,7 +200,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
                 {shortcut !== undefined && !push.disabled && <Kbd>{shortcut}</Kbd>}
               </div>
             )}
-            <div className="break-words whitespace-pre-line">{push.tooltip}</div>
+            <div className="break-words whitespace-pre-line">{waits ?? push.tooltip}</div>
             {push.dropped !== null && <DroppedCommitList dropped={push.dropped} />}
             {push.retarget !== null && (
               <div data-testid="push-retarget" className={cn("break-words whitespace-pre-line", push.retarget.warning && "text-warning")}>

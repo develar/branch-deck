@@ -430,7 +430,9 @@ shows.
   start. A repository's first start has no floors; within a window a repository settles once, so a late fact after it
   (a new branch waiting for its readiness) moves only what it changes. Your Turn above the table holds its height the
   same way ([Review Requests](../../spec/repository/review-requests.spec.md#card)), the second header line of a stack
-  island its line (`stackLines` of `settledLayout`, [Stack Island](../../spec/branch/stack-island.spec.md)), and the
+  island its line (`stackLines` of `settledLayout`, [Stack Island](../../spec/branch/stack-island.spec.md)), the
+  sections of the branch preview a muted line (`PendingSection`) and its footer push, like the push of the review
+  window's title bar, its place, disabled with why ([Branch Preview](../../spec/branch/branch-preview.spec.md)), and the
   unassigned commits card renders with the rows (no lazy chunk: one came seconds later under load and moved the table).
 - **Live values hold their own width**: a running robot is at least `13ch`, the compact push `min-w-16` (`⟳ 100%`),
   the Safe Push of a slot its width at rest while its start runs, so

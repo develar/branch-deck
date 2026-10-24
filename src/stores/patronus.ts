@@ -134,6 +134,11 @@ export interface RepositoryPatronus {
    * runs); false once the computation answered, or ended without needs for these inputs (failed, too slow)
    */
   readonly landingNeedsComputing: boolean
+  /**
+   * Why the last ask of the view failed; null once one answers. Over a last view the steps stand on that one (its holds,
+   * landing ancestors and needs stay, stale); without one nothing says what the robots hold (`getPatronusViewFailure`)
+   */
+  readonly viewFailure: string | null
 }
 
 export interface PatronusState {
@@ -158,6 +163,7 @@ const EMPTY: RepositoryPatronus = {
   viewListed: false,
   problemsFailed: {},
   landingNeedsComputing: false,
+  viewFailure: null,
 }
 
 /** The key of a repository and branch prefix in the stores of Patronus answers (the robots, the review readiness) */
@@ -600,9 +606,10 @@ async function askRepositoryView(): Promise<void> {
     .then(result => {
       if (result.status === "error") {
         console.warn("Cannot read the repository view", result.error)
-        askedView = null
-        // the view stays as it was: nothing waits for an answer that doesn't come
-        update(key, entry => ({ viewOf: asking, viewListed: entry.viewListed || isOfListedRobots(entry, asking) }))
+        // the same inputs are not asked again (each change of the store would ask, a failure without end): a sync, a
+        // change of the robots or a refresh of Patronus does. The view stays as it was, stale: nothing waits for an
+        // answer that doesn't come; without one the steps say why
+        update(key, entry => ({ viewOf: asking, viewListed: entry.viewListed || isOfListedRobots(entry, asking), viewFailure: getErrorDetails(result.error) }))
         return
       }
       const entry = patronusStore.getState().repositories[key]
@@ -614,8 +621,8 @@ async function askRepositoryView(): Promise<void> {
         // same count of computations said that none runs for them (failed, too slow): no step waits then
         const unknown = state.branchOrder.some(name => view.branches[name]?.landingNeeds.state !== "known")
         const computing = unknown && !(view === entry.view && landingSettled.get(key) === result.data.landingGeneration)
-        if (view !== entry.view || entry.viewOf !== asking || viewListed !== entry.viewListed || (!computing && entry.landingNeedsComputing)) {
-          update(key, () => ({ view, viewOf: asking, viewListed, ...(!computing && { landingNeedsComputing: false }) }))
+        if (view !== entry.view || entry.viewOf !== asking || viewListed !== entry.viewListed || (!computing && entry.landingNeedsComputing) || entry.viewFailure !== null) {
+          update(key, () => ({ view, viewOf: asking, viewListed, viewFailure: null, ...(!computing && { landingNeedsComputing: false }) }))
         }
         if (computing) {
           waitForLandingNeeds(key, project.path, result.data.landingGeneration)
@@ -1167,6 +1174,10 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
       const since = full ? null : Math.floor((listedFrom - LIST_OVERLAP_MS) / 1000)
       const answered = await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, since, background: current !== "manual" }), full, true)
       if (answered) {
+        // a view that failed is asked again after a list, also of the same robots
+        if (patronusStore.getState().repositories[key]?.viewFailure != null) {
+          askedView = null
+        }
         // a list that left the robots as they were (none) has its view already
         update(key, entry => ({ listedFrom: startedAt, viewListed: entry.viewListed || entry.viewOf === entry.robots }))
         loadRobotFacts(key)
@@ -1231,13 +1242,7 @@ async function loadReviewProblems(key: string, retryFailed: boolean): Promise<vo
   if (entry === undefined) {
     return
   }
-  const { branches, stackBranches } = branchSyncStore.getState()
-  const robots = [
-    ...Object.values(branches).map(branch => findBranchRobot(entry.robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)),
-    // the robot of the whole stack fails for missing approvals in the pull request of the stack
-    ...Object.values(stackBranches).map(stack => findStackRobot(entry.robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)),
-  ]
-  for (const robot of robots) {
+  for (const robot of tableRobots(entry)) {
     if (
       robot === undefined ||
       robot.status !== "failure" ||
@@ -1269,6 +1274,25 @@ async function loadReviewProblems(key: string, retryFailed: boolean): Promise<vo
       update(key, previous => ({ problemsFailed: { ...previous.problemsFailed, [robot.id]: failure } }))
     }
   }
+}
+
+/** The robots of the branches and of the whole stacks of the table: those whose problems are asked (`loadReviewProblems`) */
+function tableRobots(entry: RepositoryPatronus): Array<PatronusRobot | undefined> {
+  const { branches, stackBranches } = branchSyncStore.getState()
+  return [
+    ...Object.values(branches).map(branch => findBranchRobot(entry.robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)),
+    // the robot of the whole stack fails for missing approvals in the pull request of the stack
+    ...Object.values(stackBranches).map(stack => findStackRobot(entry.robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)),
+  ]
+}
+
+/**
+ * `robot` is the robot of a branch or of a whole stack of the table, so Patronus is asked why it failed: its restart
+ * and its prompts wait for that answer on every surface (`getGatedRobotActions`); a watched robot of no branch is not
+ */
+export function isTableRobot(robot: PatronusRobot): boolean {
+  const entry = currentRepository()
+  return entry !== undefined && tableRobots(entry).some(it => it?.id === robot.id)
 }
 
 function withoutKey<T>(record: Readonly<Record<string, T>>, key: string): Readonly<Record<string, T>> {
@@ -1458,6 +1482,38 @@ export function isPatronusOffered(): boolean {
   return key === null || patronusStore.getState().repositories[key]?.availability?.status !== "notPatronus"
 }
 
+/**
+ * Patronus answered a list of the robots of the selected repository once: a failure after it (an error, offline) leaves
+ * the steps on the robots it listed, as a failed refresh of GitHub keeps the last listing
+ */
+export function hasPatronusListed(): boolean {
+  return (currentRepository()?.listedFrom ?? 0) > 0
+}
+
+/**
+ * Why Patronus didn't give the view of the robots of the selected repository, while no earlier view stands for it:
+ * what they hold, land and need is unknown, so no start is decided on "none"; null once a view answered
+ */
+export function getPatronusViewFailure(): string | null {
+  const entry = currentRepository()
+  return entry === undefined || entry.view !== null ? null : (entry.viewFailure ?? null)
+}
+
+/** `getPatronusViewFailure` of the selected repository, for a component */
+export function usePatronusViewFailure(): string | null {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => {
+    const entry = state.repositories[key]
+    return entry === undefined || entry.view !== null ? null : (entry.viewFailure ?? null)
+  })
+}
+
+/** `isPatronusPending` of the selected repository, for a component */
+export function usePatronusPending(): boolean {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => isPendingEntry(state.repositories[key]))
+}
+
 /** Patronus answered whether the selected repository is on Space: before that, nothing says how its branches land */
 export function isPatronusKnown(): boolean {
   const key = currentKey()
@@ -1474,7 +1530,10 @@ export function isPatronusPending(): boolean {
   if (key === null) {
     return false
   }
-  const entry = patronusStore.getState().repositories[key]
+  return isPendingEntry(patronusStore.getState().repositories[key])
+}
+
+function isPendingEntry(entry: RepositoryPatronus | undefined): boolean {
   const status = entry?.availability?.status
   return status === undefined || (status === "available" && !entry!.viewListed)
 }

@@ -630,6 +630,10 @@ pub async fn get_repository_view(
   State(state): State<Arc<AppState>>,
   Json(params): Json<domain_types::repository_view::GetRepositoryViewParams>,
 ) -> CommandResult<domain_types::repository_view::RepositoryView> {
+  let remote = repository_by_path(&state, &params.repository_path)?.existing_remote();
+  if let Some(remote) = remote {
+    held_or_failed(&remote, HeldAnswer::RepositoryView, "read the repository view").await?;
+  }
   let inputs = prefix_inputs(&state, &params.repository_path)?;
   let views = state.repository_views.clone();
   run_command("read the repository view", move || {

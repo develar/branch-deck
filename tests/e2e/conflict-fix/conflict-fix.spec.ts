@@ -1,8 +1,21 @@
 // @spec spec/branch/conflict-fix.spec.md
+import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { availableRobots } from "../helpers/patronus-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
+
+/** The fix of the conflict of ui, its row open, once the search found it */
+async function foundFix(page: Page): Promise<Locator> {
+  const uiRow = findBranchRow(page, "ui")
+  if ((await uiRow.getAttribute("data-state")) !== "open") {
+    await expandBranch(page, uiRow)
+  }
+  const fix = getBranchDetailsRow(page, "ui").getByTestId("conflict-fix")
+  await expect(fix).toHaveAttribute("data-state", "found")
+  return fix
+}
 
 test.describe("Conflict fix", () => {
   test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -12,13 +25,8 @@ test.describe("Conflict fix", () => {
   })
 
   test("should offer the move a trial build verified, apply it and undo it", async ({ page }) => {
-    const uiRow = findBranchRow(page, "ui")
-    if ((await uiRow.getAttribute("data-state")) !== "open") {
-      await expandBranch(page, uiRow)
-    }
-    const fix = getBranchDetailsRow(page, "ui").getByTestId("conflict-fix")
     // the search runs when the conflict is shown
-    await expect(fix).toHaveAttribute("data-state", "found")
+    const fix = await foundFix(page)
     await expect(fix).toContainText("Move “Show the timeout in seconds” to api")
     await expect(fix.getByTestId("fix-result")).toHaveText("Afterwards ui applies cleanly.")
     // the conflict itself: the merge of settings.js in three columns, named by the sides. Both sides changed the same
@@ -54,5 +62,25 @@ test.describe("Conflict fix", () => {
     await clickContextMenuItem(page, "Fix Conflict…")
     await expect(uiRow).toHaveAttribute("data-state", "open")
     await expect(getBranchDetailsRow(page, "ui").getByTestId("conflict-fix")).toHaveAttribute("data-state", "found")
+  })
+})
+
+test.describe("Conflict fix while Patronus answers", () => {
+  test("should apply the fix only once Patronus told what its robots hold", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("conflict_fix", { patronus: availableRobots() })
+    await repo.holdRemoteAnswers({ hold: ["robots"] })
+    await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "ui").getByTestId("branch-status")).toHaveText("merge conflict")
+    const fix = await foundFix(page)
+    // a robot may hold a branch the fix rewrites: no fix on "none", the reason beside the button
+    const apply = fix.getByTestId("apply-conflict-fix")
+    await expect(apply).toBeDisabled()
+    await expect(fix).toContainText("Waits for the answer of Patronus")
+
+    await repo.holdRemoteAnswers({ release: ["robots"] })
+    await expect(apply).toBeEnabled()
+    await expect(fix).toContainText("Undo is in the toast and in Activity")
+    await runAndWaitForSync(page, () => apply.click())
+    await expect(page.getByText("Fixed the conflict of ui")).toBeVisible()
   })
 })

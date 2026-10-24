@@ -12,24 +12,24 @@ import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
-import { isFirstPushInLanding, useLandingPushes, useUnpushedChildren } from "@/hooks/usePushButton"
+import { firstPushPending, firstPushWait, useLandingPushes, useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
-import { useIsBranchPushing } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { branchSubject, operationLabel, stopWaitingItem, useUnclaimedOperation } from "@/stores/operations"
-import { usePatronusOffered, usePushHold } from "@/stores/patronus"
-import { usePullRequest } from "@/stores/pull-requests"
+import { usePatronusAvailable, usePatronusOffered, usePatronusPending, usePushHold } from "@/stores/patronus"
+import { usePullRequest, usePullRequestsLoading } from "@/stores/pull-requests"
 
 /**
  * The actions on a branch in the footer of its preview, as its menu offers them: O Open Pull Request, Create Pull
  * Request… of a branch on GitHub without a live one (also beside a closed one; disabled with the reason once it landed),
  * S Safe Push where Patronus is
- * (disabled with the reason of the next step), P Push for a branch with work, unless its first push is a step of its
- * landing (`isFirstPushInLanding`); the rest of the row's menu is under "⋯"
+ * (disabled with the reason of the next step), P Push for a branch with work, disabled with why while its first push
+ * is a step of its landing or the answers that tell it are still to come (`firstPushWait`), so it keeps its place; the
+ * rest of the row's menu is under "⋯"
  * of the header (`BranchPreviewMenu`). The Safe Push popover opens at the row and "Create pull request" a dialog of
  * its own: the preview closes for them (`ClosePreviewContext`).
  */
@@ -47,9 +47,10 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
   // takes the stack branch of the whole stack along, whose open pull request it updates
   const stackBranchAlong = (useUnpushedChildren(branch.name)?.stackBranch ?? null) !== null
   const landingPushes = useLandingPushes(branch.name) && !stackBranchAlong
-  const isPushing = useIsBranchPushing(branch.name)
   const held = usePushHold(branch.name) !== null
-  const hasPush = !branch.hasError && branch.commitCount > 0 && (isPushing || !isFirstPushInLanding(branch, { landingPushes, held }))
+  const hasPush = !branch.hasError && branch.commitCount > 0
+  // a first push the landing makes keeps its place, disabled with why: the answers that decide it move no button
+  const waits = firstPushWait(branch, { landingPushes, patronus: usePatronusAvailable(), held, pending: firstPushPending(usePatronusPending(), usePullRequestsLoading()) })
   return (
     <>
       {pullRequest !== undefined && (
@@ -82,7 +83,7 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
         </Tooltip>
       )}
       {patronusOffered && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
-      {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" />}
+      {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" waits={waits} />}
     </>
   )
 }

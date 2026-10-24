@@ -54,6 +54,7 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::ReviewRequests
     | HeldAnswer::LandingNeeds
     | HeldAnswer::BranchRules
+    | HeldAnswer::RepositoryView
     | HeldAnswer::GitHubAuth
     | HeldAnswer::YouTrackAuth
     | HeldAnswer::CliTools => None,
@@ -119,6 +120,8 @@ pub enum HeldAnswer {
   RobotProblems,
   /// The rules of a branch (`get_branch_rules`, in the bridge): whether a push dismisses the approvals
   BranchRules,
+  /// The repository view of the robots (`get_repository_view`, in the bridge): what they hold, land and need
+  RepositoryView,
   /// The status of the GitHub sign-in (`get_github_auth_status`, in the bridge)
   GitHubAuth,
   /// The status of the YouTrack sign-in (`get_youtrack_auth_status`, in the bridge)
@@ -342,9 +345,13 @@ impl RemoteHost {
           let (method, path) = patronus_route(*answer).expect("a route of the fake Patronus");
           self.patronus.hold(method, path)
         }
-        HeldAnswer::ReviewRequests | HeldAnswer::LandingNeeds | HeldAnswer::BranchRules | HeldAnswer::GitHubAuth | HeldAnswer::YouTrackAuth | HeldAnswer::CliTools => {
-          Arc::new(FakeGate::default())
-        }
+        HeldAnswer::ReviewRequests
+        | HeldAnswer::LandingNeeds
+        | HeldAnswer::BranchRules
+        | HeldAnswer::RepositoryView
+        | HeldAnswer::GitHubAuth
+        | HeldAnswer::YouTrackAuth
+        | HeldAnswer::CliTools => Arc::new(FakeGate::default()),
       };
       if let Some(before) = held.insert(*answer, gate) {
         before.open();

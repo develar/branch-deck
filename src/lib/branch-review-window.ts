@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { getBranchContextMenuItems, getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
+import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
 import { getCommitMenuGroups } from "@/hooks/useCommitMoveList"
 import { getCreatePullRequestContext, getStackPullRequestContext } from "@/hooks/useCreatePullRequestContext"
@@ -56,8 +57,13 @@ export function rememberReviewGroups(branchName: string, requirement: PatronusRe
 }
 
 function reviewGroupsOf(branchName: string): BranchReviewGroup[] {
+  return knownReviewGroupsOf(branchName) ?? []
+}
+
+/** The groups of the last code-owner check of the branch at its head; null while none answered for it */
+function knownReviewGroupsOf(branchName: string): BranchReviewGroup[] | null {
   const last = lastReviewGroups.get(branchName)
-  return last !== undefined && last.head === getBranch(branchName)?.commits[0]?.hash ? last.groups : []
+  return last !== undefined && last.head === getBranch(branchName)?.commits[0]?.hash ? last.groups : null
 }
 
 /** The heads of the branches the last sync of a repository built: what the review window compares its stack with */
@@ -296,6 +302,7 @@ function buildStackState(repositoryPath: string, root: string): BranchReviewWind
     wholeStack: null,
     stackCommits: selected ? stackCommitBranches(root) : {},
     commitMenus: {},
+    groups: null,
   }
 }
 
@@ -382,7 +389,7 @@ function wholeStackScopeOf(chain: readonly string[], baselineBranch: string): Wh
 /** The tips of the chain the last sync built, and the actions of each branch; nothing for a repository not shown */
 function buildState(repositoryPath: string, chain: readonly string[]): BranchReviewWindowState {
   if (getSelectedProject()?.path !== repositoryPath) {
-    return { repositoryPath, selected: false, tips: {}, items: {}, menus: {}, createPullRequest: null, wholeStack: null, stackCommits: {}, commitMenus: {} }
+    return { repositoryPath, selected: false, tips: {}, items: {}, menus: {}, createPullRequest: null, wholeStack: null, stackCommits: {}, commitMenus: {}, groups: null }
   }
   const tips: Record<string, string> = {}
   const items: Record<string, BranchReviewItem[]> = {}
@@ -418,6 +425,8 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
     wholeStack: wholeStackScopeOf(chain, baselineBranch),
     stackCommits: {},
     commitMenus,
+    // the check of the reviewed branch answers while the window is open: its groups follow it
+    groups: chain.length === 0 ? null : knownReviewGroupsOf(chain.at(-1)!),
   }
 }
 
@@ -573,7 +582,7 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
         : (getSafePushWithoutReviewItem(branch) ?? undefined)
   if (item === undefined) {
     const itemId = "itemId" in request ? request.itemId : "safe-push-without-review"
-    return refuse(itemId === "safe-push-whole-stack" || itemId === "push-with-children" ? `${subject} has no such action now` : unavailableReason(itemId, branchName))
+    return refuse(itemId === "safe-push-whole-stack" || itemId === "push-with-children" ? `${subject} has no such action now` : unavailableReason(itemId, branch))
   }
   return runItem(item, { branchName, commitIds: [] }, refuse)
 })
@@ -670,13 +679,19 @@ function findBranchMenuItem(branchName: string, id: string): MenuItem | undefine
 }
 
 /** Why the main window doesn't offer the action of a request on the branch */
-function unavailableReason(itemId: "safe-push" | "push" | "safe-push-without-review", branchName: string): string {
+function unavailableReason(itemId: "safe-push" | "push" | "safe-push-without-review", branch: Branch): string {
   switch (itemId) {
     case "push":
-      return `${branchName} has nothing to push`
+      return `${branch.name} has nothing to push`
     case "safe-push":
       return "Patronus is not available for the repository"
-    case "safe-push-without-review":
-      return `The approvals of ${branchName} don't wait for a pull request now`
+    case "safe-push-without-review": {
+      // the step says why it offers no start without review: what it waits for, a reason of the branch, or approvals
+      // that don't wait for a pull request
+      const step = getBranchNextStepOf(branch)
+      return step.kind === "pending"
+        ? (step.safePushBlocker ?? `The approvals of ${branch.name} are not known yet`)
+        : `The approvals of ${branch.name} don't wait for a pull request now`
+    }
   }
 }

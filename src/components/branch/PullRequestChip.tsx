@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
+import { PendingSection } from "@/components/shared/PendingSection"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { ChecksState, PullRequest } from "@/lib/bindings"
 import type { PullRequestIconKind } from "@/lib/pull-request"
@@ -21,7 +22,7 @@ import { formatChecks, formatPullRequestCommitNotice, formatReviewer, getPullReq
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
-import { usePullRequest } from "@/stores/pull-requests"
+import { usePullRequest, usePullRequestsLoading } from "@/stores/pull-requests"
 
 const icons: Readonly<Record<PullRequestIconKind, ComponentType<{ className?: string }>>> = {
   open: GitPullRequestIcon,
@@ -174,8 +175,14 @@ function ChecksIcon({ state }: { state: ChecksState }) {
 /** The pull request of the branch in the branch preview, above the commits; nothing without one */
 export function BranchPullRequestSection({ branchName }: { branchName: string }) {
   const pullRequest = usePullRequest(branchName)
+  // GitHub hasn't listed the pull requests: the section of a pushed branch, which may have one, holds its place until
+  // it did
+  const loading = usePullRequestsLoading()
+  const pushed = useBranchRemoteStatus(branchName)?.exists === true
   if (pullRequest === undefined) {
-    return null
+    return loading && pushed ? (
+      <PendingSection label="Pull request" text={`Checking GitHub for a pull request of ${branchName}…`} testId="branch-preview-pull-request-pending" />
+    ) : null
   }
   return (
     <section aria-label="Pull request" className="rounded-lg border border-border p-3" data-testid="branch-preview-pull-request">

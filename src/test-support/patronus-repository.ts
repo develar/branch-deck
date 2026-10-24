@@ -22,6 +22,7 @@ export function testPatronusRepository(robots: Readonly<Record<string, PatronusR
     viewListed: true,
     problemsFailed: {},
     landingNeedsComputing: false,
+    viewFailure: null,
   }
 }
 

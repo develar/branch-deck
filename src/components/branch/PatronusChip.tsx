@@ -9,10 +9,12 @@ import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
-import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
+import { PendingSection } from "@/components/shared/PendingSection"
+import { getGatedRobotActions, robotProblemsReason, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
+import { formatPendingFact } from "@/lib/branch-next-step"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
@@ -26,7 +28,7 @@ import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
 import { useOperations } from "@/stores/operations"
-import { useBranchRobot, usePatronusAvailable, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
+import { useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
 
 /**
  * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
@@ -130,6 +132,8 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const notice = formatRobotCommitNotice(robot, chip, localTip, restart)
   const branch = useBranch(branchName)
   const patronusAvailable = usePatronusAvailable()
+  // a store read beside the stores the details select: it changes with `needsReview` and the failure of the problems
+  const problemsUnknown = useNextStepStores(() => robotProblemsReason(robot, branch ?? null))
   // the details name it; a poll or the start may have named it before
   const profileName = details?.profileName ?? robot.profile?.name ?? null
   return (
@@ -225,6 +229,13 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         </ul>
       )}
 
+      {/* why it failed is still to come or Patronus didn't give it: the restart and the prompts wait, and say why here */}
+      {problemsUnknown !== null && (
+        <p className={cn("text-xs", problemsUnknown === formatPendingFact("robotProblems") ? "text-muted-foreground" : "text-warning")} data-testid="patronus-problems-unknown">
+          {problemsUnknown}
+        </p>
+      )}
+
       {needsReview && (
         <p className="text-xs text-warning" data-testid="patronus-needs-review">
           {robot.pullRequest == null ? (
@@ -317,8 +328,12 @@ function RobotTimingDetails({ robot, remaining }: { robot: PatronusRobot; remain
 /** The robot of the branch in the branch preview, above the commits; nothing without one */
 export function BranchPatronusSection({ branchName }: { branchName: string }) {
   const robot = useBranchRobot(branchName)
+  // Patronus hasn't answered with its robots: the section of a pushed branch, which a Safe Push may test, holds its
+  // place until it did
+  const pending = usePatronusPending()
+  const pushed = useBranchRemoteStatus(branchName)?.exists === true
   if (robot === undefined) {
-    return null
+    return pending && pushed ? <PendingSection label="Patronus" text={`Asking Patronus for the Safe Push of ${branchName}…`} testId="branch-preview-patronus-pending" /> : null
   }
   return (
     <section aria-label="Patronus" className="rounded-lg border border-border p-3" data-testid="branch-preview-patronus">

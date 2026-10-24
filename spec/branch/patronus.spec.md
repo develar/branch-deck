@@ -1132,7 +1132,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 
 Some merge profiles skip the code-owner review (Large Scale Change; an emergency profile skips all checks). Patronus
 doesn't say which before a start, and a `/patronus` comment can't choose a profile, so a Safe Push without review is an
-explicit choice of the user, offered only where the approvals count in a pull request the branch doesn't have.
+explicit choice of the user, offered only where the approvals count in a pull request the branch doesn't have, or may
+(GitHub signed out or failing: no pull request is known, [Next Step](next-step.spec.md#facts-without-an-answer)).
 
 - The "Create pull request" dialog of a branch at row 7 of the [next step](next-step.spec.md) (missing approvals, no
   open pull request) has "Safe Push Without Review…" at the left of its footer, a ghost button with the

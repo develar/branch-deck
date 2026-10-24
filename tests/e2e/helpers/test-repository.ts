@@ -13,10 +13,21 @@ import { TEST_SERVER_URL } from "./test-server-url"
 /**
  * An answer of a fake a test holds back (`HeldAnswer` of `remote_host.rs`): GitHub's search of the user's pull
  * requests, the review requests, the list of the robots, the pre-check of the code-owner review, the answer of the
- * computation of the landing needs, why a robot failed (its problems, of every robot), the rules of a branch, the
- * statuses of Settings (the GitHub and the YouTrack sign-in, the tools)
+ * computation of the landing needs, why a robot failed (its problems, of every robot), the rules of a branch, the view
+ * of the robots, the statuses of Settings (the GitHub and the YouTrack sign-in, the tools)
  */
-export type HeldAnswer = "pullRequests" | "reviewRequests" | "robots" | "readiness" | "landingNeeds" | "robotProblems" | "branchRules" | "gitHubAuth" | "youTrackAuth" | "cliTools"
+export type HeldAnswer =
+  | "pullRequests"
+  | "reviewRequests"
+  | "robots"
+  | "readiness"
+  | "landingNeeds"
+  | "robotProblems"
+  | "branchRules"
+  | "repositoryView"
+  | "gitHubAuth"
+  | "youTrackAuth"
+  | "cliTools"
 import type { YouTrackFixture, YouTrackLog } from "./youtrack-helpers"
 
 /** What reached the fake Patronus: the requests by kind, the robots whose problems and progress were asked, in order */

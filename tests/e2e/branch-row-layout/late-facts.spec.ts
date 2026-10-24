@@ -1,15 +1,17 @@
 // @spec spec/branch/next-step.spec.md
 // @spec spec/repository/review-requests.spec.md
 // @spec spec/branch/stack-island.spec.md
+// @spec spec/branch/branch-preview.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import type { Box } from "../helpers/header-helpers"
 import { boxOf } from "../helpers/header-helpers"
-import { AWAITING_CODE_OWNER, availableRobots } from "../helpers/patronus-helpers"
+import { AWAITING_CODE_OWNER, availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest, reviewer } from "../helpers/pull-request-helpers"
 import { availableReviewRequests, getYourTurnCard, reviewRequest } from "../helpers/review-request-helpers"
-import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
+import { openBranchPreview } from "../helpers/review-status-helpers"
+import { pushedOnNextSync } from "../helpers/sync-helpers"
 import { waitForStorePersistence } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
@@ -33,20 +35,13 @@ async function rowLayout(page: Page): Promise<{ row: Box; commits: Box; pullRequ
   }
 }
 
-/** JIRA-456 pushed, as the remote status of the next sync says */
-async function pushedOnNextSync(page: Page): Promise<void> {
-  await rewriteNextRemoteStatus(page, status =>
-    status.branchName === BRANCH ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
-  )
-}
-
 test.describe("Late facts", () => {
   test("should keep the rows and the columns where the last start left them while Your Turn, the pull requests and the approvals come back", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await pushedOnNextSync(page)
+    await pushedOnNextSync(page, BRANCH)
     const awaited = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "requested")] })
     const repo = await setupRepo("issue_links", {
       patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
@@ -68,7 +63,7 @@ test.describe("Late facts", () => {
 
     // the next start: GitHub answers after the first rows
     await repo.holdRemoteAnswers({ hold: ["pullRequests", "reviewRequests"] })
-    await pushedOnNextSync(page)
+    await pushedOnNextSync(page, BRANCH)
     // a repository synced before syncs when the window opens it; GitHub is asked once that sync ended
     await page.reload()
     await expect.poll(() => repo.getArrivedAnswers()).toEqual(expect.arrayContaining(["pullRequests", "reviewRequests"]))
@@ -86,6 +81,47 @@ test.describe("Late facts", () => {
     await expect(findBranchRow(page, BRANCH).getByTestId("next-step-slot")).toHaveAttribute("data-step", "awaiting")
     await expect(page.getByTestId("your-turn-checking")).toHaveCount(0)
     expect(await rowLayout(page)).toEqual(settled)
+  })
+
+  test("should keep the sections and the push of the preview in their places while Patronus and GitHub answer", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // ABC-123 pushed, with a pull request and a failed Safe Push; JIRA-456 not pushed yet
+    await pushedOnNextSync(page, "ABC-123")
+    const repo = await setupRepo("issue_links", {
+      patronus: { ...availableRobots(robot("ABC-123", "failed-robot", { status: "failure", finishTime: 1704142800 })), githubRepository: "acme/monorepo" },
+      pullRequests: availablePullRequests(pullRequest("ABC-123", 7)),
+    })
+    await repo.holdRemoteAnswers({ hold: ["pullRequests", "robots"] })
+    await syncAndWaitForBranches()
+    await expect.poll(() => repo.getArrivedAnswers()).toEqual(expect.arrayContaining(["pullRequests", "robots"]))
+
+    // the sections of a pushed branch hold their places until the answers fill them
+    const preview = await openBranchPreview(page, "ABC-123")
+    const pendingPullRequest = preview.getByTestId("branch-preview-pull-request-pending")
+    await expect(pendingPullRequest).toHaveText("Checking GitHub for a pull request of ABC-123…")
+    await expect(preview.getByTestId("branch-preview-patronus-pending")).toHaveText("Asking Patronus for the Safe Push of ABC-123…")
+    // where in the body: the dialog's open animation moves the whole box
+    const top = (await boxOf(pendingPullRequest)).y - (await boxOf(preview.getByTestId("branch-preview-body"))).y
+    // the first push of a branch whose landing may push it: in its place, waiting for the answer that tells
+    await page.keyboard.press("Escape")
+    await expect(preview).toHaveCount(0)
+    const unpushed = await openBranchPreview(page, "JIRA-456")
+    const push = unpushed.getByTestId("push-button")
+    await expect(push).toBeDisabled()
+    await push.hover()
+    await expect(page.getByTestId("push-description")).toHaveText("Waits for the answer of Patronus")
+    const pushBox = await boxOf(push)
+
+    await repo.holdRemoteAnswers({ release: ["pullRequests", "robots"] })
+    // Safe Push and Create Pull Request… push it: the button stays where it was, disabled with why
+    await expect(page.getByTestId("push-description")).toHaveText('Safe Push and Create Pull Request… push JIRA-456 first: "⋯" pushes it alone')
+    await expect(push).toBeDisabled()
+    expect(await boxOf(push)).toEqual(pushBox)
+    await page.keyboard.press("Escape")
+    await expect(unpushed).toHaveCount(0)
+    const answered = await openBranchPreview(page, "ABC-123")
+    await expect(answered.getByTestId("branch-preview-pull-request")).toBeVisible()
+    await expect(answered.getByTestId("branch-preview-patronus")).toBeVisible()
+    await expect.poll(async () => (await boxOf(answered.getByTestId("branch-preview-pull-request"))).y - (await boxOf(answered.getByTestId("branch-preview-body"))).y).toBe(top)
   })
 
   test("should keep the second header line of a stack island in its place while the pull requests come back", async ({ page, setupRepo, syncAndWaitForBranches }) => {

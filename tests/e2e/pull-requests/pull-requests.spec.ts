@@ -201,11 +201,16 @@ test.describe("Pull request chip", () => {
     await expect(dialog).toHaveCount(0)
     expect(pushes).toEqual([])
 
-    // the dialog pushes it on Create: the row and the preview offer no push of their own, the menu does
+    // the dialog pushes it on Create: the row offers no push of its own, the menu does; the footer of the preview keeps
+    // its push in place, disabled with why
     await expect(getPushButton(row)).toHaveCount(0)
     const firstPreview = await openBranchPreview(page, "feature-auth")
     await expect(firstPreview.getByRole("button", { name: "Create Pull Request…" })).toBeVisible()
-    await expect(firstPreview.getByTestId("push-button")).toHaveCount(0)
+    const footerPush = firstPreview.getByTestId("push-button")
+    await expect(footerPush).toBeDisabled()
+    await footerPush.hover()
+    await expect(page.getByTestId("push-description")).toContainText('Create Pull Request… pushes feature-auth first: "⋯" pushes it alone')
+    await page.mouse.move(0, 0)
     await page.keyboard.press("Escape")
     await expect(firstPreview).toHaveCount(0)
     await pushFromRowMenu(page, "feature-auth")

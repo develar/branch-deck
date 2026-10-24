@@ -1,6 +1,7 @@
 // @spec spec/repository/youtrack.spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
+import { findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -133,5 +134,38 @@ test.describe("YouTrack issue popover", () => {
     await expect(preview).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(preview).toHaveCount(0)
+  })
+
+  test("should say a failed read of the sign-in with Retry, never signed out for the session, and show the issues once a read answers", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setUp(page, setupRepo, syncAndWaitForBranches, OPEN_ISSUES)
+    const link = issueKeyLink(page, "JIRA-456")
+    await expect(link).toHaveAttribute("data-issue-key", "JIRA-456")
+
+    // the next start can't read the sign-in: an error that says so, Retry in it
+    await repo.holdRemoteAnswers({ fail: ["youTrackAuth"] })
+    await linkIssuesToYouTrack(page, await youTrackUrlOf(repo))
+    await page.reload()
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot read the YouTrack sign-in" })
+    await expect(toast).toContainText("the fixture fails this read")
+    // without a status the link is a plain link, and the menu has no Mark Fixed
+    await expect(link).toBeVisible()
+    await expect(link).not.toHaveAttribute("data-issue-key")
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Review Changes" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Mark JIRA-456 Fixed" })).toHaveCount(0)
+    await page.keyboard.press("Escape")
+
+    await repo.holdRemoteAnswers({ release: ["youTrackAuth"] })
+    await toast.getByRole("button", { name: "Retry" }).click()
+    await expect(link).toHaveAttribute("data-issue-key", "JIRA-456")
+    await link.hover()
+    await expect(page.getByTestId("issue-popover").getByTestId("issue-state")).toHaveText("Open")
+    await page.mouse.move(0, 0)
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Mark JIRA-456 Fixed" })).toBeVisible()
   })
 })

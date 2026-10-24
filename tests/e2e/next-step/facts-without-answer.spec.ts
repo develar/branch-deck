@@ -7,12 +7,15 @@ import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { clearClipboard, readClipboard } from "../helpers/clipboard-helpers"
 import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, availableRobots, failedFastTests, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, gitHubRequests, pullRequest, reviewer, unavailablePullRequests } from "../helpers/pull-request-helpers"
-import { openLandingOverview } from "../helpers/review-status-helpers"
-import { openSafePushWithKey, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
-import { oneCommitUnpushedOnNextSync, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
+import { hoverStatusChip, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
+import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import { oneCommitUnpushedOnNextSync, pushedOnNextSync } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 
 const BRANCH = "JIRA-456"
+
+/** #1078 of JIRA-456, approved by the code owner Patronus counts */
+const APPROVED = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "approved")] })
 
 /** "Safe Push" (its key S in the name), not "Safe Push With Profile…" nor "Safe Push Without Review…" */
 const SAFE_PUSH_ITEM = { name: /^Safe Push( S)?$/ }
@@ -29,9 +32,7 @@ async function setupHeld(
   pullRequests: PullRequest[],
   held: HeldAnswer[],
 ): Promise<TestRepositoryBuilder> {
-  await rewriteNextRemoteStatus(page, status =>
-    status.branchName === BRANCH ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
-  )
+  await pushedOnNextSync(page, BRANCH)
   const repo = await setupRepo("issue_links", {
     patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
     pullRequests: { ...availablePullRequests(...pullRequests), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }] },
@@ -39,6 +40,16 @@ async function setupHeld(
   await repo.setReviewAnswers({ answers: { [BRANCH]: answer } })
   await repo.holdRemoteAnswers({ hold: held })
   return repo
+}
+
+/** Patronus fails from now on, asked again from the landing overview, which says it */
+async function failPatronusRefresh(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  await repo.setPatronus(unavailableRobots({ status: "error", message: "Patronus is down" }))
+  const overview = await openLandingOverview(page)
+  await overview.getByTestId("patronus-refresh").click()
+  await expect(overview.getByTestId("patronus-status-line")).toContainText("Patronus: ")
+  await page.keyboard.press("Escape")
+  await expect(overview).toBeHidden()
 }
 
 function slot(page: Page) {
@@ -81,6 +92,30 @@ async function expectMenuItemsDisabled(page: Page, branch: string, items: Array<
   }
 }
 
+/**
+ * The robot of `branch` in the landing overview and in the details of its chip: no restart and no prompt to take, the
+ * details saying why (`reason`). The overview shows the branch waiting with its step while the problems are to come
+ * (`checking`), its robot to fix with the restart and the prompt disabled once Patronus didn't give them
+ */
+async function expectRobotSurfacesWait(page: Page, branch: string, reason: string | RegExp, overviewShows: "checking" | "robot"): Promise<void> {
+  const overview = await openLandingOverview(page)
+  if (overviewShows === "checking") {
+    await expect(landingRow(overview, branch).getByTestId("next-step")).toHaveText("Checking…")
+    await expect(overview.getByRole("button", { name: `Restart Safe Push of ${branch}` })).toHaveCount(0)
+  } else {
+    const robotRow = overview.locator(`[data-testid="robots-row"][data-branch-name="${branch}"]`)
+    await expect(robotRow.getByRole("button", { name: `Restart Safe Push of ${branch}` })).toBeDisabled()
+    await expect(robotRow.getByRole("button", { name: `Copy Prompt for Agent of ${branch}` })).toBeDisabled()
+  }
+  await page.mouse.move(0, 0)
+  await expect(overview).toBeHidden()
+  const details = await hoverStatusChip(page, findBranchRow(page, branch).getByTestId("patronus-chip"), "patronus-popover")
+  await expect(details.getByTestId("patronus-problems-unknown")).toHaveText(reason)
+  await expect(details.getByRole("button", { name: "Restart Safe Push" })).toBeDisabled()
+  await page.mouse.move(0, 0)
+  await expect(details).toBeHidden()
+}
+
 /** Check Approvals Again of the row's "Patronus ›": GitHub is asked for the pull requests, then Patronus again */
 async function checkApprovalsAgain(page: Page, branch = BRANCH): Promise<void> {
   await findBranchRow(page, branch).click({ button: "right" })
@@ -105,8 +140,7 @@ test.describe("Next step before the answers", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "approved")] })
-    const repo = await setupHeld(page, setupRepo, APPROVED_BY_CODE_OWNER, [approved], ["pullRequests", "readiness"])
+    const repo = await setupHeld(page, setupRepo, APPROVED_BY_CODE_OWNER, [APPROVED], ["pullRequests", "readiness"])
     await syncAndWaitForBranches()
 
     // GitHub hasn't listed the pull requests: no pull request is known, which is no "no pull request"
@@ -264,18 +298,57 @@ test.describe("Next step before the answers", () => {
 
     // logged in, Patronus fails (asked again from the landing overview): the step asks it again, and the answer decides
     // the Safe Push
-    await repo.setPatronus(unavailableRobots({ status: "error", message: "Patronus is down" }))
-    const overview = await openLandingOverview(page)
-    await overview.getByTestId("patronus-refresh").click()
-    await expect(overview.getByTestId("patronus-status-line")).toContainText("Patronus: ")
-    await page.keyboard.press("Escape")
-    await expect(overview).toBeHidden()
+    await failPatronusRefresh(page, repo)
     await expect(step).toHaveText("Refresh Patronus")
     // the failure of the fake (its 500) is the reason
     await expectMenuSafePushDisabled(page, /^Patronus: \S/)
     await repo.setPatronus({ ...availableRobots(), githubRepository: "acme/monorepo" })
     await step.click()
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+  })
+
+  test("should leave the Safe Push without review to the user while GitHub is signed out, from the pull request dialog", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await pushedOnNextSync(page, BRANCH)
+    await setupRepo("issue_links", {
+      patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+      pullRequests: unavailablePullRequests({ status: "signedOut" }),
+    })
+    await syncAndWaitForBranches()
+    // no pull request is known and the approvals may be missing (row 7): the start without review stays possible
+    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+    await findBranchRow(page, BRANCH).click({ button: "right" })
+    await page.getByRole("menu").getByRole("menuitem", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(page)
+    await dialog.getByRole("button", { name: "Safe Push Without Review…" }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(safePushPopover(page)).toBeVisible()
+    await expect(popoverStart(page)).toHaveText("Safe Push Without Review")
+  })
+
+  test("should offer no start while Patronus gave no view of its robots, and stand on what it listed through a failed refresh", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupHeld(page, setupRepo, APPROVED_BY_CODE_OWNER, [APPROVED], [])
+    await repo.holdRemoteAnswers({ fail: ["repositoryView"] })
+    await syncAndWaitForBranches()
+
+    // what the robots hold, land and need is unknown, which is no "none": the step asks Patronus again
+    const step = slot(page).getByTestId("next-step")
+    const noView = "Patronus didn't tell what its robots hold and land (the fixture fails this read)"
+    await expect(step).toHaveText("Refresh Patronus")
+    await step.hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText(noView)
+    await expectMenuSafePushDisabled(page, noView)
+    await repo.holdRemoteAnswers({ release: ["repositoryView"] })
+    await step.click()
+    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+
+    // a refresh that fails after the list leaves the steps on the robots it listed, as GitHub's last listing stays
+    await failPatronusRefresh(page, repo)
+    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+    await expect(slotSafePush(page, BRANCH)).toBeEnabled()
   })
 
   test("should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer", async ({
@@ -298,6 +371,7 @@ test.describe("Next step before the answers", () => {
     await expect(failedSlot).toHaveAttribute("data-step", "pending")
     await expect(step).toHaveText("Checking…")
     await expectMenuItemsDisabled(page, failed, unknownFailure, "Waits for Patronus to tell why the Safe Push failed")
+    await expectRobotSurfacesWait(page, failed, "Waits for Patronus to tell why the Safe Push failed", "checking")
 
     // Patronus fails to tell it: the restart stays disabled, with the failure and the way to ask again
     await repo.holdRemoteAnswers({ fail: ["robotProblems"], release: ["robotProblems"] })
@@ -307,6 +381,7 @@ test.describe("Next step before the answers", () => {
     await step.hover()
     await expect(page.getByTestId("next-step-hover")).toHaveText(failure)
     await expectMenuItemsDisabled(page, failed, unknownFailure, failure)
+    await expectRobotSurfacesWait(page, failed, failure, "robot")
 
     // asked again, Patronus tells it: the restart and the prompt act
     await repo.holdRemoteAnswers({ release: ["robotProblems"] })

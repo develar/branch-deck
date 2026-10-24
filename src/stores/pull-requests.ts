@@ -147,6 +147,12 @@ export function isPullRequestsLoading(): boolean {
   return currentKey() !== null && getPullRequestAvailability() === null
 }
 
+/** `isPullRequestsLoading` of the selected repository, for a component */
+export function usePullRequestsLoading(): boolean {
+  const key = useRepositoryKey()
+  return useStore(pullRequestsStore, state => (state.repositories[key]?.availability ?? null) === null)
+}
+
 /** Whether the pull requests of the selected repository are known (`PullRequestListing`); `loading` without one */
 export function getPullRequestListing(): PullRequestListing {
   const key = currentKey()

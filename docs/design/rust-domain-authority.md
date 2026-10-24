@@ -1686,7 +1686,13 @@ rewrites между процессами через файл `s10`; `s12` ждё
   решают. `Unavailable` Patronus (CLI Safe Push не залогинен, Patronus отвечает ошибкой) и `Unavailable` problems
   упавшего робота — тоже строка 0, но действие шага — то, что помогает: «Copy Login Command», «Refresh Patronus»,
   либо restart и промпты для агента `Disabled` с причиной неудачи, которую Check Approvals Again спрашивает заново;
-  старты каждой поверхности `Disabled` с той же причиной. `Stale` readiness
+  старты каждой поверхности `Disabled` с той же причиной. Ошибка Patronus после списка — `Stale` этого списка, как у
+  GitHub; неудачный вид роботов поверх прежнего — `Stale` прежнего (holds, landing ancestors и needs остаются), без
+  прежнего — `Unavailable` («Patronus didn't tell what its robots hold and land»), и тот же неудачный вход не
+  спрашивается снова от собственного изменения store (раньше это был бесконечный цикл запросов). GitHub signed out или
+  failing оставляет строку 7 возможной: старт без review остаётся выбором пользователя. Apply Fix, кнопка Push футера
+  превью и заголовка окна обзора, секции PR и робота превью, группы «Needs approval» окна обзора и YouTrack ждут того
+  же факта или держат место, не решая по «ничего». `Stale` readiness
   сохраняет шаг и его подпись, действие — `Disabled{Pending(readiness)}`, тихий шаг остаётся. Табличные тесты s8
   покрывают каждую строку `next-step.spec.md` с каждым входным фактом не `Fresh` (`Loading`, `Stale`, `Unavailable`,
   `Unknown`): ни один вход не отвечает действием, которое тот же вход с `Fresh` заменил бы другим. Rust-версия держит

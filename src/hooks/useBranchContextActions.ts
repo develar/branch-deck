@@ -32,7 +32,7 @@ import { getBranchNextStepNow, getBranchNextStepOf, getGatedRobotActions, nextSt
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { unparkBranch } from "@/hooks/useParkBranch"
-import { canPushNow, getPushButtonNow, isFirstPushInLanding, isLandingPushAvailable } from "@/hooks/usePushButton"
+import { canPushNow, firstPushPending, firstPushWait, getPushButtonNow, isLandingPushAvailable } from "@/hooks/usePushButton"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
@@ -97,7 +97,9 @@ import {
   getPatronusGitHubRepository,
   getPushHold,
   getStackBranchHoldReason,
+  isPatronusAvailable,
   isPatronusOffered,
+  isPatronusPending,
 } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, isPullRequestsLoading } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
@@ -559,8 +561,8 @@ export interface BranchActionItem extends MenuItem {
 /**
  * The actions on a branch in its review window: its pull request (Open; Create without a live one, also beside a
  * closed one, as the menu offers both), "Safe Push" where Patronus is and the branch has work, "Push" for a branch
- * with work, unless its first push is a step of its landing (`isFirstPushInLanding`: "⋯" offers it). The same items as
- * the menu; Push has no key, P is the previous change there.
+ * with work, disabled with why while its first push is a step of its landing or the answers that tell it are to come
+ * (`firstPushWait`: "⋯" pushes it alone). The same items as the menu; Push has no key, P is the previous change there.
  */
 export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   const items: BranchActionItem[] = []
@@ -576,12 +578,15 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   if (hasPush && isPatronusOffered()) {
     items.push(getSafePushMenuItem(branch))
   }
-  // the first push of a branch is a step of Safe Push and Create Pull Request: "⋯" offers it
-  const landingPushes = isLandingPushAvailable(branch.name)
-  if (hasPush && (isBranchPushing(branch.name) || !isFirstPushInLanding(branch, { landingPushes, held: getPushHold(branch.name) !== null }))) {
-    // the push of the button alone: its second way is in "⋯"
+  if (hasPush) {
+    // the push of the button alone: its second way is in "⋯"; a first push that Safe Push and Create Pull Request make
+    // is disabled with why, so the title bar keeps its buttons where they are when the answers that decide it come
     const push = getPushMenuItems(branch)[0]!
-    items.push({ ...push, kbds: undefined })
+    const pending = firstPushPending(isPatronusPending(), isPullRequestsLoading())
+    const waits = isBranchPushing(branch.name)
+      ? null
+      : firstPushWait(branch, { landingPushes: isLandingPushAvailable(branch.name), patronus: isPatronusAvailable(), held: getPushHold(branch.name) !== null, pending })
+    items.push({ ...push, kbds: undefined, ...(waits !== null && { disabled: true, description: waits }) })
   }
   return items
 }

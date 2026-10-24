@@ -277,15 +277,32 @@ branch from all the facts (the branch, its robots, its pull request and the read
 - A read of Patronus that failed decides no start (`UnavailableFact`, `unavailableFactOf`), after row 1 and the
   reasons of the branch: the Safe Push CLI not logged in (`notLoggedIn`) makes the step "Copy Login Command", the
   command of the hint for a terminal ("Run ./safePush.cmd once to log in to Patronus: the command goes to the
-  clipboard, for a terminal"); Patronus failing (`error`) makes it "Refresh Patronus", which asks it again. Safe Push
-  and Dry Run of "⋯" are disabled with the hint, S says it in an `info` notice ("Safe Push of JIRA-456 can't start")
-  whose action is the step's. Problems Patronus didn't give for the failed robot of the branch (`problemsFailed`) keep
-  the restart and the prompts for an agent disabled with the failure, on every surface of the robot ("Patronus didn't
-  tell why the Safe Push failed (…): Check Approvals Again asks again"); Check Approvals Again asks for them again
-  (`askRobotProblemsAgain`).
+  clipboard, for a terminal"); Patronus failing (`error`) before it listed the robots once makes it "Refresh
+  Patronus", which asks it again; the GitHub mirror is unknown then too, so no start goes as if the repository were
+  only on Space. An error after a list leaves the steps on the robots it listed (`hasPatronusListed`), as a failed
+  refresh of GitHub keeps the last listing; the landing overview says the error. A view of the robots Patronus didn't
+  give while no earlier one stands for it (`getPatronusViewFailure`) is no "nothing holds it": "Refresh Patronus",
+  "Patronus didn't tell what its robots hold and land (…)"; over an earlier view the steps stand on that one, its holds,
+  landing ancestors and needs stale until the next answer, and the failed view is asked again by the next sync, change
+  of the robots or list, never by its own change of the store. Safe Push and Dry Run of "⋯" are disabled with the hint,
+  S says it in an `info` notice ("Safe Push of JIRA-456 can't start") whose action is the step's. Problems Patronus
+  didn't give for the failed robot of a branch or of a whole stack (`problemsFailed`), like problems still to come,
+  keep the restart and the prompts for an agent disabled with the reason on every surface of the robot (the menu, the
+  landing overview, the details of its chip, which say it: "Waits for Patronus to tell why the Safe Push failed",
+  "Patronus didn't tell why the Safe Push failed (…): Check Approvals Again asks again"; `robotProblemsReason`); the
+  landing overview shows the branch waiting with its step while they are to come, never a robot to fix by a restart.
+  Check Approvals Again asks for them again (`askRobotProblemsAgain`).
   [@test] ../../src/lib/branch-next-step.test.ts (`row 0: a read that failed decides no start: a login to copy, a refresh, a restart disabled while why the robot failed is unknown`)
   [@test] ../../src/stores/review-readiness.test.ts (`asks again with recheck after the pull requests from GitHub, the answer stale meanwhile`)
-  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should offer the login instead of a Safe Push while the Safe Push CLI is not logged in, and a refresh while Patronus fails`, `should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer`)
+  [@test] ../../src/stores/patronus.test.ts (`keeps the last view through a failed ask of it, and says the failure while no view stands for the robots`)
+  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should offer the login instead of a Safe Push while the Safe Push CLI is not logged in, and a refresh while Patronus fails`, `should offer no start while Patronus gave no view of its robots, and stand on what it listed through a failed refresh`, `should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer`)
+- While GitHub can't list the pull requests (signed out, failing; `pullRequestsUnlisted`), row 7 may apply: no pull
+  request is known and the approvals may be missing, so the Safe Push of row 11 keeps the start without review beside
+  it (`withoutReview`, "Safe Push Without Review…" of the pull request dialog), its blocker the reason of the branch.
+  The review window that asks for it while the main window has none is refused with the step's reason (what it waits
+  for), else "The approvals of auth don't wait for a pull request now".
+  [@test] ../../src/lib/branch-next-step.test.ts (`leaves the Safe Push without review to the user while GitHub is signed out or failing: row 7 may apply`)
+  [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should leave the Safe Push without review to the user while GitHub is signed out, from the pull request dialog`)
 - A stale answer of the readiness (the branch moved on: a new tip, a new review, Check Approvals Again) keeps its step
   while the new one loads, so the row doesn't flicker, but its action waits for the new answer, which may decide
   another step: Safe Push, Restart, Create Pull Request… and Request Review… disabled with "Waits for Patronus to check

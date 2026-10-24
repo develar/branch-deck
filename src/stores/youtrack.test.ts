@@ -1,18 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { YouTrackAuthStatus } from "@/lib/bindings"
-import { cancelYouTrackSignIn, saveYouTrackToken, startYouTrackSignIn, youTrackAuthStore } from "@/stores/youtrack"
+import { cancelYouTrackSignIn, refreshYouTrackAuthStatus, saveYouTrackToken, startYouTrackSignIn, youTrackAuthStore } from "@/stores/youtrack"
 
 const mocks = vi.hoisted(() => {
   // the wait in flight ends with what `finish` is given
-  const youtrack = { status: null as YouTrackAuthStatus | null, finish: null as ((answer: unknown) => void) | null, saved: null as unknown }
+  const youtrack = { status: null as YouTrackAuthStatus | null, statusFailure: null as string | null, finish: null as ((answer: unknown) => void) | null, saved: null as unknown }
   return { youtrack, openUrl: vi.fn(async () => {}), notifyError: vi.fn(), showToast: vi.fn() }
 })
 const { youtrack, openUrl, notifyError, showToast } = mocks
 
 vi.mock("@/lib/bindings", () => ({
   commands: {
-    getYoutrackAuthStatus: async () => ({ status: "ok", data: mocks.youtrack.status }),
+    getYoutrackAuthStatus: async () =>
+      mocks.youtrack.statusFailure === null ? { status: "ok", data: mocks.youtrack.status } : { status: "error", error: internalError(mocks.youtrack.statusFailure) },
     startYoutrackSignIn: async (url: string) => ({ status: "ok", data: { authorizeUrl: `${url}/hub/api/rest/oauth2/auth?state=s` } }),
     waitYoutrackSignIn: () =>
       new Promise(resolve => {
@@ -48,6 +49,7 @@ async function settle(): Promise<void> {
 beforeEach(() => {
   youTrackAuthStore.setState({ status: null, readError: null, signIn: { phase: "idle" }, issues: {} })
   youtrack.status = null
+  youtrack.statusFailure = null
   youtrack.finish = null
   openUrl.mockClear()
   notifyError.mockClear()
@@ -98,5 +100,27 @@ describe("saveYouTrackToken", () => {
     youtrack.saved = { status: "error", error: { message: "YouTrack rejected the token" } }
     expect(await saveYouTrackToken("https://youtrack.example.com", "perm-wrong")).toBe(false)
     expect(notifyError).toHaveBeenCalledWith("Cannot sign in to YouTrack", { message: "YouTrack rejected the token" })
+  })
+})
+
+describe("refreshYouTrackAuthStatus", () => {
+  it("tells a failed read once, as an error with Retry, and keeps the last status until a read answers", async () => {
+    youtrack.status = signedIn
+    await refreshYouTrackAuthStatus()
+    youtrack.statusFailure = "the keychain is locked"
+    await refreshYouTrackAuthStatus()
+    await refreshYouTrackAuthStatus()
+    // the links keep their YouTrack: a failure is no sign-out
+    expect(youTrackAuthStore.getState()).toMatchObject({ status: signedIn, readError: "the keychain is locked" })
+    expect(notifyError).toHaveBeenCalledTimes(1)
+    const [title, , action] = notifyError.mock.calls[0]! as unknown as [string, unknown, { children: string; onClick: () => void }]
+    expect(title).toBe("Cannot read the YouTrack sign-in")
+    expect(action.children).toBe("Retry")
+
+    youtrack.statusFailure = null
+    action.onClick()
+    await settle()
+    expect(youTrackAuthStore.getState()).toMatchObject({ status: signedIn, readError: null })
+    expect(notifyError).toHaveBeenCalledTimes(1)
   })
 })

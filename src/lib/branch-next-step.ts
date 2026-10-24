@@ -767,8 +767,15 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     return pendingStep(facts, "readiness", general, dryRunBlocker)
   }
   if (readiness?.kind !== "missing") {
-    // row 11; row 3 for a robot whose approvals arrived, but not in the pull request it was started from
-    return judged(step("safePush", safePushItem(facts, general), general, dryRunBlocker, { needsReadiness: asks }))
+    // row 11; row 3 for a robot whose approvals arrived, but not in the pull request it was started from. GitHub signed
+    // out or failing leaves row 7 possible (no pull request known, approvals missing): the start without review stays
+    // the user's choice
+    return judged(
+      step("safePush", safePushItem(facts, general), general, dryRunBlocker, {
+        needsReadiness: asks,
+        ...(facts.pullRequestsUnlisted !== null && { withoutReview: { blocker: general } }),
+      }),
+    )
   }
   return judged(missingApprovalsStep(facts, readiness, open, general, dryRunBlocker, asks))
 }

@@ -7,8 +7,10 @@ import { HintList } from "@/components/conflict/ConflictResolutionHint"
 import { Callout } from "@/components/shared/Callout"
 import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
+import { formatViewFailure } from "@/hooks/useBranchNextStep"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { FixComponent, MergeConflictInfo } from "@/lib/bindings"
+import { formatPendingFact } from "@/lib/branch-next-step"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { branchesOfFix, componentFixing, describeFixGrouping, describeFixResult, describeFixStep } from "@/lib/conflict-fix"
 import { buildConflictPrompt } from "@/lib/conflict-fix-prompt"
@@ -16,7 +18,7 @@ import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import { APPLY_FIX_SURFACE, applyConflictFix, requestConflictFix, useConflictFix, useSubjectOf } from "@/stores/conflict-fix"
 import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
-import { usePushHolds } from "@/stores/patronus"
+import { usePatronusPending, usePatronusViewFailure, usePushHolds } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { useSelectedProject } from "@/stores/repository"
 
@@ -90,13 +92,17 @@ function FixCallout({ title, state, children }: { title: string; state: "searchi
 
 function FixSteps({ component }: { component: FixComponent }) {
   const holds = usePushHolds()
+  // what the robots hold is known only once Patronus answered with its view: the fix waits for it, never on "none"
+  const holdsPending = usePatronusPending()
+  const viewFailure = usePatronusViewFailure()
   const subjectOf = useSubjectOf()
   const pullRequests = useRepositoryPullRequestMap()
   useIndicatorClaim(APPLY_FIX_SURFACE)
   const applying = useSurfaceBusy(APPLY_FIX_SURFACE) !== null
   // another rewrite of the repository runs: the fix waits for it in the queue, its button shows what it waits for
   const held = branchesOfFix(component).find(branch => holds.has(branch))
-  const reason = held === undefined ? null : `A Safe Push of ${held} is running`
+  const reason =
+    held !== undefined ? `A Safe Push of ${held} is running` : holdsPending ? formatPendingFact("patronus") : viewFailure === null ? null : formatViewFailure(viewFailure)
   const steps = component.steps.map(step => describeFixStep(step, subjectOf))
   const grouping = describeFixGrouping(component)
   const result = describeFixResult(component, branch => pullRequests[branch]?.state === "open")

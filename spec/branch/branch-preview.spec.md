@@ -95,6 +95,12 @@ its row.
   message, reflowed as in the commit preview.
 - A commit without a body must show its subject only.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should show the branch header and its commits newest first with their messages`)
+- Above the commits, the pull request of the branch and its Safe Push (the details of its robot) each in a section of
+  its own. While GitHub hasn't listed the pull requests, or Patronus hasn't answered with its robots, a pushed branch
+  (which may have them) shows the section with one muted line in its place ("Checking GitHub for a pull request of
+  ABC-123…", "Asking Patronus for the Safe Push of ABC-123…", `PendingSection`), which the answer fills: the commits
+  are not pushed down by a section that comes late.
+  [@test] ../../tests/e2e/branch-row-layout/late-facts.spec.ts (`should keep the sections and the push of the preview in their places while Patronus and GitHub answer`)
 - A branch with a merge conflict must show a notice above the commits that names the commit that does not apply and
   where the commits it misses are (the explanation of the conflict view), and below it the fix of
   [Conflict Fix](conflict-fix.spec.md), with Apply Fix.
@@ -105,11 +111,14 @@ its row.
 ### Push
 
 - P or the push button in the footer must push the shown branch, as the push button of the row does, with the same
-  label ("Push (2)", "Force Push (1)"). The footer has the button where the row has it: a first push whose landing
-  pushes the branch (`isFirstPushInLanding`, [Branch Row](branch-row.spec.md#actions-cell)) is P and "⋯" only, beside
-  Create Pull Request… and Safe Push; a branch a Safe Push holds keeps its disabled push, whose description offers the
-  robot.
+  label ("Push (2)", "Force Push (1)"). A first push whose landing pushes the branch (`isFirstPushInLanding`,
+  [Branch Row](branch-row.spec.md#actions-cell)) is P and "⋯", beside Create Pull Request… and Safe Push: the footer
+  keeps its button in place, disabled with why ("Safe Push and Create Pull Request… push JIRA-456 first: "⋯" pushes it
+  alone"), and so does it while Patronus or GitHub haven't answered whether they push it ("Waits for the answer of
+  Patronus", `firstPushWait`): the answers move no button of the footer. A branch a Safe Push holds keeps its disabled
+  push, whose description offers the robot.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
+  [@test] ../../tests/e2e/branch-row-layout/late-facts.spec.ts (`should keep the sections and the push of the preview in their places while Patronus and GitHub answer`)
 - P must work in any keyboard layout (the physical key). P on the focused row of the table pushes by the same rule
   (`canPushNow`, [Branch Row](branch-row.spec.md#keyboard)).
 - The push must be disabled while a sync or a push of the branch runs, while an inline action runs on the row, and when

@@ -43,8 +43,10 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   // the "Create pull request" dialog of a branch of the chain: in this window, its context from the main window; a move
   // to a commit waits until it closes
   const [dialog, setDialog] = useState<{ branchName: string; generation: number } | null>(null)
+  // the reviewer groups of the check that answered while the window is open, else those of the open
+  const groups = linked.selected ? linked.groups : null
   const model = useBranchReview(
-    data,
+    groups === null ? data : { ...data, groups: [...groups] },
     data.focus,
     { known: linked.selected, tips: linked.tips },
     { openedAt: data.openedAt, focus: data.move ? data.focus : null, held: dialog !== null },

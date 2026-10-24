@@ -465,8 +465,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `readiness` (the pre-check, `POST /app/rest/v1/pre-merge-approval-required-check`), `robotProblems` (why a robot
   failed, `GET /app/rest/v1/robots/*/problems`: a `*` segment of a route of `FakePatronus::hold` matches any one) and
   the answers the bridge gives itself, which wait in their command: `reviewRequests` (`get_review_requests`, from their
-  fixture), `landingNeeds` (`wait_landing_needs`), `branchRules` (`get_branch_rules`), `gitHubAuth`, `youTrackAuth`
-  and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`
+  fixture), `landingNeeds` (`wait_landing_needs`), `repositoryView` (`get_repository_view`), `branchRules`
+  (`get_branch_rules`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`
   (`test_utils::fake_server`, the gate `FakeGitHub::hold` and `FakePatronus::hold` take), so the page shows what it
   shows before the answer, and a release lets it through with what the fixture holds then. `fail` makes a route of
   the fake Patronus answer 500 (`FakePatronus::set_failing`) or the bridge reject the command ("the fixture fails this

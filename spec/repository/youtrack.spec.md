@@ -197,6 +197,12 @@ client takes a pasted token.
   [@test] ../../crates/youtrack/src/service_test.rs (`a_refused_refresh_token_is_an_expired_sign_in`, `the_tokens_of_a_sign_in_through_an_external_hub_are_managed_in_the_hub`)
 - The toasts: "Signed in to youtrack.example.com as Jane Doe"; "Cannot sign in to YouTrack" with the reason; "Signed
   out of YouTrack", which says that YouTrack keeps the token until it is revoked in Account Security.
+- A read of the status that fails is no sign-out: the last status stays (its links keep their popovers), the page
+  says why with Retry ([Settings](settings.spec.md#pages)), the main window tells it once per failure as the error
+  "Cannot read the YouTrack sign-in" with Retry, and every window reads it again on its next focus. Without any status
+  the links show no popover and the menus no Mark Fixed until a read answers.
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should say a failed read of the sign-in with Retry, never signed out for the session, and show the issues once a read answers`)
+  [@test] ../../src/stores/youtrack.test.ts (`tells a failed read once, as an error with Retry, and keeps the last status until a read answers`)
 
 ### The issue popover
 

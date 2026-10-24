@@ -262,6 +262,25 @@ test.describe("The scopes of the stack", () => {
 })
 
 test.describe("Branch review window", () => {
+  test("should mark the groups that need approval as the code-owner check answers while the window is open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stacked_ownership", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
+    await repo.setReviewAnswers({ answers: { login: AWAITING_CODE_OWNER } })
+    await repo.holdRemoteAnswers({ hold: ["readiness"] })
+    await syncAndWaitForBranches()
+    await expect.poll(() => repo.getArrivedAnswers()).toContain("readiness")
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    await expect(window.getByTestId("review-file-header").first()).toBeVisible()
+    // the check hasn't answered: the owners of the files, no group that needs approval
+    await expect.poll(() => ownerChips(window)).toEqual(["All4", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
+
+    // it answers: the window marks its group without being opened again
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    const group = window.getByTestId("branch-review-owner").filter({ hasText: "IJPL Code Platform" })
+    await expect(group).toHaveText("IJPL Code Platform4")
+    await group.hover()
+    await expect(window.getByRole("tooltip", { name: "Needs approval for a Safe Push" })).toBeVisible()
+  })
+
   test("should review a stacked branch on its parent, then the whole stack, by owner", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
@@ -403,8 +422,12 @@ test.describe("Branch review window", () => {
     const opened = await openReviewWindow(page, "login")
     const repositoryPath = opened.data.repositoryPath
     // auth has no pull request: its Create pushes it first, on the remote or not; the remote lacks auth, so its first
-    // push is a step of Create and Safe Push, only "⋯" offers it. login's push updates its pull request
-    expect(itemSummary(opened.data.state.items)).toEqual({ auth: ["create-pull-request", "safe-push"], login: ["open-pull-request", "safe-push", "push"] })
+    // push is a step of Create and Safe Push: disabled with why, in its place, "⋯" pushes it alone. login's push
+    // updates its pull request
+    expect(itemSummary(opened.data.state.items)).toEqual({
+      auth: ["create-pull-request", "safe-push", 'push: Safe Push and Create Pull Request… push auth first: "⋯" pushes it alone'],
+      login: ["open-pull-request", "safe-push", "push"],
+    })
     expect(opened.data.state.items.login![0]).toMatchObject({ label: "Open Pull Request", kbds: ["o"], url: LOGIN_PULL_REQUEST.url })
     // the Safe Push of login lands auth with it: the count of the branches it lands
     expect(opened.data.state.items.login![1]).toMatchObject({ label: "Safe Push · 2", kbds: ["s"] })
@@ -435,9 +458,14 @@ test.describe("Branch review window", () => {
     // the parent alone: its actions, without a pull request
     await page.getByTestId("branch-review-segment").first().click()
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
-    // the remote lacks auth: its first push is a step of its Safe Push, the title bar offers no push of its own
+    // the remote lacks auth: its first push is a step of its Safe Push, the title bar keeps the push in its place,
+    // disabled with why
     await expect(actions.getByRole("button", { name: /^Safe Push/ })).toBeVisible()
-    await expect(actions.getByRole("button", { name: /^Push/ })).toHaveCount(0)
+    const firstPush = actions.getByRole("button", { name: /^Push/ })
+    await expect(firstPush).toBeDisabled()
+    await firstPush.hover()
+    await expect(page.getByRole("tooltip", { name: 'Safe Push and Create Pull Request… push auth first: "⋯" pushes it alone' })).toBeVisible()
+    await page.mouse.move(0, 0)
     await page.keyboard.press("s")
     // the whole stack: the reviewed branch
     await page.getByRole("button", { name: "From Root" }).click()
@@ -463,6 +491,7 @@ test.describe("Branch review window", () => {
       wholeStack: null,
       stackCommits: {},
       commitMenus: {},
+      groups: null,
     })
     await emitTauriEvent(page, "branch-review/state", emptyState("/elsewhere", true))
     await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()

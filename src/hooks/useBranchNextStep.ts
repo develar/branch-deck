@@ -49,14 +49,17 @@ import {
   getLandingNeeds,
   getLandingSpan,
   getPatronusAvailability,
+  getPatronusViewFailure,
   getPushHold,
   getRobotProblemsFailure,
+  hasPatronusListed,
   isLandingNeedsPending,
   isPatronusAvailable,
   isPatronusPending,
   isRobotFailing,
   isRobotNeedingReview,
   isRobotProblemsPending,
+  isTableRobot,
   patronusStore,
   refreshPatronus,
 } from "@/stores/patronus"
@@ -207,7 +210,9 @@ export function pendingFactOf(robot: PatronusRobot | undefined, branchName: stri
  */
 export function unavailableFactOf(robot: PatronusRobot | undefined): UnavailableFact | null {
   const availability = getPatronusAvailability()
-  if (availability?.status === "notLoggedIn" || availability?.status === "error") {
+  // an error after a list keeps the robots it listed, as a failed refresh of GitHub keeps the last listing; a token
+  // Patronus refuses is gone
+  if (availability?.status === "notLoggedIn" || (availability?.status === "error" && !hasPatronusListed())) {
     const reason = formatPatronusAvailabilityHint(availability) ?? "Patronus doesn't answer"
     const repositoryPath = getSelectedProject()?.path
     const action: MenuItem =
@@ -219,11 +224,41 @@ export function unavailableFactOf(robot: PatronusRobot | undefined): Unavailable
             description: `${reason}: the command goes to the clipboard, for a terminal`,
             onSelect: () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
           }
-        : { id: "refresh-patronus", label: "Refresh Patronus", icon: RefreshCwIcon, description: reason, onSelect: () => void refreshPatronus("manual") }
+        : refreshPatronusItem(reason)
     return { fact: "patronus", reason, action }
+  }
+  // no view stands for what the robots hold, land and need: no start on "none"
+  const viewFailure = getPatronusViewFailure()
+  if (viewFailure !== null) {
+    const reason = formatViewFailure(viewFailure)
+    return { fact: "patronus", reason, action: refreshPatronusItem(reason) }
   }
   const failure = robot === undefined ? null : getRobotProblemsFailure(robot)
   return failure === null ? null : { fact: "robotProblems", reason: formatProblemsFailure(failure), action: null }
+}
+
+function refreshPatronusItem(reason: string): MenuItem {
+  return { id: "refresh-patronus", label: "Refresh Patronus", icon: RefreshCwIcon, description: reason, onSelect: () => void refreshPatronus("manual") }
+}
+
+/** Why no start is decided while Patronus didn't give the view of its robots, and no earlier one stands for it */
+export function formatViewFailure(failure: string): string {
+  return `Patronus didn't tell what its robots hold and land (${failure})`
+}
+
+/**
+ * Why the restart and the prompts of the failed `robot` wait: why it failed is still to come, or Patronus didn't give
+ * it; null for a robot that didn't fail, whose problems came, or that is of no branch of the table
+ */
+export function robotProblemsReason(robot: PatronusRobot, branch: Branch | null): string | null {
+  if (robot.status !== "failure" || (branch === null && !isTableRobot(robot))) {
+    return null
+  }
+  if (isRobotProblemsPending(robot)) {
+    return formatPendingFact("robotProblems")
+  }
+  const failure = getRobotProblemsFailure(robot)
+  return failure === null ? null : formatProblemsFailure(failure)
 }
 
 /** Why a restart of a failed robot is not offered while Patronus didn't give why it failed */
@@ -470,18 +505,11 @@ const APPROVAL_STEPS: ReadonlySet<BranchNextStep["kind"]> = new Set(["createPull
  */
 export function getGatedRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview?: boolean, failing?: boolean, operations?: Operations): RobotAction[] {
   const actions = getRobotActions(robot, branch, needsReview, failing, operations)
-  // why the robot of the branch failed is still to come, or Patronus didn't give it (`loadReviewProblems` reads them for
-  // the robots of the rows): no restart and no prompt as if it hadn't failed for the approvals
-  const failure = branch === null || robot.status !== "failure" ? null : getRobotProblemsFailure(robot)
-  const problems =
-    branch === null || robot.status !== "failure"
-      ? undefined
-      : isRobotProblemsPending(robot)
-        ? formatPendingFact("robotProblems")
-        : failure === null
-          ? undefined
-          : formatProblemsFailure(failure)
-  if (problems !== undefined) {
+  // why the robot of a branch or of a whole stack failed is still to come, or Patronus didn't give it
+  // (`loadReviewProblems` reads them for the robots of the table): no restart and no prompt as if it hadn't failed for
+  // the approvals
+  const problems = robotProblemsReason(robot, branch)
+  if (problems !== null) {
     return actions.map(item => (UNKNOWN_FAILURE_ACTIONS.has(item.id) ? { ...item, disabled: true, description: problems } : item))
   }
   if (branch === null) {

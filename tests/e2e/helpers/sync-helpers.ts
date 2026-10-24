@@ -227,6 +227,13 @@ export async function rewriteNextRemoteStatus(page: Page, rewrite: (status: Remo
   })
 }
 
+/** `branch` on the remote as it is, as the remote status of the next sync says */
+export async function pushedOnNextSync(page: Page, branch: string): Promise<void> {
+  await rewriteNextRemoteStatus(page, status =>
+    status.branchName === branch ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
+  )
+}
+
 /** `branch` on the remote with one commit the remote lacks, as the remote status of the next sync says */
 export async function oneCommitUnpushedOnNextSync(page: Page, branch: string): Promise<void> {
   await rewriteNextRemoteStatus(page, status =>

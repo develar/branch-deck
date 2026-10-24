@@ -3,12 +3,14 @@ import { openUrl } from "@tauri-apps/plugin-opener"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { useTauriListen } from "@/hooks/useTauriListen"
+import { useWindowFocus } from "@/hooks/useWindowFocus"
 import type { YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackStateChange } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { compileIssuePatterns, parseTextSegments } from "@/lib/issue-links"
 import type { SelectContext } from "@/lib/menu"
 import { showToast } from "@/lib/toast-message"
+import { isMainWindow } from "@/lib/window-label"
 import { formatYouTrackHost, youTrackKeyOf } from "@/lib/youtrack"
 import { runOperation } from "@/stores/operations"
 import { getRecentProjects } from "@/stores/settings/repositorySettings"
@@ -49,7 +51,10 @@ export function useIssueEntry(key: string): IssueEntry | undefined {
   return useStore(youTrackAuthStore, state => state.issues[key])
 }
 
-/** The status of every window: asked once at the start, again on a sign-in or sign-out of any window */
+/**
+ * The status of every window: asked once at the start, again on a sign-in or sign-out of any window, and after a failed
+ * read on the next focus, so a failure never reads as signed out for the session
+ */
 export function useYouTrackAuthSync(): void {
   useEffect(() => {
     void refreshYouTrackAuthStatus()
@@ -57,6 +62,11 @@ export function useYouTrackAuthSync(): void {
   useTauriListen("youtrack-auth-changed", () => {
     youTrackAuthStore.setState({ issues: {} })
     void refreshYouTrackAuthStatus()
+  })
+  useWindowFocus(() => {
+    if (youTrackAuthStore.getState().readError !== null) {
+      void refreshYouTrackAuthStatus()
+    }
   })
 }
 
@@ -72,10 +82,18 @@ export function useYouTrackSignIn(): YouTrackSignInPhase {
   return useStore(youTrackAuthStore, state => state.signIn)
 }
 
-/** Asks the backend for the sign-in; a failure leaves the last status and says why (`readError`) */
+/**
+ * Asks the backend for the sign-in; a failure leaves the last status and says why (`readError`): in Settings, and in
+ * the main window once per failure as an error with Retry (without a status the issue links show no popover and the
+ * branch menus no Mark Fixed)
+ */
 export async function refreshYouTrackAuthStatus(): Promise<void> {
   const result = await commands.getYoutrackAuthStatus()
+  const failedBefore = youTrackAuthStore.getState().readError !== null
   youTrackAuthStore.setState(result.status === "ok" ? { status: result.data, readError: null } : { readError: result.error.message })
+  if (result.status === "error" && !failedBefore && isMainWindow) {
+    notifyError("Cannot read the YouTrack sign-in", result.error, { children: "Retry", onClick: retryYouTrackAuthStatus })
+  }
 }
 
 /** Retry of a failed read: the page says it reads again until the answer */

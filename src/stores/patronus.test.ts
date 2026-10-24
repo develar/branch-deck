@@ -38,6 +38,8 @@ import {
   getStackBranchHoldReason,
   getStackLandedReason,
   isPatronusPending,
+  getPatronusViewFailure,
+  hasPatronusListed,
   isRobotProblemsPending,
   markRobotFailing,
   mergeRobots,
@@ -86,6 +88,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     checkMs: 0,
     viewCalls: [] as GetRepositoryViewParams[],
     view: { branches: {}, stacks: {}, landedByRobot: {} } as PatronusView,
+    /** Every ask of the view fails with this while it is set */
+    viewFailure: null as string | null,
     /** The waits for the landing needs; the view the backend answers once the computation finished, then counted */
     landingWaits: [] as WaitLandingNeedsParams[],
     afterLanding: null as PatronusView | null,
@@ -147,6 +151,9 @@ vi.mock("@/lib/bindings", async importOriginal => ({
     },
     getRepositoryView: async (params: GetRepositoryViewParams) => {
       patronus.viewCalls.push(params)
+      if (patronus.viewFailure !== null) {
+        return { status: "error", error: internalError(patronus.viewFailure) }
+      }
       return { status: "ok", data: { revision: params.revision, tableGeneration: 1, landingGeneration: patronus.landingGeneration, patronus: patronus.view } }
     },
     waitLandingNeeds: async (params: WaitLandingNeedsParams) => {
@@ -362,6 +369,7 @@ beforeEach(() => {
   patronus.checkMs = 0
   patronus.viewCalls = []
   patronus.view = { branches: {}, stacks: {}, landedByRobot: {} }
+  patronus.viewFailure = null
   patronus.landingWaits = []
   patronus.afterLanding = null
   patronus.landingGeneration = 0
@@ -1153,6 +1161,40 @@ describe("facts without an answer", () => {
       await refreshPatronus("sync")
       await vi.advanceTimersByTimeAsync(0)
       expect(isPatronusPending()).toBe(false)
+    } finally {
+      unwatch()
+    }
+  })
+
+  it("keeps the last view through a failed ask of it, and says the failure while no view stands for the robots", async () => {
+    const unwatch = watchRepositoryView()
+    try {
+      patronus.viewFailure = "the table is gone"
+      await refreshPatronus("sync")
+      await vi.advanceTimersByTimeAsync(0)
+      // no view ever answered: what the robots hold is unknown, which is no "none"
+      expect(isPatronusPending()).toBe(false)
+      expect(hasPatronusListed()).toBe(true)
+      expect(getPatronusViewFailure()).toBe("the table is gone")
+      // the failure is asked again by a list, never by its own change of the store
+      const asked = patronus.viewCalls.length
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(patronus.viewCalls).toHaveLength(asked)
+
+      patronus.viewFailure = null
+      await refreshPatronus("manual")
+      await vi.advanceTimersByTimeAsync(0)
+      expect(getPatronusViewFailure()).toBeNull()
+      const view = patronusStore.getState().repositories["/repo\nuser"]?.view
+      expect(view).not.toBeNull()
+
+      // a later failure keeps that view, stale: its holds and landing ancestors stay
+      patronus.viewFailure = "the table is gone"
+      patronus.list = available(robot({ id: "r2" }))
+      await refreshPatronus("manual")
+      await vi.advanceTimersByTimeAsync(0)
+      expect(patronusStore.getState().repositories["/repo\nuser"]?.view).toBe(view)
+      expect(getPatronusViewFailure()).toBeNull()
     } finally {
       unwatch()
     }

@@ -486,6 +486,18 @@ describe("getBranchNextStep", () => {
     })
   })
 
+  it("leaves the Safe Push without review to the user while GitHub is signed out or failing: row 7 may apply", () => {
+    // no pull request is known and the approvals may be missing: the start without review stays, the reason of the branch its blocker
+    expect(getBranchNextStep(facts({ pullRequestsAvailable: false, pullRequestsUnlisted: "No GitHub token to see pull requests", pullRequest: null }))).toMatchObject({
+      kind: "safePush",
+      withoutReview: { blocker: null },
+    })
+    expect(getBranchNextStep(facts({ pullRequestsAvailable: false, pullRequestsUnlisted: "GitHub: offline", pullRequest: null, syncing: true })).withoutReview).toBeNull()
+    // a listing, or no GitHub at all: row 7 decides it
+    expect(getBranchNextStep(facts()).withoutReview).toBeNull()
+    expect(getBranchNextStep(facts({ pullRequestsAvailable: false, pullRequestsUnlisted: null, pullRequest: null })).withoutReview).toBeNull()
+  })
+
   it("asks for the readiness of a branch on GitHub, pushed or not: Patronus judges the local commits", () => {
     expect(getBranchNextStep(facts()).needsReadiness).toBe(true)
     expect(getBranchNextStep(facts({ pullRequestsAvailable: false })).needsReadiness).toBe(false)

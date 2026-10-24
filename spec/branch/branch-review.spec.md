@@ -223,7 +223,9 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   branch on GitHub without a live one, pushed or not (its dialog opens in the window, [below](#the-create-pull-request-dialog), and the main window pushes the branch on Create or "Continue on GitHub"), `S Safe Push` where Patronus is on the repository and the branch has work, and the push for
   a branch with work, named as the push button of its row (`Push (2)`, `Push Stack (2 branches)`), without a key: P is
   the previous change. A first push whose landing pushes the branch (`isFirstPushInLanding`) is a step of Create Pull
-  Request… and Safe Push: only "⋯" offers it. "⋯" after them is the whole menu of the branch's row (`BranchReviewWindowState.menus`, its
+  Request… and Safe Push: the push stays in its place, disabled with why ("Safe Push and Create Pull Request… push auth
+  first: "⋯" pushes it alone"), and so it is while Patronus or GitHub haven't answered whether they push it
+  (`firstPushWait`), so their answers move no button of the title bar. "⋯" after them is the whole menu of the branch's row (`BranchReviewWindowState.menus`, its
   items without their submenus): the main window runs the item it asks for (`menuItemId`), comes to the front and
   shows the row (a rename or an amend is a form of the row); disabled with the reason while it shows another
   repository or the branch left.
@@ -333,8 +335,11 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   group that reviews every change, nothing for a group whose files nobody tells. "Review Changes" of that line, and of
   the line of the approvals a profile skips ("Starts without the approvals of …"), reviews the branch over the popover
   on the whole stack, the groups as chips (`toReviewGroups`). D on the row and "Review Changes" of the branch menu
-  review the branch with the groups of its last code-owner check at its current head (`rememberReviewGroups`).
+  review the branch with the groups of its last code-owner check at its current head (`rememberReviewGroups`). A
+  check that answers while the window is open marks its groups there too: the main window sends them with the state
+  (`BranchReviewWindowState.groups`, null while none answered, when the groups of the open stay).
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the groups that need approval as the code-owner check answers while the window is open`)
 - The files come from Patronus when it sends them (`paths`, `branchWide` of a reviewer group); otherwise a group gets
   the changed paths whose owner by the `OWNERSHIP` files has its name (trimmed, case-insensitive). A delegated review
   or other reviewers named by `review-rules.yaml` are known only to Patronus: such a group stays without files.

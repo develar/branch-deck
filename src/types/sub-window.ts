@@ -121,6 +121,11 @@ export interface BranchReviewWindowState {
    * main window runs the item (`commitMenuItemId`); the window adds the copies, which it runs itself
    */
   readonly commitMenus: Readonly<Record<string, readonly (readonly BranchReviewMenuItem[])[]>>
+  /**
+   * The reviewer groups of the last code-owner check of the reviewed branch at its head, as the check answers while the
+   * window is open (the "Needs approval" chips follow it); null while none answered, the groups of the open stay then
+   */
+  readonly groups: readonly BranchReviewGroup[] | null
 }
 
 /**

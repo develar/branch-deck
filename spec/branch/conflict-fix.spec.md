@@ -134,10 +134,13 @@ rewrite.
 - "Apply Fix" (primary `sm`) applies the component of the branch as one regroup: the toast "Fixed the conflict of ui"
   ("Fixed the conflicts of N branches") with the steps and Undo, the same entry in Activity, then a sync that shows
   the first branch the fix fills with the moved commits selected. It is disabled with the reason "A Safe Push of
-  <branch> is running" while a Safe Push holds a branch the fix changes. A fix the repository moved away from (HEAD,
-  the issue groups or the stack parents) is looked for again without an error; any other failure is "Cannot apply
-  the fix".
+  <branch> is running" while a Safe Push holds a branch the fix changes, and before what the robots hold is known: "Waits
+  for the answer of Patronus" until Patronus answered with the view of its robots, "Patronus didn't tell what its
+  robots hold and land (…)" while it gave none ([Next Step](next-step.spec.md#facts-without-an-answer)); never a fix on
+  "nothing holds it" that the push guard of Rust refuses later. A fix the repository moved away from (HEAD, the issue
+  groups or the stack parents) is looked for again without an error; any other failure is "Cannot apply the fix".
   [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the move a trial build verified, apply it and undo it`)
+  [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should apply the fix only once Patronus told what its robots hold`)
 - Without a fix the callout says "Branch Deck found no regroup that applies this commit cleanly" (after a cut-short
   search "Branch Deck stopped looking for a fix" with Look Again) and offers "Copy Prompt for Agent": the conflict, the
   explanation, the files and bd's trial builds (`bd check --fix`, `bd check --plan`), with a `bd group` only after the

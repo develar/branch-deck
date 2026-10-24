@@ -3,6 +3,8 @@ import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import type { DroppedCommit } from "@/lib/bindings"
+import type { PendingFact } from "@/lib/branch-next-step"
+import { formatPendingFact } from "@/lib/branch-next-step"
 import type { PushRetarget } from "@/lib/git/new-pull-request"
 import { describePushRetargets, getBranchesGitHubRepository, getPushRetargets } from "@/lib/git/new-pull-request"
 import { pushBranch } from "@/lib/git/push"
@@ -359,6 +361,30 @@ export function canPushNow(branch: Branch, { isPushing, processing }: { isPushin
  */
 export function isFirstPushInLanding(branch: Branch, { landingPushes, held = false }: { landingPushes: boolean; held?: boolean }): boolean {
   return landingPushes && !held && getPushAction(branch) === "create"
+}
+
+/**
+ * Why the push of the preview footer and of the review window's title bar is disabled, so the button keeps its place
+ * where it acts on its own and where it doesn't: a first push that the landing of the branch makes
+ * (`isFirstPushInLanding`: Safe Push and Create Pull Request… push it first, "⋯" pushes it alone), or, while Patronus
+ * or GitHub haven't answered whether it does, what it waits for (`pending`). Null: the push acts
+ */
+export function firstPushWait(
+  branch: Branch,
+  { landingPushes, patronus, held, pending }: { landingPushes: boolean; patronus: boolean; held: boolean; pending: PendingFact | null },
+): string | null {
+  if (held || getPushAction(branch) !== "create") {
+    return null
+  }
+  if (landingPushes) {
+    return `${patronus ? "Safe Push and Create Pull Request… push" : "Create Pull Request… pushes"} ${branch.name} first: "⋯" pushes it alone`
+  }
+  return pending === null ? null : formatPendingFact(pending)
+}
+
+/** What a first push waits for to know whether the landing of the branch makes it: Patronus, then the pull requests */
+export function firstPushPending(patronusPending: boolean, pullRequestsLoading: boolean): PendingFact | null {
+  return patronusPending ? "patronus" : pullRequestsLoading ? "pullRequests" : null
 }
 
 /**
