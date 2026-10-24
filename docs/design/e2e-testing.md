@@ -193,7 +193,8 @@ Mock implementation:
   remote is faked there: the outcome a push helper answers goes into the session of the repository first, as the app's
   push puts it there (`answeredInSession` posts its remote statuses to `POST /sessions/pushed-in-page`, the server's
   `Sessions::push`), and the answer names the version of that patch, so the rows show the status the push left from
-  the session, with no sync after it. An answer
+  the session, with no sync after it (a test that ends before its push is answered closed its pages and deleted its
+  repository: the server answers 410, and the answer, which no page reads, names no version). An answer
   counts where it is given: a helper that answers (a declared `function` at the outermost level, exported from
   `helpers/` or a spec's own, through the helpers it calls) counts its answers once per call, not once per definition,
   so the pinned pushes are the calls of the push helpers. Inside a test the count is of the places that answer, not
