@@ -153,8 +153,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The settings of the app (its prefix, `patronusNewApi`) must be read once as `bd` starts, through the loader of the
   app (`app_settings::file::SettingsFile::load`), with the same defaults: a missing file, one that does not parse and a
   field of the wrong type are the defaults. The app writes the file only by a rename, so a read beside that write gets
-  the old or the new settings, never a cut file; a sync of the app writes only `repository-state.json` beside it, so
-  `bd` beside a sync reads the same prefix.
+  the old or the new settings, never a cut file, and never fails the write (on Windows the rename replaces a file that
+  `bd` has open, `sync_utils::atomic_file`); a sync of the app writes only `repository-state.json` beside it, so `bd`
+  beside a sync reads the same prefix.
   [@test] ../../crates/bd-core/src/context_test.rs (`the_new_patronus_api_setting_of_the_app_is_read_from_its_settings_file`, `the_prefix_of_the_app_is_read_from_its_settings_file`, `a_settings_file_that_is_cut_gives_the_defaults`)
   [@test] ../../crates/app-settings/src/service_test.rs (`a_reader_of_the_file_never_sees_a_missing_prefix_while_the_service_writes_it`)
 - Git must come from `BD_GIT`, else `git` on `PATH`, else Homebrew's git, never from a login shell, and be 2.54 or newer.

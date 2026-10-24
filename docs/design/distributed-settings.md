@@ -85,8 +85,11 @@ sequenceDiagram
 1. **Decision**: One writer in the backend; every window, the main one too, changes the settings through it.
    **Rationale**: No window owns the file, so a sub-window writes nothing that no one saves, and a write never waits for
    the main window. Rust writes through the same writer (`restart_app` saves the title bar setting and flushes before
-   the restart), and `bd` only reads the file, which the rename never shows cut. The command is synchronous: Tauri runs
-   it on the main thread, in the order the calls arrive.
+   the restart), and `bd` only reads the file, which the rename never shows cut, and whose read never fails the save:
+   on Windows the rename replaces a file that a reader holds open (POSIX semantics, `sync_utils::atomic_file`, which
+   the lease state, the landed report and the lock record use too), and waits up to a second for a program that opened
+   it without sharing delete. The command is synchronous: Tauri runs it on the main thread, in the order the calls
+   arrive.
 
 2. **Decision**: Synchronous initialization from the writer's copy, set by the backend in every window's init script.
    **Rationale**: Settings are there on the first render, without loading states. The opener passes no settings: a

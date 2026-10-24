@@ -1370,9 +1370,11 @@ files). There an acquire took 20 minutes or more, for two reasons measured on 20
   `treehouse status` runs `git status` in every slot: about 7 minutes for 10 slots, 33 s for one.
 
 The pool state is the authority instead: `$GIT_COMMON_DIR/branch-deck/leases.json`, written as a temporary file and a
-rename. A free slot is pool property, and a get replaces its content, so no ancestry is checked. The pool lock is
-`leases.lock` next to it, not the repository lock: a get never waits for an update, and the lock is held only while
-the state is read and written, never across a git that writes a slot.
+rename (`sync_utils::atomic_file`, as the landed report and the holder record of the repository lock: the temporary
+file is new for every write, and on Windows the rename replaces a state that a `bd lease status` has open). A free
+slot is pool property, and a get replaces its content, so no ancestry is checked. The pool lock is `leases.lock` next
+to it, not the repository lock: a get never waits for an update, and the lock is held only while the state is read
+and written, never across a git that writes a slot.
 
 The `worktree` commands of the pool (the registration of a new slot, its unlock, the move of an adopt) run one at a
 time, under `worktrees.lock` beside it (`Pool::worktree_command`; the move takes it inside the pool lock, and nothing

@@ -1,3 +1,4 @@
+pub mod atomic_file;
 pub mod child_process;
 pub mod git_bool;
 pub mod issue_pattern;
@@ -11,6 +12,8 @@ pub mod secret_store;
 pub mod span;
 pub mod timestamp;
 
+#[cfg(test)]
+mod atomic_file_test;
 #[cfg(test)]
 mod child_process_test;
 #[cfg(test)]

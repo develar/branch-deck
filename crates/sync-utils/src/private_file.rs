@@ -1,7 +1,7 @@
 //! A file readable by the user only (0600) in the app data directory: the tokens of the app's own sign-ins
 //! (`github-token.json`, `youtrack-token.json`) where the keychain does not keep them (`secret_store`).
 
-use std::io::Write;
+use crate::atomic_file::{AtomicWrite, write_atomically};
 use std::path::Path;
 use tracing::warn;
 
@@ -28,28 +28,12 @@ pub fn read_private(path: &Path, what: &str) -> Option<String> {
   Some(text)
 }
 
-/// Writes the file: a temporary file created 0600 in the same directory, then renamed over the old one
+/// Writes the file: a temporary file created 0600 in the same directory, on the disk, then renamed over the old one
+/// (`write_atomically`)
 pub fn write_private(path: &Path, content: &[u8]) -> std::io::Result<()> {
   let dir = path.parent().ok_or_else(|| std::io::Error::other("the file has no directory"))?;
-  let name = path.file_name().ok_or_else(|| std::io::Error::other("the file has no name"))?;
   std::fs::create_dir_all(dir)?;
-  let temporary = dir.join(format!(".{}.{}", name.to_string_lossy(), std::process::id()));
-  let mut options = std::fs::OpenOptions::new();
-  options.write(true).create(true).truncate(true);
-  #[cfg(unix)]
-  {
-    use std::os::unix::fs::OpenOptionsExt;
-    options.mode(0o600);
-  }
-  let written = options.open(&temporary).and_then(|mut file| {
-    file.write_all(content)?;
-    file.sync_all()
-  });
-  if let Err(e) = written.and_then(|()| std::fs::rename(&temporary, path)) {
-    let _ = std::fs::remove_file(&temporary);
-    return Err(e);
-  }
-  Ok(())
+  write_atomically(path, content, AtomicWrite { private: true, durable: true })
 }
 
 /// Removes the file; none is fine

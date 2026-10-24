@@ -32,6 +32,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::timestamp::unix_now;
 use tracing::{debug, info, instrument, warn};
 
@@ -377,15 +378,11 @@ fn load_state(path: &Path) -> Option<LandedState> {
     .ok()
 }
 
-/// Write through a temporary file and a rename: the app and `bd` may read it at any time
+/// Write through a temporary file and a rename (`write_atomically`): the app and `bd` may read it at any time
 fn save_state(path: &Path, state: &LandedState) -> Result<()> {
   let dir = path.parent().context("landed state path without a directory")?;
   std::fs::create_dir_all(dir)?;
-  let temp = dir.join(format!("landed.json.{}.tmp", std::process::id()));
-  std::fs::write(&temp, serde_json::to_vec(state)?)?;
-  std::fs::rename(&temp, path).inspect_err(|_| {
-    let _ = std::fs::remove_file(&temp);
-  })?;
+  write_atomically(path, &serde_json::to_vec(state)?, AtomicWrite::default())?;
   Ok(())
 }
 

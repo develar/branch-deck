@@ -12,6 +12,7 @@ use std::fmt;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::process_scan::{is_running, process_started};
 use tracing::{debug, instrument, warn};
 
@@ -111,12 +112,11 @@ impl LockHolder {
     is_running(holder.pid, holder.process_started).then_some(holder)
   }
 
-  /// Write the record of the lock `lock_path` through a temporary file and a rename, so a reader never sees half of it
+  /// Write the record of the lock `lock_path` through a temporary file and a rename (`write_atomically`), so a reader
+  /// never sees half of it
   fn write(&self, lock_path: &Path) -> Result<PathBuf> {
     let path = holder_path(lock_path);
-    let temporary = path.with_extension(format!("holder.{}.tmp", self.pid));
-    std::fs::write(&temporary, serde_json::to_vec(self)?).with_context(|| format!("Cannot write {}", temporary.display()))?;
-    std::fs::rename(&temporary, &path).with_context(|| format!("Cannot write {}", path.display()))?;
+    write_atomically(&path, &serde_json::to_vec(self)?, AtomicWrite::default()).with_context(|| format!("Cannot write {}", path.display()))?;
     Ok(path)
   }
 }

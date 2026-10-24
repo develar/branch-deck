@@ -25,6 +25,7 @@ use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sync_core::baseline::baseline_tracking_ref;
+use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
 use tracing::{debug, instrument, warn};
@@ -340,16 +341,10 @@ impl Pool {
     lock_file(self.dir.join(name), timeout, &|| debug!("{waiting}"))
   }
 
-  /// A temporary file and a rename: a reader sees the old state or the new one
+  /// A temporary file and a rename (`write_atomically`): a reader sees the old state or the new one
   fn write(&self, store: &LeaseStore) -> Result<()> {
     let path = self.dir.join(STATE_FILE);
-    let temp = self.dir.join(format!("{STATE_FILE}.{}.tmp", std::process::id()));
-    std::fs::write(&temp, serde_json::to_vec_pretty(store)?).with_context(|| format!("Cannot write {}", temp.display()))?;
-    std::fs::rename(&temp, &path)
-      .inspect_err(|_| {
-        let _ = std::fs::remove_file(&temp);
-      })
-      .with_context(|| format!("Cannot write {}", path.display()))
+    write_atomically(&path, &serde_json::to_vec_pretty(store)?, AtomicWrite::default()).with_context(|| format!("Cannot write {}", path.display()))
   }
 }
 

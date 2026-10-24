@@ -4,13 +4,13 @@
 //! (`REPOSITORY_STATE_FIELDS`), so a sync never rewrites the file of the user's settings, which `bd` reads. A load never fails: a
 //! missing file is the defaults, a file that does not parse is the defaults with a warning, a field of the wrong type
 //! is its default. A save writes the stored form (only the fields that differ from their defaults, decision 5 of
-//! `docs/design/distributed-settings.md`) to a temporary file beside it and renames it over the file, so a reader never
-//! sees a cut file.
+//! `docs/design/distributed-settings.md`) to a temporary file beside it and renames it over the file
+//! (`sync_utils::atomic_file`), so a reader never sees a cut file and never fails the save.
 
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings};
 use serde_json::{Map, Value};
-use std::io::Write as _;
 use std::path::Path;
+use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use tracing::warn;
 
 /// The name of the settings file in the app data directory (the bundle identifier's): the app's writer opens it there,
@@ -122,18 +122,15 @@ impl SettingsFile {
     taken
   }
 
-  /// Write the stored form to `path` atomically: a temporary file in the same directory, flushed, renamed over `path`.
-  /// The directory is created when missing
+  /// Write the stored form to `path` atomically (`write_atomically`: a temporary file in the same directory, on the
+  /// disk, renamed over `path`, also while `bd` or another program has it open on Windows), for the user only. The
+  /// directory is created when missing
   pub fn save(&self, path: &Path) -> std::io::Result<()> {
     let directory = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(directory)?;
     let mut text = serde_json::to_vec_pretty(&Value::Object(self.to_stored()))?;
     text.push(b'\n');
-    let mut file = tempfile::Builder::new().prefix(".settings-").suffix(".tmp").tempfile_in(directory)?;
-    file.write_all(&text)?;
-    file.as_file().sync_all()?;
-    file.persist(path).map_err(|error| error.error)?;
-    Ok(())
+    write_atomically(path, &text, AtomicWrite { private: true, durable: true })
   }
 }
 

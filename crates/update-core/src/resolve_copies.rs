@@ -10,9 +10,10 @@
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::update_resolve::{ConflictFile, EditCopy, ResolveError, RoundConflict, RoundObjects, SessionState, list_sessions};
-use std::fs::{self, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
+use std::fs;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
+use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 
 /// The file that marks a directory as bd's: `--dir` reuses only an empty directory or one with this file
 pub const MARKER_FILE: &str = ".branch-deck-resolve";
@@ -92,26 +93,15 @@ fn ensure_dir(path: &Path) -> Result<()> {
   }
 }
 
-/// Write `content` to `dir/name` through a new temporary file and a rename, which replaces whatever entry is there
-/// (a symlink included) instead of writing through it. With `Materialize::Missing`, an existing entry stays
+/// Write `content` to `dir/name` through a new temporary file and a rename (`write_atomically`), which replaces
+/// whatever entry is there (a symlink included) instead of writing through it. With `Materialize::Missing`, an
+/// existing entry stays
 fn write_copy(dir: &Path, name: &str, content: &[u8], materialize: Materialize) -> Result<()> {
   let target = dir.join(name);
   if materialize == Materialize::Missing && fs::symlink_metadata(&target).is_ok() {
     return Ok(());
   }
-  let temp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-  let _ = fs::remove_file(&temp);
-  let mut file = OpenOptions::new()
-    .write(true)
-    .create_new(true)
-    .open(&temp)
-    .with_context(|| format!("Cannot create {}", temp.display()))?;
-  file.write_all(content).with_context(|| format!("Cannot write {}", temp.display()))?;
-  drop(file);
-  fs::rename(&temp, &target).inspect_err(|_| {
-    let _ = fs::remove_file(&temp);
-  })?;
-  Ok(())
+  write_atomically(&target, content, AtomicWrite::default()).with_context(|| format!("Cannot write {}", target.display()))
 }
 
 /// Write the copies of the open round of `state` under `root`; `patch` is `commit.patch`
