@@ -1,7 +1,8 @@
 use crate::runtime::{GitSessionHost, SessionEnvironment};
 use crate::session::SyncTicket;
 use crate::session::{IDLE_LIMIT, RunReporter, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun};
-use crate::table::table_test::{branch_status, grouped, grouping, synced};
+use crate::table::RemoteSubject;
+use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
 use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{BranchStatus, SyncOutcome, SyncReason, SyncState, TableView, ViewPatch};
@@ -12,6 +13,7 @@ use pretty_assertions::assert_eq;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use sync_core::push::{PushBranchesOutcome, StackPushBranch};
 use sync_core::sync::{SyncDeferred, SyncOptions, SyncReport};
 use sync_utils::clock::TestClock;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
@@ -196,7 +198,7 @@ async fn the_late_events_of_an_ended_run_are_dropped() {
     reporter.send(grouping(vec![grouped("ghost", &["g1"])])).unwrap();
   }
   // a change outside a sync sends its patch at once, with whatever else changed
-  assert!(sessions.apply(&key, |_| {}));
+  assert_eq!(sessions.apply(&key, |_| {}).version().await, Some(synced.version));
   assert_eq!(snapshot(&sessions, &key).await, synced);
 }
 
@@ -490,4 +492,115 @@ async fn a_focus_with_unchanged_inputs_reads_only_the_fingerprint() {
     assert_eq!(snapshot(&sessions, &key).await, synced);
     assert_eq!(window.take(), []);
   }
+}
+
+/// What a push of the virtual branch `branch` sends, as its parameters name it
+fn pushing(branch: &str) -> Vec<RemoteSubject> {
+  let branch = StackPushBranch {
+    branch_name: branch.to_string(),
+    parent_branch: None,
+    expected_remote: None,
+    tip: None,
+    whole_stack: false,
+    unapplied: false,
+  };
+  vec![RemoteSubject::of(&branch)]
+}
+
+fn pushed(branch: &str, tip: &str) -> PushBranchesOutcome {
+  PushBranchesOutcome::Pushed {
+    remote_statuses: vec![remote_at(branch, tip)],
+  }
+}
+
+/// The remote tip `branch` shows in the view
+fn remote_tip(view: &TableView, branch: &str) -> Option<String> {
+  view.branches.get(branch)?.remote.status.as_ref()?.remote_tip.clone()
+}
+
+/// A window on a session synced once by `events`
+async fn synced_window(sessions: &Sessions, host: &ScriptedHost, worktree: &str, events: Vec<SyncEvent>) -> (SessionKey, Window) {
+  host.push(events, Ok(report(false, &[])));
+  let key = key(worktree);
+  let window = Window::default();
+  sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  window.take();
+  (key, window)
+}
+
+/// A push without a sync: its outcome reaches the window as one patch of the remote status it left, and the answer names
+/// the version of that patch; nothing syncs. A failed push changes nothing, and so does one whose future was dropped,
+/// after which a sync shows what it computes again
+#[tokio::test]
+async fn a_push_without_a_sync_patches_the_remote_status_it_left() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  let (key, window) = synced_window(&sessions, &host, "/repo", auth_built()).await;
+
+  let answer = sessions.push(&key, pushing("auth"), async { Ok(pushed("auth", "pushed")) }).await.unwrap();
+  let patches = window.take();
+  assert_eq!(patches.len(), 1, "{patches:?}");
+  let change = &patches[0].changes.branches["auth"];
+  assert_eq!((change.head.is_none(), change.sync.is_none()), (true, true), "only the remote status: {change:?}");
+  assert_eq!(answer.version, Some(patches[0].next));
+  assert_eq!(remote_tip(&snapshot(&sessions, &key).await, "auth").as_deref(), Some("pushed"));
+  assert_eq!(host.runs(), 1, "no sync after the push");
+
+  sessions.push(&key, pushing("auth"), async { Err(anyhow::anyhow!("rejected")) }).await.unwrap_err();
+  let dropped = sessions.push(&key, pushing("auth"), std::future::pending());
+  tokio::time::timeout(Duration::from_millis(20), dropped).await.unwrap_err();
+  let mut events = auth_built();
+  events.push(SyncEvent::RemoteStatusUpdate(remote_at("auth", "fetched")));
+  host.push(events, Ok(report(false, &[])));
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  assert_eq!(remote_tip(&snapshot(&sessions, &key).await, "auth").as_deref(), Some("fetched"), "no push runs any more");
+}
+
+/// The outcome of a push goes to the session of the key its command resolved: the branch of the same name in another
+/// worktree's session (the window switched to it while the push ran) keeps what it showed, and its window gets nothing
+#[tokio::test]
+async fn the_outcome_of_a_push_in_one_session_leaves_the_branch_of_the_same_name_in_another() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  let (pushed_in, _window) = synced_window(&sessions, &host, "/a", auth_built()).await;
+  let (other, other_window) = synced_window(&sessions, &host, "/b", auth_built()).await;
+  let before = snapshot(&sessions, &other).await;
+
+  sessions.push(&pushed_in, pushing("auth"), async { Ok(pushed("auth", "pushed")) }).await.unwrap();
+  assert_eq!(remote_tip(&snapshot(&sessions, &pushed_in).await, "auth").as_deref(), Some("pushed"));
+  assert_eq!(snapshot(&sessions, &other).await, before);
+  assert_eq!(other_window.take(), []);
+}
+
+/// The deletion of an archived or unapplied branch is a patch of its section, the version of which the change answers;
+/// no sync runs for it
+#[tokio::test]
+async fn deleting_an_archived_or_unapplied_branch_answers_a_patch_and_runs_no_sync() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  let mut events = auth_built();
+  events.pop();
+  events.push(SyncEvent::ArchivedBranchesFound {
+    branch_names: vec!["test/archived/old".to_string()],
+    newly_archived: Vec::new(),
+  });
+  events.push(SyncEvent::UnappliedBranchesFound {
+    branches: vec![unapplied("docs", None)],
+  });
+  let (key, window) = synced_window(&sessions, &host, "/repo", events).await;
+
+  let version = sessions.apply(&key, |state| state.remove_archived("test/archived/old")).version().await;
+  let patches = window.take();
+  assert_eq!(patches.len(), 1);
+  assert_eq!(patches[0].changes.archived.as_ref().and_then(|archived| archived.names.clone()), Some(Vec::new()));
+  assert_eq!(version, Some(patches[0].next));
+
+  let version = sessions.apply(&key, |state| state.remove_unapplied("test/unapplied/docs")).version().await;
+  let patches = window.take();
+  assert_eq!((patches.len(), patches[0].changes.unapplied.clone()), (1, Some(Vec::new())));
+  assert_eq!(version, Some(patches[0].next));
+  assert_eq!(host.runs(), 1, "no sync after a deletion");
+  let not_open = self::key("/not-open");
+  assert_eq!(sessions.apply(&not_open, |state| state.remove_archived("test/archived/old")).version().await, None);
 }

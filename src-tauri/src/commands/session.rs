@@ -51,6 +51,11 @@ impl SessionsState {
     }
   }
 
+  /// The sessions, for a command whose result a session applies (a push, a deletion)
+  pub fn sessions(&self) -> &Sessions {
+    &self.sessions
+  }
+
   fn windows(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<SubscriptionId>>> {
     self.windows.lock().unwrap_or_else(PoisonError::into_inner)
   }

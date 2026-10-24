@@ -8,14 +8,22 @@
 //!
 //! A sync that fails restores the table of the sync before (`finish_sync`): the rows of a failed sync are never shown
 //! as the table. The texts of the statuses, the marks of what to expand and the badges are the page's presentation.
+//!
+//! The session writes into the table outside a sync too (`OwnWrite`): the outcome of a push (`end_push`: the remote
+//! statuses it left) and the deletion of an archived or unapplied branch. Such a write is newer than every event of a
+//! run that started before it, so that run never undoes it (a remote status it computed before the push, an archived
+//! branch it listed before the deletion), and a failed run restores the table with it. While a push of a branch runs
+//! (`begin_push`), a sync shows no remote status of it: the status it computed is kept aside and shown only when the
+//! push fails, as the newest the session knows; a push that waits for a sync is not running yet.
 
 use domain_types::error::ApiError;
 use domain_types::session::{
   ArchivedSection, BaselineStatus, BranchHead, BranchRemote, BranchStatus, BranchSync, BranchView, CommitSync, LandedSection, SyncState, SyncStep, TableHeader, TableSections,
 };
 use domain_types::stack::StackBranchUpdate;
-use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, SyncEvent};
+use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use sync_core::push::StackPushBranch;
 
 /// The parts of the table that a failed sync restores
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -36,6 +44,59 @@ pub struct TableState {
   commit_index: HashMap<String, HashMap<String, usize>>,
   /// The parts when the running sync started, restored when it fails
   before_sync: Option<Box<TableParts>>,
+  /// The pushes in flight, by what they send
+  pushes: HashMap<RemoteSubject, Push>,
+  /// The writes of the session since `before_sync` was taken, in order, each with its number (`write_count` after it);
+  /// empty while no sync runs
+  writes: Vec<(u64, OwnWrite)>,
+  write_count: u64,
+  /// `write_count` when the run in flight started: the writes after it win over its events
+  run_start: u64,
+}
+
+/// What a push sends, as the table keys its remote status: a virtual branch by its name, the stack branch of the whole
+/// stack of a root (`StackPushBranch::whole_stack`), an unapplied branch by the branch it was
+/// (`UnappliedBranchInfo::branch`, `StackPushBranch::unapplied`)
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum RemoteSubject {
+  Branch(String),
+  WholeStack(String),
+  Unapplied(String),
+}
+
+impl RemoteSubject {
+  /// What the branch of a push sends
+  #[must_use]
+  pub fn of(branch: &StackPushBranch) -> Self {
+    let name = branch.branch_name.clone();
+    if branch.whole_stack {
+      Self::WholeStack(name)
+    } else if branch.unapplied {
+      Self::Unapplied(name)
+    } else {
+      Self::Branch(name)
+    }
+  }
+}
+
+/// The pushes of one subject in flight
+#[derive(Clone, Debug, Default)]
+struct Push {
+  /// How many run: a second push of the same ref waits in Rust for the first (`PushingRefs`), yet runs from its call
+  running: u32,
+  /// What a sync saw of the remote while they ran, which a push that fails leaves
+  seen: Option<BranchRemote>,
+}
+
+/// A change of the table the session made outside a sync
+#[derive(Clone, Debug)]
+enum OwnWrite {
+  /// What a push left on the remote of a subject
+  Remote(RemoteSubject, BranchRemote),
+  /// An archived branch deleted, by its full name
+  RemovedArchived(String),
+  /// An unapplied branch deleted, by its full name
+  RemovedUnapplied(String),
 }
 
 impl TableState {
@@ -80,6 +141,8 @@ impl TableState {
     if !matches!(self.sync, SyncState::Running { .. }) {
       self.before_sync = Some(Box::new(self.parts.clone()));
     }
+    // a retry starts after the writes so far: its events are newer than they are
+    self.run_start = self.write_count;
     self.sync = SyncState::Running { step: SyncStep::Grouping };
   }
 
@@ -89,6 +152,7 @@ impl TableState {
     match result {
       Ok(()) => {
         self.before_sync = None;
+        self.writes.clear();
         self.sync = SyncState::Idle;
       }
       Err(error) => {
@@ -99,10 +163,13 @@ impl TableState {
   }
 
   /// The sync was refused before it built anything (a rebase in progress, a detached HEAD: `SyncDeferred`): the table
-  /// of the sync before comes back, and nothing failed
+  /// of the sync before comes back with what the session wrote since, and nothing failed
   pub fn defer_sync(&mut self) {
     if let Some(before) = self.before_sync.take() {
       self.parts = *before;
+      for (_, write) in std::mem::take(&mut self.writes) {
+        write_into(&mut self.parts, write);
+      }
       self.commit_index = index_commits(&self.parts.branches);
     }
     self.sync = SyncState::Idle;
@@ -176,25 +243,44 @@ impl TableState {
       SyncEvent::CommitsBlocked { .. } => {}
       SyncEvent::BranchStatusUpdate { branch_name, status, error } => self.apply_branch_status(&branch_name, status, error),
       SyncEvent::BranchIntegrationDetected { info } => {
+        if self.written_in_run(|write| matches!(write, OwnWrite::RemovedArchived(name) if *name == info.name)) {
+          return;
+        }
         let archived = &mut self.parts.sections.archived;
         if !archived.names.contains(&info.name) {
           archived.names.push(info.name.clone());
         }
         archived.integration.insert(info.name.clone(), info);
       }
-      SyncEvent::ArchivedBranchesFound { branch_names, newly_archived } => apply_archived_names(&mut self.parts.sections.archived, branch_names, newly_archived),
+      SyncEvent::ArchivedBranchesFound {
+        mut branch_names,
+        mut newly_archived,
+      } => {
+        // the run listed them before a deletion of this session
+        let deleted = |name: &String| self.written_in_run(|write| matches!(write, OwnWrite::RemovedArchived(removed) if removed == name));
+        branch_names.retain(|name| !deleted(name));
+        newly_archived.retain(|name| !deleted(name));
+        apply_archived_names(&mut self.parts.sections.archived, branch_names, newly_archived);
+      }
       SyncEvent::UnappliedBranchesFound { branches } => {
         // sent once the branches and the stack branches are built
         self.set_step(SyncStep::Detection);
-        self.parts.sections.unapplied = branches;
+        self.apply_unapplied(branches);
       }
       SyncEvent::RemoteStatusUpdate(status) => {
-        if let Some(branch) = self.parts.branches.get_mut(&status.branch_name) {
-          branch.remote = BranchRemote { status: Some(status) };
+        let name = status.branch_name.clone();
+        if let Some(remote) = self.remote_of_run(&RemoteSubject::Branch(name.clone()), Some(status))
+          && let Some(branch) = self.parts.branches.get_mut(&name)
+        {
+          branch.remote = remote;
         }
       }
       SyncEvent::StackBranchUpdate(update) => {
-        self.parts.stacks.insert(update.root.clone(), *update);
+        let mut update = *update;
+        let subject = RemoteSubject::WholeStack(update.root.clone());
+        let shown = self.parts.stacks.get(&update.root).and_then(|stack| stack.remote.clone());
+        update.remote = self.remote_of_run(&subject, update.remote.take()).map_or(shown, |remote| remote.status);
+        self.parts.stacks.insert(update.root.clone(), update);
       }
       SyncEvent::BaselineStatus {
         baseline_branch,
@@ -218,9 +304,101 @@ impl TableState {
       self.sync = SyncState::Running { step };
     }
   }
+
+  /// A push of `subjects` starts sending: a sync meanwhile shows no remote status of them until it ends
+  pub fn begin_push(&mut self, subjects: &[RemoteSubject]) {
+    for subject in subjects {
+      self.pushes.entry(subject.clone()).or_default().running += 1;
+    }
+  }
+
+  /// A push of `subjects` (as `begin_push` named them) ended: `statuses`, in their order, are the remote statuses it left
+  /// (pushed, or fetched when the remote moved), newer than any sync that started before; `None` for a push that failed,
+  /// which leaves the status a sync computed meanwhile, if one did
+  pub fn end_push(&mut self, subjects: &[RemoteSubject], statuses: Option<Vec<RemoteStatusUpdate>>) {
+    let mut statuses = statuses.map(Vec::into_iter);
+    for subject in subjects {
+      let seen = match self.pushes.get_mut(subject) {
+        Some(push) if push.running > 1 => {
+          push.running -= 1;
+          None
+        }
+        Some(_) => self.pushes.remove(subject).and_then(|push| push.seen),
+        None => None,
+      };
+      let remote = match statuses.as_mut() {
+        Some(statuses) => statuses.next().map(|status| BranchRemote { status: Some(status) }),
+        None => seen,
+      };
+      if let Some(remote) = remote {
+        self.write(OwnWrite::Remote(subject.clone(), remote));
+      }
+    }
+  }
+
+  /// The archived branch `name` (its full name) was deleted
+  pub fn remove_archived(&mut self, name: &str) {
+    self.write(OwnWrite::RemovedArchived(name.to_owned()));
+  }
+
+  /// The unapplied branch `name` (its full name) was deleted
+  pub fn remove_unapplied(&mut self, name: &str) {
+    self.write(OwnWrite::RemovedUnapplied(name.to_owned()));
+  }
 }
 
 impl TableState {
+  /// Writes into the table; while a sync runs, also into the writes its events never undo and its failure restores
+  fn write(&mut self, write: OwnWrite) {
+    if self.before_sync.is_some() {
+      self.write_count += 1;
+      self.writes.push((self.write_count, write.clone()));
+    }
+    write_into(&mut self.parts, write);
+  }
+
+  /// Whether the session wrote what `matches` since the run in flight started
+  fn written_in_run(&self, matches: impl Fn(&OwnWrite) -> bool) -> bool {
+    self.writes.iter().any(|(number, write)| *number > self.run_start && matches(write))
+  }
+
+  /// What the table shows of `subject` after the remote status the running sync computed (`observed`, `None`: no remote
+  /// branch): that status, unless a push wrote the subject since the run started (it stays as the push left it) or a
+  /// push of it runs (the status is kept for a push that fails); `None` keeps what the table shows
+  fn remote_of_run(&mut self, subject: &RemoteSubject, observed: Option<RemoteStatusUpdate>) -> Option<BranchRemote> {
+    let observed = BranchRemote { status: observed };
+    if self.written_in_run(|write| matches!(write, OwnWrite::Remote(written, _) if written == subject)) {
+      return None;
+    }
+    if let Some(push) = self.pushes.get_mut(subject) {
+      push.seen = Some(observed);
+      return None;
+    }
+    Some(observed)
+  }
+
+  /// The unapplied branches of the sync, without the ones this session deleted since the run started, each with its
+  /// remote status by `remote_of_run`
+  fn apply_unapplied(&mut self, branches: Vec<UnappliedBranchInfo>) {
+    let mut kept = Vec::with_capacity(branches.len());
+    for mut branch in branches {
+      if self.written_in_run(|write| matches!(write, OwnWrite::RemovedUnapplied(name) if *name == branch.name)) {
+        continue;
+      }
+      let shown = self
+        .parts
+        .sections
+        .unapplied
+        .iter()
+        .find(|shown| shown.name == branch.name)
+        .and_then(|shown| shown.remote.clone());
+      let subject = RemoteSubject::Unapplied(branch.branch.clone());
+      branch.remote = self.remote_of_run(&subject, branch.remote.take()).map_or(shown, |remote| remote.status);
+      kept.push(branch);
+    }
+    self.parts.sections.unapplied = kept;
+  }
+
   /// The branches in the order of the grouping, each a quiet resync of its row or a fresh `Syncing` one
   fn apply_grouping(&mut self, grouped: Vec<GroupedBranchInfo>) {
     let mut previous = std::mem::take(&mut self.parts.branches);
@@ -342,6 +520,35 @@ fn keep_shown_state(shown: BranchView, info: GroupedBranchInfo) -> BranchView {
     sync: shown.sync,
     copies: shown.copies,
     remote: shown.remote,
+  }
+}
+
+/// `write` applied to the parts of the table: a remote status to the row, the stack branch or the unapplied branch it is
+/// of (nothing when the table has none), a deleted branch out of its section
+fn write_into(parts: &mut TableParts, write: OwnWrite) {
+  match write {
+    OwnWrite::Remote(RemoteSubject::Branch(name), remote) => {
+      if let Some(branch) = parts.branches.get_mut(&name) {
+        branch.remote = remote;
+      }
+    }
+    OwnWrite::Remote(RemoteSubject::WholeStack(root), remote) => {
+      if let Some(stack) = parts.stacks.get_mut(&root) {
+        stack.remote = remote.status;
+      }
+    }
+    OwnWrite::Remote(RemoteSubject::Unapplied(name), remote) => {
+      if let Some(branch) = parts.sections.unapplied.iter_mut().find(|branch| branch.branch == name) {
+        branch.remote = remote.status;
+      }
+    }
+    OwnWrite::RemovedArchived(name) => {
+      let archived = &mut parts.sections.archived;
+      archived.names.retain(|archived| *archived != name);
+      archived.newly_archived.retain(|archived| *archived != name);
+      archived.integration.remove(&name);
+    }
+    OwnWrite::RemovedUnapplied(name) => parts.sections.unapplied.retain(|branch| branch.name != name),
   }
 }
 

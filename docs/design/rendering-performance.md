@@ -61,10 +61,10 @@ flowchart LR
   not render again.
   - Updates of other stores run in the same pass: the issue links (`updateProject`), the archived names (marked new
     only for what this patch archived), the landed status, the unapplied branches.
-  - What depends on the moment of arrival is decided in the applier: a remote status for a branch whose push sends
-    it is not applied then. The push result is authoritative. A push that only waits for the sync
-    (`setBranchPushWaiting`, the spinner of a push) gets the status: it reads the branch after the wait and pushes over
-    it.
+  - Nothing depends on the moment of arrival in the page: the session orders a push against the syncs
+    (`TableState::end_push`, [Repository view](git-operations.md#repository-view)), so the applier shows every remote
+    status a patch brings. The outcome of a push (or of the deletion of an archived or unapplied branch) is one patch
+    of the parts it changed, whose version the command answers (`whenSessionViewAt`); no sync follows it.
   - `isSyncing` is true from the request (`sync`, `requestSessionSync`) until the store holds the version its answer
     names (`SyncAnswer.version`), the last patch of the run that served it; a request of a session the window left
     counts for that session only.

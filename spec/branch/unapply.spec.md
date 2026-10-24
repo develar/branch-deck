@@ -29,6 +29,8 @@ targets:
   - ../../src/components/branch/UnappliedBranchTableCard.tsx
   - ../../src/hooks/useUnappliedBranchMenu.ts
   - ../../src/lib/git/unapplied-push.ts
+  - ../../crates/repository-model/src/table.rs
+  - ../../src-tauri/src/commands/archived_branches.rs
   - ../../crates/sync-core/src/reapply_branch.rs
   - ../../crates/git-ops/src/reapply.rs
   - ../../crates/git-ops/src/pick.rs
@@ -167,15 +169,20 @@ puts its commits back on top of the current branch, their files and their groupi
 - The menu of a row (right-click and "⋯") must offer Reapply, Push (Force Push when the remote has another history,
   disabled when it has it as it is), Safe Push disabled with "Not in master: Reapply it to land it", Copy, and Delete
   Unapplied Branch….
-  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, and refuse its Safe Push with why`)
-- Push must push it under its own name (`{prefix}/unapplied/<name>`) with a lease on the remote head of its status, then
-  sync; the toast "Pushed ‹branch›" says the remote keeps it. A pull request of its virtual branch stays as it was.
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why`)
+- Push must push it under its own name (`{prefix}/unapplied/<name>`) with a lease on the remote head of its status; the
+  toast "Pushed ‹branch›" says the remote keeps it, and its Remote cell shows the status the push left from the patch of
+  the session, with no sync after it. A pull request of its virtual branch stays as it was.
   [@test] ../../crates/sync-core/src/push_test.rs (`an_unapplied_branch_is_pushed_under_its_own_name`)
-  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, and refuse its Safe Push with why`)
+  [@test] ../../crates/repository-model/src/table_test.rs (`the_outcome_of_a_push_stays_over_the_remote_statuses_of_a_sync_that_started_before_it`)
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why`)
 - Delete Unapplied Branch… must ask for its name typed, then delete it with compare-and-swap on its tip, refused while
-  a worktree has it; only its own command deletes it.
+  a worktree has it; only its own command deletes it. Its row leaves the card as a patch of the session, with no sync
+  after it; a sync that listed it before the delete, or one that fails, does not bring it back.
   [@test] ../../crates/sync-core/src/delete_archived_branch_test.rs (`deletes_an_unapplied_branch_only_by_its_own_command`)
-  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should delete an unapplied branch after its name is typed`)
+  [@test] ../../crates/repository-model/src/table_test.rs (`a_deleted_archived_or_unapplied_branch_stays_deleted_by_the_sync_that_listed_it_before_and_by_one_that_fails`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`deleting_an_archived_or_unapplied_branch_answers_a_patch_and_runs_no_sync`)
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should delete an unapplied branch after its name is typed, with no sync after it`)
 
 ### Undo
 

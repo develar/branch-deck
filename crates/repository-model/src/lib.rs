@@ -20,9 +20,11 @@
 //! - `runtime`: the actor of a session: its mailbox, the runs of its syncs with the mailbox as their reporter, the
 //!   patches at most every 16 ms; `GitSessionHost`, the syncs of the app's sessions with git
 //! - `push_guard`: the checks of the app's push under the repository lock, by the rules of `bd push`: parked, landed
-//!   whole, held by a running Safe Push; the words of the holds for both sides; the sequence of the push (`push_branches`)
+//!   whole, held by a running Safe Push; the words of the holds for both sides; the sequence of the push (`push_branches`,
+//!   in the session of its key)
 //! - `session`: the sessions of the process by worktree and branch prefix (`Sessions`, `SessionKey`): open, subscribe,
-//!   snapshot, focus, sync tickets, `apply`, and their removal once idle (`sweep`, on the session clock)
+//!   snapshot, focus, sync tickets, `apply` and `push` (the result of an operation, with the version of its patch), and
+//!   their removal once idle (`sweep`, on the session clock)
 //! - `start_guard`: the checks of the app's start, restart and cancel of a robot, by the rules of `bd safe-push`: parked,
 //!   landed whole, not built, a robot on its last commit or one that lands a part of it; the words of the robot refusals
 //!   for both sides, and the whole sequence of the action (`start_robot`, `restart_robot`, `cancel_robot`) and of the
@@ -32,7 +34,8 @@
 //! - `sync_scheduler`: when a session syncs: one run at a time, one quiet follow-up, one check of the inputs after the
 //!   chain for a focus, one silent retry
 //! - `table`: the branch table of a session as the events of its syncs leave it (`TableState::apply`), in the parts of
-//!   `domain_types::session`
+//!   `domain_types::session`, and what its own operations wrote, which no older run undoes: the outcome of a push
+//!   (`begin_push`, `end_push`), a deleted archived or unapplied branch
 //! - `views`: what the app keeps to answer `get_repository_view`: the table of the last sync and the memo, by repository
 
 pub mod actions;

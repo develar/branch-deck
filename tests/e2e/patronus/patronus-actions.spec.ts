@@ -50,7 +50,7 @@ import {
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
 import type { PushResult } from "../helpers/push-helpers"
-import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
+import { answeredInSession, confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { hoverStatusChip, openBranchPreview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
@@ -123,7 +123,8 @@ async function routePushNotingPatronus(page: Page, repo: TestRepositoryBuilder):
   const logs: PatronusLog[] = []
   await routeCommand(page, "push_branch", async params => {
     logs.push(await repo.getPatronusLog())
-    return pushOutcome(params.branchName as string)
+    const branch = { branchName: params.branchName as string, expectedRemote: null }
+    return answeredInSession(params, [branch], pushOutcome(branch.branchName))
   })
   return logs
 }
@@ -1418,7 +1419,10 @@ test.describe("Patronus actions", () => {
     })
 
     test("should offer no push: it won't land, and the menu says why", async ({ page }) => {
-      const pushes = await routeCommand(page, "push_branch", params => pushOutcome(params.branchName as string))
+      const pushes = await routeCommand(page, "push_branch", params => {
+        const branch = { branchName: params.branchName as string, expectedRemote: null }
+        return answeredInSession(params, [branch], pushOutcome(branch.branchName))
+      })
       const row = findBranchRow(page, "JIRA-456")
       // no push, as the Safe Push slot has no step; the Status cell shows the robot
       await expectNothingToPush(row)

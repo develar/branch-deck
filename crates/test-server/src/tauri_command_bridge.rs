@@ -22,6 +22,7 @@ use domain_types::pull_request::{
 };
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
+use domain_types::session::Version;
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use file_diffs::model::{
@@ -51,6 +52,8 @@ use remote_facts::pull_requests::{GetPullRequestsParams, NOT_ON_GITHUB_MESSAGE, 
 use remote_facts::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use repository_model::actions::{NOT_ON_SPACE, RemoteActions};
+use repository_model::session::SessionKey;
+use repository_model::table::TableState;
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -774,8 +777,9 @@ pub async fn push_branches(State(state): State<Arc<AppState>>, headers: HeaderMa
   guarded_push(state, &headers, "push the branches", params, Ok).await
 }
 
-/// The guarded push of `params` as the app's command runs it: its progress and its wait for a holder of the repository
-/// lock on the channel of the page, the wait stopped by `cancel_lock_wait`; `outcome` makes the answer
+/// The guarded push of `params` as the app's command runs it, in the session of its key: its progress and its wait for
+/// a holder of the repository lock on the channel of the page, the wait stopped by `cancel_lock_wait`; `outcome` makes
+/// the answer
 async fn guarded_push<T: serde::Serialize + Send + 'static>(
   state: Arc<AppState>,
   headers: &HeaderMap,
@@ -792,9 +796,9 @@ async fn guarded_push<T: serde::Serialize + Send + 'static>(
     let ticket = register_wait(&state.lock_waits, channel, |_| {});
     let canceled = canceled_by(&ticket);
     let pushed = actions
-      .push_branches(common_dir, params, move |tick| progress.send(&tick), canceled)
+      .push_branches(&state.sessions, common_dir, params, move |tick| progress.send(&tick), canceled)
       .await
-      .and_then(outcome);
+      .and_then(|answer| answer.try_map(outcome));
     canceled_code(pushed.map(Json).map_err(|e| failed(operation, e)), &ticket)
   })
   .await
@@ -1567,13 +1571,28 @@ pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(param
   Ok(Json(BranchNameSuggestionOutcome::Suggested { names }))
 }
 
-pub async fn delete_archived_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<()> {
-  let inputs = prefix_inputs(&state, &params.repository_path)?;
-  run_command("delete the archived branch", move || {
-    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
-    delete_archived_branch_core(&inputs.git, params, &branch_prefix)
-  })
-  .await
+/// The app's deletion of an archived branch: the core, then the patch of the session of the repository's key
+pub async fn delete_archived_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<Option<Version>> {
+  delete_kept(&state, params, "delete the archived branch", delete_archived_branch_core, TableState::remove_archived).await
+}
+
+/// The deletion of a kept branch by `delete`, then its removal from the table of the session by `remove`, as the app's
+/// command does it (`src-tauri/src/commands/archived_branches.rs`)
+async fn delete_kept(
+  state: &AppState,
+  params: DeleteArchivedBranchParams,
+  operation: &'static str,
+  delete: fn(&git_executor::git_command_executor::GitCommandExecutor, DeleteArchivedBranchParams, &str) -> anyhow::Result<()>,
+  remove: fn(&mut TableState, &str),
+) -> CommandResult<Option<Version>> {
+  let prefix = branch_prefix_of(state, &params.repository_path).await?;
+  let key = SessionKey {
+    worktree: params.repository_path.clone(),
+    prefix: prefix.clone(),
+  };
+  let (git, name) = (state.git_executor.clone(), params.branch_name.clone());
+  let Json(()) = run_command(operation, move || delete(&git, params, &prefix)).await?;
+  Ok(Json(state.sessions.apply(&key, move |table| remove(table, &name)).version().await))
 }
 
 #[derive(Deserialize)]
@@ -1597,13 +1616,10 @@ pub async fn get_archived_branch_commits(
   .await
 }
 
-pub async fn delete_unapplied_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<()> {
-  let inputs = prefix_inputs(&state, &params.repository_path)?;
-  run_command("delete the unapplied branch", move || {
-    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
-    sync_core::delete_archived_branch::delete_unapplied_branch_core(&inputs.git, params, &branch_prefix)
-  })
-  .await
+/// The app's deletion of an unapplied branch, as `delete_archived_branch`
+pub async fn delete_unapplied_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<Option<Version>> {
+  let delete = sync_core::delete_archived_branch::delete_unapplied_branch_core;
+  delete_kept(&state, params, "delete the unapplied branch", delete, TableState::remove_unapplied).await
 }
 
 /// The commits of an unapplied branch, as the app reads them

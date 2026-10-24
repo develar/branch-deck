@@ -29,6 +29,7 @@ import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { pushProgressOf } from "@/lib/transfer-progress"
 import { formatWholeStack, formatWholeStackBranch, getStackBranchAlong, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
+import { whenSessionViewAt } from "@/model/store"
 import { recordPush } from "@/stores/activity"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import {
@@ -40,8 +41,6 @@ import {
   setBranchesPushProgress,
   setBranchPushing,
   setBranchPushProgress,
-  setBranchRemoteStatus,
-  setStackBranchRemoteStatus,
   setStackPush,
   toRemoteStatus,
   whenBranchPushed,
@@ -375,8 +374,8 @@ function findBranches(names: readonly string[], report: PushReport): Branch[] | 
 /**
  * The one push of the branches (`push_branches`), each leased on the remote head its row shows, and the stack branch of
  * a whole stack after them (`stack`, leased on the remote head of its status), while their rows show its progress (the
- * stack branch is pushing too, under its key: a push of it alone waits); their remote statuses are updated from the
- * result. The branch whose remote moved when nothing was pushed (`wholeStack`: its
+ * stack branch is pushing too, under its key: a push of it alone waits); it resolves once the table has the patch of the
+ * session with the remote statuses it left. The branch whose remote moved when nothing was pushed (`wholeStack`: its
  * stack branch), with what its remote has now, and the branches and the stack branch with the remote statuses the push
  * brought, for a push over them; null when they were pushed; undefined when the push failed (it said why).
  */
@@ -425,19 +424,12 @@ async function sendTogether(
       reportPushError(report, joinNames(subjects), result.error)
       return undefined
     }
-    const statuses = result.data.remoteStatuses.map(status => toRemoteStatus(status))
-    branches.forEach((branch, index) => {
-      const status = statuses[index]
-      if (status !== undefined) {
-        setBranchRemoteStatus(branch.name, status, repositoryPath)
-      }
-    })
+    const { outcome, version } = result.data
+    const statuses = outcome.remoteStatuses.map(status => toRemoteStatus(status))
+    await whenSessionViewAt(repositoryPath, version)
     const stackStatus = stack === null ? undefined : statuses[branches.length]
-    if (stack !== null && stackStatus !== undefined) {
-      setStackBranchRemoteStatus(stack.root, stackStatus, repositoryPath)
-    }
-    if (result.data.type === "remoteMoved") {
-      const { branchName, wholeStack } = result.data
+    if (outcome.type === "remoteMoved") {
+      const { branchName, wholeStack } = outcome
       const index = wholeStack ? branches.length : names.indexOf(branchName)
       const status = statuses[index]
       if (status === undefined) {
@@ -667,8 +659,8 @@ function stackBranchToSend(root: string, report: PushReport): StackBranchToSend 
 
 /**
  * The one push of the stack branch, leased on the remote head of its status, pushing under its key with its progress;
- * its remote status is updated from the result. What its remote has now when it moved, null when it was pushed,
- * undefined when the push failed (it said why).
+ * it resolves once the table has the patch of the session with the remote status it left. What its remote has now when
+ * it moved, null when it was pushed, undefined when the push failed (it said why).
  */
 async function sendStackBranch(request: VcsRequest, sent: StackBranchToSend, report: PushReport): Promise<RemoteStatus | null | undefined> {
   const { root, stack } = sent
@@ -694,12 +686,11 @@ async function sendStackBranch(request: VcsRequest, sent: StackBranchToSend, rep
       reportPushError(report, subject, result.error)
       return undefined
     }
-    const status = result.data.remoteStatuses[0] === undefined ? null : toRemoteStatus(result.data.remoteStatuses[0])
-    if (status !== null) {
-      setStackBranchRemoteStatus(root, status, repositoryPath)
-    }
-    recordPush(request.repositoryPath, formatWholeStackBranch(root), stack.remoteStatus, result.data.type === "remoteMoved" ? status : null)
-    if (result.data.type === "remoteMoved") {
+    const { outcome, version } = result.data
+    const status = outcome.remoteStatuses[0] === undefined ? null : toRemoteStatus(outcome.remoteStatuses[0])
+    await whenSessionViewAt(repositoryPath, version)
+    recordPush(request.repositoryPath, formatWholeStackBranch(root), stack.remoteStatus, outcome.type === "remoteMoved" ? status : null)
+    if (outcome.type === "remoteMoved") {
       return status ?? undefined
     }
     void refreshPullRequests("push", request)

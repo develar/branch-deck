@@ -4,7 +4,8 @@
 //! `{"result": …}` first, then each patch as `{"progress": <ViewPatch>}` until `unsubscribe_view` or the deletion of the
 //! repository (`delete_repository` closes its sessions, so the stream ends and the deletion does not wait for it); a
 //! failure answers `{"result": {"status": "error", "error": <ApiError>}}` on the stream, the JSON of the app. The next run
-//! of a session takes the overrides a test set for its repository (`sync_overrides`).
+//! of a session takes the overrides a test set for its repository (`sync_overrides`). A push the page answered (the
+//! templates have no remote) reaches the session through `pushed_in_page`.
 
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
 use crate::state::AppState;
@@ -15,13 +16,15 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use domain_types::ProgressReporter;
 use domain_types::error::ApiError;
-use domain_types::session::{SyncAnswer, SyncReason, TableView, ViewPatch, ViewSubscription};
+use domain_types::session::{SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
+use domain_types::{ProgressReporter, RemoteStatusUpdate};
 use repository_model::runtime::SessionEnvironment;
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
+use repository_model::table::RemoteSubject;
 use serde::Deserialize;
 use std::sync::{Arc, Weak};
+use sync_core::push::{PushBranchesOutcome, StackPushBranch};
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 
 /// What the syncs of the server's sessions take: the issue links read by the sync, and the settings of the test
@@ -156,4 +159,30 @@ pub struct SyncRequest {
 pub async fn sync(State(state): State<Arc<AppState>>, Json(request): Json<SyncRequest>) -> CommandResult<SyncAnswer> {
   let key = session_key(&state, &request.repository_path).await?;
   state.sessions.sync(&key, request.reason).wait().await.map(Json).map_err(|error| failed("sync", error))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushedInPageRequest {
+  repository_path: String,
+  /// The branches of the push, as the page sent them to `push_branch` or `push_branches`
+  branches: Vec<StackPushBranch>,
+  /// The remote statuses the page's answer has, in the order of the branches
+  remote_statuses: Vec<RemoteStatusUpdate>,
+}
+
+/// A push the page answered (`routePush` of push-helpers.ts: the templates name the repository itself as `origin`, so a
+/// test of a moved remote or of the progress fakes the remote there): its outcome goes into the session of the
+/// repository as the app's push puts it there (`Sessions::push`), and the answer is the version of the view whose patch
+/// has it (`None`: no window shows the repository), which the page's answer names as the app's command does
+pub async fn pushed_in_page(State(state): State<Arc<AppState>>, Json(request): Json<PushedInPageRequest>) -> CommandResult<Option<Version>> {
+  let key = session_key(&state, &request.repository_path).await?;
+  let subjects = request.branches.iter().map(RemoteSubject::of).collect();
+  let outcome = PushBranchesOutcome::Pushed {
+    remote_statuses: request.remote_statuses,
+  };
+  let answer = state.sessions.push(&key, subjects, async { Ok(outcome) }).await;
+  answer
+    .map(|answer| Json(answer.version))
+    .map_err(|error| failed("apply the push of the page", ApiError::internal(format!("{error:#}"))))
 }

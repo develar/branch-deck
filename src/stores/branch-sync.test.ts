@@ -5,7 +5,6 @@ import type { Commit } from "@/lib/bindings"
 import type { Branch } from "@/stores/branch-sync"
 import {
   branchSyncStore,
-  getBranch,
   getBranchPushProgress,
   getBranchTableRows,
   isBranchPushing,
@@ -13,11 +12,10 @@ import {
   resolveCommits,
   setBranchPushing,
   setBranchPushProgress,
-  setBranchRemoteStatus,
   setStackPush,
   wholeStackRootIn,
 } from "@/stores/branch-sync"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { testBranch } from "@/stores/test-branch"
 
 const { repository } = vi.hoisted(() => ({
   /** The repository the window shows */
@@ -58,20 +56,16 @@ describe("a push in flight", () => {
     expect(branchSyncStore.getState().pushingBranches).toEqual({})
   })
 
-  it("keeps a push that ends after a switch of the repository out of the branch of the same name there", () => {
+  it("keeps the spinner of a push that ends after a switch of the repository off the branch of the same name there", () => {
     showBranches(testBranch("a", null))
-    const pushed = testRemoteStatus({ remoteTip: "a-pushed" })
     setBranchPushing("a", true, "/repo")
-    const known = getBranch("a")!.remoteStatus
     // another repository opens, with a branch of the same name; it shows no push of it and pushes its own
     repository.path = "/other"
     try {
       expect(isBranchPushing("a")).toBe(false)
       setBranchPushing("a", true, "/other")
-      // the push of /repo ends: nothing of it reaches the rows, the push of /other still runs
-      setBranchRemoteStatus("a", pushed, "/repo")
+      // the push of /repo ends (its remote status goes to the session of /repo): the push of /other still runs
       setBranchPushing("a", false, "/repo")
-      expect(getBranch("a")!.remoteStatus).toBe(known)
       expect(isBranchPushing("a")).toBe(true)
       setBranchPushing("a", false, "/other")
       expect(isBranchPushing("a")).toBe(false)
@@ -116,15 +110,6 @@ describe("a push in flight", () => {
     } finally {
       repository.path = "/repo"
     }
-  })
-
-  it("keeps the record of a branch whose remote status a push reports unchanged", () => {
-    showBranches(testBranch("a", null, { remoteStatus: testRemoteStatus({ remoteTip: "a-remote" }) }))
-    const branch = getBranch("a")
-    setBranchRemoteStatus("a", testRemoteStatus({ remoteTip: "a-remote" }), "/repo")
-    expect(getBranch("a")).toBe(branch)
-    setBranchRemoteStatus("a", testRemoteStatus({ remoteTip: "a-pushed" }), "/repo")
-    expect(getBranch("a")!.remoteStatus!.remoteTip).toBe("a-pushed")
   })
 })
 

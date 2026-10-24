@@ -10,7 +10,9 @@
  * What a sync shows beyond the table is the page's presentation, derived here: the status texts of the rows, `isSyncing`
  * (a run of the session, or a request of this window that has not answered yet), the count of the runs that ended, how
  * far the run is. A request (`requestSessionSync`, and a focus of the window, `setSessionWindowFocus`) resolves when
- * the run that serves it ended and its last patch reached the store (`SyncAnswer.version`).
+ * the run that serves it ended and its last patch reached the store (`SyncAnswer.version`); a command whose result the
+ * session applied (a push, a deletion) waits the same way for the version it answers (`whenSessionViewAt`). The remote
+ * status of a row is the session's: Rust orders a push's outcome against the syncs, so the store shows what it gets.
  */
 import { Channel } from "@tauri-apps/api/core"
 import type { BranchChange, BranchView, Commit, CommitSync, StackBranchUpdate, SyncAnswer, SyncReason, TableChanges, TableView, Version, ViewPatch } from "@/lib/bindings"
@@ -24,7 +26,7 @@ import { addTiming } from "@/lib/update-progress"
 import { applyViewPatch } from "@/model/patch"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
-import { branchSyncStore, isBranchSending, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, toRemoteStatus } from "@/stores/branch-sync"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
@@ -113,6 +115,19 @@ export function closeSession(): void {
 /** Resolves once the subscription of the window answered (or failed); at once without one */
 export function whenSessionReady(): Promise<void> {
   return session?.ready ?? Promise.resolve()
+}
+
+/**
+ * Resolves once the store has the view of the session of `repositoryPath` at `version` (the answer of a command whose
+ * result the session applied: a push, the deletion of an archived or unapplied branch), so what runs next reads the
+ * table with it; at once for no version (no session was open), and once the window holds no session of that repository
+ */
+export function whenSessionViewAt(repositoryPath: string, version: Version | null): Promise<void> {
+  const target = session
+  if (version === null || target === null || target.repositoryPath !== repositoryPath) {
+    return Promise.resolve()
+  }
+  return whenViewAt(target, version)
 }
 
 function subscribe(repositoryPath: string): void {
@@ -250,7 +265,7 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
     update.branchOrder = next.order
   }
   if (changes === null || Object.keys(changes.branches ?? {}).length > 0 || (changes.removedBranches?.length ?? 0) > 0) {
-    update.branches = branchesOf(state.branches, next, changes, repositoryPath)
+    update.branches = branchesOf(state.branches, next, changes)
   }
   if (changes === null || Object.keys(changes.stacks ?? {}).length > 0 || (changes.removedStacks?.length ?? 0) > 0) {
     update.stackBranches = stackBranchesOf(state.stackBranches, next, changes)
@@ -357,15 +372,15 @@ function projectArchived(previous: TableView | null, next: TableView, changes: T
 }
 
 /** The branch records of `view`: built again only for the branches the patch changed, the others kept as they were */
-function branchesOf(shown: Readonly<Record<string, Branch>>, view: TableView, changes: TableChanges | null, repositoryPath: string): Record<string, Branch> {
+function branchesOf(shown: Readonly<Record<string, Branch>>, view: TableView, changes: TableChanges | null): Record<string, Branch> {
   if (changes === null) {
-    return Object.fromEntries(Object.entries(view.branches).map(([name, branch]) => [name, branchOf(shown[name], branch, null, isBranchSending(name, repositoryPath))]))
+    return Object.fromEntries(Object.entries(view.branches).map(([name, branch]) => [name, branchOf(shown[name], branch, null)]))
   }
   const branches = withoutKeys(shown, changes.removedBranches ?? [])
   for (const [name, change] of Object.entries(changes.branches ?? {})) {
     const branch = view.branches[name]
     if (branch !== undefined) {
-      branches[name] = branchOf(shown[name], branch, change, isBranchSending(name, repositoryPath))
+      branches[name] = branchOf(shown[name], branch, change)
     }
   }
   return branches
@@ -373,14 +388,12 @@ function branchesOf(shown: Readonly<Record<string, Branch>>, view: TableView, ch
 
 /**
  * The record of a branch of the view. Its commits and their index stay the same arrays while neither the commits nor
- * their copies changed; its remote status stays while the patch has none for it, and while a push of the branch sends:
- * the push's result is the one to show, not what a sync computed mid-push. A push that only waits for the sync sends
- * after it, over the status it brings (a fetch moved the remote branch, and the push goes over the new tip at once)
+ * their copies changed, and its remote status stays the same object while the patch has none for it
  */
-function branchOf(shown: Branch | undefined, view: BranchView, change: BranchChange | null, sending: boolean): Branch {
+function branchOf(shown: Branch | undefined, view: BranchView, change: BranchChange | null): Branch {
   const { head, sync } = view
   const keepCommits = shown !== undefined && change !== null && change.commits == null && change.copies == null
-  const keepRemote = shown !== undefined && (sending || (change !== null && change.remote == null))
+  const keepRemote = shown !== undefined && change !== null && change.remote == null
   return {
     name: head.name,
     commits: keepCommits ? shown.commits : syncedCommits(view.commits, view.copies),

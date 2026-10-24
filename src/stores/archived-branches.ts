@@ -4,6 +4,7 @@ import { createStore } from "zustand/vanilla"
 import type { BranchIntegrationInfo, Commit, IntegrationConfidence, UpstreamCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure } from "@/lib/errors"
+import { whenSessionViewAt } from "@/model/store"
 import { getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
@@ -298,13 +299,15 @@ export async function loadCommitsForBranch(branchName: string): Promise<void> {
   }
 }
 
-/** Deletes an archived branch. Throws on failure; the caller refreshes the list (sync) afterwards. */
+/**
+ * Deletes an archived branch and resolves once the table has the patch of the session that removed it (no sync follows);
+ * throws on a failure
+ */
 export async function deleteArchivedBranch(branchName: string): Promise<void> {
-  const result = await commands.deleteArchivedBranch({
-    repositoryPath: getSelectedProject()?.path ?? "",
-    branchName,
-  })
+  const repositoryPath = getSelectedProject()?.path ?? ""
+  const result = await commands.deleteArchivedBranch({ repositoryPath, branchName })
   if (result.status !== "ok") {
     throw commandFailure(result.error)
   }
+  await whenSessionViewAt(repositoryPath, result.data)
 }

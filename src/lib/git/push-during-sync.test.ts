@@ -28,21 +28,21 @@ vi.mock("@/components/ui/toast", () => ({
 }))
 
 vi.mock("@/lib/bindings", async () => {
-  const { sessionCommands } = await import("@/test-support/fake-sessions")
+  const { fakeSessions, sessionCommands } = await import("@/test-support/fake-sessions")
   return {
     commands: {
       ...sessionCommands(),
-      // a lease on the remote tip: a remote that moved since is refused and fetched
+      // a lease on the remote tip: a remote that moved since is refused and fetched; the session gets the outcome as a
+      // patch, whose version the answer names
       pushBranch: async (params: { branchName: string; expectedRemote: string | null }) => {
         pushes.push(params.expectedRemote)
         const moved = params.expectedRemote !== remote.tip
         if (!moved) {
           remote.tip = "a-tip"
         }
-        return {
-          status: "ok",
-          data: { type: moved ? "remoteMoved" : "pushed", remoteStatus: statusOf(remote.tip, moved ? ["a-tip"] : []) },
-        }
+        const remoteStatus = statusOf(remote.tip, moved ? ["a-tip"] : [])
+        const { next } = fakeSessions.send("/repo", { branches: { a: { remote: { status: remoteStatus } } } })
+        return { status: "ok", data: { outcome: { type: moved ? "remoteMoved" : "pushed", remoteStatus }, version: next } }
       },
     },
   }

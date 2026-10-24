@@ -170,9 +170,11 @@ test.describe("Push button", () => {
       .toBe(true)
   })
 
-  test("should push a branch pressed during a sync once the sync finished, the row as it was meanwhile", async ({ page }) => {
+  test("should push a branch pressed during a sync once, over the remote tip the sync brought, the row as it was meanwhile", async ({ page, issueLinksRepo }) => {
     const pushes = await routePush(page, {})
     const releaseSync = await holdCommand(page, "sync")
+    // the fetch of the sync finds the remote branch of JIRA-456 moved: another machine pushed an ancestor of it
+    await issueLinksRepo.setSyncOverrides({ remote: { "JIRA-456": { remoteExists: true, remoteTip: "moved-tip", keepUnpushed: 3 } } })
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
     const row = findBranchRow(page, "JIRA-456")
@@ -186,7 +188,10 @@ test.describe("Push button", () => {
 
     releaseSync()
     await expectPushedToast(page, "JIRA-456")
-    expect(pushes.map(it => it.branchName)).toEqual(["JIRA-456"])
+    // one push, leased on the tip the sync brought: never a refused push over the old one, then a second
+    expect(pushes).toEqual([expect.objectContaining({ branchName: "JIRA-456", expectedRemote: "moved-tip" })])
+    // the row has the status the push left from the session, with no sync after it
+    await expectNothingToPush(row)
   })
 
   test("should refuse a push pressed during a sync that could not build the branch, its virtual branch an older build", async ({ page, issueLinksRepo }) => {

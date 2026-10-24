@@ -203,6 +203,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       "/repositories/{id}/cli-tools",
       post(cli_tools_fixtures::set_cli_tools).get(cli_tools_fixtures::get_cli_tools),
     )
+    .route("/sessions/pushed-in-page", post(session_routes::pushed_in_page))
     // Store endpoints
     .route("/store/{repo_id}", get(get_store_snapshot))
     .route("/store/{repo_id}/{key}", get(get_store_value))

@@ -81,6 +81,11 @@ targets:
   - ../../src/components/branch/ArchivedBranchExpanded.tsx
   - ../../src/lib/integration-commit.ts
   - ../../src/stores/archived-branches.ts
+  - ../../crates/repository-model/src/table.rs
+  - ../../crates/repository-model/src/session.rs
+  - ../../src-tauri/src/commands/push.rs
+  - ../../src-tauri/src/commands/archived_branches.rs
+  - ../../src/model/store.ts
 ---
 
 # Branch Row
@@ -327,9 +332,20 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../src/stores/operations.test.ts (`lets a push wait for the rewrites of its repository and the syncs they end with, the queued ones too`)
   [@test] ../../crates/repository-model/src/table_test.rs (`a_quiet_resync_keeps_the_shown_state_and_a_changed_branch_starts_syncing`)
   [@test] ../../src/model/store.test.ts (`keeps the records of the branches a patch leaves alone, and of the commits of a branch whose state alone changed`)
-  [@test] ../../src/model/store.test.ts (`applies the remote status of a sync that a push of the branch waits for: the push sends over it after the wait`)
   [@test] ../../src/lib/git/push-during-sync.test.ts (`pushes once, over the remote tip that the fetch of the sync it waited for brought`)
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once the sync finished, the row as it was meanwhile`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once, over the remote tip the sync brought, the row as it was meanwhile`)
+- The remote status of a row, of a stack branch and of an unapplied branch must be the session's, which orders a push
+  against the syncs: the outcome of a push (the statuses it left, or the ones it fetched when the remote moved) reaches
+  the rows as a patch with no sync after it, and a sync that started before the push ended never replaces it, also
+  when that sync fails and its table comes back. While a push sends, a sync shows no remote status of what it sends;
+  a push that fails leaves the status that sync computed. A push that only waits for a sync sends nothing yet, so the
+  status that sync brings reaches the row, and the push goes over it. The outcome goes to the session of the repository
+  the push resolved, never to the branch of the same name in another one; the page keeps only the spinner of a push.
+  [@test] ../../crates/repository-model/src/table_test.rs (`the_outcome_of_a_push_stays_over_the_remote_statuses_of_a_sync_that_started_before_it`, `a_sync_shows_no_remote_status_of_a_running_push_and_a_failed_push_leaves_the_one_it_computed`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_push_without_a_sync_patches_the_remote_status_it_left`, `the_outcome_of_a_push_in_one_session_leaves_the_branch_of_the_same_name_in_another`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_push_answers_the_version_of_its_patch_and_runs_no_sync`)
+  [@test] ../../src/model/store.test.ts (`shows the remote status every patch brings, also while a push of the branch runs: Rust orders the push's outcome against the syncs`, `lets a command whose result the session applied wait for the patch of the version it answers`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once, over the remote tip the sync brought, the row as it was meanwhile`)
 - A push of a branch the last sync did not build (a merge conflict, an error, a blocked parent) must push nothing and
   say why ("Nothing was pushed: JIRA-456 is not synced (a merge conflict)"): its virtual branch is the build of a sync
   before, of commits it may no longer have. The backend refuses it by the table of the last sync (`not_built`), as
@@ -625,7 +641,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/issue-reference.spec.ts (`should focus input when opened`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
 - While its action runs, the form must be a progress row that says what runs ("Adding ABC-123 to auth…"), and close
-  when the action is done, after the sync that shows its result. A failure of a form with an input (rename, issue reference, the archived delete) must show
+  when the action is done, after the sync that shows its result (a deletion: the patch of the session). A failure of a form with an input (rename, issue reference, the archived delete) must show
   the form again with the typed text, focused; the error is a toast.
   [@test] ../../tests/e2e/issue-reference.spec.ts (`should add issue reference to branch via context menu`, `should keep the typed reference when adding it fails`)
 - Adding an issue reference rewords the branch's commits under the repository lock: while another process holds it
@@ -682,12 +698,18 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The menu of an archived row must offer the copy items and "Delete Archived Branch…" in the `destructive` colour,
   which asks for the branch name; its Delete button is `destructive` too. The Actions cell has "⋯" with the same menu;
   ⌘C on the focused row copies the full name, as "Copy Full Branch Name".
-  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete archived branch via context menu`)
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete an archived branch from its menu, the row gone with no sync after it`)
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should open the menu of an archived row from its more actions button`)
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should copy the full name of an archived branch with ⌘C on its focused row`)
 - The delete must remove the archived branch only from the tip it read (one ref transaction with compare-and-swap),
   and must refuse a branch checked out in any worktree, naming that worktree, with the branch left as it is.
   [@test] ../../crates/sync-core/src/delete_archived_branch_test.rs (`deletes_the_archived_branch_only`, `refuses_a_branch_checked_out_in_a_worktree`)
+- A deleted archived branch must leave the table as a patch of the session, with no sync after it; a sync that listed
+  it before the delete, or one that fails, does not bring it back.
+  [@test] ../../crates/repository-model/src/table_test.rs (`a_deleted_archived_or_unapplied_branch_stays_deleted_by_the_sync_that_listed_it_before_and_by_one_that_fails`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`deleting_an_archived_or_unapplied_branch_answers_a_patch_and_runs_no_sync`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_deletion_of_an_archived_branch_answers_the_version_of_its_patch_and_runs_no_sync`)
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete an archived branch from its menu, the row gone with no sync after it`)
 
 ## User Experience
 

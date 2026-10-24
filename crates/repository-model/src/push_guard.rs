@@ -21,13 +21,16 @@
 
 use crate::actions::RemoteActions;
 use crate::branch_table::BranchTable;
+use crate::session::{SessionKey, Sessions};
 use crate::start_guard::{stack_conflict_words, stack_not_built_words};
+use crate::table::RemoteSubject;
 use crate::views::RepositoryViews;
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{Carried, HoldKind, PatronusView};
+use domain_types::session::ViewAnswer;
 use domain_types::stack::StackBranchState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository_while_held};
@@ -301,23 +304,34 @@ fn push_guarded_within(
 }
 
 impl RemoteActions<'_> {
-  /// The app's push of a stack: the user's robots (`robots_for_checks`), then, in a blocking step, `push_guarded`, its
-  /// checks under the repository lock of `git_common_dir` (`$GIT_COMMON_DIR` of the repository, which the host knows),
-  /// its progress sent to `on_progress`, its wait for another holder of the lock ended by `canceled`
+  /// The app's push of a stack in the session of its repository (`Sessions::push`, the key of the path and of the
+  /// prefix the host resolved, so the outcome changes only that table): the user's robots (`robots_for_checks`), then,
+  /// in a blocking step, `push_guarded`, its checks under the repository lock of `git_common_dir` (`$GIT_COMMON_DIR` of
+  /// the repository, which the host knows), its progress sent to `on_progress`, its wait for another holder of the lock
+  /// ended by `canceled`. Answers the outcome with the version of the patch that has it
   #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
   pub async fn push_branches(
     &self,
+    sessions: &Sessions,
     git_common_dir: PathBuf,
     params: PushBranchesParams,
     mut on_progress: impl FnMut(TransferProgress) + Send + 'static,
     canceled: impl Fn() -> bool + Send + 'static,
-  ) -> Result<PushBranchesOutcome> {
-    let robots = self.robots_for_checks().await;
-    let (git, views, branch_prefix) = (self.git_executor.clone(), self.views.clone(), self.branch_prefix.to_owned());
-    tokio::task::spawn_blocking(in_current_span(move || {
-      push_guarded(&git, &git_common_dir, &views, robots, &branch_prefix, &params, &mut on_progress, &canceled)
-    }))
-    .await?
+  ) -> Result<ViewAnswer<PushBranchesOutcome>> {
+    let key = SessionKey {
+      worktree: params.repository_path.clone(),
+      prefix: self.branch_prefix.to_owned(),
+    };
+    let subjects = params.branches.iter().map(RemoteSubject::of).collect();
+    let push = async move {
+      let robots = self.robots_for_checks().await;
+      let (git, views, branch_prefix) = (self.git_executor.clone(), self.views.clone(), self.branch_prefix.to_owned());
+      tokio::task::spawn_blocking(in_current_span(move || {
+        push_guarded(&git, &git_common_dir, &views, robots, &branch_prefix, &params, &mut on_progress, &canceled)
+      }))
+      .await?
+    };
+    sessions.push(&key, subjects, push).await
   }
 }
 

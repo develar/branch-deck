@@ -17,20 +17,10 @@ import { buttonStackPushOrder, needsPush, stackAncestors, stackPushOrder } from 
 import type { ToastActionProps } from "@/lib/toast-message"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { pushProgressOf } from "@/lib/transfer-progress"
+import { whenSessionViewAt } from "@/model/store"
 import { recordPush, recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
-import {
-  branchSyncStore,
-  getBranch,
-  isBranchPushing,
-  setBranchPushing,
-  setBranchPushWaiting,
-  setBranchPushProgress,
-  setBranchRemoteStatus,
-  toRemoteStatus,
-  whenBranchPushed,
-  whenSynced,
-} from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchPushProgress, toRemoteStatus, whenBranchPushed, whenSynced } from "@/stores/branch-sync"
 import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot, whenRepositoryViewCurrent } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
@@ -83,8 +73,8 @@ export function passingCanceled(own: (title: string, error: unknown, action?: To
 }
 
 /**
- * Pushes a virtual branch and updates its remote status from the result, then the pull requests (the pull request of
- * the branch now shows the pushed commit). A branch whose Safe Push runs is not pushed (`checkPushHold`), but by its
+ * Pushes a virtual branch, then refreshes the pull requests (the pull request of the branch now shows the pushed
+ * commit); the session of the repository shows the remote status the push left. A branch whose Safe Push runs is not pushed (`checkPushHold`), but by its
  * restart and the start that replaces the robot. Says how it went in a toast (`showPushToast`, unless `announce` is false); errors are reported
  * with a toast. Resolves to whether the push succeeded.
  *
@@ -254,13 +244,14 @@ async function whenSettled(branchName: string, repositoryPath: string): Promise<
   while (isBranchPushing(branchName, repositoryPath)) {
     await whenBranchPushed(branchName, repositoryPath)
   }
-  // waiting, not sending: the remote status this sync brings reaches the row, and the push reads it after
-  setBranchPushWaiting(branchName, true, repositoryPath)
+  // waiting, not sending: Rust knows of no push yet, so the remote status this sync brings reaches the row, and the
+  // push reads it after
+  setBranchPushing(branchName, true, repositoryPath)
   try {
     await whenRewritesDone(repositoryPath)
     await whenSynced()
   } finally {
-    setBranchPushWaiting(branchName, false, repositoryPath)
+    setBranchPushing(branchName, false, repositoryPath)
   }
 }
 
@@ -318,7 +309,8 @@ export function reportPushError(report: PushReport, subject: string, error: unkn
 
 /**
  * The push itself, while the row shows its progress: the remote status the remote moved to when nothing was pushed
- * (`moved`), null when it failed (an error toast said so)
+ * (`moved`), null when it failed (an error toast said so). It resolves once the table has the patch of the session with
+ * the push's outcome, so what runs next reads the remote status the push left
  */
 async function pushWithProgress(
   request: VcsRequest,
@@ -352,10 +344,11 @@ async function pushWithProgress(
     )
 
     if (result.status === "ok") {
-      const remoteStatus = toRemoteStatus(result.data.remoteStatus)
-      setBranchRemoteStatus(branchName, remoteStatus, repositoryPath)
-      recordPush(repositoryPath, branchName, branch.remoteStatus, result.data.type === "remoteMoved" ? remoteStatus : null)
-      if (result.data.type === "remoteMoved") {
+      const { outcome, version } = result.data
+      const remoteStatus = toRemoteStatus(outcome.remoteStatus)
+      await whenSessionViewAt(repositoryPath, version)
+      recordPush(repositoryPath, branchName, branch.remoteStatus, outcome.type === "remoteMoved" ? remoteStatus : null)
+      if (outcome.type === "remoteMoved") {
         return { moved: remoteStatus }
       }
       void refreshPullRequestsAfterPush(branchName, options.tip ?? branch.commits[0]?.hash, request)

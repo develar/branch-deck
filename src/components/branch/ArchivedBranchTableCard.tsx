@@ -22,7 +22,6 @@ import { getSimpleBranchName } from "@/lib/branch"
 import { copyFocusedBranchRow } from "@/lib/clipboard"
 import type { MenuItemGroups } from "@/lib/menu"
 import { deleteArchivedBranch, useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
-import { syncBranches } from "@/stores/branch-sync"
 import { inlineSurface, openInline, useActiveInlineForRow, withRowProcessing } from "@/stores/inline-row-action"
 import { useSurfaceBusy } from "@/stores/operations"
 
@@ -161,23 +160,12 @@ function getArchivedContextMenuItems(name: string): MenuItemGroups {
   return [getBranchCopyMenuItems(name, true), [{ label: "Delete Archived Branch…", icon: Trash2Icon, color: "destructive", onSelect: () => openInline("delete-archived", name) }]]
 }
 
+/** Deletes the archived branch; the session's patch removes its row, no sync follows */
 async function confirmDelete(branchName: string): Promise<void> {
-  const deleted = await withRowProcessing(
-    branchName,
-    { id: "delete-archived", kind: "remote", label: `Deleting ${getSimpleBranchName(branchName)}` },
-    async () => {
-      await deleteArchivedBranch(branchName)
-      return true
-    },
-    {
-      success: () => ({ title: `Deleted the archived branch ${getSimpleBranchName(branchName)}` }),
-      errorTitle: () => `Cannot delete the archived branch ${getSimpleBranchName(branchName)}`,
-      // the typed name stays
-      keepFormOnError: true,
-    },
-  )
-
-  if (deleted) {
-    void syncBranches("afterRewrite")
-  }
+  await withRowProcessing(branchName, { id: "delete-archived", kind: "remote", label: `Deleting ${getSimpleBranchName(branchName)}` }, () => deleteArchivedBranch(branchName), {
+    success: () => ({ title: `Deleted the archived branch ${getSimpleBranchName(branchName)}` }),
+    errorTitle: () => `Cannot delete the archived branch ${getSimpleBranchName(branchName)}`,
+    // the typed name stays
+    keepFormOnError: true,
+  })
 }

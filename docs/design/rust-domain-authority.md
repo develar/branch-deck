@@ -1639,14 +1639,22 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `send`, поэтому подписки окна снимаются на `Destroyed` и на каждой загрузке его страницы; приложение подметает
     сессии раз в 30 с. Test-server закрывает сессии репозитория при его удалении (`Sessions::close_worktree`), иначе
     поток `subscribe_view` держал бы репозиторий до `DELETE_WAIT`.
-  - Порядок remote status в s6 (планировщик, 2026-10-24, по коду ветки `rework/s6-session-table`): `seq` — это
-    `Version.seq` вида, не `seq` факта (его вводит s7). Push сообщает сессии своё начало и свой исход
-    (`Sessions::apply` из `push_branch`, `push_branches`, push unapplied, в приложении и в test-server, под ключом,
-    который push разрешил сам): пока push ветки идёт, `RemoteStatusUpdate` запуска sync для неё отбрасывается; исход
-    push записывается в часть `remote` с `seq` патча, и запуск sync, начатый при меньшем `seq`, её не заменяет.
-    Push, который только ждёт sync, — не «идёт»: статус sync к нему применяется, и он пушит поверх него. Страница
-    больше не пишет `remoteStatus` сама (`setBranchRemoteStatus`, `setStackBranchRemoteStatus` удаляются); её
-    `pushingBranches`/`stackPushes` остаются состоянием спиннера по пути репозитория до s9.
+  - Порядок remote status в s6 (s6-6, по коду): порядок — собственный счёт записей сессии, не `seq` факта (его вводит
+    s7): `TableState` нумерует каждую запись вне sync, а запуск помнит номер своего старта. Push сообщает сессии своё
+    начало и свой исход (`Sessions::push` вокруг guarded push в `push_branch`, `push_branches` приложения и
+    test-server, под ключом, который push разрешил сам; `RunningPush` шлёт конец и тогда, когда future команды
+    сброшен): пока push субъекта идёт (`RemoteSubject`: ветка, stack branch целого стека, unapplied), статус sync для
+    него откладывается и показывается, только если push не удался; исход записывается в часть remote, запуск, начатый
+    раньше записи, её не заменяет, а неудачный или отложенный запуск восстанавливает таблицу вместе с ней. Так же
+    удаление archived и unapplied ветки (`remove_archived`, `remove_unapplied`): запуск, который перечислил её до
+    удаления, её не возвращает. Команда отвечает `ViewAnswer { outcome, version }` (удаление — `Option<Version>`), и
+    страница ждёт патч этой версии (`whenSessionViewAt`). Push, который только ждёт sync, — не «идёт»: статус sync к
+    нему применяется, и он пушит поверх него. `setBranchRemoteStatus`, `setStackBranchRemoteStatus`, `isBranchSending`
+    и `setBranchPushWaiting` удалены; `pushingBranches`/`stackPushes` — состояние спиннера по пути репозитория до s9.
+    Push, на который в e2e отвечает страница (`routePush`), отдаёт исход сессии через `POST /sessions/pushed-in-page`.
+    C4 (фокус после своего push — 0 sync) s6-6 не делает: отпечаток входов (`sync_inputs_fingerprint`) включает
+    remote-ветки префикса, и свой push их двигает; путь — отпечаток по частям (хэш остального и remote-ветки префикса
+    списком), в котором сессия заменяет то, что записал её push, без процесса git.
   - Фокус окна: страница зовёт `set_window_focus(path, focused)` на фокус и на потерю фокуса; `autoSyncOnFocus`
     читает хост (`SessionHost::syncs_on_focus`, настройка писателя s5), страница её не проверяет. `sync(reason:
     focus)` остаётся для ⌘R во время sync (`syncIfChanged`).

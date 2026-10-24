@@ -4,9 +4,9 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton } from "../helpers/branch-helpers"
 import { inlineDeleteConfirmation, submitInlineForm } from "../helpers/inline-form-helpers"
 import { routePushBranches } from "../helpers/push-helpers"
-import { runAndWaitForSync } from "../helpers/sync-helpers"
+import { finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
 import { closeToast } from "../helpers/toast-helpers"
-import { routeCommandError } from "../helpers/wait-helpers"
+import { recordCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own,
 // each with a file of its own
@@ -120,10 +120,13 @@ test.describe("Unapplied branches", () => {
     await expect(page.locator("[data-slot=popover-title]")).toHaveText("Unapplied")
   })
 
-  test("should push an unapplied branch under its own name from both menus, and refuse its Safe Push with why", async ({ page }) => {
+  test("should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why", async ({ page }) => {
     const { stackPushes } = await routePushBranches(page)
     await unapplyFromMenu(page, "docs")
     const row = unappliedRow(page, "docs")
+    await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Not pushed")
+    const syncs = await recordCommand(page, "sync")
+    const synced = await finishedSyncCount(page)
 
     // the right-click menu
     await row.click({ button: "right" })
@@ -131,26 +134,43 @@ test.describe("Unapplied branches", () => {
     await expect(safePush).toHaveAttribute("aria-disabled", "true")
     await safePush.hover()
     await expect(page.getByRole("tooltip")).toHaveText("Not in master: Reapply it to land it")
-    await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Push", exact: true }).click())
+    await page.getByRole("menuitem", { name: "Push", exact: true }).click()
     await expect(toast(page, "Pushed docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
     expect(stackPushes).toEqual([[{ branchName: "docs", expectedRemote: null, unapplied: true }]])
+    // the session shows the status the push left: no sync runs for it
+    await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Pushed")
+    expect(syncs).toEqual([])
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
 
-    // the "⋯" menu
+    // the "⋯" menu: the remote has it as it is, so its Push is disabled until a sync finds otherwise (the template has
+    // no remote: the next sync says it is not pushed)
     await row.hover()
     await row.getByRole("button", { name: "More actions for docs" }).click()
-    await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Push", exact: true }).click())
-    expect(stackPushes).toHaveLength(2)
+    await expect(page.getByRole("menuitem", { name: "Push", exact: true })).toHaveAttribute("aria-disabled", "true")
+    await page.keyboard.press("Escape")
+    await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
+    await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Not pushed")
+    await row.hover()
+    await row.getByRole("button", { name: "More actions for docs" }).click()
+    await page.getByRole("menuitem", { name: "Push", exact: true }).click()
+    await expect.poll(() => stackPushes.length).toBe(2)
+    expect(stackPushes[1]).toEqual([{ branchName: "docs", expectedRemote: null, unapplied: true }])
   })
 
-  test("should delete an unapplied branch after its name is typed", async ({ page }) => {
+  test("should delete an unapplied branch after its name is typed, with no sync after it", async ({ page }) => {
     await unapplyFromMenu(page, "docs")
+    const syncs = await recordCommand(page, "sync")
+    const synced = await finishedSyncCount(page)
     await unappliedRow(page, "docs").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Delete Unapplied Branch…" }).click()
     await inlineDeleteConfirmation.waitForVisible(page)
     await expect(inlineDeleteConfirmation.getPortal(page)).toContainText("only a copy on the remote keeps them")
-    await runAndWaitForSync(page, () => submitInlineForm(inlineDeleteConfirmation.getInput(page), "docs"))
+    await submitInlineForm(inlineDeleteConfirmation.getInput(page), "docs")
     await expect(toast(page, "Deleted the unapplied branch docs")).toBeVisible()
+    // the patch of the session removes the card's only row
     await expect(unappliedCard(page)).toHaveCount(0)
+    expect(syncs).toEqual([])
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
   })
 
   test("should reapply an unapplied branch from both menus, the branch back in the table, and take it back with Undo", async ({ page }) => {

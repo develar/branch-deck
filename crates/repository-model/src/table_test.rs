@@ -1,9 +1,9 @@
-use crate::table::TableState;
+use crate::table::{RemoteSubject, TableState};
 use domain_types::commit::Commit;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{BranchStatus, CommitSync, SyncState, SyncStep};
-use domain_types::stack::{BranchStack, StackProblem, StackProblemView};
-use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
+use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate, StackProblem, StackProblemView};
+use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::sync_fixtures::integrated_branch_info;
@@ -289,12 +289,12 @@ fn a_failed_sync_restores_the_table_of_the_sync_before() {
 /// and its landed branches go into their sections
 #[test]
 fn the_grouping_keeps_the_announced_stack_branches_and_the_baseline_status_fills_its_section() {
-  let stack = |root: &str| domain_types::stack::StackBranchUpdate {
+  let stack = |root: &str| StackBranchUpdate {
     root: root.to_string(),
     branch_name: format!("test/stack/{root}"),
     members: vec![root.to_string()],
     commit_count: 1,
-    state: domain_types::stack::StackBranchState::Built,
+    state: StackBranchState::Built,
     tip: None,
     blocked_by: None,
     conflict: None,
@@ -340,4 +340,201 @@ fn the_grouping_keeps_the_announced_stack_branches_and_the_baseline_status_fills
     (status.baseline_branch.as_str(), status.check_error.as_deref()),
     ("origin/master", Some("a rebase is in progress"))
   );
+}
+
+/// The remote status of `branch` at the remote tip `tip`, nothing to push
+pub(crate) fn remote_at(branch: &str, tip: &str) -> RemoteStatusUpdate {
+  RemoteStatusUpdate {
+    remote_tip: Some(tip.to_string()),
+    ..remote_status(branch, &[])
+  }
+}
+
+fn shown_tip(state: &TableState, branch: &str) -> Option<String> {
+  state.branch(branch)?.remote.status.as_ref()?.remote_tip.clone()
+}
+
+fn stack_tip(state: &TableState, root: &str) -> Option<String> {
+  state.stack(root)?.remote.as_ref()?.remote_tip.clone()
+}
+
+fn unapplied_tip(state: &TableState, branch: &str) -> Option<String> {
+  let unapplied = state.sections().unapplied.iter().find(|unapplied| unapplied.branch == branch)?;
+  unapplied.remote.as_ref()?.remote_tip.clone()
+}
+
+fn stack_branch(root: &str, remote: Option<RemoteStatusUpdate>) -> StackBranchUpdate {
+  StackBranchUpdate {
+    root: root.to_string(),
+    branch_name: format!("test/stack/{root}"),
+    members: vec![root.to_string()],
+    commit_count: 1,
+    state: StackBranchState::Built,
+    tip: Some("stack-built".to_string()),
+    blocked_by: None,
+    conflict: None,
+    error: None,
+    remote,
+  }
+}
+
+pub(crate) fn unapplied(branch: &str, remote: Option<RemoteStatusUpdate>) -> UnappliedBranchInfo {
+  UnappliedBranchInfo {
+    name: format!("test/unapplied/{branch}"),
+    branch: branch.to_string(),
+    tip: format!("{branch}-tip"),
+    subject: format!("Subject of {branch}"),
+    checked_out: false,
+    remote,
+  }
+}
+
+/// A table synced once: `auth` and `ui`, the stack branch of `auth`, the unapplied `docs`, each at the remote tip
+/// `synced`
+fn synced_with_remotes() -> TableState {
+  let mut state = TableState::new();
+  let mut events = sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created);
+  events.push(SyncEvent::RemoteStatusUpdate(remote_at("auth", "synced")));
+  events.push(SyncEvent::RemoteStatusUpdate(remote_at("ui", "synced")));
+  events.push(SyncEvent::StackBranchUpdate(Box::new(stack_branch("auth", Some(remote_at("auth", "synced"))))));
+  events.push(SyncEvent::UnappliedBranchesFound {
+    branches: vec![unapplied("docs", Some(remote_at("docs", "synced")))],
+  });
+  run_sync(&mut state, events);
+  state
+}
+
+/// `auth`, the stack branch of `auth` and the unapplied `docs`, as one push names them
+fn pushed_subjects() -> Vec<RemoteSubject> {
+  vec![
+    RemoteSubject::Branch("auth".to_string()),
+    RemoteSubject::WholeStack("auth".to_string()),
+    RemoteSubject::Unapplied("docs".to_string()),
+  ]
+}
+
+/// The remote statuses a push of `pushed_subjects` left, each at `tip`
+fn pushed_statuses(tip: &str) -> Vec<RemoteStatusUpdate> {
+  vec![remote_at("auth", tip), remote_at("auth", tip), remote_at("docs", tip)]
+}
+
+/// The events of a sync that computed every remote status at `tip`
+fn remote_events(tip: &str) -> Vec<SyncEvent> {
+  vec![
+    SyncEvent::RemoteStatusUpdate(remote_at("auth", tip)),
+    SyncEvent::RemoteStatusUpdate(remote_at("ui", tip)),
+    SyncEvent::StackBranchUpdate(Box::new(stack_branch("auth", Some(remote_at("auth", tip))))),
+    SyncEvent::UnappliedBranchesFound {
+      branches: vec![unapplied("docs", Some(remote_at("docs", tip)))],
+    },
+  ]
+}
+
+/// The remote tips the table shows of `auth`, `ui`, the stack branch of `auth` and the unapplied `docs`
+fn tips(state: &TableState) -> [String; 4] {
+  [shown_tip(state, "auth"), shown_tip(state, "ui"), stack_tip(state, "auth"), unapplied_tip(state, "docs")].map(Option::unwrap_or_default)
+}
+
+/// The outcome of a push goes into the table without a sync: the branch, the stack branch and the unapplied branch it
+/// sent. Written while a sync runs, it is newer than the remote statuses that run computes, and a run that fails restores
+/// the table with it; a run that starts after it shows what it computes
+#[test]
+fn the_outcome_of_a_push_stays_over_the_remote_statuses_of_a_sync_that_started_before_it() {
+  let mut state = synced_with_remotes();
+  state.begin_push(&pushed_subjects());
+  state.end_push(&pushed_subjects(), Some(pushed_statuses("pushed")));
+  assert_eq!(tips(&state), ["pushed", "synced", "pushed", "pushed"], "a push without a sync");
+
+  state.begin_sync();
+  state.begin_push(&pushed_subjects());
+  state.end_push(&pushed_subjects(), Some(pushed_statuses("pushed again")));
+  for event in remote_events("computed before the push") {
+    state.apply(event);
+  }
+  assert_eq!(
+    tips(&state),
+    ["pushed again", "computed before the push", "pushed again", "pushed again"],
+    "the run started before the push: its statuses of what the push sent are older"
+  );
+  state.finish_sync(Err(ApiError::new(ErrorCode::Internal, "the sync failed")));
+  assert_eq!(tips(&state), ["pushed again", "synced", "pushed again", "pushed again"], "restored with the push");
+
+  state.begin_sync();
+  for event in remote_events("computed after the push") {
+    state.apply(event);
+  }
+  state.finish_sync(Ok(()));
+  assert_eq!(tips(&state), ["computed after the push"; 4]);
+}
+
+/// While a push of a branch runs, a sync shows no remote status of what it sends; the push's outcome replaces the one the
+/// sync computed, and a push that fails leaves that one, the newest the session knows. Two pushes of one branch run until
+/// both ended
+#[test]
+fn a_sync_shows_no_remote_status_of_a_running_push_and_a_failed_push_leaves_the_one_it_computed() {
+  let mut state = synced_with_remotes();
+  state.begin_push(&pushed_subjects());
+  run_sync(&mut state, remote_events("fetched"));
+  assert_eq!(tips(&state), ["synced", "fetched", "synced", "synced"], "only ui, which no push sends");
+  state.end_push(&pushed_subjects(), None);
+  assert_eq!(tips(&state), ["fetched"; 4], "the push failed: what the sync computed");
+
+  state.begin_push(&pushed_subjects());
+  state.begin_push(&pushed_subjects());
+  run_sync(&mut state, remote_events("fetched again"));
+  state.end_push(&pushed_subjects(), Some(pushed_statuses("pushed")));
+  assert_eq!(tips(&state), ["pushed", "fetched again", "pushed", "pushed"]);
+  run_sync(&mut state, remote_events("while the second push runs"));
+  assert_eq!(tips(&state), ["pushed", "while the second push runs", "pushed", "pushed"]);
+  state.end_push(&pushed_subjects(), None);
+  assert_eq!(tips(&state), ["while the second push runs"; 4]);
+}
+
+/// A deleted archived or unapplied branch leaves its section at once; a sync that listed it before the deletion does not
+/// bring it back, nor does one that fails
+#[test]
+fn a_deleted_archived_or_unapplied_branch_stays_deleted_by_the_sync_that_listed_it_before_and_by_one_that_fails() {
+  let info = |name: &str| {
+    let mut info = integrated_branch_info();
+    info.name = name.to_string();
+    info
+  };
+  let archived = |names: &[&str]| SyncEvent::ArchivedBranchesFound {
+    branch_names: names.iter().map(ToString::to_string).collect(),
+    newly_archived: names.iter().map(ToString::to_string).collect(),
+  };
+  let listed = || SyncEvent::UnappliedBranchesFound {
+    branches: vec![unapplied("docs", None), unapplied("api", None)],
+  };
+  let mut state = TableState::new();
+  run_sync(
+    &mut state,
+    vec![
+      archived(&["test/archived/a", "test/archived/b"]),
+      SyncEvent::BranchIntegrationDetected { info: info("test/archived/a") },
+      listed(),
+    ],
+  );
+  state.remove_archived("test/archived/a");
+  let section = &state.sections().archived;
+  assert_eq!(
+    (&section.names[..], &section.newly_archived[..]),
+    (&["test/archived/b".to_string()][..], &["test/archived/b".to_string()][..])
+  );
+  assert!(section.integration.is_empty());
+
+  state.begin_sync();
+  state.remove_archived("test/archived/b");
+  state.remove_unapplied("test/unapplied/docs");
+  state.apply(archived(&["test/archived/b"]));
+  state.apply(SyncEvent::BranchIntegrationDetected { info: info("test/archived/b") });
+  state.apply(listed());
+  let names = |state: &TableState| {
+    let sections = state.sections();
+    let unapplied: Vec<String> = sections.unapplied.iter().map(|branch| branch.branch.clone()).collect();
+    (sections.archived.names.clone(), sections.archived.integration.len(), unapplied)
+  };
+  assert_eq!(names(&state), (Vec::new(), 0, vec!["api".to_string()]));
+  state.finish_sync(Err(ApiError::new(ErrorCode::Internal, "the sync failed")));
+  assert_eq!(names(&state), (Vec::new(), 0, vec!["api".to_string()]), "restored without them");
 }

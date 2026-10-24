@@ -1,5 +1,6 @@
-import type { Locator, Page } from "@playwright/test"
+import type { Locator, Page, Request } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
+import { TEST_SERVER_URL } from "./test-server-url"
 import { sendProgress } from "./wait-helpers"
 
 export interface DroppedCommit {
@@ -54,7 +55,7 @@ export interface PushRequest {
 /** The time of the newest commit of the templates: the page runs on a fixed clock */
 export const PUSH_TIME = 1704139200
 
-/** What `push_branch` answers: the outcome with the remote status after the push */
+/** The outcome of `push_branch`: the remote status after the push */
 export function pushOutcome(branchName: string, result: PushResult = {}) {
   const unpushedCommits = result.unpushedCommits ?? []
   const commitsBehind = result.commitsBehind ?? 0
@@ -88,6 +89,36 @@ export const STACKED_BRANCHES = ["auth", "login", "session", "oauth", "docs"]
 /** The branches of the `stack_island` template: its stack from `air`, and `auth`, `login` and `docs` */
 export const STACK_ISLAND_BRANCHES = ["air", "bazel", "bridge", "runtime", "side-fix", "deploy", "side-test", "auth", "login", "docs"]
 
+type RemoteStatus = ReturnType<typeof pushOutcome>["remoteStatus"]
+
+/**
+ * What `push_branch` or `push_branches` answer for a push the page answered, `outcome`: the session of the repository
+ * gets its remote statuses first, as the app's push gives them (`POST /sessions/pushed-in-page`, the server's own
+ * `Sessions::push`), and the answer names the version of the view whose patch has them, which the page waits for as it
+ * waits after the app's push. `request` is the page's request of the push, whose repository the server holds meanwhile
+ */
+export async function answeredInSession<T extends { remoteStatus: RemoteStatus } | { remoteStatuses: RemoteStatus[] }>(
+  params: { repositoryPath?: unknown },
+  branches: readonly PushRequest[],
+  outcome: T,
+  request?: Request,
+): Promise<{ outcome: T; version: unknown }> {
+  const repositoryId = request?.headers()["x-repository-id"]
+  const response = await fetch(`${TEST_SERVER_URL}/sessions/pushed-in-page`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(repositoryId === undefined ? {} : { "X-Repository-Id": repositoryId }) },
+    body: JSON.stringify({
+      repositoryPath: params.repositoryPath,
+      branches,
+      remoteStatuses: "remoteStatus" in outcome ? [outcome.remoteStatus] : outcome.remoteStatuses,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(`The session did not take the push: ${response.status} ${await response.text()}`)
+  }
+  return { outcome, version: await response.json() }
+}
+
 /**
  * The remote statuses of `names` as a push of each left them (`pushOutcome`), for the remote statuses the next sync
  * reports (`SyncOverrides.remote`)
@@ -113,7 +144,8 @@ function resultKey(request: PushRequest): string {
 
 /**
  * Answers the pushes in the page (the E2E server has no remote), `push_branch` and the one atomic push of a stack
- * (`push_branches`), with the remote status of each branch after it. A stack push whose result for a branch is
+ * (`push_branches`), with the remote status of each branch after it, which the session of the repository gets as from
+ * the app's push (`answeredInSession`). A stack push whose result for a branch is
  * `remoteMoved` refuses all of its branches: the outcome names that branch, and every branch answers its result as the
  * status fetched after the refusal (give the others their `unpushedCommits`: nothing of theirs was pushed); the stack
  * branch of a whole stack answers its results by `wholeStackResultKey`. `branches`
@@ -131,13 +163,13 @@ async function routePushes(page: Page, results: PushResults): Promise<{ branches
     return list[Math.min(pushes, list.length - 1)]
   }
   await page.route("**/invoke/push_branch", async route => {
-    const request = route.request().postDataJSON() as PushRequest
+    const request = route.request().postDataJSON() as PushRequest & { repositoryPath: string }
     const result = next(request)
     await whilePushing(page, route.request().headers()["x-progress-channel"], [result])
-    await route.fulfill({ json: pushOutcome(request.branchName, result) })
+    await route.fulfill({ json: await answeredInSession(request, [request], pushOutcome(request.branchName, result), route.request()) })
   })
   await page.route("**/invoke/push_branches", async route => {
-    const request = route.request().postDataJSON() as { branches: PushRequest[] }
+    const request = route.request().postDataJSON() as { repositoryPath: string; branches: PushRequest[] }
     stackPushes.push(request.branches)
     const answered = request.branches.map(branch => ({ name: branch.branchName, wholeStack: branch.wholeStack === true, result: next(branch) }))
     await whilePushing(
@@ -147,9 +179,8 @@ async function routePushes(page: Page, results: PushResults): Promise<{ branches
     )
     const remoteStatuses = answered.map(it => pushOutcome(it.name, it.result).remoteStatus)
     const moved = answered.find(it => it.result?.outcome === "remoteMoved")
-    await route.fulfill({
-      json: moved === undefined ? { type: "pushed", remoteStatuses } : { type: "remoteMoved", branchName: moved.name, wholeStack: moved.wholeStack, remoteStatuses },
-    })
+    const outcome = moved === undefined ? { type: "pushed", remoteStatuses } : { type: "remoteMoved", branchName: moved.name, wholeStack: moved.wholeStack, remoteStatuses }
+    await route.fulfill({ json: await answeredInSession(request, request.branches, outcome, route.request()) })
   })
   return { branches, stackPushes }
 }

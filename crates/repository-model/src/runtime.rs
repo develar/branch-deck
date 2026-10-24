@@ -23,7 +23,7 @@ use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::TableState;
 use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::session::{SyncReason, SyncState, SyncStep, TableView};
+use domain_types::session::{SyncReason, SyncState, SyncStep, TableView, Version};
 use domain_types::stack::BlockReason;
 use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -57,7 +57,11 @@ pub(crate) enum Message {
     reason: SyncReason,
     waiter: Waiter,
   },
-  Apply(Box<dyn FnOnce(&mut TableState) + Send>),
+  /// A change of the table outside a sync; `reply` gets the version of the view after its patch
+  Apply {
+    change: Box<dyn FnOnce(&mut TableState) + Send>,
+    reply: oneshot::Sender<Version>,
+  },
   /// An event of the run `run`
   Event {
     run: RunId,
@@ -168,9 +172,10 @@ impl Actor {
         let decision = self.scheduler.request(reason, waiter, self.is_watched());
         self.follow(decision);
       }
-      Message::Apply(change) => {
+      Message::Apply { change, reply } => {
         change(&mut self.state);
         self.flush();
+        let _ = reply.send(self.view.version());
       }
       Message::Event { run, event } => self.apply_event(run, *event),
       Message::InputsRead(inputs) => {

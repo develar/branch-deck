@@ -6,8 +6,8 @@ import { expandBranch } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard, testCopyButtonOnHover } from "../helpers/clipboard-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
-import { runAndWaitForUpdate, syncBranches } from "../helpers/sync-helpers"
-import { holdCommand, waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
+import { finishedSyncCount, runAndWaitForUpdate, syncBranches } from "../helpers/sync-helpers"
+import { holdCommand, recordCommand, waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
 
 // Basic foundation test for ArchivedBranchTableCard
 // Sets up a repo with archived branches and snapshots the card
@@ -100,7 +100,7 @@ test.describe("Archived Branches Table", () => {
     await captureHtmlSnapshot(page.locator('[data-testid="branch-creator-root"]'), "branch-creator-with-empty-state-and-archived")
   })
 
-  test("should delete archived branch via context menu", async ({ page }) => {
+  test("should delete an archived branch from its menu, the row gone with no sync after it", async ({ page }) => {
     const card = page.getByTestId("archived-branches-card")
     await expect(card).toBeVisible()
 
@@ -114,6 +114,8 @@ test.describe("Archived Branches Table", () => {
     const branchRow = page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-partial"]')
     await expect(branchRow).toBeVisible()
 
+    const syncs = await recordCommand(page, "sync")
+    const synced = await finishedSyncCount(page)
     // Right-click to open context menu
     await openContextMenu(page, branchRow)
 
@@ -137,10 +139,12 @@ test.describe("Archived Branches Table", () => {
     // Wait for form to disappear after deletion
     await inlineDeleteConfirmation.waitForHidden(page)
 
-    // The row disappears when the automatic sync reports the remaining archived branches;
-    // waiting for the row (not for the sync button to flip to disabled) is robust when the sync is fast
+    // the patch of the session removes the row: no sync runs for a deletion
+    await expect(page.locator("[data-slot=toast-title]", { hasText: "Deleted the archived branch feature-partial" })).toBeVisible()
     await expect(page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-partial"]')).not.toBeVisible()
-    await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
+    await expect(page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-full"]')).toBeVisible()
+    expect(syncs).toEqual([])
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
 
     // Capture HTML snapshot of the archived branches card after deletion
     await captureHtmlSnapshot(card, "archived-branches-after-deletion")

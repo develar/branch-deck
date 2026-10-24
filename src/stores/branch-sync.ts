@@ -171,7 +171,9 @@ export interface BranchSyncState {
    * (`stackReadinessKey`, a name no branch has), by `pushKey` of the repository the push started in: a push that ends
    * after a switch of the repository marks nothing of the branch of the same name there; how far each is lives in
    * `pushProgressStore`, so its ticks don't re-run the selectors of this store. Owned by push, never touched by sync: a
-   * sync rebuilds `branches` and must not reset a running push.
+   * sync rebuilds `branches` and must not reset a running push. Only the spinner, of a push that waits for a sync too:
+   * the remote status a push leaves comes in a patch of the session, which orders it against the syncs (Rust's
+   * `TableState::end_push`)
    */
   pushingBranches: Readonly<Record<string, true>>
   /**
@@ -967,19 +969,7 @@ export function getMoveTargets(sourceBranch: string | null, limit: number): stri
   return moveTargetsIn(branchSyncStore.getState(), sourceBranch, limit)
 }
 
-// ---- branch updates ----
-
-/** Immutable update of a single branch; no-op if the branch is unknown or the updater returns the same record. */
-function updateBranch(name: string, updater: (branch: Branch) => Branch): void {
-  branchSyncStore.setState(state => {
-    const branch = state.branches[name]
-    if (branch === undefined) {
-      return state
-    }
-    const next = updater(branch)
-    return next === branch ? state : { branches: { ...state.branches, [name]: next } }
-  })
-}
+// ---- pushes: the spinner state of the page, the remote status is the session's ----
 
 /** The key of a push in flight (`pushingBranches`): the repository it started in and the branch */
 function pushKey(repositoryPath: string, name: string): string {
@@ -1034,32 +1024,6 @@ export function setBranchPushing(name: string, isPushing: boolean, repositoryPat
   }
 }
 
-/**
- * By `pushKey`: the pushes that wait (for a sync, a rewrite) with the spinner of a push and send nothing yet. A push
- * reads its branch once the wait ends, so the remote status a sync computes meanwhile is the one it must push over
- */
-const waitingPushes = new Set<string>()
-
-/**
- * Marks a push of the branch in `repositoryPath` as waiting before it sends, or the wait as ended: the row shows the
- * push (`isBranchPushing`, and a stack push waits for it), and the remote status of a sync meanwhile still reaches the
- * row, unlike the one a sync computes while the push sends
- */
-export function setBranchPushWaiting(name: string, waiting: boolean, repositoryPath: string): void {
-  const key = pushKey(repositoryPath, name)
-  if (waiting) {
-    waitingPushes.add(key)
-  } else {
-    waitingPushes.delete(key)
-  }
-  setBranchPushing(name, waiting, repositoryPath)
-}
-
-/** Whether a push of the branch in the repository sends it now: a push that only waits does not */
-export function isBranchSending(name: string, repositoryPath: string): boolean {
-  return isBranchPushing(name, repositoryPath) && !waitingPushes.has(pushKey(repositoryPath, name))
-}
-
 /** Whether a stack push started from `startedFrom` runs in the repository (by default the selected one) */
 export function isStackPushing(startedFrom: string, repositoryPath: string = selectedRepositoryPath()): boolean {
   return Object.hasOwn(branchSyncStore.getState().stackPushes, pushKey(repositoryPath, startedFrom))
@@ -1098,61 +1062,6 @@ export function setBranchesPushProgress(names: readonly string[], progress: Push
   if (pushing.length > 0) {
     pushProgressStore.setState(Object.fromEntries(pushing.map(name => [pushKey(repositoryPath, name), progress])))
   }
-}
-
-/**
- * The remote status of the branch after a push of it in `repositoryPath`; nothing once another repository is selected:
- * its branch of the same name is another branch
- */
-export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus, repositoryPath: string): void {
-  if (repositoryPath === selectedRepositoryPath()) {
-    updateBranch(name, branch => withRemoteStatus(branch, remoteStatus))
-  }
-}
-
-/**
- * The remote status of the stack branch of `root` after a push of it in `repositoryPath` (`pushWholeStack`), until the
- * next sync reports it again; nothing for a stack branch the store doesn't have, nor once another repository is selected
- */
-export function setStackBranchRemoteStatus(root: string, remoteStatus: RemoteStatus, repositoryPath: string): void {
-  const stack = branchSyncStore.getState().stackBranches[root]
-  if (repositoryPath !== selectedRepositoryPath() || stack === undefined || (stack.remoteStatus !== null && sameRemoteStatus(stack.remoteStatus, remoteStatus))) {
-    return
-  }
-  branchSyncStore.setState(state => ({ stackBranches: { ...state.stackBranches, [root]: { ...stack, remoteStatus } } }))
-}
-
-/** The branch with `remoteStatus`; the same record when its status has the same fields, so no subscriber re-renders */
-function withRemoteStatus(branch: Branch, remoteStatus: RemoteStatus): Branch {
-  return branch.remoteStatus !== null && sameRemoteStatus(branch.remoteStatus, remoteStatus) ? branch : { ...branch, remoteStatus }
-}
-
-function sameRemoteStatus(a: RemoteStatus, b: RemoteStatus): boolean {
-  return (
-    a.exists === b.exists &&
-    a.commitsAhead === b.commitsAhead &&
-    a.commitsBehind === b.commitsBehind &&
-    a.commitsAmended === b.commitsAmended &&
-    a.commitsRestacked === b.commitsRestacked &&
-    a.commitsLanded === b.commitsLanded &&
-    a.commitsReworded === b.commitsReworded &&
-    a.ancestorCommitsAhead === b.ancestorCommitsAhead &&
-    a.myCommitsAhead === b.myCommitsAhead &&
-    a.fastForward === b.fastForward &&
-    a.lastPushTime === b.lastPushTime &&
-    a.remoteTip === b.remoteTip &&
-    sameItems(a.unpushedCommits, b.unpushedCommits) &&
-    a.droppedCommits.length === b.droppedCommits.length &&
-    a.droppedCommits.every((commit, index) => sameDroppedCommit(commit, b.droppedCommits[index]!))
-  )
-}
-
-function sameDroppedCommit(a: DroppedCommit, b: DroppedCommit): boolean {
-  return a.id === b.id && a.subject === b.subject && a.author === b.author && a.authorTime === b.authorTime
-}
-
-function sameItems(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((item, index) => item === b[index])
 }
 
 type RemoteStatusFields = Pick<

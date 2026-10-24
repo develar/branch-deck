@@ -3,8 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
-import { closeSession, openSession, requestSessionSync, setSessionWindowFocus, whenSessionReady } from "@/model/store"
-import { branchSyncStore, getBranch, getStackBranch, setBranchPushing, setBranchPushWaiting, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
+import { closeSession, openSession, requestSessionSync, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
+import { branchSyncStore, getBranch, getStackBranch, setBranchPushing, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
 import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
 
 const { toasts, archived, syncRecords } = vi.hoisted(() => ({
@@ -316,31 +316,37 @@ describe("the table of the view", () => {
     expect(getBranch("a")!.commits).toEqual([expect.objectContaining({ originalHash: "a1", hash: "a1-new", status: "Created" })])
   })
 
-  it("shows the remote status of a patch, except while a push of the branch sends: the push's result is the one to show", async () => {
+  it("shows the remote status every patch brings, also while a push of the branch runs: Rust orders the push's outcome against the syncs", async () => {
     await open()
     await send({ ...grouping("a", "b"), branches: { ...grouping("a", "b").branches, a: { ...grouping("a").branches!.a!, remote: { status: fakeRemoteStatus("a", 1) } } } })
     const known = getBranch("a")!.remoteStatus
     expect(known).toEqual(toRemoteStatus(fakeRemoteStatus("a", 1)))
-    setBranchPushing("a", true, "/repo")
-    await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 2) } }, b: { remote: { status: fakeRemoteStatus("b", 3) } } } })
-    expect(getBranch("a")!.remoteStatus).toBe(known)
-    expect(getBranch("b")!.remoteStatus!.commitsAhead).toBe(3)
-    setBranchPushing("a", false, "/repo")
-    // a patch without a remote part keeps the status the branch shows
+    // a patch without a remote part keeps the status the branch shows, the same object
     await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
     expect(getBranch("a")!.remoteStatus).toBe(known)
-    await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 4) } } } })
-    expect(getBranch("a")!.remoteStatus!.commitsAhead).toBe(4)
+    // the spinner of a push (one that waits for a sync too) is the page's; the status is the session's
+    setBranchPushing("a", true, "/repo")
+    await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 2, "moved") } }, b: { remote: { status: fakeRemoteStatus("b", 3) } } } })
+    expect(getBranch("a")!.remoteStatus).toMatchObject({ remoteTip: "moved", commitsAhead: 2 })
+    expect(getBranch("b")!.remoteStatus!.commitsAhead).toBe(3)
+    setBranchPushing("a", false, "/repo")
   })
 
-  it("applies the remote status of a sync that a push of the branch waits for: the push sends over it after the wait", async () => {
+  it("lets a command whose result the session applied wait for the patch of the version it answers", async () => {
     await open()
     await send(grouping("a"))
-    setBranchPushWaiting("a", true, "/repo")
-    // a fetch moved the remote branch: the sync the push waits for brings its new tip
-    await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 2, "moved") } } } })
-    expect(getBranch("a")!.remoteStatus).toMatchObject({ remoteTip: "moved", commitsAhead: 2 })
-    setBranchPushWaiting("a", false, "/repo")
+    const at = fakeSessions.view("/repo").version
+    const next = { epoch: at.epoch, seq: at.seq + 1 }
+    let reached = false
+    const waiting = whenSessionViewAt("/repo", next).then(() => (reached = true))
+    await Promise.resolve()
+    expect(reached).toBe(false)
+    await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 0, "pushed") } } } })
+    await waiting
+    expect(getBranch("a")!.remoteStatus!.remoteTip).toBe("pushed")
+    // no version (no session was open) and another repository wait for nothing
+    await whenSessionViewAt("/repo", null)
+    await whenSessionViewAt("/other", { epoch: at.epoch, seq: at.seq + 5 })
   })
 
   it("keeps the stack branches the patches report until one changes or removes them", async () => {

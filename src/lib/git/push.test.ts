@@ -109,6 +109,29 @@ vi.mock("@/components/ui/toast", () => ({
   },
 }))
 
+/**
+ * What the session of the repository does with the outcome of a push: the remote statuses go into the rows and the
+ * stack branches it sent, which the page reads from the patch (`whenSessionViewAt`, mocked as resolved)
+ */
+function applyToSession(branches: readonly { branchName: string; wholeStack?: boolean }[], statuses: readonly RemoteStatusFields[]): void {
+  branches.forEach((branch, index) => {
+    const status = statuses[index]
+    if (status === undefined) {
+      return
+    }
+    if (branch.wholeStack === true) {
+      const stack = stores.stackBranches[branch.branchName]
+      if (stack !== undefined) {
+        stores.stackBranches[branch.branchName] = { ...stack, remoteStatus: remoteStatusOf(status) }
+      }
+    } else if (stores.branches[branch.branchName] !== undefined) {
+      stores.branches[branch.branchName] = { ...stores.branches[branch.branchName]!, remoteStatus: remoteStatusOf(status) }
+    }
+  })
+}
+
+vi.mock("@/model/store", () => ({ whenSessionViewAt: async () => {} }))
+
 vi.mock("@/lib/bindings", () => ({
   commands: {
     pushBranch: async (params: { branchName: string; expectedRemote: string | null }) => {
@@ -116,13 +139,9 @@ vi.mock("@/lib/bindings", () => ({
       stores.expectedRemotes.push(params.expectedRemote)
       stores.whilePushing()
       const moved = stores.movedRemotes.shift()
-      return {
-        status: "ok",
-        data: {
-          type: moved === undefined ? "pushed" : "remoteMoved",
-          remoteStatus: { branchName: params.branchName, remoteExists: true, remoteTip: moved?.remoteTip ?? "tip", commitsBehind: moved?.commitsBehind ?? 0 },
-        },
-      }
+      const remoteStatus = { branchName: params.branchName, remoteExists: true, remoteTip: moved?.remoteTip ?? "tip", commitsBehind: moved?.commitsBehind ?? 0 }
+      applyToSession([params], [remoteStatus])
+      return { status: "ok", data: { outcome: { type: moved === undefined ? "pushed" : "remoteMoved", remoteStatus }, version: null } }
     },
     /** One push of the branches, "push auth login@<tip>" */
     /** One push of the branches, "push auth login@<tip> stack:auth" (the stack branch of the whole stack of auth) */
@@ -148,12 +167,16 @@ vi.mock("@/lib/bindings", () => ({
           : { branchName: branch.branchName, remoteExists: branch.expectedRemote !== null, remoteTip: branch.expectedRemote }
       })
       const wholeStack = moved?.branch.startsWith("stack:") === true
+      applyToSession(params.branches, remoteStatuses)
       return {
         status: "ok",
-        data:
-          moved === undefined
-            ? { type: "pushed", remoteStatuses }
-            : { type: "remoteMoved", branchName: wholeStack ? moved.branch.slice("stack:".length) : moved.branch, wholeStack, remoteStatuses },
+        data: {
+          outcome:
+            moved === undefined
+              ? { type: "pushed", remoteStatuses }
+              : { type: "remoteMoved", branchName: wholeStack ? moved.branch.slice("stack:".length) : moved.branch, wholeStack, remoteStatuses },
+          version: null,
+        },
       }
     },
   },
@@ -163,9 +186,6 @@ vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ baselineBranch: "origin/master" }) },
   getBranch: (name: string) => stores.branches[name],
   getStackBranch: (root: string) => stores.stackBranches[root],
-  setStackBranchRemoteStatus: (root: string, status: RemoteStatus) => {
-    stores.stackBranches[root] = { ...stores.stackBranches[root]!, remoteStatus: status }
-  },
   getStackDescendants: (name: string) => stores.descendants[name] ?? [],
   getUnparkedStackDescendants: (name: string) => stores.descendants[name] ?? [],
   isBranchPushing: () => false,
@@ -173,17 +193,24 @@ vi.mock("@/stores/branch-sync", () => ({
   whenBranchPushed: async () => {},
   isStackPushing: (name: string) => Object.hasOwn(stores.stackPushes, name),
   setBranchPushing: () => {},
-  setBranchPushWaiting: () => {},
   setStackPush: (startedFrom: string, names: readonly string[] | null) => {
     const { [startedFrom]: _, ...others } = stores.stackPushes
     stores.stackPushes = names === null ? others : { ...others, [startedFrom]: names }
   },
   setBranchPushProgress: () => {},
   setBranchesPushProgress: () => {},
-  setBranchRemoteStatus: (name: string, status: RemoteStatus) => {
-    stores.branches[name] = { ...stores.branches[name]!, remoteStatus: status }
-  },
-  toRemoteStatus: (status: { remoteExists: boolean; remoteTip: string; commitsBehind?: number }): RemoteStatus => ({
+  toRemoteStatus: remoteStatusOf,
+}))
+
+/** The remote status of the fields the mocked pushes answer */
+interface RemoteStatusFields {
+  remoteExists: boolean
+  remoteTip: string | null
+  commitsBehind?: number
+}
+
+function remoteStatusOf(status: RemoteStatusFields): RemoteStatus {
+  return {
     exists: status.remoteExists,
     unpushedCommits: [],
     // a remote that moved still lacks the branch's commit
@@ -199,8 +226,8 @@ vi.mock("@/stores/branch-sync", () => ({
     lastPushTime: 1,
     remoteTip: status.remoteTip,
     droppedCommits: [],
-  }),
-}))
+  }
+}
 
 vi.mock("@/stores/patronus", () => ({
   getPushHold: (name: string) => {

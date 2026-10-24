@@ -16,7 +16,6 @@ import { copyFocusedBranchRow } from "@/lib/clipboard"
 import { formatCommitCount } from "@/lib/commit"
 import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
-import { syncBranches } from "@/stores/branch-sync"
 import { inlineSurface, useActiveInlineForRow, withRowProcessing } from "@/stores/inline-row-action"
 import { useObjectBusy, useSurfaceBusy } from "@/stores/operations"
 import type { UnappliedBranch } from "@/stores/unapplied-branches"
@@ -152,23 +151,13 @@ function UnappliedBranchMenuItems({ name, Items }: { name: string; Items: Compon
   return <Items groups={useUnappliedBranchMenu(name)} />
 }
 
+/** Deletes the unapplied branch; the session's patch removes its row, no sync follows */
 async function confirmDelete(name: string): Promise<void> {
   const branch = getUnappliedBranch(name)?.branch ?? name
-  const deleted = await withRowProcessing(
-    name,
-    { id: "delete-unapplied", kind: "remote", label: `Deleting ${branch}` },
-    async () => {
-      await deleteUnappliedBranch(name)
-      return true
-    },
-    {
-      success: () => ({ title: `Deleted the unapplied branch ${branch}` }),
-      errorTitle: () => `Cannot delete the unapplied branch ${branch}`,
-      // the typed name stays
-      keepFormOnError: true,
-    },
-  )
-  if (deleted) {
-    void syncBranches("afterRewrite")
-  }
+  await withRowProcessing(name, { id: "delete-unapplied", kind: "remote", label: `Deleting ${branch}` }, () => deleteUnappliedBranch(name), {
+    success: () => ({ title: `Deleted the unapplied branch ${branch}` }),
+    errorTitle: () => `Cannot delete the unapplied branch ${branch}`,
+    // the typed name stays
+    keepFormOnError: true,
+  })
 }

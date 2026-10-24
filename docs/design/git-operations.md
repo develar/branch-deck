@@ -2977,11 +2977,15 @@ lacks, and its pull request showing the parent's commits.
    the progress of each of its branches: every row shows it, the row it started from names it ("Pushing 7 branches
    45%").
 4. Pushed: one `for-each-ref` reads the local and the remote tips of every branch, one `reflog` their push times
-   (`compute_remote_statuses`); no walk, each remote branch is at its tip. The page updates every row, records an
-   Activity entry per branch, refreshes the pull requests once and shows one toast.
+   (`compute_remote_statuses`); no walk, each remote branch is at its tip. The session of the repository, under the key
+   the command resolved (the path and the prefix of the push), gets the outcome (`Sessions::push` around the guarded
+   push, no git process): the statuses go into the rows, the stack branch and the unapplied branch they are of as one
+   patch, and the answer names its version (`ViewAnswer`), which the page waits for. Then it records an Activity entry
+   per branch, refreshes the pull requests once and shows one toast; no sync follows, an unapplied branch's push
+   neither ([Repository view](#repository-view): how a push is ordered against a sync).
 5. Refused: nothing was pushed. Every branch is fetched, their statuses computed the same way, and the first branch
-   (parents first) whose fetched head is not its lease is named (`PushBranchesOutcome::RemoteMoved`): every row shows
-   what its remote has now. When that remote has no commits its branch lacks (`pushesOverMovedRemote`), the page pushes
+   (parents first) whose fetched head is not its lease is named (`PushBranchesOutcome::RemoteMoved`): the session gets
+   those statuses as it gets a push's, so every row shows what its remote has now. When that remote has no commits its branch lacks (`pushesOverMovedRemote`), the page pushes
    the stack again at once, leased on the fetched heads, once; else the toast of that branch offers its push over it.
    When every lease held, the remote refused for another reason: an error, as for one branch.
 6. The stack branch of the whole stack (`{prefix}/stack/<root>`) goes the same way, as a branch of `push_branches`
@@ -2994,8 +2998,8 @@ lacks, and its pull request showing the parent's commits.
    of it runs at a time: a second request while one runs joins it (`runningStackBranchPushes`) and then pushes only
    what the remote still lacks, so no `push_branches` goes for a stack branch its remote already has.
 
-Code: `crates/sync-core/src/push.rs`, `crates/repository-model/src/push_guard.rs`, `src-tauri/src/commands/push.rs`,
-`src/lib/git/stack-push.ts`.
+Code: `crates/sync-core/src/push.rs`, `crates/repository-model/src/push_guard.rs`, `crates/repository-model/src/session.rs`
+(`Sessions::push`), `src-tauri/src/commands/push.rs`, `src/lib/git/stack-push.ts`.
 
 #### Patronus review pre-check
 
@@ -3185,6 +3189,23 @@ snapshot cost less than its `SyncEvent`s, and a sync that changes nothing costs 
 B15 of [Rust as the Domain Authority](rust-domain-authority.md#бюджеты-производительности)). `SyncReport::retry` says
 that another process moved a virtual branch or a stack branch while the sync built it (`BranchMove::MovedElsewhere`):
 the branch reports an error, and the session syncs once more.
+
+Besides its syncs, the session writes into the table what its own operations did (`TableState::begin_push`,
+`end_push`, `remove_archived`, `remove_unapplied`, through `Sessions::push` and `Sessions::apply`, which answer the
+version of their patch): the remote statuses a push left (pushed, or fetched when the remote moved), keyed by what it
+sent (`RemoteSubject`: a virtual branch, the stack branch of a whole stack, an unapplied branch by the branch it was),
+and the deletion of an archived or unapplied branch. Such a write is newer than every event of the run in flight when
+it came (the writes are numbered against the start of each run), so that run never undoes it, neither a remote status
+it computed before the push nor a branch it listed before the deletion, and a run that fails or is deferred brings back
+the table of before with the writes since. While a push of a subject runs (from its command on, so also while it
+waits for the lock or for another push of its ref; a push the page holds back until a sync ends does not run yet), a
+sync's remote status of it is kept aside: the push's outcome replaces it, and a push that fails, or whose command
+went away, leaves it. The page writes no remote status: it waits for the version its command answers (`ViewAnswer`,
+`whenSessionViewAt` in `src/model/store.ts`) and keeps only the spinner of a push (`pushingBranches`, `stackPushes`).
+No sync follows a push, an unapplied branch's push or a deletion (C3, C12 of [Rust as the Domain
+Authority](rust-domain-authority.md#бюджеты-конкурентности)). A push the page of an E2E test answers (the templates
+have no remote) reaches the session through `POST /sessions/pushed-in-page`, the same `Sessions::push` with the
+statuses of the page's answer.
 
 The sessions of the process (`session.rs`, `runtime.rs`, `sync_scheduler.rs`) run that state: one per worktree and
 branch prefix the caller resolved (`SessionKey`; two worktrees of one repository are two sessions), each an actor on

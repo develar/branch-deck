@@ -4,15 +4,17 @@ import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
 import { reportPushError } from "@/lib/git/push"
 import { showToast } from "@/lib/toast-message"
-import { branchSyncStore, syncBranches } from "@/stores/branch-sync"
+import { whenSessionViewAt } from "@/model/store"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { branchSubject, pushLockWaitChannel, runOperation } from "@/stores/operations"
 import { vcsRequestFactory } from "@/stores/repository"
 import { getUnappliedBranch } from "@/stores/unapplied-branches"
 
 /**
  * Pushes the unapplied branch `name` (its full name) to the remote under its own name, so the remote keeps a copy:
- * leased on the remote head of its status (none: the remote branch must not exist), then the sync that shows its new
- * remote status. It lands nothing; a pull request of its virtual branch stays as it was. A remote operation of the row
+ * leased on the remote head of its status (none: the remote branch must not exist); its row shows the remote status
+ * the push left from the patch of the session, with no sync. It lands nothing; a pull request of its virtual branch
+ * stays as it was. A remote operation of the row
  */
 export async function pushUnappliedBranch(name: string): Promise<void> {
   const branch = getUnappliedBranch(name)
@@ -40,12 +42,12 @@ export async function pushUnappliedBranch(name: string): Promise<void> {
         reportPushError(notifyError, branch.branch, result.error)
         return
       }
-      if (result.data.type === "remoteMoved") {
+      await whenSessionViewAt(request.repositoryPath, result.data.version)
+      if (result.data.outcome.type === "remoteMoved") {
         notifyError(failureTitle, `The remote branch ${name} changed since the last fetch: nothing was pushed. Its status shows it now; a push again replaces it`)
       } else {
         showToast({ title: `Pushed ${branch.branch}`, description: `The remote keeps it as ${name}` })
       }
-      await syncBranches("afterRewrite")
     },
     reason => toast.add({ type: "info", title: failureTitle, description: reason }),
   )

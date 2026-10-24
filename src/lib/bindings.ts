@@ -7,23 +7,25 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
-	 *  Pushes a branch to the remote, replacing the remote branch only as the user saw it, and returns its new remote
-	 *  status; a remote that moved is fetched and returned instead. Under the repository lock, and refused in Rust as `bd
-	 *  push` refuses it (`push_guard`): a branch the last sync did not build, a parked branch or one built on parked, one a
-	 *  merged Safe Push landed whole, one a running Safe Push holds (the robots as Rust reads them). `progress` receives how
-	 *  far the push is, and whom it waits for while another holder has the repository lock (as long as it lives);
-	 *  `cancel_lock_wait` of the channel's id ends that wait, with nothing pushed.
+	 *  Pushes a branch to the remote, replacing the remote branch only as the user saw it, and answers its new remote
+	 *  status; a remote that moved is fetched and answered instead. The session of the repository gets the outcome
+	 *  (`Sessions::push`): the answer names the version of the view whose patch has it. Under the repository lock, and
+	 *  refused in Rust as `bd push` refuses it (`push_guard`): a branch the last sync did not build, a parked branch or one
+	 *  built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (the robots as Rust reads them).
+	 *  `progress` receives how far the push is, and whom it waits for while another holder has the repository lock (as long
+	 *  as it lives); `cancel_lock_wait` of the channel's id ends that wait, with nothing pushed.
 	 */
-	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<PushOutcome, ApiError>(__TAURI_INVOKE("push_branch", { params, progress })),
+	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<ViewAnswer<PushOutcome>, ApiError>(__TAURI_INVOKE("push_branch", { params, progress })),
 	/**
 	 *  Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
-	 *  branch only as the user saw it, and returns their new remote statuses; a remote branch that moved is named, with the
-	 *  statuses fetched after it. Under the repository lock, refused in Rust as `push_branch` is for any of its branches; the
+	 *  branch only as the user saw it, and answers their new remote statuses; a remote branch that moved is named, with the
+	 *  statuses fetched after it. The session gets the outcome as from `push_branch`, an unapplied branch's too, so no
+	 *  sync follows. Under the repository lock, refused in Rust as `push_branch` is for any of its branches; the
 	 *  stack branch of a whole stack also while a member is parked, every member landed whole, its robot runs on it or it is
 	 *  not built; an unapplied branch takes only the lock. `progress` receives how far the push is, and whom it waits for
 	 *  while another holder has the lock, until `cancel_lock_wait` of its id.
 	 */
-	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<PushBranchesOutcome, ApiError>(__TAURI_INVOKE("push_branches", { params, progress })),
+	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<ViewAnswer<PushBranchesOutcome>, ApiError>(__TAURI_INVOKE("push_branches", { params, progress })),
 	/**
 	 *  Stops the wait of the command whose channel has the id `channel` for another holder of the repository lock: the
 	 *  command answers `canceled`, nothing changed. A wait that ended already (the lock taken) goes on
@@ -452,8 +454,13 @@ export const commands = {
 	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, ApiError>(__TAURI_INVOKE("suggest_branch_names", { params })),
 	getArchivedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName })),
 	getUnappliedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchName })),
-	deleteUnappliedBranch: (params: DeleteArchivedBranchParams) => typedError<null, ApiError>(__TAURI_INVOKE("delete_unapplied_branch", { params })),
-	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, ApiError>(__TAURI_INVOKE("delete_archived_branch", { params })),
+	/**  Deletes an unapplied branch, answering as `delete_archived_branch` */
+	deleteUnappliedBranch: (params: DeleteArchivedBranchParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("delete_unapplied_branch", { params })),
+	/**
+	 *  Deletes an archived branch and answers the version of the session's view whose patch removed it (`None` without an
+	 *  open session)
+	 */
+	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("delete_archived_branch", { params })),
 	/**
 	 *  Unapplies a virtual branch of the repository, named with the prefix Rust resolves for it (`PrefixInputs`), the one a
 	 *  sync's view of the repository has
@@ -4997,6 +5004,17 @@ export type ValidateRepositoryPathParams = {
 export type Version = {
 	epoch: number,
 	seq: number,
+};
+
+/**
+ *  The answer of a command whose result the session of its repository applied to the table (a push): its own outcome,
+ *  and the version of the view after the patch of that change, which a window waits for as it waits for the last patch
+ *  of a sync (`SyncAnswer`); `None` when no session of the repository is open (no window shows it). A command with no
+ *  outcome of its own (the deletion of an archived or unapplied branch) answers the version alone
+ */
+export type ViewAnswer<T> = {
+	outcome: T,
+	version: Version | null,
 };
 
 /**

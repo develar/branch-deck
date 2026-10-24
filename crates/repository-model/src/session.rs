@@ -11,15 +11,17 @@
 
 use crate::runtime::{Message, spawn_actor};
 use crate::sync_scheduler::Settled;
-use crate::table::TableState;
+use crate::table::{RemoteSubject, TableState};
+use domain_types::RemoteStatusUpdate;
 use domain_types::error::ApiError;
-use domain_types::session::{SyncAnswer, SyncReason, TableView, Version, ViewPatch};
+use domain_types::session::{SyncAnswer, SyncReason, TableView, Version, ViewAnswer, ViewPatch};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
+use sync_core::push::PushBranchesOutcome;
 use sync_core::sync::SyncReport;
 use sync_utils::clock::Clock;
 use tokio::runtime::Handle;
@@ -279,9 +281,44 @@ impl Sessions {
   }
 
   /// Changes the table of an open session outside a sync (the result of an operation): the windows get the patch at
-  /// once. `false` for a session that is not open
-  pub fn apply(&self, key: &SessionKey, change: impl FnOnce(&mut TableState) + Send + 'static) -> bool {
-    self.lock().get(key).is_some_and(|entry| entry.mailbox.send(Message::Apply(Box::new(change))).is_ok())
+  /// once, after the events the session got before. Nothing for a session that is not open
+  pub fn apply(&self, key: &SessionKey, change: impl FnOnce(&mut TableState) + Send + 'static) -> Applied {
+    let (reply, version) = oneshot::channel();
+    let sent = self
+      .lock()
+      .get(key)
+      .is_some_and(|entry| entry.mailbox.send(Message::Apply { change: Box::new(change), reply }).is_ok());
+    Applied(sent.then_some(version))
+  }
+
+  /// The push of `subjects` (`RemoteSubject::of` each branch of its parameters, in their order) in the session of
+  /// `key`, `push` being the host's guarded push: from now on a sync shows no remote status of them, and at the end the
+  /// remote statuses the push left (pushed, or fetched when the remote moved) go into the table
+  /// (`TableState::end_push`), newer than any sync that started before; a push that fails, or whose future is dropped,
+  /// leaves the status a sync computed meanwhile. Answers the push's outcome with the version of the view after its
+  /// patch (`None`: the session is not open)
+  ///
+  /// # Errors
+  /// What the push failed with
+  pub async fn push(
+    &self,
+    key: &SessionKey,
+    subjects: Vec<RemoteSubject>,
+    push: impl Future<Output = anyhow::Result<PushBranchesOutcome>>,
+  ) -> anyhow::Result<ViewAnswer<PushBranchesOutcome>> {
+    let begun = subjects.clone();
+    drop(self.apply(key, move |state| state.begin_push(&begun)));
+    let mut running = RunningPush {
+      sessions: self,
+      key,
+      subjects: Some(subjects),
+    };
+    let outcome = push.await;
+    let statuses = outcome.as_ref().ok().map(|outcome| match outcome {
+      PushBranchesOutcome::Pushed { remote_statuses } | PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => remote_statuses.clone(),
+    });
+    let version = running.end(statuses).version().await;
+    outcome.map(|outcome| ViewAnswer { outcome, version })
   }
 
   /// Removes the sessions idle for `IDLE_LIMIT` (no subscriber, no operation) and answers their keys; the host calls it
@@ -355,6 +392,45 @@ impl Sessions {
       Entry { mailbox, life }
     });
     action(entry);
+  }
+}
+
+/// The change of `Sessions::apply` on its way to the session's actor
+#[derive(Debug)]
+#[must_use = "dropped, the change still applies; `version` waits for its patch"]
+pub struct Applied(Option<oneshot::Receiver<Version>>);
+
+impl Applied {
+  /// The version of the view after the patch of the change; `None` when the session was not open or closed first
+  pub async fn version(self) -> Option<Version> {
+    match self.0 {
+      Some(version) => version.await.ok(),
+      None => None,
+    }
+  }
+}
+
+/// A push the session knows runs (`Sessions::push`): its end goes to the session once, also when the push's future is
+/// dropped (a failure then)
+struct RunningPush<'a> {
+  sessions: &'a Sessions,
+  key: &'a SessionKey,
+  /// `None` once the end was sent
+  subjects: Option<Vec<RemoteSubject>>,
+}
+
+impl RunningPush<'_> {
+  fn end(&mut self, statuses: Option<Vec<RemoteStatusUpdate>>) -> Applied {
+    match self.subjects.take() {
+      Some(subjects) => self.sessions.apply(self.key, move |state| state.end_push(&subjects, statuses)),
+      None => Applied(None),
+    }
+  }
+}
+
+impl Drop for RunningPush<'_> {
+  fn drop(&mut self) {
+    drop(self.end(None));
   }
 }
 

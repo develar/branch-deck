@@ -81,6 +81,31 @@ pub struct SyncAnswer {
   pub version: Version,
 }
 
+/// The answer of a command whose result the session of its repository applied to the table (a push): its own outcome,
+/// and the version of the view after the patch of that change, which a window waits for as it waits for the last patch
+/// of a sync (`SyncAnswer`); `None` when no session of the repository is open (no window shows it). A command with no
+/// outcome of its own (the deletion of an archived or unapplied branch) answers the version alone
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ViewAnswer<T> {
+  pub outcome: T,
+  pub version: Option<Version>,
+}
+
+impl<T> ViewAnswer<T> {
+  /// The answer with the outcome `convert` makes of this one's, at the same version
+  ///
+  /// # Errors
+  /// What `convert` failed with
+  pub fn try_map<U, E>(self, convert: impl FnOnce(T) -> Result<U, E>) -> Result<ViewAnswer<U>, E> {
+    Ok(ViewAnswer {
+      outcome: convert(self.outcome)?,
+      version: self.version,
+    })
+  }
+}
+
 /// A window's subscription to the patches of a session: its id (`unsubscribe_view`) and the view at the subscription,
 /// which the first patch on the channel follows. A patch may reach the window before this answer: the window keeps it
 /// until it has the view

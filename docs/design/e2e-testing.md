@@ -184,7 +184,11 @@ Mock implementation:
   count. The page answers of the read commands are pinned per command (`ROUTED_IN_PAGE`, ten commands: a robot a
   `/patronus` comment started, the build progress of a running robot's details, a refused landing gate, …), and the pushes
   (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`/`routeHeldPush`: the templates name the repository itself as
-  `origin`, so a rejected or moved remote has nowhere to come from) are the one exception among the writes. An answer
+  `origin`, so a rejected or moved remote has nowhere to come from) are the one exception among the writes. Only the
+  remote is faked there: the outcome a push helper answers goes into the session of the repository first, as the app's
+  push puts it there (`answeredInSession` posts its remote statuses to `POST /sessions/pushed-in-page`, the server's
+  `Sessions::push`), and the answer names the version of that patch, so the rows show the status the push left from
+  the session, with no sync after it. An answer
   counts where it is given: a helper that answers (a declared `function` at the outermost level, exported from
   `helpers/` or a spec's own, through the helpers it calls) counts its answers once per call, not once per definition,
   so the pinned pushes are the calls of the push helpers. Inside a test the count is of the places that answer, not
