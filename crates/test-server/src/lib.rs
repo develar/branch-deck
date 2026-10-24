@@ -558,16 +558,23 @@ const fn default_prepopulate_store() -> bool {
   true
 }
 
+/// The start of the id of a test repository, which `REPOSITORY_ID_DIGITS` digits follow: 27 characters, as the KSUIDs
+/// before, so the repository selector shortens every path to `…/<id>` on every platform. The directory of the
+/// repository is named by it
+pub(crate) const REPOSITORY_ID_PREFIX: &str = "repo-";
+pub(crate) const REPOSITORY_ID_DIGITS: usize = 22;
+/// The path of a `NO_REPO` repository, which does not exist: this, then its id
+pub(crate) const NO_REPO_PREFIX: &str = "NO_REPO_";
+
 pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request): Json<CreateRepositoryRequest>) -> Result<Json<CreateRepositoryResponse>, StatusCode> {
-  // unique for the life of the server: the repositories live in its own temporary directory. 27 characters, as the
-  // KSUIDs before, so the repository selector shortens every path to `…/<id>` on every platform
+  // unique for the life of the server: the repositories live in its own temporary directory
   static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-  let id = format!("repo-{:022}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
+  let id = format!("{REPOSITORY_ID_PREFIX}{:0width$}", NEXT_ID.fetch_add(1, Ordering::Relaxed), width = REPOSITORY_ID_DIGITS);
 
   // Handle special NO_REPO template
   if matches!(request.template, RepositoryTemplate::NoRepo) {
     // Use a special path that doesn't exist
-    let path = format!("NO_REPO_{id}");
+    let path = format!("{NO_REPO_PREFIX}{id}");
 
     let mut store = Vec::new();
     if request.prepopulate_store {

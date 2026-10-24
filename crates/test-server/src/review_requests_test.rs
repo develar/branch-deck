@@ -1,4 +1,4 @@
-use crate::test_support::{create_repository, post, start_test_server};
+use crate::test_support::{Named, create_repository, post, post_as, start_test_server};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -73,7 +73,7 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   assert_eq!(files["commitId"], format!("{}..{}", ids[1], ids[0]));
   assert_eq!(files["files"][0]["path"], "file2.txt");
 
-  post(&client, addr, "/invoke/cancel_review_fetch", Value::Null).await;
+  post_as(&client, addr, Named::Nothing, "/invoke/cancel_review_fetch", Value::Null).await;
   post(&client, addr, "/invoke/prune_review_refs", json!({ "repositoryPath": repository_path, "keep": [7] })).await;
 
   let failing = json!({ "availability": result["availability"], "totalCount": 1, "requests": [request("")], "fetchError": "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)" });

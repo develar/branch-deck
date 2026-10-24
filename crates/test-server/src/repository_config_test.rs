@@ -1,19 +1,11 @@
-use crate::test_support::{create_repository, delete_repository, start_test_server_with_state};
+use crate::test_support::{Named, create_repository, delete_repository, post_as, start_test_server_with_state};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 
 /// A config command of the page mock for the repository `id`: its answer
 async fn invoke(client: &reqwest::Client, addr: SocketAddr, id: &str, command: &str, params: Value) -> Value {
-  let response = client
-    .post(format!("http://{addr}/invoke/{command}"))
-    .header(crate::REPOSITORY_ID_HEADER, id)
-    .json(&params)
-    .send()
-    .await
-    .unwrap();
-  assert_eq!(response.status(), 200, "{command}");
-  response.json().await.unwrap()
+  post_as(client, addr, Named::Id(id), &format!("/invoke/{command}"), params).await
 }
 
 /// A global write of a test goes to the global config of its repository, which the reads of that repository show and

@@ -50,16 +50,69 @@ pub(crate) async fn delete_repository(client: &reqwest::Client, addr: SocketAddr
   }
 }
 
-/// POSTs `body` to `path`, which must answer 200: its JSON, null for none
+/// The repository a command of a route test names, as a page names its repository on every request
+/// (`X-Repository-Id`): the server holds the repository while the command runs, and its deletion waits for the command
+/// (`hold_repository`) instead of removing the files under it
+#[derive(Clone, Copy)]
+pub(crate) enum Named<'a> {
+  /// The repository at the `repositoryPath` of the params, which must be one of the server
+  ByPath,
+  /// The repository `id`: for a command whose params name none (a sign-in of the requesting repository) or name a path
+  /// that is no repository of the server
+  Id(&'a str),
+  /// None: a command of the app (`cancel_lock_wait`), which nothing waits for
+  Nothing,
+}
+
+/// The request of the command `name` (`/invoke/<name>`) with `params`, naming the repository as `named` says: the one
+/// way a route test sends a command (`every_command_of_a_route_test_names_its_repository`)
+pub(crate) fn command(client: &reqwest::Client, addr: SocketAddr, named: Named<'_>, name: &str, params: &Value) -> reqwest::RequestBuilder {
+  let request = client.post(format!("http://{addr}/invoke/{name}")).json(params);
+  let id = match named {
+    Named::ByPath => {
+      let path = params["repositoryPath"].as_str().unwrap_or_default();
+      Some(repository_id_of_path(path).unwrap_or_else(|| panic!("{name}: {path:?} is no repository of the server; Named::Id or Named::Nothing says what it runs for")))
+    }
+    Named::Id(id) => Some(id),
+    Named::Nothing => None,
+  };
+  match id {
+    Some(id) => request.header(crate::REPOSITORY_ID_HEADER, id),
+    None => request,
+  }
+}
+
+/// The id of the repository of the server at `path`: its directory is named by it, and the path of a `NO_REPO`
+/// repository is its id after `NO_REPO_` (`create_repository`)
+fn repository_id_of_path(path: &str) -> Option<&str> {
+  let name = std::path::Path::new(path).file_name()?.to_str()?;
+  let id = name.strip_prefix(crate::NO_REPO_PREFIX).unwrap_or(name);
+  let digits = id.strip_prefix(crate::REPOSITORY_ID_PREFIX)?;
+  (digits.len() == crate::REPOSITORY_ID_DIGITS && digits.bytes().all(|byte| byte.is_ascii_digit())).then_some(id)
+}
+
+/// POSTs `body` to `path`, which must answer 200: its JSON, null for none. A command (`/invoke/<name>`) names the
+/// repository at its `repositoryPath` (`Named::ByPath`)
 pub(crate) async fn post(client: &reqwest::Client, addr: SocketAddr, path: &str, body: Value) -> Value {
-  let response = client.post(format!("http://{addr}{path}")).json(&body).send().await.unwrap();
+  post_as(client, addr, Named::ByPath, path, body).await
+}
+
+/// `post`, a command naming the repository as `named` says
+pub(crate) async fn post_as(client: &reqwest::Client, addr: SocketAddr, named: Named<'_>, path: &str, body: Value) -> Value {
+  let request = match path.strip_prefix("/invoke/") {
+    Some(name) => command(client, addr, named, name, &body),
+    None => client.post(format!("http://{addr}{path}")).json(&body),
+  };
+  let response = request.send().await.unwrap();
   assert_eq!(response.status(), 200, "{path}");
   response.json().await.unwrap_or(Value::Null)
 }
 
-/// POSTs `body` to the command `path`, which must fail: the `ApiError` it answers
+/// POSTs `body` to the command `path` (`/invoke/<name>`) of the repository at its `repositoryPath`, which must fail:
+/// the `ApiError` it answers
 pub(crate) async fn post_error(client: &reqwest::Client, addr: SocketAddr, path: &str, body: Value) -> Value {
-  let response = client.post(format!("http://{addr}{path}")).json(&body).send().await.unwrap();
+  let name = path.strip_prefix("/invoke/").unwrap_or_else(|| panic!("{path} is no command"));
+  let response = command(client, addr, Named::ByPath, name, &body).send().await.unwrap();
   let answer: Value = response.json().await.unwrap();
   assert_eq!(answer["status"], "error", "{path}: {answer}");
   answer["error"].clone()
@@ -85,9 +138,7 @@ pub(crate) fn head(path: &str) -> String {
 /// `user-name` of the template), to the end of its event stream: the server keeps the branch table of it, which the
 /// checks of a push or a start read
 pub(crate) async fn sync(client: &reqwest::Client, addr: SocketAddr, path: &str) {
-  let response = client
-    .post(format!("http://{addr}/invoke/sync_branches"))
-    .json(&json!({ "repositoryPath": path }))
+  let response = command(client, addr, Named::ByPath, "sync_branches", &json!({ "repositoryPath": path }))
     .send()
     .await
     .unwrap();

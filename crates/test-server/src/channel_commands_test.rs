@@ -2,7 +2,7 @@
 //! whom for on the channel of the command, as SSE events before its answer, and Stop Waiting (`cancel_lock_wait` of the
 //! channel) ends the wait with nothing changed (the code `canceled`)
 
-use crate::test_support::{create_repository, post, start_test_server};
+use crate::test_support::{Named, command, create_repository, post, post_as, start_test_server};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -35,10 +35,9 @@ impl Messages {
 /// Parks `test-branch` on the channel `channel` while the server holds the lock of the repository: its messages
 async fn park_while_locked(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, path: &str, channel: u32) -> Messages {
   post(client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": true })).await;
-  let response = client
-    .post(format!("http://{addr}/invoke/park_branches"))
+  let park = json!({ "repositoryPath": path, "branches": [{ "branchName": "test-branch", "note": "later" }] });
+  let response = command(client, addr, Named::ByPath, "park_branches", &park)
     .header("X-Progress-Channel", channel.to_string())
-    .json(&json!({ "repositoryPath": path, "branches": [{ "branchName": "test-branch", "note": "later" }] }))
     .send()
     .await
     .unwrap();
@@ -77,7 +76,10 @@ async fn stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed() {
   let mut messages = park_while_locked(&client, addr, &id, &path, 42).await;
   assert!(messages.next().await["progress"]["waitingFor"].is_string());
 
-  assert_eq!(post(&client, addr, "/invoke/cancel_lock_wait", json!({ "channel": 42 })).await, json!(true));
+  assert_eq!(
+    post_as(&client, addr, Named::Nothing, "/invoke/cancel_lock_wait", json!({ "channel": 42 })).await,
+    json!(true)
+  );
   let result = loop {
     let message = messages.next().await;
     if let Some(result) = message.get("result") {
@@ -92,6 +94,9 @@ async fn stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed() {
     .output()
     .unwrap();
   assert!(!parked.status.success());
-  assert_eq!(post(&client, addr, "/invoke/cancel_lock_wait", json!({ "channel": 42 })).await, json!(false));
+  assert_eq!(
+    post_as(&client, addr, Named::Nothing, "/invoke/cancel_lock_wait", json!({ "channel": 42 })).await,
+    json!(false)
+  );
   post(&client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": false })).await;
 }

@@ -1,15 +1,9 @@
-use crate::test_support::{capture_warnings, create_repository, delete_repository, post, start_test_server, start_test_server_with_state, sync};
+use crate::test_support::{Named, capture_warnings, command, create_repository, delete_repository, post, start_test_server, start_test_server_with_state, sync};
 use domain_types::repository_view::{GetRepositoryViewParams, RemoteFacts, RepositoryView, RobotMatch, WaitLandingNeedsParams};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-use std::net::SocketAddr;
 use std::time::{Duration, Instant};
-
-/// A request of the page mock for the repository `id`, which holds it while the command runs
-fn command(client: &reqwest::Client, addr: SocketAddr, id: &str, command: &str, params: &Value) -> reqwest::RequestBuilder {
-  client.post(format!("http://{addr}/invoke/{command}")).header(crate::REPOSITORY_ID_HEADER, id).json(params)
-}
 
 /// A failed command answers with 200 and its `ApiError`, as Tauri rejects a command, so neither the server nor the page
 /// logs a failed request for the expected answer of an error-path test
@@ -22,7 +16,7 @@ async fn a_failed_command_answers_with_its_api_error() {
   let response = command(
     &client,
     addr,
-    &id,
+    Named::Id(&id),
     "get_archived_branch_commits",
     &json!({ "repositoryPath": path, "branchName": "user-name/archived/2025-01-01/no-such-branch" }),
   )
@@ -37,7 +31,7 @@ async fn a_failed_command_answers_with_its_api_error() {
   let answer: Value = command(
     &client,
     addr,
-    &id,
+    Named::Id(&id),
     "get_commit_files",
     &json!({ "repositoryPath": "/no/such/repository", "commitId": "0".repeat(40) }),
   )
@@ -76,7 +70,7 @@ async fn deleting_a_repository_waits_for_its_running_command() {
   // the page closes while the command runs: the client gives up on the request
   let aborted = tokio::time::timeout(
     Duration::from_millis(100),
-    command(&client, addr, &id, "suggest_branch_names", &json!({ "repositoryPath": path, "commits": [] })).send(),
+    command(&client, addr, Named::Id(&id), "suggest_branch_names", &json!({ "repositoryPath": path, "commits": [] })).send(),
   )
   .await;
   assert!(aborted.is_err(), "the command answered before its delay");
@@ -84,10 +78,16 @@ async fn deleting_a_repository_waits_for_its_running_command() {
   delete_repository(&client, addr, &id, &path).await;
   assert!(started.elapsed() >= delay, "deleted after {:?}, before the command ended", started.elapsed());
 
-  let late = command(&client, addr, &id, "get_commit_files", &json!({ "repositoryPath": path, "commitId": "0".repeat(40) }))
-    .send()
-    .await
-    .unwrap();
+  let late = command(
+    &client,
+    addr,
+    Named::Id(&id),
+    "get_commit_files",
+    &json!({ "repositoryPath": path, "commitId": "0".repeat(40) }),
+  )
+  .send()
+  .await
+  .unwrap();
   assert_eq!(late.status(), 410);
 }
 
@@ -142,4 +142,29 @@ async fn deleting_a_repository_releases_the_lock_its_test_held_before_the_direct
 
   delete_repository(&client, addr, &id, &path).await;
   assert_eq!(String::from_utf8_lossy(&logged.lock().unwrap()), "");
+}
+
+/// A route test sends a command only through `test_support::command`, which names its repository as the page does
+/// (`Named`): a request it builds itself would name none, and the deletion of the repository would not wait for it,
+/// removing the files under the git of the command or of a fake it asked (on Windows that fails the removal)
+#[test]
+fn every_command_of_a_route_test_names_its_repository() {
+  // the URL of a command and the header of the repository, in parts, so this scan does not find itself
+  let by_hand = [concat!("}", "/invoke/"), concat!("REPOSITORY_", "ID_HEADER")];
+  let sources = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+  let mut built_by_hand = Vec::new();
+  for entry in std::fs::read_dir(&sources).unwrap() {
+    let path = entry.unwrap().path();
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    if !name.ends_with("_test.rs") {
+      continue;
+    }
+    let text = std::fs::read_to_string(&path).unwrap();
+    for (number, line) in text.lines().enumerate() {
+      if by_hand.iter().any(|pattern| line.contains(pattern)) {
+        built_by_hand.push(format!("{name}:{}: {}", number + 1, line.trim()));
+      }
+    }
+  }
+  assert_eq!(built_by_hand, [] as [String; 0], "a command request built outside test_support::command");
 }

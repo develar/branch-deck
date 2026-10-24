@@ -1583,7 +1583,7 @@ pub async fn browse_repository(
 
   // Handle NO_REPO case specially - simulate user selecting a non-existent path
   // Return an error result as if the path exists but is not accessible
-  if path.starts_with("NO_REPO_") {
+  if path.starts_with(crate::NO_REPO_PREFIX) {
     return Ok(Json(sync_core::repository_validation::BrowseResult {
       path: Some(path),
       valid: false,

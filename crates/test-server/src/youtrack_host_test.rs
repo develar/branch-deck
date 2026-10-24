@@ -1,19 +1,11 @@
-use crate::test_support::{create_repository, post, start_test_server};
+use crate::test_support::{Named, create_repository, post, post_as, start_test_server};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 
 /// Invokes the command `name` for the repository `id`, as a page of it does; the answer
 async fn invoke(client: &reqwest::Client, addr: SocketAddr, id: &str, name: &str, params: Value) -> Value {
-  let response = client
-    .post(format!("http://{addr}/invoke/{name}"))
-    .header(crate::REPOSITORY_ID_HEADER, id)
-    .json(&params)
-    .send()
-    .await
-    .unwrap();
-  assert_eq!(response.status(), 200, "{name}");
-  response.json().await.unwrap()
+  post_as(client, addr, Named::Id(id), &format!("/invoke/{name}"), params).await
 }
 
 /// A browser sign-in, a Mark Fixed and an expired sign-in run the real session and service against the fake YouTrack

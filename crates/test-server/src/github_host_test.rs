@@ -1,5 +1,5 @@
 use crate::remote_fixtures::fixture_pulls;
-use crate::test_support::{create_repository, delete_repository, head, post, start_test_server};
+use crate::test_support::{Named, command, create_repository, delete_repository, head, post, post_as, start_test_server};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -168,16 +168,7 @@ async fn signed_out_and_no_access_are_what_the_real_service_makes_of_the_fake() 
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository(&client, addr).await;
   let list = json!({"repositoryPath": repository_path});
-  let status = || async {
-    let response = client
-      .post(format!("http://{addr}/invoke/get_github_auth_status"))
-      .header(crate::REPOSITORY_ID_HEADER, &id)
-      .json(&json!({}))
-      .send()
-      .await
-      .unwrap();
-    response.json::<Value>().await.unwrap()
-  };
+  let status = || post_as(&client, addr, Named::Id(&id), "/invoke/get_github_auth_status", json!({}));
   assert_eq!(
     status().await,
     json!({"signInAvailable": false, "signedInAs": "user-name", "tokenSource": "branchDeck", "manageUrl": null})
@@ -207,11 +198,8 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
-  let invoke = |command: &'static str| {
-    let request = client
-      .post(format!("http://{addr}/invoke/{command}"))
-      .header(crate::REPOSITORY_ID_HEADER, &id)
-      .json(&json!({}));
+  let invoke = |name: &'static str| {
+    let request = command(&client, addr, Named::Id(&id), name, &json!({}));
     async move { request.send().await.unwrap().json::<Value>().await.unwrap() }
   };
   let sign_in_log = || async {
@@ -293,17 +281,14 @@ fn branch_at_head(path: &str, name: &str) -> String {
   head(path)
 }
 
-/// Starts `command` of the repository `id` at `repository_path` in a task of its own: its answer, once given. It names
-/// the repository as the page does (`X-Repository-Id`), so the deletion of the repository waits for it before it
-/// removes the files
-fn invoke(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, command: &'static str, repository_path: &str) -> tokio::task::JoinHandle<Value> {
-  let request = client
-    .post(format!("http://{addr}/invoke/{command}"))
-    .header(crate::REPOSITORY_ID_HEADER, id)
-    .json(&json!({"repositoryPath": repository_path}));
+/// Starts the command `name` of the repository `id` at `repository_path` in a task of its own: its answer, once given.
+/// It names the repository as the page does, so the deletion of the repository waits for it before it removes the
+/// files
+fn invoke(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, name: &'static str, repository_path: &str) -> tokio::task::JoinHandle<Value> {
+  let request = command(client, addr, Named::Id(id), name, &json!({"repositoryPath": repository_path}));
   tokio::spawn(async move {
     let response = request.send().await.unwrap();
-    assert_eq!(response.status(), 200, "{command}");
+    assert_eq!(response.status(), 200, "{name}");
     response.json().await.unwrap()
   })
 }

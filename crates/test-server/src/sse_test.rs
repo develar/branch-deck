@@ -1,3 +1,4 @@
+use crate::test_support::{Named, command};
 use pretty_assertions::assert_eq;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -52,11 +53,8 @@ async fn test_sync_branches_sse_stream() {
   let registered_path = create_result["path"].as_str().unwrap();
 
   // Make SSE request to sync_branches
-  let response = client
-    .post(format!("http://{addr}/invoke/sync_branches"))
-    .header("Content-Type", "application/json")
+  let response = command(&client, addr, Named::ByPath, "sync_branches", &serde_json::json!({ "repositoryPath": registered_path }))
     .header("Accept", "text/event-stream")
-    .json(&serde_json::json!({ "repositoryPath": registered_path }))
     .send()
     .await
     .expect("Failed to send sync request");

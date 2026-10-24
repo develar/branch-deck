@@ -1,6 +1,6 @@
 //! The prefix of the sync family, resolved by the server as the app resolves it: the page names the repository only
 
-use crate::test_support::{create_repository_from, post, start_test_server};
+use crate::test_support::{Named, command, create_repository_from, post, start_test_server};
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use test_utils::git_test_utils::git_command;
@@ -33,9 +33,7 @@ async fn set_app_prefix(client: &reqwest::Client, addr: SocketAddr, id: &str, pr
 
 /// Syncs the repository at `path` naming nothing but it: the status and the body
 async fn sync(client: &reqwest::Client, addr: SocketAddr, path: &str) -> (u16, String) {
-  let response = client
-    .post(format!("http://{addr}/invoke/sync_branches"))
-    .json(&json!({ "repositoryPath": path }))
+  let response = command(client, addr, Named::ByPath, "sync_branches", &json!({ "repositoryPath": path }))
     .send()
     .await
     .unwrap();
