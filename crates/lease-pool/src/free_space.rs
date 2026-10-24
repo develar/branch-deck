@@ -5,6 +5,7 @@ use std::path::Path;
 
 /// The bytes a process of this user may still write on the volume of `path` (`f_bavail`); `None` where the system
 /// does not tell (Windows), and the get then checks nothing
+#[cfg_attr(not(unix), expect(clippy::missing_const_for_fn, reason = "const only where the system tells nothing"))]
 pub fn available_bytes(path: &Path) -> Option<u64> {
   platform::available_bytes(path)
 }
@@ -48,7 +49,8 @@ mod platform {
     }
     // SAFETY: the call succeeded and filled the struct
     let stat = unsafe { stat.assume_init() };
-    u64::from(stat.f_bavail).checked_mul(u64::from(stat.f_frsize))
+    // both 64 bits (`fsblkcnt_t`, `c_ulong`) on the 64-bit targets of the app
+    stat.f_bavail.checked_mul(stat.f_frsize)
   }
 }
 
