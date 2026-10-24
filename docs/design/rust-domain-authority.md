@@ -1745,6 +1745,34 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `INSUFFICIENT_SCOPES` запомнен: два обновления — 3 GraphQL, не 4; C4 (из s6): отпечаток входов по частям — хэш
   остального и remote-ветки префикса списком, в котором сессия заменяет то, что записал её push, без процесса git.
 - **Критерий выхода:** страница не отправляет Rust ни одного вывода; `GetRepositoryViewParams` не существует.
+- **Уточнения планировщика (2026-10-25, по коду master `259ca45f`; шаги s7-1…s7-8 в `notes.local/s7-session-facts.md`
+  lease):**
+  - Ребро `repository-model → trial-check` снимает этот этап (запись `ALLOWED` в `architecture_test.rs`): landing needs
+    считает хост через `SessionEnvironment::landing_needs` (`trial_check::landing_gate::landing_needs_of` в blocking pool),
+    актор хранит их фактом с `inputs` (baseline, tips, landed) и применяет по `seq`; landing check поповера и старта идёт
+    через `LandingGate` (trait в `repository-model` только над `domain-types`, реализация хостов), `KeptChecks` переезжает
+    в `trial-check`, чистое `name_landing_robots` — в `domain-policy::landing_needs`. `RepositoryViews` (`views.rs`)
+    удаляется целиком: `BranchTable` последнего sync и `ContentMemo` держит актор (`SessionHost::run` отвечает отчётом и
+    таблицей), guards читают их у `Sessions::table`; `wait_landing_needs` и `landing_generation` исчезают вместе с
+    `get_repository_view` (s7-4), снимок переименовывается в `RepositoryView` там же.
+  - `Clock` остаётся в `sync-utils` без tokio (`app-settings` и `cli-tools` зависят от него и не достигают tokio):
+    `Clock::until(at) -> Wait { Elapsed | Wall(Duration) | Signal(TestWait) }`, `TestWait` — std `Waker`, которых будит
+    `advance`; ожидание `sleep_until` — хелпер `repository_model::runtime` на tokio, им ждёт планировщик.
+  - Планировщик: `Sessions::events()` — один поток событий сессий (open/close, focus, demand, таблица зафиксирована, push
+    закончен, `refresh(family, reason, subject)`), задача на сессию, чтения через `FactSources` (trait в `remote-facts`;
+    реализации в src-tauri и test-server, вторая считает сегодняшние счётчики `patronus_list_calls`, `pull_request_calls`,
+    `review_readiness_calls`, так что хелперы e2e не меняются), применение `Sessions::apply_facts(key, seq, FactResult)`;
+    `seq` берётся в начале наблюдения (`Sessions::begin`), и им же упорядочен remote part (счётчик записей s6-6 уходит).
+    Новые IPC: `set_demand` и `refresh_facts { family, reason: manual | after_write, subject?, recheck? }` (кнопка
+    обновления, Check Approvals Again, список после комментария до s9). Удаляются сверх списка этапа `get_review_requests`,
+    `get_patronus_robot_details`, `get_patronus_robot_problems`; `COMMAND_COUNT` 127 → 117.
+  - `News` в s7 — переходы, которые знают аппликаторы фактов (робот слился, упал, отменён; approvals пришли; новые review
+    requests), часть `news` вида с растущими id; страница показывает их как сегодня (toast, OS-уведомление, закрытие PR
+    `landed-stack.ts` до s9); правило `domain-policy::news` — s8. Семейство `auth` — s11 (как в «Зависимостях этапов»):
+    в s7 планировщик спрашивает `retry_at` и scope у `GitHubService` (сделаны live). `youtrack_issues` и `robot_stats` в
+    `Demand` появляются с их потребителями, не здесь. `profiles` — факт на target (список профилей); выбор default по
+    последнему роботу и правило «чей шаг ждёт readiness» (`wantedOf`) остаются странице до s8 (страница шлёт такие строки
+    в `Demand.visible_branches`).
 
 ### s8-policy
 
