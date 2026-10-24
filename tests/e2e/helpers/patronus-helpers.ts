@@ -294,6 +294,9 @@ export async function setupRobotsWith(
   // the robots load after the sync, with the answer that shows the Safe Push slots (empty while a robot runs): a push
   // before they did would not know that one runs
   await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
+  // and the steps once every fact they wait for is in (why a robot failed, what a branch needs to land): a step that
+  // answers late changes the width of its column and moves the chips under the pointer of a hover
+  await expect(page.locator('[data-testid="next-step-slot"][data-step="pending"]')).toHaveCount(0)
   return repo
 }
 
