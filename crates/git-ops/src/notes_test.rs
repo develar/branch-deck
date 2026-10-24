@@ -1,4 +1,4 @@
-use crate::notes::{MappingNote, PREFIX, SOURCE_PREFIX, mapped_commit_id, mapped_source, mapping_lines, read_notes, write_commit_notes};
+use crate::notes::{MappingNote, NotedCommit, PREFIX, SOURCE_PREFIX, mapped_commit_id, mapped_source, mapping_lines, read_noted_commits, read_notes, write_commit_notes};
 use domain_types::commit::NoteSource;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -241,4 +241,43 @@ fn read_notes_reads_the_notes_of_one_ref_in_one_process() {
   assert_eq!(read_notes(&git, repo.path_str(), "refs/notes/test", &[]).unwrap(), HashMap::new());
   assert_eq!(git.process_stats().unwrap().by_command().get("log").map(|stats| stats.count), Some(1));
   assert_eq!(read_notes(&git, repo.path_str(), "refs/notes/none", &[&three]).unwrap(), HashMap::new());
+}
+
+#[test]
+fn read_noted_commits_reads_the_times_the_subjects_and_the_notes_of_one_ref_in_one_process() {
+  let repo = TestRepo::new();
+  let one = repo.create_commit("One\n\nthe body is no subject", "one.txt", "one");
+  let two = repo.create_commit("Two", "two.txt", "two");
+  repo.git(&["notes", "--ref", "refs/notes/test", "add", "-m", "{\"v\":2}", &one]);
+  // the notes of other refs stay out, even with every ref displayed
+  repo.git(&["notes", "add", "-m", "a mapping note", &two]);
+  repo.set_config("notes.displayRef", "refs/notes/*").unwrap();
+  let time = |commit: &str| repo.git(&["log", "-1", "--format=%ct", commit]).trim().parse::<u32>().unwrap();
+  let git = GitCommandExecutor::new().with_process_stats("test");
+
+  let noted = read_noted_commits(&git, repo.path_str(), "refs/notes/test", &[&one, &two]).unwrap();
+
+  let expected: HashMap<String, NotedCommit> = [
+    (
+      one.clone(),
+      NotedCommit {
+        committed_at: time(&one),
+        subject: "One".to_string(),
+        note: Some("{\"v\":2}".to_string()),
+      },
+    ),
+    (
+      two.clone(),
+      NotedCommit {
+        committed_at: time(&two),
+        subject: "Two".to_string(),
+        note: None,
+      },
+    ),
+  ]
+  .into_iter()
+  .collect();
+  assert_eq!(noted, expected);
+  assert_eq!(read_noted_commits(&git, repo.path_str(), "refs/notes/test", &[]).unwrap(), HashMap::new());
+  assert_eq!(git.process_stats().unwrap().by_command().get("log").map(|stats| stats.count), Some(1));
 }

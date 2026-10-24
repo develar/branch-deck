@@ -3,7 +3,7 @@ use anyhow::Result;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::notes::read_notes;
+use git_ops::notes::{NotedCommit, read_noted_commits};
 use std::collections::{HashMap, HashSet};
 use sync_utils::timestamp::utc_today;
 use tracing::{debug, instrument, warn};
@@ -38,7 +38,7 @@ pub fn oldest_logged_commit(git_executor: &GitCommandExecutor, repo_path: &str, 
 /// Structure to hold all branch data from a single git query
 pub struct BranchData {
   pub virtual_commits: HashMap<String, String>,       // virtual branch -> commit
-  pub archived_all: Vec<String>,                      // all archived branches
+  pub archived_all: Vec<String>,                      // all archived branches, newest tip first
   pub archived_today_names: HashSet<String>,          // just names (not full paths) for conflict check
   pub branch_notes: HashMap<String, CachedDetection>, // commit -> parsed detection cache
   pub all_branch_commits: HashMap<String, String>,    // ALL branches -> commit (includes both virtual and archived)
@@ -48,7 +48,8 @@ pub struct BranchData {
   pub checked_out: HashSet<String>,
 }
 
-/// A branch under the prefix, as one `for-each-ref` lists it for the archive step and the sync
+/// A branch under the prefix, as one `for-each-ref` lists it for the archive step and the sync: refs only, no commit
+/// (the time and the subject of the tip come with its notes, `branch_data_of`)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListedBranch {
   /// Without `refs/heads/`
@@ -56,33 +57,27 @@ pub struct ListedBranch {
   pub tip: String,
   /// Checked out in a worktree: `update-ref` would delete it from under it
   pub checked_out: bool,
-  /// The subject of the tip
-  pub subject: String,
 }
 
-/// The atoms of a `ListedBranch` after the full ref name, NUL-separated: tip, worktree, subject
-pub const LISTED_BRANCH_ATOMS: &str = "%(objectname)%00%(worktreepath)%00%(contents:subject)";
+/// The atoms of a `ListedBranch` after the full ref name, NUL-separated: tip, worktree. No atom of the commit, nor
+/// `--sort=-committerdate`: for-each-ref would read the commit of every listed ref, on the monorepo 452 refs from a
+/// cold pack for 1 to 2 s before the first rows of a sync
+pub const LISTED_BRANCH_ATOMS: &str = "%(objectname)%00%(worktreepath)";
 
 impl ListedBranch {
   /// One line of `%(refname)%00` + `LISTED_BRANCH_ATOMS`, if the ref is a local branch
   pub fn parse(line: &str) -> Option<Self> {
-    let mut fields = line.splitn(4, '\0');
-    let (name, tip, worktree, subject) = (
-      fields.next()?.strip_prefix("refs/heads/")?,
-      fields.next()?,
-      fields.next()?,
-      fields.next().unwrap_or_default(),
-    );
+    let mut fields = line.splitn(3, '\0');
+    let (name, tip, worktree) = (fields.next()?.strip_prefix("refs/heads/")?, fields.next()?, fields.next().unwrap_or_default());
     Some(Self {
       name: name.to_string(),
       tip: tip.to_string(),
       checked_out: !worktree.is_empty(),
-      subject: subject.to_string(),
     })
   }
 }
 
-/// The branches under `{branch_prefix}/`, newest commit first, with one `for-each-ref`
+/// The branches under `{branch_prefix}/` in the order of their names, with one `for-each-ref` that reads no commit
 #[instrument(skip(git_executor))]
 pub fn list_branches(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str) -> Result<Vec<ListedBranch>> {
   let branch_prefix = branch_prefix.trim_end_matches('/');
@@ -90,8 +85,6 @@ pub fn list_branches(git_executor: &GitCommandExecutor, repo_path: &str, branch_
     &[
       "for-each-ref",
       &format!("--format=%(refname)%00{LISTED_BRANCH_ATOMS}"),
-      // Newest first: `archived_all` keeps this order and the UI uses it until integration dates are known
-      "--sort=-committerdate",
       &format!("refs/heads/{branch_prefix}/"),
     ],
     repo_path,
@@ -106,8 +99,9 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
   Ok(branch_data_of(git_executor, repo_path, branch_prefix, &branches))
 }
 
-/// The virtual and archived branches among `branches` (newest first, as `list_branches` lists them), with the detection
-/// notes of their tips: one `log` for the notes. The stack branches (`{prefix}/stack/<root>`) are left out
+/// The virtual and archived branches among `branches` (as `list_branches` lists them), with the detection notes and the
+/// subjects of their tips, the archived ones newest tip first: one `log` for the notes, the subjects and the times. The
+/// stack branches (`{prefix}/stack/<root>`) are left out
 #[instrument(skip(git_executor, branches), fields(count = branches.len()))]
 pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, branches: &[ListedBranch]) -> BranchData {
   let branch_prefix = branch_prefix.trim_end_matches('/');
@@ -119,7 +113,7 @@ pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch
   let mut archived_all = Vec::with_capacity(line_count / 2);
   let mut archived_today_names = HashSet::new();
   let mut all_branch_commits = HashMap::with_capacity(line_count);
-  let mut commit_subjects = HashMap::with_capacity(line_count);
+  let mut tips = Vec::with_capacity(line_count);
   let mut checked_out = HashSet::new();
 
   // First pass: collect branches and their commits
@@ -127,7 +121,6 @@ pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch
     name: branch,
     tip: commit,
     checked_out: is_checked_out,
-    subject,
   } in branches
   {
     let (branch, commit) = (branch.as_str(), commit.as_str());
@@ -137,7 +130,7 @@ pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch
       continue;
     }
     debug!(branch = %branch, commit = %commit, "Found branch with commit");
-    commit_subjects.insert(commit.to_string(), subject.clone());
+    tips.push(commit);
     // Store ALL branch commits, not just virtual ones
     all_branch_commits.insert(branch.to_string(), commit.to_string());
     if *is_checked_out {
@@ -158,14 +151,30 @@ pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch
     }
   }
 
-  // Second call: batch fetch all notes, passing the commits on stdin (no argv length limit)
+  // Second call: the notes, the subjects and the times of the tips, the commits on stdin (no argv length limit)
+  tips.sort_unstable();
+  tips.dedup();
   let mut branch_notes: HashMap<String, CachedDetection> = HashMap::new();
-  let commits: Vec<&str> = commit_subjects.keys().map(String::as_str).collect();
-  debug!(commits_to_fetch = commits.len(), "Fetching notes for commits");
-  match read_notes(git_executor, repo_path, super::detection_notes::NOTES_REF, &commits) {
-    Ok(notes) => {
+  let mut commit_subjects = HashMap::with_capacity(tips.len());
+  let mut committed_at: HashMap<String, u32> = HashMap::with_capacity(tips.len());
+  debug!(commits_to_fetch = tips.len(), "Fetching notes for commits");
+  match read_noted_commits(git_executor, repo_path, super::detection_notes::NOTES_REF, &tips) {
+    Ok(noted) => {
       let commit_to_branch: HashMap<&str, &str> = all_branch_commits.iter().map(|(branch, commit)| (commit.as_str(), branch.as_str())).collect();
-      for (commit, note) in notes {
+      for (
+        commit,
+        NotedCommit {
+          committed_at: time,
+          subject,
+          note,
+        },
+      ) in noted
+      {
+        committed_at.insert(commit.clone(), time);
+        commit_subjects.insert(commit.clone(), subject);
+        let Some(note) = note else {
+          continue;
+        };
         match deserialize_from_cache(&note) {
           Ok(mut cache_info) => {
             if let Some(branch_name) = commit_to_branch.get(commit.as_str()) {
@@ -179,9 +188,13 @@ pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch
         }
       }
     }
-    // every archive is detected again in full then, which is slow
+    // every archive is detected again in full then, which is slow, and summarized without its subject
     Err(e) => warn!(error = %e, "Failed to read the detection notes"),
   }
+  // newest tip first, as `for-each-ref --sort=-committerdate` (a tie by name): the UI keeps this order until the
+  // integration dates are known
+  let time_of = |branch: &String| all_branch_commits.get(branch).and_then(|tip| committed_at.get(tip)).copied().unwrap_or_default();
+  archived_all.sort_by(|a, b| time_of(b).cmp(&time_of(a)).then_with(|| a.cmp(b)));
 
   debug!(
     virtual_count = virtual_commits.len(),

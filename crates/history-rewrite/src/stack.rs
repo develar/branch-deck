@@ -13,7 +13,7 @@ use domain_types::branch_integration::BranchIntegrationStatus;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentSource, ParentState, StackBlock, StackFix, StackProblem, StackProblemView};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::notes::read_notes;
+use git_ops::notes::read_noted_commits;
 use git_ops::revs::short_id;
 use indexmap::{IndexMap, IndexSet};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -416,30 +416,10 @@ pub fn empty_parent_states(
   detection: PendingDetection<'_>,
 ) -> Result<HashMap<String, ParentState>> {
   let refs = branch_refs.iter().map(|(name, tip)| (name.as_str(), tip.as_str()));
-  parent_states(git_executor, repo_path, branch_prefix, refs, forest, detection, |tips| {
-    let mut input = String::with_capacity(tips.len() * 41);
-    for tip in tips {
-      input.push_str(tip);
-      input.push('\n');
-    }
-    let notes_arg = format!("--notes={NOTES_REF}");
-    let output = git_executor
-      .cmd(&["log", "--no-walk", "--stdin", "--format=%H%x1f%s%x1f%N%x1e", &notes_arg], repo_path)
-      .stdin(input.as_bytes())
-      .text()?;
-    let mut noted = HashMap::new();
-    for record in output.split('\u{1e}') {
-      let mut fields = record.trim_start().splitn(3, '\u{1f}');
-      if let (Some(tip), Some(subject), Some(note)) = (fields.next(), fields.next(), fields.next()) {
-        noted.insert(tip.to_string(), (subject.to_string(), deserialize_from_cache(note.trim()).ok()));
-      }
-    }
-    Ok(noted)
-  })
+  parent_states(git_executor, repo_path, branch_prefix, refs, forest, detection)
 }
 
-/// `empty_parent_states` of the branches under the prefix as `list_branches` lists them, with the subjects of their
-/// tips: only the notes are read (`read_notes`)
+/// `empty_parent_states` of the branches under the prefix as `list_branches` lists them
 pub fn empty_parent_states_listed(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -449,26 +429,11 @@ pub fn empty_parent_states_listed(
   detection: PendingDetection<'_>,
 ) -> Result<HashMap<String, ParentState>> {
   let refs = branches.iter().map(|branch| (branch.name.as_str(), branch.tip.as_str()));
-  parent_states(git_executor, repo_path, branch_prefix, refs, forest, detection, |tips| {
-    let mut notes = read_notes(git_executor, repo_path, NOTES_REF, tips)?;
-    let subjects: HashMap<&str, &str> = branches.iter().map(|branch| (branch.tip.as_str(), branch.subject.as_str())).collect();
-    Ok(
-      tips
-        .iter()
-        .map(|tip| {
-          let cached = notes.remove(*tip).and_then(|note| deserialize_from_cache(note.trim()).ok());
-          ((*tip).to_string(), (subjects.get(tip).copied().unwrap_or_default().to_string(), cached))
-        })
-        .collect(),
-    )
-  })
+  parent_states(git_executor, repo_path, branch_prefix, refs, forest, detection)
 }
 
-/// Tip -> (subject, parsed detection note) of the tips given
-type NotedTips = HashMap<String, (String, Option<CachedDetection>)>;
-
-/// `empty_parent_states` of `refs` (full name, tip); `read_noted` reads the subjects and the detection notes of the
-/// candidate tips
+/// `empty_parent_states` of `refs` (full name, tip): the subjects and the detection notes of the candidate tips from
+/// one `log` (`read_noted_commits`)
 fn parent_states<'a>(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -476,7 +441,6 @@ fn parent_states<'a>(
   refs: impl Iterator<Item = (&'a str, &'a str)>,
   forest: &StackForest,
   detection: PendingDetection<'_>,
-  read_noted: impl FnOnce(&[&str]) -> Result<NotedTips>,
 ) -> Result<HashMap<String, ParentState>> {
   let empty: Vec<&str> = forest.nodes.iter().filter(|(_, node)| !node.has_commits).map(|(name, _)| name.as_str()).collect();
   let mut states = HashMap::with_capacity(empty.len());
@@ -519,7 +483,10 @@ fn parent_states<'a>(
   }
 
   let tips: Vec<&str> = candidates.iter().map(|(_, _, tip, _)| *tip).collect();
-  let noted = read_noted(&tips)?;
+  let noted: HashMap<String, (String, Option<CachedDetection>)> = read_noted_commits(git_executor, repo_path, NOTES_REF, &tips)?
+    .into_iter()
+    .map(|(tip, noted)| (tip, (noted.subject, noted.note.and_then(|note| deserialize_from_cache(&note).ok()))))
+    .collect();
 
   // a note holds, or the branch is detected now, by the rule of the archive step (`BaselineAncestry::plan`): a
   // `NotIntegrated` note holds only for the baseline it was checked against

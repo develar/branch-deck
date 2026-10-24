@@ -203,7 +203,10 @@ used to download and compile the main window's tree before its own page: 61 modu
   open 6199 ms: loaded 1506"): the budget showed the title row and the loading table 1.0 s after the load (WebKit's
   `window visible 1` 2.5 s after the build); the sync started 2.25 s after the build and sent its rows 3.7 s later,
   1.9 s of it in the listing of the branches (`read_baseline_listing`), whose `for-each-ref --sort=-committerdate`
-  with the subjects read the commits of 452 refs from a cold pack (0.09 s warm).
+  with the subjects read the commits of 452 refs from a cold pack (0.09 s warm), none of which the rows show. The
+  listing reads refs only since (0.03 s); the rest of those 3.7 s is cold work the rows need, the commit list ahead of
+  the baseline with its notes and the stores of the grouping, while the update check reads beside them
+  ([Git Operations](git-operations.md#virtual-branch-sync)).
 - The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
   its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
   starts the highlight worker when its module loads, beside the reads of the files and the diffs.

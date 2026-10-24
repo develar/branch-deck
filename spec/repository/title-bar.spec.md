@@ -37,6 +37,8 @@ targets:
   - ../../src/components/branch/BranchCreator.tsx
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/lib/batch-timer.ts
+  - ../../crates/sync-core/src/repo_facts.rs
+  - ../../crates/branch-integration/src/common.rs
   - ../../tests/e2e/setup/tauri-mocks.ts
 ---
 
@@ -248,6 +250,12 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   throttles while the window is hidden: a page that says nothing after its load still shows.
   [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_backend_shows_a_main_window_whose_page_says_nothing_after_its_load_once_its_budget_passed`)
   [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_first_rows_within_the_budget_show_the_main_window_and_the_budget_then_does_nothing`)
+- The first rows wait for no commit of a branch they don't show: the listing of the sync reads refs only, never the
+  subjects or the dates of the archived and the remote branches under the prefix (on the monorepo 452 refs, 1 to 2 s
+  from a cold pack before the rows); the archive step reads the subjects and the committer times of the local tips
+  with their notes, after the rows, and keeps the archived branches newest tip first.
+  [@test] ../../crates/sync-core/src/repo_facts_test.rs (`the_listing_reads_no_commit_of_the_branches_it_lists`)
+  [@test] ../../crates/sync-core/src/detection_archive_step_test.rs (`the_archived_branches_come_newest_tip_first_with_their_subjects_from_the_log_of_their_notes`)
 - While the window never showed, a batch of sync events applies on the next task, not on its 16 ms timer: WebKit
   throttles the timers of a hidden page to a second (`batchTimer`).
   [@test] ../../src/lib/batch-timer.test.ts (`runs a batch on the next task, no timer, while the window never showed, then on its timer once it showed`)

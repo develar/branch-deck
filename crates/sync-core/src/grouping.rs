@@ -29,7 +29,8 @@ pub struct BranchGrouping {
   pub baseline_branch: String,
   /// The remote branch behind the baseline; `None` for a local baseline
   pub upstream: Option<BaselineUpstream>,
-  /// The branches under the prefix, newest commit first: virtual, archived and unapplied, with their tips
+  /// The branches under the prefix by name, with their tips: virtual, archived, unapplied and stack; the listing reads
+  /// no commit
   pub listed: Vec<ListedBranch>,
   /// Full name -> tip of its remote branch on `origin`, of the branches under the prefix
   pub remote_tips: HashMap<String, String>,

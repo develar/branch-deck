@@ -1,7 +1,7 @@
 # Integration Detection and Caching
 
 **Status:** Implemented  
-**Updated:** 2026-10-17  
+**Updated:** 2026-10-24  
 **Tags:** [git, performance, caching]
 
 ## Problem
@@ -204,9 +204,11 @@ flowchart TB
     its merge, and in `bd status`, which writes no notes
 
 - **Performance Optimizations**:
-  - Batch fetch all branch data (tips and subjects in one `for-each-ref`, `list_branches`, which a sync reads with its
-    other refs and passes to `archive_and_clean_up_listed`; notes in one `log --no-walk --stdin`): the detection notes
-    and the stack notes are read by `git_ops::notes::read_notes` (commit -> note of one notes ref)
+  - Batch fetch all branch data: the tips in one `for-each-ref` that reads no commit (`list_branches`, which a sync
+    reads with its other refs and passes to `archive_and_clean_up_listed`), the detection notes with the subjects and
+    the committer times of the tips in one `log --no-walk --stdin` (`git_ops::notes::read_noted_commits`), which orders
+    the archived branches newest tip first; the stack notes are read by `git_ops::notes::read_notes` (commit -> note of
+    one notes ref)
   - `archive_and_clean_up` and `detect_archived_branches` are synchronous, each in one `spawn_blocking` (the first
     before the rebuild, the second beside it; `detect_integrated_branches` runs both); fresh detections run on
     `std::thread::scope` workers, each job in a slot of a `git_executor::concurrency::ProcessPermits`, which a sync

@@ -1,6 +1,8 @@
 //! What a sync reads about the repository once, at its start, for every step that needs it: the baseline with its
 //! commit and its upstream, HEAD, and the branches under the prefix (docs/design/git-operations.md, "Virtual branch
-//! sync"). Three git processes after the guards, a fourth only when HEAD's branch tracks a branch the listing lacks.
+//! sync"). Three git processes after the guards, a fourth only when HEAD's branch tracks a branch the listing lacks;
+//! none of them reads a commit beyond HEAD and the baseline, so the first rows of a sync never wait for the commits of
+//! the archived and the remote branches (on the monorepo 452 refs, 1 to 2 s from a cold pack).
 
 use crate::baseline::{BaselineUpstream, KnownBaseline, TrackedUpstream, baseline_upstream_of, modified_time};
 use crate::conflict_chain::CONFLICT_REFS;
@@ -34,7 +36,8 @@ pub(crate) struct RepoFacts {
   pub fetched_at: Option<u32>,
   /// The landed state of this worktree (`landed::STATE_FILE`)
   pub landed_state: PathBuf,
-  /// The branches under the prefix, newest commit first: virtual, archived and unapplied
+  /// The branches under the prefix by name: virtual, archived, unapplied and stack (the archive step orders the archived
+  /// ones by their tips, `branch_data_of`)
   pub branches: Vec<ListedBranch>,
   /// Full name -> tip of its remote branch on `origin`, of the branches under the prefix
   pub remote_tips: HashMap<String, String>,
@@ -79,7 +82,8 @@ pub(crate) struct BaselineListing {
   pub baseline_ref: String,
   /// The remote branch behind the baseline; `None` for a local baseline
   pub upstream: Option<BaselineUpstream>,
-  /// The branches under the prefix, newest commit first: virtual, archived and unapplied
+  /// The branches under the prefix by name: virtual, archived, unapplied and stack (the archive step orders the archived
+  /// ones by their tips, `branch_data_of`)
   pub branches: Vec<ListedBranch>,
   /// Full name -> tip of its remote branch on `origin`, of the branches under the prefix
   pub remote_tips: HashMap<String, String>,
@@ -92,7 +96,8 @@ pub(crate) struct BaselineListing {
 /// The baseline of the checked out `branch` (`None` for a detached HEAD, which tracks nothing) and the branches under
 /// `branch_prefix`, local and on `origin`: `remote` and one `for-each-ref` of the branch, the baseline candidates and the
 /// two namespaces, and with `sync_refs` the refs of the conflicting branches and the temporary refs. An upstream the
-/// listing lacks (not a candidate) costs one `rev-parse` more
+/// listing lacks (not a candidate) costs one `rev-parse` more. The listing reads refs only, no commit
+/// (`LISTED_BRANCH_ATOMS`)
 pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path: &str, branch: Option<&str>, branch_prefix: &str, sync_refs: bool) -> Result<BaselineListing> {
   let remotes: Vec<String> = git_executor
     .execute_command_lines(&["remote"], repo_path)?
@@ -108,8 +113,7 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
   let local_prefix = format!("refs/heads/{prefix}/");
   let remote_prefix = format!("refs/remotes/origin/{prefix}/");
   let format = format!("--format={FORMAT_PREFIX}{LISTED_BRANCH_ATOMS}");
-  // newest first, for the archived branches (`list_branches`)
-  let mut args = vec!["for-each-ref", format.as_str(), "--sort=-committerdate"];
+  let mut args = vec!["for-each-ref", format.as_str()];
   args.extend(current_ref.as_deref());
   args.extend([local_prefix.as_str(), remote_prefix.as_str()]);
   args.extend(candidates.iter().map(|(full_ref, _)| full_ref.as_str()));

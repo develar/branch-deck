@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use sync_utils::timestamp::utc_today;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, git_command};
+use test_utils::process_budget::{assert_processes, counting};
 use test_utils::sync_fixtures::TestReporter;
 use test_utils::sync_fixtures::setup_test_repos;
 
@@ -55,6 +56,37 @@ fn branches_are_classified_by_their_namespace() {
   assert_eq!(data.archived_all, [archived]);
   assert!(!data.all_branch_commits.contains_key("user/stack/auth"), "{:?}", data.all_branch_commits.keys());
   assert!(data.all_branch_commits.contains_key("user/unapplied/x/virtual/y"));
+}
+
+/// The listing reads no commit (the refs in the order of their names); the archive step reads the subjects and the
+/// times of the tips with their notes, in one `log`, and keeps the archived branches newest tip first, as the UI shows
+/// them until the integration dates are known (a tie by name)
+#[test]
+fn the_archived_branches_come_newest_tip_first_with_their_subjects_from_the_log_of_their_notes() {
+  let (_upstream_repo, local_repo, _) = setup_test_repos();
+  let repo_path = local_repo.path().to_str().unwrap();
+  let older = local_repo.create_commit_with_timestamp("(old) Older", "old.txt", "old", Some(1_790_000_000));
+  let newer = local_repo.create_commit_with_timestamp("(new) Newer", "new.txt", "new", Some(1_790_000_100));
+  for (branch, tip) in [("a-older", &older), ("b-newer", &newer), ("c-older-too", &older)] {
+    local_repo.create_branch_at(&format!("user/archived/2026-10-01/{branch}"), tip).unwrap();
+  }
+  let git = counting();
+
+  let data = get_all_branch_data(&git, repo_path, "user").unwrap();
+
+  assert_eq!(
+    data.archived_all,
+    [
+      "user/archived/2026-10-01/b-newer",
+      "user/archived/2026-10-01/a-older",
+      "user/archived/2026-10-01/c-older-too"
+    ]
+  );
+  assert_eq!(
+    (data.commit_subjects.get(&older).map(String::as_str), data.commit_subjects.get(&newer).map(String::as_str)),
+    (Some("(old) Older"), Some("(new) Newer"))
+  );
+  assert_processes(&git, &[("for-each-ref", 1), ("log", 1)]);
 }
 
 /// A virtual branch checked out in another worktree stays: deleting it would leave that worktree on an unborn branch

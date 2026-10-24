@@ -302,15 +302,18 @@ fn a_sync_reports_the_unapplied_branches_with_the_remote_status_of_a_pushed_one(
 
   let found = unapplied_of_sync(&repo);
   assert_eq!(found.len(), 1);
+  // the subject of its tip, which the listing doesn't read: the archive step reads it with the notes of the tips
+  let subject = repo.git(&["log", "-1", "--format=%s", &tip]);
   assert_eq!(
     (
       found[0].name.as_str(),
       found[0].branch.as_str(),
       found[0].tip.as_str(),
+      found[0].subject.as_str(),
       found[0].checked_out,
       &found[0].remote
     ),
-    ("test-prefix/unapplied/feature", "feature", tip.as_str(), false, &None)
+    ("test-prefix/unapplied/feature", "feature", tip.as_str(), subject.trim(), false, &None)
   );
 
   // its remote branch, as a push leaves it

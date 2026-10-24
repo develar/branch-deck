@@ -233,8 +233,16 @@ pub struct ArchivedBranches {
   tips: HashMap<String, String>,
   /// Tip -> parsed detection note
   notes: HashMap<String, CachedDetection>,
-  /// Tip -> subject
+  /// Tip -> subject, of every branch under the prefix but the stack branches
   subjects: HashMap<String, String>,
+}
+
+impl ArchivedBranches {
+  /// The subject of `tip`, the tip of a branch under the prefix (not of a stack branch) as the archive step read it with
+  /// its notes: the listing reads no commit
+  pub fn subject(&self, tip: &str) -> Option<&str> {
+    self.subjects.get(tip).map(String::as_str)
+  }
 }
 
 /// The ref part of the archive step, fast: delete the archived branches older than `retention_days` that are fully
@@ -254,8 +262,9 @@ pub fn archive_and_clean_up(
   archive_and_clean_up_listed(git_executor, repo_path, branch_prefix, &branches, active_branches, retention_days, progress)
 }
 
-/// `archive_and_clean_up` of the branches under the prefix the caller listed (`common::list_branches`, newest first;
-/// the sync lists them with its other refs): only the detection notes are read before the ref writes
+/// `archive_and_clean_up` of the branches under the prefix the caller listed (`common::list_branches`, by name; the sync
+/// lists them with its other refs): only the detection notes, the subjects and the committer times of the tips are read
+/// before the ref writes, in one `log`
 #[instrument(skip(git_executor, branches, active_branches, progress), fields(branch_prefix = %branch_prefix, active_count = active_branches.len()))]
 pub fn archive_and_clean_up_listed(
   git_executor: &GitCommandExecutor,

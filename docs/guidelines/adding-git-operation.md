@@ -1,7 +1,7 @@
 # Adding a Git Operation
 
 **Status:** Active  
-**Updated:** 2026-10-23  
+**Updated:** 2026-10-24  
 **Tags:** [git, rust, bd, tauri]
 
 ## Summary
@@ -72,7 +72,7 @@ Reuse one of these before writing a parser or a process of your own.
 | `short_id`, `is_object_id`, `current_branch`, `checked_out_branch`, `read_head`, `resolve_commit`, `resolve_tree_id`, `ref_exists`, `is_ancestor`, `merge_base`, `fork_point`, `ref_tips`, `tips_under`, `current_worktree`, `repository_dirs` | `git_ops::revs` | rev, branch and worktree facts; a full id; `merge-base` exit 1 is "no", any other an error |
 | `changed_paths`, `commits_touching` | `git_ops::paths` | the paths two trees differ in, as bytes; the commits that change some paths |
 | `replay_range`, `replay_range_with_env`, `merge_trees` | `git_ops::replay` | `git replay` of a range, a merge of three trees, objects only |
-| `read_notes`, `notes_ref`, `write_commit_notes` | `git_ops::notes` | the notes of many commits from one `log --no-walk --stdin`; the mapping notes |
+| `read_notes`, `read_noted_commits`, `notes_ref`, `write_commit_notes` | `git_ops::notes` | the notes of many commits from one `log --no-walk --stdin`, with their committer times and subjects; the mapping notes |
 | `get_commits_info`, `find_commit`, `empty_tree`, `blob_id`, `object_id_of` | `git_ops::commit_utils` | commits by id from one `log --no-walk --stdin`; ids without a process |
 | `get_commit_list_with_handler` | `git_ops::commit_list` | the commits ahead of the baseline (`domain_types::commit::Commit`), streamed |
 | `read_commit_files_cached`, `read_diff_files` | `git_ops::commit_files` | files and line counts of many commits from one `diff-tree --stdin`, of a range from one `diff-tree` |

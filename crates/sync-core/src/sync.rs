@@ -1002,6 +1002,13 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     .await
     .map_err(|e| anyhow!("Archive task failed: {e}"))
     .flatten();
+  // the subjects of the unapplied branches, which the archive step read with the notes of their tips
+  let unapplied_subjects: HashMap<String, String> = archived.as_ref().map_or_default(|archived| {
+    unapplied
+      .iter()
+      .filter_map(|branch| Some((branch.tip.clone(), archived.subject(&branch.tip)?.to_string())))
+      .collect()
+  });
 
   // Phase 2: integration detection and branch processing run concurrently, beside the update check
   let detection_permits = permits.clone();
@@ -1106,7 +1113,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
           let _ = progress.send(SyncEvent::StackBranchUpdate(Box::new(update.clone())));
         }
         let _ = progress.send(SyncEvent::UnappliedBranchesFound {
-          branches: unapplied_branches(&unapplied, branch_prefix, remote_statuses.as_deref()),
+          branches: unapplied_branches(&unapplied, &unapplied_subjects, branch_prefix, remote_statuses.as_deref()),
         });
         // their writes to the object cache, here on the blocking pool
         drop(remote_statuses);
@@ -1168,10 +1175,10 @@ pub fn seeded_tree_cache<'a>(cache: TreeIdCache, commits: impl Iterator<Item = &
   cache
 }
 
-/// Full name -> tip of the virtual branches among `branches`
-/// The unapplied branches as the sync reports them: the remote status, on the commits read once, of each one whose
-/// remote branch exists (a plain push of it); `None` for the others, which cost no process
-fn unapplied_branches(unapplied: &[ListedBranch], branch_prefix: &str, statuses: Option<&RemoteStatusMemo>) -> Vec<UnappliedBranchInfo> {
+/// The unapplied branches as the sync reports them, with the subjects of their tips (`subjects`, tip -> subject): the
+/// remote status, on the commits read once, of each one whose remote branch exists (a plain push of it); `None` for the
+/// others, which cost no process
+fn unapplied_branches(unapplied: &[ListedBranch], subjects: &HashMap<String, String>, branch_prefix: &str, statuses: Option<&RemoteStatusMemo>) -> Vec<UnappliedBranchInfo> {
   unapplied
     .iter()
     .filter_map(|listed| {
@@ -1186,7 +1193,7 @@ fn unapplied_branches(unapplied: &[ListedBranch], branch_prefix: &str, statuses:
         name: listed.name.clone(),
         branch: branch.to_string(),
         tip: listed.tip.clone(),
-        subject: listed.subject.clone(),
+        subject: subjects.get(&listed.tip).cloned().unwrap_or_default(),
         checked_out: listed.checked_out,
         remote,
       })
@@ -1194,6 +1201,7 @@ fn unapplied_branches(unapplied: &[ListedBranch], branch_prefix: &str, statuses:
     .collect()
 }
 
+/// Full name -> tip of the virtual branches among `branches`
 fn virtual_tips(branches: &[ListedBranch], branch_prefix: &str) -> HashMap<String, String> {
   branches
     .iter()

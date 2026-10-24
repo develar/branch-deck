@@ -1,11 +1,11 @@
 use crate::baseline::resolve_baseline_upstream;
 use crate::repo_facts::{RepoFacts, read_baseline_listing, read_repo_facts};
-use branch_integration::common::list_branches;
+use branch_integration::common::{ListedBranch, list_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::baseline::{NoBaseline, detect_baseline_branch};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, git_command};
 
 /// The facts of a sync of `test` on the checked out branch, and how many git processes they cost
 fn facts(repo: &TestRepo) -> (anyhow::Result<RepoFacts>, u32) {
@@ -140,4 +140,37 @@ fn no_baseline_and_no_commits() {
   empty.git(&["fetch", "-q", repo.path_str(), "+refs/heads/master:refs/remotes/origin/master"]);
   let error = read_repo_facts(&git, empty.path_str(), "master", "test").unwrap_err();
   assert_eq!(error.downcast_ref::<NoBaseline>(), Some(&NoBaseline::NoCommits));
+}
+
+/// The listing reads refs, no commit: a `for-each-ref` of their subjects or by their dates (`--sort=-committerdate`)
+/// reads the commit of every listed ref (on the monorepo 452, 1 to 2 s from a cold pack before the first rows of a sync)
+/// and fails on one whose commit is gone; the listing of a sync lists it with its tip
+#[test]
+fn the_listing_reads_no_commit_of_the_branches_it_lists() {
+  let repo = TestRepo::new();
+  let initial = repo.create_commit("Initial commit", "README.md", "# Test");
+  repo.git(&["remote", "add", "origin", "."]);
+  repo.git(&["update-ref", "refs/remotes/origin/master", &initial]);
+  let tree = repo.git(&["rev-parse", "HEAD^{tree}"]);
+  let gone = repo.git(&["commit-tree", "-m", "(old) Gone", tree.trim()]).trim().to_string();
+  repo.git(&["update-ref", "refs/heads/test/archived/2026-10-01/old", &gone]);
+  repo.git(&["update-ref", "refs/remotes/origin/test/virtual/old", &gone]);
+  std::fs::remove_file(repo.path().join(".git/objects").join(&gone[..2]).join(&gone[2..])).unwrap();
+  let by_date = git_command()
+    .args(["for-each-ref", "--sort=-committerdate", "refs/heads/test/"])
+    .current_dir(repo.path())
+    .output()
+    .unwrap();
+  assert!(!by_date.status.success(), "the commit is gone");
+
+  let (facts, processes) = facts(&repo);
+  let facts = facts.unwrap();
+  let archived = ListedBranch {
+    name: "test/archived/2026-10-01/old".to_string(),
+    tip: gone.clone(),
+    checked_out: false,
+  };
+  assert_eq!(facts.branches, [archived]);
+  assert_eq!(facts.remote_tips, HashMap::from([("test/virtual/old".to_string(), gone)]));
+  assert_eq!(processes, 3, "git processes");
 }

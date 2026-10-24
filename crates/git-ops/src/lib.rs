@@ -11,8 +11,8 @@
 //! - `cat_file_batch`: many objects from one `cat-file --batch --buffer -Z`, streamed; types from `--batch-check`
 //! - `object_texts`: the bytes, texts and tree entries of many names, through `cat_file_batch`
 //! - `paths`: the paths two trees differ in, as bytes; the commits that change some paths
-//! - `notes`: the mapping notes of the sync (original commit -> its virtual copy) and the notes of many commits; the
-//!   source and the resolve a note records are `domain_types::commit`'s
+//! - `notes`: the mapping notes of the sync (original commit -> its virtual copy) and the notes of many commits, with
+//!   their committer times and subjects; the source and the resolve a note records are `domain_types::commit`'s
 //! - `attributes`: the git attributes of paths at a tree-ish, one `check-attr --stdin -z`
 //! - `branch_description`: `branch.<name>.description`, the pull request text of a virtual branch
 //! - `ownership`: the code owners of paths by the `OWNERSHIP` files of a tree

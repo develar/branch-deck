@@ -1,6 +1,7 @@
 //! The mapping notes of a sync: a note on each original commit names its virtual copy and the trees it was copied from
-//! (`MappingNote`); `read_notes` reads the notes of any ref for many commits with one `log --no-walk --stdin`, and
-//! notes are written with one `fast-import` (`commit_writer.rs`).
+//! (`MappingNote`); `read_notes` reads the notes of any ref for many commits with one `log --no-walk --stdin`
+//! (`read_noted_commits` their committer times and subjects too), and notes are written with one `fast-import`
+//! (`commit_writer.rs`).
 
 use crate::commit_writer::{NewCommit, NotesOfWritten, StoreCommit, WrittenCommits, write_commits_with_notes, write_notes_to_refs};
 use domain_types::commit::{NoteResolution, NoteSource};
@@ -83,6 +84,52 @@ pub fn notes_ref(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<S
 /// stdin (no argv limit); `%N` shows `notes_ref` only, whatever `notes.displayRef` says.
 #[instrument(skip(git_executor, commits), fields(commits = commits.len()))]
 pub fn read_notes(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref: &str, commits: &[&str]) -> Result<HashMap<String, String>, anyhow::Error> {
+  read_noted(git_executor, repo_path, notes_ref, commits, "%H%x1f%N", |record| {
+    let (commit, note) = record.split_once('\u{1f}')?;
+    let note = note.trim();
+    (!note.is_empty()).then(|| (commit.trim().to_string(), note.to_string()))
+  })
+}
+
+/// A commit as `read_noted_commits` reads it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotedCommit {
+  /// The committer time, seconds since the epoch (`%ct`)
+  pub committed_at: u32,
+  pub subject: String,
+  /// The note of the notes ref without the surrounding whitespace; `None` without one or with an empty one
+  pub note: Option<String>,
+}
+
+/// The committer time, the subject and the note of `notes_ref` of each of `commits` (full commit ids, all existing),
+/// commit -> `NotedCommit`, from the one process of `read_notes`: what the readers of the tips of many branches take
+/// with their notes, so that a listing of the branches reads no commit (`for-each-ref` without `--sort=-committerdate`
+/// and `%(contents:subject)`)
+#[instrument(skip(git_executor, commits), fields(commits = commits.len()))]
+pub fn read_noted_commits(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref: &str, commits: &[&str]) -> Result<HashMap<String, NotedCommit>, anyhow::Error> {
+  read_noted(git_executor, repo_path, notes_ref, commits, "%H%x1f%ct%x1f%s%x1f%N", |record| {
+    let mut fields = record.splitn(4, '\u{1f}');
+    let (commit, committed_at, subject, note) = (fields.next()?, fields.next()?, fields.next()?, fields.next()?);
+    let note = note.trim();
+    let noted = NotedCommit {
+      committed_at: committed_at.parse().ok()?,
+      subject: subject.to_string(),
+      note: (!note.is_empty()).then(|| note.to_string()),
+    };
+    Some((commit.trim().to_string(), noted))
+  })
+}
+
+/// One `log --no-walk --stdin` of `commits` in `format`, each record (NUL-terminated, `-z`) by `parse`, with `%N` of
+/// `notes_ref` only, whatever `notes.displayRef` says; no process without commits
+fn read_noted<T>(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  notes_ref: &str,
+  commits: &[&str],
+  format: &str,
+  parse: impl FnMut(&str) -> Option<(String, T)>,
+) -> Result<HashMap<String, T>, anyhow::Error> {
   if commits.is_empty() {
     return Ok(HashMap::new());
   }
@@ -91,22 +138,14 @@ pub fn read_notes(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref:
     input.push_str(commit);
     input.push('\n');
   }
+  let format_arg = format!("--format={format}");
   let notes_arg = format!("--notes={notes_ref}");
   // `-z` ends each record with NUL, which a text note never holds
   let output = git_executor
-    .cmd(&["log", "--no-walk", "--stdin", "-z", "--format=%H%x1f%N", &notes_arg], repo_path)
+    .cmd(&["log", "--no-walk", "--stdin", "-z", &format_arg, &notes_arg], repo_path)
     .stdin(input.as_bytes())
     .text()?;
-  Ok(
-    output
-      .split('\0')
-      .filter_map(|record| {
-        let (commit, note) = record.split_once('\u{1f}')?;
-        let note = note.trim();
-        (!note.is_empty()).then(|| (commit.trim().to_string(), note.to_string()))
-      })
-      .collect(),
-  )
+  Ok(output.split('\0').filter_map(parse).collect())
 }
 
 /// `write_commits_with_notes` with `notes` (`(index of the commit in the batch, note content)`) on the mapping notes

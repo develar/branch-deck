@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-23  
+**Updated:** 2026-10-24  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import, lease]
 
 ## Problem
@@ -1472,17 +1472,24 @@ names it by the code of its `ApiError` (`operation_in_progress`, `detached_head`
 asked for, nothing for one it started itself; `bd sync` answers `operation_in_progress` or `detached_head` (exit 4).
 
 **What a sync reads once** (`RepoFacts`, `crates/sync-core/src/repo_facts.rs`), after the guards, for every step that
-needs it: `remote`; one `for-each-ref --sort=-committerdate` of the checked out branch (its upstream: `%(upstream)`,
+needs it: `remote`; one `for-each-ref` of the checked out branch (its upstream: `%(upstream)`,
 `%(upstream:remotename)`, `%(upstream:remoteref)`, `%(upstream:short)`), the baseline candidates (`<first
-remote>/master`, `/main`, or the local ones) and the branches under the prefix, local (`%(worktreepath)`,
-`%(contents:subject)`) and on `origin`; and one `rev-parse --git-path FETCH_HEAD --git-path branch-deck/landed.json
-HEAD^{commit} <baseline>^{commit}` (the landed state of the worktree, which the update check records, is no process of
-its own).
+remote>/master`, `/main`, or the local ones) and the branches under the prefix, local (`%(worktreepath)`) and on
+`origin`; and one `rev-parse --git-path FETCH_HEAD --git-path branch-deck/landed.json HEAD^{commit}
+<baseline>^{commit}` (the landed state of the worktree, which the update check records, is no process of its own).
+The listing reads refs, never a commit (`LISTED_BRANCH_ATOMS`): no `%(contents:subject)`, no `--sort=-committerdate`,
+which read the commit of every listed ref before the first rows. On the monorepo those were 452 refs (263 remote
+branches under the prefix, 162 archived ones): 0.09 s warm, 1 to 2 s from a cold pack, against 0.03 s for the refs
+alone (`the_listing_reads_no_commit_of_the_branches_it_lists`: a ref whose commit is gone still lists). The subjects
+and the committer times of the local tips come with their detection notes, in the `log` the archive step runs for the
+notes anyway: after the first rows, and without the remote branches.
 The baseline is found by the rules of `detect_baseline_branch` (the upstream when it exists, else the first candidate
 that does; an upstream that is no candidate costs one `rev-parse --verify` more), its upstream by those of
 `resolve_baseline_upstream`. The update check (`check_known_baseline_update`, through `check_update_of` without its
-guards and its `rev-parse`), the archive step (`archive_and_clean_up_listed`: only the detection notes are read), the
-placement of stacked branches (`empty_parent_states_listed`: only the notes) and the integration detection take these:
+guards and its `rev-parse`), the archive step (`archive_and_clean_up_listed`: the detection notes, the subjects and
+the committer times of the tips, one `log --no-walk --stdin`, `read_noted_commits`, which orders the archived branches
+newest tip first), the placement of stacked branches (`empty_parent_states_listed`: the notes and the subjects of the
+candidate tips) and the integration detection take these:
 one baseline commit for the whole sync, also when a fetch moves the baseline meanwhile, so the remote statuses, the
 detection and the update check compare with the same commit. The walk of the commits it groups is one `log` of
 `<baseline commit>..<HEAD>`, the two ids, never the names (`get_frozen_commit_list_with_handler`; on the local
@@ -1491,7 +1498,8 @@ it groups, and the next focus syncs them (`a_fetch_and_a_commit_during_a_sync_ch
 
 **The unapplied branches** (`{prefix}/unapplied/<name>`, "Drop and unapply") are in the same listing. A sync never
 writes them; after the stack branches it sends them once, also an empty list, in `UnappliedBranchesFound`: the name,
-the tip, its subject, the worktree that has it, and the remote status of one whose remote branch exists, from the same
+the tip, its subject (from the archive step, which read it with the notes), the worktree that has it, and the remote
+status of one whose remote branch exists, from the same
 `RemoteStatusMemo` (the push times include them); one without a remote branch costs no process.
 
 **What a sync returns** (`SyncReport`): the baseline, its commit, HEAD and the checked out branch as it read them, the

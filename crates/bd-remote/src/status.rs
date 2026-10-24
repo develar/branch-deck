@@ -13,6 +13,7 @@ use domain_types::repository_view::{LandingNeeds, RemoteFact, RemoteFacts};
 use domain_types::settings::PrefixSource;
 use domain_types::stack::ParentState;
 use domain_types::{BranchOrigin, GroupedBranchInfo};
+use git_ops::commit_utils::get_commits_info;
 use history_rewrite::store_lines::StoreLineProblem;
 use repository_model::branch_table::BranchTable;
 use repository_model::patronus_view::{landed_commits, with_landing_needs};
@@ -131,31 +132,36 @@ pub struct UnappliedRemote {
   pub up_to_date: bool,
 }
 
-/// The unapplied branches of the listing, with the tips of their remote branches: no process
-fn unapplied_summaries(context: &RepoContext, grouping: &BranchGrouping) -> Vec<UnappliedSummary> {
+/// The unapplied branches of the listing, with the tips of their remote branches and the subjects of their tips: one
+/// `log --no-walk` when there are any (the listing reads no commit)
+fn unapplied_summaries(context: &RepoContext, grouping: &BranchGrouping) -> Result<Vec<UnappliedSummary>, CliError> {
   let listed: Vec<_> = grouping
     .listed
     .iter()
     .filter_map(|listed| Some((listed, strip_branch_namespace(&listed.name, &context.prefix, BranchKind::Unapplied)?)))
     .collect();
+  let tips: Vec<&str> = listed.iter().map(|(listed, _)| listed.tip.as_str()).collect();
+  let commits = get_commits_info(&context.git, &context.repository, &tips)?;
   let short = context.short_ids(
     listed
       .iter()
       .flat_map(|(listed, _)| std::iter::once(listed.tip.as_str()).chain(grouping.remote_tips.get(&listed.name).map(String::as_str))),
   );
-  listed
-    .into_iter()
-    .map(|(listed, branch)| UnappliedSummary {
-      name: listed.name.clone(),
-      branch: branch.to_string(),
-      tip: short.get(&listed.tip).to_string(),
-      subject: listed.subject.clone(),
-      remote: grouping.remote_tips.get(&listed.name).map(|head| UnappliedRemote {
-        head: short.get(head).to_string(),
-        up_to_date: *head == listed.tip,
-      }),
-    })
-    .collect()
+  Ok(
+    listed
+      .into_iter()
+      .map(|(listed, branch)| UnappliedSummary {
+        name: listed.name.clone(),
+        branch: branch.to_string(),
+        tip: short.get(&listed.tip).to_string(),
+        subject: commits.get(&listed.tip).map_or_default(|commit| commit.subject.clone()),
+        remote: grouping.remote_tips.get(&listed.name).map(|head| UnappliedRemote {
+          head: short.get(head).to_string(),
+          up_to_date: *head == listed.tip,
+        }),
+      })
+      .collect(),
+  )
 }
 
 /// Why a branch is parked: kept local, `bd push` and `bd safe-push` refuse it until the user unparks it
@@ -642,7 +648,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
       .filter(|name| !grouping.branches.iter().any(|branch| &branch.name == *name))
       .cloned()
       .collect(),
-    unapplied: unapplied_summaries(context, &grouping),
+    unapplied: unapplied_summaries(context, &grouping)?,
   })
 }
 
