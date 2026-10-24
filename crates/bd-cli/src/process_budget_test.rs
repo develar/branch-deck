@@ -4,7 +4,7 @@
 
 use crate::fixture_test::{PREFIX, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
 use crate::remote_fixture_test::{AUTH, Space, needs_code_owner, repo_with_remote, robot as robot_json};
-use bd_core::context::{RepoContext, RepoOptions};
+use bd_core::context::{RepoContext, RepoOptions, counted_git};
 use bd_core::sync_command::sync;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
 use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
@@ -519,14 +519,15 @@ fn a_lease_return_that_starts_the_maintenance() {
 fn a_workspace() {
   let repo = repo_with_branches();
   let (_home, environment) = lease_environment(&repo);
-  let git = GitCommandExecutor::new().with_process_stats("bd");
+  // bd's git, with the empty global config of the test
+  let git = counted_git(&environment).unwrap();
   let output = workspace_with(&git, &environment, None).unwrap();
   assert_eq!(output.next.len(), 1, "{output:?}");
   assert_git_processes(&git, &[("config", 2), ("rev-parse", 1), ("status", 1)]);
 
   let context = LeaseContext::resolve(&environment, None).unwrap();
   let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
-  let git = GitCommandExecutor::new().with_process_stats("bd");
+  let git = counted_git(&environment).unwrap();
   let output = workspace_with(&git, &environment, Some(std::path::Path::new(&got.path))).unwrap();
   assert_eq!(output.lease_id.as_deref(), Some(got.lease_id.as_str()));
   assert_git_processes(&git, &[("config", 1), ("rev-parse", 1), ("status", 1)]);

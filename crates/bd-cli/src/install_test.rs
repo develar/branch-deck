@@ -52,9 +52,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   let (home, app) = home_with_app();
   let home = std::fs::canonicalize(home.path()).unwrap();
   let link = home.join(".local/bin/bd");
-  // the agent rules of the global config of this test alone: the defaults
-  let global = tempfile::NamedTempFile::new().unwrap();
-  let _env = test_utils::env_vars::EnvVars::set(&[("GIT_CONFIG_GLOBAL", global.path())]);
+  // the agent rules of the empty global config of a test (`environment`): the defaults
   let mut status_environment = environment(&home);
   status_environment.home = Some(home.clone());
   status_environment.executable = Some(app.clone());

@@ -2,7 +2,6 @@
 //! (spec/cli/workspace.spec.md). The core is `lease_pool::agent_workspace`; this module turns it into the rules and the
 //! next commands of the agent
 
-use crate::lease_command::counted_git;
 use bd_core::bd_command::shell_word;
 use bd_core::context::Environment;
 use bd_core::error::CliError;
@@ -98,7 +97,7 @@ pub struct ActiveLeaseOutput {
 
 /// `bd workspace` in `directory`, else in the current directory: no working tree is an answer, not an error
 pub fn workspace(environment: &Environment, directory: Option<&Path>) -> Result<WorkspaceOutput, CliError> {
-  workspace_with(&counted_git(environment)?, environment, directory)
+  workspace_with(&bd_core::context::counted_git(environment)?, environment, directory)
 }
 
 /// `workspace` with the git of the caller

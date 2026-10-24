@@ -12,12 +12,18 @@ use test_utils::git_test_utils::TestRepo;
 
 pub const PREFIX: &str = "test-user";
 
-/// No app settings, git from `PATH`, started in `cwd`
+/// The global git config of bd in a test (`Environment::git_config_global`), empty
+pub const EMPTY_GLOBAL_CONFIG: &str = "/dev/null";
+
+/// No app settings and no global git config, git from `PATH`, started in `cwd`
 pub fn environment(cwd: &Path) -> Environment {
   Environment {
     cwd: cwd.to_path_buf(),
     settings: domain_types::settings::AppSettings::default(),
     git: None,
+    // an empty global config, as CI has: the developer's `branchdeck.branchPrefix` never gives a test its prefix (git
+    // for Windows reads `/dev/null` as `nul`)
+    git_config_global: Some(std::path::PathBuf::from(EMPTY_GLOBAL_CONFIG)),
     lock_timeout: std::time::Duration::from_millis(200),
     server_stop_timeout: std::time::Duration::from_secs(30),
     home: None,

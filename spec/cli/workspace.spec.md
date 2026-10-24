@@ -91,7 +91,9 @@ in the session wins over both.
 ## Testing / Local Run
 
 - `cargo nextest run -p bd-lease workspace_test` runs the command end to end on `TestRepo` fixtures, the pool in a
-  temporary home directory and the global git config a file of the test (`GIT_CONFIG_GLOBAL`).
+  temporary home directory and the global git config of bd a file of the fixture (`Environment::git_config_global`,
+  the `GIT_CONFIG_GLOBAL` of every git bd starts). Every other bd test reads an empty global config
+  (`EMPTY_GLOBAL_CONFIG`), as CI has: the developer's `branchdeck.*` never reaches one.
 
 ## Open Questions / Risks
 

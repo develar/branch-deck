@@ -1,6 +1,5 @@
-use crate::fixture_test::{repo_with_baseline, run_in};
+use crate::fixture_test::{environment, repo_with_baseline, run_in};
 use crate::{operation_name, parse};
-use bd_core::context::Environment;
 use clap::CommandFactory;
 use std::io::Write;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -62,6 +61,6 @@ fn the_operation_of_a_nested_command_names_both_words() {
   let matches = crate::Cli::command().try_get_matches_from(["bd", "lease", "status"]).unwrap();
   assert_eq!(operation_name(&matches), "lease status");
 
-  let invocation = parse(["version".into()], &Environment::from_process(), &mut Vec::new()).unwrap_or_else(|code| panic!("exit {code}"));
+  let invocation = parse(["version".into()], &environment(std::path::Path::new(".")), &mut Vec::new()).unwrap_or_else(|code| panic!("exit {code}"));
   assert_eq!(invocation.op, "version");
 }

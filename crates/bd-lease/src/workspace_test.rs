@@ -4,14 +4,6 @@ use bd_core::bd_command::shell_word;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
-use test_utils::env_vars::EnvVars;
-
-/// The global config of the test alone, empty, never the developer's
-fn own_global_config() -> (tempfile::NamedTempFile, EnvVars) {
-  let global = tempfile::NamedTempFile::new().unwrap();
-  let env = EnvVars::set(&[("GIT_CONFIG_GLOBAL", global.path())]);
-  (global, env)
-}
 
 fn workspace_in(fixture: &Fixture, cwd: &Path) -> Value {
   let (exit_code, output) = fixture.run_in(cwd, &["workspace"]);
@@ -27,7 +19,6 @@ fn display(path: &Path) -> String {
 /// the lease it picks each commit into the shared checkout and returns the lease, whose local changes it does not have
 #[test_log::test]
 fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
-  let (_global, _env) = own_global_config();
   let fixture = Fixture::new();
   let shared = display(fixture.repo.path());
   std::fs::create_dir_all(fixture.repo.path().join("crates/x")).unwrap();
@@ -74,9 +65,8 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
 /// `branchdeck.agentSubjectBranch true` turns the subject branch on
 #[test_log::test]
 fn the_global_config_turns_a_rule_off_and_a_repository_keeps_its_own() {
-  let (global, _env) = own_global_config();
   let fixture = Fixture::new();
-  std::fs::write(global.path(), "[branchdeck]\n\tagentLease = false\n\tagentSubjectBranch = true\n").unwrap();
+  std::fs::write(fixture.global_config.path(), "[branchdeck]\n\tagentLease = false\n\tagentSubjectBranch = true\n").unwrap();
 
   let output = workspace_in(&fixture, fixture.repo.path());
   assert_eq!(
@@ -102,7 +92,6 @@ fn the_global_config_turns_a_rule_off_and_a_repository_keeps_its_own() {
 /// nothing to edit, and that is an answer, not an error
 #[test_log::test]
 fn a_worktree_of_its_own_needs_no_lease_and_no_working_tree_is_an_answer() {
-  let (_global, _env) = own_global_config();
   let fixture = Fixture::new();
   let linked = tempfile::tempdir().unwrap();
   let linked_path = linked.path().join("linked");
@@ -125,7 +114,6 @@ fn a_worktree_of_its_own_needs_no_lease_and_no_working_tree_is_an_answer() {
 #[test_log::test]
 fn a_pool_that_cant_be_written_turns_the_lease_off() {
   use std::os::unix::fs::PermissionsExt;
-  let (_global, _env) = own_global_config();
   let fixture = Fixture::new();
   let pool = tempfile::tempdir().unwrap();
   std::fs::set_permissions(pool.path(), std::fs::Permissions::from_mode(0o500)).unwrap();

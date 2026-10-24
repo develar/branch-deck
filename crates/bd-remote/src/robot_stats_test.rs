@@ -1,4 +1,4 @@
-use bd_cli::fixture_test::{assert_covered, assert_error, run_json, writable_state};
+use bd_cli::fixture_test::{PREFIX, assert_covered, assert_error, run_json, writable_state};
 use bd_cli::remote_fixture_test::{Space, minutes_ago, robot};
 use bd_core::context::Environment;
 use pretty_assertions::assert_eq;
@@ -15,7 +15,7 @@ fn finished(id: &str, status: &str, minutes: u32, owner: &str) -> Value {
 }
 
 fn robot_stats(environment: &Environment, args: &[&str]) -> (i32, Value) {
-  let args: Vec<&str> = std::iter::once("robot-stats").chain(args.iter().copied()).collect();
+  let args: Vec<&str> = ["--prefix", PREFIX, "robot-stats"].into_iter().chain(args.iter().copied()).collect();
   run_json(environment, &args)
 }
 

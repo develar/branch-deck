@@ -6,10 +6,9 @@ use crate::agent_help::skill_text;
 use bd_core::bd_command::{BdCommand, app_binary, bd_command, display, io_error};
 #[cfg(unix)]
 use bd_core::bd_command::{LINK_DIR, links_to};
-use bd_core::context::Environment;
+use bd_core::context::{Environment, counted_git};
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
-use bd_lease::lease_command::counted_git;
 use domain_types::error::ErrorCode;
 use lease_pool::agent_workspace::{AgentDefaults, agent_defaults};
 use schemars::JsonSchema;

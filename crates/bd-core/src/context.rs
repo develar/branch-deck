@@ -40,6 +40,10 @@ pub struct Environment {
   pub settings: AppSettings,
   /// The git executable from `BD_GIT`
   pub git: Option<String>,
+  /// The global git config of every git bd starts (`GIT_CONFIG_GLOBAL`): `None` leaves git its own (`GIT_CONFIG_GLOBAL`
+  /// of the process, else `~/.gitconfig`); a test names an empty one or a file of its own, so the developer's
+  /// `branchdeck.*` (the branch prefix, the agent rules) never reaches it
+  pub git_config_global: Option<PathBuf>,
   /// How long a rewrite waits for the repository lock
   pub lock_timeout: Duration,
   /// How long `bd lease return` waits for the Bazel servers of a slot to exit
@@ -76,6 +80,7 @@ impl Environment {
       cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
       settings: app_settings_of(app_data_dir().map(|dir| dir.join(SETTINGS_FILE_NAME)).as_deref()),
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
+      git_config_global: None,
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
       server_stop_timeout: Duration::from_secs(30),
       home: std::env::home_dir(),
@@ -104,6 +109,18 @@ fn app_data_dir() -> Option<PathBuf> {
 #[must_use]
 pub fn app_settings_of(settings_file: Option<&Path>) -> AppSettings {
   settings_file.map_or_default(SettingsFile::load).app
+}
+
+/// The git of bd (`BD_GIT`, `PATH`, Homebrew's) with the global config of `environment`, counting its processes: `bd -v`
+/// logs how many git processes the command started, by subcommand, when the executor is dropped; `git_not_found`
+/// without one
+pub fn counted_git(environment: &Environment) -> Result<GitCommandExecutor, CliError> {
+  let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
+  let git = GitCommandExecutor::with_info(info).with_process_stats("bd");
+  Ok(match &environment.git_config_global {
+    Some(global) => git.with_env("GIT_CONFIG_GLOBAL", &global.to_string_lossy()),
+    None => git,
+  })
 }
 
 /// The global options that select the repository and how it is read
@@ -153,9 +170,7 @@ impl RepoContext {
   /// (`app_settings::resolve::resolve_branch_prefix`): `branchdeck.branchPrefix` of the repository's local or worktree config, the app setting
   /// `globalUserBranchPrefix`, the global or system `branchdeck.branchPrefix`. An empty prefix is an error
   pub fn resolve(environment: &Environment, options: &RepoOptions<'_>) -> Result<Self, CliError> {
-    let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
-    // `bd -v` logs how many git processes the command started, by subcommand, when the context is dropped
-    let git = GitCommandExecutor::with_info(info).with_process_stats("bd");
+    let git = counted_git(environment)?;
 
     let directory = match options.repo {
       Some(repo) if repo.is_relative() => environment.cwd.join(repo),

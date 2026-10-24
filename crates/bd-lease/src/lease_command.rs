@@ -2,12 +2,11 @@
 //! (spec/cli/lease.spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
-use bd_core::context::Environment;
+use bd_core::context::{Environment, counted_git};
 use bd_core::error::{CliError, ErrorExtra, ProcessKind, ProcessOutput};
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_executor::git_info::GitInfo;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use history_rewrite::repository_lock::RepositoryLocked;
@@ -161,12 +160,6 @@ impl LeaseContext {
       server_stop_timeout: environment.server_stop_timeout,
     })
   }
-}
-
-/// The git of bd (`BD_GIT`, `PATH`, Homebrew's), counting its processes; `git_not_found` without one
-pub fn counted_git(environment: &Environment) -> Result<GitCommandExecutor, CliError> {
-  let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
-  Ok(GitCommandExecutor::with_info(info).with_process_stats("bd"))
 }
 
 /// `bd lease get`

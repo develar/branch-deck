@@ -9,10 +9,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 
-/// A repository with a commit on master and the home directory its pool lives in
+/// A repository with a commit on master, the home directory its pool lives in and the global git config of bd
 pub(crate) struct Fixture {
   pub(crate) repo: TestRepo,
   pub(crate) home: tempfile::TempDir,
+  /// Empty unless a test writes it
+  pub(crate) global_config: tempfile::NamedTempFile,
 }
 
 impl Fixture {
@@ -22,6 +24,7 @@ impl Fixture {
     Self {
       repo,
       home: tempfile::tempdir().unwrap(),
+      global_config: tempfile::NamedTempFile::new().unwrap(),
     }
   }
 
@@ -29,6 +32,7 @@ impl Fixture {
   fn environment(&self, cwd: &Path) -> Environment {
     let mut environment = environment(cwd);
     environment.home = Some(self.home.path().to_path_buf());
+    environment.git_config_global = Some(self.global_config.path().to_path_buf());
     environment.lock_timeout = Duration::from_secs(10);
     environment
   }

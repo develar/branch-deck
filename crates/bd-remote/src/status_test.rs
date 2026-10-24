@@ -3,7 +3,6 @@ use bd_core::context::{Environment, app_settings_of};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
 /// Two prefixed commits, an issue-key commit and an unassigned one, at fixed times
@@ -141,8 +140,8 @@ fn prefix_source_names_where_the_prefix_came_from() {
   let (repo, _) = grouped_repo();
   let global = tempfile::NamedTempFile::new().unwrap();
   std::fs::write(global.path(), "[branchdeck]\n\tbranchPrefix = from-global\n").unwrap();
-  let _global = EnvVars::set(&[("GIT_CONFIG_GLOBAL", global.path())]);
   let mut environment = environment(repo.path());
+  environment.git_config_global = Some(global.path().to_path_buf());
   let source = |environment: &Environment, args: &[&str]| {
     let (exit_code, output) = run_json(environment, args);
     assert_eq!(exit_code, 0, "{output}");
