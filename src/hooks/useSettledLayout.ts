@@ -95,9 +95,12 @@ export function useSettledStackLine(root: string): { linesRef: RefObject<HTMLDiv
   return { linesRef, reserved }
 }
 
-/** The widths of `tracks` as the layout keeps them: whole pixels, the empty tracks left out */
+/**
+ * The widths of `tracks` as the layout keeps them: as laid out, a fraction too (a floor rounded up would stand a fraction
+ * wider than the content it holds the place of), the empty tracks left out
+ */
 export function settledTracks(tracks: Partial<Record<ColumnKey, number>>): Record<string, number> {
-  return Object.fromEntries(Object.entries(tracks).flatMap(([key, width]) => (width === undefined || width <= 0 ? [] : [[key, Math.ceil(width)]])))
+  return Object.fromEntries(Object.entries(tracks).flatMap(([key, width]) => (width === undefined || width <= 0 ? [] : [[key, width]])))
 }
 
 /** Forgets which repositories settled (tests) */

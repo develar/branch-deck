@@ -7,13 +7,14 @@ import { NextStepSlot } from "@/components/branch/NextStepSlot"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { useBranchMenu } from "@/hooks/useBranchContextActions"
-import { isFirstPushInLanding, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
+import { firstPushPending, isFirstPushInLanding, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { branchSubject, operationLabel, stopWaitingItem, useObjectBusy, useUnclaimedOperation } from "@/stores/operations"
-import { usePushHold } from "@/stores/patronus"
+import { usePatronusPending, usePushHold } from "@/stores/patronus"
+import { usePullRequestsLoading } from "@/stores/pull-requests"
 
 export interface BranchActionsProps {
   branch: Branch
@@ -27,7 +28,7 @@ export interface BranchActionsProps {
  * across the rows of every card: the compact push ("↑ 3", disabled for a blocked stacked branch; none while the remote
  * branch is up to date, unless a branch stacked on it has work: its description offers Push with Children then, while a
  * Safe Push holds the branch, `PushHold`, which the status says, and while the remote lacks the branch and its landing
- * pushes it, `isFirstPushInLanding`), the next step on Space (`NextStepSlot`: "Safe Push", a restart, a wait for
+ * pushes it, `isFirstPushInLanding`, or may: Patronus and GitHub haven't answered yet), the next step on Space (`NextStepSlot`: "Safe Push", a restart, a wait for
  * approvals) and "⋯" with the branch menu. A click in the cell, on a disabled button too, doesn't toggle the row.
  */
 export function BranchActions({ branch, setExpanded, stackPushInHeader = false }: BranchActionsProps) {
@@ -54,7 +55,11 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   // takes the stack branch of the whole stack along, whose open pull request it updates
   const landingPushes = useLandingPushes(branch.name) && (unpushedChildren?.stackBranch ?? null) === null
   const firstPush = isFirstPushInLanding(branch, { landingPushes })
-  const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked" && !childrenToPush) || hold !== null || firstPush)
+  // until Patronus and GitHub answer whether the landing pushes it, a first push shows no button either: one shown now
+  // would leave at their answer and move the columns under the pointer (the settled layout keeps the track where it shows)
+  const landingPending = firstPushPending(usePatronusPending(), usePullRequestsLoading())
+  const firstPushWaits = !landingPushes && landingPending !== null && getPushAction(branch) === "create"
+  const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked" && !childrenToPush) || hold !== null || firstPush || firstPushWaits)
   return (
     <ActionTracks>
       <ColumnTrack track="push">{canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}</ColumnTrack>

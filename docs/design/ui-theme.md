@@ -425,7 +425,11 @@ shows.
   steps, the robots), so until they are in ([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer))
   each track is at least as wide as once they were in the last time (`ColumnRegistry.setFloors`, the `tracks` of
   `settledLayout` in the repository state, `useSettledLayout`): a start or a switch back stands where the settled view
-  of the last time stood, and the answers fill the places they had. Once they are in, the floors go: the view follows
+  of the last time stood, and the answers fill the places they had. The widths are kept as laid out, fractions too: a
+  floor rounded up stands a fraction wider than the content it holds the place of, and a track rounded up moves its
+  neighbours by that fraction a frame after the content, when the report of the observer comes. The floors go in the
+  commit that renders the settling answer, the items read as laid out then (`setFloors(null)`), not as the observer
+  last reported them, so their drop moves nothing for a frame either. Once they are in, the floors go: the view follows
   its content (a track that has less to show than the last time narrows then, once) and keeps its widths for the next
   start. A repository's first start has no floors; within a window a repository settles once, so a late fact after it
   (a new branch waiting for its readiness) moves only what it changes. Your Turn above the table holds its height the

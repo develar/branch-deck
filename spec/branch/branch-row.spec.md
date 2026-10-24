@@ -405,10 +405,14 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   and so has a branch the remote lacks whose landing pushes it (`isFirstPushInLanding`): where Patronus answers or
   GitHub lists the pull requests and the branch has no live pull request, its Safe Push and Create Pull Request push
   it first, so its first push is a step of them, not a move of its own; the menu and P offer it, and Push with Children
-  of a root. A branch with a live pull request keeps its button, as the push updates it, and so does a root whose
-  Push with Children takes the stack branch of the open pull request of its whole stack along, and every branch of a
-  repository with neither Patronus nor GitHub.
+  of a root. Until Patronus and GitHub answered whether its landing pushes it, such a branch has no button either: one
+  shown before their answers would leave with them and move the columns under the pointer; where it stays (a
+  repository with neither), the settled layout of the view keeps its track from the next start on. A branch with a live
+  pull request keeps its button, as the push updates it, and so does a root whose Push with Children takes the stack
+  branch of the open pull request of its whole stack along, and every branch of a repository with neither Patronus nor
+  GitHub.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should take the whole stack branch along in Push with Children of the root once its pull request is open, from the push and the menu`)
+  [@test] ../../tests/e2e/branch-row-layout/late-facts.spec.ts (`should keep the rows and the columns where the last start left them while Your Turn, the pull requests and the approvals come back`)
   [@test] ../../src/hooks/usePushButton.test.ts (`leaves the first push of a branch to its landing where Safe Push or Create Pull Request pushes it`, `keeps a push that updates the remote branch, and the first push where nothing else pushes`, `keeps the push of a branch a Safe Push holds: its description says why it won't land and offers the robot`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)

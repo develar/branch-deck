@@ -68,7 +68,9 @@ export class ColumnRegistry {
           for (const entry of entries) {
             const item = this.items.get(entry.target)
             if (item !== undefined) {
-              item.width = Math.ceil(entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width)
+              // the width as laid out, a fraction too: a track as wide as its content moves nothing when the report of
+              // a wider content comes a frame after the content (rounded up it would, by the fraction)
+              item.width = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width
             }
           }
           this.write()
@@ -80,9 +82,19 @@ export class ColumnRegistry {
     this.write()
   }
 
-  /** The least width of each track from now on, null for none: the settled layout of the last start (`useSettledLayout`) */
+  /**
+   * The least width of each track from now on, null for none: the settled layout of the last start (`useSettledLayout`).
+   * The floors go once the content that settles the view is in, in the commit that renders it: its widths are read from
+   * the items as laid out then, not from the observer, whose report of that content comes a frame later, so the drop
+   * moves no item for a frame
+   */
   setFloors(floors: Readonly<Partial<Record<Key, number>>> | null): void {
     if (this.floors !== floors) {
+      if (floors === null) {
+        for (const [element, item] of this.items) {
+          item.width = element.getBoundingClientRect().width
+        }
+      }
       this.floors = floors
       this.write()
     }
@@ -95,7 +107,7 @@ export class ColumnRegistry {
   measured(): Partial<Record<Key, number>> {
     const widths: Partial<Record<Key, number>> = {}
     for (const [element, { key }] of this.items) {
-      widths[key] = Math.max(widths[key] ?? 0, Math.ceil(element.getBoundingClientRect().width))
+      widths[key] = Math.max(widths[key] ?? 0, element.getBoundingClientRect().width)
     }
     return widths
   }
