@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useEffectEvent, useState } from "react"
+import { useStore } from "zustand"
 import { Card } from "@/components/ui/card"
 import { BranchReviewActions, BranchReviewBar, BranchReviewBody, BranchReviewGone } from "@/components/review/BranchReview"
 import type { BranchReviewMoves } from "@/components/review/BranchReview"
@@ -12,13 +13,17 @@ import { WindowPage } from "@/components/shared/WindowPage"
 import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchReview"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import { BRANCH_REVIEW_WINDOW, branchGoneReason, branchReviewWindowKey } from "@/lib/branch-review"
+import { BRANCH_REVIEW_WINDOW, branchGoneReason, branchReviewWindowKey, sameReviewTable, settledReviewTable } from "@/lib/branch-review"
+import type { ReviewedTable } from "@/lib/branch-review"
 import { notifyError } from "@/lib/errors"
 import type { MenuItemGroups } from "@/lib/menu"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { repositoryName } from "@/lib/repository-config"
 import { showToast } from "@/lib/toast-message"
 import { formatWholeStack } from "@/lib/whole-stack"
+import { ensureSession, viewVersionKey } from "@/model/store"
+import { branchSyncStore } from "@/stores/branch-sync"
+import type { BranchSyncState } from "@/stores/branch-sync"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewMenuItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
 
 const WindowCreatePullRequestDialog = lazy(() => import("@/components/review/WindowCreatePullRequestDialog").then(it => ({ default: it.WindowCreatePullRequestDialog })))
@@ -26,29 +31,65 @@ const WindowCreatePullRequestDialog = lazy(() => import("@/components/review/Win
 /**
  * The review window of a branch (`BranchReview` on the canvas of a window of its own): the stack bar, Unified/Split and
  * the actions on the branch of the part in the title bar, the commits and the owner chips above the files beside the
- * diffs in the island, the position and the keys in the footer. The window doesn't own the branches: the main window sends the heads a sync built and the
- * actions of each branch over the link of the window, and runs what it asks for.
+ * diffs in the island, the position and the keys in the footer. The heads a sync built, the baseline and the branch of
+ * each commit of a whole stack come from the window's own subscription to the session of its repository; the window
+ * doesn't own the branches: the main window sends the actions of each branch over the link of the window, and runs
+ * what it asks for.
  */
 export function BranchReviewPage() {
   const data = useSubWindowData<BranchReviewWindowData>()
+  const repositoryPath = data?.repositoryPath ?? null
+  // the session of the window's repository, under the window's label: its patches reach this window as the main
+  // window's reach it, also while the main window shows another repository; it ends with the window
+  useEffect(() => {
+    if (repositoryPath !== null) {
+      ensureSession(repositoryPath)
+    }
+  }, [repositoryPath])
   if (data === null) {
     return null
   }
   return <BranchReviewWindow key={branchReviewWindowKey(data)} data={data} />
 }
 
+/**
+ * What the review reads of the table of the window's session (`settledReviewTable`): taken when the view settles, so
+ * once per finished sync, whichever window asked for it, and never from a run that is rebuilding the copies; null
+ * until a sync grouped the branches
+ */
+function useReviewedTable(chain: readonly string[], wholeStack: boolean): ReviewedTable | null {
+  const chainKey = chain.join("\n")
+  const [table, setTable] = useState(() => settledReviewTable(branchSyncStore.getState(), chain, wholeStack))
+  useEffect(() => {
+    const names = chainKey.split("\n")
+    const take = (state: BranchSyncState) => {
+      const next = settledReviewTable(state, names, wholeStack)
+      if (next !== null) {
+        setTable(previous => (sameReviewTable(previous, next) ? previous : next))
+      }
+    }
+    take(branchSyncStore.getState())
+    return branchSyncStore.subscribe(take)
+  }, [chainKey, wholeStack])
+  return table
+}
+
 function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
-  // what the main window says of the chain: the heads a sync built, the actions of each branch
+  // what the main window says of the chain: the actions of each branch
   const linked = useLinkedState(BRANCH_REVIEW_WINDOW, data.state)
+  // the window's view of the session: the heads the last sync built, the baseline
+  const wholeStack = data.wholeStack === true
+  const table = useReviewedTable(data.chain, wholeStack)
+  const viewVersion = useStore(branchSyncStore, state => viewVersionKey(state.viewVersion))
   // the "Create pull request" dialog of a branch of the chain: in this window, its context from the main window; a move
   // to a commit waits until it closes
   const [dialog, setDialog] = useState<{ branchName: string; generation: number } | null>(null)
   // the reviewer groups of the check that answered while the window is open, else those of the open
   const groups = linked.selected ? linked.groups : null
   const model = useBranchReview(
-    groups === null ? data : { ...data, groups: [...groups] },
+    { ...data, baselineBranch: table?.baselineBranch ?? data.baselineBranch, groups: groups === null ? data.groups : [...groups] },
     data.focus,
-    { known: linked.selected, tips: linked.tips },
+    { known: table !== null, tips: table?.tips ?? {} },
     { openedAt: data.openedAt, focus: data.move ? data.focus : null, held: dialog !== null },
   )
   // the actions of each branch while the main window showed the repository and had it: they stay (those that need the
@@ -73,7 +114,6 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
     setDialogLoaded(true)
   }
   // the review of the whole stack asks for the actions, the menu and the dialog of the whole stack of its root
-  const wholeStack = data.wholeStack === true
   const askDialog = (branchName: string, open: boolean) =>
     void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, {
       repositoryPath: data.repositoryPath,
@@ -99,7 +139,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
     wholeStack: linked.wholeStack,
     onWholeStack: () => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName: target, scope: "wholeStack" }),
     from: data.from ?? [],
-    stackCommits: linked.stackCommits,
+    stackCommits: table?.stackCommits ?? noStackCommits,
     commitMenus: linked.commitMenus,
     onCommitMenuItem: (branchName, commitId, commitMenuItemId) =>
       void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName, commitMenuItemId, commitId }),
@@ -127,6 +167,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   return (
     <WindowPage
       data-testid="branch-review"
+      data-view-version={viewVersion ?? undefined}
       body="fill"
       readyByContent
       title={<BranchReviewBar model={model} moves={moves} />}
@@ -180,6 +221,8 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
     </WindowPage>
   )
 }
+
+const noStackCommits: Readonly<Record<string, string>> = {}
 
 /**
  * "⋯" of the title bar: the whole menu of the branch's row, as the main window sends it; the main window runs the item

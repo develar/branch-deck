@@ -1,14 +1,17 @@
 import type { BranchReviewSegment } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
+import { sameStringRecord } from "@/lib/record"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { formatBlockedReason, stackProblemOf } from "@/lib/stack"
-import type { Branch } from "@/stores/branch-sync"
+import { stackDescendantsIn } from "@/stores/branch-sync"
+import type { Branch, BranchSyncState } from "@/stores/branch-sync"
 import type { BranchReviewGroup, BranchReviewWindowData } from "@/types/sub-window"
 
 /**
- * The label of the review window of a branch: one window, reused for the next branch. Its link
- * (`@/lib/sub-window-link`) sends the heads a sync built and the actions of each branch of its chain
- * (`BranchReviewWindowState`), and carries the actions it asks for (`BranchReviewRequest`) with their refusals.
+ * The label of the review window of a branch: one window, reused for the next branch. The window subscribes to the
+ * session of its repository itself for the heads a sync built (`settledReviewTable`); its link
+ * (`@/lib/sub-window-link`) sends the actions of each branch of its chain (`BranchReviewWindowState`), and carries
+ * the actions it asks for (`BranchReviewRequest`) with their refusals.
  */
 export const BRANCH_REVIEW_WINDOW = "branch-review"
 
@@ -180,16 +183,55 @@ export function keepSegmentRange(previous: readonly BranchReviewSegment[], next:
   return from === -1 || to === -1 || from > to ? { from: next.length - 1, to: next.length - 1 } : { from, to }
 }
 
-/** The tips of the branches by name, for the review windows: the head of each virtual branch's newest commit */
-export function branchTips(branches: Readonly<Record<string, Branch>>): Record<string, string> {
+/**
+ * What the review window reads of the table of its own session (`branchSyncStore` of its window): the head of each
+ * branch of the chain (a branch not there has left: it landed, it was renamed), of a whole stack the tip of its stack branch,
+ * the baseline, and of a whole stack the branch of each of its commits by `reviewCommitKey` (its copies carry no
+ * mapping notes)
+ */
+export interface ReviewedTable {
+  readonly tips: Readonly<Record<string, string>>
+  readonly baselineBranch: string
+  readonly stackCommits: Readonly<Record<string, string>>
+}
+
+/**
+ * The table of `state` as the review of `chain` reads it, once the view settled: null while a sync runs (its copies are
+ * being rebuilt) and before a sync grouped the branches (a session nobody synced yet has no baseline)
+ */
+export function settledReviewTable(state: BranchSyncState, chain: readonly string[], wholeStack: boolean): ReviewedTable | null {
+  if (state.isSyncing || state.baselineBranch === null) {
+    return null
+  }
   const tips: Record<string, string> = {}
-  for (const [name, branch] of Object.entries(branches)) {
-    const tip = branch.commits[0]?.hash
-    if (tip !== undefined) {
-      tips[name] = tip
+  const stackCommits: Record<string, string> = {}
+  if (wholeStack) {
+    const root = chain[0] ?? ""
+    const tip = state.stackBranches[root]?.tip
+    if (tip != null) {
+      tips[root] = tip
+    }
+    for (const name of [root, ...stackDescendantsIn(state, root)]) {
+      for (const commit of state.branches[name]?.commits ?? []) {
+        stackCommits[reviewCommitKey({ ...commit, subject: commit.strippedSubject })] = name
+      }
+    }
+  } else {
+    for (const name of chain) {
+      // its newest commit's copy; a commit the sync wrote no copy of (a failed or blocked build) is its own head, so a
+      // branch is gone only once it left the table
+      const newest = state.branches[name]?.commits[0]
+      if (newest !== undefined) {
+        tips[name] = newest.hash ?? newest.originalHash
+      }
     }
   }
-  return tips
+  return { tips, baselineBranch: state.baselineBranch, stackCommits }
+}
+
+/** The same table for the review: a view that changed nothing it reads keeps the record, and the window renders nothing */
+export function sameReviewTable(a: ReviewedTable | null, b: ReviewedTable | null): boolean {
+  return a === b || (a !== null && b !== null && a.baselineBranch === b.baselineBranch && sameStringRecord(a.tips, b.tips) && sameStringRecord(a.stackCommits, b.stackCommits))
 }
 
 /**

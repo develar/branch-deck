@@ -21,6 +21,7 @@ targets:
   - ../../src/hooks/useBranchReviewLink.ts
   - ../../src/hooks/useMainWindowLink.ts
   - ../../src/lib/sub-window-link.ts
+  - ../../src/model/store.ts
   - ../../src/pages/IndexPage.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
@@ -202,16 +203,26 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
 - Another commit, another owner filter or a sync that reads the stack again must keep the file on screen when the new
   changes have it.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+- The window must read the tips of its own subscription: it subscribes to the session of its repository itself
+  (`ensureSession` of its own `src/model/store.ts`, `subscribe_view` under its label, beside the main window's
+  subscription and independent of it), and takes from its view the head of each branch of the chain (the copy of its
+  newest commit, else that commit), of the review of the whole stack the tip of its stack branch and the branch of
+  each of its commits by `reviewCommitKey`, and the baseline (`settledReviewTable`). It takes them once the view
+  settled: once per finished sync of the session, whichever window asked for it, also while the main window shows
+  another repository, never during a run, and not before a sync grouped the branches. The window carries the version
+  of its view (`data-view-version` of `branch-review`); the link of the main window sends none of it. The read at the
+  open uses the baseline of the window data, which the page starts at its load.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again from the window's own session when a sync of the main window moves a tip of it, and keep a branch that left`)
+  [@test] ../../src/model/store.test.ts (`keeps the subscription of a second window independent of the first's: its own view, its own count of the runs`)
+  [@test] ../../src/lib/branch-review.test.ts (`reads the heads of the chain once the view settled, never from a running sync or a table no sync grouped`, `reads the tip of the stack branch of a whole stack and the branch of each of its commits`, `keeps the table of a view that changed nothing the review reads`)
 - A sync that moves a tip of the chain must read the stack again, once per set of heads, and keep the part by the names
-  of its ends (the reviewed branch alone when an end left the chain): the main window sends the heads the last sync
-  built (`tips` of the window state, over its link `branch-review/state`).
+  of its ends (the reviewed branch alone when an end left the chain).
   [@test] ../../src/lib/branch-review.test.ts (`keeps the range by the names of its ends, or falls back to the reviewed branch`)
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again when a sync moves a tip of it`)
-- A branch of the chain the last sync no longer built (it landed, it was renamed) must keep the last view with "login
-  is no longer a branch: it landed or was renamed": an info `Alert` above the review in the window; its Safe Push
-  and Push are disabled with that
-  reason, its pull request still opens, and the stack is not read again.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again from the window's own session when a sync of the main window moves a tip of it, and keep a branch that left`)
+- A branch of the chain no longer in the table of the window's session (it landed, it was renamed) must keep the last
+  view with "login is no longer a branch: it landed or was renamed": an info `Alert` above the review in the window;
+  its Safe Push and Push are disabled with that reason, its pull request still opens, and the stack is not read again.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again from the window's own session when a sync of the main window moves a tip of it, and keep a branch that left`)
 
 ### Title bar, footer and actions
 
@@ -260,7 +271,7 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   reviewed branch; for a parent alone, the parent.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 - What the window offers comes from the main window, over the link of the window (`sub-window-link.ts`): the state of
-  the window data at the open (`BranchReviewWindowState`: the heads of the chain, the items of each branch), then
+  the window data at the open (`BranchReviewWindowState`: the items and the menus of each branch), then
   `branch-review/state` whenever it changes (the branches, a sync or a push, the pull requests, the robots, the inline
   action of a row, the selected repository), deduplicated, for the last opened chain. An unavailable Safe Push or
   Push stays, disabled, with the reason of the menu on hover ("A Safe Push of the last commit is running", "Wait for
@@ -369,20 +380,26 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
 
 - `cargo nextest run`: `git-ops` (`ownership_test`), `sync-core` (`branch_review_test`, `patronus_test`).
 - `pnpm test:unit`: `src/lib/branch-review.test.ts`, `src/lib/review-owners.test.ts`, `src/lib/patronus.test.ts`,
-  `src/hooks/useBranchContextActions.test.ts`, `src/lib/sub-window-link.test.ts`.
+  `src/hooks/useBranchContextActions.test.ts`, `src/lib/sub-window-link.test.ts`, `src/model/store.test.ts` (two
+  windows on the fake sessions).
 - `pnpm e2e`: `tests/e2e/branch-review/branch-review.spec.ts` on the `stacked_ownership` template, and the code-owner
   review of `tests/e2e/patronus/patronus-actions.spec.ts`. The mock records `open_sub_window`; the test then shows the
   route in the same page with the recorded data (`openSubWindowPage`), labelled `main`. The mock records `emit`
   (`getEmittedEvents`) instead of delivering it: the footer test reads the `branch-review/request` requests of the
   window, then shows the main window in the page again and fires them there, so the main window's listener runs them.
+  A test of what both windows do at once opens the window in a page of its own (`openLinkedSubWindow`, labelled
+  `branch-review`), which subscribes to the session of the E2E server on its own stream: a sync of the main window
+  reaches it as its patches.
 
 ## Open Questions / Risks
 
 - Until Patronus sends `paths` per group, a group named in `review-rules.yaml` as the reviewer of another owner, or
   one Patronus delegates to, shows no files.
 - The window acts only through the main window: closed or showing another repository, it pushes nothing.
-- The tips the main window sends are the heads it synced; a `bd` sync in a terminal moves the virtual branches
-  without telling the window until the app syncs.
+- The tips are those of the app's session; a `bd` sync in a terminal moves the virtual branches without telling the
+  window until the app syncs.
+- A change of the branch prefix while the window is open leaves it on the session of the old prefix: it follows no
+  sync until it opens again.
 
 ## References
 

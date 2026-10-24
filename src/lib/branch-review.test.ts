@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { BranchReviewSegment } from "@/lib/bindings"
-import { branchReviewBlocker, branchReviewWindowKey, keepSegmentRange, moveView, planReviewOpen, segmentRangeSubject, selectSegment, stackBarItems } from "@/lib/branch-review"
+import {
+  branchReviewBlocker,
+  branchReviewWindowKey,
+  keepSegmentRange,
+  moveView,
+  planReviewOpen,
+  reviewCommitKey,
+  sameReviewTable,
+  segmentRangeSubject,
+  selectSegment,
+  settledReviewTable,
+  stackBarItems,
+} from "@/lib/branch-review"
 import type { BranchReviewFocus, ShownBranchReview } from "@/lib/branch-review"
+import { branchSyncStore } from "@/stores/branch-sync"
+import type { BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
 import type { BranchReviewWindowData } from "@/types/sub-window"
 
@@ -67,7 +81,7 @@ describe("the review window of a branch", () => {
     openedAt: 1,
     startedAt: 1,
     move: false,
-    state: { repositoryPath: "/repo", selected: true, tips: {}, items: {}, menus: {}, createPullRequest: null, wholeStack: null, stackCommits: {}, commitMenus: {}, groups: null },
+    state: { repositoryPath: "/repo", selected: true, items: {}, menus: {}, createPullRequest: null, wholeStack: null, commitMenus: {}, groups: null },
   }
   const shown: ShownBranchReview = { repositoryPath: "/repo", chain: ["auth", "login"], wholeStack: false, startedAt: 1 }
   const open = (branchName: string, chain: string[], focus: BranchReviewFocus) => planReviewOpen(shown, { repositoryPath: "/repo", branchName, chain, focus }, 9)
@@ -103,5 +117,70 @@ describe("moveView", () => {
 
   it("shows all changes of the commit's branch when the segments don't have the commit", () => {
     expect(moveView(view, { commitId: "gone", range: { from: "auth", to: "auth" } })).toEqual({ ...view, range: { from: 0, to: 0 }, commitId: null })
+  })
+})
+
+describe("settledReviewTable", () => {
+  const commit = (name: string, hash: string | undefined): SyncedCommit => ({
+    originalHash: `${name}-original`,
+    ...(hash !== undefined && { hash }),
+    strippedSubject: `Change ${name}`,
+    message: `(${name}) Change ${name}`,
+    author: "Test User",
+    authorTime: 1,
+    committerTime: 1,
+  })
+  const stack: StackBranch = {
+    root: "auth",
+    branchName: "user/stack/auth",
+    members: ["auth", "login", "ui"],
+    commitCount: 3,
+    state: "Built",
+    tip: "s1",
+    blockedBy: null,
+    conflict: null,
+    error: null,
+    remoteStatus: null,
+  }
+  /** The view of a window's session after a sync of auth, login on auth and ui on auth: login has no copy yet */
+  const synced: BranchSyncState = {
+    ...branchSyncStore.getInitialState(),
+    baselineBranch: "origin/master",
+    branchOrder: ["auth", "login", "ui"],
+    branches: {
+      auth: testBranch("auth", null, { commits: [commit("auth", "a1")] }),
+      login: testBranch("login", "auth", { commits: [commit("login", undefined)] }),
+      ui: testBranch("ui", "auth", { commits: [commit("ui", "u1")] }),
+    },
+    stackBranches: { auth: stack },
+  }
+
+  it("reads the heads of the chain once the view settled, never from a running sync or a table no sync grouped", () => {
+    // a branch that has left (gone) is not among the heads
+    expect(settledReviewTable(synced, ["auth", "gone"], false)).toEqual({ tips: { auth: "a1" }, baselineBranch: "origin/master", stackCommits: {} })
+    // the head of a branch without its copy is its own commit
+    expect(settledReviewTable(synced, ["auth", "login"], false)?.tips).toEqual({ auth: "a1", login: "login-original" })
+    expect(settledReviewTable({ ...synced, isSyncing: true }, ["auth"], false)).toBeNull()
+    expect(settledReviewTable({ ...synced, baselineBranch: null }, ["auth"], false)).toBeNull()
+  })
+
+  it("reads the tip of the stack branch of a whole stack and the branch of each of its commits", () => {
+    const table = settledReviewTable(synced, ["auth"], true)
+    expect(table?.tips).toEqual({ auth: "s1" })
+    expect(table?.stackCommits).toEqual({
+      [reviewCommitKey({ author: "Test User", authorTime: 1, subject: "Change auth" })]: "auth",
+      [reviewCommitKey({ author: "Test User", authorTime: 1, subject: "Change login" })]: "login",
+      [reviewCommitKey({ author: "Test User", authorTime: 1, subject: "Change ui" })]: "ui",
+    })
+    // a stack branch not built yet: the whole stack has no head, the review shows it gone
+    expect(settledReviewTable({ ...synced, stackBranches: { auth: { ...stack, tip: null } } }, ["auth"], true)?.tips).toEqual({})
+  })
+
+  it("keeps the table of a view that changed nothing the review reads", () => {
+    const table = settledReviewTable(synced, ["auth", "login"], false)
+    expect(sameReviewTable(table, settledReviewTable({ ...synced, branches: { ...synced.branches } }, ["auth", "login"], false))).toBe(true)
+    const moved = { ...synced.branches, auth: testBranch("auth", null, { commits: [commit("auth", "a2")] }) }
+    expect(sameReviewTable(table, settledReviewTable({ ...synced, branches: moved }, ["auth", "login"], false))).toBe(false)
+    expect(sameReviewTable(table, settledReviewTable({ ...synced, baselineBranch: "origin/main" }, ["auth", "login"], false))).toBe(false)
   })
 })

@@ -248,7 +248,8 @@ Mock implementation:
   error } }` on the stream, the JSON of the app. A patch may reach the channel before the answer, in the app too: the
   page keeps it until it has the view, and applies a patch only on its `base`. The sync button carries the version of
   the view the page holds (`data-view-version`, `epoch:seq`) beside the count of the runs that ended
-  (`data-sync-count`), for a test that waits for a patch.
+  (`data-sync-count`), for a test that waits for a patch; the review window of a branch, which subscribes on its own,
+  carries the version of its view on `branch-review`.
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_subscription_answers_its_view_then_the_patches_up_to_the_version_a_sync_answers`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app`)
   [@test] ../../crates/test-server/src/repository_lifecycle_test.rs (`deleting_a_repository_closes_its_sessions`)

@@ -220,8 +220,11 @@ export class FakeSessions {
   }
 }
 
-/** The fake sessions a mocked `@/lib/bindings` answers from (`sessionCommands`) */
-export const fakeSessions = new FakeSessions()
+/**
+ * The fake sessions a mocked `@/lib/bindings` answers from (`sessionCommands`): one backend for the process, also for
+ * a second window whose modules a test loads afresh (`vi.resetModules`), as two windows of the app share one
+ */
+export const fakeSessions: FakeSessions = ((globalThis as { __fakeSessions?: FakeSessions }).__fakeSessions ??= new FakeSessions())
 
 /** The commands of a mocked `@/lib/bindings` the store of the view calls: the fake sessions', no autosquash plan */
 export function sessionCommands() {

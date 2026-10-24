@@ -157,6 +157,37 @@ describe("the view of the session", () => {
     fakeSessions.send("/repo", grouping("a", "b"))
     expect(branchSyncStore.getState().branchOrder).toEqual([])
   })
+
+  it("keeps the subscription of a second window independent of the first's: its own view, its own count of the runs", async () => {
+    await open()
+    await send(grouping("a"))
+    // the review window of a branch loads the modules afresh: its own store and table, the same backend
+    vi.resetModules()
+    const second = await import("@/model/store")
+    const secondTable = (await import("@/stores/branch-sync")).branchSyncStore
+    second.openSession("/repo")
+    await second.whenSessionReady()
+    expect(fakeSessions.subscriptions.map(it => it.repositoryPath)).toEqual(["/repo", "/repo"])
+    // the snapshot at its subscription
+    expect(secondTable.getState().branchOrder).toEqual(["a"])
+    // a run asked by the first window reaches both, and each counts it once it ended
+    await send(running)
+    await send(grouping("a", "b"))
+    const ended = await send(idle)
+    await vi.waitFor(() => expect(secondTable.getState().viewVersion).toEqual(ended))
+    expect(secondTable.getState().branchOrder).toEqual(["a", "b"])
+    expect([branchSyncStore.getState().syncCount, secondTable.getState().syncCount]).toEqual([1, 1])
+    // the first window switches to another repository: the second keeps its subscription and the patches
+    openSession("/other")
+    await whenSessionReady()
+    const { next } = fakeSessions.send("/repo", grouping("a", "b", "c"))
+    await vi.waitFor(() => expect(secondTable.getState().viewVersion).toEqual(next))
+    expect(secondTable.getState().branchOrder).toEqual(["a", "b", "c"])
+    expect(branchSyncStore.getState().branchOrder).toEqual([])
+    // the close of the second ends only its own subscription
+    second.closeSession()
+    expect(fakeSessions.subscriptions.map(it => it.repositoryPath)).toEqual(["/other"])
+  })
 })
 
 describe("a sync of the session", () => {

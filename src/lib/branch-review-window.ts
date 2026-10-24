@@ -66,9 +66,6 @@ function knownReviewGroupsOf(branchName: string): BranchReviewGroup[] | null {
   return last !== undefined && last.head === getBranch(branchName)?.commits[0]?.hash ? last.groups : null
 }
 
-/** The heads of the branches the last sync of a repository built: what the review window compares its stack with */
-let syncedTips: { repositoryPath: string; tips: Readonly<Record<string, string>> } | null = null
-
 /**
  * The branch whose "Create pull request" dialog the window has open: its context goes with the state, and its
  * readiness (the code owners) is asked for meanwhile
@@ -287,20 +284,17 @@ export async function openWholeStackReviewWindow(root: string, options: { readon
   )
 }
 
-/** The tip of the stack branch the last sync left, which a review of the whole stack reads again when it moves */
+/** The actions of the whole stack of `root` while the main window shows its repository and the stack has a stack branch */
 function buildStackState(repositoryPath: string, root: string): BranchReviewWindowState {
-  const tip = getSelectedProject()?.path === repositoryPath ? getStackBranch(root)?.tip : undefined
-  const selected = tip !== undefined
+  const selected = getSelectedProject()?.path === repositoryPath && getStackBranch(root) !== undefined
   return {
     repositoryPath,
     selected,
-    tips: tip == null ? {} : { [root]: tip },
     // the actions of the whole stack, under its root: the window's title bar and "⋯" render them as a branch's
     items: selected ? { [root]: getWholeStackReviewItems(root).map(toReviewItem) } : {},
     menus: selected ? { [root]: [wholeStackMenu(root).map(toMenuItem)] } : {},
     createPullRequest: selected && dialog?.wholeStack === true ? getStackPullRequestContext(root) : null,
     wholeStack: null,
-    stackCommits: selected ? stackCommitBranches(root) : {},
     commitMenus: {},
     groups: null,
   }
@@ -332,17 +326,6 @@ function getWholeStackReviewItems(root: string): BranchActionItem[] {
       ...(item.id === "push-with-children" && { kbds: undefined }),
       ...(item.id === "open-stack-pull-request" && pullRequest !== undefined && { url: pullRequest.url }),
     }))
-}
-
-/** The branch of each commit of the whole stack of `root`, by `reviewCommitKey`: its copies carry no mapping notes */
-function stackCommitBranches(root: string): Record<string, string> {
-  const branches: Record<string, string> = {}
-  for (const name of [root, ...getStackDescendants(root)]) {
-    for (const commit of getBranch(name)?.commits ?? []) {
-      branches[reviewCommitKey({ ...commit, subject: commit.strippedSubject })] = name
-    }
-  }
-  return branches
 }
 
 /**
@@ -386,20 +369,15 @@ function wholeStackScopeOf(chain: readonly string[], baselineBranch: string): Wh
   }
 }
 
-/** The tips of the chain the last sync built, and the actions of each branch; nothing for a repository not shown */
+/** The actions of each branch of the chain; nothing for a repository not shown */
 function buildState(repositoryPath: string, chain: readonly string[]): BranchReviewWindowState {
   if (getSelectedProject()?.path !== repositoryPath) {
-    return { repositoryPath, selected: false, tips: {}, items: {}, menus: {}, createPullRequest: null, wholeStack: null, stackCommits: {}, commitMenus: {}, groups: null }
+    return { repositoryPath, selected: false, items: {}, menus: {}, createPullRequest: null, wholeStack: null, commitMenus: {}, groups: null }
   }
-  const tips: Record<string, string> = {}
   const items: Record<string, BranchReviewItem[]> = {}
   const menus: Record<string, BranchReviewMenuItem[][]> = {}
   const commitMenus: Record<string, BranchReviewMenuItem[][]> = {}
   for (const name of chain) {
-    const tip = syncedTips?.repositoryPath === repositoryPath ? syncedTips.tips[name] : getBranch(name)?.commits[0]?.hash
-    if (tip !== undefined) {
-      tips[name] = tip
-    }
     const branch = getBranch(name)
     if (branch !== undefined) {
       items[name] = getBranchReviewItems(branch).map(toReviewItem)
@@ -418,12 +396,10 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
   return {
     repositoryPath,
     selected: true,
-    tips,
     items,
     menus,
     createPullRequest: dialogBranch === undefined ? null : getCreatePullRequestContext(dialogBranch),
     wholeStack: wholeStackScopeOf(chain, baselineBranch),
-    stackCommits: {},
     commitMenus,
     // the check of the reviewed branch answers while the window is open: its groups follow it
     groups: chain.length === 0 ? null : knownReviewGroupsOf(chain.at(-1)!),
@@ -481,15 +457,9 @@ function toReviewItem(item: BranchActionItem): BranchReviewItem {
   }
 }
 
-/** A sync of `repositoryPath` built these heads: the review window reads its stack again when a head of it moved */
-export function noteSyncedTips(repositoryPath: string, tips: Readonly<Record<string, string>>): void {
-  syncedTips = { repositoryPath, tips }
-  link.broadcast()
-}
-
 /**
- * Tells the review window what changed for its chain (the tips of a sync, the actions of its branches), when it
- * changed since it was told; nothing while it is closed. Main window only.
+ * Tells the review window what changed for the actions of its chain, when it changed since it was told; nothing while
+ * it is closed. Main window only: the window reads the heads a sync built from its own session.
  */
 export function broadcastBranchReviewState(): void {
   link.broadcast()

@@ -1,7 +1,8 @@
 /**
  * The page's side of a session (docs/design/rust-domain-authority.md, "Представление: снимок и патчи"): the session of
- * the selected repository in Rust owns the branch table and its syncs; the main window subscribes to it
- * (`subscribe_view`), takes the view at the subscription and then each patch on the channel, and keeps
+ * a repository in Rust owns the branch table and its syncs; a window subscribes to it (`subscribe_view`, under the
+ * window's label: the main window to the selected repository's, the review window of a branch to its repository's,
+ * each with a store of its own), takes the view at the subscription and then each patch on the channel, and keeps
  * `branchSyncStore` in the shape the components read. A patch applies only to the view at its base: one of another
  * epoch (the session was opened again) or after a gap asks for the snapshot (`get_snapshot`); one that came before the
  * subscription answered waits for it. A branch record is built again only from the parts a patch changed, so a row
@@ -23,6 +24,7 @@ import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { sameStringRecord, withoutKeys } from "@/lib/record"
 import { showToast } from "@/lib/toast-message"
 import { addTiming } from "@/lib/update-progress"
+import { isMainWindow } from "@/lib/window-label"
 import { applyViewPatch } from "@/model/patch"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
@@ -257,7 +259,8 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
   if (changes === null || changes.header != null) {
     Object.assign(update, headerFields(state, next))
     const config = next.header.issueNavigationConfig
-    if (config !== null) {
+    // the main window records the issue links of the project; a sub-window of the same session would only repeat it
+    if (config !== null && isMainWindow) {
       updateProject(repositoryPath, { issueNavigationConfig: config })
     }
   }

@@ -96,13 +96,14 @@ export interface ReviewedBranch {
   readonly commits: number
 }
 
-/** What the main window tells the review window of a branch (over its link) */
+/**
+ * What the main window tells the review window of a branch (over its link): what it can do with the branches. The heads
+ * a sync built, the baseline and the branch of each commit of a whole stack the window reads from its own session
+ */
 export interface BranchReviewWindowState {
   readonly repositoryPath: string
   /** The main window shows the repository: only then can it act on its branches */
   readonly selected: boolean
-  /** The head of each branch of the chain the last sync built; a branch not there has left (it landed, it was renamed) */
-  readonly tips: Readonly<Record<string, string>>
   /** The actions of each branch of the chain; none while the main window shows another repository */
   readonly items: Readonly<Record<string, readonly BranchReviewItem[]>>
   /** The whole menu of each branch of the chain, in its groups: the window's "⋯" offers what the row offers */
@@ -111,11 +112,6 @@ export interface BranchReviewWindowState {
   readonly createPullRequest: CreatePullRequestContext | null
   /** The whole stack of the chain's root as a scope of the stack bar; null where it would show nothing more */
   readonly wholeStack: WholeStackScope | null
-  /**
-   * The review of the whole stack: the branch of each of its commits, by `reviewCommitKey` (its copies have no
-   * mapping notes); empty otherwise
-   */
-  readonly stackCommits: Readonly<Record<string, string>>
   /**
    * The menu of each commit of the chain, by its id in the virtual branch, as its row's (`getReviewCommitMenu`): the
    * main window runs the item (`commitMenuItemId`); the window adds the copies, which it runs itself
@@ -166,6 +162,7 @@ export type BranchReviewFeedback =
 /** `__INIT_DATA__` of the `branch-review` sub-window (opened by `openBranchReviewWindow`) */
 export interface BranchReviewWindowData {
   repositoryPath: string
+  /** The baseline at the open, for the read the page starts at its load; then the one of the window's session */
   baselineBranch: string
   /** The reviewed branch last, its stack parents before it, root first */
   chain: string[]

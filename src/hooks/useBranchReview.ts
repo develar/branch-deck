@@ -43,7 +43,7 @@ export interface BranchReviewSource {
 
 /** What the review knows of the repository: the heads the last sync built (a branch not there has left) */
 export interface BranchReviewSync {
-  /** The heads are known (the main window shows the repository) */
+  /** The heads are known: the window's session has a table a sync grouped */
   readonly known: boolean
   readonly tips: Readonly<Record<string, string>>
 }

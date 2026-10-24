@@ -11,8 +11,9 @@ import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequ
 import { routePush, routePushBranches } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
+import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, routeCommand } from "../helpers/wait-helpers"
 
@@ -385,24 +386,57 @@ test.describe("Branch review window", () => {
     await expect(unified).toHaveAttribute("aria-pressed", "true")
   })
 
-  test("should read the stack again when a sync moves a tip of it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_ownership")
+  test("should read the stack again from the window's own session when a sync of the main window moves a tip of it, and keep a branch that left", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
-    const data = await openReviewOf(page, "login")
+    const opened = await openReviewWindow(page, "login")
+    // the link of the main window says nothing of the heads: the window reads them from its own session
+    expect(Object.keys(opened.data.state).sort()).toEqual(["commitMenus", "createPullRequest", "groups", "items", "menus", "repositoryPath", "selected", "wholeStack"])
+    const window = await openLinkedSubWindow(page, opened)
+    const segments = window.getByTestId("branch-review-segment")
+    await expect(segments).toHaveText(["auth1", "login2"])
+    // the window holds the view of its own subscription to the session: the version the main window holds
+    const review = window.getByTestId("branch-review")
+    const mainVersion = async () => (await page.getByTestId("sync-button").getAttribute("data-view-version"))!
+    await expect(review).toHaveAttribute("data-view-version", await mainVersion())
     let reads = 0
-    page.on("request", request => {
+    window.on("request", request => {
       if (request.url().endsWith("/invoke/get_branch_review")) {
         reads++
       }
     })
-    const tips = { auth: "0".repeat(40), login: "1".repeat(40) }
 
-    // another repository synced: nothing to read
-    await emitTauriEvent(page, "branch-review/state", { ...data.state, repositoryPath: "/elsewhere", tips } satisfies BranchReviewWindowState)
-    await emitTauriEvent(page, "branch-review/state", { ...data.state, tips } satisfies BranchReviewWindowState)
-    await expect.poll(() => reads).toBe(1)
-    // the part stays: the reviewed branch on its parent
-    await expect(page.getByTestId("branch-review-segment").nth(1)).toHaveAttribute("aria-pressed", "true")
+    // a commit of login in a terminal, then Sync of the main window: its patches reach the window on its own channel
+    await repo.commit("(login) Add the logout link", { "ui/logout.js": "export function logout() {}\n" }, 1704124800)
+    await syncAndWaitForBranches()
+    await expect(review).toHaveAttribute("data-view-version", await mainVersion())
+    // the stack read again once, at the new head of login; the part stays: the reviewed branch on its parent
+    await expect(segments).toHaveText(["auth1", "login3"])
+    await expect.poll(() => reviewedPaths(window)).toContain("ui/logout.js")
+    await expect(segments.nth(1)).toHaveAttribute("aria-pressed", "true")
+    expect(reads).toBe(1)
+    const push = window.getByTestId("branch-review-actions").getByRole("button", { name: /^Push/ })
+    await expect(push).toBeEnabled()
+
+    // login renamed in the main window: the sync of the rename leaves it out of the session's table
+    await openContextMenu(page, findBranchRow(page, "login"))
+    await clickContextMenuItem(page, "Rename…")
+    const input = page.getByTestId("inline-rename-input").locator('input[type="text"]')
+    await input.fill("signin")
+    await runAndWaitForSync(page, () => input.press("Enter"))
+    await expect(findBranchRow(page, "signin")).toBeVisible()
+    await expect(review).toHaveAttribute("data-view-version", await mainVersion())
+    // the review keeps its last view, says why, and is not read again
+    await expect(window.getByTestId("branch-review-gone")).toHaveText("login is no longer a branch: it landed or was renamed")
+    await expect(window.getByTestId("review-file-header").first()).toBeVisible()
+    await expect(segments).toHaveText(["auth1", "login3"])
+    // the push of login, which the main window can no longer run, stays, disabled
+    await expect(push).toBeDisabled()
+    expect(reads).toBe(1)
   })
 
   test("should act on the branch of the part from the title bar, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -482,12 +516,10 @@ test.describe("Branch review window", () => {
     const emptyState = (repository: string, selected: boolean): BranchReviewWindowState => ({
       repositoryPath: repository,
       selected,
-      tips: {},
       items: {},
       menus: {},
       createPullRequest: null,
       wholeStack: null,
-      stackCommits: {},
       commitMenus: {},
       groups: null,
     })
@@ -513,17 +545,6 @@ test.describe("Branch review window", () => {
     await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeDisabled()
     await page.keyboard.press("s")
     expect(await getEmittedEvents(page, "branch-review/request")).toHaveLength(3)
-
-    // the branch landed: the review stays, with what it can no longer do
-    const { login: _login, ...tipsWithoutLogin } = opened.data.state.tips
-    await emitTauriEvent(page, "branch-review/state", {
-      ...opened.data.state,
-      tips: tipsWithoutLogin,
-      items: { auth: opened.data.state.items.auth! },
-    } satisfies BranchReviewWindowState)
-    await expect(page.getByTestId("branch-review-gone")).toHaveText("login is no longer a branch: it landed or was renamed")
-    await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeDisabled()
-    await expect(page.getByTestId("review-file-header").first()).toBeVisible()
 
     // a refusal of the main window shows where the user is
     await emitTauriEvent(page, "branch-review/feedback", { kind: "error", title: "Cannot push login", message: "The remote branch is up to date" } satisfies BranchReviewFeedback)

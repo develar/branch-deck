@@ -3249,7 +3249,11 @@ repository when it deletes it (`Sessions::close_worktree`, which drops the subsc
 no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; a switch of
 the repository or of its prefix is another subscription), applies its patches, asks `sync` (Sync, ⌘R, after a
 change; ⌘R during a sync asks a `Focus` check after it) and tells the session its focus (`set_window_focus`, on focus
-and on blur, the last state of 100 ms; it checks no setting), and no `SyncEvent` reaches a page. A test of the E2E server changes what the next run of a session reports (`sync_overrides.rs`: the
+and on blur, the last state of 100 ms; it checks no setting), and no `SyncEvent` reaches a page. A sub-window that
+reads the table subscribes the same way, by the path of its repository and under its own label, with a store of its
+own: the review window of a branch takes the heads of its chain, the baseline and the branch of each commit of a
+whole stack from its view once per finished sync (`settledReviewTable`); it asks no sync and tells no focus, and it
+keeps the session alive while it is open, also when the main window shows another repository. A test of the E2E server changes what the next run of a session reports (`sync_overrides.rs`: the
 remote statuses of branches and stack branches, the issue links), through the reporter its `SessionEnvironment` puts
 around the run's (`SessionEnvironment::reporter`, the run's own by default), so the session, its patches and the views
 hold what such a sync makes.
