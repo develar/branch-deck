@@ -5,6 +5,7 @@ use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::reword::normalize_message;
 use anyhow::{Result, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::copy_commit::CopyCommitError;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
@@ -94,7 +95,7 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
 #[instrument(skip(git_executor))]
 pub fn restore_branch_head_core(git_executor: &GitCommandExecutor, params: &RestoreBranchHeadParams, lock_wait: LockWait) -> Result<()> {
   let _lock = lock_wait.lock(git_executor, &params.repository_path)?;
-  restore_branch_head(git_executor, &params.repository_path, &params.expected_head, &params.previous_head, "undo squash")?;
+  restore_branch_head(git_executor, &params.repository_path, &params.expected_head, &params.previous_head, "undo squash").map_err(CopyCommitError::into_anyhow)?;
   info!("Restored the branch head");
   Ok(())
 }

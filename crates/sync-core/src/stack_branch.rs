@@ -273,7 +273,9 @@ pub fn build_stack_branch(
   let tree_id_cache = tree_id_cache.with_other_memo(Arc::new(LightConflicts));
   let chain = RefCell::new(CommitChain::new(git_executor, repository_path));
   let mut parent = base.to_string();
-  let mut committer_timestamp = tree_id_cache.get_committer_timestamp(git_executor, repository_path, base).map_err(anyhow_of)?;
+  let mut committer_timestamp = tree_id_cache
+    .get_committer_timestamp(git_executor, repository_path, base)
+    .map_err(CopyCommitError::into_anyhow)?;
   let on_status = |_: BranchSyncStatus| {};
   for (index, commit) in commits.iter().enumerate() {
     committer_timestamp = committer_timestamp.max(commit.committer_timestamp);
@@ -320,13 +322,6 @@ pub fn build_stack_branch(
   }
   chain.into_inner().finish()?;
   Ok(StackBuild::Built { tip: parent })
-}
-
-fn anyhow_of(error: CopyCommitError) -> anyhow::Error {
-  match error {
-    CopyCommitError::Other(e) => e,
-    other @ CopyCommitError::BranchError(_) => anyhow::anyhow!("{other}"),
-  }
 }
 
 /// How a build of a stack branch ended in a sync: remembered, built now, or failed

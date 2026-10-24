@@ -636,7 +636,7 @@ pub async fn restore_branch_head(
   let git_executor = state.git_executor.clone();
   Ok(
     run_waiting(&state, &headers, "restore the branch head", move |lock_wait| {
-      history_rewrite::squash::restore_branch_head_core(&git_executor, &params, lock_wait)
+      history_rewrite::squash::restore_branch_head_core(&git_executor, &params, lock_wait).map_err(undo_error)
     })
     .await,
   )

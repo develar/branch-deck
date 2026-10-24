@@ -1,13 +1,8 @@
-use crate::test_support::{create_repository, post, start_test_server};
+use crate::test_support::{create_repository, head, post, post_error, start_test_server};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::net::SocketAddr;
 use test_utils::git_test_utils::git_command;
-
-fn head(path: &str) -> String {
-  let output = git_command().args(["rev-parse", "HEAD"]).current_dir(path).output().unwrap();
-  String::from_utf8(output.stdout).unwrap().trim().to_string()
-}
 
 /// A server with a repository: its address, a client, the repository's path and its HEAD
 async fn repository() -> (SocketAddr, reqwest::Client, String, String) {
@@ -16,6 +11,14 @@ async fn repository() -> (SocketAddr, reqwest::Client, String, String) {
   let (_, path) = create_repository(&client, addr).await;
   let previous = head(&path);
   (addr, client, path, previous)
+}
+
+/// An empty commit with `message` on top of the branch at `path`, made as a terminal makes it: its id. Here, not in
+/// `test_support`, which the worktree safety scan reads as production code
+pub(crate) fn commit_on_top(path: &str, message: &str) -> String {
+  let commit = git_command().args(["commit", "--allow-empty", "-m", message]).current_dir(path).output().unwrap();
+  assert!(commit.status.success(), "{}", String::from_utf8_lossy(&commit.stderr));
+  head(path)
 }
 
 /// The body of a reword of `commit` to `message`
@@ -56,23 +59,9 @@ async fn undo_regroup_after_a_new_commit_answers_undo_stale_never_retried() {
   let (addr, client, path, previous) = repository().await;
   let answer = post(&client, addr, "/invoke/reword", reword_of(&path, &previous, "(test-branch) foo 2, reworded")).await;
   let token = answer["undoToken"].as_str().unwrap().to_string();
-  let commit = git_command()
-    .args(["commit", "--allow-empty", "-m", "(test-branch) after the reword"])
-    .current_dir(&path)
-    .output()
-    .unwrap();
-  assert!(commit.status.success(), "{}", String::from_utf8_lossy(&commit.stderr));
-  let moved = head(&path);
+  let moved = commit_on_top(&path, "(test-branch) after the reword");
 
-  let response = client
-    .post(format!("http://{addr}/invoke/undo_regroup"))
-    .json(&json!({ "repositoryPath": path, "token": token }))
-    .send()
-    .await
-    .unwrap();
-  let answer: serde_json::Value = response.json().await.unwrap();
-  assert_eq!(answer["status"], "error", "{answer}");
-  let error = &answer["error"];
+  let error = post_error(&client, addr, "/invoke/undo_regroup", json!({ "repositoryPath": path, "token": token })).await;
   assert_eq!((&error["code"], &error["retry"]), (&json!("undo_stale"), &json!("no")), "{error}");
   assert_eq!(head(&path), moved);
 }

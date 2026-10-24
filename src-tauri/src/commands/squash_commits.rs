@@ -27,5 +27,9 @@ pub async fn squash_commits(
 #[instrument(skip(git_executor, lock_waits, wait))]
 pub async fn restore_branch_head(git_executor: State<'_, GitCommandExecutor>, lock_waits: Waits<'_>, params: RestoreBranchHeadParams, wait: WaitChannel) -> Result<(), ApiError> {
   let git = (*git_executor).clone();
-  run_waiting(&lock_waits, wait, move |lock_wait| restore_branch_head_core(&git, &params, lock_wait)).await
+  run_waiting(&lock_waits, wait, move |lock_wait| {
+    // also the undo of squash fixups; a branch moved since is `undo_stale`, as every undo answers it
+    restore_branch_head_core(&git, &params, lock_wait).map_err(app_api::api_error::undo_error)
+  })
+  .await
 }

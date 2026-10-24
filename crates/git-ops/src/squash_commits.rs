@@ -7,7 +7,7 @@ use crate::copy_commit::CopyCommitError;
 use crate::history::History;
 use crate::ref_transaction::RefTransaction;
 use crate::revs::{is_object_id, short_id};
-use crate::rewrite_guard::check_rewrite_range;
+use crate::rewrite_guard::{HeadMoved, check_rewrite_range};
 use crate::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan};
 use anyhow::anyhow;
 use domain_types::BranchError;
@@ -93,7 +93,8 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
 /// Undo a rewrite that kept HEAD's tree (a squash, a reword or a regroup): move the checked out branch from
 /// `expected_head` back to `previous_head` (full ids, from the app or an undo token) in one CAS transaction, with
 /// `operation` as the reflog message. Refused if the branch moved since, or if the trees differ: then the index and the
-/// working tree would no longer match HEAD.
+/// working tree would no longer match HEAD. A branch that moved is `HeadMoved` (in `CopyCommitError::Other`), which an
+/// undo answers as `undo_stale`.
 #[instrument(skip(git_executor))]
 pub fn restore_branch_head(git_executor: &GitCommandExecutor, repo_path: &str, expected_head: &str, previous_head: &str, operation: &str) -> Result<(), CopyCommitError> {
   restore_branch_head_with(git_executor, repo_path, expected_head, previous_head, operation, &RefTransaction::new())
@@ -115,8 +116,15 @@ pub fn restore_branch_head_with(
     return Err(refusal(format!("{id:?} is not a full commit id")));
   }
   let target = check_rewrite_range(git_executor, repo_path, &[previous_head]).map_err(|e| refusal(format!("{e:#}")))?;
+  let moved = |actual: String| {
+    CopyCommitError::Other(anyhow::Error::new(HeadMoved {
+      branch: target.branch.clone(),
+      expected: expected_head.to_string(),
+      actual,
+    }))
+  };
   if target.head != expected_head {
-    return Err(refusal(format!("Branch {} changed after the rewrite, it can't be undone", target.branch)));
+    return Err(moved(target.head.clone()));
   }
 
   let trees = git_executor.execute_command_lines(&["rev-parse", &format!("{expected_head}^{{tree}}"), &format!("{previous_head}^{{tree}}")], repo_path)?;
@@ -130,9 +138,13 @@ pub fn restore_branch_head_with(
 
   let mut transaction = RefTransaction::new();
   transaction.update(&target.full_ref(), previous_head, Some(expected_head)).extend(also);
-  transaction
-    .commit(git_executor, repo_path, operation)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Branch {} changed meanwhile, it can't be undone: {e:#}", target.branch)))
+  transaction.commit(git_executor, repo_path, operation).map_err(|e| {
+    // a branch that moved between the check and the transaction is `HeadMoved` too
+    match git_executor.execute_command(&["rev-parse", "--verify", "--end-of-options", &target.full_ref()], repo_path) {
+      Ok(actual) if actual != expected_head => moved(actual),
+      _ => CopyCommitError::Other(e.context(format!("Cannot move branch {} back", target.branch))),
+    }
+  })
 }
 
 const fn refusal(message: String) -> CopyCommitError {

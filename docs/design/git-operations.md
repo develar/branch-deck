@@ -681,7 +681,8 @@ text or the target's own message and encoding):
 7. Move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary refs.
 
 **Undo** moves the branch back to the old HEAD with a CAS on the new one (`branch-deck: undo squash`). It is refused if
-the branch moved since, or if the two trees differ; equal trees mean the index and the working tree need no change.
+the branch moved since (`HeadMoved`, also when it moves between the check and the transaction; the app answers it as
+`undo_stale`, `undo_error`), or if the two trees differ; equal trees mean the index and the working tree need no change.
 
 Code: `crates/git-ops/src/squash_commits.rs`, `crates/git-ops/src/rewrite_plan.rs`, `crates/history-rewrite/src/squash.rs`.
 

@@ -707,7 +707,7 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
           actual: head,
         }));
       }
-      restore_branch_head_with(git_executor, repository_path, new_head, previous_head, "undo", &also).map_err(|e| RegroupError::Other(anyhow::anyhow!("{e}")))
+      restore_branch_head_with(git_executor, repository_path, new_head, previous_head, "undo", &also).map_err(|e| RegroupError::Other(e.into_anyhow()))
     }
   };
   // a ref that moved between the checks and the transaction explains the failure

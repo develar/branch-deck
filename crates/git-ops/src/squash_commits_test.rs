@@ -2,6 +2,7 @@ use super::copy_commit::CopyCommitError;
 use super::history::History;
 use super::ref_transaction::RefTransaction;
 use super::revs::resolve_tree_id;
+use super::rewrite_guard::HeadMoved;
 use super::rewrite_plan::PreparedRewrite;
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
@@ -275,8 +276,12 @@ fn undo_is_refused_when_the_branch_moved() -> Result<()> {
   let (repo, previous_head, new_head) = squashed_a_b()?;
   let later = repo.create_commit("Later", "c.txt", "c");
 
-  let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash").expect_err("the branch moved");
-  assert!(error.to_string().contains("changed after the rewrite"), "{error}");
+  // the moved branch is the typed `HeadMoved`, which an undo answers as `undo_stale`
+  let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash")
+    .expect_err("the branch moved")
+    .into_anyhow();
+  let moved = error.downcast_ref::<HeadMoved>().unwrap_or_else(|| panic!("not HeadMoved: {error:#}"));
+  assert_eq!((moved.expected.as_str(), moved.actual.as_str()), (new_head.as_str(), later.as_str()));
   assert_eq!(repo.head(), later);
 
   // another tree: the index and the working tree would no longer match

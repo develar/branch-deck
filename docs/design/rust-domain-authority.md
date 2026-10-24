@@ -934,7 +934,8 @@ repository». Аудит всех функций в тот же день наш�
   страница показывает его слова (путь и «удалите файл, когда git не работает»), а не «другая операция Branch Deck».
   Код ошибки отмены — одно правило `ErrorCode::in_undo` (сдвинутый ref → `undo_stale`, `retry: No`; план токена →
   `invalid_arguments`): `bd undo` (`undo_core_error`, `undo_command.rs`) и команды отмены приложения
-  (`app_api::api_error::undo_error`: `undo_regroup`, `undo_unapply_branch`, `undo_reapply_branch`). Что обе стороны
+  (`app_api::api_error::undo_error`: `undo_regroup`, `undo_unapply_branch`, `undo_reapply_branch`,
+  `restore_branch_head` — отмена squash и squash fixups, чей сдвинутый branch — типизированный `HeadMoved`). Что обе стороны
   отвечают один код на каждую ошибку, проверяет одна таблица ошибок с их кодами `update_core::error_cases` (feature
   `fixtures`): на ней тестируются мапперы `bd` (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/park_error_test.rs`)
   и `api_error` (`app-api/src/api_error_test.rs`), потому что `app-api` недоступен crate'ам `bd` (без кода: `git_error`

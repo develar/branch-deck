@@ -2,6 +2,7 @@
 
 use serde_json::{Value, json};
 use std::net::SocketAddr;
+use test_utils::git_test_utils::git_command;
 
 pub(crate) async fn start_test_server() -> SocketAddr {
   start_test_server_with_state().await.0
@@ -54,6 +55,20 @@ pub(crate) async fn post(client: &reqwest::Client, addr: SocketAddr, path: &str,
   let response = client.post(format!("http://{addr}{path}")).json(&body).send().await.unwrap();
   assert_eq!(response.status(), 200, "{path}");
   response.json().await.unwrap_or(Value::Null)
+}
+
+/// POSTs `body` to the command `path`, which must fail: the `ApiError` it answers
+pub(crate) async fn post_error(client: &reqwest::Client, addr: SocketAddr, path: &str, body: Value) -> Value {
+  let response = client.post(format!("http://{addr}{path}")).json(&body).send().await.unwrap();
+  let answer: Value = response.json().await.unwrap();
+  assert_eq!(answer["status"], "error", "{path}: {answer}");
+  answer["error"].clone()
+}
+
+/// The HEAD of the repository at `path`
+pub(crate) fn head(path: &str) -> String {
+  let output = git_command().args(["rev-parse", "HEAD"]).current_dir(path).output().unwrap();
+  String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
 
 /// Syncs the repository at `path` with the prefix `user-name` as the page does (`/invoke/sync_branches`), to the end of

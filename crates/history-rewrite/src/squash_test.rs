@@ -1,5 +1,6 @@
 use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
+use git_ops::rewrite_guard::HeadMoved;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -103,6 +104,6 @@ fn undo_restores_the_previous_head_and_refuses_after_a_new_commit() {
   let result = squash(&test_repo, &[&a, &b], "Add a and b").unwrap();
   let later = test_repo.create_commit("Later", "c.txt", "c");
   let error = undo(&result).expect_err("the branch moved");
-  assert!(format!("{error:#}").contains("changed after the rewrite"), "{error:#}");
+  assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
   assert_eq!(test_repo.head(), later);
 }

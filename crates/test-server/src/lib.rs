@@ -60,6 +60,9 @@ mod remote_fixtures_test;
 mod reword_test;
 
 #[cfg(test)]
+mod squash_test;
+
+#[cfg(test)]
 mod test_support;
 
 #[cfg(test)]

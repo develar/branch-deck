@@ -109,9 +109,12 @@ tree and the index are not touched, and an undo is a move of the branch back.
 
 - A squash must clear the selection, sync, and show the toast "Squashed N commits" with an Undo button.
 - Undo must move the branch back to the commit before the squash in one transaction (`branch-deck: undo squash`),
-  only if the branch still points at the squashed history and both have the same files; otherwise it is refused.
+  only if the branch still points at the squashed history and both have the same files; otherwise it is refused. A
+  branch that moved on since (a commit on top, also one made between the check and the move) must be refused with
+  `undo_stale` (`retry: no`), as every undo of the app and `bd undo` answer it, never `internal`.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`undo_restores_the_previous_head`, `undo_is_refused_when_the_branch_moved`)
   [@test] ../../crates/history-rewrite/src/squash_test.rs (`undo_restores_the_previous_head_and_refuses_after_a_new_commit`)
+  [@test] ../../crates/test-server/src/squash_test.rs (`restore_branch_head_after_a_new_commit_answers_undo_stale_never_retried`)
   [@test] ../../tests/e2e/squash-commits/squash-commits.spec.ts (`should squash selected branch commits into the oldest one and undo it`)
 
 ## User Experience
@@ -130,7 +133,7 @@ tree and the index are not touched, and an undo is a move of the branch back.
 ## Open Questions / Risks
 
 - The undo uses the head ids of the squash. A commit made in a terminal between the squash and the undo makes the undo
-  fail with an error toast.
+  fail with an error toast (`undo_stale`).
 - Squashing commits that are already pushed makes the next push replace them on the remote branch; the dialog warns.
 
 ## References
