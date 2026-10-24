@@ -10,6 +10,7 @@ use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, baseline_repo};
+use test_utils::process_budget::{counting, processes};
 
 fn params(test_repo: &TestRepo, commit_ids: &[&str], target_branch: Option<&str>) -> MoveCommitsParams {
   MoveCommitsParams::new(path(test_repo), commit_ids.iter().map(|id| (*id).to_string()).collect(), target_branch)
@@ -239,21 +240,25 @@ fn refuses_an_invalid_target_or_an_unknown_commit() {
   assert_eq!(test_repo.head(), commit);
 }
 
+/// A move of ten commits runs the git processes of a move of one: one rewrite, no process per commit
 #[test]
 fn moves_many_commits_in_one_rewrite() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  let commit_ids: Vec<String> = (1..=10)
-    .map(|i| test_repo.create_commit(&format!("Commit number {i}"), &format!("file{i}.txt"), "content"))
-    .collect();
-  let ids: Vec<&str> = commit_ids.iter().map(String::as_str).collect();
+  let processes_of_a_move = |count: usize| {
+    let test_repo = TestRepo::new();
+    test_repo.create_commit("Initial commit", "README.md", "# Test");
+    let commit_ids: Vec<String> = (1..=count)
+      .map(|i| test_repo.create_commit(&format!("Commit number {i}"), &format!("file{i}.txt"), "content"))
+      .collect();
+    let ids: Vec<&str> = commit_ids.iter().map(String::as_str).collect();
+    let git = counting();
 
-  let start = std::time::Instant::now();
-  let result = move_to(&test_repo, &ids, Some("batch-test")).unwrap();
+    let result = move_commits_to_branch_core(&git, &params(&test_repo, &ids, Some("batch-test")), LockWait::default()).unwrap();
 
-  assert_eq!(result.commits.len(), 10);
-  assert!(start.elapsed().as_secs() < 6, "Batch move took too long: {:?}", start.elapsed());
-  assert_eq!(test_repo.get_commit_messages(1), ["(batch-test) Commit number 10"]);
+    assert_eq!(result.commits.len(), count);
+    assert_eq!(test_repo.get_commit_messages(1), [format!("(batch-test) Commit number {count}")]);
+    processes(&git)
+  };
+  assert_eq!(processes_of_a_move(10), processes_of_a_move(1));
 }
 
 #[test]
