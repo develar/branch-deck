@@ -569,6 +569,18 @@ fn a_return_refuses_only_the_commit_that_the_source_branch_lacks() {
   assert!(output["error"]["message"].as_str().unwrap().contains("detached HEAD"), "{output}");
 }
 
+/// A coordinator returns the lease of another session by its id from the shared checkout, without `--workspace`
+#[test_log::test]
+fn a_return_by_lease_id_from_another_checkout_returns_the_slot_of_the_lease() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&[]);
+  let lease_id = got["lease_id"].as_str().unwrap();
+  let (exit_code, output) = fixture.run(&["lease", "return", "--lease-id", lease_id]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["lease_id"], &output["repository"]), (&got["lease_id"], &got["path"]), "{output}");
+  assert_eq!(states(&fixture.status())[0].1, "free");
+}
+
 /// A fast-forward pick of the slot's commit that rolled back left the commit in the reflog of master, and its rollback
 /// took it back: the commit is unlanded, not a fork point that makes it landed
 #[test_log::test]
@@ -1087,6 +1099,9 @@ fn a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot() {
   let (exit_code, output) = fixture.run(&["lease", "return", "--workspace", &path, "--lease-id", "other"]);
   assert_error(&output, exit_code, (2, "lease_mismatch"));
   let (exit_code, output) = fixture.run(&["lease", "return"]);
+  assert_error(&output, exit_code, (2, "no_lease"));
+  // an id no slot holds, from a checkout without a lease
+  let (exit_code, output) = fixture.run(&["lease", "return", "--lease-id", "other"]);
   assert_error(&output, exit_code, (2, "no_lease"));
 
   slot_git(&path, &["branch", "-D", "keep"]);

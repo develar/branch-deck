@@ -67,7 +67,8 @@ pub struct LeaseReturnArgs {
   /// The leased worktree; default: the one of -C or of the current directory
   #[arg(long, value_name = "DIR")]
   pub workspace: Option<PathBuf>,
-  /// Return only if the worktree holds this lease
+  /// Return only if the worktree holds this lease; without --workspace, the worktree that holds it, from any checkout of
+  /// the repository
   #[arg(long, value_name = "ID")]
   pub lease_id: Option<String>,
   /// Give up the unlanded commits and discard the local changes (`reset --hard`, `clean -fd`; ignored files stay)
@@ -466,6 +467,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
   let params = LeaseReturnParams {
     workspace: &context.dirs,
     lease_id: args.lease_id.as_deref(),
+    find_by_lease_id: args.workspace.is_none(),
     confirm_preserved: args.confirm_preserved,
     clean: if args.no_clean { None } else { Some(args.overrides.overrides()?) },
     server_timeout: context.server_stop_timeout,

@@ -1119,6 +1119,10 @@ pub struct LeaseReturnParams<'a> {
   pub workspace: &'a RepositoryDirs,
   /// The lease the caller holds; another one refuses
   pub lease_id: Option<&'a str>,
+  /// The caller named no worktree (`bd lease return --lease-id` without `--workspace`): when `workspace` holds no lease
+  /// or another one, the slot of `lease_id` is returned, so a coordinator returns the lease of another session from any
+  /// checkout of the repository
+  pub find_by_lease_id: bool,
   /// Give up the unlanded commits and discard the local changes
   pub confirm_preserved: bool,
   /// How long the return waits for the Bazel servers it asked to exit
@@ -1230,8 +1234,13 @@ pub struct LeaseReturned {
 /// answers `joined` once it freed the slot, or returns the lease itself once it failed; a return that another return
 /// of its lease overtook answers `joined` too and changes nothing
 pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>) -> Result<LeaseReturned> {
-  let path = canonical_path(Path::new(&params.workspace.top_level));
+  let mut path = canonical_path(Path::new(&params.workspace.top_level));
   let pool = Pool::new(Path::new(&canonical_path(Path::new(&params.workspace.git_common_dir))));
+  if let (true, Some(lease_id)) = (params.find_by_lease_id, params.lease_id)
+    && let Some(slot) = slot_of_lease(&pool, &path, lease_id)?
+  {
+    path = slot;
+  }
   // the slot with the lease of the return this one waited for
   let mut waited_for: Option<Slot> = None;
   loop {
@@ -1255,6 +1264,16 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
       }
     }
   }
+}
+
+/// The slot that holds the lease `lease_id`, unless the slot of `path` does (or no slot does): the pool is only read
+fn slot_of_lease(pool: &Pool, path: &str, lease_id: &str) -> Result<Option<String>> {
+  let store = pool.read()?;
+  let holds = |slot: &Slot| slot.lease.as_ref().is_some_and(|lease| lease.id == lease_id);
+  if store.slots.iter().any(|slot| slot.path == path && holds(slot)) {
+    return Ok(None);
+  }
+  Ok(store.slots.iter().find(|slot| holds(slot)).map(|slot| slot.path.clone()))
 }
 
 /// What one pass of a return ends with

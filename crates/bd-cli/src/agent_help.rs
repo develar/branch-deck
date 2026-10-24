@@ -413,7 +413,7 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    a later pick or return finds the commit landed by content. A reword of a commit that
    another session made is the user's to approve.
 5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
-   refuses another lease). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
+   refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
    content (a dry run of the pick decides, also after the owner rewrote the branch); land them with step 2 first; `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4,
    `processes`: each with `argv` and `kind`): a process of another session works in it (a shell, a build, a test run);

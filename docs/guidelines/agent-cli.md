@@ -837,7 +837,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `git config branchdeck.leasePool <dir>`. The ignored files `.worktreeinclude` names are copied in (`seeded`).
   `free_bytes` is the free space before the get.
 - `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
-  or the current directory: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
+  or the current directory, or, with `--lease-id` and no `--workspace`, the slot of that lease from any checkout of the
+  repository: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
   its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `slot_busy` (a process of another session
   in it: `processes` [{`pid`, `command`, `argv`, `kind`: `bazel_server` or `other`, `workspace`}]), `unlanded_commits`
   (`commits` that no branch, tag or remote branch holds and that a dry run of

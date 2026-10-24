@@ -186,6 +186,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   directory): remove the seeded paths (`removed`), detach HEAD when it is on a branch (`detached_branch`, the branch
   stays) and leave the slot at its commit.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_seed_copies_the_included_ignored_files_and_the_return_removes_them`, `a_lease_on_a_new_branch_keeps_the_branch_after_the_return`)
+- `--lease-id` without `--workspace` must return the slot that holds that lease when the worktree of `-C` (or of the
+  current directory) holds no lease or another one, so a coordinator returns the lease of another session from the
+  shared checkout; an id that no slot holds keeps the refusals below.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_by_lease_id_from_another_checkout_returns_the_slot_of_the_lease`, `a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
 - It must refuse, with nothing changed: a worktree without a lease (`no_lease`, exit 2), another `--lease-id`
   (`lease_mismatch`, exit 2), a process of another session in the worktree (`slot_busy`, exit 4, `processes`
   [{`pid`, `command`, `argv` (at most 200 characters), `kind`: `bazel_server` or `other`, `workspace`?}], the message
