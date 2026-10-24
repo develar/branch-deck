@@ -1,10 +1,12 @@
 // @spec spec/repository/settings.spec.md
 import type { Page } from "@playwright/test"
-import type { RepositoryConfig } from "../../../src/lib/bindings"
-import { test, expect } from "../fixtures/test-fixtures"
+import type { RepositoryConfig, SettingsChange } from "../../../src/lib/bindings"
+import { test, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
+import { openCommitPreview } from "../helpers/preview-helpers"
 import { expectSettingsOpened, openSettingsWindow, settingsTab } from "../helpers/settings-helpers"
-import { openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
@@ -295,5 +297,35 @@ test.describe("Settings window on macOS", () => {
     await settingsTab(window, "Appearance").click()
     await expect(window.getByTestId("setting-zoom")).toBeVisible()
     await expect(window.getByTestId("setting-systemTitleBar")).toHaveCount(0)
+  })
+})
+
+testWithIssueLinks.describe("Settings of a window whose page loads", () => {
+  testWithIssueLinks("zooms a review window whose page loaded after Actual Size", async ({ page }) => {
+    // the main window zooms in, then opens the review of a commit: the window is built at 110%
+    await emitTauriEvent(page, "zoom", "in")
+    await expect.poll(() => webviewZoom(page)).toBe(1.1)
+    await expandBranch(page, findBranchRow(page, "JIRA-456"))
+    await openCommitPreview(page, getBranchCommitRow(page, "JIRA-456", "perf db: increase pool size to 50"))
+    await page.keyboard.press("d")
+    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
+    const [opened] = await getOpenedSubWindows(page)
+    expect(opened!.store).toMatchObject({ appSettings: { zoom: 1.1 } })
+
+    // Actual Size while the window's page still loads: no listener of it hears the change
+    await emitTauriEvent(page, "zoom", "reset")
+    await expect.poll(() => webviewZoom(page)).toBe(1)
+    // the writer's change of it, answered to the main window
+    const lastChange = async () => (await getEmittedEvents<SettingsChange>(page, "settings_changed")).at(-1)
+    await expect.poll(async () => ((await lastChange())?.value as { zoom?: number } | undefined)?.zoom).toBe(1)
+    const actualSize = await lastChange()
+    expect(actualSize).toMatchObject({ key: "appSettings", origin: "main" })
+    expect(actualSize!.version).toBeGreaterThan(opened!.storeVersion ?? 0)
+
+    // the page starts from the snapshot at 110%, its load takes Actual Size, and the window shows at 100%
+    const window = await openLinkedSubWindow(page, opened!)
+    await expect(window.getByTestId("branch-review")).toBeVisible()
+    await expect.poll(() => getSubWindowReadyOpen(window)).toBe(1)
+    await expect.poll(() => webviewZoom(window)).toBe(1)
   })
 })

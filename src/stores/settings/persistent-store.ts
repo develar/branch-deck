@@ -12,7 +12,8 @@ import { isMainWindow } from "@/lib/window-label"
  * The settings of a window (see docs/design/distributed-settings.md). The backend has the one writer of `settings.json`
  * (`SettingsService`): every window starts from its snapshot (`window.__TAURI_STORE__` at `__TAURI_STORE_VERSION__`),
  * sends each local change as a patch (`set_setting`: the fields of an object that changed, or the whole array) and
- * applies every change the writer sends to all windows (`settings_changed`) that is newer than the one it applied.
+ * applies every change the writer sends to all windows (`settings_changed`) that is newer than the one it applied, the
+ * changes made while the page loaded too (`listeningToSettings`, `acceptSettingsChanges`).
  * A change is never rolled back by an older answer, and the fields of a window's own patches that the writer has not
  * answered yet stay on top of a value of another window.
  */
@@ -58,9 +59,13 @@ interface Confirmed {
 
 const hasBackend = typeof window !== "undefined"
 const snapshotVersion = (hasBackend ? window.__TAURI_STORE_VERSION__ : undefined) ?? 0
-const confirmed = new Map<string, Confirmed>(
-  Object.entries((hasBackend ? window.__TAURI_STORE__ : undefined) ?? {}).map(([key, value]) => [key, { value, version: snapshotVersion }]),
-)
+const snapshot: Readonly<Record<string, unknown>> = (hasBackend ? window.__TAURI_STORE__ : undefined) ?? {}
+const confirmed = new Map<string, Confirmed>(Object.entries(snapshot).map(([key, value]) => [key, { value, version: snapshotVersion }]))
+
+/** The value of `key` in the snapshot the window started from, as the backend built the window with it */
+export function snapshotValueOf(key: string): unknown {
+  return snapshot[key]
+}
 const syncs = new Map<string, KeySync>()
 
 /** The fields of `after` that differ from `before`, each with its value, `null` for one that is its default again */
@@ -175,40 +180,55 @@ function changedLocally(sync: KeySync): void {
   }
 }
 
-let listening = false
-
 /**
- * Listens to the writer once per page: every change it sends, and the changes made after the snapshot the page started
- * from, which reached no listener (a zoom changed while a review window loaded); the main window also hears a failed
- * save, which it tells the user
+ * Listens to the writer once per page, at its start: every change it sends; the main window also hears a failed save,
+ * which it tells the user. The main window then takes the changes made after the snapshot it started from, which reached
+ * no listener (a reload starts from the snapshot of the app's start); a sub-window takes them with its load
+ * (`sub_window_loaded` in `@/lib/sub-window`), before its content settles.
  */
-function listenToWriter(): void {
-  if (listening || !hasBackend) {
-    return
+function listenToWriter(): Promise<void> {
+  if (!hasBackend) {
+    return Promise.resolve()
   }
-  listening = true
-  listen<SettingsChange>("settings_changed", event => {
-    accept(event.payload)
-  })
-    .then(() => commands.getSettingsChanges(snapshotVersion))
-    .then(result => {
-      if (result.status === "error") {
-        logError("Cannot read the settings changed while the window loaded", result.error)
-        return
-      }
-      for (const change of result.data) {
-        accept(change)
-      }
-    })
-    .catch((error: unknown) => {
-      logError("Failed to listen to the settings", error)
-    })
   if (isMainWindow) {
     listen<string>("settings_save_failed", event => {
       notifyError("Cannot save the settings", event.payload)
     }).catch((error: unknown) => {
       logError("Failed to listen to the saves of the settings", error)
     })
+  }
+  const listening = listen<SettingsChange>("settings_changed", event => {
+    accept(event.payload)
+  }).then(
+    () => {},
+    (error: unknown) => {
+      logError("Failed to listen to the settings", error)
+    },
+  )
+  if (isMainWindow) {
+    void listening
+      .then(() => commands.getSettingsChanges(snapshotVersion))
+      .then(result => {
+        if (result.status === "error") {
+          logError("Cannot read the settings changed while the window loaded", result.error)
+          return
+        }
+        acceptSettingsChanges(result.data)
+      })
+  }
+  return listening
+}
+
+/** Resolves once the page listens to the changes of the writer (`settings_changed`): any change after it reaches the page */
+export const listeningToSettings: Promise<void> = listenToWriter()
+
+/**
+ * Takes the changes the writer made after the snapshot the window started from, each by its version: one the page has
+ * heard already, or older than the one it applied, changes nothing
+ */
+export function acceptSettingsChanges(changes: readonly SettingsChange[]): void {
+  for (const change of changes) {
+    accept(change)
   }
 }
 
@@ -274,6 +294,5 @@ export function createPersistentStore(key: string, { schema, isArray, isMainOnly
       changedLocally(sync)
     }
   })
-  listenToWriter()
   return store
 }

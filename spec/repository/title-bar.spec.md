@@ -248,7 +248,8 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   the latest open (`sub_window_ready`: a page on its render, `WindowPage`; a review once its first diffs are
   prepared), at most 300 ms after its page loaded (`sub_window_loaded`) and 3 s after the build without it, so it
   never shows a blank frame nor the subject of an earlier open; no animation frame is waited for, a hidden window runs
-  none. An open while its page still loads is handed over at its load, the latest one winning. The page logs the
+  none. An open while its page still loads is handed over at its load, the latest one winning, with the changes of the
+  settings made meanwhile ([Settings](settings.spec.md)). The page logs the
   phases of each open ("commit-review open 96 ms: loaded 41, files 44, patch 47, engine 70, primed 88"). The opens are serialized: two quick opens build one window. A new window opens centred on the
   monitor of the main window, then where it was (the window state plugin, without the visibility); it has a taskbar
   entry (Windows, Linux). Escape that nothing in the page handled and ⌘W close it.

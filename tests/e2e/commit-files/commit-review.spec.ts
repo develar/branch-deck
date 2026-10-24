@@ -1,12 +1,13 @@
 // @spec spec/commit/commit-review.spec.md
 import type { Locator, Page } from "@playwright/test"
+import type { SettingsChange } from "../../../src/lib/bindings"
 import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { activityButton, activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
-import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
 import { holdCommand, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -105,6 +106,16 @@ async function openSettledReviewWindow(page: Page): Promise<Page> {
 async function lastAppSettingsPatch(window: Page): Promise<unknown> {
   const patches = await window.evaluate(() => (globalThis as unknown as { __e2eSettingsPatches?: { key: string }[] }).__e2eSettingsPatches ?? [])
   return patches.findLast(it => it.key === "appSettings")
+}
+
+/**
+ * The last change of `appSettings` the backend sent for a change of the window `page` (`settings_changed`), once its
+ * value has `fields`: the window shows its own change before the writer answers it
+ */
+async function appSettingsChange(page: Page, fields: Record<string, unknown>): Promise<SettingsChange> {
+  const last = async () => (await getEmittedEvents<SettingsChange>(page, "settings_changed")).findLast(it => it.key === "appSettings")
+  await expect.poll(async () => (await last())?.value).toMatchObject(fields)
+  return (await last())!
 }
 
 /** Hides the sidebar of the review window, whose patch of `appSettings` names that field alone */
@@ -388,13 +399,23 @@ testWithIssueLinks("should keep the Activity panel the main window opened when a
   const pushed = findBranchRow(page, "ABC-123")
   await getPushButton(pushed).click()
   await expectNothingToPush(pushed)
-  const window = await openSettledReviewWindow(page)
+  const opened = await reviewPoolSizeCommit(page)
 
-  // the main window opens its panel, and the review window hides its sidebar right after
+  // the main window opens its panel while the page of the review window still loads: a change after its snapshot
   await activityButton(page).click()
   await expect(activityPanel(page)).toBeVisible()
+  const panel = await appSettingsChange(page, { activityPanel: true })
+  expect(panel.origin).toBe("main")
+  expect(panel.version).toBeGreaterThan(opened.storeVersion ?? 0)
+  // the load of the page takes it, and the window shows; then it hides its sidebar right after
+  const window = await openLinkedSubWindow(page, opened)
+  await expect.poll(() => getSubWindowReadyOpen(window)).toBe(1)
+  await expect(window.getByTestId("review-sidebar-toggle")).toHaveAttribute("aria-pressed", "true")
   // the window sends only the field it changed, so the writer keeps the panel of the main window
   await hideSidebarSendingOnlyIt(window)
+  const sidebar = await appSettingsChange(window, { reviewSidebar: false, activityPanel: true })
+  expect(sidebar.origin).toBe("branch-review")
+  expect(sidebar.version).toBeGreaterThan(panel.version)
   await expect.poll(() => testStore.get("appSettings")).toMatchObject({ reviewSidebar: false, activityPanel: true })
   await expect(activityPanel(page)).toBeVisible()
 })
@@ -406,14 +427,19 @@ testWithIssueLinks("should follow Actual Size of the main window in a review win
   // the main window zooms in, and the review window hides its sidebar
   await emitTauriEvent(page, "zoom", "in")
   await expect.poll(() => webviewZoom(page)).toBe(1.1)
+  const zoomIn = await appSettingsChange(page, { zoom: 1.1 })
   await hideSidebarSendingOnlyIt(window)
-  // the writer's change of the zoom reaches the review window, and its own change keeps the zoom
+  // the writer's change of the zoom reaches the review window, and its own change keeps the zoom, at a later version
   await expect.poll(() => webviewZoom(window)).toBe(1.1)
+  const sidebar = await appSettingsChange(window, { zoom: 1.1, reviewSidebar: false })
+  expect(sidebar.origin).toBe("branch-review")
+  expect(sidebar.version).toBeGreaterThan(zoomIn.version)
 
-  // Actual Size: the zoom goes back to its default, which reaches the review window too
+  // Actual Size: the zoom goes back to its default, which reaches the review window too, newer than its own change
   await emitTauriEvent(page, "zoom", "reset")
   await expect.poll(() => webviewZoom(page)).toBe(1)
   await expect.poll(() => webviewZoom(window)).toBe(1)
+  expect((await appSettingsChange(page, { zoom: 1 })).version).toBeGreaterThan(sidebar.version)
   await expect(toggle).toHaveAttribute("aria-pressed", "false")
 })
 

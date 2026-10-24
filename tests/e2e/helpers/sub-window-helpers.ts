@@ -43,9 +43,10 @@ const linkedPages = new WeakMap<BrowserContext, Page[]>()
 /**
  * Opens a sub-window as a page of its own beside the main window's page, under its own label (`__e2eWindowLabel`), as
  * the app opens it: its route with the recorded data as `__INIT_DATA__`, the recorded settings of the open (else the
- * main window's copy now) as `__TAURI_STORE__` with their version; once it listens, the page asks for the changes made
- * since (`get_settings_changes`). The events one page emits reach the other (`__e2eRelay`), so the link of the window works end to
- * end: the window asks, the main window runs it against the test server and answers. Escape that closes the window is
+ * main window's copy now) as `__TAURI_STORE__` with their version, its webview zoomed to their level as the window
+ * builder zooms it (`__e2eWebviewZoom`, `apply_zoom`); once it listens, the page's load takes the changes made since
+ * (`sub_window_loaded`, from the version of its snapshot). The events one page emits reach the other (`__e2eRelay`), so
+ * the link of the window works end to end: the window asks, the main window runs it against the test server and answers. Escape that closes the window is
  * the `close` of `__e2eWindowCalls` of the window's page. `beforeLoad` routes what the window itself asks the backend.
  * The window's page is open 1 (`__SUB_WINDOW_OPEN__`); `getSubWindowReadyOpen` tells when its content settled.
  */
@@ -83,11 +84,17 @@ export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow
         __TAURI_STORE__: unknown
         __TAURI_STORE_VERSION__: number
         __SUB_WINDOW_OPEN__: unknown
+        __e2eWebviewZoom?: number
       }
       target.__e2eWindowLabel = label
       target.__INIT_DATA__ = data
       target.__TAURI_STORE__ = settings
       target.__TAURI_STORE_VERSION__ = version
+      // the builder zooms the webview to the level of the snapshot, before the page's scripts (`apply_zoom`)
+      const zoom = (settings as { appSettings?: { zoom?: number } }).appSettings?.zoom
+      if (zoom !== undefined && zoom !== 1) {
+        target.__e2eWebviewZoom = zoom
+      }
       // the open of the window, as the backend numbers it: the page names it when its content settled
       target.__SUB_WINDOW_OPEN__ = { id: 1, openedAt: Date.now() }
     },

@@ -1,5 +1,6 @@
-//! The commands of the settings: a window changes them (`set_setting`) and catches up after it starts to listen
-//! (`get_settings_changes`); the writer and the events are `crate::settings`
+//! The commands of the settings: a window changes them (`set_setting`), and the main window catches up after it starts
+//! to listen (`get_settings_changes`; a sub-window gets its catch-up from `sub_window_loaded`); the writer and the
+//! events are `crate::settings`
 
 use crate::operation::operation_now;
 use crate::settings::emit_change;
@@ -37,7 +38,8 @@ pub fn set_setting(app: AppHandle, webview: Webview, service: State<'_, Settings
 }
 
 /// The changes the calling window gets that came after `since`, the version of the snapshot its page started from: a
-/// change made while the page loaded reached no listener
+/// change made while the page loaded reached no listener. The main window's page asks once it listens (its init script
+/// has the snapshot of the app's start, a reload too); a sub-window's gets them with its load (`sub_window_loaded`)
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(webview, service), fields(window = webview.label()))]

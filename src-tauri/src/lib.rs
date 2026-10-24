@@ -349,7 +349,10 @@ pub fn run() {
       configure_app_menu(app, &app_settings)?;
 
       // the settings and the title bar, before the page's own scripts
-      let init_script = format!("{} {}", settings::init_script(&settings_service, app_settings::windows::MAIN_WINDOW), title_bar_script());
+      // the main window's page catches up from the version of this snapshot itself (`get_settings_changes`): a reload
+      // runs this script again
+      let (settings_script, _) = settings::init_script(&settings_service, app_settings::windows::MAIN_WINDOW);
+      let init_script = format!("{settings_script} {}", title_bar_script());
       app.manage(settings_service);
 
       let zoom = app_settings.zoom;

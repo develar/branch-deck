@@ -8,7 +8,7 @@ import { isMac } from "@/lib/platform"
 import { isMainWindow } from "@/lib/window-label"
 import { MIN_WINDOW, minSubWindowSize, minWindowWidth, nextZoom } from "@/lib/zoom"
 import type { ZoomAction } from "@/lib/zoom"
-import { appSettingsStore, setZoom, useAppSettings } from "@/stores/settings/appSettings"
+import { appSettingsStore, setZoom, useAppSettings, zoomAtStart } from "@/stores/settings/appSettings"
 
 function zoom(action: ZoomAction): void {
   setZoom(nextZoom(appSettingsStore.getState().zoom, action))
@@ -28,12 +28,13 @@ async function applyZoom(level: number): Promise<void> {
 }
 
 /**
- * Zooms the page of this window to the saved level when it changes, in any window. The window builder applies the
- * level the window opens with, before the first paint (`src-tauri/src/zoom.rs`).
+ * Zooms the page of this window to the saved level when it differs from the one the webview has, in any window. The
+ * window builder applies the level of the snapshot the window opens with, before the first paint
+ * (`src-tauri/src/zoom.rs`); a level changed while the page loaded may be in the store before the first render.
  */
 export function useZoom(): void {
   const level = useAppSettings(state => state.zoom)
-  const appliedLevel = useRef(level)
+  const appliedLevel = useRef(zoomAtStart)
   useEffect(() => {
     if (appliedLevel.current !== level) {
       appliedLevel.current = level

@@ -4,6 +4,8 @@ use crate::title_bar::{prepare_title_bar, title_bar_script, with_title_bar};
 use crate::zoom::{apply_zoom, sub_window_min_size};
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
+use app_settings::windows::window_changes_since;
+use domain_types::settings::SettingsChange;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
@@ -58,6 +60,17 @@ impl SubWindowUpdate {
   }
 }
 
+/// What the page of a sub-window gets when it loaded (`sub_window_loaded`)
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SubWindowLoaded {
+  /// The latest open that came while the page loaded, if any
+  pub update: Option<SubWindowUpdate>,
+  /// The changes of the settings after the snapshot the window was built with, which reached no listener of the page:
+  /// the page applies them by their versions before its content settles (a zoom changed while a review window loaded)
+  pub settings: Vec<SettingsChange>,
+}
+
 /// What an open of an existing window does
 #[derive(Debug, PartialEq, Eq)]
 pub enum Reopen {
@@ -72,6 +85,9 @@ pub enum Reopen {
 struct SubWindowEntry {
   /// The open that built the window: a timer of an earlier window of the label leaves this one alone
   build: u32,
+  /// The version of the settings the window's init script has (`__TAURI_STORE_VERSION__`): its page takes the changes
+  /// after it when it loads
+  settings_version: u32,
   /// The page loaded (`sub_window_loaded`): an open reaches it by `eval`
   loaded: bool,
   /// The latest open that came while the page still loaded: an `eval` before the load is lost, the page takes it
@@ -105,12 +121,14 @@ impl SubWindowState {
     }
   }
 
-  /// A window of `label` was built for `open`: its page loads with the data of the build
-  pub fn built(&self, label: &str, open: SubWindowOpen) {
+  /// A window of `label` is built for `open` with the snapshot of the settings at `settings_version`: its page loads
+  /// with the data of the build
+  pub fn built(&self, label: &str, open: SubWindowOpen, settings_version: u32) {
     self.windows().insert(
       label.to_string(),
       SubWindowEntry {
         build: open.id,
+        settings_version,
         loaded: false,
         pending: None,
         showing_for: open.id,
@@ -138,14 +156,26 @@ impl SubWindowState {
     }
   }
 
-  /// The page of `label` loaded: the open that came while it loaded, if any, and the build the content budget is for
-  pub fn loaded(&self, label: &str) -> (Option<SubWindowUpdate>, Option<u32>) {
+  /// The page of `label` loaded: the open that came while it loaded, if any, and the changes of `settings` after the
+  /// snapshot of the build that its window gets; with the build the content budget is for. A page loaded again (a
+  /// reload) takes them again from the same snapshot, which its init script sets again
+  pub fn loaded(&self, label: &str, settings: &SettingsService) -> (SubWindowLoaded, Option<u32>) {
     let mut windows = self.windows();
     let Some(entry) = windows.get_mut(label) else {
-      return (None, None);
+      return (
+        SubWindowLoaded {
+          update: None,
+          settings: Vec::new(),
+        },
+        None,
+      );
     };
     entry.loaded = true;
-    (entry.pending.take(), Some(entry.build))
+    let update = entry.pending.take();
+    let (build, settings_version) = (entry.build, entry.settings_version);
+    drop(windows);
+    let settings = window_changes_since(settings, label, settings_version);
+    (SubWindowLoaded { update, settings }, Some(build))
   }
 
   /// The page of `label` settled the content of the open `open_id`: true when the window shows now (the latest open,
@@ -219,14 +249,14 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
     }
 
     // the settings, the window data, the open and how the page draws the title bar, before the page's own scripts
+    let (settings_script, settings_version) = settings_init_script(&settings, &params.window_id);
     let init_script = format!(
       "
-      {}
+      {settings_script}
       window.__INIT_DATA__ = {};
       window.__SUB_WINDOW_OPEN__ = {};
       {}
       ",
-      settings_init_script(&settings, &params.window_id),
       params.data,
       to_json(&open)?,
       title_bar_script()
@@ -250,11 +280,12 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
       Some((x, y)) => builder.position(x, y),
       None => builder.center(),
     };
+    // known before the page can load and ask for the changes after its snapshot
+    state.built(&params.window_id, open, settings_version);
     let window = with_title_bar(with_canvas(builder, &app_handle)).build().map_err(tauri_error)?;
     apply_zoom(&window, zoom);
     // the empty GTK titlebar of a custom title bar on Linux, before the page paints and the window shows
     prepare_title_bar(&window);
-    state.built(&params.window_id, open);
     show_after(
       app_handle,
       params.window_id,
@@ -267,19 +298,25 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
   .await
 }
 
-/// The page of the calling sub-window loaded: it gets the data of an open that came while it loaded, and the window
-/// shows once the page settled its content, at most `CONTENT_BUDGET` from now
+/// The page of the calling sub-window loaded and listens to the settings: it gets the data of an open that came while
+/// it loaded and the changes of the settings after the snapshot its window was built with, and the window shows once
+/// the page settled its content, at most `CONTENT_BUDGET` from now
 #[tauri::command]
-#[instrument(skip(app_handle, webview, state))]
+#[instrument(skip(app_handle, webview, state, settings))]
 #[specta::specta]
-pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: State<'_, SubWindowState>) -> Result<Option<SubWindowUpdate>, ApiError> {
+pub async fn sub_window_loaded(
+  app_handle: AppHandle,
+  webview: Webview,
+  state: State<'_, SubWindowState>,
+  settings: State<'_, SettingsService>,
+) -> Result<SubWindowLoaded, ApiError> {
   operation(async move {
     let label = webview.label().to_string();
-    let (update, build) = state.loaded(&label);
+    let (loaded, build) = state.loaded(&label, &settings);
     if let Some(build) = build {
       show_after(app_handle, label, build, CONTENT_BUDGET, None);
     }
-    Ok(update)
+    Ok(loaded)
   })
   .await
 }

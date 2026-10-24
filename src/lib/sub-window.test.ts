@@ -1,6 +1,14 @@
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test"
+import type { SettingsChange } from "@/lib/bindings"
 
-const { calls } = vi.hoisted(() => ({ calls: { loaded: 0, ready: [] as number[], lines: [] as string[] } }))
+const { calls, listening } = vi.hoisted(() => {
+  let listen = () => {}
+  return {
+    calls: { loaded: 0, ready: [] as number[], lines: [] as string[], accepted: [] as SettingsChange[], order: [] as string[] },
+    // the page listens to the settings once `listen` resolves
+    listening: { promise: new Promise<void>(resolve => (listen = resolve)), resolve: () => listen() },
+  }
+})
 
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ label: "commit-review", close: async () => {} }) }))
 vi.mock("@tauri-apps/plugin-log", () => ({
@@ -9,14 +17,23 @@ vi.mock("@tauri-apps/plugin-log", () => ({
   },
 }))
 vi.mock("@/lib/errors", () => ({ logError: () => {} }))
+vi.mock("@/stores/settings/persistent-store", () => ({
+  listeningToSettings: listening.promise,
+  acceptSettingsChanges: (changes: SettingsChange[]) => {
+    calls.accepted.push(...changes)
+    calls.order.push("settings")
+  },
+}))
 vi.mock("@/lib/bindings", () => ({
   commands: {
     subWindowLoaded: async () => {
       calls.loaded++
-      return { status: "ok", data: null }
+      // Actual Size of the main window while the page loaded
+      return { status: "ok", data: { update: null, settings: [{ version: 4, key: "appSettings", value: {}, origin: "main" }] } }
     },
     subWindowReady: async (openId: number) => {
       calls.ready.push(openId)
+      calls.order.push("ready")
       return { status: "ok", data: null }
     },
   },
@@ -34,16 +51,28 @@ beforeAll(async () => {
 })
 
 describe("the show of a sub-window", () => {
-  it("says the page loaded and its content settled without an animation frame, once per open", () => {
+  it("takes the settings changed while the page loaded once it listens, before it says its content settled", async () => {
+    // the content settles before the page listens: the load and the show wait for the listener
+    markSubWindowContentReady()
+    await Promise.resolve()
+    expect(calls.loaded).toBe(0)
+    expect(calls.ready).toEqual([])
+    listening.resolve()
+    await vi.waitFor(() => expect(calls.ready).toEqual([7]))
+    // the changes made while the page loaded, applied before the window shows
+    expect(calls.accepted.map(change => change.version)).toEqual([4])
+    expect(calls.order).toEqual(["settings", "ready"])
+  })
+
+  it("says the page loaded and its content settled without an animation frame, once per open", async () => {
     expect(calls.loaded).toBe(1)
     markSubWindowContentReady()
-    markSubWindowContentReady()
-    expect(calls.ready).toEqual([7])
     expect(calls.lines).toHaveLength(1)
     expect(calls.lines[0]).toMatch(/^commit-review open \d+ ms: loaded \d+$/)
     // the next open of the window settles on its own
     page.__SUB_WINDOW_OPEN__ = { id: 8, openedAt: Date.now() }
     markSubWindowContentReady()
-    expect(calls.ready).toEqual([7, 8])
+    await vi.waitFor(() => expect(calls.ready).toEqual([7, 8]))
+    expect(calls.loaded).toBe(1)
   })
 })

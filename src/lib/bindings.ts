@@ -290,10 +290,11 @@ export const commands = {
 	 */
 	openSubWindow: (params: OpenSubWindowParams) => typedError<null, ApiError>(__TAURI_INVOKE("open_sub_window", { params })),
 	/**
-	 *  The page of the calling sub-window loaded: it gets the data of an open that came while it loaded, and the window
-	 *  shows once the page settled its content, at most `CONTENT_BUDGET` from now
+	 *  The page of the calling sub-window loaded and listens to the settings: it gets the data of an open that came while
+	 *  it loaded and the changes of the settings after the snapshot its window was built with, and the window shows once
+	 *  the page settled its content, at most `CONTENT_BUDGET` from now
 	 */
-	subWindowLoaded: () => typedError<SubWindowUpdate | null, ApiError>(__TAURI_INVOKE("sub_window_loaded")),
+	subWindowLoaded: () => typedError<SubWindowLoaded, ApiError>(__TAURI_INVOKE("sub_window_loaded")),
 	/**
 	 *  The page of the calling sub-window settled the content of the open `open_id`: the window shows if that is the latest
 	 *  open and the window is still hidden
@@ -319,7 +320,8 @@ export const commands = {
 	setSetting: (params: SetSettingParams) => typedError<SettingsChange, ApiError>(__TAURI_INVOKE("set_setting", { params })),
 	/**
 	 *  The changes the calling window gets that came after `since`, the version of the snapshot its page started from: a
-	 *  change made while the page loaded reached no listener
+	 *  change made while the page loaded reached no listener. The main window's page asks once it listens (its init script
+	 *  has the snapshot of the app's start, a reload too); a sub-window's gets them with its load (`sub_window_loaded`)
 	 */
 	getSettingsChanges: (since: number) => typedError<SettingsChange[], ApiError>(__TAURI_INVOKE("get_settings_changes", { since })),
 	/**
@@ -4272,6 +4274,17 @@ export type StatsWindow = {
 	time_zone: string,
 	/**  The branch the robots push into, e.g. `master` */
 	target: string,
+};
+
+/**  What the page of a sub-window gets when it loaded (`sub_window_loaded`) */
+export type SubWindowLoaded = {
+	/**  The latest open that came while the page loaded, if any */
+	update: SubWindowUpdate | null,
+	/**
+	 *  The changes of the settings after the snapshot the window was built with, which reached no listener of the page:
+	 *  the page applies them by their versions before its content settles (a zoom changed while a review window loaded)
+	 */
+	settings: SettingsChange[],
 };
 
 /**  An open of a sub-window, as its page gets it (`window.__SUB_WINDOW_OPEN__`) */

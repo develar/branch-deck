@@ -1818,3 +1818,12 @@ pub async fn get_settings_changes(
   let repository = requesting_repository(&state, &headers)?;
   Ok(Json(app_settings::windows::window_changes_since(&repository.store, &request.origin, request.since)))
 }
+
+/// `sub_window_loaded` of the app: the changes of the settings after the snapshot the window was built with, which the
+/// page mock names (`since`, the version of the snapshot the test opened the page with), as the app answers them from
+/// the version its build remembered; no open of the window came while it loaded, a test opens the page itself
+pub async fn sub_window_loaded(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<GetSettingsChangesRequest>) -> CommandResult<serde_json::Value> {
+  let repository = requesting_repository(&state, &headers)?;
+  let settings = app_settings::windows::window_changes_since(&repository.store, &request.origin, request.since);
+  Ok(Json(serde_json::json!({ "update": null, "settings": settings })))
+}

@@ -5,6 +5,7 @@ import { commands } from "@/lib/bindings"
 import { logError } from "@/lib/errors"
 import { markOpenPhase, takeOpenTimingLine } from "@/lib/open-timing"
 import type { OpenPhase } from "@/lib/open-timing"
+import { acceptSettingsChanges, listeningToSettings } from "@/stores/settings/persistent-store"
 
 // Escape closes a sub-window. Installed once at startup for the lifetime of the window, not per component.
 function installEscapeToClose(): void {
@@ -51,30 +52,39 @@ function currentOpen(): SubWindowOpen | undefined {
 }
 
 /**
- * The page of a sub-window loaded: the backend counts the content budget from now and hands over the data of an open
- * that came while the page loaded. Once per page load, at its start; nothing in the main window. No animation frame
- * waits on this path: a hidden window runs none.
+ * The page of a sub-window loaded and listens to the settings: the backend counts the content budget from now and hands
+ * over the data of an open that came while the page loaded and the changes of the settings after the snapshot the
+ * window was built with, which reached no listener; the page applies them by their versions before it says its content
+ * settled (`markSubWindowContentReady`), so a zoom changed meanwhile is the window's when it shows. Once per page load,
+ * at its start; nothing in the main window. No animation frame waits on this path: a hidden window runs none.
  */
-function announceSubWindowLoaded(): void {
+function announceSubWindowLoaded(): Promise<void> {
   if (subWindowLabel() === null) {
-    return
+    return Promise.resolve()
   }
   markOpenPhase(currentOpen(), "loaded")
-  void commands.subWindowLoaded().then(result => {
-    if (result.status === "error") {
-      logError("Cannot show the sub-window", result.error)
-      return
-    }
-    const update = result.data
-    if (update !== null) {
-      window.__INIT_DATA__ = JSON.parse(update.data) as unknown
-      window.__SUB_WINDOW_OPEN__ = update.open
-      window.dispatchEvent(new CustomEvent("init-data-updated"))
-    }
-  })
+  return listeningToSettings
+    .then(() => commands.subWindowLoaded())
+    .then(result => {
+      if (result.status === "error") {
+        logError("Cannot show the sub-window", result.error)
+        return
+      }
+      const { update, settings } = result.data
+      acceptSettingsChanges(settings)
+      if (update !== null) {
+        window.__INIT_DATA__ = JSON.parse(update.data) as unknown
+        window.__SUB_WINDOW_OPEN__ = update.open
+        window.dispatchEvent(new CustomEvent("init-data-updated"))
+      }
+    })
+    .catch((error: unknown) => {
+      logError("Cannot show the sub-window", error)
+    })
 }
 
-announceSubWindowLoaded()
+/** Resolves once the backend answered the load of the page and the page applied what it handed over */
+const pageLoaded = announceSubWindowLoaded()
 
 /** Records a phase of the open the page shows, for its timing line (`markSubWindowContentReady`) */
 export function markSubWindowOpenPhase(phase: Exclude<OpenPhase, "loaded" | "ready">): void {
@@ -101,9 +111,12 @@ export function markSubWindowContentReady(): void {
   if (line !== null) {
     void info(line)
   }
-  void commands.subWindowReady(open.id).then(result => {
-    if (result.status === "error") {
-      logError("Cannot show the sub-window", result.error)
-    }
-  })
+  // after the load's changes of the settings, so the window shows with them
+  void pageLoaded
+    .then(() => commands.subWindowReady(open.id))
+    .then(result => {
+      if (result.status === "error") {
+        logError("Cannot show the sub-window", result.error)
+      }
+    })
 }

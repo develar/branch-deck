@@ -88,8 +88,13 @@ sequenceDiagram
    **Rationale**: Settings are there on the first render, without loading states. The opener passes no settings: a
    sub-window starts from the writer as it is when the backend builds it (`open_sub_window`), the zoom of its builder
    too. The values are serialized JSON, so the script parses even for a settings file that was cut (its snapshot is the
-   defaults). A page that starts to listen asks for the changes made after its snapshot (`get_settings_changes`): one
-   made while it loaded reached no listener (a zoom changed while a review window loaded; a reload of the main window).
+   defaults). A change made while a page loaded reached no listener, so every page takes the changes after the version
+   of its snapshot, through the same version gate, once it listens: a sub-window with its load (`sub_window_loaded`
+   answers them from the version its build remembered, `SubWindowState::built`), before it says its content settled
+   and the window shows (`sub_window_ready`), so a zoom changed while a review window loaded is the window's when it
+   shows; the main window by `get_settings_changes` (its init script, which a reload runs again, has the snapshot of
+   the app's start). The webview starts at the zoom of the snapshot, and `useZoom` zooms the page whenever the level
+   differs from it (`zoomAtStart`), also when the load's change was in the store before the first render.
 
 3. **Decision**: A window sends patches, not whole values: the fields of an object that differ from the value it last
    knew (`SettingsPatch::Fields`, a field back at its default as `null`), an array whole (`SettingsPatch::Value`).
@@ -139,19 +144,24 @@ sequenceDiagram
   default), the stored form, the atomic save. Which window gets which key: `windows.rs`.
 - Backend: `src-tauri/src/settings.rs` opens the writer, builds the settings part of every init script
   (`init_script`) and sends the changes (`emit_change`); `src-tauri/src/commands/settings.rs` has `set_setting` (origin:
-  the calling window's label) and `get_settings_changes`. The window builders (the zoom), the title bar and the menu
+  the calling window's label) and `get_settings_changes` (the main window's catch-up); a sub-window's catch-up is
+  `sub_window_loaded` (`src-tauri/src/commands/window_management.rs`). The window builders (the zoom), the title bar and the menu
   read their settings from the writer's `AppSettings` (`zoom.rs`, `title_bar.rs`, `menu.rs`), with its defaults.
 - `bd`: reads the file once as it starts, by the same loader (`app_settings_of` in `crates/bd-core/src/context.rs`,
   `SettingsFile::load`), so it runs with the same values and defaults without the app; it resolves the branch prefix
   with `resolve_branch_prefix` and names its source in `bd status` (`prefix_source`).
 - Page: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`; one
-  `settings_changed` listener per page, started with the first store. Stores: `appSettings.ts`, `aiSettings.ts`,
+  `settings_changed` listener per page, started as the module loads (`listeningToSettings`), and the catch-up of a load
+  through the version gate (`acceptSettingsChanges`, which `src/lib/sub-window.ts` calls with the answer of
+  `sub_window_loaded`). Stores: `appSettings.ts`, `aiSettings.ts`,
   `diff-view-settings.ts`, `repositorySettings.ts` in `src/stores/settings/`, the Activity log `src/stores/activity.ts`
   and the robot history `src/stores/robot-history.ts`. They are module-level singletons; components read them with
   `useStore` selectors, non-React code with `getState()`.
 - E2E: the test server gives each test repository a `SettingsService` of its own on a file of its app data
-  (`TestRepository::store`); the page mock routes `set_setting` and `get_settings_changes` to it and sends the change to
-  its page and the linked pages ([E2E Testing](e2e-testing.md)).
+  (`TestRepository::store`); the page mock routes `set_setting`, `get_settings_changes` and `sub_window_loaded` (from
+  the version of the snapshot the page started from) to it, sends the change to its page and the linked pages and
+  records it in `__e2eEmittedEvents` of the page that asked, so a test asserts the versions (`getEmittedEvents`)
+  ([E2E Testing](e2e-testing.md)).
 
 ## Alternatives Considered
 

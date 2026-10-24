@@ -15,6 +15,7 @@ targets:
   - ../../src/lib/settings-window.ts
   - ../../src/lib/settings-pages.ts
   - ../../src/lib/zoom.ts
+  - ../../src/lib/sub-window.ts
   - ../../src/lib/main-menu.ts
   - ../../src/lib/menu.ts
   - ../../src/lib/pull-request.ts
@@ -258,15 +259,27 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   heard of it yet. A window sends its next change after the answer of the one before, so the writer gets them in
   order, and applies only a change newer than the last one it applied: a late answer or echo never rolls a setting
   back, and a change equal to a value the window had before still arrives (Actual Size after a review window hid its
-  sidebar at 110%). A window that loads takes the changes made after the snapshot it started from, once it listens
-  (`get_settings_changes`). The Activity log and the robot history reach only the main window.
+  sidebar at 110%). The Activity log and the robot history reach only the main window.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should keep the Activity panel the main window opened when a review window hides its sidebar right after`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should follow Actual Size of the main window in a review window that changed another field in between`)
   [@test] ../../crates/app-settings/src/service_test.rs (`two_origins_that_patch_two_fields_of_one_key_at_once_keep_both`, `a_change_older_than_the_applied_version_is_an_echo`, `the_changes_since_a_snapshot_name_each_key_changed_after_it_once_with_its_value_now`)
   [@test] ../../crates/app-settings/src/windows_test.rs (`a_sub_window_gets_no_key_only_the_main_window_keeps`)
   [@test] ../../src/stores/settings/persistent-store.test.ts (`sends the fields a change made, not the whole object, a field back at its default as null`, `sends the next change only after the answer of the one before, the changes made meanwhile as one`)
-  [@test] ../../src/stores/settings/persistent-store.test.ts (`keeps the field of its own change the writer has not answered when another window's change of the key arrives`, `never rolls a key back with a late echo of an older change`, `takes the changes made while the page loaded, once it listens`)
+  [@test] ../../src/stores/settings/persistent-store.test.ts (`keeps the field of its own change the writer has not answered when another window's change of the key arrives`, `never rolls a key back with a late echo of an older change`)
   [@test] ../../src/stores/settings/persistent-store.test.ts (`sends an array whole, an empty one as no value`, `starts a key only the main window keeps empty in a sub-window and takes none of its changes`)
+- A change made while a window's page loads reaches no listener of it, so every page takes the changes after the
+  version of the snapshot it started from, by the same versions: a sub-window with its load (`sub_window_loaded`
+  answers the changes after the version its build remembered, `SubWindowState::built`), applied before its content
+  settles and the window shows (`sub_window_ready`); the main window once it listens (`get_settings_changes`; its
+  reload starts from the snapshot of the app's start). A zoom changed while a review window loaded is the window's when
+  it shows, and the Activity panel the main window opened meanwhile stays when the review window changes another field.
+  The window's webview starts at the zoom of its snapshot, which its page changes when the level it has differs
+  (`zoomAtStart`, `useZoom`).
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`zooms a review window whose page loaded after Actual Size`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should keep the Activity panel the main window opened when a review window hides its sidebar right after`)
+  [@test] ../../src-tauri/src/commands/window_management_test.rs (`a_page_that_loads_takes_the_changes_after_the_snapshot_of_its_build`, `a_page_that_loads_takes_no_change_older_than_its_snapshot_nor_a_key_only_the_main_window_keeps`)
+  [@test] ../../src/lib/sub-window.test.ts (`takes the settings changed while the page loaded once it listens, before it says its content settled`)
+  [@test] ../../src/stores/settings/persistent-store.test.ts (`takes the changes the load of the window hands over by their versions, before its store exists too`)
 - The file keeps only what differs from the defaults: a field back at its default is removed, and an object or an
   array left empty removes its key. Keys the backend does not know are kept as they are.
   [@test] ../../crates/app-settings/src/service_test.rs (`a_field_patch_merges_into_the_key_and_a_null_field_is_removed`, `a_field_patch_that_removes_the_last_field_removes_the_key`)

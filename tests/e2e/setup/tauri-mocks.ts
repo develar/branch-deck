@@ -28,6 +28,9 @@ export const tauriMockScript = () => {
 
   // the label of the window: `main`, or that of a linked sub-window (`openLinkedSubWindow` sets `__e2eWindowLabel`)
   const windowLabel: string = (window as any).__e2eWindowLabel ?? "main"
+  // the version of the snapshot of the settings the page starts from, as the backend remembers it for the window it
+  // built (`SubWindowState::built`): the load of a sub-window takes the changes after it (`sub_window_loaded`)
+  const startStoreVersion: number = (window as any).__TAURI_STORE_VERSION__ ?? 0
 
   /**
    * A change of the settings this page heard (`settings_changed`), as the writer of the app holds it: a reload starts
@@ -535,8 +538,9 @@ export const tauriMockScript = () => {
       })
       return null
     },
-    // the page of a sub-window loaded (`announceSubWindowLoaded`): no data of a later open
-    sub_window_loaded: () => null,
+    // the page of a sub-window loaded (`announceSubWindowLoaded`): no data of a later open, and the changes of the
+    // settings after the snapshot the page started from, which the test server's writer has
+    sub_window_loaded: async (cmd: string) => proxyToTestServer(cmd, { since: startStoreVersion, origin: windowLabel }),
     // the page settled the content of an open (`markSubWindowContentReady`): the backend would show the window
     sub_window_ready: (_cmd: string, payload: any) => {
       ;(window as any).__e2eSubWindowReady = payload?.openId ?? null
@@ -578,10 +582,12 @@ export const tauriMockScript = () => {
 
     // a change of the settings: the test server's writer applies it, and the backend sends the change to every window
     // (`settings_changed`), this page and the other pages of a linked sub-window; the origin is this page's window. The
-    // patches are recorded in `__e2eSettingsPatches`
+    // patches are recorded in `__e2eSettingsPatches`, the changes the backend sent in `__e2eEmittedEvents` of this page
+    // (`getEmittedEvents`), with their versions
     set_setting: async (cmd: string, payload: any) => {
       ;((window as any).__e2eSettingsPatches ??= []).push(payload?.params?.patch)
       const change = await proxyToTestServer(cmd, { params: { patch: payload?.params?.patch, origin: windowLabel } })
+      ;((window as any).__e2eEmittedEvents ??= []).push({ event: "settings_changed", payload: change })
       ;(window as any).__e2eEmitTauriEvent("settings_changed", change)
       void (window as any).__e2eRelay?.("settings_changed", change)
       return change

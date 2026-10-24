@@ -247,8 +247,11 @@ Mock implementation:
     server, and the mock sends the main window `repository_config_changed`, as the command does. A change of the
     settings (`set_setting`) goes to the test server's writer of the repository (`TestRepository::store`, the app's
     `SettingsService` on a file of its app data), and the mock sends the change to its page and the linked pages
-    (`settings_changed`), as the backend does; each page keeps its copy of the settings (`__TAURI_STORE__` and
-    `__TAURI_STORE_VERSION__`), from which a reload and a sub-window it opens start.
+    (`settings_changed`), as the backend does, recorded in `__e2eEmittedEvents` of the page that changed it, with its
+    version; each page keeps its copy of the settings (`__TAURI_STORE__` and `__TAURI_STORE_VERSION__`), from which a
+    reload and a sub-window it opens start. A linked window's webview starts at the zoom of its snapshot
+    (`__e2eWebviewZoom`, as the builder zooms it), and its load (`sub_window_loaded`) takes the changes the test
+    server's writer made after the version of that snapshot.
   `emit` is also recorded in `__e2eEmittedEvents` (`getEmittedEvents`); a test fires an event in a page with
   `emitTauriEvent`. An event fired for a window (`emitTauriEvent(page, "tauri://destroyed", null,
   "pull-request-review")`) reaches only the listeners of any target and of that window (`target: { label }`), so the

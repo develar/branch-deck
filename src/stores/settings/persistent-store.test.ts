@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import { z } from "zod"
 import type { SettingsChange, SettingsPatch } from "@/lib/bindings"
-import { createPersistentStore } from "@/stores/settings/persistent-store"
+import { acceptSettingsChanges, createPersistentStore } from "@/stores/settings/persistent-store"
 
 interface SetCall {
   patch: SettingsPatch
@@ -20,7 +20,8 @@ const { sets, listeners, errors, loadChanges } = vi.hoisted(() => {
     sets: [] as SetCall[],
     listeners: new Map<string, (event: { payload: unknown }) => void>(),
     errors: [] as string[],
-    // the changes the writer made, which the page asks for once it listens: those after its snapshot
+    // the changes of a key the writer made, as the load of the window hands them over (`sub_window_loaded`), the one
+    // before the snapshot too
     loadChanges: [
       { version: 2, key: "loaded", value: { a: "older than the snapshot" }, origin: "main" },
       { version: 5, key: "loaded", value: { a: "while it loaded" }, origin: "main" },
@@ -53,7 +54,6 @@ vi.mock("@/lib/bindings", () => ({
           },
         })
       }),
-    getSettingsChanges: async (since: number) => ({ status: "ok", data: loadChanges.filter(change => change.version > since) }),
   },
 }))
 
@@ -124,9 +124,15 @@ describe("persistent store", () => {
     expect(store.getState().zoom).toBe(1.2)
   })
 
-  it("takes the changes made while the page loaded, once it listens", async () => {
+  it("takes the changes the load of the window hands over by their versions, before its store exists too", () => {
+    // the change older than the snapshot changes nothing, the one made while the page loaded is taken
+    acceptSettingsChanges(loadChanges)
     const store = objectStore("loaded")
-    await vi.waitFor(() => expect(store.getState().a).toBe("while it loaded"))
+    expect(store.getState().a).toBe("while it loaded")
+    // its late broadcast changes nothing either
+    acceptSettingsChanges(loadChanges.slice(0, 1))
+    broadcast({ version: 5, key: "loaded", value: { a: "late echo" }, origin: "main" })
+    expect(store.getState().a).toBe("while it loaded")
   })
 
   it("puts the writer's value back when it refuses a change, and says so", async () => {

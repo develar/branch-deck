@@ -3,7 +3,9 @@
 //! ([Distributed Settings](../../docs/design/distributed-settings.md)).
 //!
 //! - a window starts from the snapshot its init script sets (`init_script`): `window.__TAURI_STORE__`, the values by key,
-//!   and `window.__TAURI_STORE_VERSION__`, the version they were taken at;
+//!   and `window.__TAURI_STORE_VERSION__`, the version they were taken at; a sub-window's page takes the changes made
+//!   after it when it loaded (`sub_window_loaded`, by the version its build remembered), the main window's page once
+//!   it listens (`get_settings_changes`);
 //! - a change of any window is a `set_setting` (`commands::settings`), and every window gets it as `settings_changed`
 //!   (`emit_change`); a window applies a change newer than the version it applied;
 //! - the keys only the main window keeps (`app_settings::windows::MAIN_ONLY_KEYS`) go only to the main window, and no
@@ -38,12 +40,13 @@ pub fn report_save_errors<R: Runtime>(service: &SettingsService, app: AppHandle<
   });
 }
 
-/// The part of the init script of the window `label` that hands it the settings, before the page's own scripts. The
+/// The part of the init script of the window `label` that hands it the settings, before the page's own scripts, and the
+/// version of that snapshot, after which a sub-window's page takes the changes when it loads (`sub_window_loaded`). The
 /// values are serialized JSON, so the script always parses, a settings file cut within a write too (its snapshot is
 /// the defaults)
-pub fn init_script(service: &SettingsService, label: &str) -> String {
+pub fn init_script(service: &SettingsService, label: &str) -> (String, u32) {
   let (version, values) = window_snapshot(service, label);
-  format!("window.__TAURI_STORE__ = {values}; window.__TAURI_STORE_VERSION__ = {version};")
+  (format!("window.__TAURI_STORE__ = {values}; window.__TAURI_STORE_VERSION__ = {version};"), version)
 }
 
 /// Send `change` to every window that gets its key

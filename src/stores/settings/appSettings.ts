@@ -4,7 +4,7 @@ import type { StatsPeriod } from "@/lib/bindings"
 import { STATS_PERIODS } from "@/lib/robot-stats"
 import { SETTINGS_PAGES } from "@/lib/settings-pages"
 import type { SettingsPageId } from "@/lib/settings-pages"
-import { createPersistentStore } from "./persistent-store"
+import { createPersistentStore, snapshotValueOf } from "./persistent-store"
 
 const AppSettingsSchema = z.object({
   globalUserBranchPrefix: z.string().optional(),
@@ -43,6 +43,13 @@ const AppSettingsSchema = z.object({
 export type AppSettings = z.infer<typeof AppSettingsSchema>
 
 export const appSettingsStore = createPersistentStore("appSettings", { schema: AppSettingsSchema, isArray: false, isMainOnly: false })
+
+/**
+ * The zoom the window was built with: the builder zooms the webview to the level of the snapshot its page starts from
+ * (`apply_zoom` in src-tauri/src/zoom.rs), so `useZoom` zooms the page whenever the level differs from it, also when a
+ * change made while the page loaded arrived before the page rendered
+ */
+export const zoomAtStart: number = AppSettingsSchema.shape.zoom.catch(1).parse((snapshotValueOf("appSettings") as { zoom?: unknown } | undefined)?.zoom)
 
 export function useAppSettings<T>(selector: (state: AppSettings) => T): T {
   return useStore(appSettingsStore, selector)

@@ -23,7 +23,6 @@ const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock recor
 const PAGE_MOCKED: &[(&str, &str)] = &[
   // the handlers of `COMMAND_HANDLERS` in tauri-mocks.ts: the windows and the window menu
   ("open_sub_window", SUB_WINDOW),
-  ("sub_window_loaded", SUB_WINDOW),
   ("sub_window_ready", SUB_WINDOW),
   ("show_window_menu", "the window manager's menu: the page mock records it with the window calls"),
 ];
@@ -305,6 +304,7 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
       "set_setting",
       "sign_out_of_github",
       "sign_out_of_youtrack",
+      "sub_window_loaded",
       "sync_branches",
       "wait_github_sign_in",
       "wait_youtrack_sign_in"
@@ -317,7 +317,7 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
 fn page_mocked_only_goes_down() {
   assert_eq!(
     PAGE_MOCKED.len(),
-    4,
+    3,
     "PAGE_MOCKED may only shrink: a new command gets a route of the test server, not a page mock; when a command gets its route, lower this number"
   );
 }
