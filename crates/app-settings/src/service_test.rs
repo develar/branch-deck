@@ -113,7 +113,8 @@ fn a_flush_soon_after_a_patch_saves_it_without_waiting_for_the_debounce() {
   assert!(!path.exists(), "the save waits for the debounce");
   let started = Instant::now();
   service.flush().unwrap();
-  assert!(started.elapsed() < Duration::from_millis(100), "the flush took {:?}", started.elapsed());
+  // the debounce is an hour: a flush that waited for it would not end; a minute is the save under any load of the machine
+  assert!(started.elapsed() < Duration::from_mins(1), "the flush took {:?}", started.elapsed());
   assert_eq!(read(&path), json!({ "appSettings": { "zoom": 1.5 } }));
 }
 
