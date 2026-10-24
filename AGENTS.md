@@ -54,8 +54,8 @@ Hard rules in one place; the linked section says why and what to do instead.
 4. **Verify** by the table in [Verification](#verification).
 5. **Commit** in the lease, a conventional subject as in `git log` (`feat(bd): …`, `fix(e2e): …`, `docs(agents): …`),
    then `git rebase master` there and `git merge --ff-only <branch>` in the main checkout.
-6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), then
-   `bd lease return --workspace <path>`.
+6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), give back its
+   lease on the Studio if it ran there (`yonder release studio`), then `bd lease return --workspace <path>`.
 
 ### Worktrees
 Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
@@ -99,6 +99,12 @@ FLAKY and still fails the run, because a flaky test is a race to fix (locally no
 config (`[experimental] record = true` and `[record] enabled = true` in `~/.config/nextest/config.toml`),
 `cargo nextest run -R latest` runs only what failed; finish with a full run.
 
+**Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
+`pnpm lint:backend` run as `yonder run studio -- <command>` from the lease, on its working tree, committed or not
+([Studio Runs](docs/guidelines/studio-runs.md), `.yonder.toml`). This Mac runs several agents at once, and under that
+load the suites take far longer and E2E fails on timeouts. What a command edits (`cargo fmt`, `pnpm e2e-up`,
+`UPDATE_BINDINGS=1`) comes back with `--apply`. Exit code 75: the Studio did not run it, run it here.
+
 If Homebrew `cargo`/`rustc` come before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`:
 the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the workspace manifest.
 
@@ -128,6 +134,8 @@ pnpm install-app          # Unsigned release build of the .app, copied to /Appli
 
 pnpm test                 # test:backend + test:unit (Rust and Vitest; not E2E)
 pnpm test:backend         # cargo nextest run --workspace
+yonder run studio -- cargo nextest run --workspace  # The same on the Mac Studio, on this working tree (75: run it here)
+yonder run studio -- pnpm e2e  # The E2E suite there; --apply brings back what a command edits (pnpm e2e-up, cargo fmt)
 cargo nextest run -R latest  # Rerun what failed or did not run in the last run (record on in the user config)
 pnpm test:unit            # Vitest (`vp test run`; src/**/*.test.ts)
 
@@ -588,6 +596,7 @@ The rows and the menus of the main window: `branch/branch-row`, `commit/commit-r
 - [Adding a Git Operation](docs/guidelines/adding-git-operation.md) - The layers of an operation and the helpers to reuse
 - [Agent CLI](docs/guidelines/agent-cli.md) - The `bd` commands, their JSON, error codes and exit codes
 - [Platform Checks](docs/guidelines/platform-checks.md) - Linux in Docker and Windows in the Parallels VM before platform code lands
+- [Studio Runs](docs/guidelines/studio-runs.md) - `yonder run studio -- <command>`: a heavy check on the Mac Studio, on the exact working tree of a lease, in a warm lease of its own there
 - [Real App Checks](docs/guidelines/real-app-checks.md) - The release app driven with Peekaboo: windows, input, frames, timings
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
 - [UX Writing](docs/guidelines/ux-writing.md) - Toast titles and actions, "Cannot …" errors, Title Case and sentence case, punctuation

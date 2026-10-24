@@ -1,0 +1,15 @@
+# A run of this repository on another machine of the user: `yonder run studio -- <command>` (docs/guidelines/studio-runs.md).
+# The format is the one of yonderd (community/tools/yonder/bins/yonderd/API.md in the IntelliJ monorepo).
+
+# What a run makes and brings back into the same paths here
+outputs = ["tests/results", "playwright-report", "target/nextest/ci/junit.xml"]
+
+[env]
+# the mock server of the E2E suite: one port per slot, so two slots of the host never meet
+E2E_PORT = { port = 3100 }
+
+[[prepare]]
+name = "pnpm install"
+run = ["pnpm", "install", "--frozen-lockfile", "--config.confirm-modules-purge=false"]
+inputs = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
+creates = ["node_modules"]

@@ -41,6 +41,9 @@ export default defineConfig({
       // a running server is reused locally, e.g. `pnpm test-server:dev` that restarts on changes (needs watchexec)
       command: "cargo run -p test-server",
       port: TEST_SERVER_PORT,
+      // the build of a cold target/ (a new slot of the lease pool, here or on the Studio) takes minutes: the default
+      // 60 s ends the run before the server listens
+      timeout: 5 * 60_000,
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       env: {
