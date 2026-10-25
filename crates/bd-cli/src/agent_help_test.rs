@@ -240,6 +240,9 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::ResolutionOutsideConflict
     | ErrorCode::MissingResolution
     | ErrorCode::EmptyResolution
+    | ErrorCode::NotLandedRound
+    | ErrorCode::LandedDiffers
+    | ErrorCode::LandedNotEmpty
     | ErrorCode::FinishPending => &["help update"],
     ErrorCode::NoPullRequest | ErrorCode::NoReviewer | ErrorCode::ReviewRefused => &["request-review"],
   }

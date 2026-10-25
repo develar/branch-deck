@@ -100,6 +100,10 @@ by the next sync the same way.
   local fixup of a proven commit is no candidate: it replays on its own.
   [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_fixup_of_a_proven_twin_stays_out_of_the_pairing`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`twins_in_another_order_are_left_out_by_their_proof_and_land`)
+- A candidate is landed only by a decision: `bd update --continue --landed` in its round drops it as its baseline
+  commit, at once when the baseline commit has every line it changes, else after the user's yes (`--user`). A drop by
+  `--drop-empty` lands only a candidate; any other is the user's drop and did not land.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`a_twin_that_differs_asks_the_user_and_drops_after_the_yes`, `a_twin_with_every_line_of_the_commit_drops_without_a_question`, `a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
 - The check of a conflicting update pairs once: the session replays the plan of the check and pairs nothing again.
   [@test] ../../crates/update-core/src/process_budget_test.rs (`a_conflicting_update_pairs_its_commits_once`)
 - Detection costs three read-only `log` processes, one more for a proven commit of another author; the check inside a

@@ -3,7 +3,7 @@
 //! check that every sync runs against the last fetched state are `baseline`.
 
 use crate::resolve_copies::{Materialize, prepare_dir};
-use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session, with_subjects};
+use crate::resolve_session::{DroppedCommit, SessionOutcome, ViewDetail, own_session, start_resolve, view_session, with_empty_drops, with_subjects};
 use anyhow::{Result, anyhow, bail};
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
@@ -84,10 +84,11 @@ pub struct UpdateProjectResult {
   pub applied: Option<AppliedUpdate>,
   /// The local commits this update dropped because the upstream has them, by branch
   pub landed: Vec<LandedBranch>,
-  /// The local commits the replay left out because the upstream proves it has them, each with its subject: `bd` lists
-  /// them, the app shows `landed`
+  /// Every local commit the update dropped, with its subject and its proof: those the replay left out because the
+  /// upstream proves it has them, and those the replay dropped as empty (`landed`). `bd` lists them, the app shows
+  /// `landed`
   #[serde(skip)]
-  pub landed_dropped: Vec<(LandedDrop, String)>,
+  pub dropped: Vec<DroppedCommit>,
 }
 
 /// How an update runs
@@ -173,7 +174,7 @@ pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, op
     if dir.is_some() {
       bail!("A resolve session is open already; --dir applies when a session starts");
     }
-    let view = view_session(git_executor, repo_path, &session, Some(Materialize::Missing))?;
+    let view = view_session(git_executor, repo_path, &session, Some(Materialize::Missing), ViewDetail::Full)?;
     return Ok(BdUpdate::Session(Box::new(SessionOutcome::Round(view))));
   }
   update_project_impl(git_executor, repo_path, options, &|_| {}, Resolve::Yes { dir, worktree: &worktree })
@@ -225,7 +226,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       check,
       applied: None,
       landed: Vec::new(),
-      landed_dropped: Vec::new(),
+      dropped: Vec::new(),
     })));
   }
   let lock = options.lock_wait.lock_with(git_executor, repo_path, &|| on_progress(UpdatePhase::Waiting.into()))?;
@@ -270,8 +271,8 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     };
     record_landed_update(git_executor, repo_path, &report, &grouping)
   });
-  let landed_dropped = if applied.is_some() {
-    with_subjects(git_executor, repo_path, plan.landed_drops())
+  let dropped = if applied.is_some() {
+    with_empty_drops(with_subjects(git_executor, repo_path, plan.landed_drops()), &landed)
   } else {
     Vec::new()
   };
@@ -279,7 +280,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     check: plan.check,
     applied,
     landed,
-    landed_dropped,
+    dropped,
   })))
 }
 

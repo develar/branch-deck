@@ -73,8 +73,8 @@ fn update_rebases_the_local_commits_and_keeps_unrelated_local_changes() {
   let (exit_code, output) = run_in(&clone, &["update"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
-    (&output["state"], &output["replayed"], &output["dropped_already_upstream"]),
-    (&json!("rebase"), &json!(1), &json!(0))
+    (&output["state"], &output["replayed"], output.get("dropped_count"), output.get("verify")),
+    (&json!("rebase"), &json!(1), None, None)
   );
   assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
   assert_eq!(read(&clone, "shared.txt"), "one\nTWO\nthree\n");
@@ -84,6 +84,23 @@ fn update_rebases_the_local_commits_and_keeps_unrelated_local_changes() {
   // nothing new: up to date, no token
   let (exit_code, output) = run_in(&clone, &["update", "--no-fetch"]);
   assert_eq!((exit_code, &output["state"], output.get("undo_token")), (0, &json!("up_to_date"), None), "{output}");
+}
+
+/// A local commit whose replay leaves it without a change: the baseline made the same change, so the replay drops it as
+/// `git rebase` does, and `dropped` names it with the proof `empty`
+#[test_log::test]
+fn a_commit_that_the_replay_leaves_without_a_change_is_dropped_as_empty() {
+  let (upstream, clone) = clone_of_upstream();
+  let local = clone.create_commit("(auth) Add a", "a.txt", "a\n");
+  clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  upstream.create_commit("Add a too", "a.txt", "a\n");
+  let (exit_code, output) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (&output["replayed"], &output["dropped_count"], &output["dropped"]),
+    (&json!(1), &json!(1), &json!([{ "commit": local, "subject": "Add a", "proof": "empty" }])),
+    "{output}"
+  );
 }
 
 #[test_log::test]

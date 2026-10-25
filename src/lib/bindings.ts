@@ -1583,8 +1583,23 @@ export type ErrorCode =
 "resolution_outside_conflict" | 
 /**  The files of `paths` have no resolution: no edited `edit` copy, no `--take`, no `--delete` */
 "missing_resolution" | 
-/**  The resolution leaves the round's commit without changes: ask the user, then `--allow-empty` or `--drop-empty` */
+/**
+ *  The resolution leaves the round's commit without changes: ask the user, then `--allow-empty` or `--drop-empty`;
+ *  `--landed` for a commit whose twin the baseline has
+ */
 "empty_resolution" | 
+/**  `bd update --continue --landed` on a round whose commit has no twin in the baseline (no `landed_as`) */
+"not_landed_round" | 
+/**
+ *  `bd update --continue --landed` without `--user` on a round whose commit changes lines that its twin in the
+ *  baseline lacks (`landed_as.local_only`): a drop loses them, so the user decides
+ */
+"landed_differs" | 
+/**
+ *  `bd update --continue --landed` on a round whose commit still changes files with `onto` for every conflicting
+ *  file: `paths` lists them
+ */
+"landed_not_empty" | 
 /**  The branch of a resolve session moved, but the files did not follow and bd can't finish it: show the user */
 "finish_pending" | 
 /**

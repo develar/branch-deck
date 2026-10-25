@@ -91,6 +91,7 @@ impl CliError {
         processes: self.extra.as_ref().map_or_default(|extra| extra.processes.clone()),
         next_steps: self.next_steps().to_vec(),
         retryable: self.code.retryable(),
+        ask_user: self.code.asks_user(),
       },
     }
   }
@@ -173,6 +174,15 @@ pub struct ErrorBody {
   pub next_steps: Vec<NextStep>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,
+  /// The user decides: show `message` (with `paths`) to the user and ask before you go on (`uncommitted_overlap`,
+  /// `empty_resolution`, `landed_differs`); omitted when false
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub ask_user: bool,
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
+const fn is_false(value: &bool) -> bool {
+  !*value
 }
 
 /// A command that acts on a refusal (`ErrorBody::next_steps`)

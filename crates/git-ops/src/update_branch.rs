@@ -671,7 +671,7 @@ fn keeps_candidates(git_executor: &GitCommandExecutor, repo_path: &str, new_head
     return Ok(true);
   }
   let input = candidates.iter().fold(String::new(), |mut input, candidate| {
-    let _ = writeln!(input, "{}^ -- {new_head} {}", candidate.commit, candidate.last);
+    let _ = writeln!(input, "{}^ -- {new_head} {}", candidate.commit, candidate.last());
     input
   });
   let output = git_executor

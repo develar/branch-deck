@@ -110,8 +110,17 @@ pub enum ErrorCode {
   ResolutionOutsideConflict,
   /// The files of `paths` have no resolution: no edited `edit` copy, no `--take`, no `--delete`
   MissingResolution,
-  /// The resolution leaves the round's commit without changes: ask the user, then `--allow-empty` or `--drop-empty`
+  /// The resolution leaves the round's commit without changes: ask the user, then `--allow-empty` or `--drop-empty`;
+  /// `--landed` for a commit whose twin the baseline has
   EmptyResolution,
+  /// `bd update --continue --landed` on a round whose commit has no twin in the baseline (no `landed_as`)
+  NotLandedRound,
+  /// `bd update --continue --landed` without `--user` on a round whose commit changes lines that its twin in the
+  /// baseline lacks (`landed_as.local_only`): a drop loses them, so the user decides
+  LandedDiffers,
+  /// `bd update --continue --landed` on a round whose commit still changes files with `onto` for every conflicting
+  /// file: `paths` lists them
+  LandedNotEmpty,
   /// The branch of a resolve session moved, but the files did not follow and bd can't finish it: show the user
   FinishPending,
   /// A branch can't be pushed: not synced, or behind its remote branch without --force; or the remote refused the push
@@ -228,6 +237,9 @@ impl ErrorCode {
       | Self::ResolutionOutsideConflict
       | Self::MissingResolution
       | Self::EmptyResolution
+      | Self::NotLandedRound
+      | Self::LandedDiffers
+      | Self::LandedNotEmpty
       | Self::NoLease
       | Self::LeaseMismatch
       | Self::NotASlot
@@ -313,6 +325,12 @@ impl ErrorCode {
   /// of `bd`
   pub const fn retryable(self) -> bool {
     !matches!(self.retry(), Retry::No)
+  }
+
+  /// Whether an agent shows the error to the user and asks before it goes on: a decision on the user's files or
+  /// commits that only the user makes (`ask_user` of the error object of `bd`)
+  pub const fn asks_user(self) -> bool {
+    matches!(self, Self::UncommittedOverlap | Self::EmptyResolution | Self::LandedDiffers)
   }
 }
 

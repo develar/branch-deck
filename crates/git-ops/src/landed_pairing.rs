@@ -9,17 +9,19 @@
 //! - the pairing of an update whose replay conflicts (`pair_landed`): a ladder of proofs (`LandedProof`), one to one,
 //!   on the logs of the landed report (`read_local`, `read_upstream`); the pairs by identity alone are candidates
 //! - the patch ids: `same_changes` of commit pairs without context, `pair_by_patch_id` and `patch_identical` with it
+//! - the interdiff of a candidate and its twin (`interdiffs`): what a drop of the candidate loses
 
 use crate::autosquash_targets::target_of_each_fixup;
 use crate::commit_list::parse_single_commit;
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
 use crate::merge_tree_output::parse_merge_tree_batch;
+use crate::resolve_check::MAX_REPORTED_LINES;
 use anyhow::{Result, bail};
 use domain_types::commit::Commit;
 use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Write as _;
 use sync_utils::commit_subject::{stripped_subject, subject_of};
 use tracing::debug;
@@ -405,15 +407,29 @@ pub fn pair_by_patch_id(git_executor: &GitCommandExecutor, repo_path: &str, loca
 }
 
 /// A local commit with a counterpart upstream by identity only: nothing proves that the upstream has its change (an
-/// amend after the push, a robot that folded its fixups in, an independent fix), so it is never left out by itself
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// amend after the push, a robot that folded its fixups in, an independent fix), so it is never left out by itself. A
+/// resolve session keeps it in its state: its round offers `--landed`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LandedCandidate {
   pub commit: String,
   /// The upstream commit with its `CommitKey`
   pub upstream: String,
-  /// The last of the commit and its local fixups (`autosquash_targets`): what leaving it out has to keep is the change
-  /// from its parent to there
-  pub last: String,
+  /// The local fixups of the commit (`autosquash_targets`) that no proof left out, oldest first: a robot that
+  /// autosquashes landed the commit with them folded in
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub fixups: Vec<String>,
+}
+
+impl LandedCandidate {
+  /// The last of the commit and its local fixups: what leaving it out has to keep is the change from its parent to there
+  pub fn last(&self) -> &str {
+    self.fixups.last().unwrap_or(&self.commit)
+  }
+
+  /// The commit and its fixups, oldest first: the local change that its upstream commit may carry
+  pub fn unit(&self) -> impl Iterator<Item = &str> {
+    std::iter::once(self.commit.as_str()).chain(self.fixups.iter().map(String::as_str))
+  }
 }
 
 /// The local commits of an update paired with the upstream commits that carry their change
@@ -521,13 +537,13 @@ pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: La
   let target_of = target_of_each_fixup(&local, stacks);
   let candidate_ids: HashSet<&str> = candidates.iter().map(|(commit, _)| *commit).collect();
   let dropped: HashSet<&str> = drops.iter().map(|drop| drop.commit.as_str()).collect();
-  let mut last: HashMap<&str, &str> = HashMap::new();
+  let mut fixups: HashMap<&str, Vec<String>> = HashMap::new();
   for commit in &local {
     let target = target_of.get(&commit.id).map_or(commit.id.as_str(), String::as_str);
-    if candidate_ids.contains(target) {
-      last.insert(target, &commit.id);
-      if !dropped.contains(commit.id.as_str()) {
-        pairing.with_fixups.push(commit.id.clone());
+    if candidate_ids.contains(target) && !dropped.contains(commit.id.as_str()) {
+      pairing.with_fixups.push(commit.id.clone());
+      if target != commit.id {
+        fixups.entry(target).or_default().push(commit.id.clone());
       }
     }
   }
@@ -536,7 +552,7 @@ pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: La
     .map(|(commit, upstream)| LandedCandidate {
       commit: commit.to_string(),
       upstream: upstream.to_string(),
-      last: last.get(commit).copied().unwrap_or(commit).to_string(),
+      fixups: fixups.remove(commit).unwrap_or_default(),
     })
     .collect();
   debug!(
@@ -588,6 +604,185 @@ fn same_changed_lines(git_executor: &GitCommandExecutor, repo_path: &str, pairs:
       .map(|(local, upstream)| same_value(&patch_of, local, upstream) && raw_of.get(*local) == raw_of.get(*upstream))
       .collect(),
   )
+}
+
+/// The lines of one path that one side of a twin changes and the other does not: `+<line>` added, `-<line>` removed,
+/// `mode <old> <new>` and `binary <blob>` for what no line shows; at most `MAX_REPORTED_LINES`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PathLines {
+  pub path: String,
+  pub lines: Vec<String>,
+}
+
+/// How a local commit (with its fixups) and its upstream twin differ, by their changed lines (`interdiffs`)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Interdiff {
+  /// What the local side changes and the twin does not: what a drop of the local commit loses
+  pub local_only: Vec<PathLines>,
+  /// What the twin changes and the local side does not: the upstream's own change, e.g. a fixup folded in upstream
+  pub upstream_only: Vec<PathLines>,
+}
+
+/// The paths an `Interdiff` lists per side, each with at most `MAX_REPORTED_LINES` lines
+const MAX_INTERDIFF_PATHS: usize = 20;
+
+/// The net changed lines of one side of a twin, by path: each line with its count, `+<line>` with a negative count for
+/// a removed line, in the order of their first change
+type NetLines = BTreeMap<String, Vec<(String, i64)>>;
+
+/// The interdiff of each `(local commits, upstream commit)` pair: the changed lines of the diffs without context
+/// (`-U0`) of each side, the local commits summed in order (a line that one adds and a later one removes cancels), then
+/// compared as multisets per path. No `log -S`: only the two patches. One `diff-tree --stdin -p -U0`, none without pairs
+pub fn interdiffs(git_executor: &GitCommandExecutor, repo_path: &str, pairs: &[(Vec<&str>, &str)]) -> Result<Vec<Interdiff>> {
+  if pairs.is_empty() {
+    return Ok(Vec::new());
+  }
+  let commits: Vec<&str> = pairs.iter().flat_map(|(local, upstream)| local.iter().copied().chain([*upstream])).collect();
+  let patches = git_executor
+    .cmd(
+      &["diff-tree", "--stdin", "-p", "-U0", "--full-index", "--no-renames", "--no-ext-diff", "--no-textconv"],
+      repo_path,
+    )
+    .stdin(lines_of(&commits).as_bytes())
+    .bytes()?;
+  let changes = changed_lines(&patches);
+  let side = |commits: &[&str]| {
+    let mut net = NetLines::new();
+    for (path, lines) in commits.iter().filter_map(|commit| changes.get(*commit)).flatten() {
+      let entries = net.entry(path.clone()).or_default();
+      for line in lines {
+        add_line(entries, line);
+      }
+    }
+    net
+  };
+  Ok(
+    pairs
+      .iter()
+      .map(|(local, upstream)| {
+        let (local, upstream) = (side(local), side(&[upstream]));
+        Interdiff {
+          local_only: only_in(&local, &upstream),
+          upstream_only: only_in(&upstream, &local),
+        }
+      })
+      .collect(),
+  )
+}
+
+/// Adds a changed line to the net lines of a path: `+x` after `-x` (or the reverse) cancels, as a later commit that
+/// takes back what an earlier one did
+fn add_line(entries: &mut Vec<(String, i64)>, line: &str) {
+  let (key, count) = match line.strip_prefix('-') {
+    Some(text) => (format!("+{text}"), -1),
+    None => (line.to_string(), 1),
+  };
+  match entries.iter_mut().find(|(entry, _)| *entry == key) {
+    Some((_, net)) => *net += count,
+    None => entries.push((key, count)),
+  }
+}
+
+/// The net lines of `one` that `other` lacks, as `+<line>` and `-<line>`: the first `MAX_INTERDIFF_PATHS` paths, each
+/// with its first `MAX_REPORTED_LINES` lines
+fn only_in(one: &NetLines, other: &NetLines) -> Vec<PathLines> {
+  let mut paths = Vec::new();
+  for (path, entries) in one {
+    let theirs = other.get(path);
+    let count_in = |key: &str| theirs.and_then(|entries| entries.iter().find(|(entry, _)| entry == key)).map_or(0, |(_, net)| *net);
+    let lines: Vec<String> = entries
+      .iter()
+      .filter(|(key, net)| *net != 0 && *net != count_in(key))
+      .map(|(key, net)| match key.strip_prefix('+') {
+        Some(text) if *net < 0 => format!("-{text}"),
+        _ => key.clone(),
+      })
+      .take(MAX_REPORTED_LINES)
+      .collect();
+    if !lines.is_empty() {
+      paths.push(PathLines { path: path.clone(), lines });
+    }
+    if paths.len() == MAX_INTERDIFF_PATHS {
+      break;
+    }
+  }
+  paths
+}
+
+/// The changed lines of each commit of a `diff-tree --stdin -p -U0 --full-index` output, by commit and path: `+<line>`
+/// and `-<line>` of the hunks, `mode <old> <new>` of a mode change and `binary <blob>` of a binary file (its new blob,
+/// zeros for a delete)
+fn changed_lines(patches: &[u8]) -> HashMap<String, BTreeMap<String, Vec<String>>> {
+  let mut by_commit: HashMap<String, BTreeMap<String, Vec<String>>> = HashMap::new();
+  let (mut commit, mut path, mut old_mode, mut new_blob) = (String::new(), String::new(), String::new(), String::new());
+  let mut in_hunk = false;
+  for line in patches.split(|&b| b == b'\n') {
+    let text = String::from_utf8_lossy(line);
+    let change = if let Some(rest) = text.strip_prefix("diff --git ") {
+      path = diff_git_path(rest);
+      in_hunk = false;
+      None
+    } else if in_hunk && (text.starts_with('+') || text.starts_with('-')) {
+      Some(text.into_owned())
+    } else if text.starts_with("@@ ") {
+      in_hunk = true;
+      None
+    } else if is_commit_line(&text) {
+      commit = text.into_owned();
+      in_hunk = false;
+      None
+    } else if let Some(mode) = text.strip_prefix("old mode ") {
+      mode.clone_into(&mut old_mode);
+      None
+    } else if let Some(mode) = text.strip_prefix("new mode ") {
+      Some(format!("mode {old_mode} {mode}"))
+    } else if let Some(ids) = text.strip_prefix("index ") {
+      new_blob = ids.split_once("..").and_then(|(_, new)| new.split(' ').next()).unwrap_or_default().to_string();
+      None
+    } else {
+      text.starts_with("Binary files ").then(|| format!("binary {new_blob}"))
+    };
+    if let Some(change) = change {
+      by_commit.entry(commit.clone()).or_default().entry(path.clone()).or_default().push(change);
+    }
+  }
+  by_commit
+}
+
+/// The line of `diff-tree --stdin` that names the commit whose patch follows: its full id, SHA-1 or SHA-256
+fn is_commit_line(text: &str) -> bool {
+  matches!(text.len(), 40 | 64) && text.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The path of a `diff --git a/<path> b/<path>` line without renames, both paths the same; quoted (`"a/<path>"
+/// "b/<path>"`) when git quotes it
+fn diff_git_path(rest: &str) -> String {
+  if let Some(quoted) = rest.strip_prefix("\"a/") {
+    // `"a/` + path + `" "b/` + path + `"`
+    let length = quoted.len().saturating_sub(6) / 2;
+    return unquoted(quoted.get(..length).unwrap_or(quoted));
+  }
+  let length = rest.len().saturating_sub(5) / 2;
+  rest.get(2..2 + length).unwrap_or(rest).to_string()
+}
+
+/// A path as git quotes it with `core.quotePath=false`: only `"`, `\` and the control characters are escaped
+fn unquoted(text: &str) -> String {
+  let mut path = String::with_capacity(text.len());
+  let mut chars = text.chars();
+  while let Some(c) = chars.next() {
+    if c != '\\' {
+      path.push(c);
+      continue;
+    }
+    match chars.next() {
+      Some('t') => path.push('\t'),
+      Some('n') => path.push('\n'),
+      Some(other) => path.push(other),
+      None => {}
+    }
+  }
+  path
 }
 
 /// A path that a commit changes as `diff-tree --raw` shows it, without what the patch of its lines shows

@@ -77,6 +77,7 @@ fn a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update() {
   assert_eq!(exit_code, 0, "{done}");
   assert_eq!(done["state"], json!("rebase"));
   assert_eq!(done["resolutions"][0]["files"][0], json!({ "path": "shared.txt", "how": "edited" }));
+  assert_eq!(done["verify"], json!({ "paths": ["shared.txt"] }), "an edited file is built and tested: {done}");
   assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
   assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\ntheirs and mine\nthree\n");
   assert_eq!(worktree_status(&clone), "");
@@ -420,6 +421,7 @@ fn a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it() 
   let (exit_code, output) = run_in(&clone, &["update", "--continue", "--take", "onto:shared.txt"]);
   assert_error(&output, exit_code, (2, "empty_resolution"));
   assert!(output["error"]["message"].as_str().unwrap().contains(&format!("--drop-empty {commit}")), "{output}");
+  assert_eq!(output["error"]["ask_user"], json!(true), "{output}");
   assert_eq!(git(&clone, &["rev-parse", "refs/branch-deck/resolve/main"]), session, "a refusal moves nothing");
   let (exit_code, output) = run_in(&clone, &["update", "--continue", "--take", "onto:shared.txt", "--drop-empty", "0000"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
@@ -429,14 +431,16 @@ fn a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it() 
 
   let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--take", "onto:shared.txt", "--drop-empty", &commit]);
   assert_eq!(exit_code, 0, "{done}");
+  let local = git(&clone, &["rev-parse", &commit]);
   assert_eq!(
-    (&done["replayed"], &done["dropped_already_upstream"], &done["dropped_by_resolution"]),
-    (&json!(0), &json!(0), &json!(1))
+    (&done["replayed"], &done["dropped_count"], &done["dropped"]),
+    (&json!(0), &json!(1), &json!([{ "commit": local, "subject": "(auth) Change line 2", "proof": "user" }])),
+    "{done}"
   );
   assert_eq!(
-    (done["resolutions"][0].get("resolved"), &done["resolutions"][0]["empty"]),
-    (None, &json!("dropped")),
-    "{done}"
+    (&done["resolutions"][0]["new_id"], done["resolutions"][0].get("empty"), done.get("verify")),
+    (&Value::Null, None, None),
+    "a dropped round changed nothing to verify: {done}"
   );
   assert_eq!(done.get("landed"), None, "a dropped commit without a counterpart upstream did not land: {done}");
   assert_eq!(clone.head(), upstream.head());
@@ -695,37 +699,145 @@ fn local_changes_on_the_finish_keep_the_session_ready() {
   assert_eq!((exit_code, done["resolutions"].as_array().map(Vec::len)), (0, Some(1)), "{done}");
 }
 
+/// A commit of `files` at one author time, so a commit of the same subject in another repository has its identity
+fn commit_at(repo: &TestRepo, subject: &str, files: &[(&str, &str)]) {
+  for (path, content) in files {
+    std::fs::write(repo.path().join(path), content).unwrap();
+    repo.git_executor().execute_command(&["add", path], repo.path_str()).unwrap();
+  }
+  repo
+    .git_executor()
+    .cmd(&["commit", "-q", "-m", subject], repo.path_str())
+    .env(&[("GIT_AUTHOR_DATE", "1700000000 +0000")])
+    .text()
+    .unwrap();
+}
+
+/// Runs the `next` of `output` with `extra`, with full ids
+fn run_next(clone: &TestRepo, output: &Value, extra: &[&str]) -> (i32, Value) {
+  let next = output["session"]["next"].as_str().unwrap_or_else(|| panic!("{output}"));
+  let mut args = vec!["--full-ids"];
+  args.extend(next.split(' ').skip(1));
+  args.extend_from_slice(extra);
+  run_in(clone, &args)
+}
+
+/// The robot landed the commit with a fixup folded in: its twin lacks the line of the commit, so a drop loses it. The
+/// first output asks the user once, `--landed` refuses without `--user`, and drops with it as landed
 #[test_log::test]
-fn likely_landed_commits_get_the_hint() {
+fn a_twin_that_differs_asks_the_user_and_drops_after_the_yes() {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED)]);
-  let date = [("GIT_AUTHOR_DATE", "1700000000 +0000")];
-  let commit = |repo: &TestRepo, subject: &str, content: &str| {
-    std::fs::write(repo.path().join("shared.txt"), content).unwrap();
-    repo.git_executor().execute_command(&["add", "shared.txt"], repo.path().to_str().unwrap()).unwrap();
-    repo
-      .git_executor()
-      .cmd(&["commit", "-q", "-m", subject], repo.path().to_str().unwrap())
-      .env(&date)
-      .text()
-      .unwrap();
-  };
-  commit(&clone, "(auth) Change line 2", "one\nmine\nthree\n");
-  // the robot landed it with a fixup folded in
-  commit(&upstream, "Change line 2", "one\nmine, fixed\nthree\n");
+  commit_at(&clone, "(auth) Change line 2", &[("shared.txt", "one\nmine\nthree\n")]);
+  commit_at(&upstream, "Change line 2", &[("shared.txt", "one\nmine, fixed\nthree\n")]);
+  let (local, twin) = (clone.head(), upstream.head());
   let (exit_code, round) = run_in(&clone, &["--full-ids", "update"]);
   assert_eq!(exit_code, 1, "{round}");
-  assert!(round["session"]["commit"]["hint"].as_str().is_some_and(|hint| hint.starts_with("likely landed")), "{round}");
-  assert_eq!(round["session"].get("landed_dropped"), None, "the identity alone proves nothing: {round}");
-
-  // the agent took the baseline's side: the drop of a commit whose identity the baseline has is a landing
-  let local = round["session"]["commit"]["commit"].as_str().unwrap().to_string();
-  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--take", "onto:shared.txt", "--drop-empty", &local]);
-  assert_eq!((exit_code, &done["dropped_by_resolution"]), (0, &json!(1)), "{done}");
+  let landed_as = json!({
+    "commit": twin,
+    "subject": "Change line 2",
+    "local_only": [{ "path": "shared.txt", "lines": ["+mine"] }],
+    "upstream_only": [{ "path": "shared.txt", "lines": ["+mine, fixed"] }],
+  });
   assert_eq!(
-    (&done["landed"][0]["commits"][0]["commit"], &done["landed"][0]["commits"][0]["upstream"]),
-    (&json!(local), &json!(upstream.head())),
+    (&round["ask_user"], &round["reasons"][0]["code"], &round["session"]["landed_differs"]),
+    (
+      &json!(true),
+      &json!("landed_differs"),
+      &json!([{ "commit": local, "subject": "(auth) Change line 2", "landed_as": landed_as }])
+    ),
+    "{round}"
+  );
+  assert_eq!(round["session"]["commit"]["landed_as"], landed_as, "{round}");
+  assert!(round["session"]["next"].as_str().unwrap().ends_with(&format!("--round 1 --landed {local}")), "{round}");
+  assert!(file_of(&round, "shared.txt")["hint"].as_str().unwrap().contains("session.commit.hint"), "{round}");
+  assert_eq!(round.get("dropped"), None, "the identity alone proves nothing: {round}");
+
+  // `next` waits for the user's yes
+  let (exit_code, output) = run_next(&clone, &round, &[]);
+  assert_error(&output, exit_code, (2, "landed_differs"));
+  assert_eq!(output["error"]["ask_user"], json!(true), "{output}");
+  let (exit_code, done) = run_next(&clone, &round, &["--user"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(
+    done["dropped"],
+    json!([{ "commit": local, "subject": "(auth) Change line 2", "upstream": twin, "proof": "landed" }]),
     "{done}"
   );
+  assert_eq!(
+    (&done["resolutions"][0]["landed_as"], &done["resolutions"][0]["local_only"]),
+    (&json!(twin), &json!([{ "path": "shared.txt", "lines": ["+mine"] }])),
+    "{done}"
+  );
+  assert_eq!(
+    (&done["landed"][0]["commits"][0]["commit"], &done["landed"][0]["commits"][0]["upstream"]),
+    (&json!(local), &json!(twin)),
+    "a drop as landed lands as the twin: {done}"
+  );
+  assert_eq!(clone.head(), upstream.head());
+}
+
+/// The twin has every line of the commit and more (the upstream changed a line beside it): a drop loses nothing, so the
+/// round's `next` drops it as landed without a question
+#[test_log::test]
+fn a_twin_with_every_line_of_the_commit_drops_without_a_question() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED)]);
+  commit_at(&clone, "(auth) Change line 2", &[("shared.txt", "one\nmine\nthree\n")]);
+  commit_at(&upstream, "Change line 2", &[("shared.txt", "one\nmine\nTHREE\n")]);
+  let twin = upstream.head();
+  upstream.create_commit("Change line 2 again", "shared.txt", "one\ntheirs\nTHREE\n");
+  let local = clone.head();
+  let (exit_code, round) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(
+    (round.get("ask_user"), round["session"].get("landed_differs")),
+    (None, None),
+    "a drop that loses nothing needs no question: {round}"
+  );
+  assert_eq!(
+    round["session"]["commit"]["landed_as"],
+    json!({ "commit": twin, "subject": "Change line 2", "upstream_only": [{ "path": "shared.txt", "lines": ["-three", "+THREE"] }] }),
+    "{round}"
+  );
+  let (exit_code, done) = run_next(&clone, &round, &[]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(
+    (&done["dropped"], &done["landed"][0]["commits"][0]["upstream"]),
+    (
+      &json!([{ "commit": local, "subject": "(auth) Change line 2", "upstream": twin, "proof": "landed" }]),
+      &json!(twin)
+    ),
+    "{done}"
+  );
+  assert_eq!(done.get("verify"), None, "nothing of the drop is built: {done}");
+  assert_eq!(clone.head(), upstream.head());
+}
+
+/// `--landed` drops only the commit of a twin round, and only when `onto` for every file leaves it without a change
+#[test_log::test]
+fn landed_refuses_a_round_without_a_twin_and_a_commit_that_keeps_a_change() {
+  let (_upstream, clone) = conflicting_clone();
+  let (_, round) = run_in(&clone, &["update"]);
+  let commit = round["session"]["commit"]["commit"].as_str().unwrap().to_string();
+  let (exit_code, output) = run_in(&clone, &["update", "--continue", "--landed", &commit]);
+  assert_error(&output, exit_code, (2, "not_landed_round"));
+  assert_eq!(output["error"].get("ask_user"), None, "{output}");
+
+  // the commit changes a file that its twin does not: even after the user's yes, `onto` leaves that change
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("other.txt", "other\n")]);
+  commit_at(&clone, "(auth) Change line 2", &[("shared.txt", "one\nmine\nthree\n"), ("other.txt", "other, mine\n")]);
+  commit_at(&upstream, "Change line 2", &[("shared.txt", "one\nmine, fixed\nthree\n")]);
+  let (_, round) = run_in(&clone, &["update"]);
+  assert_eq!(
+    round["session"]["commit"]["landed_as"]["local_only"],
+    json!([{ "path": "other.txt", "lines": ["-other", "+other, mine"] }, { "path": "shared.txt", "lines": ["+mine"] }]),
+    "{round}"
+  );
+  let (exit_code, output) = run_next(&clone, &round, &[]);
+  assert_error(&output, exit_code, (2, "landed_differs"));
+  let (exit_code, output) = run_next(&clone, &round, &["--user"]);
+  assert_error(&output, exit_code, (2, "landed_not_empty"));
+  assert_eq!(output["error"]["paths"], json!(["other.txt"]), "{output}");
+  assert_eq!(round["session"]["round"], json!(1), "a refusal keeps the round");
 }
 
 #[test_log::test]
@@ -846,6 +958,10 @@ fn local_changes_that_will_block_the_finish_are_named_from_the_start() {
   assert_eq!(exit_code, 1, "{round}");
   let (_, again) = run_in(&clone, &["update"]);
   assert_eq!(again["session"]["blocked_paths"], json!(["shared.txt"]), "{again}");
+  assert_eq!((&again["ask_user"], &again["reasons"][0]["code"]), (&json!(true), &json!("blocked_paths")), "{again}");
+  // a round of --continue lists them again, without a new question
+  let (_, checked) = run_in(&clone, &["update", "--continue", "--take", "onto:shared.txt", "--allow-empty", "--dry-run"]);
+  assert_eq!(checked.get("ask_user"), None, "{checked}");
 }
 
 #[test_log::test]
@@ -975,11 +1091,11 @@ fn a_commit_the_upstream_has_with_the_same_patch_is_left_out() {
   assert_eq!(exit_code, 0, "{done}");
   assert_eq!(done["state"], json!("rebase"));
   assert_eq!(
-    done["landed_dropped"],
+    done["dropped"],
     json!([{ "commit": landed, "subject": "(auth) Change line 2", "upstream": picked, "proof": "patch_id" }]),
     "{done}"
   );
-  assert_eq!((&done["replayed"], &done["dropped_already_upstream"]), (&json!(2), &json!(1)), "{done}");
+  assert_eq!((&done["replayed"], &done["dropped_count"]), (&json!(2), &json!(1)), "{done}");
   assert_eq!(local_subjects(&clone, &upstream), "(auth) Add b\n(auth) Add a");
   assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\nmine, further\nthree\n");
   assert_eq!(worktree_status(&clone), "");
@@ -996,17 +1112,18 @@ fn twins_in_another_order_are_left_out_by_their_proof_and_land() {
     (1, &json!(1), &json!("(ui) Change other")),
     "{round}"
   );
-  assert_eq!(
-    round["session"]["landed_dropped"],
-    json!([
-      { "commit": local[0], "subject": "(auth) Change line 5", "upstream": twins[1], "proof": "replayed" },
-      { "commit": local[2], "subject": "(auth) Change line 5 of g", "upstream": twins[3], "proof": "changed_lines" },
-    ]),
-    "{round}"
-  );
+  let proven = json!([
+    { "commit": local[0], "subject": "(auth) Change line 5", "upstream": twins[1], "proof": "replayed" },
+    { "commit": local[2], "subject": "(auth) Change line 5 of g", "upstream": twins[3], "proof": "changed_lines" },
+  ]);
+  assert_eq!((&round["dropped"], &round["dropped_count"]), (&proven, &json!(2)), "{round}");
+  assert_eq!(round.get("ask_user"), None, "a proof needs no question: {round}");
   std::fs::write(edit_of(&round, "other.txt"), "theirs and mine\n").unwrap();
+  // a round of --continue counts the dropped commits; the first output listed them
+  let (_, checked) = run_in(&clone, &["--full-ids", "update", "--continue", "--dry-run"]);
+  assert_eq!((checked.get("dropped"), &checked["dropped_count"]), (None, &json!(2)), "{checked}");
   let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue"]);
-  assert_eq!((exit_code, &done["replayed"]), (0, &json!(2)), "{done}");
+  assert_eq!((exit_code, &done["replayed"], &done["dropped"]), (0, &json!(2), &proven), "{done}");
   let landed: Vec<(&Value, &Value)> = done["landed"][0]["commits"]
     .as_array()
     .unwrap_or_else(|| panic!("{done}"))
@@ -1034,7 +1151,7 @@ fn a_conflict_after_a_left_out_commit_opens_its_round() {
   assert_eq!(exit_code, 1, "{round}");
   assert_eq!(round["session"]["commit"]["subject"], json!("(auth) Change line 2"));
   assert_eq!((&round["session"]["replayed"], &round["session"]["total"]), (&json!(1), &json!(3)), "{round}");
-  assert_eq!(round["session"]["landed_dropped"][0]["subject"], json!("(auth) Change other"));
+  assert_eq!(round["dropped"][0]["subject"], json!("(auth) Change other"));
   resolve_the_last_round(&clone, &round, "one\ntheirs mine\nthree\n", 3);
   assert_eq!(local_subjects(&clone, &upstream), "(auth) Add b\n(auth) Change line 2\n(auth) Add a");
 }
@@ -1165,6 +1282,7 @@ fn an_update_whose_conflict_resolves_by_words_applies_and_names_the_commit() {
     json!([{ "commit": local, "new_id": new_id, "conflicts": 1, "file_count": 1, "files": [{ "path": "shared.txt", "conflicts": 1 }] }])
   );
   assert_eq!(done.get("session"), None, "{done}");
+  assert_eq!(done["verify"], json!({ "paths": ["shared.txt"] }), "nobody saw the merge of the words: {done}");
   assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
   assert_eq!(read(clone.path().join("shared.txt").to_str().unwrap()), "one\nALPHA beta GAMMA\nthree\n");
   assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("words\tshared.txt"));

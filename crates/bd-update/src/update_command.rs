@@ -14,13 +14,13 @@ use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_ops::index_lock::IndexLocked;
-use git_ops::landed_pairing::{LandedDrop, LandedProof};
+use git_ops::landed_pairing::{LandedProof, PathLines};
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
 use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, pending_update};
-use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
+use git_ops::update_resolve::{ConflictKind, LandedInput, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::{LockWait, RepositoryLocked};
 use schemars::JsonSchema;
@@ -31,7 +31,9 @@ use sync_core::baseline::check_baseline_update;
 use sync_utils::list_cut::kept;
 use sync_utils::paths::display_path;
 use update_core::resolve_copies::Materialize;
-use update_core::resolve_session::{ContinueOptions, NoSession, SessionOutcome, SessionView, abort_resolve, continue_resolve, session_status};
+use update_core::resolve_session::{
+  ContinueOptions, DropProof as CoreDropProof, DroppedCommit, LandedTwin, NoSession, SessionOutcome, SessionView, ViewDetail, abort_resolve, continue_resolve, session_status,
+};
 use update_core::update_project::{BdUpdate, FetchFailed, NoUpstream, UndoneUpdate, UpdateOptions, UpdateUndoToken, undo_update_core, update_and_resolve};
 
 #[derive(Debug, Default, clap::Args)]
@@ -64,6 +66,14 @@ pub struct UpdateArgs {
   /// With --continue: drop the round's commit (this id, at least 4 characters) when its resolution changes nothing
   #[arg(long, value_name = "COMMIT", requires = "resume")]
   pub drop_empty: Option<String>,
+  /// With --continue: drop the round's commit (this id, at least 4 characters) as landed: its twin in the baseline
+  /// (`session.commit.landed_as`) has its change. Takes `onto` for every file
+  #[arg(long, value_name = "COMMIT", requires = "resume", conflicts_with_all = ["take", "delete", "allow_empty", "drop_empty"])]
+  pub landed: Option<String>,
+  /// With --landed: the user decided the drop, so a commit that changes lines its twin lacks (`landed_as.local_only`) is
+  /// dropped too. Only once the user said yes
+  #[arg(long, requires = "landed")]
+  pub user: bool,
   /// Remove the resolve session and its copies; nothing else changes
   #[arg(long, conflicts_with_all = ["status", "no_fetch", "dry_run", "dir"])]
   pub abort: bool,
@@ -132,15 +142,14 @@ pub struct UpdateOutput {
   /// The local commits replayed onto the baseline; omitted when nothing was applied
   #[serde(skip_serializing_if = "Option::is_none")]
   pub replayed: Option<u32>,
-  /// The local commits the baseline already had: the replay dropped them; omitted when nothing was applied
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub dropped_already_upstream: Option<u32>,
-  /// The finish of a resolve session: the local commits a resolution dropped (`--drop-empty`)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub dropped_by_resolution: Option<u32>,
-  /// The local commits left out of the replay because the baseline proves it has their change
+  /// The local commits the update dropped, each with its `proof`: in the first output of a resolve session (and its
+  /// repeat by `bd update`), at the finish and after an update that applies at once; a round of --continue prints
+  /// `dropped_count` only
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub landed_dropped: Vec<LandedDropOutput>,
+  pub dropped: Vec<DroppedOutput>,
+  /// How many local commits the update dropped (so far)
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub dropped_count: u32,
   /// `update:<previous_head>..<head>` with full ids: `bd undo` moves the branch and the files back; omitted when
   /// nothing changed
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,6 +172,43 @@ pub struct UpdateOutput {
   /// the update replayed them where git stopped (with --dry-run: would replay them). Tell the user
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub resolved: Vec<UpdateResolvedByWords>,
+  /// At exit 0 after a resolution: what to build and test
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub verify: Option<VerifyOutput>,
+  /// The user decides before you go on: show the user this output (`reasons`, `session.blocked_paths`,
+  /// `session.landed_differs`) and ask once; omitted when false
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub ask_user: bool,
+  /// Why the user decides, one entry per decision
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub reasons: Vec<AskReason>,
+}
+
+/// A decision of the user that an output asks for
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct AskReason {
+  /// `blocked_paths` (local changes sit on paths the finish writes) or `landed_differs` (a drop of a commit as landed
+  /// loses lines)
+  pub code: AskCode,
+  pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AskCode {
+  BlockedPaths,
+  LandedDiffers,
+}
+
+/// What to build and test after an update that resolved conflicts
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct VerifyOutput {
+  /// The files whose content no side had as it is: `edited`, `commit` and `deleted` resolutions and the files that the
+  /// words resolved; not `onto`, which is the baseline's. The first 100 (all 101 rather than one left out)
+  pub paths: Vec<String>,
+  /// The paths left out of `paths`
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub paths_omitted: u32,
 }
 
 /// A local commit whose conflict of git the update resolved by words
@@ -228,34 +274,74 @@ pub struct UpdateSession {
   /// The labels after the markers in the `edit` copies of the open round
   #[serde(skip_serializing_if = "Option::is_none")]
   pub marker_labels: Option<MarkerLabelsOutput>,
-  /// Local commits left out of the replay: the baseline proves it has their change (`proof`), as `git rebase` leaves
-  /// out a commit with the same patch
+  /// In the first output of the session (and its repeat, and `--status`): every commit not replayed yet whose twin in
+  /// the baseline lacks some of its lines (`landed_as.local_only`). Ask the user once about all of them; in the round of
+  /// each, `--landed <commit> --user` is the user's yes
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub landed_dropped: Vec<LandedDropOutput>,
-  /// The command that continues, e.g. `bd -C /repo update --continue --round 2`
+  pub landed_differs: Vec<LandedDiffersOutput>,
+  /// The command that continues, e.g. `bd -C /repo update --continue --round 2`; `--landed <commit>` in the round of a
+  /// commit whose twin the baseline has
   pub next: String,
 }
 
-/// A local commit left out because the baseline proves it has its change
+/// A local commit that the update dropped
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct LandedDropOutput {
+pub struct DroppedOutput {
   pub commit: String,
   pub subject: String,
-  /// The baseline commit that carries its change
-  pub upstream: String,
+  /// The baseline commit it landed as; omitted when none is known
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub upstream: Option<String>,
   pub proof: DropProof,
 }
 
-/// How the baseline commit proves that it carries the change of a left-out local commit
+/// How bd knows that a dropped local commit is not lost
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DropProof {
-  /// The same patch id, as `git rebase` compares
+  /// Left out of the replay: the same patch id, as `git rebase` compares
   PatchId,
-  /// The same author, author time and subject, and the baseline commit is the local one cherry-picked onto its parent
+  /// Left out of the replay: the same author, author time and subject, and the baseline commit is the local one
+  /// cherry-picked onto its parent
   Replayed,
-  /// The same author, author time and subject, and the same changed lines, paths and modes
+  /// Left out of the replay: the same author, author time and subject, and the same changed lines, paths and modes
   ChangedLines,
+  /// `--landed`: the round dropped it as its twin in the baseline (`upstream`)
+  Landed,
+  /// `--drop-empty`: the user decided it
+  User,
+  /// Its replay left it without a change, as `git rebase` drops it (a round that the words resolved too)
+  Empty,
+}
+
+/// A commit whose twin in the baseline lacks some of its lines
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LandedDiffersOutput {
+  pub commit: String,
+  pub subject: String,
+  pub landed_as: LandedAsOutput,
+}
+
+/// The baseline commit with the identity of a local commit (the same author, author time and subject), and how the two
+/// differ by their changed lines
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LandedAsOutput {
+  /// The baseline commit
+  pub commit: String,
+  pub subject: String,
+  /// The lines the local commit (with its fixups) changes and the baseline commit does not: what a drop loses. Per
+  /// path at most 20 lines (`+` added, `-` removed), at most 20 paths
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub local_only: Vec<PathLinesOutput>,
+  /// The lines the baseline commit changes and the local commit does not, e.g. a fixup the robot folded in
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub upstream_only: Vec<PathLinesOutput>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct PathLinesOutput {
+  pub path: String,
+  pub lines: Vec<String>,
 }
 
 /// The text after `<<<<<<<`, `|||||||` and `>>>>>>>` in the `edit` copies (the full ids bd passed to the merge)
@@ -279,7 +365,11 @@ pub struct SessionCommit {
   pub author: String,
   /// `<commit>^..<commit>` with its message and stat (absolute): the intent to reapply onto `onto`
   pub patch: String,
-  /// "likely landed: take onto" when the baseline likely has the commit already (same author, author time and subject)
+  /// The baseline commit with the identity of this commit (or of the commit it is a fixup of): `next` drops it with
+  /// `--landed`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub landed_as: Option<LandedAsOutput>,
+  /// What to do with a commit that has `landed_as`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub hint: Option<String>,
 }
@@ -325,12 +415,17 @@ pub struct UpdateResolution {
   pub round: u32,
   /// The local commit as it was
   pub commit: String,
-  /// The commit written for it; `null` when `--drop-empty` dropped the commit
+  /// The commit written for it; `null` when the round dropped the commit (`dropped` of the output names it)
   pub new_id: Option<String>,
-  /// The resolution changes nothing: `kept` (an empty commit, `--allow-empty`) or `dropped` (`--drop-empty`, or a round
-  /// that the words left without a change: the baseline has it)
+  /// `kept`: the resolution changes nothing, and `--allow-empty` kept it as an empty commit
   #[serde(skip_serializing_if = "Option::is_none")]
   pub empty: Option<String>,
+  /// `--landed`: the baseline commit the round dropped the commit as
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub landed_as: Option<String>,
+  /// `--landed --user`: the lines the drop lost (`landed_as.local_only` of the round)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub local_only: Vec<PathLinesOutput>,
   /// The round resolved itself by words (`branchdeck.resolveByWords`): the conflicts of git that the words resolved. No
   /// agent saw it; omitted for a round you resolved
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -363,6 +458,9 @@ pub struct UpdateStatusOutput {
   /// The session of this worktree, as a round of `bd update` prints it; absent without one
   #[serde(skip_serializing_if = "Option::is_none")]
   pub session: Option<UpdateSession>,
+  /// The local commits the session dropped so far, each with its `proof`
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub dropped: Vec<DroppedOutput>,
   /// Every session of the repository, this worktree's included
   pub sessions: Vec<SessionEntry>,
   /// An update or its undo moved the branch, but a crash stopped it before its files followed: `next` lets them follow
@@ -476,6 +574,10 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
       dry_run: args.dry_run,
       allow_empty: args.allow_empty,
       drop_empty: args.drop_empty.clone(),
+      landed: args.landed.as_ref().map(|commit| LandedInput {
+        commit: commit.clone(),
+        user: args.user,
+      }),
     };
     let outcome = continue_resolve(&context.git, &context.repository, &options, context.lock_timeout).map_err(core_error)?;
     return session_output(context, outcome, args.dry_run, &bd).map(|output| UpdateCommandOutput::Update(Box::new(output)));
@@ -497,11 +599,8 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
   };
   let output = match update_and_resolve(&context.git, &context.repository, options, args.dir.as_deref()).map_err(core_error)? {
     BdUpdate::Update(result) => {
-      let applied = result
-        .applied
-        .as_ref()
-        .map(|applied| (applied.new_head.as_str(), applied.replayed, applied.dropped_already_upstream));
-      output(context, &result.check, applied, (result.landed, &result.landed_dropped), false)?
+      let applied = result.applied.as_ref().map(|applied| (applied.new_head.as_str(), applied.replayed));
+      output(context, &result.check, applied, (result.landed, &result.dropped), false)?
     }
     BdUpdate::Session(outcome) => session_output(context, *outcome, false, &bd)?,
   };
@@ -527,6 +626,7 @@ fn status(context: &RepoContext, args: &UpdateArgs, bd: &str) -> Result<UpdateSt
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
     session: own.as_ref().map(|view| session_of(view, &short, bd, true)),
+    dropped: own.as_ref().map_or_default(|view| dropped_output(&view.dropped, &short)),
     sessions: sessions
       .into_iter()
       .map(|summary| SessionEntry {
@@ -562,31 +662,45 @@ fn view_ids(view: &SessionView) -> Vec<&str> {
   if let Some(round) = &view.round {
     ids.push(&round.commit.id);
     ids.extend(round.files.iter().flat_map(|file| file.upstream_commits.iter().map(|commit| commit.id.as_str())));
+    ids.extend(round.commit.landed_as.iter().flat_map(twin_ids));
   }
-  ids.extend(
-    state
-      .resolutions
-      .iter()
-      .flat_map(|resolution| [Some(resolution.commit.as_str()), resolution.resolved.as_deref()])
-      .flatten(),
-  );
-  ids.extend(view.landed_dropped.iter().flat_map(|(drop, _)| [drop.commit.as_str(), drop.upstream.as_str()]));
+  ids.extend(state.resolutions.iter().flat_map(resolution_ids));
+  ids.extend(dropped_ids(&view.dropped));
+  ids.extend(view.landed_differs.iter().flat_map(twin_ids));
   ids
+}
+
+/// The commit of a resolution, the commit written for it and the twin it was dropped as
+fn resolution_ids(resolution: &Resolution) -> impl Iterator<Item = &str> {
+  [
+    Some(resolution.commit.as_str()),
+    resolution.resolved.as_deref(),
+    resolution.landed.as_ref().map(|landed| landed.upstream.as_str()),
+  ]
+  .into_iter()
+  .flatten()
+}
+
+const fn twin_ids(twin: &LandedTwin) -> [&str; 2] {
+  [twin.commit.as_str(), twin.upstream.as_str()]
+}
+
+fn dropped_ids(dropped: &[DroppedCommit]) -> impl Iterator<Item = &str> {
+  dropped.iter().flat_map(|drop| std::iter::once(drop.commit.as_str()).chain(drop.upstream.as_deref()))
 }
 
 /// The session; with `history` (`--status`), the rounds resolved so far
 fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> UpdateSession {
   let state = &view.state;
+  let twin = view.round.as_ref().and_then(|round| round.commit.landed_as.as_ref());
   let commit = view.round.as_ref().map(|round| SessionCommit {
     commit: short.get(&round.commit.id).to_string(),
     subject: round.commit.subject.clone(),
     body: round.commit.body.clone(),
     author: round.commit.author.clone(),
     patch: display_path(&round.patch),
-    hint: round
-      .commit
-      .likely_landed
-      .then(|| "likely landed: the baseline likely has this commit already, so --take onto:<path> for each file is likely right".to_string()),
+    landed_as: twin.map(|twin| landed_as(twin, short)),
+    hint: twin.map(|twin| twin_hint(twin, &round.commit.id, state.round, bd, short)),
   });
   let files = view
     .round
@@ -607,12 +721,22 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
       onto: file.onto.as_deref().map(display_path),
       commit: file.commit.as_deref().map(display_path),
       markers: file.markers,
-      hint: file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref()),
+      hint: if twin.is_some() {
+        format!(
+          "`session.commit.landed_as`: see `session.commit.hint` first. {}",
+          file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref())
+        )
+      } else {
+        file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref())
+      },
       upstream_commits: conflict_commits(&file.upstream_commits, short),
     })
     .collect();
-  let next = match state.status {
-    SessionStatus::Resolving => format!("{bd} update --continue --round {}", state.round),
+  let next = match (state.status, view.round.as_ref()) {
+    (SessionStatus::Resolving, Some(round)) if twin.is_some() => {
+      format!("{bd} update --continue --round {} --landed {}", state.round, short.get(&round.commit.id))
+    }
+    (SessionStatus::Resolving, _) => format!("{bd} update --continue --round {}", state.round),
     _ => format!("{bd} update --continue"),
   };
   UpdateSession {
@@ -628,30 +752,109 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
     resolved: resolved_rounds(&state.resolutions, short),
     blocked_paths: view.blocked_paths.iter().take(kept(view.blocked_paths.len(), MAX_BLOCKED_PATHS)).cloned().collect(),
     blocked_paths_omitted: omitted(view.blocked_paths.len(), kept(view.blocked_paths.len(), MAX_BLOCKED_PATHS)),
-    landed_dropped: landed_drops_output(&view.landed_dropped, short),
     marker_labels: view.round.as_ref().map(|round| MarkerLabelsOutput {
       onto: round.labels.onto.clone(),
       before: round.labels.before.clone(),
       commit: round.labels.commit.clone(),
     }),
+    landed_differs: view
+      .landed_differs
+      .iter()
+      .map(|twin| LandedDiffersOutput {
+        commit: short.get(&twin.commit).to_string(),
+        subject: twin.subject.clone(),
+        landed_as: landed_as(twin, short),
+      })
+      .collect(),
     next,
   }
 }
 
-fn landed_drops_output(drops: &[(LandedDrop, String)], short: &ShortIds) -> Vec<LandedDropOutput> {
-  drops
+/// What a round of a twin asks: a drop that loses nothing needs no question, one that loses lines needs the user's yes
+fn twin_hint(twin: &LandedTwin, commit: &str, round: u32, bd: &str, short: &ShortIds) -> String {
+  let upstream = short.get(&twin.upstream);
+  let fixup = if twin.commit == commit {
+    String::new()
+  } else {
+    format!(" (this commit is a fixup of {})", short.get(&twin.commit))
+  };
+  if twin.is_same() {
+    format!("The baseline has {upstream} with the identity of this commit{fixup} and every line it changes: `next` drops it with --landed, which takes `onto` for every file")
+  } else {
+    format!(
+      "The baseline has {upstream} with the identity of this commit{fixup}, but this commit changes lines that {upstream} lacks (`landed_as.local_only`): a drop loses them. Ask the user, unless the user decided on this commit in `landed_differs` already. With a yes, run `next` with --user; with a no, resolve each file and run `{bd} update --continue --round {round}`"
+    )
+  }
+}
+
+fn landed_as(twin: &LandedTwin, short: &ShortIds) -> LandedAsOutput {
+  LandedAsOutput {
+    commit: short.get(&twin.upstream).to_string(),
+    subject: twin.upstream_subject.clone(),
+    local_only: path_lines(&twin.interdiff.local_only),
+    upstream_only: path_lines(&twin.interdiff.upstream_only),
+  }
+}
+
+fn path_lines(paths: &[PathLines]) -> Vec<PathLinesOutput> {
+  paths
     .iter()
-    .map(|(drop, subject)| LandedDropOutput {
+    .map(|path| PathLinesOutput {
+      path: path.path.clone(),
+      lines: path.lines.clone(),
+    })
+    .collect()
+}
+
+fn dropped_output(dropped: &[DroppedCommit], short: &ShortIds) -> Vec<DroppedOutput> {
+  dropped
+    .iter()
+    .map(|drop| DroppedOutput {
       commit: short.get(&drop.commit).to_string(),
-      subject: subject.clone(),
-      upstream: short.get(&drop.upstream).to_string(),
+      subject: drop.subject.clone(),
+      upstream: drop.upstream.as_deref().map(|upstream| short.get(upstream).to_string()),
       proof: match drop.proof {
-        LandedProof::PatchId => DropProof::PatchId,
-        LandedProof::Replayed => DropProof::Replayed,
-        LandedProof::ChangedLines => DropProof::ChangedLines,
+        CoreDropProof::Pairing(LandedProof::PatchId) => DropProof::PatchId,
+        CoreDropProof::Pairing(LandedProof::Replayed) => DropProof::Replayed,
+        CoreDropProof::Pairing(LandedProof::ChangedLines) => DropProof::ChangedLines,
+        CoreDropProof::Landed => DropProof::Landed,
+        CoreDropProof::User => DropProof::User,
+        CoreDropProof::Empty => DropProof::Empty,
       },
     })
     .collect()
+}
+
+/// The decisions a session view asks of the user: in the first output of the session the local changes that will block
+/// the finish and the twins that a drop would lose lines of; in a round, the twin of its commit when a drop loses lines
+fn ask_reasons(view: &SessionView) -> Vec<AskReason> {
+  let mut reasons = Vec::new();
+  let full = view.detail == ViewDetail::Full;
+  if full && !view.blocked_paths.is_empty() {
+    reasons.push(AskReason {
+      code: AskCode::BlockedPaths,
+      message: format!(
+        "{} local files sit on paths the finish writes (`session.blocked_paths`): ask the user to commit or move them; never stash, reset, check out or commit them yourself",
+        view.blocked_paths.len()
+      ),
+    });
+  }
+  let round_differs = view.round.as_ref().and_then(|round| round.commit.landed_as.as_ref()).is_some_and(|twin| !twin.is_same());
+  if full && !view.landed_differs.is_empty() {
+    reasons.push(AskReason {
+      code: AskCode::LandedDiffers,
+      message: format!(
+        "{} local commits have a twin in the baseline that lacks some of their lines (`session.landed_differs`): ask the user once whether to drop each as landed",
+        view.landed_differs.len()
+      ),
+    });
+  } else if round_differs {
+    reasons.push(AskReason {
+      code: AskCode::LandedDiffers,
+      message: "The twin of this commit in the baseline lacks some of its lines (`session.commit.landed_as.local_only`): a drop loses them, so the user decides, unless the user decided on this commit in `landed_differs` already".to_string(),
+    });
+  }
+  reasons
 }
 
 fn file_hint(kind: ConflictKind, onto_has_it: bool, path: &str, renamed_from: Option<&str>) -> String {
@@ -682,7 +885,9 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
       round: resolution.round,
       commit: short.get(&resolution.commit).to_string(),
       new_id: resolution.resolved.as_deref().map(|id| short.get(id).to_string()),
-      empty: resolution.empty.then(|| if resolution.dropped() { "dropped" } else { "kept" }.to_string()),
+      empty: (resolution.empty && !resolution.dropped()).then(|| "kept".to_string()),
+      landed_as: resolution.landed.as_ref().map(|landed| short.get(&landed.upstream).to_string()),
+      local_only: resolution.landed.as_ref().map_or_default(|landed| path_lines(&landed.local_only)),
       words: resolution.words,
       files: resolution
         .paths
@@ -704,6 +909,33 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
         .collect(),
     })
     .collect()
+}
+
+/// The files to build and test after an update: those of the rounds whose result no side had as it is (`edited`,
+/// `commit`, `deleted`, and `words`, which nobody saw), and those of the commits an update resolved by words; a round
+/// that dropped its commit changed nothing
+fn verify_paths(resolutions: &[Resolution], resolved: &[UpdateResolvedCommit]) -> Option<VerifyOutput> {
+  let mut paths: Vec<String> = Vec::new();
+  let rounds = resolutions
+    .iter()
+    .filter(|resolution| !resolution.dropped())
+    .flat_map(|resolution| &resolution.paths)
+    .filter(|path| path.outcome != Outcome::Onto)
+    .map(|path| path.path.as_str());
+  for path in rounds.chain(resolved.iter().flat_map(|commit| commit.files.iter().map(|file| file.path.as_str()))) {
+    if !paths.iter().any(|known| known == path) {
+      paths.push(path.to_string());
+    }
+  }
+  if paths.is_empty() {
+    return None;
+  }
+  let count = paths.len();
+  paths.truncate(kept(count, MAX_BLOCKED_PATHS));
+  Some(VerifyOutput {
+    paths_omitted: omitted(count, paths.len()),
+    paths,
+  })
 }
 
 /// The rounds of a session that resolved themselves by words
@@ -774,28 +1006,18 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
       previous_head,
       new_head,
       replayed,
-      dropped_already_upstream,
-      dropped_by_resolution,
       landed,
-    } => (
-      view,
-      Some((previous_head, new_head, (replayed, dropped_already_upstream, dropped_by_resolution), landed)),
-      None,
-    ),
+    } => (view, Some((previous_head, new_head, replayed, landed)), None),
   };
   let state: &SessionState = &view.state;
   let mut ids = view_ids(&view);
-  ids.extend(
-    resolution
-      .iter()
-      .flat_map(|resolution| [Some(resolution.commit.as_str()), resolution.resolved.as_deref()])
-      .flatten(),
-  );
+  ids.extend(resolution.iter().flat_map(resolution_ids));
   if let Some((previous_head, new_head, _, landed)) = &applied {
     ids.extend([previous_head.as_str(), new_head.as_str()]);
     ids.extend(landed_ids(landed));
   }
   let short = context.short_ids(ids);
+  let reasons = if applied.is_none() && !dry_run { ask_reasons(&view) } else { Vec::new() };
   let mut output = UpdateOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -809,29 +1031,29 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
     new_head: short.get(&state.head).to_string(),
     upstream_head: short.get(&state.upstream_head).to_string(),
     replayed: None,
-    dropped_already_upstream: None,
-    dropped_by_resolution: None,
-    landed_dropped: Vec::new(),
+    dropped: dropped_output(&view.dropped, &short),
+    dropped_count: u32::try_from(view.dropped_count).unwrap_or(u32::MAX),
     undo_token: None,
     landed: Vec::new(),
     conflict: None,
     session: None,
     resolutions: resolution.map_or_else(Vec::new, |resolution| resolutions_of(&[resolution], &short)),
     resolved: Vec::new(),
+    verify: None,
+    ask_user: !reasons.is_empty(),
+    reasons,
   };
   match applied {
-    Some((previous_head, new_head, (replayed, dropped, dropped_by_resolution), landed)) => {
+    Some((previous_head, new_head, replayed, landed)) => {
       output.state = UpdateOutcome::Rebase;
       output.previous_head = short.get(&previous_head).to_string();
       output.new_head = short.get(&new_head).to_string();
       output.replayed = Some(replayed);
-      output.dropped_already_upstream = Some(dropped);
-      output.dropped_by_resolution = Some(dropped_by_resolution);
-      output.landed_dropped = landed_drops_output(&view.landed_dropped, &short);
       output.undo_token = Some(UpdateUndoToken { previous_head, new_head }.to_string());
       output.landed = landed_summary(landed, &short);
       output.resolutions = resolutions_of(&state.resolutions, &short);
       output.resolved = resolved_rounds(&state.resolutions, &short);
+      output.verify = verify_paths(&state.resolutions, &[]);
     }
     None => output.session = Some(session_of(&view, &short, bd, false)),
   }
@@ -902,6 +1124,9 @@ fn classified(error: anyhow::Error, undo: bool) -> CliError {
         RefusalKind::MissingResolution => ErrorCode::MissingResolution,
       },
       ResolveError::EmptyResolution { .. } => ErrorCode::EmptyResolution,
+      ResolveError::NotLandedRound { .. } => ErrorCode::NotLandedRound,
+      ResolveError::LandedDiffers { .. } => ErrorCode::LandedDiffers,
+      ResolveError::LandedNotEmpty { .. } => ErrorCode::LandedNotEmpty,
       ResolveError::Unsupported { .. } => ErrorCode::UnsupportedConflict,
       ResolveError::Stale { .. } => ErrorCode::SessionStale,
       ResolveError::RoundMoved { .. } => ErrorCode::RoundMoved,
@@ -928,13 +1153,13 @@ fn classified(error: anyhow::Error, undo: bool) -> CliError {
   CliError::new(code, message)
 }
 
-/// The output of a check, with what an update applied (`(new head, replayed, dropped)`) and landed (the branches, and the
-/// commits the replay left out with their subjects); `uncommitted_overlap` when local changes block it
+/// The output of a check, with what an update applied (`(new head, replayed)`) and landed (the branches, and the commits
+/// it dropped with their subjects); `uncommitted_overlap` when local changes block it
 fn output(
   context: &RepoContext,
   check: &UpdateCheck,
-  applied: Option<(&str, u32, u32)>,
-  (landed, landed_dropped): (Vec<LandedBranch>, &[(LandedDrop, String)]),
+  applied: Option<(&str, u32)>,
+  (landed, dropped): (Vec<LandedBranch>, &[DroppedCommit]),
   dry_run: bool,
 ) -> Result<UpdateOutput, CliError> {
   let state = match &check.state {
@@ -944,10 +1169,10 @@ fn output(
     UpdateState::Conflict { .. } => UpdateOutcome::Conflict,
     UpdateState::Blocked { paths, path_count } => return Err(uncommitted_overlap(paths.clone(), *path_count as usize, "update")),
   };
-  let head = applied.map_or(check.head.as_str(), |(new_head, _, _)| new_head);
+  let head = applied.map_or(check.head.as_str(), |(new_head, _)| new_head);
   let mut ids = vec![check.head.as_str(), head, check.upstream_head.as_str()];
   ids.extend(landed_ids(&landed));
-  ids.extend(landed_dropped.iter().flat_map(|(drop, _)| [drop.commit.as_str(), drop.upstream.as_str()]));
+  ids.extend(dropped_ids(dropped));
   if let UpdateState::Conflict { first_conflict } = &check.state {
     ids.extend(
       std::iter::once(&first_conflict.commit)
@@ -978,9 +1203,8 @@ fn output(
     previous_head: short.get(&check.head).to_string(),
     new_head: short.get(head).to_string(),
     upstream_head: short.get(&check.upstream_head).to_string(),
-    replayed: applied.map(|(_, replayed, _)| replayed),
-    dropped_already_upstream: applied.map(|(_, _, dropped)| dropped),
-    undo_token: applied.filter(|(new_head, _, _)| *new_head != check.head).map(|(new_head, _, _)| {
+    replayed: applied.map(|(_, replayed)| replayed),
+    undo_token: applied.filter(|(new_head, _)| *new_head != check.head).map(|(new_head, _)| {
       UpdateUndoToken {
         previous_head: check.head.clone(),
         new_head: new_head.to_string(),
@@ -992,8 +1216,11 @@ fn output(
     session: None,
     resolutions: Vec::new(),
     resolved: resolved_commits(&check.resolved_by_words, &short, dry_run),
-    dropped_by_resolution: None,
-    landed_dropped: landed_drops_output(landed_dropped, &short),
+    dropped: dropped_output(dropped, &short),
+    dropped_count: u32::try_from(dropped.len()).unwrap_or(u32::MAX),
+    verify: applied.and_then(|_| verify_paths(&[], &check.resolved_by_words)),
+    ask_user: false,
+    reasons: Vec::new(),
   })
 }
 

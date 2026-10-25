@@ -147,23 +147,38 @@ written but git objects). Exit 0: `state` is up_to_date, fast_forward or rebase,
 Exit 1: a commit conflicts, and a resolve session opens, one round per conflicting commit. The session belongs to this worktree
 and branch, and keeps the baseline it started with; peers' commits on top of HEAD join it as more rounds. Running
 `bd update` again prints the open round (and writes its missing copies); `state: pending` (exit 1) means every
-commit is resolved and `session.next` finishes. Local commits that the baseline proves it has (the same patch, or the
-same author, time and subject with the same change: `proof`) are left out as `git rebase` does: `landed_dropped`. A conflict of git that its words resolve (`branchdeck.resolveByWords`, on by
+commit is resolved and `session.next` finishes. A conflict of git that its words resolve (`branchdeck.resolveByWords`, on by
 default) needs no round: the update commits the result and lists the commit in `resolved` (`commit`, `new_id`,
 `conflicts`, `files`); tell the user. When every conflict resolves so, the update applies with exit 0.
 
+Dropped commits: `dropped[]` names each local commit the update dropped, with the baseline commit it landed as
+(`upstream`) and its `proof`: `patch_id`, `replayed` or `changed_lines` (the baseline proves it has the change, so
+the replay left it out, as `git rebase` does), `empty` (its replay left it without a change), `landed` (a round of
+--landed) or `user` (--drop-empty). The first output of a session, its repeat, `bd update --status` and the finish
+list them; a round of --continue prints `dropped_count` only. You never drop a commit yourself.
+
+Ask the user only when bd says so, and only once. An output with `ask_user: true` lists its `reasons`: `blocked_paths`
+(local files on paths the finish writes, `session.blocked_paths`) and `landed_differs` (a drop as landed loses lines).
+An error with `ask_user: true` (`uncommitted_overlap`, `empty_resolution`, `landed_differs`) names the decision in
+`message`. Show the user that output and ask about all of it at once; follow everything else as bd says.
+
 A round (`state: conflict`, `session`):
 - `session.commit`: the local commit being replayed, its `subject`, `body` and `patch` (the commit as a patch: the
-  intent to reapply). `hint` \"likely landed\": the baseline probably has it already; check `onto`, and if it holds the
-  change, take `onto` for each file (`--take onto:<path>`).
+  intent to reapply). `landed_as`: the baseline commit with the identity of this commit (the same author, author time
+  and subject; also for a fixup of such a commit), its `local_only` lines (what this commit changes and the baseline
+  commit does not: what a drop loses; `+` added, `-` removed) and `upstream_only` lines. Without `local_only`,
+  `session.next` drops the commit with --landed: run it, no question. With `local_only`, `ask_user` is true: with the
+  user's yes, run `next` with --user; with a no, resolve the files and run `bd update --continue --round <n>`. The
+  first output of a session lists every such commit in `session.landed_differs[]` (`commit`, `subject`,
+  `landed_as`): ask once about all of them, then use each answer in its round.
 - `session.files[]`: `path`, `kind`, and absolute paths: `edit` (the merge result with zdiff3 markers, the file to
   edit), `before` (the commit's parent), `onto` (the new parent: the baseline and the commits replayed so far),
   `commit` (the commit's version), `markers` (blocks left), `upstream_commits` (who changed it upstream), `hint`.
   `session.marker_labels` names the ids after the markers. `session.blocked_paths`: local changes that will block the
-  finish (the first 100, all 101 rather than one left out; `blocked_paths_omitted` counts the rest); ask the user
-  about them first. `session.next` is the command that continues. A round prints only its own files;
-  `bd update --status` adds the rounds resolved so far. `session.resolved` lists the rounds that resolved
-  themselves by words: they count in `round`, so round 3 can be your first.
+  finish (the first 100, all 101 rather than one left out; `blocked_paths_omitted` counts the rest). `session.next`
+  is the command that continues. A round prints only its own files; `bd update --status` adds the rounds resolved so
+  far. `session.resolved` lists the rounds that resolved themselves by words: they count in `round`, so round 3 can
+  be your first.
 - Edit only the files at `edit`, never the same path in the working tree. Keep the change of `onto` and reapply the
   intent of the commit; change only the lines between the markers, keep the line ends, and remove every marker. A
   change that the commit needs outside the blocks or in another file goes into a `fixup! <subject>` commit after the
@@ -175,18 +190,24 @@ A round (`state: conflict`, `session`):
   resolution: a missing file is never a delete.
 
 `bd update --continue --round <n>` commits the round's resolution, replays the rest and opens the next round (exit 1)
-or applies the update (exit 0). --take and --delete resolve a file without an edit (repeatable).
+or applies the update (exit 0). --take and --delete resolve a file without an edit (repeatable). --landed <commit>
+takes `onto` for every file and drops the commit as landed; --user adds the user's yes.
 `bd update --continue --dry-run` checks the resolution; it moves no ref and writes nothing but git objects. Exit 2:
 `unresolved_markers`, `resolution_outside_conflict` (a line outside the blocks changed) or `missing_resolution`, with
 `paths` and the copies in the message: fix those copies and run it again. A refusal changes nothing: the round stays
 open and the copies keep your edits (`edited` in the round). `round_moved` (exit 3):
-another round is open; `bd update` prints it. `empty_resolution` (exit 2): the resolution leaves the commit without
-changes; ask the user, then add --allow-empty (keep an empty commit) or --drop-empty <commit> (drop it).
-At exit 0, `resolutions[]` lists per round the `commit`, its `new_id` (`empty`: kept or dropped) and per file
-`how` (edited, onto, commit, deleted; words for a round that resolved itself, with `words` on the round) with
-`dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side's
-change that the result lost. Report each resolution to the user, these lines first. Then build and test: on a failure
-commit the fix as `fixup! <subject>` and run `bd fold`, or take the update back with `bd undo <undo_token>`.
+another round is open; `bd update` prints it. `empty_resolution` (exit 2, `ask_user`): the resolution leaves the
+commit without changes; with `landed_as`, use --landed <commit> instead; else ask the user, then add --allow-empty
+(keep an empty commit) or --drop-empty <commit> (drop it). `not_landed_round` (exit 2): the round has no `landed_as`.
+`landed_differs` (exit 2, `ask_user`): `local_only` is not empty and --user is missing. `landed_not_empty` (exit 2):
+with `onto` the commit still changes `paths`; resolve the files instead.
+At exit 0, `resolutions[]` lists per round the `commit`, its `new_id` (null for a dropped commit; `empty: kept`
+for an empty commit) and per file `how` (edited, onto, commit, deleted; words for a round that resolved itself,
+with `words` on the round) with `dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side's change
+that the result lost; a round of --landed has `landed_as` and `local_only` instead. Report each resolution to the
+user, these lines first. `verify.paths` names the files whose result no side had as it is (edited, commit, deleted,
+words): build, and run the tests of these files; without `verify`, the build is enough. On a failure commit the fix
+as `fixup! <subject>` and run `bd fold`, or take the update back with `bd undo <undo_token>`.
 
 `uncommitted_overlap` at the finish (exit 4) keeps the session: once the user moved those files, run
 `bd update --continue` again. `finish_pending` (exit 4): the branch moved, but its files did not follow; the message

@@ -1,4 +1,4 @@
-use crate::landed_pairing::{CommitKey, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, pair_landed, walk_commits};
+use crate::landed_pairing::{CommitKey, Interdiff, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, PathLines, interdiffs, pair_landed, walk_commits};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -206,7 +206,7 @@ fn an_amend_after_the_push_is_a_candidate_with_its_fixups() {
     [LandedCandidate {
       commit: local[0].clone(),
       upstream: upstream[0].clone(),
-      last: local[2].clone(),
+      fixups: vec![local[2].clone()],
     }]
   );
   assert_eq!(pairing.with_fixups, [local[0].clone(), local[2].clone()]);
@@ -222,4 +222,47 @@ fn a_fixup_of_a_proven_twin_stays_out_of_the_pairing() {
   let pairing = pairing(&repo);
   assert_eq!(pairing.drops, [drop_of(&local[0], &upstream[1], LandedProof::Replayed)]);
   assert_eq!((pairing.candidates.len(), pairing.with_fixups.len()), (0, 0), "{pairing:?}");
+}
+
+/// The interdiff of a twin sums the local commit with its fixups: a line the fixup takes back cancels. What one side
+/// changes and the other does not stays, also a binary file, which no line shows
+#[test]
+fn the_interdiff_of_a_twin_sums_the_fixups_and_names_a_binary_file() {
+  let repo = sides();
+  let local = repo.commit_history(
+    "refs/heads/local",
+    &[
+      at("(auth) Change line 5", &[(5, "five, amended")], 200),
+      HistoryCommit::new(
+        "fixup! (auth) Change line 5",
+        &[("f.txt", &numbered_lines(&[(5, "five, fixed"), (8, "eight")])), ("bin.dat", "\0two")],
+      )
+      .at(300),
+    ],
+  );
+  let upstream = repo.commit_history("refs/heads/upstream", &[at("Change line 5", &[(5, "five, fixed"), (8, "eight"), (9, "nine")], 200)]);
+  let diffs = interdiffs(repo.git_executor(), repo.path_str(), &[(local.iter().map(String::as_str).collect(), upstream[0].as_str())]).unwrap();
+  let blob = repo.rev_parse(&format!("{}:bin.dat", local[1])).unwrap();
+  assert_eq!(
+    diffs,
+    [Interdiff {
+      local_only: vec![PathLines {
+        path: "bin.dat".to_string(),
+        lines: vec![format!("binary {blob}")],
+      }],
+      upstream_only: vec![PathLines {
+        path: "f.txt".to_string(),
+        lines: vec!["-9".to_string(), "+nine".to_string()],
+      }],
+    }]
+  );
+  // the commit alone has a line the twin lacks, and lacks the fixup's
+  let diffs = interdiffs(repo.git_executor(), repo.path_str(), &[(vec![local[0].as_str()], upstream[0].as_str())]).unwrap();
+  assert_eq!(
+    diffs[0].local_only,
+    [PathLines {
+      path: "f.txt".to_string(),
+      lines: vec!["+five, amended".to_string()],
+    }]
+  );
 }

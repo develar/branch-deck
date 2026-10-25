@@ -959,6 +959,8 @@ Details:
   ([Index lock](#index-lock)); one that stays 30 s moves the branch back as `locked`.
 - **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
+  `bd update` names each in `dropped` with `proof: empty`: the commits of the landed report that the pairing did not
+  leave out, read with no process more.
   **Landed commits left out.** When the replay conflicts, the check pairs the local commits with the upstream ones
   once (`LandedLookup::ByKey`, `landed_pairing::pair_landed`) and keeps the result as the `ReplayPlan` of the plan,
   which a resolve session replays. The pairing is a ladder of proofs, one to one: each upstream commit proves at most
@@ -1149,10 +1151,10 @@ check for `blocked_paths` is the largest share.
   after a failed step writes the same objects, and `--continue --dry-run` reports the id that `--continue` writes.
   This is a stated deviation from invariant 5, where a content rewrite gets the current time.
 - **An empty result.** When the resolved tree equals its parent's (the `ls` of the same `fast-import`), the round is
-  `empty_resolution` (exit 2), and nothing moves. `--allow-empty` keeps the empty commit; `--drop-empty <commit>`, with
-  the round's commit, drops it: no `resolved` id and no note. The finish counts a dropped commit as
-  `dropped_by_resolution` and keeps it out of `dropped_already_upstream`. It is in the landed report only when an
-  upstream commit has its key (a likely landed commit, `likely_landed`): the agent took the upstream's side.
+  `empty_resolution` (exit 2, `ask_user`), and nothing moves. `--allow-empty` keeps the empty commit; `--drop-empty
+  <commit>`, with the round's commit, drops it: no `resolved` id and no note, `proof: user` in `dropped`. It is in the
+  landed report only when an upstream commit has its key (a candidate, `landed_candidates`): the user took the
+  upstream's side. The message of a round with a twin names `--landed` instead.
 - **Supported types.** A round supports `CONFLICT (contents)` of text (also `CONFLICT (add/add)`, a content conflict
   without `before`), `CONFLICT (modify/delete)` and `CONFLICT (rename/delete)` (the stages are at the new path; the
   message gives the old one, so `--take` and `--delete` take either), on regular files (`100644`, `100755`). The mode is merged as git
@@ -1164,11 +1166,41 @@ check for `blocked_paths` is the largest share.
   subject), and a refused `--continue` says that the round stays open and the copies keep the agent's edits.
 - **Landed commits.** The session takes the local commits that the check proved landed from its `ReplayPlan` and
   pairs nothing again ("Landed commits left out" of "Update project"). A proven commit is left out of the replay, as
-  `git rebase` leaves out a commit of the same patch id (`landed_dropped`, with its upstream commit and its proof):
+  `git rebase` leaves out a commit of the same patch id (in `dropped`, with its upstream commit and its proof):
   the proof holds also when the upstream changed the lines further and a replay would conflict. The other local
   commits form runs of consecutive commits (`run_starts`): each replay covers one run, and the binary search runs
   inside the first run that conflicts. A candidate, which the landed detection finds only by its author, author time
-  and subject, gets the hint "likely landed: take onto" and is never left out: that key is no proof.
+  and subject, is never left out: that key is no proof. The session keeps each candidate with its upstream commit and
+  its fixups (`landed_candidates`).
+- **The round of a twin.** The round of a candidate, or of one of its fixups, prints `session.commit.landed_as`: the
+  upstream commit with its subject and the interdiff of the two (`interdiffs` of `landed_pairing.rs`). One `diff-tree
+  --stdin -p -U0 --full-index` gives the changed lines of both sides; the candidate and its fixups are summed in order,
+  so a line that a fixup takes back cancels, and the sides are compared as multisets per path: `local_only` is what a
+  drop of the commit loses, `upstream_only` what the upstream changed beside it (a fixup that the robot folded in). A
+  mode change is `mode <old> <new>`, a binary file `binary <blob>`. No `log -S`: only the two patches.
+  `session.next` is `--continue --round <n> --landed <commit>`. `--landed` takes `onto` for every conflicting file,
+  writes the resolved commit as any round, and drops it when its tree equals its parent's (`landed_not_empty` with the
+  paths otherwise). Without `local_only` it needs no question. With `local_only` it refuses as `landed_differs` (exit 2,
+  `ask_user`) until `--user` says that the user decided; the resolution keeps `local_only` as what the drop lost.
+  `--landed` on a round without a twin is `not_landed_round`. A drop by `--landed` is `proof: landed` in `dropped`, and
+  the landed report finds it by its key as its twin.
+- **The first output.** The output that starts a session (and its repeat by `bd update`, and `--status`) reads the
+  details once (`ViewDetail::Full`): `dropped` with the subjects and, from one `diff-tree` of every candidate,
+  `session.landed_differs`, the candidates not replayed yet whose `local_only` is not empty, so the agent asks the user
+  once about all of them. A round of `--continue` counts the drops only (`dropped_count`) and compares only the twin of
+  its own commit.
+- **`ask_user`.** An output that needs the user's decision has `ask_user: true` with `reasons`: `blocked_paths` in the
+  first output, `landed_differs` in the first output and in the round of a differing twin. So does an error whose code
+  waits for the user (`ErrorCode::asks_user`: `uncommitted_overlap`, `empty_resolution`, `landed_differs`). An agent
+  asks only then.
+- **`dropped`.** One list of the local commits an update dropped, each with its `proof`: `patch_id`, `replayed` or
+  `changed_lines` (left out by the pairing), `landed` (`--landed`), `user` (`--drop-empty`) and `empty` (a round that
+  the words left without a change, and at the finish or after an update that applies at once the commits that the
+  replay dropped as empty: those of the landed report that the list lacks). It replaces the counts
+  `dropped_already_upstream` and `dropped_by_resolution` of the output.
+- **`verify`.** At exit 0, `verify.paths` names the files to build and test: the paths of the rounds that did not drop
+  their commit, with `how` edited, commit, deleted or words, and the files of the commits that an update resolved by
+  words. A file taken from `onto` is the upstream's, tested there. The words are in it because nobody saw their merge.
 - **Blocked paths early.** Each round prints `blocked_paths`: the local changes on the paths that the upstream changed
   since the merge base and that differ between HEAD and the upstream, found with the cheaper check of every sync. The
   agent asks the user about them before it resolves; the finish runs the exact check.

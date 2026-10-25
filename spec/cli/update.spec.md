@@ -46,8 +46,9 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 - Binary, file/directory, rename, mode, symlink and submodule conflicts: a round refuses them.
 - A partial `--continue`: a round needs a resolution for every conflicting file.
-- Skipping a commit that the baseline likely has by its author, author time and subject only: bd marks it. Only a
-  proof (spec/repository/landed-commits.spec.md, "The proof") shows that the baseline has the change.
+- Skipping a commit that the baseline likely has by its author, author time and subject only: bd offers `--landed`
+  in its round. Only a proof (spec/repository/landed-commits.spec.md, "The proof") shows that the baseline has the
+  change.
 - Notes that follow a later rewrite of a resolved commit.
 
 ## Requirements
@@ -56,10 +57,27 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 - `bd update` must do what the app's Update Project does: fetch the baseline, check the update, then, under the
   repository lock, check that nothing moved and apply a clean update (`up_to_date`, `fast_forward`, `rebase`), the
-  files following through the guarded working-tree update. It must print the state, the previous and the new HEAD, the `replayed` and
-  `dropped_already_upstream` counts, the landed commits (`landed`) and the undo token
-  `update:<previous head>..<new head>` with full ids.
+  files following through the guarded working-tree update. It must print the state, the previous and the new HEAD, the `replayed`
+  count, the landed commits (`landed`) and the undo token `update:<previous head>..<new head>` with full ids.
   [@test] ../../crates/bd-update/src/update_test.rs (`update_fast_forwards_and_the_undo_moves_the_files_back`, `update_rebases_the_local_commits_and_keeps_unrelated_local_changes`)
+- Every local commit the update dropped must be in one list, `dropped`: `commit`, `subject`, the baseline commit it
+  landed as (`upstream`, when one is known) and its `proof`: `patch_id`, `replayed`, `changed_lines` (the pairing
+  left it out), `empty` (its replay left it without a change, as `git rebase` drops it), `landed` (`--landed`) or
+  `user` (`--drop-empty`). `dropped_count` counts them. The first output of a session, its repeat by `bd update`,
+  `bd update --status`, the finish and an update that applies at once print the list; a round of `--continue` prints
+  `dropped_count` only.
+  [@test] ../../crates/bd-update/src/update_test.rs (`a_commit_that_the_replay_leaves_without_a_change_is_dropped_as_empty`)
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`twins_in_another_order_are_left_out_by_their_proof_and_land`, `a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`, `a_twin_that_differs_asks_the_user_and_drops_after_the_yes`)
+- An output that needs a decision of the user must have `ask_user: true` and `reasons` (`code`, `message`):
+  `blocked_paths` in the first output of a session, `landed_differs` in the first output and in the round of a twin
+  that differs. An error whose code waits for the user (`uncommitted_overlap`, `empty_resolution`, `landed_differs`)
+  must have `ask_user: true`. Nothing else asks: a round of `--continue` repeats `blocked_paths` without a question.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`local_changes_that_will_block_the_finish_are_named_from_the_start`, `a_twin_that_differs_asks_the_user_and_drops_after_the_yes`, `a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
+- At exit 0 after a resolution, `verify.paths` must name the files to build and test: the files of the rounds that
+  kept their commit with `how` edited, commit, deleted or words, and the files of the commits an update resolved by
+  words; the first 100 (101 rather than one left out). A file of `onto` is the baseline's and is not in it; without
+  such files `verify` is absent.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `an_update_whose_conflict_resolves_by_words_applies_and_names_the_commit`, `a_twin_with_every_line_of_the_commit_drops_without_a_question`)
 - The fetch must run before the lock and through the remote command policy; a failed fetch is `network_error`
   (exit 5, retryable). A held lock is `locked` (exit 3) after the fetch.
   [@test] ../../crates/bd-update/src/update_test.rs (`a_failed_fetch_is_a_network_error`, `the_update_waits_for_the_repository_lock_after_its_fetch`)
@@ -169,16 +187,27 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - A local commit that the baseline proves it has (spec/repository/landed-commits.spec.md, "The proof": the same patch
   id, or the same author, author time and subject with a replay that writes the baseline commit's tree or the same
   changed lines) must be left out of the replay, as `git rebase` leaves out a commit of the same patch id, and listed
-  as `landed_dropped` with that baseline commit and its `proof` (`patch_id`, `replayed`, `changed_lines`), in each
-  round, at the finish and after an update that applies at once; it counts in `dropped_already_upstream` and is in
+  in `dropped` with that baseline commit and its `proof` (`patch_id`, `replayed`, `changed_lines`); it is in
   `landed`. The commits around it replay as runs, so a conflict after it still opens its round, and the session pairs
   nothing again.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_commit_the_upstream_has_with_the_same_patch_is_left_out`, `a_conflict_after_a_left_out_commit_opens_its_round`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`twins_in_another_order_are_left_out_by_their_proof_and_land`)
-- A commit that the baseline likely has by its author, author time and subject only must get the hint "likely
-  landed", never be skipped: that key is no proof. A drop of it by its resolution (`--take onto` for every file, then
-  `--drop-empty`) lands it as that baseline commit.
-  [@test] ../../crates/bd-update/src/resolve_test.rs (`likely_landed_commits_get_the_hint`)
+- A commit that the baseline likely has by its author, author time and subject only (a candidate) must never be
+  skipped: that key is no proof. Its round, and the round of each of its fixups, must print `session.commit.landed_as`:
+  the baseline commit, its subject, and the interdiff of the two from their changed lines without context, the
+  candidate and its fixups summed: `local_only` (what a drop loses) and `upstream_only`, per path at most 20 lines, at
+  most 20 paths. `session.next` must be `<bd> update --continue --round <n> --landed <commit>`, and each file `hint`
+  must point at `session.commit.hint`. The first output of a session must list in `session.landed_differs` (`commit`,
+  `subject`, `landed_as`) every candidate not replayed yet whose `local_only` is not empty.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`a_twin_that_differs_asks_the_user_and_drops_after_the_yes`, `a_twin_with_every_line_of_the_commit_drops_without_a_question`)
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`the_interdiff_of_a_twin_sums_the_fixups_and_names_a_binary_file`)
+- `--landed <commit>` (the round's commit, at least 4 characters of its id) must take `onto` for every conflicting file
+  and drop the commit as landed: `proof: landed` with its twin as `upstream`, in `landed` as that twin, the
+  resolution with `landed_as` (and `local_only` for a drop that lost lines). It must refuse, changing nothing, a round
+  without a twin (`not_landed_round`, exit 2), a commit with `local_only` without `--user`, the user's yes
+  (`landed_differs`, exit 2, `ask_user`), and a commit that still changes files with `onto` for every conflicting file
+  (`landed_not_empty`, exit 2, with `paths`). Without `local_only` it needs no `--user` and no question.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`a_twin_that_differs_asks_the_user_and_drops_after_the_yes`, `a_twin_with_every_line_of_the_commit_drops_without_a_question`, `landed_refuses_a_round_without_a_twin_and_a_commit_that_keeps_a_change`)
 - Only text conflicts (`CONFLICT (contents)`, an add on both sides as a `content` conflict without `before`),
   modify/delete and rename/delete (kind `rename_delete`, with `renamed_from`; `--take` and `--delete` take either path)
   must be supported. A mode that one side changed must be merged as git does; two modes that differ on
@@ -271,11 +300,11 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   and that a change of `onto` that belongs in another file now goes into a `fixup!` commit after the update, reported
   as `dropped_upstream_lines`. The same line added on both sides merges cleanly and opens no round.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`field_shaped_conflicts_resolve_as_the_hints_say`)
-- A resolution that leaves the commit without changes must be `empty_resolution` (exit 2), nothing written.
-  `--allow-empty` keeps it as an empty commit (`empty: "kept"`); `--drop-empty <commit>` (the round's commit, at
-  least 4 characters of its id) drops it (`empty: "dropped"`, `new_id` null, no note). The finish counts a dropped
-  commit as `dropped_by_resolution`, never in `dropped_already_upstream`, and in `landed` only when the baseline has a
-  commit of its author, author time and subject (a likely landed one).
+- A resolution that leaves the commit without changes must be `empty_resolution` (exit 2, `ask_user`), nothing
+  written; for a round with a twin, its message names `--landed`. `--allow-empty` keeps it as an empty commit
+  (`empty: "kept"`); `--drop-empty <commit>` (the round's commit, at least 4 characters of its id) drops it (`new_id`
+  null, no note, `proof: user` in `dropped`), in `landed` only when the baseline has a commit of its author, author
+  time and subject (a candidate).
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
 - `--continue --dry-run` must run the checks, report the resolution with its `new_id`, exit 0, and move no ref. It
   must take no repository lock, so a check in a loop never makes an update or a rewrite wait; only the real
@@ -339,7 +368,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 | Exit | Codes |
 |---|---|
 | 1 | a round is open (`conflict`) or the finish is next (`pending`): an output, not an error |
-| 2 | `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `invalid_arguments` |
+| 2 | `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `not_landed_round`, `landed_differs`, `landed_not_empty`, `invalid_arguments` |
 | 3 | `head_moved`, `round_moved`, `locked` (retryable) |
 | 4 | `session_stale`, `unsupported_conflict`, `uncommitted_overlap`, `finish_pending` |
 
@@ -348,10 +377,11 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ### `bd help update`
 
-- It must print the session workflow: the round object with `blocked_paths`, `marker_labels` and `next`, `pending`,
+- It must print the session workflow: `dropped` and its proofs, `ask_user` as the only reason to ask the user, the
+  round object with `landed_as`, `landed_differs`, `blocked_paths`, `marker_labels` and `next`, `pending`,
   edit only the files at `edit` (a change outside the blocks waits for a `fixup!`), `--continue` with `--take`,
-  `--delete`, `--allow-empty` and `--drop-empty`, the exit codes, the report of the resolutions, the build after exit 0
-  and a `fixup!` with `bd fold` or `bd undo` on a failure, `finish_pending`, `--abort` (with `--force` for a live
+  `--delete`, `--allow-empty`, `--drop-empty`, `--landed` and `--user`, the exit codes, the report of the resolutions,
+  the build and the tests of `verify.paths` after exit 0 and a `fixup!` with `bd fold` or `bd undo` on a failure, `finish_pending`, `--abort` (with `--force` for a live
   session of another worktree), `--status` and `--dir`, and that a copy is written as UTF-8 without a BOM
   (`[IO.File]::WriteAllText` in Windows PowerShell). `bd help agent` must only name it; together the two texts must name every
   option of `bd update`.

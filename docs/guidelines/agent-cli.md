@@ -702,13 +702,18 @@ lock, checks again and applies a clean update. The fetch runs before the lock, s
 
 ```json
 {"schema":2,…,"branch":"master","upstream":"origin/master","state":"rebase","dry_run":false,"fetched_at":1760500000,
- "previous_head":"77e01aa4","new_head":"c0ffee12","upstream_head":"5f6a7b8c","replayed":2,"dropped_already_upstream":1,
+ "previous_head":"77e01aa4","new_head":"c0ffee12","upstream_head":"5f6a7b8c","replayed":2,"dropped_count":1,
+ "dropped":[{"commit":"1b2c3d4e","subject":"(auth) Add login","upstream":"9d0e1f2a","proof":"patch_id"}],
  "undo_token":"update:<full previous>..<full new>",
  "landed":[{"branch":"auth","commits":[{"commit":"1b2c3d4e","subject":"Add login","upstream":"9d0e1f2a"}],"remaining":0}]}
 ```
 
-- `state` is `up_to_date`, `fast_forward` or `rebase`; `replayed`, `dropped_already_upstream` and `undo_token` come
-  only with a change. `landed` lists the local commits the baseline has, which the update dropped.
+- `state` is `up_to_date`, `fast_forward` or `rebase`; `replayed` and `undo_token` come only with a change. `dropped`
+  names each local commit the update dropped, with its `proof` (`patch_id`, `replayed`, `changed_lines`, `empty`; in a
+  resolve session also `landed` and `user`), and `dropped_count` counts them. `landed` lists the local commits the
+  baseline has, by branch. `verify.paths` names the files to build and test after a resolution.
+- An output or an error with `ask_user: true` waits for the user's decision: `reasons` of the output, `message` of the
+  error. bd asks only for a decision of the user, and an agent asks only then.
 - `resolved` lists the local commits whose conflict of git the update resolved by words (`branchdeck.resolveByWords`,
   as in `bd sync`): `commit`, `new_id` (not for a dry run), `conflicts`, `file_count` and `files`. An update whose
   every conflict resolves so is a `rebase` without a session.
@@ -770,6 +775,12 @@ the contract is the spec. The mechanics behind it:
   surprise. Its resolution has `words`, and its files `how: "words"`.
 - A refusal names the round and its commit and changes nothing: the round stays open, and the copies keep the edits;
   `edited` per file says whether a copy differs from bd's merge result.
+- A round whose commit has a twin in the baseline (a candidate: the same author, author time and subject, but no
+  proof) has `session.commit.landed_as` with the interdiff of the two (`local_only`, `upstream_only`), and its `next`
+  ends with `--landed <commit>`. A drop that loses nothing (`local_only` empty) asks nobody; one that loses lines waits
+  for `--user`. The first output lists every such twin in `session.landed_differs`, so the user answers once.
+- The first output of a session lists `dropped`; a round of `--continue` prints `dropped_count` only, so the list of
+  a long session is printed once.
 - The copies live in `branch-deck/resolve/r<n>/{edit,before,onto,commit}/<key>-<basename>` of the worktree's git dir,
   or under `--dir <path>` (absolute, outside every worktree, empty or bd's for this worktree, used by no other
   session), for a sandbox that keeps `.git` read only. On Windows the paths have backslashes, and the `\\?\` form

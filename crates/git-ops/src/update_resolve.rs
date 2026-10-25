@@ -10,7 +10,7 @@ use crate::commit_writer::{
   EditedCommit, NewParent, RawCommit, STALE_TEMP_REF_AGE, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenEdit, WrittenStore, current_committer, discard_temp_refs,
   parse_raw_commit, sweep_stale_temp_refs, write_edited_commit, write_store_commits,
 };
-use crate::landed_pairing::LandedDrop;
+use crate::landed_pairing::{LandedCandidate, LandedDrop, PathLines, interdiffs};
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::paths::{ChangedPath, changed_paths, commits_touching};
 use crate::ref_transaction::RefTransaction;
@@ -254,10 +254,26 @@ pub struct Resolution {
   /// the agent
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub words: Option<u32>,
+  /// `--landed`: the round dropped its commit as landed, as this upstream commit
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub landed: Option<LandedResolution>,
+}
+
+/// A round that `--landed` resolved: the commit is dropped as its upstream twin (`SessionState::landed_candidates`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LandedResolution {
+  /// The upstream commit with the identity of the commit
+  pub upstream: String,
+  /// The user decided it with `--user`: the commit changes lines that the upstream commit lacks (`local_only`)
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub user: bool,
+  /// What the drop lost: the lines the commit (with its fixups) changes and its upstream commit does not
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub local_only: Vec<PathLines>,
 }
 
 impl Resolution {
-  /// The resolution dropped the commit (`--drop-empty`)
+  /// The resolution dropped the commit (`--drop-empty`, `--landed`, or a round that the words left without a change)
   pub const fn dropped(&self) -> bool {
     self.empty && self.resolved.is_none()
   }
@@ -297,6 +313,10 @@ pub struct SessionState {
   /// Local commits the upstream likely has already (same author, author time and subject), with their fixups; no proof
   /// left them out (`landed_pairing::LandedCandidate`)
   pub likely_landed: Vec<String>,
+  /// The candidates of `likely_landed`, each with its upstream commit and its fixups: the round of one offers
+  /// `--landed`. A session of an older bd has none
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub landed_candidates: Vec<LandedCandidate>,
   /// How many of `local` are replayed (or resolved) into `tip`
   pub replayed: usize,
   /// The upstream with the first `replayed` local commits
@@ -320,6 +340,11 @@ pub struct SessionState {
 impl SessionState {
   pub const fn total(&self) -> usize {
     self.local.len()
+  }
+
+  /// The candidate whose upstream twin `commit` belongs to: the candidate itself or one of its fixups
+  pub fn candidate_of(&self, commit: &str) -> Option<&LandedCandidate> {
+    self.landed_candidates.iter().find(|candidate| candidate.unit().any(|id| id == commit))
   }
 
   /// The committer as `GIT_COMMITTER_*` variables for `git replay`
@@ -472,8 +497,26 @@ fn unchanged(round: u32) -> String {
 pub enum ResolveError {
   /// The resolution of some files is refused
   Refused(Refusal),
-  /// The resolution leaves the commit without changes, and neither `--allow-empty` nor `--drop-empty` decided it
-  EmptyResolution { round: u32, commit: String, subject: String },
+  /// The resolution leaves the commit without changes, and neither `--allow-empty` nor `--drop-empty` decided it;
+  /// `twin` is the upstream commit with the commit's identity, when the round has one: `--landed` drops it
+  EmptyResolution {
+    round: u32,
+    commit: String,
+    subject: String,
+    twin: Option<String>,
+  },
+  /// `--landed` on a round whose commit has no twin upstream (`SessionState::candidate_of`)
+  NotLandedRound { round: u32, commit: String, subject: String },
+  /// `--landed` without `--user` on a round whose commit changes lines that its twin lacks: the user decides
+  LandedDiffers { round: u32, commit: String, subject: String, upstream: String },
+  /// `--landed` on a round whose commit still changes `paths` with `onto` for every conflicting file
+  LandedNotEmpty {
+    round: u32,
+    commit: String,
+    subject: String,
+    upstream: String,
+    paths: Vec<String>,
+  },
   /// The conflict is of a type a round can't resolve (binary, file/directory, rename, mode, submodule, symlink)
   Unsupported { paths: Vec<String>, message: String },
   /// The branch was rewritten, HEAD left the branch, or the session belongs to another worktree; `--abort` removes it
@@ -490,12 +533,67 @@ impl fmt::Display for ResolveError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Refused(refusal) => refusal.fmt(f),
-      Self::EmptyResolution { round, commit, subject } => write!(
+      Self::EmptyResolution {
+        round,
+        commit,
+        subject,
+        twin: Some(twin),
+      } => write!(
         f,
-        "Round {round}, commit {} {subject}: the resolution leaves it without any change. Ask the user: --allow-empty keeps it \
-         as an empty commit, --drop-empty {} drops it; or resolve it another way. {}",
+        "Round {round}, commit {} {subject}: the resolution leaves it without any change, and the baseline has {} with its \
+         identity: `--landed {}` instead of the takes drops it as landed. {}",
+        short_id(commit),
+        short_id(twin),
+        short_id(commit),
+        unchanged(*round)
+      ),
+      Self::EmptyResolution {
+        round,
+        commit,
+        subject,
+        twin: None,
+      } => write!(
+        f,
+        "Round {round}, commit {} {subject}: the resolution leaves it without any change. Ask the user: `--drop-empty {}` \
+         drops the commit and `--allow-empty` keeps it as an empty commit, each only once the user decided; or resolve it \
+         another way. {}",
         short_id(commit),
         short_id(commit),
+        unchanged(*round)
+      ),
+      Self::NotLandedRound { round, commit, subject } => write!(
+        f,
+        "Round {round}, commit {} {subject}: the baseline has no commit with its identity (`session.commit.landed_as`), so \
+         --landed can't drop it. Resolve the files and run --continue without --landed. {}",
+        short_id(commit),
+        unchanged(*round)
+      ),
+      Self::LandedDiffers { round, commit, subject, upstream } => write!(
+        f,
+        "Round {round}, commit {} {subject}: the baseline has {} with its identity, but the commit changes lines that {} \
+         lacks (`session.commit.landed_as.local_only`), and a drop loses them. Show them to the user and ask: \
+         `--landed {} --user` drops the commit only once the user said yes; with a no, resolve the files and run \
+         --continue without --landed. {}",
+        short_id(commit),
+        short_id(upstream),
+        short_id(upstream),
+        short_id(commit),
+        unchanged(*round)
+      ),
+      Self::LandedNotEmpty {
+        round,
+        commit,
+        subject,
+        upstream,
+        paths,
+      } => write!(
+        f,
+        "Round {round}, commit {} {subject}: with `onto` for every conflicting file the commit still changes {}, which {} \
+         does not have, and --landed drops only a commit without a change. Resolve the files and run --continue without \
+         --landed, or ask the user. {}",
+        short_id(commit),
+        paths.join(", "),
+        short_id(upstream),
         unchanged(*round)
       ),
       Self::Unsupported { message, .. } | Self::Stale { message } | Self::InvalidInput { message } | Self::FinishPending { message } => f.write_str(message),
@@ -514,7 +612,7 @@ impl ResolveError {
   pub fn commit(&self) -> Option<&str> {
     match self {
       Self::Refused(refusal) => Some(&refusal.commit),
-      Self::EmptyResolution { commit, .. } => Some(commit),
+      Self::EmptyResolution { commit, .. } | Self::NotLandedRound { commit, .. } | Self::LandedDiffers { commit, .. } | Self::LandedNotEmpty { commit, .. } => Some(commit),
       _ => None,
     }
   }
@@ -523,7 +621,7 @@ impl ResolveError {
   pub fn paths(&self) -> &[String] {
     match self {
       Self::Refused(refusal) => &refusal.paths,
-      Self::Unsupported { paths, .. } => paths,
+      Self::Unsupported { paths, .. } | Self::LandedNotEmpty { paths, .. } => paths,
       _ => &[],
     }
   }
@@ -661,6 +759,7 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
     head: checked.head.clone(),
     local: replay.local.clone(),
     likely_landed: replay.likely_landed().to_vec(),
+    landed_candidates: replay.pairing.candidates.clone(),
     replayed: 0,
     tip: checked.upstream_head.clone(),
     round: 0,
@@ -732,6 +831,17 @@ pub struct RoundInput {
   pub allow_empty: bool,
   /// A result without changes drops the commit this names (a prefix of its id, at least 4 characters)
   pub drop_empty: Option<String>,
+  /// `--landed <commit>`: drop the round's commit as its upstream twin
+  pub landed: Option<LandedInput>,
+}
+
+/// `--landed <commit> [--user]`: take `onto` for every file of the round and drop its commit as landed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LandedInput {
+  /// The round's commit, a prefix of its id of at least 4 characters
+  pub commit: String,
+  /// `--user`: the user decided the drop, so a commit with lines its twin lacks is dropped too
+  pub user: bool,
 }
 
 /// Continue the session in `worktree`: check and commit the resolution of the open round, replay the rest (one
@@ -783,8 +893,29 @@ pub fn continue_session(
   let mut resolved_ref = None;
   let resolution = match state.conflict.clone() {
     Some(conflict) => {
-      let (resolution, edits, objects) = check_round(git_executor, repo_path, &state, &conflict, input)?;
+      // `--landed`: `onto` for every file, then the decision on the commit
+      let landed_takes;
+      let round_input = if input.landed.is_some() {
+        if !input.takes.is_empty() || !input.deletes.is_empty() || input.allow_empty || input.drop_empty.is_some() {
+          return Err(invalid_input(
+            "--landed takes `onto` for every file and drops the commit: pass it without --take, --delete, --allow-empty and --drop-empty",
+          ));
+        }
+        landed_takes = RoundInput {
+          takes: conflict.files.iter().map(|file| (Side::Onto, file.path.clone())).collect(),
+          ..RoundInput::default()
+        };
+        &landed_takes
+      } else {
+        input
+      };
+      let (resolution, edits, objects) = check_round(git_executor, repo_path, &state, &conflict, round_input)?;
       let raw = &objects.commit;
+      let landed = input
+        .landed
+        .as_ref()
+        .map(|landed| landed_decision(git_executor, repo_path, &state, &conflict, raw, landed))
+        .transpose()?;
       let tree_edits: Vec<TreeEdit<'_>> = edits.iter().map(PathEdit::as_tree_edit).collect();
       let written = write_edited_commit(
         git_executor,
@@ -800,8 +931,22 @@ pub fn continue_session(
         },
       )?;
       let empty = written.tree == written.parent_tree;
-      let resolved = if empty {
-        match empty_choice(state.round, &conflict, raw, input) {
+      let resolved = if let Some(landed) = &landed {
+        if !empty {
+          let paths = changed_paths(git_executor, repo_path, &conflict.onto, &written.commit)
+            .map_or_default(|changed| changed.into_iter().map(|path| String::from_utf8_lossy(&path.path).into_owned()).collect());
+          discard(git_executor, repo_path, None, &[ResolvedRef::of(&written)]);
+          return Err(anyhow::Error::new(ResolveError::LandedNotEmpty {
+            round: state.round,
+            commit: conflict.commit,
+            subject: subject_of(raw),
+            upstream: landed.upstream.clone(),
+            paths,
+          }));
+        }
+        None
+      } else if empty {
+        match empty_choice(&state, &conflict, raw, input) {
           Ok(keep) => keep.then(|| written.commit.clone()),
           Err(e) => {
             discard(git_executor, repo_path, None, &[ResolvedRef::of(&written)]);
@@ -811,7 +956,18 @@ pub fn continue_session(
       } else {
         Some(written.commit.clone())
       };
-      let resolution = Resolution { resolved, empty, ..resolution };
+      let mut resolution = Resolution {
+        resolved,
+        empty,
+        landed,
+        ..resolution
+      };
+      if resolution.landed.is_some() {
+        // a drop as landed reports what it lost as `local_only`, the lines of the twin round as a whole
+        for path in &mut resolution.paths {
+          path.dropped_commit_lines.clear();
+        }
+      }
       if dry_run {
         discard(git_executor, repo_path, None, &[ResolvedRef::of(&written)]);
         return Ok(Step::Checked {
@@ -829,8 +985,10 @@ pub fn continue_session(
       resolved_ref = Some(ResolvedRef::of(&written));
       Some(resolution)
     }
-    None if !input.takes.is_empty() || !input.deletes.is_empty() || !input.edits.is_empty() => {
-      return Err(invalid_input("No round is open: every commit is replayed; run --continue without --take or --delete"));
+    None if !input.takes.is_empty() || !input.deletes.is_empty() || !input.edits.is_empty() || input.landed.is_some() => {
+      return Err(invalid_input(
+        "No round is open: every commit is replayed; run --continue without --take, --delete or --landed",
+      ));
     }
     None => None,
   };
@@ -870,9 +1028,52 @@ pub fn continue_session(
   Ok(Step::Round(session))
 }
 
+/// The `--landed` decision of the open round: it names the round's commit, which has a twin upstream
+/// (`SessionState::candidate_of`), and a commit that changes lines its twin lacks (`interdiffs`) is dropped only with
+/// `--user`
+fn landed_decision(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  state: &SessionState,
+  conflict: &RoundConflict,
+  raw: &RawCommit,
+  input: &LandedInput,
+) -> Result<LandedResolution> {
+  if input.commit.len() < 4 || !conflict.commit.starts_with(input.commit.as_str()) {
+    return Err(invalid_input(&format!(
+      "--landed {} does not name the commit of the round, {}",
+      input.commit,
+      short_id(&conflict.commit)
+    )));
+  }
+  let Some(candidate) = state.candidate_of(&conflict.commit) else {
+    return Err(anyhow::Error::new(ResolveError::NotLandedRound {
+      round: state.round,
+      commit: conflict.commit.clone(),
+      subject: subject_of(raw),
+    }));
+  };
+  let interdiff = interdiffs(git_executor, repo_path, &[(candidate.unit().collect(), candidate.upstream.as_str())])?
+    .pop()
+    .unwrap_or_default();
+  if !interdiff.local_only.is_empty() && !input.user {
+    return Err(anyhow::Error::new(ResolveError::LandedDiffers {
+      round: state.round,
+      commit: conflict.commit.clone(),
+      subject: subject_of(raw),
+      upstream: candidate.upstream.clone(),
+    }));
+  }
+  Ok(LandedResolution {
+    upstream: candidate.upstream.clone(),
+    user: input.user,
+    local_only: interdiff.local_only,
+  })
+}
+
 /// What a resolution without changes does: `Ok(true)` keeps the empty commit (`--allow-empty`), `Ok(false)` drops it
 /// (`--drop-empty` with the round's commit); without either, `EmptyResolution`
-fn empty_choice(round: u32, conflict: &RoundConflict, raw: &RawCommit, input: &RoundInput) -> Result<bool> {
+fn empty_choice(state: &SessionState, conflict: &RoundConflict, raw: &RawCommit, input: &RoundInput) -> Result<bool> {
   if input.allow_empty {
     return Ok(true);
   }
@@ -883,9 +1084,10 @@ fn empty_choice(round: u32, conflict: &RoundConflict, raw: &RawCommit, input: &R
       short_id(&conflict.commit)
     ))),
     None => Err(anyhow::Error::new(ResolveError::EmptyResolution {
-      round,
+      round: state.round,
       commit: conflict.commit.clone(),
       subject: subject_of(raw),
+      twin: state.candidate_of(&conflict.commit).map(|candidate| candidate.upstream.clone()),
     })),
   }
 }
@@ -1170,6 +1372,7 @@ fn check_round(
     empty: false,
     paths,
     words: None,
+    landed: None,
   };
   Ok((resolution, edits, objects))
 }
@@ -1343,6 +1546,7 @@ fn advance_resolving(
           })
           .collect(),
         words: Some(words.resolution.conflicts()),
+        landed: None,
       };
       if !empty {
         state.tip.clone_from(&written.commit);

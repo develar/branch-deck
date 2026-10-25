@@ -157,6 +157,7 @@ fn session_state(repo: &TestRepo, head: &str) -> SessionState {
     resolutions: Vec::new(),
     notes_before: None,
     landed_dropped: Vec::new(),
+    landed_candidates: Vec::new(),
     run_starts: Vec::new(),
   }
 }

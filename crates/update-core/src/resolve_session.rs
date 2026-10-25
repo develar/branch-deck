@@ -11,19 +11,19 @@ use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
-use git_ops::landed_pairing::LandedDrop;
+use git_ops::landed_pairing::{Interdiff, LandedDrop, LandedProof, interdiffs};
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
 use git_ops::update_branch::UpdatePlan;
 use git_ops::update_resolve::{
-  ConflictKind, EditCopy, RefusalKind, Resolution, ResolveError, RoundInput, RoundObjects, Session, SessionStart, SessionState, SessionStatus, Side, Stage, Step, abort_session,
-  commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths, start_session,
+  ConflictKind, EditCopy, LandedInput, RefusalKind, Resolution, ResolveError, RoundInput, RoundObjects, Session, SessionStart, SessionState, SessionStatus, Side, Stage, Step,
+  abort_session, commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths, start_session,
 };
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{RepositoryLock, lock_repository};
 use history_rewrite::snapshot::read_grouping_inputs;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
@@ -45,9 +45,63 @@ pub struct RoundCommit {
   /// The message after the subject line
   pub body: String,
   pub author: String,
-  /// The upstream likely has it already (same author, author time and subject): taking `onto` for each file is likely
-  /// right
-  pub likely_landed: bool,
+  /// The upstream commit with the identity of the commit (or of the commit that it is a fixup of): `--landed` drops
+  /// the commit as landed
+  pub landed_as: Option<LandedTwin>,
+}
+
+/// A local commit that the upstream likely has, by its identity alone (`LandedCandidate`), with what tells them apart
+#[derive(Debug, Clone)]
+pub struct LandedTwin {
+  /// The local commit; its fixups go with it
+  pub commit: String,
+  pub subject: String,
+  /// The upstream commit with its identity
+  pub upstream: String,
+  pub upstream_subject: String,
+  /// The lines the local commit with its fixups changes and `upstream` does not, and the reverse: a drop loses
+  /// `local_only`
+  pub interdiff: Interdiff,
+}
+
+impl LandedTwin {
+  /// The upstream commit has every line the local commit changes: a drop loses nothing, so it needs no question
+  pub const fn is_same(&self) -> bool {
+    self.interdiff.local_only.is_empty()
+  }
+}
+
+/// How bd knows that a local commit it dropped is not lost
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropProof {
+  /// The pairing left it out of the replay (`LandedProof`)
+  Pairing(LandedProof),
+  /// `--landed` dropped it as its upstream twin
+  Landed,
+  /// `--drop-empty`: the user decided it
+  User,
+  /// Its replay left it without a change, as `git rebase` drops it: a round that the words resolved, or a commit that
+  /// `git replay` dropped
+  Empty,
+}
+
+/// A local commit that the update dropped
+#[derive(Debug, Clone)]
+pub struct DroppedCommit {
+  pub commit: String,
+  pub subject: String,
+  /// The upstream commit it landed as; `None` when none is known
+  pub upstream: Option<String>,
+  pub proof: DropProof,
+}
+
+/// What a session view reads beyond the round: `Full` for the first output of a session, its repeat, `--status` and
+/// the finish (the dropped commits with their subjects, the twins that differ); `Round` for a round of `--continue`,
+/// which counts the dropped commits only
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewDetail {
+  Full,
+  Round,
 }
 
 /// A conflicting file of the open round, with the absolute paths of its copies
@@ -97,8 +151,15 @@ pub struct SessionView {
   pub round: Option<RoundView>,
   /// Local changes on paths the update likely writes: they will block the finish
   pub blocked_paths: Vec<String>,
-  /// The local commits left out because the upstream proves it has them, each with its subject
-  pub landed_dropped: Vec<(LandedDrop, String)>,
+  pub detail: ViewDetail,
+  /// The local commits dropped so far, with `ViewDetail::Full` only: those the pairing left out, then those of the
+  /// rounds; at the finish also those that its replay dropped as empty
+  pub dropped: Vec<DroppedCommit>,
+  /// How many local commits are dropped so far
+  pub dropped_count: usize,
+  /// With `ViewDetail::Full`: the twins of the commits not replayed yet whose local commit changes lines the upstream
+  /// commit lacks; each needs the user's decision before `--landed --user`
+  pub landed_differs: Vec<LandedTwin>,
 }
 
 /// What a session step did
@@ -107,15 +168,13 @@ pub enum SessionOutcome {
   /// A round is open (exit 1)
   Round(SessionView),
   /// The branch moved from `previous_head` onto the upstream with every resolution, the files followed, and the
-  /// session is gone
+  /// session is gone; `view.dropped` holds every local commit the update dropped
   Applied {
     view: SessionView,
     previous_head: String,
     new_head: String,
-    /// The local commits now on the upstream, those the replays dropped as empty, and those a resolution dropped
+    /// The local commits now on the upstream
     replayed: u32,
-    dropped_already_upstream: u32,
-    dropped_by_resolution: u32,
     landed: Vec<LandedBranch>,
   },
   /// Every commit is replayed, but local changes sit on paths the finish writes; the session is kept
@@ -130,14 +189,31 @@ pub fn own_session(git_executor: &GitCommandExecutor, repo_path: &str, worktree:
 }
 
 /// The view of `session`, writing the copies of its open round that `materialize` asks for
-pub fn view_session(git_executor: &GitCommandExecutor, repo_path: &str, session: &Session, materialize: Option<Materialize>) -> Result<SessionView> {
-  view_state(git_executor, repo_path, session.state(), session.round_objects(), materialize)
+pub fn view_session(git_executor: &GitCommandExecutor, repo_path: &str, session: &Session, materialize: Option<Materialize>, detail: ViewDetail) -> Result<SessionView> {
+  view_state(git_executor, repo_path, session.state(), session.round_objects(), materialize, detail)
 }
 
 /// The view of `state`; `objects` of its round when the step read them already
-fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, objects: Option<&RoundObjects>, materialize: Option<Materialize>) -> Result<SessionView> {
+fn view_state(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  state: &SessionState,
+  objects: Option<&RoundObjects>,
+  materialize: Option<Materialize>,
+  detail: ViewDetail,
+) -> Result<SessionView> {
   let root = session_root(state);
-  let landed_dropped = landed_dropped(git_executor, repo_path, state);
+  let round_commit = state.conflict.as_ref().map(|conflict| conflict.commit.as_str());
+  let (dropped, mut twins) = drops_and_twins(git_executor, repo_path, state, round_commit, detail);
+  let landed_as = round_commit.and_then(|commit| {
+    let candidate = state.candidate_of(commit)?;
+    twins.iter().find(|twin| twin.commit == candidate.commit).cloned()
+  });
+  // the twins of the commits not replayed yet whose drop loses lines: the user decides them, all in one question
+  let pending: HashSet<&str> = state.local[state.replayed.min(state.local.len())..].iter().map(String::as_str).collect();
+  twins.retain(|twin| !twin.is_same() && pending.contains(twin.commit.as_str()));
+  let landed_differs = if detail == ViewDetail::Full { twins } else { Vec::new() };
+  let dropped_count = dropped_count(state);
   let blocked_paths = if state.status == SessionStatus::Applied {
     Vec::new()
   } else {
@@ -152,7 +228,10 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
       root,
       round: None,
       blocked_paths,
-      landed_dropped,
+      detail,
+      dropped,
+      dropped_count,
+      landed_differs,
     });
   };
   let read;
@@ -207,7 +286,7 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
       subject: subject.to_string(),
       body: body.to_string(),
       author: author.to_string(),
-      likely_landed: state.likely_landed.contains(&conflict.commit),
+      landed_as,
     },
     patch,
     files,
@@ -222,7 +301,10 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
     root,
     round: Some(round),
     blocked_paths,
-    landed_dropped,
+    detail,
+    dropped,
+    dropped_count,
+    landed_differs,
   })
 }
 
@@ -239,19 +321,112 @@ fn subjects_of(git_executor: &GitCommandExecutor, repo_path: &str, ids: &[&str])
     .collect()
 }
 
-/// The commits of `state.landed_dropped` with their subjects (`with_subjects`)
-fn landed_dropped(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Vec<(LandedDrop, String)> {
-  with_subjects(git_executor, repo_path, &state.landed_dropped)
+/// How many local commits a session dropped so far: those the pairing left out and those of the rounds
+fn dropped_count(state: &SessionState) -> usize {
+  state.landed_dropped.len() + state.resolutions.iter().filter(|resolution| resolution.dropped()).count()
 }
 
-/// Each of `drops` with the subject of its local commit, with one `log --no-walk` when there are any
-pub(crate) fn with_subjects(git_executor: &GitCommandExecutor, repo_path: &str, drops: &[LandedDrop]) -> Vec<(LandedDrop, String)> {
+/// The dropped commits of `state` (with `ViewDetail::Full`) and the twins of its candidates (with `ViewDetail::Full`
+/// all of them, else only that of `round_commit`), with their subjects: one `diff-tree` of the twins and one
+/// `log --no-walk`, each only when there is something to read. A failure only leaves the reports out
+fn drops_and_twins(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  state: &SessionState,
+  round_commit: Option<&str>,
+  detail: ViewDetail,
+) -> (Vec<DroppedCommit>, Vec<LandedTwin>) {
+  let full = detail == ViewDetail::Full;
+  let mut dropped: Vec<DroppedCommit> = Vec::new();
+  if full {
+    for drop in &state.landed_dropped {
+      dropped.push(DroppedCommit {
+        commit: drop.commit.clone(),
+        subject: String::new(),
+        upstream: Some(drop.upstream.clone()),
+        proof: DropProof::Pairing(drop.proof),
+      });
+    }
+    for resolution in state.resolutions.iter().filter(|resolution| resolution.dropped()) {
+      let (upstream, proof) = match &resolution.landed {
+        Some(landed) => (Some(landed.upstream.clone()), DropProof::Landed),
+        None if resolution.by_words() => (None, DropProof::Empty),
+        None => (state.candidate_of(&resolution.commit).map(|candidate| candidate.upstream.clone()), DropProof::User),
+      };
+      dropped.push(DroppedCommit {
+        commit: resolution.commit.clone(),
+        subject: String::new(),
+        upstream,
+        proof,
+      });
+    }
+  }
+  let round_candidate = round_commit.and_then(|commit| state.candidate_of(commit));
+  let candidates: Vec<_> = if full {
+    state.landed_candidates.iter().collect()
+  } else {
+    round_candidate.into_iter().collect()
+  };
+  let pairs: Vec<(Vec<&str>, &str)> = candidates.iter().map(|candidate| (candidate.unit().collect(), candidate.upstream.as_str())).collect();
+  let diffs = interdiffs(git_executor, repo_path, &pairs).unwrap_or_else(|e| {
+    warn!(error = %format!("{e:#}"), "can't compare the landed candidates with their upstream commits");
+    Vec::new()
+  });
+  let ids: Vec<&str> = dropped
+    .iter()
+    .map(|drop| drop.commit.as_str())
+    .chain(candidates.iter().flat_map(|candidate| [candidate.commit.as_str(), candidate.upstream.as_str()]))
+    .collect();
+  let subjects = if ids.is_empty() { HashMap::new() } else { subjects_of(git_executor, repo_path, &ids) };
+  let subject = |id: &str| subjects.get(id).cloned().unwrap_or_default();
+  for drop in &mut dropped {
+    drop.subject = subject(&drop.commit);
+  }
+  let twins = candidates
+    .iter()
+    .zip(diffs)
+    .map(|(candidate, interdiff)| LandedTwin {
+      commit: candidate.commit.clone(),
+      subject: subject(&candidate.commit),
+      upstream: candidate.upstream.clone(),
+      upstream_subject: subject(&candidate.upstream),
+      interdiff,
+    })
+    .collect();
+  (dropped, twins)
+}
+
+/// `dropped` with the commits of `landed` that it lacks: the replay dropped them as empty, so the landed report found
+/// them gone (`find_landed`), each with the upstream commit of its identity when there is one
+pub(crate) fn with_empty_drops(mut dropped: Vec<DroppedCommit>, landed: &[LandedBranch]) -> Vec<DroppedCommit> {
+  let known: HashSet<String> = dropped.iter().map(|drop| drop.commit.clone()).collect();
+  for commit in landed.iter().flat_map(|branch| &branch.commits).filter(|commit| !known.contains(&commit.id)) {
+    dropped.push(DroppedCommit {
+      commit: commit.id.clone(),
+      subject: commit.subject.clone(),
+      upstream: commit.upstream.as_ref().map(|upstream| upstream.id.clone()),
+      proof: DropProof::Empty,
+    });
+  }
+  dropped
+}
+
+/// Each of `drops` as a dropped commit with the subject of its local commit, with one `log --no-walk` when there are any
+pub(crate) fn with_subjects(git_executor: &GitCommandExecutor, repo_path: &str, drops: &[LandedDrop]) -> Vec<DroppedCommit> {
   if drops.is_empty() {
     return Vec::new();
   }
   let ids: Vec<&str> = drops.iter().map(|drop| drop.commit.as_str()).collect();
   let subjects = subjects_of(git_executor, repo_path, &ids);
-  drops.iter().map(|drop| (drop.clone(), subjects.get(&drop.commit).cloned().unwrap_or_default())).collect()
+  drops
+    .iter()
+    .map(|drop| DroppedCommit {
+      commit: drop.commit.clone(),
+      subject: subjects.get(&drop.commit).cloned().unwrap_or_default(),
+      upstream: Some(drop.upstream.clone()),
+      proof: DropProof::Pairing(drop.proof),
+    })
+    .collect()
 }
 
 /// Start the session of an update whose check conflicted, under the lock the update holds and passes as `lock`, which a
@@ -280,7 +455,7 @@ pub(crate) fn start_resolve(
       resolve,
     },
   )?;
-  outcome(git_executor, repo_path, step, None, Some(grouping), Some(lock))
+  outcome(git_executor, repo_path, step, None, Some(grouping), Some(lock), ViewDetail::Full)
 }
 
 /// What `bd update --continue` passes
@@ -294,6 +469,8 @@ pub struct ContinueOptions {
   pub allow_empty: bool,
   /// `--drop-empty <commit>`: drop the round's commit when its resolution has no changes
   pub drop_empty: Option<String>,
+  /// `--landed <commit> [--user]`: take `onto` for every file and drop the round's commit as its upstream twin
+  pub landed: Option<LandedInput>,
 }
 
 /// `bd update --continue`, under the repository lock: read the `edit` copies of the open round, commit the round,
@@ -312,7 +489,9 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
   let session = read_session(git_executor, repo_path, &worktree.id)?.ok_or_else(|| anyhow::Error::new(NoSession { worktree: worktree.id.clone() }))?;
   let previous = session.state().clone();
   let mut edits = HashMap::new();
-  if let Some(conflict) = &previous.conflict {
+  if let Some(conflict) = &previous.conflict
+    && options.landed.is_none()
+  {
     for file in &conflict.files {
       let decided = options.deletes.contains(&file.path) || options.takes.iter().any(|(_, path)| *path == file.path);
       if !decided {
@@ -326,11 +505,12 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
     edits,
     allow_empty: options.allow_empty,
     drop_empty: options.drop_empty.clone(),
+    landed: options.landed.clone(),
   };
   let resolve = ConfigSnapshot::read(git_executor, repo_path)?.resolve_mode()?;
   let step = continue_session(git_executor, repo_path, &worktree, session, options.round, &input, options.dry_run, resolve)
     .map_err(|e| explain_refusal(git_executor, repo_path, &previous, e))?;
-  outcome(git_executor, repo_path, step, Some(&previous), None, lock)
+  outcome(git_executor, repo_path, step, Some(&previous), None, lock, ViewDetail::Round)
 }
 
 /// A refused resolution with the absolute `edit` copy of each path, and, for leftover markers or a missing resolution,
@@ -359,7 +539,7 @@ fn explain_refusal(git_executor: &GitCommandExecutor, repo_path: &str, state: &S
 
 /// The outcome of a step: the copies of a new round are written and those of the closed one removed, under `lock`. A
 /// finished session removes its copies, then releases it: the update is done, and what it landed is a report, read
-/// without the lock
+/// without the lock. `detail` is that of the view of an open round
 fn outcome(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -367,6 +547,7 @@ fn outcome(
   previous: Option<&SessionState>,
   grouping: Option<&GroupingInputs>,
   lock: Option<RepositoryLock>,
+  detail: ViewDetail,
 ) -> Result<SessionOutcome> {
   let closed = |state: &SessionState| {
     if let Some(previous) = previous
@@ -379,18 +560,18 @@ fn outcome(
   match step {
     Step::Round(session) => {
       closed(session.state());
-      let view = view_session(git_executor, repo_path, &session, Some(Materialize::All))?;
+      let view = view_session(git_executor, repo_path, &session, Some(Materialize::All), detail)?;
       Ok(SessionOutcome::Round(view))
     }
     Step::Blocked { session, paths } => {
       closed(session.state());
       Ok(SessionOutcome::Blocked {
-        view: view_session(git_executor, repo_path, &session, None)?,
+        view: view_session(git_executor, repo_path, &session, None, detail)?,
         paths,
       })
     }
     Step::Checked { session, resolution } => Ok(SessionOutcome::Checked {
-      view: view_session(git_executor, repo_path, &session, None)?,
+      view: view_session(git_executor, repo_path, &session, None, detail)?,
       resolution,
     }),
     Step::Applied { session, previous_head } => {
@@ -410,15 +591,14 @@ fn outcome(
         fetched_at: None,
         resolved_by_words: words_commits(git_executor, repo_path, &state.resolutions),
       };
-      // a commit that a resolution dropped is not on the upstream unless an upstream commit has its identity (a likely
-      // landed one, the agent took `onto`); one that the words left empty is, as `git replay` drops it
-      let dropped: Vec<String> = state
+      // a commit that `--landed` dropped landed as its twin, which has its identity; one that `--drop-empty` dropped
+      // without a twin is the user's drop and did not land; one that the words left empty did, as `git replay` drops it
+      let not_landed: Vec<String> = state
         .resolutions
         .iter()
-        .filter(|resolution| resolution.dropped() && !resolution.by_words())
+        .filter(|resolution| resolution.dropped() && !resolution.by_words() && resolution.landed.is_none() && state.candidate_of(&resolution.commit).is_none())
         .map(|resolution| resolution.commit.clone())
         .collect();
-      let not_landed: Vec<String> = dropped.iter().filter(|commit| !state.likely_landed.contains(commit)).cloned().collect();
       let read;
       let grouping = if let Some(grouping) = grouping {
         grouping
@@ -435,19 +615,14 @@ fn outcome(
       };
       let landed = record_landed_update(git_executor, repo_path, &report, grouping);
       let replayed = count(git_executor, repo_path, &new_head, &state.upstream_head)?;
-      let dropped_by_resolution = u32::try_from(dropped.len()).unwrap_or(u32::MAX);
-      let dropped_already_upstream = u32::try_from(state.total())
-        .unwrap_or(u32::MAX)
-        .saturating_sub(replayed)
-        .saturating_sub(dropped_by_resolution)
-        .saturating_add(u32::try_from(state.landed_dropped.len()).unwrap_or(u32::MAX));
+      let mut view = view_state(git_executor, repo_path, state, None, None, ViewDetail::Full)?;
+      view.dropped = with_empty_drops(std::mem::take(&mut view.dropped), &landed);
+      view.dropped_count = view.dropped.len();
       Ok(SessionOutcome::Applied {
-        view: view_state(git_executor, repo_path, state, None, None)?,
+        view,
         previous_head,
         new_head,
         replayed,
-        dropped_already_upstream,
-        dropped_by_resolution,
         landed,
       })
     }
@@ -550,7 +725,7 @@ pub fn session_status(git_executor: &GitCommandExecutor, repo_path: &str, materi
     let state = session.state();
     let is_own = state.worktree == worktree.id && state.git_dir == worktree.git_dir;
     if is_own {
-      own = Some(view_session(git_executor, repo_path, session, materialize)?);
+      own = Some(view_session(git_executor, repo_path, session, materialize, ViewDetail::Full)?);
     }
     summaries.push(SessionSummary {
       state: state.clone(),
