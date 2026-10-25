@@ -138,6 +138,10 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
     AppState {
       repositories: DashMap::new(),
       path_to_id: DashMap::new(),
+      landing_gate: Arc::new(state::TestLandingGate {
+        git_executor: git_executor.clone(),
+        kept: trial_check::landing_gate::KeptChecks::default(),
+      }),
       git_executor,
       test_root_dir,
       templates,

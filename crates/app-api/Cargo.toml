@@ -17,7 +17,6 @@ git-ops = { path = "../git-ops" }
 github = { path = "../github" }
 history-rewrite = { path = "../history-rewrite" }
 sync-core = { path = "../sync-core" }
-trial-check = { path = "../trial-check" }
 update-core = { path = "../update-core" }
 youtrack = { path = "../youtrack" }
 anyhow.workspace = true

@@ -14,6 +14,7 @@
 //!   (`robot_landing`), once per state of the branches (`ContentMemo`).
 
 use crate::branch_table::BranchTable;
+use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::robot_match::{RobotIndex, RobotMatches, Tips, match_table};
 use domain_types::landing::{LandingRefusal, Subject};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
@@ -27,7 +28,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use sync_core::patronus_start::{is_pushing_robot, is_robot_active};
 use sync_core::robot_landing::{robot_landings_of_grouped, robot_spans_of_grouped};
 use tracing::{debug, instrument};
-use trial_check::landing_gate::name_landing_robots;
 
 /// How many answers a memo keeps of each kind before it starts again
 const MEMO_LIMIT: usize = 512;

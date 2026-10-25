@@ -1,9 +1,9 @@
 use crate::branch_table::BranchTable;
+use crate::facts::TableFacts;
 use crate::patronus_view::patronus_view_test::{chain, merged, robot, running, stack_robot};
-use crate::push_guard::GuardFacts;
 use crate::push_guard::push_guard_test::stacked_chain;
+use crate::push_guard::{GuardFacts, guard_facts};
 use crate::start_guard::{CancelCheck, check_cancel, check_restart, check_start};
-use crate::views::RepositoryViews;
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackMemberBlock};
@@ -13,12 +13,10 @@ use pretty_assertions::assert_eq;
 const SAFE_PUSH: PatronusPushMode = PatronusPushMode::RebaseAutosquash;
 const DRY_RUN: PatronusPushMode = PatronusPushMode::DryRun;
 
-/// The facts of a start from `table` with `robots`, as the app's command reads them: the table kept by the views, the
-/// robots matched as the rows match them; git is never asked (no repository: the hashes tell)
+/// The facts of a start from `table` with `robots`, as the app's command reads them: the table of the session's last
+/// sync, the robots matched as the rows match them; git is never asked (no repository: the hashes tell)
 fn facts(table: BranchTable, robots: &[PatronusRobot]) -> GuardFacts {
-  let views = RepositoryViews::default();
-  views.keep("/nonexistent", "test", table);
-  views.guard_facts(&GitCommandExecutor::new(), "/nonexistent", "test", robots.to_vec()).unwrap()
+  guard_facts(&GitCommandExecutor::new(), "/nonexistent", &TableFacts::new(table), robots.to_vec())
 }
 
 fn refused(text: &str) -> Result<(), String> {

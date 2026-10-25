@@ -30,6 +30,7 @@ default = []
 specta = ["dep:specta", "sync-core/specta", "history-rewrite/specta", "domain-types/specta", "git-ops/specta"]
 
 [dev-dependencies]
+domain-policy = { path = "../domain-policy" }
 history-rewrite = { path = "../history-rewrite", features = ["test-commit"] }
 test-utils = { path = "../test-utils" }
 pretty_assertions = { workspace = true }

@@ -512,15 +512,15 @@ pub async fn undo_reapply_branch(
   )
 }
 
-/// `check_landing_gate` of the app: the same check (`RemoteActions::check_landing`, on the robots of the fake Patronus),
-/// without the object cache
+/// `check_landing_gate` of the app: the same check (`RemoteActions::check_landing`, on the robots of the fake Patronus,
+/// through the landing gate of the server, without the object cache)
 pub async fn check_landing_gate(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<trial_check::landing_gate::LandingGateParams>,
-) -> CommandResult<trial_check::landing_gate::LandingCheck> {
+  Json(params): Json<domain_types::landing::LandingGateParams>,
+) -> CommandResult<domain_types::landing::LandingCheck> {
   let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
   let actions = inputs.actions(&state);
-  let check = actions.check_landing(ObjectCache::disabled, &params).await;
+  let check = actions.check_landing(&params).await;
   check.map(Json).map_err(|e| failed("check the landing gate", e))
 }
 
@@ -803,7 +803,7 @@ async fn guarded_push<T: serde::Serialize + Send + 'static>(
     let ticket = register_wait(&state.lock_waits, channel, |_| {});
     let canceled = canceled_by(&ticket);
     let pushed = actions
-      .push_branches(&state.sessions, common_dir, params, move |tick| progress.send(&tick), canceled)
+      .push_branches(common_dir, params, move |tick| progress.send(&tick), canceled)
       .await
       .and_then(|answer| answer.try_map(outcome));
     canceled_code(pushed.map(Json).map_err(|e| failed(operation, e)), &ticket)
@@ -832,9 +832,10 @@ async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> R
 }
 
 /// What the app's actions on the remote run on (`repository_model::actions`), as the app's commands have it: the fake's
-/// service with the Space repository (none while no Patronus fixture put the repository on Space), the views of the server
+/// service with the Space repository (none while no Patronus fixture put the repository on Space), the sessions and the
+/// landing gate of the server
 fn remote_actions<'a>(state: &'a AppState, service: Option<&'a PatronusService>, space: Option<&'a SpaceRepository>, branch_prefix: &'a str) -> RemoteActions<'a> {
-  RemoteActions::new(service.zip(space), &state.git_executor, &state.repository_views, branch_prefix)
+  RemoteActions::new(service.zip(space), &state.git_executor, &state.sessions, &state.landing_gate, branch_prefix)
 }
 
 /// What the `RemoteActions` of a command on the test repository are built of, owned by the command: the prefix resolved
@@ -1422,7 +1423,7 @@ pub async fn get_branch_review_readiness(
 }
 
 /// Starts a Safe Push or a Dry Run from the pull request's comment, as the app does: the checks of a start of the
-/// user's own branch first (`RemoteActions::check_start_from_pull_request`, without the object cache), then the fake
+/// user's own branch first (`RemoteActions::check_start_from_pull_request`, the landing gate without the object cache), then the fake
 /// GitHub posts it and its Patronus bot answers (`POST /repositories/{id}/patronus-replies`)
 pub async fn post_patronus_command(State(state): State<Arc<AppState>>, Json(params): Json<PostPatronusCommandParams>) -> CommandResult<PatronusCommandComment> {
   let operation = "post the Patronus command";
@@ -1430,7 +1431,7 @@ pub async fn post_patronus_command(State(state): State<Arc<AppState>>, Json(para
   if params.subject == PatronusCommandSubject::OwnBranch {
     let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
     let actions = inputs.actions(&state);
-    let checked = actions.check_start_from_pull_request(ObjectCache::disabled, &params).await;
+    let checked = actions.check_start_from_pull_request(&params).await;
     checked.map_err(|e| failed(operation, e))?;
   }
   let posted = core_post_patronus_command(
@@ -1499,7 +1500,7 @@ pub async fn start_patronus_robot(State(state): State<Arc<AppState>>, Json(param
   let operation = "start the Patronus robot";
   let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
   let actions = inputs.actions(&state);
-  let robot = actions.start_robot(ObjectCache::disabled, &params).await.map_err(|e| failed(operation, e))?;
+  let robot = actions.start_robot(&params).await.map_err(|e| failed(operation, e))?;
   write_robot(&state, &params.repository_path, inputs.branch_prefix.clone(), &robot).await;
   Ok(Json(robot))
 }

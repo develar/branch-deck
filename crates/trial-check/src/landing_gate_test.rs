@@ -2,7 +2,8 @@
 //! would give, by one trial check of every branch
 
 use crate::check::CheckSession;
-use crate::landing_gate::{check_landing_gate, landing_needs, landing_needs_of, name_landing_robots};
+use crate::landing_gate::{check_landing_gate, landing_needs, landing_needs_of};
+use domain_policy::landing_needs::name_landing_robots;
 use domain_types::landing::{LandingFix, LandingRefusal, Subject};
 use domain_types::repository_view::RobotOf;
 use git_executor::git_command_executor::GitCommandExecutor;

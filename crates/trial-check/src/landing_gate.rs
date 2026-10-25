@@ -11,25 +11,25 @@
 //! carries the fix the user can run (`LandingFix`).
 //!
 //! `landing_needs` asks the same of every branch before any start, in one trial check of all of them: what the Safe
-//! Push of each branch would be refused for, by the same rule (`refuses`). The repository view computes it in the
-//! background after a sync (`landing_needs_of`), the row says "Needs util" with the fix (spec/branch/next-step.spec.md),
-//! and `bd status` lists it.
+//! Push of each branch would be refused for, by the same rule (`refuses`). The session of the repository computes it as
+//! a fact after a sync (`landing_needs_of`, through its host), the row says "Needs util" with the fix
+//! (spec/branch/next-step.spec.md), and `bd status` lists it. The check of a start is kept with its inputs
+//! (`KeptChecks`), so the start reuses the check of its popover.
 
 use crate::check::{CheckReport, CheckSession};
 use crate::dangling_references::DanglingKind;
 use crate::missing_declarations::{MissingDeclaration, missing_declarations};
-use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind, StackCommit, Subject};
+use domain_types::landing::{LandingCheck, LandingFix, LandingGateParams, LandingRefusal, ReferenceKind, StackCommit, Subject};
 use domain_types::patronus::LandingAllowances;
-use domain_types::repository_view::RobotOf;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::refs_and_config_hash;
 use history_rewrite::regroup::RegroupError;
 use object_cache::cache::ObjectCache;
-use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
-use tracing::instrument;
+use std::sync::{Mutex, MutexGuard, PoisonError};
+use tracing::{debug, instrument};
 
 /// The check of a start: what lands, its trial report and the names it misses
 #[derive(Debug, Clone)]
@@ -83,7 +83,7 @@ pub fn check_landing_gate(session: &CheckSession, subject: &Subject, landed: &Ha
 
 /// What the Safe Push of each branch needs that a branch outside it adds, the refusals `check_landing_gate` would give
 /// its start, from one trial check of every branch and one search of the missing declarations in `session`; `landed` as
-/// there. Only the branches with a refusal are listed. The repository view computes it in the background after a sync
+/// there. Only the branches with a refusal are listed. The session of the repository computes it as a fact after a sync
 /// (`landing_needs_of`), `bd status` with its sync
 #[instrument(skip(session, landed))]
 pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result<BTreeMap<String, Vec<LandingRefusal>>, RegroupError> {
@@ -108,7 +108,7 @@ pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result
   Ok(needs)
 }
 
-/// `landing_needs` in a session of the current grouping: the background computation of the repository view
+/// `landing_needs` in a session of the current grouping: the fact of the session of the repository, `bd status`
 #[instrument(skip(git_executor, cache, landed))]
 pub fn landing_needs_of(
   git_executor: &GitCommandExecutor,
@@ -119,16 +119,6 @@ pub fn landing_needs_of(
 ) -> Result<BTreeMap<String, Vec<LandingRefusal>>, RegroupError> {
   let session = CheckSession::open(git_executor, repository_path, branch_prefix, cache)?;
   landing_needs(&session, landed)
-}
-
-/// Names in each missing declaration of `refusals` the running Safe Push that lands the branch adding the name
-/// (`landing_of`, by branch): a start beside it fails all the same, its robot tests that branch without this one
-pub fn name_landing_robots(refusals: &mut [LandingRefusal], landing_of: impl Fn(&str) -> Option<RobotOf>) {
-  for refusal in refusals {
-    if let LandingRefusal::MissingDeclaration { declared_by, landing_in, .. } = refusal {
-      *landing_in = if declared_by.branch.is_empty() { None } else { landing_of(&declared_by.branch) };
-    }
-  }
 }
 
 /// The one rule of a missing declaration that refuses a start: a commit of what lands (`lands`) uses a name that a commit
@@ -271,49 +261,8 @@ impl Landing<'_> {
   }
 }
 
-/// What the app asks before a start (`check_landing_gate`), and the start itself (`start_patronus_robot`)
-#[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct LandingGateParams {
-  pub repository_path: String,
-  /// The branch that starts; with `stack` the root of the whole stack
-  pub branch_name: String,
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub stack: bool,
-  /// What the user starts anyway
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub allow: LandingAllowances,
-}
-
-impl LandingGateParams {
-  /// What the start lands: `branch_name`, or with `stack` the whole stack of that root
-  pub fn subject(&self) -> Subject {
-    let name = self.branch_name.clone();
-    if self.stack { Subject::WholeStack { root: name } } else { Subject::Branch { name } }
-  }
-}
-
-/// The refusals that hold a start back after the user's overrides; empty: it starts
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct LandingCheck {
-  pub refusals: Vec<LandingRefusal>,
-}
-
-/// The start of `subject` is refused: the first refusal names why
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("{}", refused_message(.subject, .refusals))]
-pub struct LandingRefused {
-  pub subject: String,
-  pub refusals: Vec<LandingRefusal>,
-}
-
 /// The check of the start `params` asks, in a session of the current grouping; `landed` are the commits (original ids)
-/// merged Safe Pushes landed as the repository view names them (`repository_model::patronus_view::landed_commits`, on the
+/// merged Safe Pushes landed as the Patronus view names them (`repository_model::patronus_view::landed_commits`, on the
 /// robots Rust reads), whose names the target has; the branches are named under `branch_prefix`
 #[instrument(skip(git_executor, cache, landed), fields(landed = landed.len()))]
 pub fn landing_check(
@@ -330,41 +279,64 @@ pub fn landing_check(
   })
 }
 
-/// The inputs of `landing_check` of `params` with `landed`, as one hash: the refs and the config the session reads
-/// (`refs_and_config_hash`, two processes), the prefix, the subject, the overrides and the landed commits. The check is a
-/// function of them, so a check of the same inputs gives the same refusals: the start reuses the check of its popover
-/// (`RepositoryViews::landing_check`) instead of a session and a trial of its own. Equal only within one process
+/// The inputs of `landing_check` of `params` with `landed`, as one hash: the repository, the refs and the config the
+/// session reads (`refs_and_config_hash`, two processes), the prefix, the subject, the overrides and the landed commits.
+/// The check is a function of them, so a check of the same inputs gives the same refusals: the start reuses the check of
+/// its popover (`KeptChecks`) instead of a session and a trial of its own. Equal only within one process
 pub fn landing_check_inputs(git_executor: &GitCommandExecutor, branch_prefix: &str, params: &LandingGateParams, landed: &HashSet<String>) -> anyhow::Result<u64> {
   let mut hasher = DefaultHasher::new();
+  params.repository_path.hash(&mut hasher);
   refs_and_config_hash(git_executor, &params.repository_path)?.hash(&mut hasher);
   (branch_prefix, &params.branch_name, params.stack, params.allow.allow_dangling, params.allow.allow_missing).hash(&mut hasher);
   landed.iter().collect::<BTreeSet<_>>().hash(&mut hasher);
   Ok(hasher.finish())
 }
 
-/// `check` of the start `params`, refused as `LandingRefused` when a refusal holds the start back: the start of the app
-/// checks it before it asks Patronus
-pub fn ensure_landing_starts(params: &LandingGateParams, check: LandingCheck) -> anyhow::Result<()> {
-  if check.refusals.is_empty() {
-    return Ok(());
-  }
-  Err(
-    LandingRefused {
-      subject: params.subject().words(),
-      refusals: check.refusals,
-    }
-    .into(),
-  )
+/// How many landing checks a process keeps: those the popovers asked last, of every repository
+const KEPT_CHECKS: usize = 32;
+
+/// The last landing checks of a process with the hash of their inputs (`landing_check_inputs`), the oldest first: the
+/// gate the app's and the E2E server's starts and popovers check through (`repository_model::landing::LandingGate`)
+#[derive(Debug, Default)]
+pub struct KeptChecks {
+  kept: Mutex<VecDeque<(u64, LandingCheck)>>,
 }
 
-/// "auth would not build: … (2 more)"
-fn refused_message(subject: &str, refusals: &[LandingRefusal]) -> String {
-  let Some(first) = refusals.first() else { return format!("{subject} builds") };
-  let more = match refusals.len() - 1 {
-    0 => String::new(),
-    rest => format!(" ({rest} more)"),
-  };
-  format!("{subject} would not build: {}{more}", first.reason())
+impl KeptChecks {
+  /// The landing check of the start `params` with `landed` (`landing_check`): the one kept for the same inputs, else a
+  /// check now, kept. The start right after the check of its popover, and a second click, run the two processes of the
+  /// inputs instead of a session and a trial; a commit, a sync, a fetch or a moved store in between is another input,
+  /// checked anew. Blocking
+  ///
+  /// # Errors
+  /// What reading the inputs or the check failed with
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack))]
+  pub fn check(
+    &self,
+    git_executor: &GitCommandExecutor,
+    cache: &ObjectCache,
+    branch_prefix: &str,
+    params: &LandingGateParams,
+    landed: &HashSet<String>,
+  ) -> anyhow::Result<LandingCheck> {
+    let inputs = landing_check_inputs(git_executor, branch_prefix, params, landed)?;
+    if let Some((_, check)) = self.lock().iter().find(|(known, _)| *known == inputs) {
+      debug!("the landing check of these inputs is kept");
+      return Ok(check.clone());
+    }
+    let check = landing_check(git_executor, cache, branch_prefix, params, landed)?;
+    let mut kept = self.lock();
+    if kept.len() == KEPT_CHECKS {
+      kept.pop_front();
+    }
+    kept.push_back((inputs, check.clone()));
+    Ok(check)
+  }
+
+  /// The kept checks; a poisoned lock (a panic in a check) keeps what it had
+  fn lock(&self) -> MutexGuard<'_, VecDeque<(u64, LandingCheck)>> {
+    self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+  }
 }
 
 #[cfg(test)]

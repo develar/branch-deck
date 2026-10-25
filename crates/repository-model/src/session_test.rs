@@ -426,11 +426,11 @@ async fn two_worktrees_of_one_repository_are_two_sessions() {
   assert_eq!(branch_names(&main_view), ["alpha", "beta"]);
   assert_eq!(branch_names(&other_view), ["gamma"]);
   assert_ne!(main_view.version.epoch, other_view.version.epoch);
-  // the table each sync finished answers the repository views of its worktree and prefix
-  let git = GitCommandExecutor::new();
+  // the table each sync finished is the table of the session of its worktree and prefix, which the guards read
   for key in [&main, &other] {
-    let facts = views.guard_facts(&git, &key.worktree, &key.prefix, Vec::new());
-    assert!(facts.is_some(), "the views keep the table of {key:?}");
+    let table = sessions.table(key).await.expect("the session keeps the table of its sync");
+    assert_eq!(table.table.branches.len(), branch_names(&snapshot(&sessions, key).await).len(), "{key:?}");
+    assert!(views.keeps(&key.worktree, &key.prefix), "the views keep the table of {key:?}");
   }
 }
 

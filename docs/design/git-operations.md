@@ -2690,14 +2690,17 @@ Anyway). It writes objects only, never a ref: the symbol graph costs one `log --
 session of its dangling references (`session_of_sync`, no second `log` of the commits); the app opens a session of the
 current grouping (`CheckSession::open`) before the push (`checkLandingBeforeStart`), and the start command checks again
 before it asks Patronus (`start_patronus_robot`, `ensure_landing_starts`), so no surface starts past it. Both checks go
-through `RepositoryViews::landing_check`, which keeps the last checks of a repository with their inputs
-(`landing_check_inputs`: `git_ops::revs::refs_and_config_hash`, one `for-each-ref` of the checked-out branch and every
-branch, remote-tracking branch, store and notes ref and one `config --list -z`, with the prefix, the subject, the
-overrides and the landed commits): the check is a function of them, so the start right after the check of its
-popover (the push in between moves no local ref) answers from it with those two processes instead of a session and a
-trial (18 processes on the fixture of `repository-model`'s `process_budget_test`, a log of every commit ahead in the
-monorepo), and a commit, a sync, a fetch or a moved store in between checks anew. The E2E server runs the same core
-without the object cache, and keeps the checks the same way.
+through the landing gate of the host (`repository_model::landing::LandingGate`, which the model only names: the app's
+`AppLandingGate` and the E2E server's `TestLandingGate` answer it with `trial_check::landing_gate::KeptChecks`), which
+keeps the last checks of the process with their inputs (`landing_check_inputs`: the repository,
+`git_ops::revs::refs_and_config_hash`, one `for-each-ref` of the checked-out branch and every branch, remote-tracking
+branch, store and notes ref and one `config --list -z`, with the prefix, the subject, the overrides and the landed
+commits): the check is a function of them, so the start right after the check of its popover (the push in between
+moves no local ref) answers from it with those two processes instead of a session and a trial (18 processes on the
+fixture of `trial-check`'s `the_landing_check_of_a_start_reuses_the_check_of_its_popover`, a log of every commit ahead
+in the monorepo), and a commit, a sync, a fetch or a moved store in between checks anew. The E2E server runs the same
+core without the object cache, and keeps the checks the same way. The wire types of the gate (`LandingGateParams`,
+`LandingCheck`, `LandingRefused`) are of `domain_types::landing`.
 
 The same rule answers before any start, for every branch (`landing_needs`, the landing needs of the
 [repository view](#repository-view)): one trial check of every branch (`CheckSession::check`, the dangling references
@@ -2706,7 +2709,7 @@ the one predicate of the gate (`refuses`: a use by a commit of what lands of a n
 no merged Safe Push landed). The types are of `domain_types::landing` (`LandingRefusal`, `LandingFix`, `StackCommit`); a
 dangling reference carries its fix too (the restack onto the branch of the commit that changes the use, or its move),
 and a missing declaration the running Safe Push that lands the branch adding the name (`landing_in`,
-`name_landing_robots`, from the holds and spans of the view). The app computes it in the background after a sync
+`domain_policy::landing_needs::name_landing_robots`, from the holds and spans of the view). The app computes it in the background after a sync
 (`landing_needs_of`, a session of the current grouping through the object cache), keyed by its inputs: the baseline,
 the tips of the table and the landed commits; while they stay, nothing is computed again. On the synced
 `util`/`flow`/`flow/ui` fixture it costs what a `bd check` of the synced branches costs, no `merge-tree` and no
@@ -2734,8 +2737,9 @@ check of the popover, `check_landing`):
    the page says "Not checked whether …". A start from the popover therefore costs three full lists (the landing
    check, the push, the start; a fourth to cancel the robot it replaces), pinned by
    `a_start_from_the_popover_asks_three_full_lists` of `remote_fixtures_test.rs`.
-2. The Patronus view of the kept table with them (`RepositoryViews::guard_facts`): no git where the hashes tell, else
-   the content walks of the memo. A repository not synced yet is refused.
+2. The Patronus view of the table of the last sync of the repository's session (`Sessions::table`) with them
+   (`push_guard::guard_facts`): no git where the hashes tell, else the content walks of the session's memo. A
+   repository not synced yet (its session never synced) is refused.
 3. The checks (`check_start`): a parked subject (the branch, one it is built on, any member of the whole stack), one
    merged Safe Pushes landed whole (`HoldKind::Landed`, every member for a whole stack), one the sync did not build (a
    branch of `not_built`, a stack branch that is not `built`: blocked, stale or conflicting as one branch, in the words
@@ -2973,8 +2977,9 @@ lacks, and its pull request showing the parent's commits.
    (`PushReport.canceled`). Only a lock no record names a live holder of refuses it after `DEFAULT_LOCK_TIMEOUT` ("Nothing was pushed: another
    Branch Deck operation holds the repository; try again when it is done"); `bd` keeps its bounded wait (`locked`).
    The lock is held only while the push is decided:
-   under it the checks of `bd push` on the table of `RepositoryViews` and the Patronus
-   view of the robots (`guard_facts`, through the memo of the views): a branch the table has no row of, a parked
+   under it the checks of `bd push` on the table of the last sync of the repository's session (`Sessions::table`, read
+   before the lock: a sync takes none, so one read under it would be no newer) and the Patronus view of the robots
+   (`guard_facts`, through the memo of the session): a branch the table has no row of, a parked
    branch or one built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (its own, of a
    branch built on it, of its whole stack), the stack branch of a whole stack with a parked member, landed whole, whose
    robot runs on it or that is not `built` (the page decided on a built one; a sync since takes no lock); an unapplied
@@ -2986,7 +2991,7 @@ lacks, and its pull request showing the parent's commits.
    push at once; while the push held the lock to its end, one of a branch pressed during a push of another longer than
    10 s was refused with the app itself as the holder.
 3. `push_branches` first refuses a branch the last sync did not build (`not_built_refusal`, by `SyncReport::not_built`,
-   which the Tauri commands take from the table of `RepositoryViews` and `bd` from its own sync): a conflict, an error
+   which the Tauri commands take from the table of the session and `bd` from its own sync): a conflict, an error
    or a ref another process moved leaves the virtual branch at an older build, of commits the branch may no longer
    have, and a push pressed while that sync ran would push it. Then it reads the tips of all branches with one
    `for-each-ref` (`prepare_push_expecting`), each leased on
@@ -3165,11 +3170,12 @@ robot's branch into a branch that is no ancestor of it, as the robot landing doe
 What Rust derives of the branch table for the page and for `bd`, so both read one rule, and the checks of the app's
 actions on it: the crate `repository-model`, which grows into the model of a repository
 ([Rust as the Domain Authority](rust-domain-authority.md)). It reaches no remote reader, no Update Project and no lease pool
-(`crates/bd-cli/src/architecture_test.rs`); its edges to `trial-check` (the landing needs, `prepare_robot_start`) and to
+(`crates/bd-cli/src/architecture_test.rs`); its edges to `trial-check` (the landing needs of `views.rs`) and to
 `patronus` (the client `RemoteActions` carries) are allowed until the stages that remove them. Its views are read-only; its guards (`push_guard`, the app's push, and
 `start_guard`, the start, restart and cancel of a robot and the landing check of the popover) are the whole sequence of
-the Tauri command and of the E2E server's route, the robots read by `PatronusService` and the git work in a blocking
-step. `BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the
+the Tauri command and of the E2E server's route, the robots read by `PatronusService`, the table of the last sync of
+the repository's session (`Sessions::table`, with the memo of its content walks), the landing gate of the host
+(`landing::LandingGate`) and the git work in a blocking step. `BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the
 table, their virtual tips, the copies the sync wrote (`SyncReport::copies`, recorded from its `CommitSynced` events: a
 mapping note read at the sync's start names the copy of before), the stack branches, the parked branches and the remote
 facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the remote tip of each branch from

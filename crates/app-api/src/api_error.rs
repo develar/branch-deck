@@ -8,7 +8,7 @@
 use app_settings::service::SettingsError;
 use cli_tools::install::ActionError;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHolderInfo};
-use domain_types::landing::LandingRefusal;
+use domain_types::landing::{LandingRefusal, LandingRefused};
 use file_diffs::accio::SearchCanceled;
 use git_executor::git_command_executor::StoppedCommand;
 use git_ops::index_lock::IndexLocked;
@@ -25,7 +25,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use sync_core::reapply_branch::ReapplyRefusal;
 use sync_core::sync::SyncDeferred;
 use sync_core::unapply_branch::UnapplyRefusal;
-use trial_check::landing_gate::LandingRefused;
 use update_core::update_project::{FetchFailed, NoUpstream};
 use youtrack::sign_in::SignInError;
 

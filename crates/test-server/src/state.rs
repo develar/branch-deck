@@ -28,6 +28,27 @@ pub struct AppState {
   pub sessions: std::sync::Arc<repository_model::session::Sessions>,
   /// The clock the sessions age on: it stands still, so no session of a test goes away by itself
   pub session_clock: sync_utils::clock::TestClock,
+  /// The landing gate the starts and the popovers check through, as the app's (`TestLandingGate`)
+  pub landing_gate: std::sync::Arc<dyn repository_model::landing::LandingGate>,
+}
+
+/// The landing gate of the server: the trial check of the test repository without the object cache, as every command of
+/// the server, the check of the same inputs kept as the app keeps it
+pub struct TestLandingGate {
+  pub git_executor: GitCommandExecutor,
+  pub kept: trial_check::landing_gate::KeptChecks,
+}
+
+impl repository_model::landing::LandingGate for TestLandingGate {
+  fn check(
+    &self,
+    branch_prefix: &str,
+    params: &domain_types::landing::LandingGateParams,
+    landed: &std::collections::HashSet<String>,
+  ) -> anyhow::Result<domain_types::landing::LandingCheck> {
+    let cache = object_cache::cache::ObjectCache::disabled();
+    self.kept.check(&self.git_executor, &cache, branch_prefix, params, landed)
+  }
 }
 
 impl AppState {

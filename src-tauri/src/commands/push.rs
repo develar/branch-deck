@@ -11,8 +11,6 @@ use domain_types::error::ApiError;
 use domain_types::session::ViewAnswer;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::lock_wait::LockWaits;
-use repository_model::session::Sessions;
-use repository_model::views::RepositoryViews;
 use std::path::PathBuf;
 use sync_core::patronus::SpaceRepository;
 use sync_core::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome};
@@ -29,14 +27,13 @@ use tracing::{instrument, warn};
 /// `progress` receives how far the push is, and whom it waits for while another holder has the repository lock (as long
 /// as it lives); `cancel_lock_wait` of the channel's id ends that wait, with nothing pushed.
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, patronus, views, sessions, lock_waits, settings, prefixes, progress))]
+#[instrument(skip(git_executor, repository_state, patronus, sessions, lock_waits, settings, prefixes, progress))]
 #[specta::specta]
 #[expect(clippy::too_many_arguments, reason = "the states of the app a Tauri command takes one by one")]
 pub async fn push_branch(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
-  views: State<'_, RepositoryViews>,
   sessions: State<'_, SessionsState>,
   lock_waits: State<'_, LockWaits>,
   settings: State<'_, SettingsService>,
@@ -46,7 +43,7 @@ pub async fn push_branch(
 ) -> Result<ViewAnswer<PushOutcome>, ApiError> {
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let host = PushHost::of(&repository_state, &patronus, &views, sessions.sessions(), &lock_waits, inputs);
+    let host = PushHost::of(&repository_state, &patronus, &sessions, &lock_waits, inputs);
     host.push(params.as_stack(), progress, PushOutcome::of_stack).await
   })
   .await
@@ -67,7 +64,6 @@ pub async fn push_branches(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
-  views: State<'_, RepositoryViews>,
   sessions: State<'_, SessionsState>,
   lock_waits: State<'_, LockWaits>,
   settings: State<'_, SettingsService>,
@@ -77,7 +73,7 @@ pub async fn push_branches(
 ) -> Result<ViewAnswer<PushBranchesOutcome>, ApiError> {
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let host = PushHost::of(&repository_state, &patronus, &views, sessions.sessions(), &lock_waits, inputs);
+    let host = PushHost::of(&repository_state, &patronus, &sessions, &lock_waits, inputs);
     host.push(params, progress, Ok).await
   })
   .await
@@ -87,8 +83,7 @@ pub async fn push_branches(
 struct PushHost<'a> {
   repository_state: &'a RepositoryStateCache,
   patronus: &'a PatronusState,
-  views: &'a RepositoryViews,
-  sessions: &'a Sessions,
+  sessions: &'a SessionsState,
   lock_waits: &'a LockWaits,
   prefix_inputs: PrefixInputs,
 }
@@ -97,15 +92,13 @@ impl<'a> PushHost<'a> {
   const fn of(
     repository_state: &'a RepositoryStateCache,
     patronus: &'a PatronusState,
-    views: &'a RepositoryViews,
-    sessions: &'a Sessions,
+    sessions: &'a SessionsState,
     lock_waits: &'a LockWaits,
     prefix_inputs: PrefixInputs,
   ) -> Self {
     Self {
       repository_state,
       patronus,
-      views,
       sessions,
       lock_waits,
       prefix_inputs,
@@ -124,11 +117,11 @@ impl<'a> PushHost<'a> {
     let git_executor = self.prefix_inputs.git.clone();
     let branch_prefix = self.prefix_inputs.resolve(&params.repository_path).await?;
     let (common_dir, space) = push_inputs(&git_executor, self.repository_state, self.patronus, &params.repository_path).await?;
-    let actions = remote_actions(self.patronus, space.as_ref(), &git_executor, self.views, &branch_prefix);
+    let actions = remote_actions(self.patronus, space.as_ref(), &git_executor, self.sessions, &branch_prefix);
     let ticket = register(self.lock_waits, progress.id(), |_| {});
     let canceled = canceled_by(&ticket);
     let pushed = actions
-      .push_branches(self.sessions, common_dir, params, move |push_progress| send_progress(&progress, push_progress), canceled)
+      .push_branches(common_dir, params, move |push_progress| send_progress(&progress, push_progress), canceled)
       .await;
     canceled_code(pushed.and_then(|answer| answer.try_map(outcome)).map_err(api_error), &ticket)
   }

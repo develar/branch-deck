@@ -20,16 +20,18 @@ use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
+use domain_types::landing::{LandingCheck, LandingGateParams};
 use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotsResult};
 use domain_types::session::{RefreshFactsParams, SetDemandParams, SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::fact_sources::{FactSources, Read};
 use remote_facts::scheduler::Scheduler;
+use repository_model::landing::LandingGate;
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::views::RepositoryViews;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
@@ -38,14 +40,17 @@ use sync_utils::clock::{Clock, SystemClock};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Webview};
 use tracing::instrument;
+use trial_check::landing_gate::KeptChecks;
 
 /// How often the app removes the sessions idle for `IDLE_LIMIT`
 const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 
-/// The sessions of the app and the subscriptions of each window, by label
+/// The sessions of the app, the subscriptions of each window, by label, and the landing gate the actions on the remote
+/// check a start through
 pub struct SessionsState {
   sessions: Arc<Sessions>,
   windows: Mutex<WindowSubscriptions>,
+  landing_gate: Arc<dyn LandingGate>,
 }
 
 /// The page a window shows, as a command of it saw it start: another page (a reload, a window opened again under the same
@@ -118,12 +123,21 @@ impl SessionsState {
     Self {
       sessions,
       windows: Mutex::new(WindowSubscriptions::default()),
+      landing_gate: Arc::new(AppLandingGate {
+        app: app.clone(),
+        kept: KeptChecks::default(),
+      }),
     }
   }
 
   /// The sessions, for a command whose result a session applies (a push, a deletion)
   pub fn sessions(&self) -> &Sessions {
     &self.sessions
+  }
+
+  /// The landing gate of the app's starts and popovers (`AppLandingGate`)
+  pub const fn landing_gate(&self) -> &Arc<dyn LandingGate> {
+    &self.landing_gate
   }
 
   fn windows(&self) -> std::sync::MutexGuard<'_, WindowSubscriptions> {
@@ -182,6 +196,21 @@ impl SessionEnvironment for AppEnvironment {
 
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     self.app.state::<SettingsService>().app().auto_sync_on_focus
+  }
+}
+
+/// The landing gate of the app (`repository_model::landing::LandingGate`): the trial check of the repository through its
+/// object cache, the check of the same inputs kept for the start after its popover
+struct AppLandingGate {
+  app: AppHandle,
+  kept: KeptChecks,
+}
+
+impl LandingGate for AppLandingGate {
+  fn check(&self, branch_prefix: &str, params: &LandingGateParams, landed: &HashSet<String>) -> anyhow::Result<LandingCheck> {
+    let git = self.app.state::<GitCommandExecutor>();
+    let cache = self.app.state::<RepositoryStateCache>().object_cache(&git, &params.repository_path);
+    self.kept.check(&git, &cache, branch_prefix, params, landed)
   }
 }
 

@@ -11,12 +11,15 @@
 //! service itself, except the Patronus client `RemoteActions` carries until the engine of the remote takes it.
 //!
 //! - `actions`: what the app's actions on the remote run on, the same for the app's commands and the E2E server's routes
-//!   (`RemoteActions`: the Patronus service with the Space repository, git, the tables); the flows are its methods
+//!   (`RemoteActions`: the Patronus service with the Space repository, git, the sessions with the tables of their last
+//!   syncs, the landing gate of the host); the flows are its methods
 //! - `facts`: the facts of a session, each with the number of the observation that answered it (`Seq`, one counter per
 //!   session) and the state of a fact without an answer (`FactRecord`); `FactStore`, the table of the last sync and the
 //!   robots of Patronus (`RobotsFact`, by id), and what the poll of the robots asks about (`robots_digest`)
 //! - `branch_table`: the branch table a sync left: the branches in the order of the table, their tips and copies, the
 //!   stack branches, the parked branches, the remote facts of the sync (`remote_facts`), `stack_ancestors`
+//! - `landing`: the landing gate a start and its popover check through (`LandingGate`), which the hosts answer with the
+//!   trial check
 //! - `patch`: the patches of a view by part, and the contract of applying one (`apply_patch`): only to the view at its
 //!   base, in the same epoch
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
@@ -48,6 +51,7 @@
 pub mod actions;
 pub mod branch_table;
 pub mod facts;
+pub mod landing;
 pub mod patch;
 pub mod patronus_view;
 pub mod push_guard;
@@ -58,6 +62,3 @@ pub mod state;
 pub mod sync_scheduler;
 pub mod table;
 pub mod views;
-
-#[cfg(test)]
-mod process_budget_test;

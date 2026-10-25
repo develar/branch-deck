@@ -4,7 +4,9 @@
 
 use crate::check::{CheckSession, check_plan};
 use crate::landing_gate::landing_gate_test;
-use crate::landing_gate::landing_needs_of;
+use crate::landing_gate::{KeptChecks, landing_needs_of};
+use domain_types::landing::LandingGateParams;
+use domain_types::patronus::LandingAllowances;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
@@ -75,7 +77,7 @@ async fn a_check_of_synced_branches() {
   );
 }
 
-/// The landing needs of every branch after a sync, the background computation of the repository view: one session (the
+/// The landing needs of every branch after a sync, the fact the session of the repository computes: one session (the
 /// snapshot, the config and the tips, as `bd check` reads them), one trial check of all branches, which reuses the copies
 /// the sync wrote (no `fast-import`, no `merge-tree`), and the names the commits use and add, read once with the changed
 /// lines; with the object cache the first filled, the second reads the changes and the summaries from it
@@ -222,4 +224,46 @@ fn the_check_of_a_removed_rust_item() {
     assert_eq!(found, [("guest/src/sum.rs", Some(1))]);
   });
   assert_eq!(processes, counts(&FIRST_SOURCES_CHECK));
+}
+
+/// The check of the popover runs its session and its trial once; the start's check of the same inputs runs the two
+/// processes of the inputs (the refs and the config, `KeptChecks`), and a commit in between is another input, checked
+/// anew
+#[tokio::test]
+async fn the_landing_check_of_a_start_reuses_the_check_of_its_popover() {
+  let (repo, _) = alpha_and_beta_on_origin();
+  sync_branches(&counting(), repo.path_str(), PREFIX, TestReporter::new(), SyncOptions::default())
+    .await
+    .unwrap();
+  let kept = KeptChecks::default();
+  let params = LandingGateParams {
+    repository_path: repo.path_str().to_string(),
+    branch_name: "alpha".to_string(),
+    stack: false,
+    allow: LandingAllowances::default(),
+  };
+  let check = |landed: &HashSet<String>| {
+    let git = counting();
+    let check = kept.check(&git, &ObjectCache::disabled(), PREFIX, &params, landed).unwrap();
+    (check, git)
+  };
+
+  // the inputs, the session (the config, the snapshot with the baseline and the tips of one listing) and the trial,
+  // which reuses the copies of the sync
+  const SESSION: [(&str, u32); 6] = [("cat-file", 2), ("config", 2), ("for-each-ref", 2), ("log", 5), ("remote", 1), ("rev-parse", 2)];
+  let (popover, git) = check(&HashSet::new());
+  assert_processes(&git, &SESSION);
+
+  let (start, git) = check(&HashSet::new());
+  assert_eq!(start, popover);
+  assert_processes(&git, &[("config", 1), ("for-each-ref", 1)]);
+
+  // other landed commits are another input
+  let (_, git) = check(&HashSet::from(["a".repeat(40)]));
+  assert_processes(&git, &SESSION);
+
+  // so is a commit: its copy is built in the trial
+  repo.create_commit("(alpha) Alpha 4", "alpha-4.txt", "alpha\n");
+  let (_, git) = check(&HashSet::new());
+  assert!(processes(&git).iter().any(|(subcommand, _)| subcommand == "merge-tree"), "{:?}", processes(&git));
 }

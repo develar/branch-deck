@@ -24,8 +24,9 @@ fn params() -> GetRepositoryViewParams {
 /// The branch count of the table kept for `repository_path` under `branch_prefix`; `None` before a sync kept one
 fn kept_branches(views: &RepositoryViews, repository_path: &str, branch_prefix: &str) -> Option<usize> {
   views
-    .guard_facts(&GitCommandExecutor::new(), repository_path, branch_prefix, Vec::new())
-    .map(|facts| facts.table().branches.len())
+    .tables
+    .get(&(repository_path.to_string(), branch_prefix.to_string()))
+    .map(|table| table.branches.len())
 }
 
 /// Before the first sync under a prefix nothing is kept and the view is empty; the view reads the table the last sync

@@ -108,7 +108,7 @@ async fn ask_view(state: &std::sync::Arc<crate::state::AppState>, path: &str) ->
 
 /// Whether the views keep a table of `path` under the prefix `user-name`: a sync of its session kept one
 fn keeps_table(state: &crate::state::AppState, path: &str) -> bool {
-  state.repository_views.guard_facts(&state.git_executor, path, "user-name", Vec::new()).is_some()
+  state.repository_views.keeps(path, "user-name")
 }
 
 /// The deletion at the end of a test removes the files once the computation of the landing needs a view started ended,

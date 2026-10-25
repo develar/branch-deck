@@ -151,7 +151,6 @@ dependencies = [
  "pretty_assertions",
  "serde_json",
  "sync-core",
- "trial-check",
  "update-core",
  "youtrack",
 ]
@@ -7195,6 +7194,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "code-symbols",
+ "domain-policy",
  "domain-types",
  "file-diffs",
  "git-executor",

@@ -1,7 +1,7 @@
 use crate::branch_table::BranchTable;
+use crate::facts::TableFacts;
 use crate::patronus_view::patronus_view_test::{chain, merged, robot, running, stack_robot, table};
-use crate::push_guard::{check_push, push_guarded, push_guarded_within};
-use crate::views::RepositoryViews;
+use crate::push_guard::{check_push, guard_facts, push_guarded, push_guarded_within};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -35,11 +35,10 @@ fn whole_stack(root: &str) -> StackPushBranch {
 }
 
 /// What the checks answer for a push of `branches` from `table` with `robots`, as the app's push reads them: the table
-/// kept by the views, the robots matched as the rows match them; git is never asked (no repository: the hashes tell)
+/// of the session's last sync, the robots matched as the rows match them; git is never asked (no repository: the hashes
+/// tell)
 fn check(table: BranchTable, robots: &[PatronusRobot], branches: &[StackPushBranch]) -> Result<(), String> {
-  let views = RepositoryViews::default();
-  views.keep("/nonexistent", "test", table);
-  let facts = views.guard_facts(&GitCommandExecutor::new(), "/nonexistent", "test", robots.to_vec()).unwrap();
+  let facts = guard_facts(&GitCommandExecutor::new(), "/nonexistent", &TableFacts::new(table), robots.to_vec());
   check_push(&facts, branches)
 }
 
@@ -238,13 +237,12 @@ fn synced_alpha_beta() -> BranchTable {
 fn a_guarded_push_runs_the_processes_of_the_core_push() {
   let (repo, params) = pushable();
   let common_dir = repo.path().join(".git");
-  let views = RepositoryViews::default();
   let git = GitCommandExecutor::new().with_process_stats("test");
-  let refused = push_guarded(&git, &common_dir, &views, Vec::new(), PREFIX, &params, &mut |_| {}, &|| false).unwrap_err();
+  let refused = push_guarded(&git, &common_dir, None, Vec::new(), PREFIX, &params, &mut |_| {}, &|| false).unwrap_err();
   assert_eq!(refused.to_string(), NOT_SYNCED_YET);
 
-  views.keep(repo.path_str(), "test", synced_alpha_beta());
-  let outcome = push_guarded(&git, &common_dir, &views, Vec::new(), PREFIX, &params, &mut |_| {}, &|| false).unwrap();
+  let synced = Some(TableFacts::new(synced_alpha_beta()));
+  let outcome = push_guarded(&git, &common_dir, synced, Vec::new(), PREFIX, &params, &mut |_| {}, &|| false).unwrap();
   assert!(
     matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses } if remote_statuses.len() == 2),
     "{outcome:?}"
@@ -255,14 +253,13 @@ fn a_guarded_push_runs_the_processes_of_the_core_push() {
   );
 }
 
-/// `pushable` synced, with its common dir, its views and the repository lock, which the test holds as another holder
-fn pushable_while_locked() -> (TestRepo, PushBranchesParams, std::path::PathBuf, RepositoryViews, RepositoryLock) {
+/// `pushable` synced, with its common dir, the table of its sync and the repository lock, which the test holds as
+/// another holder
+fn pushable_while_locked() -> (TestRepo, PushBranchesParams, std::path::PathBuf, TableFacts, RepositoryLock) {
   let (repo, params) = pushable();
   let common_dir = repo.path().join(".git");
-  let views = RepositoryViews::default();
-  views.keep(repo.path_str(), "test", synced_alpha_beta());
   let held = lock_repository_in(&common_dir, Duration::ZERO, &|| {}).unwrap();
-  (repo, params, common_dir, views, held)
+  (repo, params, common_dir, TableFacts::new(synced_alpha_beta()), held)
 }
 
 /// Another holder of the repository lock (`bd pick --follow` of an agent, a rewrite of the app) keeps the push waiting,
@@ -272,7 +269,7 @@ fn pushable_while_locked() -> (TestRepo, PushBranchesParams, std::path::PathBuf,
 /// the release deletes the record a moment before it frees the lock, and a zero bound would refuse in that moment
 #[test]
 fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
-  let (repo, params, common_dir, views, held) = pushable_while_locked();
+  let (repo, params, common_dir, table, held) = pushable_while_locked();
   let git = GitCommandExecutor::new();
   let (progress, told) = mpsc::channel();
   std::thread::scope(|scope| {
@@ -284,7 +281,7 @@ fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
         &|| false,
         &git,
         &common_dir,
-        &views,
+        Some(table.clone()),
         Vec::new(),
         PREFIX,
         &params,
@@ -310,7 +307,7 @@ fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
 /// lock with `LockWaitCanceled`: nothing pushed, the lock still the holder's
 #[test]
 fn a_push_whose_wait_is_stopped_pushes_nothing() {
-  let (repo, params, common_dir, views, held) = pushable_while_locked();
+  let (repo, params, common_dir, table, held) = pushable_while_locked();
   let git = GitCommandExecutor::new();
   let stopped = push_guarded_within(
     Duration::from_mins(1),
@@ -318,7 +315,7 @@ fn a_push_whose_wait_is_stopped_pushes_nothing() {
     &|| true,
     &git,
     &common_dir,
-    &views,
+    Some(table),
     Vec::new(),
     PREFIX,
     &params,
@@ -334,7 +331,7 @@ fn a_push_whose_wait_is_stopped_pushes_nothing() {
 /// bounded wait, and nothing is pushed
 #[test]
 fn a_push_while_a_holder_no_record_names_holds_the_lock_is_refused() {
-  let (repo, params, common_dir, views, held) = pushable_while_locked();
+  let (repo, params, common_dir, table, held) = pushable_while_locked();
   std::fs::remove_file(common_dir.join("branch-deck.lock.holder")).unwrap();
   let git = GitCommandExecutor::new();
   let refused = push_guarded_within(
@@ -343,7 +340,7 @@ fn a_push_while_a_holder_no_record_names_holds_the_lock_is_refused() {
     &|| false,
     &git,
     &common_dir,
-    &views,
+    Some(table),
     Vec::new(),
     PREFIX,
     &params,
@@ -362,12 +359,12 @@ fn a_push_while_a_holder_no_record_names_holds_the_lock_is_refused() {
 /// `go` sends or drops: it says `pushes` on `events` then
 fn held_push<'scope>(
   scope: &'scope std::thread::Scope<'scope, '_>,
-  fixture: &'scope (TestRepo, std::path::PathBuf, RepositoryViews, GitCommandExecutor),
+  fixture: &'scope (TestRepo, std::path::PathBuf, TableFacts, GitCommandExecutor),
   branch: StackPushBranch,
   events: mpsc::Sender<&'static str>,
   go: mpsc::Receiver<()>,
 ) -> std::thread::ScopedJoinHandle<'scope, anyhow::Result<PushBranchesOutcome>> {
-  let (repo, common_dir, views, git) = fixture;
+  let (repo, common_dir, table, git) = fixture;
   let params = push_of(repo, vec![branch]);
   scope.spawn(move || {
     let mut held = Some(go);
@@ -384,7 +381,7 @@ fn held_push<'scope>(
       &|| false,
       git,
       common_dir,
-      views,
+      Some(table.clone()),
       Vec::new(),
       PREFIX,
       &params,
@@ -393,13 +390,11 @@ fn held_push<'scope>(
   })
 }
 
-/// `stack_ahead_of_bare_origin` synced, with its common dir, its views and an executor
-fn synced_fixture() -> (TestRepo, std::path::PathBuf, RepositoryViews, GitCommandExecutor) {
+/// `stack_ahead_of_bare_origin` synced, with its common dir, the table of its sync and an executor
+fn synced_fixture() -> (TestRepo, std::path::PathBuf, TableFacts, GitCommandExecutor) {
   let repo = stack_ahead_of_bare_origin();
   let common_dir = repo.path().join(".git");
-  let views = RepositoryViews::default();
-  views.keep(repo.path_str(), "test", synced_alpha_beta());
-  (repo, common_dir, views, GitCommandExecutor::new())
+  (repo, common_dir, TableFacts::new(synced_alpha_beta()), GitCommandExecutor::new())
 }
 
 fn assert_pushed(pushed: &anyhow::Result<PushBranchesOutcome>) {
@@ -415,7 +410,7 @@ fn assert_pushed(pushed: &anyhow::Result<PushBranchesOutcome>) {
 #[test]
 fn the_pushes_of_two_branches_run_side_by_side() {
   let fixture = synced_fixture();
-  let (repo, common_dir, views, git) = &fixture;
+  let (repo, common_dir, table, git) = &fixture;
   let (events, event) = mpsc::channel();
   std::thread::scope(|scope| {
     let (go, gone) = mpsc::channel::<()>();
@@ -430,7 +425,7 @@ fn the_pushes_of_two_branches_run_side_by_side() {
       &|| false,
       git,
       common_dir,
-      views,
+      Some(table.clone()),
       Vec::new(),
       PREFIX,
       &params,
@@ -450,7 +445,7 @@ fn the_pushes_of_two_branches_run_side_by_side() {
 #[test]
 fn the_pushes_of_one_ref_wait_for_each_other_and_both_push() {
   let fixture = synced_fixture();
-  let (repo, common_dir, views, git) = &fixture;
+  let (repo, common_dir, table, git) = &fixture;
   let (events, event) = mpsc::channel();
   let next_event = || event.recv_timeout(Duration::from_mins(1)).unwrap();
   std::thread::scope(|scope| {
@@ -461,7 +456,18 @@ fn the_pushes_of_one_ref_wait_for_each_other_and_both_push() {
     let params = push_of(repo, vec![branch("alpha")]);
     let second = scope.spawn(move || {
       let on_wait = || events.send("waits").unwrap();
-      push_guarded_within(Duration::ZERO, &on_wait, &|| false, git, common_dir, views, Vec::new(), PREFIX, &params, &mut |_| {})
+      push_guarded_within(
+        Duration::ZERO,
+        &on_wait,
+        &|| false,
+        git,
+        common_dir,
+        Some(table.clone()),
+        Vec::new(),
+        PREFIX,
+        &params,
+        &mut |_| {},
+      )
     });
     assert_eq!(next_event(), "waits");
     go.send(()).unwrap();

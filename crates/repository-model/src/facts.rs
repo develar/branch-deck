@@ -42,7 +42,7 @@ use domain_types::patronus::{
 use domain_types::session::Version;
 use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, RobotsHead, RobotsView};
 use std::collections::{BTreeSet, HashMap};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use sync_core::patronus_start::is_robot_active;
 
@@ -240,6 +240,27 @@ pub struct AppliedFacts {
 pub struct TableFacts {
   pub table: Arc<BranchTable>,
   pub memo: Arc<Mutex<ContentMemo>>,
+}
+
+impl TableFacts {
+  /// `table` with a memo of its own
+  #[must_use]
+  pub fn new(table: BranchTable) -> Self {
+    Self {
+      table: Arc::new(table),
+      memo: Arc::default(),
+    }
+  }
+
+  /// The memo; a poisoned one (a panic in a content walk) starts again
+  pub fn memo(&self) -> MutexGuard<'_, ContentMemo> {
+    self.memo.lock().unwrap_or_else(|poisoned| {
+      self.memo.clear_poison();
+      let mut memo = poisoned.into_inner();
+      *memo = ContentMemo::default();
+      memo
+    })
+  }
 }
 
 /// The facts of a session

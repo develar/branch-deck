@@ -21,10 +21,10 @@
 
 use crate::actions::RemoteActions;
 use crate::branch_table::BranchTable;
-use crate::session::{SessionKey, Sessions};
+use crate::facts::TableFacts;
+use crate::patronus_view::{match_robots, patronus_view};
 use crate::start_guard::{stack_conflict_words, stack_not_built_words};
 use crate::table::RemoteSubject;
-use crate::views::RepositoryViews;
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::Subject;
@@ -48,19 +48,26 @@ use tracing::{debug, instrument};
 /// What the app's own robot hold offers instead of a push: its Push and Restart
 const APP_OWN_HOLD_REMEDY: &str = "restart it on the current branch";
 
-/// The facts the checks read (`RepositoryViews::guard_facts`): the table of the last sync, the robots Rust read, and the
-/// Patronus view of both
+/// The facts the checks read (`guard_facts`): the table of the last sync, the robots Rust read, and the Patronus view of
+/// both
 pub struct GuardFacts {
   synced: Arc<BranchTable>,
   pub robots: Vec<PatronusRobot>,
   pub view: PatronusView,
 }
 
-impl GuardFacts {
-  pub(crate) const fn new(synced: Arc<BranchTable>, robots: Vec<PatronusRobot>, view: PatronusView) -> Self {
-    Self { synced, robots, view }
-  }
+/// The facts the checks of `repository_path` read: `table`, the table of the last sync of its session with the memo of
+/// its views, `robots` as Rust read them, matched as the rows match them, and the Patronus view of both on the table's
+/// remote facts. Runs git for the robots the hashes and the memo don't answer: blocking
+#[instrument(skip_all, fields(repository_path = %repository_path, robots = robots.len()))]
+pub fn guard_facts(git_executor: &GitCommandExecutor, repository_path: &str, table: &TableFacts, robots: Vec<PatronusRobot>) -> GuardFacts {
+  let synced = Arc::clone(&table.table);
+  let matched = match_robots(&synced, &synced.remote, &robots);
+  let view = patronus_view(git_executor, repository_path, &synced, &synced.remote, &robots, &matched, &mut table.memo());
+  GuardFacts { synced, robots, view }
+}
 
+impl GuardFacts {
   pub fn table(&self) -> &BranchTable {
     &self.synced
   }
@@ -234,19 +241,20 @@ pub fn stack_hold_words(root: &str, robot: &PatronusRobot) -> String {
 
 /// The app's push of a stack: its refs claimed against the pushes of this process that write one of them
 /// (`PushingRefs`), then, under the repository lock (`$GIT_COMMON_DIR/branch-deck.lock`, no git process), the checks on
-/// the kept table with `robots` (`check_push`) and the commits of the push fixed (`prepare_push_branches`, which refuses
+/// `table`, the table of the last sync of the session, with `robots` (`check_push`) and the commits of the push fixed
+/// (`prepare_push_branches`, which refuses
 /// a branch the last sync did not build), then, after the lock, the network push of those commits. While another
 /// process (or a rewrite of this one) holds the lock, the push waits as long as the holder lives, its progress naming
 /// it ("Waiting for `bd pick` (pid 4242, for 12 s)", `TransferProgress::waiting_for`), until `canceled` says the user
 /// stopped waiting (Stop Waiting: `LockWaitCanceled`, nothing pushed); a lock whose holder no record names refuses it
-/// after `DEFAULT_LOCK_TIMEOUT`, and so does a repository not synced yet. The branches are named under `branch_prefix`,
-/// which keys the kept table too
+/// after `DEFAULT_LOCK_TIMEOUT`, and so does a repository not synced yet (no `table`). The branches are named under
+/// `branch_prefix`
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
 #[expect(clippy::too_many_arguments, reason = "the push, its checks, its progress and its cancel")]
 pub fn push_guarded(
   git_executor: &GitCommandExecutor,
   git_common_dir: &Path,
-  views: &RepositoryViews,
+  table: Option<TableFacts>,
   robots: Vec<PatronusRobot>,
   branch_prefix: &str,
   params: &PushBranchesParams,
@@ -260,7 +268,7 @@ pub fn push_guarded(
     canceled,
     git_executor,
     git_common_dir,
-    views,
+    table,
     robots,
     branch_prefix,
     params,
@@ -278,7 +286,7 @@ fn push_guarded_within(
   canceled: &dyn Fn() -> bool,
   git_executor: &GitCommandExecutor,
   git_common_dir: &Path,
-  views: &RepositoryViews,
+  table: Option<TableFacts>,
   robots: Vec<PatronusRobot>,
   branch_prefix: &str,
   params: &PushBranchesParams,
@@ -292,9 +300,8 @@ fn push_guarded_within(
       Some(locked) => anyhow!(locked_refusal(locked)),
       None => error,
     })?;
-    let facts = views
-      .guard_facts(git_executor, &params.repository_path, branch_prefix, robots)
-      .ok_or_else(|| anyhow!(NOT_SYNCED_YET))?;
+    let table = table.ok_or_else(|| anyhow!(NOT_SYNCED_YET))?;
+    let facts = guard_facts(git_executor, &params.repository_path, &table, robots);
     if let Err(refusal) = check_push(&facts, &params.branches) {
       bail!(refusal);
     }
@@ -305,33 +312,32 @@ fn push_guarded_within(
 
 impl RemoteActions<'_> {
   /// The app's push of a stack in the session of its repository (`Sessions::push`, the key of the path and of the
-  /// prefix the host resolved, so the outcome changes only that table): the user's robots (`robots_for_checks`), then,
-  /// in a blocking step, `push_guarded`, its checks under the repository lock of `git_common_dir` (`$GIT_COMMON_DIR` of
+  /// prefix the host resolved, so the outcome changes only that table): the user's robots (`robots_for_checks`) and the
+  /// table of the session's last sync, then, in a blocking step, `push_guarded`, its checks under the repository lock of
+  /// `git_common_dir` (`$GIT_COMMON_DIR` of
   /// the repository, which the host knows), its progress sent to `on_progress`, its wait for another holder of the lock
   /// ended by `canceled`. Answers the outcome with the version of the patch that has it
   #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
   pub async fn push_branches(
     &self,
-    sessions: &Sessions,
     git_common_dir: PathBuf,
     params: PushBranchesParams,
     mut on_progress: impl FnMut(TransferProgress) + Send + 'static,
     canceled: impl Fn() -> bool + Send + 'static,
   ) -> Result<ViewAnswer<PushBranchesOutcome>> {
-    let key = SessionKey {
-      worktree: params.repository_path.clone(),
-      prefix: self.branch_prefix.to_owned(),
-    };
+    let key = self.key(&params.repository_path);
     let subjects = params.branches.iter().map(RemoteSubject::of).collect();
     let push = async move {
       let robots = self.robots_for_checks().await;
-      let (git, views, branch_prefix) = (self.git_executor.clone(), self.views.clone(), self.branch_prefix.to_owned());
+      // the table of the last sync: a sync takes no lock, so the one read under it would be no newer
+      let table = self.table(&params.repository_path).await;
+      let (git, branch_prefix) = (self.git_executor.clone(), self.branch_prefix.to_owned());
       tokio::task::spawn_blocking(in_current_span(move || {
-        push_guarded(&git, &git_common_dir, &views, robots, &branch_prefix, &params, &mut on_progress, &canceled)
+        push_guarded(&git, &git_common_dir, table, robots, &branch_prefix, &params, &mut on_progress, &canceled)
       }))
       .await?
     };
-    sessions.push(&key, subjects, push).await
+    self.sessions.push(&key, subjects, push).await
   }
 }
 
