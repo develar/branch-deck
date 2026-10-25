@@ -456,8 +456,10 @@ pub fn compute_remote_statuses(
   args.extend(remote_refs.iter().chain(&branch_refs).map(String::as_str));
   let tips = git_executor.execute_command_lines(&args, repository_path)?;
   let tip_of = |name: &str| tips.iter().find_map(|line| line.split_once(' ').filter(|(_, refname)| *refname == name).map(|(id, _)| id));
-  // the push times of several branches are one `reflog`; of one, the newest entry of its own
-  let push_times = (branches.len() > 1).then(|| PushTimes::new(remote_refs.clone()));
+  // the push times of several remote branches are one `reflog`; of one, the newest entry of its own. Only the remote
+  // branches that exist: a missing one, as after a first push the remote refused, fails the read of all
+  let pushed_refs: Vec<String> = remote_refs.iter().filter(|remote_ref| tip_of(remote_ref).is_some()).cloned().collect();
+  let push_times = (pushed_refs.len() > 1).then(|| PushTimes::new(pushed_refs));
   branches
     .iter()
     .zip(remote_refs.iter().zip(&branch_refs))

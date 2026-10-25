@@ -213,7 +213,9 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   command line; `%gD` names the full ref, and the newest time of each ref counts. It reads every push entry of those
   reflogs (`-1` would count the entries of all refs together), a few hundred lines. A ref deleted since its tip was
   read fails the whole read; then each status reads its own, `git reflog show -1 … --format=%gd <ref>`, which stops at
-  the newest push, as one status outside an operation does (the app's push).
+  the newest push, as one status outside an operation does. The statuses of a push (`compute_remote_statuses`, after
+  the push or its rejection) put only the remote branches its `for-each-ref` found into that read: a branch the remote
+  never took has no push time, and its missing ref would fail the read of all.
 
 The cherry-pick algorithm ensures accurate comparison:
 1. `--cherry-pick` - Excludes commits that are patch-equivalent (same content, different SHA); `--cherry-mark`, in

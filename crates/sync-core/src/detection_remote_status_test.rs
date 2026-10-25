@@ -1,5 +1,5 @@
 use crate::detection_test_helpers::options_with_strategy;
-use crate::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, PushTimes, StackParent, compute_remote_status_for_branch};
+use crate::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, PushTimes, StackParent, StatusBranch, compute_remote_status_for_branch, compute_remote_statuses};
 use crate::sync::sync_branches;
 use branch_integration::strategy::DetectionStrategy;
 use domain_types::{DroppedCommit, LandedRemoteCommit, SyncEvent};
@@ -1116,4 +1116,46 @@ fn the_push_times_of_several_branches_are_one_read() {
   let (times, processes) = counted_push_times(&scenario, &["pushed", "fetched", "deleted"]);
   assert_eq!(times, [1_700_000_000, 0, 0]);
   assert_eq!(processes, BTreeMap::from([("reflog".to_string(), 4)]), "the failed read, then one per branch");
+}
+
+/// The statuses of an operation read the push times of the remote branches that exist in one `reflog`: a branch the
+/// remote never took (a first push it refused) has none, and its missing remote branch fails no read
+#[test]
+fn the_statuses_of_an_operation_read_the_push_times_of_existing_remote_branches_once() {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  for (name, time) in [("first", 1_700_000_000), ("second", 1_700_000_100)] {
+    let commit = scenario.local_repo.create_commit(&format!("({name}) First"), &format!("{name}.txt"), name);
+    scenario.local_repo.create_branch_at(&format!("user/virtual/{name}"), &commit).unwrap();
+    push_at(&scenario, name, time);
+  }
+  let refused = scenario.local_repo.create_commit("(refused) First", "refused.txt", "refused");
+  scenario.local_repo.create_branch_at("user/virtual/refused", &refused).unwrap();
+
+  let git_executor = GitCommandExecutor::new().with_process_stats("test");
+  let names = ["first", "refused", "second"];
+  let local_refs: Vec<String> = names.iter().map(|name| format!("user/virtual/{name}")).collect();
+  let branches: Vec<StatusBranch<'_>> = names
+    .iter()
+    .zip(&local_refs)
+    .map(|(name, local_ref)| StatusBranch {
+      local_ref,
+      branch_name: name,
+      parent: None,
+    })
+    .collect();
+  let statuses = compute_remote_statuses(
+    &git_executor,
+    scenario.local_repo.path_str(),
+    "origin",
+    &branches,
+    Some(&scenario.user_email),
+    "origin/main",
+  )
+  .unwrap();
+
+  let times: Vec<u32> = statuses.iter().map(|status| status.last_push_time).collect();
+  assert_eq!(times, [1_700_000_000, 0, 1_700_000_100]);
+  let reflogs = git_executor.process_stats().unwrap().by_command().get("reflog").map(|stats| stats.count);
+  assert_eq!(reflogs, Some(1), "one read of both, not a failed one and one per branch");
 }
