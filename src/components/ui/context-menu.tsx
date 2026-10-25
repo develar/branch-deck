@@ -1,4 +1,4 @@
-// local customisation: no text size (the container sets it); a group label `text-xs`, the meta step of the type scale
+// local customisation: no text size (the container sets it); a group label and a shortcut `text-xs`, the meta step of the type scale
 "use client"
 
 import * as React from "react"
@@ -188,7 +188,7 @@ function ContextMenuShortcut({ className, ...props }: React.ComponentProps<"span
   return (
     <span
       data-slot="context-menu-shortcut"
-      className={cn("ml-auto tracking-widest text-muted-foreground group-focus/context-menu-item:text-accent-foreground", className)}
+      className={cn("ml-auto text-xs tracking-widest text-muted-foreground group-focus/context-menu-item:text-accent-foreground", className)}
       {...props}
     />
   )

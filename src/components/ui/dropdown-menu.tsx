@@ -1,4 +1,4 @@
-// local customisation: no text size (the container sets it); a group label `text-xs`, the meta step of the type scale
+// local customisation: no text size (the container sets it); a group label and a shortcut `text-xs`, the meta step of the type scale
 import * as React from "react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { cn } from "cn"
@@ -199,7 +199,7 @@ function DropdownMenuShortcut({ className, ...props }: React.ComponentProps<"spa
   return (
     <span
       data-slot="dropdown-menu-shortcut"
-      className={cn("ml-auto tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground", className)}
+      className={cn("ml-auto text-xs tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground", className)}
       {...props}
     />
   )

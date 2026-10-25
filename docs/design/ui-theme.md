@@ -55,7 +55,8 @@ Two local changes apply to every primitive:
 
 - **No text size.** The stock Mira sets 10 and 12px (`text-xs/relaxed`, `text-[0.625rem]`) on its parts. Branch Deck's
   UI text is 13px: `body` is `text-sm`, and a container sets another step of the type scale where it needs one. A chip
-  (`Badge`), a key hint (`Kbd`), an `xs` button, the group label of a menu or a select and the labels of a chart keep
+  (`Badge`), a key hint (`Kbd`), an `xs` button, the group label and the shortcut of a menu, the group label of a select
+  and the labels of a chart keep
   `text-xs`, their step of the type scale; a 20px chip clips the descenders of 13px text. A tooltip is 13px, the UI font,
   as in the IDE. The icons of a button are one step larger than the stock for the 13px text.
 - **No field fill.** Mira fills a field with `bg-input/20` (`dark:bg-input/30`) inside its border. Here `--input` is the
