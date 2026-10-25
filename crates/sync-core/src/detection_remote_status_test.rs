@@ -1076,6 +1076,20 @@ fn the_push_time_is_the_newest_push_not_a_later_fetch() {
   assert_eq!(status.last_push_time, 1_700_000_100);
 }
 
+/// A virtual branch of one commit, `({name}) First`
+fn one_commit_branch(scenario: &TestScenario, name: &str) {
+  let commit = scenario.local_repo.create_commit(&format!("({name}) First"), &format!("{name}.txt"), name);
+  scenario.local_repo.create_branch_at(&format!("user/virtual/{name}"), &commit).unwrap();
+}
+
+/// Virtual branches of one commit each, pushed at their times
+fn pushed_branches(scenario: &TestScenario, pushes: &[(&str, u32)]) {
+  for (name, time) in pushes {
+    one_commit_branch(scenario, name);
+    push_at(scenario, name, *time);
+  }
+}
+
 /// The push times of the branches of an operation, read by an executor that counts its processes: `(times, processes)`
 fn counted_push_times(scenario: &TestScenario, names: &[&str]) -> (Vec<u32>, BTreeMap<String, u32>) {
   let git_executor = GitCommandExecutor::new().with_process_stats("test");
@@ -1096,11 +1110,7 @@ fn counted_push_times(scenario: &TestScenario, names: &[&str]) -> (Vec<u32>, BTr
 fn the_push_times_of_several_branches_are_one_read() {
   let scenario = TestScenario::new();
   scenario.setup_development_branch();
-  for (name, time) in [("pushed", 1_700_000_000), ("fetched", 1_700_000_100), ("deleted", 1_700_000_200)] {
-    let commit = scenario.local_repo.create_commit(&format!("({name}) First"), &format!("{name}.txt"), name);
-    scenario.local_repo.create_branch_at(&format!("user/virtual/{name}"), &commit).unwrap();
-    push_at(&scenario, name, time);
-  }
+  pushed_branches(&scenario, &[("pushed", 1_700_000_000), ("fetched", 1_700_000_100), ("deleted", 1_700_000_200)]);
   // `fetched` was pushed by someone else, the clone only fetched it
   let fetched = scenario.local_repo.rev_parse("user/virtual/fetched").unwrap();
   scenario.local_repo.git(&["update-ref", "-d", "refs/remotes/origin/user/virtual/fetched"]);
@@ -1124,13 +1134,8 @@ fn the_push_times_of_several_branches_are_one_read() {
 fn the_statuses_of_an_operation_read_the_push_times_of_existing_remote_branches_once() {
   let scenario = TestScenario::new();
   scenario.setup_development_branch();
-  for (name, time) in [("first", 1_700_000_000), ("second", 1_700_000_100)] {
-    let commit = scenario.local_repo.create_commit(&format!("({name}) First"), &format!("{name}.txt"), name);
-    scenario.local_repo.create_branch_at(&format!("user/virtual/{name}"), &commit).unwrap();
-    push_at(&scenario, name, time);
-  }
-  let refused = scenario.local_repo.create_commit("(refused) First", "refused.txt", "refused");
-  scenario.local_repo.create_branch_at("user/virtual/refused", &refused).unwrap();
+  pushed_branches(&scenario, &[("first", 1_700_000_000), ("second", 1_700_000_100)]);
+  one_commit_branch(&scenario, "refused");
 
   let git_executor = GitCommandExecutor::new().with_process_stats("test");
   let names = ["first", "refused", "second"];
