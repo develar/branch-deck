@@ -5,6 +5,7 @@ import type { DroppedCommit } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
+import { syncFromMenu } from "../helpers/sync-helpers"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 
@@ -140,16 +141,21 @@ test.describe("Force push", () => {
 })
 
 test.describe("Push toast", () => {
-  test("should tell a later push of the branch in the toast of the first, in place: one toast per branch", async ({ page }) => {
-    // the first push leaves a commit the remote lacks (one made meanwhile): the row pushes it again
-    await routePush(page, { "JIRA-456": [{ unpushedCommits: ["j3"] }, {}] })
+  test("should tell a later push of the branch in the toast of the first, in place: one toast per branch", async ({ page, issueLinksRepo }) => {
+    // the pushes go to the remote of the template, the repository itself: no answer in the page
     const row = findBranchRow(page, "JIRA-456")
     await getPushButton(row).click()
     const toast = await holdToast(pushedToast(page, "JIRA-456"))
     await expect(toast.locator("[data-slot=toast-description]")).toContainText("created the remote branch")
+    // the pointer rests on the toast while the user reads it: its timer waits
+    await toast.hover()
 
+    // a commit of JIRA-456 made since, which the sync of the menu brings into the row: P on the focused row pushes it
+    await issueLinksRepo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
+    await syncFromMenu(page)
     await expect(getPushButton(row)).toHaveAccessibleName("Push (1)")
-    await getPushButton(row).click()
+    await row.focus()
+    await page.keyboard.press("p")
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("1 commit")
     await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
   })
