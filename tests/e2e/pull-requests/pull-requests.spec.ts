@@ -311,6 +311,8 @@ test.describe("Pull request chip", () => {
     await repo.setPullRequests({ ...ALL, missingBranches: ["user-name/virtual/feature-auth"], users: [...USERS, { login: "stranger", name: null }] })
     const dialog = await openDialogAfterPush(page)
     const title = dialog.getByTestId("create-pull-request-title")
+    // the text of the branch comes after the dialog opens: a fill before it races with it (its text stayed in front)
+    await expect(title).toHaveValue(AUTH_TITLE)
     await title.fill("Add auth & login")
     await dialog.getByTestId("create-pull-request-reviewer-search").fill("stranger")
     await page.getByRole("option", { name: /stranger/ }).click()
