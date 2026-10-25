@@ -26,7 +26,7 @@ flowchart TB
     end
     
     subgraph "Mock Layer"
-        C[Tauri mockIPC]
+        C[Tauri internals mock]
         D[Command Router]
     end
     
@@ -159,7 +159,7 @@ Template system:
   code for a raw `Command::new("git")`.
 
 Mock implementation:
-- **IPC Interception**: `mockIPC` redirects all Tauri commands
+- **IPC Interception**: the mock script's `__TAURI_INTERNALS__.invoke` redirects every Tauri command
 - **Command registry**: three lists name the commands: `collect_commands!` of `src-tauri/src/lib.rs`, the
   `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and `COMMAND_HANDLERS` of `tauri-mocks.ts`. The mock
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.

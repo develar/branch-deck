@@ -13,7 +13,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, runAndWaitForSync } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, routeCommand } from "../helpers/wait-helpers"
 
@@ -614,9 +614,10 @@ test.describe("Branch review window", () => {
     await expect(dialog).toBeHidden()
     expect(await windowCalls()).not.toContain("close")
 
-    // the main window creates it; the toast is in the window, which opens the pull request
+    // the main window creates it (the push, then the pull request: the answer first); the toast is in the window, which
+    // opens the pull request
     await actions.getByRole("button", { name: "Create Pull Request…" }).click()
-    await dialog.getByTestId("create-pull-request-submit").click()
+    await runAndWaitForAnswer(page, "create_pull_request", () => dialog.getByTestId("create-pull-request-submit").click())
     await expect(dialog).toBeHidden()
     const toast = reviewPage.locator("[data-slot=toast]", { hasText: "Created pull request #77" })
     await expect(toast).toBeVisible()

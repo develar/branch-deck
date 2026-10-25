@@ -692,43 +692,14 @@ export const tauriMockScript = () => {
     }
   }
 
-  /**
-   * Setup mockIPC handler
-   */
-  function setupMockIPC(tauriInternals: any) {
-    debug("[Test Mock] Setting up mockIPC handler")
-
-    if (tauriInternals.clearMocks) {
-      tauriInternals.clearMocks()
-    }
-
-    tauriInternals.mockIPC(async (cmd: string, payload: any) => {
-      // Special handling for commands with Channel objects: `events` of get_file_diffs and get_file_merges
-      const channelKey = cmd === "get_file_diffs" || cmd === "get_file_merges" ? "events" : null
-      if (channelKey !== null && payload && payload[channelKey]) {
-        // Store the onmessage handler before it gets lost
-        const onmessageHandler = payload[channelKey].onmessage
-        debug("[Test Mock] Captured onmessage handler:", typeof onmessageHandler)
-
-        // Replace the channel with our handler reference
-        const modifiedPayload = {
-          ...payload,
-          [channelKey]: {
-            onmessage: onmessageHandler,
-          },
-        }
-        return handleMockCommand(cmd, modifiedPayload)
-      }
-      return handleMockCommand(cmd, payload)
-    })
-  }
-
   // === Initialize Tauri Mocks ===
 
-  // Create a basic structure if Tauri internals don't exist yet
+  // The internals that @tauri-apps/api calls: its invoke is the mock's, nothing replaces it. No poll waits for a
+  // `mockIPC` of them: a 10 ms interval for the first 5 s of every window ran on the Playwright clock, one real timer
+  // per tick, and under load starved the timers a window opened right then waits for (the focus of a dialog, the end
+  // of its exit)
   if (!(window as any).__TAURI_INTERNALS__) {
     debug("[Test Mock] Creating Tauri internals structure")
-    // Create a minimal structure that will be replaced when the real API loads
     ;(window as any).__TAURI_INTERNALS__ = {
       // transformCallback is what's missing in the error
       transformCallback: (callback: any, once: boolean) => {
@@ -759,8 +730,6 @@ export const tauriMockScript = () => {
           label: windowLabel,
         },
       },
-      mockIPC: null as any,
-      clearMocks: null as any,
     }
 
     // Also override the window.invoke if it exists
@@ -770,25 +739,6 @@ export const tauriMockScript = () => {
         return handleMockCommand(cmd, args)
       }
     }
-  }
-
-  // Check if mockIPC is available and set it up
-  if ((window as any).__TAURI_INTERNALS__ && (window as any).__TAURI_INTERNALS__.mockIPC) {
-    debug("[Test Mock] mockIPC available immediately")
-    setupMockIPC((window as any).__TAURI_INTERNALS__)
-  } else {
-    // If mockIPC isn't available yet, wait for it
-    debug("[Test Mock] Waiting for mockIPC to become available...")
-    const checkInterval = setInterval(() => {
-      if ((window as any).__TAURI_INTERNALS__ && (window as any).__TAURI_INTERNALS__.mockIPC) {
-        debug("[Test Mock] mockIPC now available")
-        clearInterval(checkInterval)
-        setupMockIPC((window as any).__TAURI_INTERNALS__)
-      }
-    }, 10)
-
-    // Stop checking after 5 seconds
-    setTimeout(() => clearInterval(checkInterval), 5000)
   }
 
   // Mock window API for pages that use getCurrentWindow
