@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Duration;
 use test_utils::git_test_utils::TestRepo;
+#[cfg(unix)]
 use test_utils::history::HistoryCommit;
 
 const SHARED: &str = "one\ntwo\nthree\n";
