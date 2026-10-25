@@ -1325,6 +1325,8 @@ async fn a_view_that_failed_is_derived_again_after_the_next_answer_of_patronus()
 
   *facts.fails_view.lock().unwrap() = false;
   list_robots(&sessions, &key, Vec::new()).await;
-  let part = patronus_when(&sessions, &key, |part| part.state == FactState::Fresh).await;
+  // without robots the view is Fresh and empty before its landing needs come: each branch has them after
+  let part = patronus_when(&sessions, &key, |part| part.landing_needs == FactState::Fresh).await;
+  assert_eq!(part.state, FactState::Fresh);
   assert!(part.view.branches.contains_key("util"), "{part:?}");
 }
