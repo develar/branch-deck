@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 127;
+const COMMAND_COUNT: usize = 125;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -117,7 +117,6 @@ const ROUTED_IN_PAGE: &[(&str, usize)] = &[
   ("check_landing_gate", 1),
   ("check_target_conflict", 1),
   ("get_branch_review_readiness", 1),
-  ("get_patronus_failing_robots", 1),
   ("get_patronus_robot_details", 2),
   ("get_repository_config", 3),
   ("prefetch_branch_review", 1),

@@ -30,6 +30,7 @@ import type {
   FactRefreshReason,
   FactsChanges,
   FactsView,
+  News,
   StackBranchUpdate,
   SyncAnswer,
   SyncReason,
@@ -80,14 +81,19 @@ interface Session {
   readonly pending: { count: number }
   /** Resolves once the subscription answered or failed */
   ready: Promise<void>
+  /** The id of the last news of the session the window told (`onSessionFacts`); null until its first view */
+  toldNews: number | null
 }
 
 let session: Session | null = null
 /** Told after every change of the view, the close of a session and a failed subscription */
 const viewListeners = new Set<() => void>()
 
-/** Takes the facts of the view of the session of `repositoryPath` after a change of them; `changes` null for a snapshot */
-export type FactsListener = (repositoryPath: string, facts: FactsView, changes: FactsChanges | null) => void
+/**
+ * Takes the facts of the view of the session of `repositoryPath` after a change of them (`changes` null for a snapshot)
+ * and the news of the session the window has not told yet: none of those its first view had, each once
+ */
+export type FactsListener = (repositoryPath: string, facts: FactsView, changes: FactsChanges | null, news: readonly News[]) => void
 
 const factsListeners = new Set<FactsListener>()
 
@@ -98,7 +104,7 @@ const factsListeners = new Set<FactsListener>()
 export function onSessionFacts(listener: FactsListener): () => void {
   factsListeners.add(listener)
   if (session?.view != null) {
-    listener(session.repositoryPath, session.view.facts, null)
+    listener(session.repositoryPath, session.view.facts, null, [])
   }
   return () => {
     factsListeners.delete(listener)
@@ -193,7 +199,18 @@ export async function refreshSessionFacts(repositoryPath: string, family: FactFa
 }
 
 function subscribe(repositoryPath: string, pending: { count: number } = { count: 0 }): void {
-  const opened: Session = { repositoryPath, view: null, early: [], id: null, failure: null, closed: false, refreshing: false, pending, ready: Promise.resolve() }
+  const opened: Session = {
+    repositoryPath,
+    view: null,
+    early: [],
+    id: null,
+    failure: null,
+    closed: false,
+    refreshing: false,
+    pending,
+    ready: Promise.resolve(),
+    toldNews: null,
+  }
   const channel = new Channel<ViewPatch>()
   channel.onmessage = patch => receive(opened, patch)
   session = opened
@@ -263,7 +280,7 @@ function applyOrRefresh(target: Session, view: TableView, patch: ViewPatch): voi
   }
   const next = applyViewPatch(view, patch)
   target.view = next
-  projectView(target.repositoryPath, view, next, patch.changes)
+  projectView(target.repositoryPath, view, next, patch.changes, untoldNews(target, patch.changes.news ?? []))
   notifyViewListeners()
 }
 
@@ -298,7 +315,10 @@ function install(target: Session, view: TableView): void {
   }
   const previous = target.view
   target.view = view
-  projectView(target.repositoryPath, previous, view, null)
+  // the news of the first view were told before the window came, or are of a session it held before
+  const news = target.toldNews === null ? [] : view.news
+  target.toldNews ??= view.news.at(-1)?.id ?? 0
+  projectView(target.repositoryPath, previous, view, null, untoldNews(target, news))
   const early = target.early
   target.early = []
   for (const patch of early) {
@@ -315,7 +335,17 @@ function install(target: Session, view: TableView): void {
  * Brings the store to `next`: everything for a snapshot (`changes` null), else what the patch changed. The sections
  * outside this store (the archived, unapplied and landed branches, the issue links of the project) are told too
  */
-function projectView(repositoryPath: string, previous: TableView | null, next: TableView, changes: TableChanges | null): void {
+/** Of `news`, those after the last the window told, which it tells now */
+function untoldNews(target: Session, news: readonly News[]): readonly News[] {
+  const told = target.toldNews ?? 0
+  const untold = news.filter(item => item.id > told)
+  if (untold.length > 0) {
+    target.toldNews = untold.at(-1)!.id
+  }
+  return untold
+}
+
+function projectView(repositoryPath: string, previous: TableView | null, next: TableView, changes: TableChanges | null, news: readonly News[]): void {
   const state = branchSyncStore.getState()
   const update: Partial<BranchSyncState> = { viewVersion: next.version }
   const running = next.sync.kind === "running"
@@ -364,9 +394,9 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
     setUnappliedBranches(next.sections.unapplied.map(({ remote, ...info }) => ({ ...info, remoteStatus: remote === null ? null : toRemoteStatus(remote) })))
   }
   projectArchived(previous, next, changes)
-  if (changes === null || changes.facts != null) {
+  if (changes === null || changes.facts != null || news.length > 0) {
     for (const listener of factsListeners) {
-      listener(repositoryPath, next.facts, changes?.facts ?? null)
+      listener(repositoryPath, next.facts, changes === null ? null : (changes.facts ?? {}), news)
     }
   }
   if (changesTable(previous, changes)) {

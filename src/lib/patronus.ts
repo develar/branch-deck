@@ -17,7 +17,6 @@ import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 export type PatronusChipKind = "running" | "failed" | "needsReview" | "merged" | "passed" | "canceled" | "unknown"
 
 /** The subsystem of the problem "Changes require review approval": the code owners did not approve */
-export const REVIEW_APPROVAL_SUBSYSTEM = "OWNERSHIP_REVIEW_APPROVAL_CHECK"
 
 export interface PatronusChipState {
   kind: PatronusChipKind
@@ -280,34 +279,6 @@ export function formatPushMode(mode: PatronusPushMode): string {
 /** Not a dry run: a success pushes the changes into the target branch */
 export function isPushingRobot(robot: PatronusRobot): boolean {
   return robot.pushMode !== "dryRun"
-}
-
-/**
- * The robots that merged between two answers: known as running or canceling before, successful now, and not a dry run.
- * A robot first seen already finished is no news.
- */
-export function findMergedRobots(previous: Readonly<Record<string, PatronusRobot>>, next: Readonly<Record<string, PatronusRobot>>): PatronusRobot[] {
-  return findFinishedRobots(previous, next, robot => robot.status === "success" && isPushingRobot(robot))
-}
-
-/** The robots known as running or canceling in `previous` that finished as `finished` says in `next` */
-function findFinishedRobots(
-  previous: Readonly<Record<string, PatronusRobot>>,
-  next: Readonly<Record<string, PatronusRobot>>,
-  finished: (robot: PatronusRobot) => boolean,
-): PatronusRobot[] {
-  return Object.values(next).filter(robot => {
-    const known = previous[robot.id]
-    return known !== undefined && isRobotActive(known) && finished(robot)
-  })
-}
-
-/**
- * The robots that failed between two answers: known as running or canceling before, failed now. A robot first seen
- * already finished is no news.
- */
-export function findFailedRobots(previous: Readonly<Record<string, PatronusRobot>>, next: Readonly<Record<string, PatronusRobot>>): PatronusRobot[] {
-  return findFinishedRobots(previous, next, robot => robot.status === "failure")
 }
 
 /**

@@ -3,6 +3,7 @@ import { internalError } from "@/lib/api-error"
 import type {
   ApiError,
   GetRobotCommitMapParams,
+  News,
   PatronusAvailability,
   PatronusCommandReply,
   PatronusRobot,
@@ -16,7 +17,7 @@ import type {
 import { notifyError, setErrorRecorder } from "@/lib/errors"
 import { setWindowFocus } from "@/lib/os-notification"
 import { formatPushHoldReason } from "@/lib/patronus"
-import { FAILURE_PROBLEMS_WAIT_MS, formatFailedRobotToast, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
+import { formatFailedRobotToast, resetFailingAnnouncements, tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
 import { currentDemand } from "@/model/demand"
 import { getStackLandedBy, resetLandedStacks } from "@/stores/landed-stacks"
 import {
@@ -328,12 +329,22 @@ function available(...robots: PatronusRobot[]): RobotsAnswer {
   return { availability: { status: "available" }, robots }
 }
 
+/** The robots of the session of /repo before Patronus answered */
+function emptySessionRobots(): RobotsView {
+  return { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {}, failing: [], needsReview: {}, problemsFailed: {} }
+}
+
 /** The robots of the session of /repo, as its view has them */
-let sessionRobots: RobotsView = { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {} }
+let sessionRobots = emptySessionRobots()
+/** The id of the last news of the session */
+let lastNews = 0
 
 /**
  * The session applies `answer` of a list (`full`: the whole window, which replaces the robots) or of a poll, as
- * `repository_model::facts::RobotsFact` does, and the page gets its patch (`applyRobotsFacts`)
+ * `repository_model::facts::RobotsFact` does, then reads what it asks after an answer at once: which running robots will
+ * fail (`patronus.failing`), the problems of the failed ones (`patronus.problems`: the review approval check unless set,
+ * "offline" for a failed read); the page gets the patch (`applyRobotsFacts`) and the news of the robots that merged or
+ * failed (`tellRobotNews`)
  */
 function answerRobots(answer: RobotsAnswer, full: boolean, poll = false): void {
   const previous = sessionRobots
@@ -356,8 +367,52 @@ function answerRobots(answer: RobotsAnswer, full: boolean, poll = false): void {
     observedAt: Math.floor(Date.now() / 1000),
   }
   const changed = Object.fromEntries(Object.entries(robots).filter(([id, robot]) => JSON.stringify(previous.robots[id]) !== JSON.stringify(robot)))
-  sessionRobots = { head, robots }
-  applyRobotsFacts("/repo", sessionRobots, { head, robots: changed, removedRobots: Object.keys(previous.robots).filter(id => !(id in robots)) })
+  const known = new Set(previous.failing)
+  const running = Object.values(robots).filter(robot => robot.status === "running")
+  const failing = isAvailable ? running.filter(robot => known.has(robot.id) || patronus.failing.includes(robot.id)).map(robot => robot.id) : previous.failing
+  const needsReview = { ...previous.needsReview }
+  const problemsFailed = { ...previous.problemsFailed }
+  for (const robot of Object.values(robots).filter(it => it.status === "failure" && !(it.id in needsReview))) {
+    if (patronus.problems === "offline") {
+      problemsFailed[robot.id] = "offline"
+    } else {
+      needsReview[robot.id] = (patronus.problems ?? [{ subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }]).some(it => it.subsystem === "OWNERSHIP_REVIEW_APPROVAL_CHECK")
+    }
+  }
+  const finished = Object.values(robots).filter(robot => {
+    const before = previous.robots[robot.id]
+    return before !== undefined && (before.status === "running" || before.status === "canceling") && robot.status !== before.status
+  })
+  const news: News[] = finished.flatMap((robot): News[] => {
+    if (robot.status === "success" && robot.pushMode !== "dryRun") {
+      return [{ id: ++lastNews, event: { kind: "robotMerged", robotId: robot.id } }]
+    }
+    return robot.status === "failure" ? [{ id: ++lastNews, event: { kind: "robotFailed", robotId: robot.id, needsReview: needsReview[robot.id] ?? null } }] : []
+  })
+  sessionRobots = { head, robots, failing, needsReview, problemsFailed }
+  applyRobotsFacts("/repo", sessionRobots, {
+    head,
+    robots: changed,
+    removedRobots: Object.keys(previous.robots).filter(id => !(id in robots)),
+    failing,
+    needsReview,
+    problemsFailed,
+  })
+  // the main window tells the failures with the failing robots (`useReviewStatusRefresh`): a test that tells them watches
+  tellRobotNews("/repo", failuresWatched ? news : news.filter(item => item.event.kind === "robotMerged"))
+}
+
+/** A test watches the failing and the failed robots (`watchFailures`) */
+let failuresWatched = false
+
+/** Tells the failing robots (`watchFailingRobots`) and the failed ones of the news, as the main window does */
+function watchFailures(): () => void {
+  failuresWatched = true
+  const stop = watchFailingRobots()
+  return () => {
+    failuresWatched = false
+    stop()
+  }
 }
 
 /** The session lists the robots: `patronus.list`, the whole window */
@@ -398,7 +453,8 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(START)
   resetPatronus()
-  sessionRobots = { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {} }
+  sessionRobots = emptySessionRobots()
+  lastNews = 0
   patronus.refreshes = []
   patronus.problemCalls = []
   patronus.problems = null
@@ -698,8 +754,9 @@ describe("merges", () => {
   it("polls a watched robot of no branch and names its merge by what it tests", async () => {
     patronus.list = available()
     await list()
-    // the head of the pull request of someone else: no branch has it
+    // the head of the pull request of someone else: no branch has it; the session listed it after the bot's 👍
     const ofReview = { id: "pr", branchName: null, sourceRevision: "their-head" }
+    await poll(available(robot(ofReview)))
     watchRobot(robot(ofReview), "#101 Rework the session store")
     expect(getBranchRobot("auth")).toBeUndefined()
     // the session polls it: the window watches it (`watchedRobots` of its demand)
@@ -1123,20 +1180,18 @@ describe("facts without an answer", () => {
   it("waits for why a failed robot failed until its problems come, and no longer once Patronus didn't give them", async () => {
     const failed = robot({ status: "failure" })
     expect(isRobotProblemsPending(failed)).toBe(false)
-    patronus.problems = "offline"
-    let answer!: () => void
-    patronus.problemsHeld = new Promise<void>(resolve => (answer = resolve))
-    await list()
+    // the session listed it and reads its problems
+    const listed = {
+      ...sessionRobots,
+      head: { value: { availability: { status: "available" as const }, githubRepository: null }, state: { kind: "fresh" as const }, seq: 1, observedAt: 1 },
+      robots: { r1: failed },
+    }
+    applyRobotsFacts("/repo", listed, null)
     expect(isRobotProblemsPending(failed)).toBe(true)
-    answer()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(patronus.problemCalls).toEqual(["r1"])
+    applyRobotsFacts("/repo", { ...listed, problemsFailed: { r1: "offline" } }, { problemsFailed: { r1: "offline" } })
     expect(isRobotProblemsPending(failed)).toBe(false)
-    // the next answer of a list or a poll asks again
-    patronus.problems = null
-    await list()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(patronus.problemCalls).toEqual(["r1", "r1"])
+    // asked again after the next answer: they came
+    applyRobotsFacts("/repo", { ...listed, needsReview: { r1: true } }, { needsReview: { r1: true }, problemsFailed: {} })
     expect(patronusStore.getState().repositories["/repo\nuser"]?.needsReview).toEqual({ r1: true })
     expect(isRobotProblemsPending(failed)).toBe(false)
     // a robot that didn't fail waits for nothing
@@ -1144,49 +1199,9 @@ describe("facts without an answer", () => {
   })
 })
 
-describe("review problems", () => {
-  it("reads the problems of a failed robot of a branch once", async () => {
-    await list()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(patronus.problemCalls).toEqual(["r1"])
-    expect(patronusStore.getState().repositories["/repo\nuser"]?.needsReview).toEqual({ r1: true })
-    await list()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(patronus.problemCalls).toEqual(["r1"])
-  })
-})
-
 describe("failing robots", () => {
-  it("asks whether the running robots will fail after a list and each poll, until known, never for a canceling one", async () => {
-    patronus.list = available(robot(), robot({ id: "r2", branchName: "login", sourceRevision: "login-tip", status: "canceling" }))
-    setBranches("auth", "login")
-    patronus.failing = ["r1"]
-    await list()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(patronus.failingCalls).toEqual([["r1"]])
-    expect(patronusStore.getState().repositories["/repo\nuser"]?.failing).toEqual({ r1: true })
-    // known: not asked again
-    await poll()
-    expect(patronus.failingCalls).toEqual([["r1"]])
-  })
-
-  it("asks after an answer only: a patch of the robots without an answer of Patronus asks nothing, each poll still asks", async () => {
-    patronus.list = available(robot())
-    setBranches("auth")
-    await list()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(patronus.failingCalls).toEqual([["r1"]])
-    // a start's robot reaches the session without an answer of Patronus: its patch has no head
-    applyRobotsFacts("/repo", sessionRobots, { robots: { r2: robot({ id: "r2", branchName: "other" }) } })
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(patronus.failingCalls).toEqual([["r1"]])
-
-    await poll()
-    expect(patronus.failingCalls).toEqual([["r1"], ["r1"]])
-  })
-
   it("tells once that a running robot will fail, with Cancel Safe Push and the failed checks", async () => {
-    const stop = watchFailingRobots()
+    const stop = watchFailures()
     patronus.list = available(robot())
     patronus.failing = ["r1"]
     await list()
@@ -1210,7 +1225,7 @@ describe("toast steps decided again at the click", () => {
   }
 
   it("cancels nothing once the robot finished: the toast says it merged", async () => {
-    const stop = watchFailingRobots()
+    const stop = watchFailures()
     patronus.list = available(robot())
     patronus.failing = ["r1"]
     await list()
@@ -1228,7 +1243,7 @@ describe("toast steps decided again at the click", () => {
   it("restarts nothing once the branch has a newer robot: the toast says it was restarted", async () => {
     patronus.problems = []
     patronus.failureKind = "infrastructure"
-    const stop = watchFailingRobots()
+    const stop = watchFailures()
     patronus.list = available(robot())
     await list()
     await vi.advanceTimersByTimeAsync(0)
@@ -1297,9 +1312,8 @@ describe("failed robots", () => {
 
   it("tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read", async () => {
     patronus.problems = []
-    const stop = watchFailingRobots()
+    const stop = watchFailures()
     await failRunningRobot()
-    expect(patronus.problemCalls).toEqual(["r1"])
     expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
     // a later answer with the same robot tells nothing
     patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
@@ -1311,7 +1325,7 @@ describe("failed robots", () => {
   it("tells a robot whose builds never started with Restart Safe Push: the CI failed, not the branch", async () => {
     patronus.problems = []
     patronus.failureKind = "infrastructure"
-    const stop = watchFailingRobots()
+    const stop = watchFailures()
     await failRunningRobot()
     expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "Open in Patronus"]])
     stop()
@@ -1320,7 +1334,7 @@ describe("failed robots", () => {
   it("tells a massive failure to check the target first", async () => {
     patronus.problems = []
     patronus.failureKind = "massive"
-    const stop = watchFailingRobots()
+    const stop = watchFailures()
     await failRunningRobot()
     expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · many tests failed, check master · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
     stop()
@@ -1328,7 +1342,7 @@ describe("failed robots", () => {
 
   it('tells a robot that failed for missing approvals "needs review", with its pull request', async () => {
     notices.pullRequests = { auth: { number: 12, state: "open", headRefOid: "tip" } }
-    const stop = watchFailingRobots()
+    const stop = watchFailures()
     await failRunningRobot()
     expect(toasts()).toEqual([["Safe Push of auth needs review", "The code owners did not approve the changes", "Open Pull Request", "Open in Patronus"]])
     stop()
@@ -1345,19 +1359,17 @@ describe("failed robots", () => {
   it("tells no second time a robot told failing while it ran", async () => {
     patronus.problems = []
     patronus.failing = ["r1"]
-    const stop = watchFailingRobots()
+    const stop = watchFailures()
     await failRunningRobot()
     expect(toasts()).toEqual([["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "Open in Patronus"]])
     stop()
   })
 
-  it("tells a robot whose problems never come without them", async () => {
+  it("tells a robot whose problems didn't come without them", async () => {
     patronus.problems = "offline"
-    const stop = watchFailingRobots()
+    const stop = watchFailures()
     await failRunningRobot()
-    // Patronus doesn't say what the problems are: the toast waits for them a while
-    expect(notices.toasts).toHaveLength(0)
-    await vi.advanceTimersByTimeAsync(FAILURE_PROBLEMS_WAIT_MS)
+    // the session's news says why is unknown: a plain failure
     expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
     stop()
   })

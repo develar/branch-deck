@@ -15,7 +15,6 @@ import {
   formatLandedWith,
   formatLandingReason,
   formatRobotSubject,
-  findMergedRobots,
   formatMergedRobotTitle,
   formatPatronusAvailabilityHint,
   formatSafePushLoginCommand,
@@ -447,21 +446,7 @@ describe("formatReviewerGroupFiles", () => {
   })
 })
 
-describe("findMergedRobots", () => {
-  it("finds a running or canceling robot that succeeded, not a dry run and not a robot first seen finished", () => {
-    const previous = byId(robot({ id: "running" }), robot({ id: "canceling", status: "canceling" }), robot({ id: "dry", pushMode: "dryRun" }))
-    const next = byId(
-      robot({ id: "running", status: "success", finishTime: 200 }),
-      robot({ id: "canceling", status: "success", finishTime: 200 }),
-      robot({ id: "dry", pushMode: "dryRun", status: "success" }),
-      robot({ id: "new", status: "success" }),
-    )
-    expect(findMergedRobots(previous, next).map(it => it.id)).toEqual(["running", "canceling"])
-    // the next answer is no news again
-    expect(findMergedRobots(next, next)).toEqual([])
-    expect(findMergedRobots(previous, byId(robot({ id: "running", status: "failure" })))).toEqual([])
-  })
-
+describe("formatMergedRobotTitle", () => {
   it("names the branch, else the subject of a robot of a temporary ref", () => {
     expect(formatMergedRobotTitle(robot({}))).toBe("IJPL-1 merged into master")
     expect(formatMergedRobotTitle(robot({ branchName: null }))).toBe("IJPL-1 fix the cache merged into master")

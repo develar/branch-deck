@@ -15,7 +15,7 @@
 //! reads number themselves with `begin` and apply with `apply_facts`. Without a consumer nothing is sent.
 
 use crate::branch_table::BranchTable;
-use crate::facts::{FactResult, FactTicket, RobotsDigest, TableFacts};
+use crate::facts::{AppliedFacts, FactResult, FactTicket, RobotsDigest, TableFacts};
 use crate::runtime::{Message, spawn_actor};
 use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
@@ -308,8 +308,9 @@ impl Sessions {
   }
 
   /// Applies the answer of the read of `ticket` to the facts of the session of `key`, and answers the version of the
-  /// view after its patch; `None` when the session is not open or is another one than the ticket's (opened again)
-  pub async fn apply_facts(&self, key: &SessionKey, ticket: FactTicket, result: FactResult) -> Option<Version> {
+  /// view after its patch with what the scheduler asks about the robots now; `None` when the session is not open or is
+  /// another one than the ticket's (opened again)
+  pub async fn apply_facts(&self, key: &SessionKey, ticket: FactTicket, result: FactResult) -> Option<AppliedFacts> {
     self.ask(key, |reply| Message::ApplyFacts { ticket, result, reply }).await.flatten()
   }
 

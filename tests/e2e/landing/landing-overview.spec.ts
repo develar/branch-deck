@@ -14,7 +14,9 @@ import {
   minutes,
   robot,
   setupRobots,
+  setupRobotsWith,
   startRequest,
+  willFail,
 } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
@@ -151,7 +153,6 @@ test.describe("Landing overview", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await routeCommand(page, "get_patronus_failing_robots", () => ["running-robot"])
     await routeCommand(
       page,
       "get_patronus_robot_details",
@@ -166,7 +167,8 @@ test.describe("Landing overview", () => {
           progress: { remainingSeconds: 1500, checkName: "IntelliJ Aggregator", checkPercent: 36, overtimeSeconds: null, queued: 0, probablyHanging: false },
         }) satisfies PatronusRobotDetails,
     )
-    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
+    // Patronus warns that a required check failed: the session asks it after its list
+    const repo = await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: willFail(RUNNING.id) }, RUNNING)
     const toast = page.locator("[data-slot=toast]", { hasText: "A required check of JIRA-456 failed" })
     await expect(toast).toContainText("Bazel Community Build Aggregator · the Safe Push will fail")
     const indicator = page.getByTestId("landing-indicator")

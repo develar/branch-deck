@@ -14,8 +14,8 @@ use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
   GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject,
-  PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
-  PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams,
+  ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use domain_types::pull_request::{
   CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
@@ -1359,18 +1359,25 @@ pub async fn get_robot_failure(State(state): State<Arc<AppState>>, Json(params):
   .await
 }
 
-/// The error problems of a finished robot, as the app reads them
-pub async fn get_patronus_robot_problems(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<Vec<PatronusProblem>> {
-  let host = remote_of(&state, &params.repository_path)?;
-  let problems = host.patronus_service().robot_problems(&params.robot_id).await;
-  problems.map(Json).map_err(|e| failed("read the problems of the Patronus robot", patronus_error(e)))
+/// Of the running robots `ids`, the ones a failed required check dooms, as the session of a test repository asks them
+/// (`TestFactSources`)
+pub(crate) async fn failing_robots(state: &AppState, key: &SessionKey, ids: &[String]) -> Result<Vec<String>, ApiError> {
+  let host = remote_of(state, &key.worktree).map_err(rejected)?;
+  host.patronus_service().failing_robots(ids).await.map_err(patronus_error)
 }
 
-/// The running robots a failed required check dooms, as the app reads them
-pub async fn get_patronus_failing_robots(State(state): State<Arc<AppState>>, Json(params): Json<PatronusFailingRobotsParams>) -> CommandResult<Vec<String>> {
-  let host = remote_of(&state, &params.repository_path)?;
-  let failing = host.patronus_service().failing_robots(&params.robot_ids).await;
-  failing.map(Json).map_err(|e| failed("read the failing Patronus robots", patronus_error(e)))
+/// The error problems of a finished robot, as the session of a test repository reads them (`TestFactSources`)
+pub(crate) async fn robot_problems(state: &AppState, key: &SessionKey, id: &str) -> Result<Vec<PatronusProblem>, ApiError> {
+  let host = remote_of(state, &key.worktree).map_err(rejected)?;
+  host.patronus_service().robot_problems(id).await.map_err(patronus_error)
+}
+
+/// The error of a rejection, a read of the session's facts answers it
+fn rejected(rejection: Rejection) -> ApiError {
+  match rejection {
+    Rejection::Error(error) => error,
+    Rejection::Panicked => ApiError::internal("The test server failed"),
+  }
 }
 
 /// The readiness of each branch as the app reads it (`remote_facts::review_readiness`, without the object cache, so every

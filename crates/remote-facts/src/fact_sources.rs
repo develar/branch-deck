@@ -2,9 +2,11 @@
 //! session it names (its worktree, and the branch prefix the robots are matched under). The hosts implement it over
 //! their services: the app over the Patronus service and the GitHub mirror of each repository it keeps (src-tauri,
 //! `AppFactSources`), the E2E server over the fakes of each test repository, counting the reads as its tests check them
-//! (`TestFactSources`). A read never fails: what went wrong is the answer's (the availability of Patronus).
+//! (`TestFactSources`). A list and a poll never fail: what went wrong is the answer's (the availability of Patronus); the
+//! reads of what the session asks about its robots answer their failure, which the facts keep.
 
-use domain_types::patronus::{KnownRobotStatus, PatronusRobotsResult};
+use domain_types::error::ApiError;
+use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobotsResult};
 use repository_model::session::SessionKey;
 use std::future::Future;
 use std::pin::Pin;
@@ -20,4 +22,10 @@ pub trait FactSources: Send + Sync + 'static {
 
   /// The robots of `known` whose status changed since; the others are not in the answer
   fn poll<'a>(&'a self, key: &'a SessionKey, known: Vec<KnownRobotStatus>) -> Read<'a, PatronusRobotsResult>;
+
+  /// Of the running robots `ids`, the ones a failed required check dooms (Patronus' warning `robot_is_failing`)
+  fn failing<'a>(&'a self, key: &'a SessionKey, ids: Vec<String>) -> Read<'a, Result<Vec<String>, ApiError>>;
+
+  /// The error problems of the finished robot `id`
+  fn problems<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>>;
 }

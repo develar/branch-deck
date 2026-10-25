@@ -13,14 +13,16 @@
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
 use crate::state::AppState;
 use crate::sync_overrides::OverridingReporter;
-use crate::tauri_command_bridge::{CommandResult, Rejection, branch_prefix_now, branch_prefix_of, failed, list_robots, poll_robots, repository_by_path};
+use crate::tauri_command_bridge::{
+  CommandResult, Rejection, branch_prefix_now, branch_prefix_of, failed, failing_robots, list_robots, poll_robots, repository_by_path, robot_problems,
+};
 use app_api::api_error::{api_error, no_branch_prefix};
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use domain_types::error::ApiError;
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusRobotsResult};
+use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotsResult};
 use domain_types::session::{RefreshFactsParams, SetDemandParams, SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
 use domain_types::{ProgressReporter, RemoteStatusUpdate};
 use remote_facts::fact_sources::{FactSources, Read};
@@ -107,6 +109,20 @@ impl FactSources for TestFactSources {
 
   fn poll<'a>(&'a self, key: &'a SessionKey, known: Vec<KnownRobotStatus>) -> Read<'a, PatronusRobotsResult> {
     Box::pin(self.answer(async move |state| poll_robots(state, key, &known).await))
+  }
+
+  fn failing<'a>(&'a self, key: &'a SessionKey, ids: Vec<String>) -> Read<'a, Result<Vec<String>, ApiError>> {
+    Box::pin(async move {
+      let state = self.state.upgrade().ok_or_else(|| ApiError::internal("The test server stopped"))?;
+      failing_robots(&state, key, &ids).await
+    })
+  }
+
+  fn problems<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>> {
+    Box::pin(async move {
+      let state = self.state.upgrade().ok_or_else(|| ApiError::internal("The test server stopped"))?;
+      robot_problems(&state, key, &id).await
+    })
   }
 }
 

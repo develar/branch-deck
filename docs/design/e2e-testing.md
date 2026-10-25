@@ -433,9 +433,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (`PatronusClient::with_web_url`), so a robot links where the app links it. The service is replaced on each Patronus
   fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
   so the host holds whether the repository is on Space (`space_repository`, project `e2e`, repository `repository`).
-- **Bridge**: the lists and polls of the session's robots (`TestFactSources`, `list_robots` and `poll_robots` of the
-  bridge), `get_patronus_robot_details`, `get_robot_failure`, `get_patronus_robot_problems`,
-  `get_patronus_failing_robots`, `get_patronus_start_options`, `get_patronus_target_branch`, `start_patronus_robot`,
+- **Bridge**: the reads of the session's robots (`TestFactSources`: `list_robots`, `poll_robots`, `failing_robots` and
+  `robot_problems` of the bridge), `get_patronus_robot_details`, `get_robot_failure`, `get_patronus_start_options`,
+  `get_patronus_target_branch`, `start_patronus_robot`,
   `restart_patronus_robot`, `cancel_patronus_robot` and `get_patronus_robot_status` call the service as
   `src-tauri/src/commands/patronus.rs` does (a start, a restart and a cancel give their robot to the session, as the
   app's commands do): the list answers `notPatronus` while the repository is not on Space and names the GitHub

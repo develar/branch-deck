@@ -20,7 +20,7 @@ use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
-use domain_types::patronus::{KnownRobotStatus, PatronusRobot, PatronusRobotsResult};
+use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotsResult};
 use domain_types::session::{RefreshFactsParams, SetDemandParams, SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::fact_sources::{FactSources, Read};
@@ -207,6 +207,14 @@ impl FactSources for AppFactSources {
 
   fn poll<'a>(&'a self, key: &'a SessionKey, known: Vec<KnownRobotStatus>) -> Read<'a, PatronusRobotsResult> {
     Box::pin(async move { self.app.state::<PatronusState>().poll(&key.prefix, &known).await })
+  }
+
+  fn failing<'a>(&'a self, _key: &'a SessionKey, ids: Vec<String>) -> Read<'a, Result<Vec<String>, ApiError>> {
+    Box::pin(async move { self.app.state::<PatronusState>().failing(&ids).await })
+  }
+
+  fn problems<'a>(&'a self, _key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>> {
+    Box::pin(async move { self.app.state::<PatronusState>().problems(&id).await })
   }
 }
 

@@ -143,17 +143,6 @@ pub enum PatronusAvailability {
   },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetPatronusRobotsParams {
-  pub repository_path: String,
-  /// Unix seconds: only the robots started since then (an incremental refresh); null = the last 7 days
-  pub since: Option<u32>,
-  /// Asked by a timer or an event, not by the user: skipped while Patronus is backing off after failures
-  pub background: bool,
-}
-
 /// A running robot whose status the app knows
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -161,14 +150,6 @@ pub struct GetPatronusRobotsParams {
 pub struct KnownRobotStatus {
   pub id: String,
   pub status: PatronusRobotStatus,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PollPatronusRobotsParams {
-  pub repository_path: String,
-  pub robots: Vec<KnownRobotStatus>,
 }
 
 /// What the chip popover shows beyond the list: the merge profile, the CI checks and the problems
@@ -235,6 +216,9 @@ pub struct PatronusProblem {
   pub subsystem: Option<String>,
 }
 
+/// The subsystem of the problem of a robot that failed for missing code-owner approvals
+pub const REVIEW_APPROVAL_SUBSYSTEM: &str = "OWNERSHIP_REVIEW_APPROVAL_CHECK";
+
 /// A merge profile of the target branch, e.g. "Large Scale Change": which checks run
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -282,14 +266,6 @@ pub struct PatronusRobotParams {
 }
 
 /// The running robots to ask whether they will fail
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PatronusFailingRobotsParams {
-  pub repository_path: String,
-  pub robot_ids: Vec<String>,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

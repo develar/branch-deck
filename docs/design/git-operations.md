@@ -3319,8 +3319,11 @@ table of a watched session, then by the rules of
 session matches to the tips of its table and of the watched robots of the demand (`facts::robots_digest`); each robot
 keeps the number of the read or the write that wrote it, so a list started before a start's robot
 (`Sessions::write_robot`, which the start, the restart and the cancel of both hosts call) or a poll never rolls it back,
-and a failed answer keeps the robots `Stale`. The page stores what the patches bring (`applyRobotsFacts`) and asks no
-list or poll of its own.
+and a failed answer keeps the robots `Stale`. After each answer it asks which running robots of the poll a failed
+required check dooms (one read) and the problems of the failed robots of the table not known (one read per robot), and
+an answer that shows a robot known running merged or failed is news of the session (`News`, with growing ids, the last
+32 in the view): a failure once its problems say whether for missing approvals. The page stores what the patches bring
+(`applyRobotsFacts`), tells each news once (`tellRobotNews`) and asks no list, poll or problems of its own.
 
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table

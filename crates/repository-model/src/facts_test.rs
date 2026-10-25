@@ -1,12 +1,15 @@
-use crate::facts::{Applied, FactRecord, FactStore, Observation, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence, robots_digest};
+use crate::facts::{Applied, FactRecord, FactResult, FactStore, Observation, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence, robots_digest};
 use crate::state::View;
 use crate::table::TableState;
 use crate::table::table_test::{remote_at, run_sync, sync_events};
-use domain_policy::refresh::FactTiming;
+use domain_policy::refresh::{FactTiming, ReadState};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::robot;
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult};
-use domain_types::session::{FactState, RobotsHead};
+use domain_types::patronus::{
+  KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
+  REVIEW_APPROVAL_SUBSYSTEM,
+};
+use domain_types::session::{FactState, NewsEvent, RobotsHead};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::time::Duration;
@@ -140,12 +143,17 @@ fn status_of(fact: &RobotsFact, id: &str) -> PatronusRobotStatus {
 #[test]
 fn a_list_started_before_a_write_or_a_poll_never_rolls_their_robot_back() {
   let mut fact = RobotsFact::default();
-  fact.answer(at(1, 0, 1), FULL_LIST, listed(vec![robot("old", Some("auth"), PatronusRobotStatus::Running, 10)]));
+  fact.answer(
+    at(1, 0, 1),
+    FULL_LIST,
+    listed(vec![robot("old", Some("auth"), PatronusRobotStatus::Running, 10)]),
+    &mut Vec::new(),
+  );
   // the full list starts, then a start writes its robot and a poll sees the old one merge
   let mut sequence = Sequence::default();
   sequence.next();
   let list = sequence.next();
-  fact.write(sequence.next(), robot("started", Some("ui"), PatronusRobotStatus::Running, 20));
+  fact.write(sequence.next(), robot("started", Some("ui"), PatronusRobotStatus::Running, 20), &mut Vec::new());
   fact.answer(
     Observation {
       seq: sequence.next(),
@@ -153,12 +161,13 @@ fn a_list_started_before_a_write_or_a_poll_never_rolls_their_robot_back() {
     },
     RobotsRead::Poll,
     listed(vec![robot("old", Some("auth"), PatronusRobotStatus::Success, 10)]),
+    &mut Vec::new(),
   );
   let seen = vec![
     robot("old", Some("auth"), PatronusRobotStatus::Running, 10),
     robot("other", None, PatronusRobotStatus::Failure, 5),
   ];
-  assert!(fact.answer(Observation { seq: list, ..at(0, 0, 4) }, FULL_LIST, listed(seen)));
+  assert!(fact.answer(Observation { seq: list, ..at(0, 0, 4) }, FULL_LIST, listed(seen), &mut Vec::new()));
   assert_eq!(ids(&fact), vec!["old", "other", "started"]);
   assert_eq!(status_of(&fact, "old"), PatronusRobotStatus::Success);
   // a newer full list without them drops them
@@ -169,6 +178,7 @@ fn a_list_started_before_a_write_or_a_poll_never_rolls_their_robot_back() {
     },
     FULL_LIST,
     listed(vec![]),
+    &mut Vec::new(),
   );
   assert_eq!(ids(&fact), Vec::<&str>::new());
 }
@@ -184,12 +194,17 @@ fn keeps_the_shown_robots_when_patronus_cant_answer() {
   };
   let mut fact = RobotsFact::default();
   assert_eq!((&fact.view().head.state, fact.view().head.value.as_ref()), (&FactState::Loading, None));
-  fact.answer(at(1, 0, 1), FULL_LIST, down());
+  fact.answer(at(1, 0, 1), FULL_LIST, down(), &mut Vec::new());
   let reason = ApiError::new(ErrorCode::PatronusError, "Patronus is down");
   assert_eq!(fact.view().head.state, FactState::Unavailable { reason: reason.clone() });
-  fact.answer(at(2, 0, 2), FULL_LIST, listed(vec![robot("robot", Some("auth"), PatronusRobotStatus::Running, 10)]));
+  fact.answer(
+    at(2, 0, 2),
+    FULL_LIST,
+    listed(vec![robot("robot", Some("auth"), PatronusRobotStatus::Running, 10)]),
+    &mut Vec::new(),
+  );
   assert_eq!(fact.view().head.state, FactState::Fresh);
-  fact.answer(at(3, 0, 3), RobotsRead::Poll, down());
+  fact.answer(at(3, 0, 3), RobotsRead::Poll, down(), &mut Vec::new());
   assert_eq!(fact.view().head.state, FactState::Stale { reason: Some(reason) });
   assert_eq!(ids(&fact), vec!["robot"]);
   let head = fact.view().head.value.as_ref().unwrap();
@@ -199,7 +214,7 @@ fn keeps_the_shown_robots_when_patronus_cant_answer() {
       message: "Patronus is down".into()
     }
   );
-  fact.answer(at(4, 0, 4), FULL_LIST, PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
+  fact.answer(at(4, 0, 4), FULL_LIST, PatronusRobotsResult::from(PatronusAvailability::NotPatronus), &mut Vec::new());
   assert_eq!(fact.view().head.state, FactState::Fresh);
 }
 
@@ -216,8 +231,13 @@ fn keeps_the_merge_profile_a_poll_the_details_or_the_start_named_when_a_list_whi
     ..robot("robot", Some("auth"), PatronusRobotStatus::Running, 10)
   };
   let mut fact = RobotsFact::default();
-  fact.write(Seq(1), named);
-  fact.answer(at(2, 0, 2), LIST, listed(vec![robot("robot", Some("auth"), PatronusRobotStatus::Success, 10)]));
+  fact.write(Seq(1), named, &mut Vec::new());
+  fact.answer(
+    at(2, 0, 2),
+    LIST,
+    listed(vec![robot("robot", Some("auth"), PatronusRobotStatus::Success, 10)]),
+    &mut Vec::new(),
+  );
   assert_eq!(
     (status_of(&fact, "robot"), fact.view().robots["robot"].profile.clone()),
     (PatronusRobotStatus::Success, Some(profile))
@@ -232,8 +252,8 @@ fn keeps_the_github_repository_of_a_list_through_a_poll() {
     github_repository: Some("acme/monorepo".into()),
     ..listed(vec![])
   };
-  fact.answer(at(1, 0, 1), FULL_LIST, list);
-  fact.answer(at(2, 0, 2), RobotsRead::Poll, listed(vec![]));
+  fact.answer(at(1, 0, 1), FULL_LIST, list, &mut Vec::new());
+  fact.answer(at(2, 0, 2), RobotsRead::Poll, listed(vec![]), &mut Vec::new());
   let head = fact.view().head.value.clone().unwrap();
   assert_eq!(
     head,
@@ -255,26 +275,37 @@ fn keeps_the_objects_of_unchanged_robots_and_the_record_when_nothing_changed() {
     ]
   };
   let (mut facts, state, mut view) = (FactStore::new(), TableState::new(), View::new(7));
-  facts.robots.answer(at(1, 0, 1), FULL_LIST, listed(robots()));
+  facts.robots.answer(at(1, 0, 1), FULL_LIST, listed(robots()), &mut Vec::new());
   view.diff(&state, &facts).unwrap();
-  facts.robots.answer(at(2, 0, 2), FULL_LIST, listed(robots()));
+  facts.robots.answer(at(2, 0, 2), FULL_LIST, listed(robots()), &mut Vec::new());
   let change = view.diff(&state, &facts).unwrap().changes.facts.unwrap().robots.unwrap();
   assert_eq!((change.robots.len(), change.removed_robots.len(), change.head.map(|head| head.seq)), (0, 0, Some(2)));
-  facts
-    .robots
-    .answer(at(3, 0, 3), RobotsRead::Poll, listed(vec![robot("b", Some("ui"), PatronusRobotStatus::Success, 9)]));
+  facts.apply(
+    at(3, 0, 3),
+    FactResult::Robots {
+      read: RobotsRead::Poll,
+      result: listed(vec![robot("b", Some("ui"), PatronusRobotStatus::Success, 9)]),
+    },
+  );
   let change = view.diff(&state, &facts).unwrap().changes.facts.unwrap().robots.unwrap();
   assert_eq!(change.robots.keys().collect::<Vec<_>>(), vec!["b"]);
 }
 
-/// The poll asks about the running robots of the branches (on the copy of their newest commit or their remote tip), of
-/// the whole stacks and the watched robots of no branch; a finished robot and one of no branch nobody watches not
-#[test]
-fn the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones() {
+/// The table of `auth` (its copies `copy-a2`, `copy-a1`) and `ui` (pushed at `pushed-ui`) after a sync
+fn synced_table() -> TableState {
   let mut state = TableState::new();
   let mut events = sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created);
   events.push(SyncEvent::RemoteStatusUpdate(remote_at("ui", "pushed-ui")));
   run_sync(&mut state, events);
+  state
+}
+
+/// The poll asks about the running robots of the branches (on the copy of their newest commit or their remote tip), of
+/// the whole stacks and the watched robots of no branch; a finished robot and one of no branch nobody watches not.
+/// Those running and not known failing are asked whether a failed required check dooms them
+#[test]
+fn the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones() {
+  let state = synced_table();
   let temporary = |id: &str, revision: &str, start_time: u32| PatronusRobot {
     source_revision: Some(revision.into()),
     push_mode: PatronusPushMode::DryRun,
@@ -290,7 +321,7 @@ fn the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones() {
     robot("watched", None, PatronusRobotStatus::Canceling, 6),
     robot("stranger", None, PatronusRobotStatus::Running, 7),
   ];
-  fact.answer(at(1, 0, 1), FULL_LIST, listed(robots));
+  fact.answer(at(1, 0, 1), FULL_LIST, listed(robots), &mut Vec::new());
   let digest = robots_digest(&state, fact.view(), &["watched".to_owned()]);
   let known = |id: &str, status| KnownRobotStatus { id: id.into(), status };
   assert_eq!(
@@ -302,6 +333,120 @@ fn the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones() {
         known("watched", PatronusRobotStatus::Canceling),
       ],
       pushing: true,
+      unknown_failing: vec!["auth-robot".to_owned(), "ui-robot".to_owned()],
+      problems: Vec::new(),
     }
+  );
+  // known failing: not asked again; a robot that finished meanwhile is no longer failing
+  fact.failing_answer(Ok(vec!["ui-robot".to_owned(), "done".to_owned()]));
+  assert_eq!(fact.view().failing, vec!["ui-robot".to_owned()]);
+  assert_eq!(robots_digest(&state, fact.view(), &[]).unknown_failing, vec!["auth-robot".to_owned()]);
+}
+
+/// The problems of a failed robot of the table are asked until known; a read that failed says why and is asked again
+/// (after an answer, the scheduler's rule); a failed robot of no branch has none asked
+#[test]
+fn the_problems_of_a_failed_robot_of_the_table_are_asked_until_known() {
+  let state = synced_table();
+  let mut fact = RobotsFact::default();
+  let failed = vec![
+    robot("auth-failed", Some("auth"), PatronusRobotStatus::Failure, 20),
+    robot("stray", None, PatronusRobotStatus::Failure, 5),
+  ];
+  fact.answer(at(1, 0, 1), FULL_LIST, listed(failed), &mut Vec::new());
+  let problems = |fact: &RobotsFact| robots_digest(&state, fact.view(), &[]).problems;
+  assert_eq!(
+    problems(&fact),
+    vec![ProblemsRead {
+      id: "auth-failed".into(),
+      read: ReadState::Never
+    }]
+  );
+  fact.problems_answer("auth-failed", Err(failure()));
+  assert_eq!(fact.view().problems_failed.get("auth-failed").map(String::as_str), Some("Patronus did not answer"));
+  assert_eq!(
+    problems(&fact),
+    vec![ProblemsRead {
+      id: "auth-failed".into(),
+      read: ReadState::Failed
+    }]
+  );
+  let review = PatronusProblem {
+    title: "Changes require review approval".into(),
+    subsystem: Some(REVIEW_APPROVAL_SUBSYSTEM.into()),
+  };
+  fact.problems_answer("auth-failed", Ok(vec![review]));
+  assert_eq!(
+    (fact.view().needs_review.get("auth-failed"), fact.view().problems_failed.get("auth-failed")),
+    (Some(&true), None)
+  );
+  assert_eq!(problems(&fact), Vec::new());
+}
+
+/// A robot known running that an answer shows merged is news at once; one that failed once its problems say why, or at
+/// once when the session reads none of it (a robot of no branch of the table); a robot first seen finished is no news
+#[test]
+fn a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why() {
+  let state = synced_table();
+  let mut facts = FactStore::new();
+  let list = |robots| FactResult::Robots {
+    read: FULL_LIST,
+    result: listed(robots),
+  };
+  let running = |id: &str, branch| robot(id, branch, PatronusRobotStatus::Running, 20);
+  facts.apply(
+    at(1, 0, 1),
+    list(vec![
+      running("merges", Some("ui")),
+      running("fails", Some("auth")),
+      running("stray", None),
+      robot("old", None, PatronusRobotStatus::Success, 1),
+    ]),
+  );
+  assert_eq!(facts.news(), &[]);
+  let finished = |id: &str, branch, status| robot(id, branch, status, 20);
+  let poll = vec![
+    finished("merges", Some("ui"), PatronusRobotStatus::Success),
+    finished("fails", Some("auth"), PatronusRobotStatus::Failure),
+    finished("stray", None, PatronusRobotStatus::Failure),
+  ];
+  facts.apply(
+    at(2, 0, 2),
+    FactResult::Robots {
+      read: RobotsRead::Poll,
+      result: listed(poll),
+    },
+  );
+  facts.tell_failures(&robots_digest(&state, facts.robots.view(), &[]));
+  let events = |facts: &FactStore| facts.news().iter().map(|news| (news.id, news.event.clone())).collect::<Vec<_>>();
+  assert_eq!(
+    events(&facts),
+    vec![
+      (1, NewsEvent::RobotMerged { robot_id: "merges".into() }),
+      (
+        2,
+        NewsEvent::RobotFailed {
+          robot_id: "stray".into(),
+          needs_review: None
+        }
+      ),
+    ]
+  );
+  facts.apply(
+    at(3, 0, 3),
+    FactResult::Problems {
+      id: "fails".into(),
+      result: Ok(Vec::new()),
+    },
+  );
+  assert_eq!(
+    events(&facts)[2],
+    (
+      3,
+      NewsEvent::RobotFailed {
+        robot_id: "fails".into(),
+        needs_review: Some(false)
+      }
+    )
   );
 }

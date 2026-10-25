@@ -141,6 +141,9 @@ pub struct SetDemandParams {
 pub enum FactFamily {
   /// The user's robots of Patronus (`FactsView::robots`)
   Robots,
+  /// Why the failed robots of the table failed (`RobotsView::needs_review`): Check Approvals Again asks those Patronus
+  /// didn't give again; their reads come as patches, the refresh answers at once
+  RobotProblems,
 }
 
 /// Why a window asks a fact again
@@ -287,7 +290,13 @@ pub struct TableView {
   pub sections: TableSections,
   /// What the remote services answered, beside the table
   pub facts: FactsView,
+  /// The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
+  /// that its first view had already
+  pub news: Vec<News>,
 }
+
+/// How many news a view keeps, for a window that lost a patch and asks a snapshot
+pub const NEWS_KEPT: usize = 32;
 
 /// The facts of the remote services a session keeps, each with how it stands (docs/design/rust-domain-authority.md,
 /// "Факты")
@@ -300,13 +309,51 @@ pub struct FactsView {
 
 /// The user's robots of Patronus in the repository, as the session listed and polled them: what Patronus said of the
 /// repository and how the fact stands (`head`: `Loading` until the first answer, `Stale` with the robots of an earlier
-/// answer after a failure, `Unavailable` after a failure without one), and the robots by id
+/// answer after a failure, `Unavailable` after a failure without one), the robots by id, and what the session asked of
+/// them after its answers: which running ones a failed required check dooms, why the failed robots of the table failed
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RobotsView {
   pub head: Fact<RobotsHead>,
   pub robots: BTreeMap<String, PatronusRobot>,
+  /// The running robots a failed required check dooms (Patronus' warning `robot_is_failing`), by id, sorted
+  pub failing: Vec<String>,
+  /// By id, the failed robots of the table whose problems were read: whether they failed for missing code-owner
+  /// approvals
+  pub needs_review: BTreeMap<String, bool>,
+  /// By id, the failed robots of the table whose problems Patronus didn't give, with why
+  pub problems_failed: BTreeMap<String, String>,
+}
+
+/// A transition the session saw in the answers of a remote service, which a window tells once (a toast, an OS
+/// notification); `id` grows by one per news of a session
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct News {
+  pub id: u32,
+  pub event: NewsEvent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum NewsEvent {
+  /// A robot known running or canceling succeeded and pushed (not a dry run): it merged what it tested
+  RobotMerged {
+    #[serde(rename = "robotId")]
+    robot_id: String,
+  },
+  /// A robot known running or canceling failed, told once why is known: for missing code-owner approvals
+  /// (`needsReview`), or not; null when the session doesn't read its problems (a robot of no branch of the table) or
+  /// Patronus didn't give them
+  RobotFailed {
+    #[serde(rename = "robotId")]
+    robot_id: String,
+    #[serde(rename = "needsReview")]
+    needs_review: Option<bool>,
+  },
 }
 
 /// What the last answer of Patronus said of the repository
@@ -578,6 +625,10 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub facts: Option<FactsChanges>,
+  /// The news since the patch before, oldest first
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub news: Vec<News>,
 }
 
 /// The parts of the facts that changed
@@ -604,6 +655,15 @@ pub struct RobotsChange {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_robots: Vec<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub failing: Option<Vec<String>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub needs_review: Option<BTreeMap<String, bool>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub problems_failed: Option<BTreeMap<String, String>>,
 }
 
 impl TableChanges {

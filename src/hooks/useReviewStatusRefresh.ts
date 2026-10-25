@@ -4,12 +4,12 @@ import { isStackAwaitingApproval, readinessKeysNeedingAnswer, tellReadinessNews 
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { isWindowFocused, setWindowFocus } from "@/lib/os-notification"
-import { watchFailingRobots } from "@/lib/patronus-failing"
+import { tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
 import { setDemandFocused } from "@/model/demand"
 import { onSessionFacts } from "@/model/store"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { refreshGitHubAuthStatus } from "@/stores/github-auth"
-import { applySessionFacts, watchRepositoryView, watchRobotProblems } from "@/stores/patronus"
+import { applySessionFacts, watchRepositoryView } from "@/stores/patronus"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
 import { onReviewRequestsPoll, refreshReviewRequests } from "@/stores/review-requests"
@@ -25,10 +25,10 @@ function isAwaiting(): boolean {
  * after every successful sync and on window focus (each store throttles both). A push refreshes the pull requests
  * itself. The session of the repository lists and polls the robots of Patronus itself (`remote_facts::scheduler`, by
  * the window's focus, which it tells from the start, and its demand), and the Patronus store takes them from its view
- * (`applySessionFacts`); a running robot that will fail and a robot that failed are told once
- * (`watchFailingRobots`); what a merged robot landed is read by content when a change below its commit gave the
- * branches new copies (`watchRepositoryView`); why a failed robot a change of the branches matched failed
- * (`watchRobotProblems`); which commits a running robot covers, once its branch changed since it
+ * (`applySessionFacts`); a running robot that will fail (`watchFailingRobots`), a robot that merged or failed (the news
+ * of the session, `tellRobotNews`) are told once; what a merged robot landed is read by content when a change below its
+ * commit gave the branches new copies (`watchRepositoryView`); which commits a running robot covers, once its branch
+ * changed since it
  * started (`watchRobotCoverage`); the review requests
  * every five minutes, focused or not. A sign-in or a sign-out of
  * GitHub (`github-auth-changed`, from any window) asks GitHub again at once. The readiness of the branches whose next
@@ -38,13 +38,18 @@ function isAwaiting(): boolean {
  * the review requests; an approval that arrives is news (`tellReadinessNews`).
  */
 export function useReviewStatusRefresh(): void {
-  useEffect(() => onSessionFacts(applySessionFacts), [])
+  useEffect(
+    () =>
+      onSessionFacts((repositoryPath, facts, changes, news) => {
+        applySessionFacts(repositoryPath, facts, changes)
+        tellRobotNews(repositoryPath, news)
+      }),
+    [],
+  )
   // the focus the window has now: the session polls by it until the window gains or loses it
   useEffect(() => setDemandFocused(isWindowFocused()), [])
   useEffect(() => watchFailingRobots(), [])
   useEffect(() => watchRepositoryView(), [])
-  // why a failed robot failed, for a robot a change of the branches gave a row: its next step waits for it
-  useEffect(() => watchRobotProblems(), [])
   useEffect(() => watchRobotCoverage(), [])
   useEffect(() => watchReviewReadiness(readinessKeysNeedingAnswer, tellReadinessNews), [])
   // a row waits for an approval: each poll of the review requests asks GitHub for the user's pull requests too, whose

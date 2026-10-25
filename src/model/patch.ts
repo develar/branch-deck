@@ -49,14 +49,21 @@ export function applyViewPatch(view: TableView, patch: ViewPatch): TableView {
             },
     },
     facts: robots == null ? view.facts : { robots: patchedRobots(view.facts.robots, robots) },
+    news: (changes.news?.length ?? 0) === 0 ? view.news : [...view.news, ...changes.news!].slice(-NEWS_KEPT),
   }
 }
+
+/** How many news a view keeps, as `domain_types::session::NEWS_KEPT` */
+const NEWS_KEPT = 32
 
 /** The robots after a patch: its head when it names one, the robots it names replace theirs, those it removes go */
 function patchedRobots(robots: RobotsView, change: RobotsChange): RobotsView {
   return {
     head: change.head ?? robots.head,
     robots: { ...withoutKeys(robots.robots, change.removedRobots ?? []), ...change.robots },
+    failing: change.failing ?? robots.failing,
+    needsReview: change.needsReview ?? robots.needsReview,
+    problemsFailed: change.problemsFailed ?? robots.problemsFailed,
   }
 }
 

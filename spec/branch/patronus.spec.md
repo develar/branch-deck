@@ -229,15 +229,17 @@ reports in it and closes it once merged.
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`polls_nothing_without_running_robots`)
   [@test] ../../crates/repository-model/src/facts_test.rs (`the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones`)
   [@test] ../../crates/patronus/src/service_test.rs (`polls_only_running_robots_with_their_known_status`)
-- After each list and each poll, the running robots (not a canceling one) of the branches and the watched ones that are
-  not known failing yet are asked whether they will fail ([Failing](#failing)): `GET /robots/{id}/problems` of each, in
-  parallel, in one command (`get_patronus_failing_robots`), through the request policy below. A robot known failing is
-  not asked again: it stays failing until it finishes. So a poll costs at most one small request more per running
-  robot, and none once each is known. Only an answer asks: a sync end or a focus whose list the policy holds back, and a
-  list or a poll Patronus didn't answer, ask nothing; the problems of the failed robots of the branches are read after an
-  answer too. One such question runs per repository at a time.
-  [@test] ../../src/stores/patronus.test.ts (`asks whether the running robots will fail after a list and each poll, until known, never for a canceling one`)
-  [@test] ../../src/stores/patronus.test.ts (`asks after an answer only: a patch of the robots without an answer of Patronus asks nothing, each poll still asks`)
+- After each list and each poll the session answers, the running robots (not a canceling one) of the branches, the
+  whole stacks and the watched ones that are not known failing yet are asked whether they will fail
+  ([Failing](#failing)): `GET /robots/{id}/problems` of each, in parallel, in one read of the session, through the
+  request policy below. A robot known failing is not asked again: it stays failing until it finishes. So a poll costs
+  at most one small request more per running robot, and none once each is known: a poll that changed nothing while
+  every running robot is known failing and the problems of the failed ones are known is one request. Only an answer
+  asks: a sync end or a focus whose list the policy holds back, and a list or a poll Patronus didn't answer, ask
+  nothing. One such question runs per session at a time.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`asks_after_an_answer_only_sync_ends_and_focus_events_the_list_gate_refuses_ask_nothing_each_poll_still_asks`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`an_idle_poll_asks_one_request_and_problems_only_for_changed_robots`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_running_robot_whose_required_check_failed_is_failing`)
 - A token Patronus rejects (401) is not sent again by a background request until the token file changes (the CLI
   renewed it): Patronus checks every unknown token against Space. The refresh button still asks.
@@ -878,9 +880,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 
 ### Merged
 
-- A robot known as running or canceling that an answer (a poll, a list, a status read) shows successful and not a dry
-  run merged its branch. A robot first seen finished is no news; each robot is told once.
-  [@test] ../../src/lib/patronus.test.ts (`finds a running or canceling robot that succeeded, not a dry run and not a robot first seen finished`)
+- A robot known as running or canceling that an answer of the session (a poll, a list, the robot of a cancel) shows
+  successful and not a dry run merged its branch: news of the session (`News`, `robotMerged`), which the main window
+  tells once (`tellRobotNews`; none of those its first view of the session had). A robot first seen finished is no
+  news.
+  [@test] ../../crates/repository-model/src/facts_test.rs (`a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why`)
   [@test] ../../src/stores/patronus.test.ts (`does not tell a successful dry run or a robot first seen merged`)
 - With the window focused, a `success` toast says "auth merged into master" (the branch, or the subject of a Safe Push
   of a temporary ref) with the push mode ("Safe Push"), for 10 s; an issue key of the title ("IJPL-1 merged into
@@ -1000,9 +1004,10 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 
 ### Failed
 
-- A robot that failed is told once, as a merge is (`findFailedRobots`: running or canceling in one answer, failed in the
-  next; a robot first seen failed is no news), once its problems are read (`loadReviewProblems`), which say whether it
-  failed for missing code-owner approvals, at most 15 s later without them (`FAILURE_PROBLEMS_WAIT_MS`):
+- A robot that failed is told once, as a merge is (news of the session, `robotFailed`: running or canceling in one
+  answer, failed in the next; a robot first seen failed is no news), once the session read its problems, which say
+  whether it failed for missing code-owner approvals; without them when their read failed, and at once for a robot
+  whose problems the session doesn't read (a watched robot, one of no branch of the table):
   - an `error` toast "Safe Push of auth failed" / "Fast Tests · auth → master" (the checks that failed from its
     details, else what it tested), with "Copy Prompt for Agent" first, or "Restart Safe Push" (the action of the robot,
     `getRobotActions`, where a restart is possible) when its builds never started, and "Open in Patronus" below the
@@ -1017,8 +1022,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   The issue keys of the toast's title and description ("Safe Push of JIRA-456 failed" / "JIRA-456 → master") link to the
   tracker. A robot told failing while it ran ([above](#failing)) is told no second time: its Activity entry says it
   failed. The watched robot of a reviewed pull request is told by what it tests.
+  [@test] ../../crates/repository-model/src/facts_test.rs (`a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`, `should restart from the toast a Safe Push whose builds never started`)
-  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems never come without them`, `names the profile of a robot started without the approvals whose profile checks them all the same`)
+  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems didn't come without them`, `names the profile of a robot started without the approvals whose profile checks them all the same`)
 - The step of a failing or failed toast is decided when it shows and again at the click: a toast stays 10 s, longer in
   the background. A step on the robot (Cancel, Restart, Copy Prompt for Agent) whose robot was
   restarted (a newer robot of the branch), finished or canceled since, or that is disabled now, does nothing and says
@@ -1148,7 +1154,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   request has by then.", "#7" a link that opens the pull request.
   [@test] ../../src/lib/patronus.test.ts (`restarts a failed, canceled or canceling robot of the branch, a passed dry run only with a newer pushed commit`)
   [@test] ../../src/lib/patronus.test.ts (`names a robot that failed for missing approvals "Needs review"`)
-  [@test] ../../src/stores/patronus.test.ts (`reads the problems of a failed robot of a branch once`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`the_problems_of_a_failed_robot_of_the_table_are_asked_until_known`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`an_idle_poll_asks_one_request_and_problems_only_for_changed_robots`, `a_change_of_the_table_asks_the_problems_of_a_failed_robot_it_matched_anew`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the pull request a robot that failed for missing approvals was started from, from its details`)
 

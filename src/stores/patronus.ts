@@ -29,9 +29,7 @@ import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-st
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import {
-  REVIEW_APPROVAL_SUBSYSTEM,
   findBranchRobot,
-  findMergedRobots,
   findStackRobot,
   formatLandedWholeReason,
   formatMergedRobotTitle,
@@ -993,7 +991,7 @@ function withRobots(previous: Readonly<Record<string, PatronusRobot>>, changed: 
 
 /**
  * Stores `robot`, which an action of the page answered (a start, a restart, a cancel, a status read), in the robots of
- * `key` before the session's patch has it, and tells a merge it shows
+ * `key` before the session's patch has it; the session tells a merge it sees
  */
 function storeRobot(key: string, robot: PatronusRobot): void {
   const previous = patronusStore.getState().repositories[key]?.robots ?? EMPTY.robots
@@ -1003,9 +1001,6 @@ function storeRobot(key: string, robot: PatronusRobot): void {
   }
   update(key, () => ({ robots }))
   recordFinishedRobots(key.slice(0, key.lastIndexOf("\n")), Object.values(robots))
-  for (const merged of findMergedRobots(previous, robots)) {
-    announceMerge(key, merged)
-  }
 }
 
 // ---- merges ----
@@ -1014,14 +1009,15 @@ function storeRobot(key: string, robot: PatronusRobot): void {
 const announcedMerges = new Set<string>()
 
 /**
- * A robot merged a branch or the whole stack ("Whole air stack merged into master"): a toast with Fetch, so the header
+ * A robot merged a branch or the whole stack ("Whole air stack merged into master"), as the news of the session says
+ * (`tellRobotNews`), once: a toast with Fetch, so the header
  * learns that an update brings the branch in, and "Open in Patronus". While no window is focused, an OS notification
  * says it at once (unless Settings turned it off), and the toast waits for the focus.
  * A stacked branch landed its ancestors too, the whole stack every branch of it: their open pull requests are closed
  * as the repository view says it (`closeLandedPullRequests`, `landedByRobot`), and the toast says so: it waits for the
  * view of the merged robot (`whenRepositoryViewCurrent`), which the sync that runs and one `get_repository_view` give.
  */
-function announceMerge(key: string, robot: PatronusRobot): void {
+export function announceMerge(key: string, robot: PatronusRobot): void {
   if (announcedMerges.has(robot.id)) {
     return
   }
@@ -1105,10 +1101,10 @@ export function applySessionFacts(repositoryPath: string, facts: FactsView, chan
 /**
  * The robots of the session of `repositoryPath` as its view has them now (`facts.robots`), with the patch that brought
  * them (`change`; null for a snapshot, which replaces them): the session lists and polls them by its rules
- * (`remote_facts::scheduler`), the page only stores them. A patch replaces the robots it names, the merge profile kept
- * when it names none (the details named it), and removes those it drops; a robot it doesn't name keeps its object, so
- * the chips of other branches don't render again. A new answer of Patronus asks for the facts of the robots it brought
- * (`loadRobotFacts`); the robots that merged since the robots before are told (`announceMerge`)
+ * (`remote_facts::scheduler`) and asks which running ones will fail and why the failed ones of the table failed; the
+ * page only stores them. A patch replaces the robots it names, the merge profile kept when it names none (the details
+ * named it), and removes those it drops; a robot it doesn't name keeps its object, so the chips of other branches don't
+ * render again. A running robot the details said failing (`markRobotFailing`) stays failing while it runs
  */
 export function applyRobotsFacts(repositoryPath: string, view: RobotsView, change: RobotsChange | null): void {
   const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
@@ -1123,13 +1119,15 @@ export function applyRobotsFacts(repositoryPath: string, view: RobotsView, chang
   // a snapshot of a session Patronus has not answered yet (`Loading`) is no answer: the robots of the repository are
   // stored from the first answer on, and their view asked from then
   const answered = head.value !== null && (change === null || change.head != null)
-  if (robots === entry.robots && !answered) {
+  const asked = change !== null && (change.failing != null || change.needsReview != null || change.problemsFailed != null)
+  if (robots === entry.robots && !answered && !asked) {
     return
   }
   if (answered && availability?.status === "available" && entry.viewFailure !== null) {
     // a view that failed is asked again after an answer of Patronus, also of the same robots
     askedView = null
   }
+  const failing = change === null || change.failing != null ? failingOf(view.failing, entry.failing, robots) : entry.failing
   update(key, previous => ({
     robots,
     availability,
@@ -1138,17 +1136,26 @@ export function applyRobotsFacts(repositoryPath: string, view: RobotsView, chang
     listed,
     // a list that left the robots as they were (none) has its view already
     viewListed: previous.viewListed || (listed && !previous.listed && previous.viewOf === robots),
+    failing,
+    needsReview: change === null ? view.needsReview : (change.needsReview ?? previous.needsReview),
+    problemsFailed: change === null ? view.problemsFailed : (change.problemsFailed ?? previous.problemsFailed),
   }))
   if (robots !== entry.robots) {
     // what the estimates learn from, also after a restart
     recordFinishedRobots(repositoryPath, Object.values(robots))
-    for (const robot of findMergedRobots(entry.robots, robots)) {
-      announceMerge(key, robot)
+  }
+}
+
+/** The failing robots of the session, with those the details of a running robot said failing (`markRobotFailing`) */
+function failingOf(session: readonly string[], shown: Readonly<Record<string, true>>, robots: Readonly<Record<string, PatronusRobot>>): Readonly<Record<string, true>> {
+  const ids = new Set(session)
+  for (const id of Object.keys(shown)) {
+    if (robots[id]?.status === "running") {
+      ids.add(id)
     }
   }
-  if (answered && head.value?.availability.status === "available") {
-    loadRobotFacts(key)
-  }
+  const same = ids.size === Object.keys(shown).length && [...ids].every(id => shown[id] === true)
+  return same ? shown : Object.fromEntries([...ids].map(id => [id, true] as const))
 }
 
 /**
@@ -1168,94 +1175,7 @@ export async function refreshPatronus(): Promise<void> {
   }
 }
 
-/**
- * The facts of the robots an answer of Patronus (a list or a poll) brought: the problems of the failed ones, whether the
- * running ones will fail. Only after an answer: a sync end or a focus the list gate refused brings no new robot and asks
- * nothing (each `/problems` is a request per robot)
- */
-function loadRobotFacts(key: string): void {
-  void loadReviewProblems(key, true)
-  void loadFailingRobots(key)
-}
-
-const problemsInFlight = new Set<string>()
-/** The keys whose `loadFailingRobots` runs: one at a time per repository, another repository's runs beside it */
-const failingInFlight = new Set<string>()
-
-/**
- * Asks whether the running robots of the branches (and the watched ones) will fail, the ones not known failing yet, in
- * one request: a required check that failed dooms the robot long before it finishes, and the user can cancel it
- */
-async function loadFailingRobots(key: string): Promise<void> {
-  const failing = patronusStore.getState().repositories[key]?.failing ?? EMPTY.failing
-  // a canceling robot is the user's decision already
-  const robotIds = activeBranchRobots(key)
-    .filter(robot => robot.status === "running" && failing[robot.id] !== true)
-    .map(robot => robot.id)
-  if (robotIds.length === 0 || failingInFlight.has(key)) {
-    return
-  }
-  failingInFlight.add(key)
-  try {
-    const [repositoryPath] = key.split("\n") as [string, string]
-    const result = await commands.getPatronusFailingRobots({ repositoryPath, robotIds })
-    if (result.status === "ok") {
-      markFailing(key, result.data)
-    }
-  } catch {
-    // an extra: the robot shows as running
-  } finally {
-    failingInFlight.delete(key)
-  }
-}
-
-/**
- * Reads the problems of the failed robots of the branches once (a finished robot does not change; the backend caches
- * them too), to name a robot that failed for missing approvals "Needs review"; the next step of its branch waits for
- * them (`isRobotProblemsPending`). Those Patronus didn't give are asked again only with `retryFailed` (after an answer
- * of a list or a poll): a change of the branches asks only the robots it matched anew.
- */
-async function loadReviewProblems(key: string, retryFailed: boolean): Promise<void> {
-  const [repositoryPath] = key.split("\n") as [string, string]
-  const entry = patronusStore.getState().repositories[key]
-  if (entry === undefined) {
-    return
-  }
-  for (const robot of tableRobots(entry)) {
-    if (
-      robot === undefined ||
-      robot.status !== "failure" ||
-      robot.id in entry.needsReview ||
-      problemsInFlight.has(robot.id) ||
-      (!retryFailed && entry.problemsFailed[robot.id] !== undefined)
-    ) {
-      continue
-    }
-    problemsInFlight.add(robot.id)
-    let answered = false
-    let failure = "Patronus gave no answer"
-    try {
-      const result = await commands.getPatronusRobotProblems({ repositoryPath, robotId: robot.id })
-      if (result.status === "ok") {
-        answered = true
-        const needsReview = result.data.some(problem => problem.subsystem === REVIEW_APPROVAL_SUBSYSTEM)
-        update(key, previous => ({ needsReview: { ...previous.needsReview, [robot.id]: needsReview }, problemsFailed: withoutKey(previous.problemsFailed, robot.id) }))
-      } else {
-        failure = getErrorDetails(result.error)
-      }
-    } catch (error) {
-      failure = getErrorDetails(error)
-    } finally {
-      problemsInFlight.delete(robot.id)
-    }
-    // why it failed stays unknown: the step of its branch says so, no restart as if it hadn't failed for approvals
-    if (!answered) {
-      update(key, previous => ({ problemsFailed: { ...previous.problemsFailed, [robot.id]: failure } }))
-    }
-  }
-}
-
-/** The robots of the branches and of the whole stacks of the table: those whose problems are asked (`loadReviewProblems`) */
+/** The robots of the branches and of the whole stacks of the table: those whose problems the session asks */
 function tableRobots(entry: RepositoryPatronus): Array<PatronusRobot | undefined> {
   const { branches, stackBranches } = branchSyncStore.getState()
   return [
@@ -1272,13 +1192,6 @@ function tableRobots(entry: RepositoryPatronus): Array<PatronusRobot | undefined
 export function isTableRobot(robot: PatronusRobot): boolean {
   const entry = currentRepository()
   return entry !== undefined && tableRobots(entry).some(it => it?.id === robot.id)
-}
-
-function withoutKey<T>(record: Readonly<Record<string, T>>, key: string): Readonly<Record<string, T>> {
-  if (!(key in record)) {
-    return record
-  }
-  return Object.fromEntries(Object.entries(record).filter(([id]) => id !== key))
 }
 
 /**
@@ -1300,61 +1213,10 @@ export function getRobotProblemsFailure(robot: PatronusRobot): string | null {
 
 /** Asks Patronus again why the failed robots of the branches failed, those it didn't give too (Check Approvals Again) */
 export function askRobotProblemsAgain(): void {
-  const key = currentKey()
-  if (key !== null) {
-    void loadReviewProblems(key, true)
+  const repositoryPath = getSelectedProject()?.path
+  if (repositoryPath !== undefined) {
+    void refreshSessionFacts(repositoryPath, "robotProblems", "manual")
   }
-}
-
-/**
- * Asks why the failed robots that a change of the branches matched failed (`loadReviewProblems`): a sync that gives a
- * branch a robot of an earlier answer, whose problems no answer asked. Returns the unsubscribe
- */
-export function watchRobotProblems(): () => void {
-  let scheduled = false
-  return branchSyncStore.subscribe((state, previous) => {
-    if (scheduled || (state.branches === previous.branches && state.stackBranches === previous.stackBranches)) {
-      return
-    }
-    scheduled = true
-    queueMicrotask(() => {
-      scheduled = false
-      const key = currentKey()
-      if (key !== null) {
-        void loadReviewProblems(key, false)
-      }
-    })
-  })
-}
-
-/**
- * The running robots of the branches of the selected repository, of the whole stacks and the watched ones, with the
- * status the app knows
- */
-function activeBranchRobots(key: string): PatronusRobot[] {
-  const repository = patronusStore.getState().repositories[key]
-  const robots = repository?.robots
-  const active = new Map<string, PatronusRobot>()
-  for (const id of Object.keys(repository?.watched ?? {})) {
-    const robot = robots?.[id]
-    if (robot !== undefined && isRobotActive(robot)) {
-      active.set(id, robot)
-    }
-  }
-  const { branches, stackBranches } = branchSyncStore.getState()
-  for (const branch of Object.values(branches)) {
-    const robot = findBranchRobot(robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)
-    if (robot !== undefined && isRobotActive(robot)) {
-      active.set(robot.id, robot)
-    }
-  }
-  for (const stack of Object.values(stackBranches)) {
-    const robot = findStackRobot(robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)
-    if (robot !== undefined && isRobotActive(robot)) {
-      active.set(robot.id, robot)
-    }
-  }
-  return [...active.values()]
 }
 
 // ---- actions ----
@@ -1806,10 +1668,8 @@ export async function fetchPatronusRobotStatus(robot: PatronusRobot): Promise<Pa
 
 /** Forgets the data (tests) */
 export function resetPatronus(): void {
-  problemsInFlight.clear()
   landingSettled.clear()
   lateCommentStarts.clear()
-  failingInFlight.clear()
   resetOsNotification()
   announcedMerges.clear()
   askedView = null

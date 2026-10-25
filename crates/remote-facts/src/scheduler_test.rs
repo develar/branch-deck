@@ -3,10 +3,12 @@
 
 use crate::fact_sources::{FactSources, Read};
 use crate::scheduler::{FactsPort, Scheduler};
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusRobotStatus, PatronusRobotsResult};
+use domain_policy::refresh::ReadState;
+use domain_types::error::ApiError;
+use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotStatus, PatronusRobotsResult};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
 use pretty_assertions::assert_eq;
-use repository_model::facts::{FactResult, FactTicket, RobotsDigest, RobotsRead, Seq};
+use repository_model::facts::{AppliedFacts, FactResult, FactTicket, ProblemsRead, RobotsDigest, RobotsRead, Seq};
 use repository_model::session::{SessionEvent, SessionEventKind, SessionKey};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -24,6 +26,8 @@ enum Call {
     background: bool,
   },
   Poll(Vec<String>),
+  Failing(Vec<String>),
+  Problems(String),
 }
 
 /// The host: records each read and answers what the test set
@@ -64,13 +68,25 @@ impl FactSources for ScriptedSources {
     lock(&self.calls).push(Call::Poll(known.into_iter().map(|robot| robot.id).collect()));
     Box::pin(async move { self.answer() })
   }
+
+  fn failing<'a>(&'a self, _key: &'a SessionKey, ids: Vec<String>) -> Read<'a, Result<Vec<String>, ApiError>> {
+    lock(&self.calls).push(Call::Failing(ids));
+    Box::pin(async move { Ok(Vec::new()) })
+  }
+
+  fn problems<'a>(&'a self, _key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>> {
+    lock(&self.calls).push(Call::Problems(id));
+    Box::pin(async move { Ok(Vec::new()) })
+  }
 }
 
-/// The sessions: numbers each read and records what it applies
+/// The sessions: numbers each read and records the robots it applies; after an answer the scheduler asks about the
+/// robots what `after_answer` says, as the session's `robots_digest` would compute it
 #[derive(Default)]
 struct RecordingPort {
   seq: AtomicU32,
   applied: Mutex<Vec<RobotsRead>>,
+  after_answer: Mutex<RobotsDigest>,
 }
 
 impl FactsPort for RecordingPort {
@@ -79,10 +95,17 @@ impl FactsPort for RecordingPort {
     Box::pin(async move { Some(FactTicket { epoch: 1, seq }) })
   }
 
-  fn apply<'a>(&'a self, _key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<Version>> {
-    let FactResult::Robots { read, .. } = result;
-    lock(&self.applied).push(read);
-    Box::pin(async move { Some(Version { epoch: 1, seq: ticket.seq.0 }) })
+  fn apply<'a>(&'a self, _key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<AppliedFacts>> {
+    if let FactResult::Robots { read, .. } = result {
+      lock(&self.applied).push(read);
+    }
+    let robots = lock(&self.after_answer).clone();
+    Box::pin(async move {
+      Some(AppliedFacts {
+        version: Version { epoch: 1, seq: ticket.seq.0 },
+        robots,
+      })
+    })
   }
 }
 
@@ -136,8 +159,12 @@ impl Harness {
     harness
   }
 
-  /// Sends the event and lets the scheduler and its reads run until they wait
+  /// Sends the event and lets the scheduler and its reads run until they wait; the robots the session tells it ask the
+  /// same after the next answers, unless the test says otherwise (`after_answer`)
   async fn send(&self, kind: SessionEventKind) {
+    if let SessionEventKind::Robots(digest) = &kind {
+      self.after_answer(digest.clone());
+    }
     self.events.send(SessionEvent { key: self.key.clone(), kind }).unwrap();
     settle().await;
   }
@@ -161,6 +188,11 @@ impl Harness {
 
   fn answer(&self, result: PatronusRobotsResult) {
     *lock(&self.sources.answer) = Some(result);
+  }
+
+  /// What the session asks about its robots after the next answers
+  fn after_answer(&self, digest: RobotsDigest) {
+    *lock(&self.port.after_answer) = digest;
   }
 
   async fn refresh(&self, reason: FactRefreshReason) -> Option<Version> {
@@ -223,7 +255,11 @@ fn focused(focused: bool) -> SessionEventKind {
 
 /// The running robots the poll asks about, `pushing` when one of them is no dry run
 fn running(ids: &[&str], pushing: bool) -> SessionEventKind {
-  SessionEventKind::Robots(RobotsDigest {
+  SessionEventKind::Robots(running_digest(ids, pushing))
+}
+
+fn running_digest(ids: &[&str], pushing: bool) -> RobotsDigest {
+  RobotsDigest {
     active: ids
       .iter()
       .map(|id| KnownRobotStatus {
@@ -232,7 +268,16 @@ fn running(ids: &[&str], pushing: bool) -> SessionEventKind {
       })
       .collect(),
     pushing,
-  })
+    ..RobotsDigest::default()
+  }
+}
+
+fn names(ids: &[&str]) -> Vec<String> {
+  ids.iter().map(|id| (*id).to_owned()).collect()
+}
+
+fn problems(id: &str, read: ReadState) -> ProblemsRead {
+  ProblemsRead { id: id.to_owned(), read }
 }
 
 fn poll(ids: &[&str]) -> Call {
@@ -402,4 +447,75 @@ async fn polls_nothing_without_running_robots() {
   session.advance(3600).await;
   session.send(SessionEventKind::Focus(true)).await;
   assert_eq!(session.calls(), vec![since(3720)], "the focus lists, and polls nothing");
+}
+
+/// After each answer of a list or a poll, the running robots the session doesn't know failing are asked, in one read; a
+/// sync end or a focus whose list the rules hold back asks nothing (C5), each poll still asks
+#[tokio::test]
+async fn asks_after_an_answer_only_sync_ends_and_focus_events_the_list_gate_refuses_ask_nothing_each_poll_still_asks() {
+  let session = Harness::new();
+  session.after_answer(RobotsDigest {
+    unknown_failing: names(&["a"]),
+    ..running_digest(&["a"], true)
+  });
+  session.send(SessionEventKind::Watched(true)).await;
+  session.send(focused(true)).await;
+  session.send(SessionEventKind::TableCommitted).await;
+  assert_eq!(session.calls(), vec![full(true), Call::Failing(names(&["a"]))]);
+  // the first focus polls the running robot at once
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.calls(), vec![poll(&["a"]), Call::Failing(names(&["a"]))]);
+  for _ in 0..3 {
+    session.send(SessionEventKind::TableCommitted).await;
+    session.send(SessionEventKind::Focus(true)).await;
+  }
+  assert_eq!(session.calls(), vec![], "neither a list nor a poll is due: nothing asks");
+  session.advance(60).await;
+  assert_eq!(session.calls(), vec![poll(&["a"]), Call::Failing(names(&["a"]))]);
+}
+
+/// B8: a poll that changed nothing, with every running robot known failing and the problems of the failed ones known, is
+/// one request; the problems of a robot an answer showed failed are read once, and a read that failed again only after
+/// the next answer, never on a change of the table
+#[tokio::test]
+async fn an_idle_poll_asks_one_request_and_problems_only_for_changed_robots() {
+  let session = Harness::watched().await;
+  session.send(focused(true)).await;
+  session.send(running(&["known-failing"], true)).await;
+  session.after_answer(running_digest(&["known-failing"], true));
+  session.calls();
+  session.advance(60).await;
+  assert_eq!(session.calls(), vec![poll(&["known-failing"])]);
+
+  // the next answer shows `failed` failed: its problems are read once
+  session.after_answer(RobotsDigest {
+    problems: vec![problems("failed", ReadState::Never)],
+    ..running_digest(&["known-failing"], true)
+  });
+  session.advance(60).await;
+  assert_eq!(session.calls(), vec![poll(&["known-failing"]), Call::Problems("failed".to_owned())]);
+  // Patronus didn't give them: a change of the table asks nothing, the next answer asks again
+  let unread = RobotsDigest {
+    problems: vec![problems("failed", ReadState::Failed)],
+    ..running_digest(&["known-failing"], true)
+  };
+  session.after_answer(unread.clone());
+  session.send(SessionEventKind::Robots(unread)).await;
+  assert_eq!(session.calls(), vec![]);
+  session.advance(60).await;
+  assert_eq!(session.calls(), vec![poll(&["known-failing"]), Call::Problems("failed".to_owned())]);
+}
+
+/// A change of the table that gives a branch a failed robot of an earlier answer asks why it failed, without an answer
+#[tokio::test]
+async fn a_change_of_the_table_asks_the_problems_of_a_failed_robot_it_matched_anew() {
+  let session = Harness::watched().await;
+  session.calls();
+  session
+    .send(SessionEventKind::Robots(RobotsDigest {
+      problems: vec![problems("matched", ReadState::Never)],
+      ..RobotsDigest::default()
+    }))
+    .await;
+  assert_eq!(session.calls(), vec![Call::Problems("matched".to_owned())]);
 }

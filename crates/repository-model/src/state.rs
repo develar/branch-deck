@@ -7,7 +7,7 @@
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::table::TableState;
-use domain_types::session::{ArchivedChanges, FactsChanges, RobotsChange, RobotsView, TableChanges, TableView, Version, ViewPatch};
+use domain_types::session::{ArchivedChanges, FactsChanges, News, RobotsChange, RobotsView, TableChanges, TableView, Version, ViewPatch};
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, RandomState};
 
@@ -73,6 +73,7 @@ impl View {
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),
       landed: changed(&last.sections.landed, &parts.sections.landed),
       facts: robots_change(&last.facts.robots, facts.robots.view()).map(|robots| FactsChanges { robots: Some(robots) }),
+      news: new_news(&last.news, facts.news()),
     };
     if changes.is_empty() {
       return None;
@@ -97,8 +98,17 @@ fn robots_change(last: &RobotsView, now: &RobotsView) -> Option<RobotsChange> {
     head: changed(&last.head, &now.head),
     robots,
     removed_robots,
+    failing: changed(&last.failing, &now.failing),
+    needs_review: changed(&last.needs_review, &now.needs_review),
+    problems_failed: changed(&last.problems_failed, &now.problems_failed),
   };
   (change != RobotsChange::default()).then_some(change)
+}
+
+/// The news of `now` that the view sent last lacks, oldest first
+fn new_news(last: &[News], now: &[News]) -> Vec<News> {
+  let sent = last.last().map_or(0, |news| news.id);
+  now.iter().filter(|news| news.id > sent).cloned().collect()
 }
 
 /// A random epoch of a session: random per process and per call

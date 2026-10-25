@@ -938,8 +938,14 @@ async fn the_reads_of_the_facts_reach_the_windows_and_the_scheduler_hears_what_i
     github_repository: None,
   };
   let read = RobotsRead::List { full: true };
-  let version = sessions.apply_facts(&key, ticket, FactResult::Robots { read, result: listed.clone() }).await.unwrap();
+  let applied = sessions.apply_facts(&key, ticket, FactResult::Robots { read, result: listed.clone() }).await.unwrap();
   assert_eq!(heard(&mut events), vec![r#"robots ["auth-robot"]"#]);
+  let version = applied.version;
+  assert_eq!(
+    applied.robots.unknown_failing,
+    vec!["auth-robot".to_owned()],
+    "a running robot of the table, not known failing"
+  );
   let patch = window.take().pop().unwrap();
   assert_eq!(patch.next, version);
   assert_eq!(patch.changes.facts.unwrap().robots.unwrap().robots.keys().collect::<Vec<_>>(), vec!["auth-robot"]);

@@ -20,7 +20,8 @@
 //! - `fact_sources`: what the scheduler reads the remote services with, implemented by the hosts (the app, the E2E
 //!   server)
 //! - `scheduler`: when the facts of each session are read, by the rules of `domain_policy::refresh` on the clock of the
-//!   sessions, and their answers applied to the session (the robots of Patronus: the list and the poll)
+//!   sessions, and their answers applied to the session (the robots of Patronus: the list, the poll, the failing robots
+//!   and the problems of the failed ones)
 //!
 //! Patronus:
 //! - `patronus_command`: the `/patronus` comment of a pull request

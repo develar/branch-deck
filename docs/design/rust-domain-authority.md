@@ -1793,7 +1793,15 @@ rewrites между процессами через файл `s10`; `s12` ждё
     обновления, список после 👍 комментария: `AfterWrite` → `RefreshReason::Demand`, который `robots_list_due` теперь
     пропускает и повторяет после списка в полёте). Страница: `applyRobotsFacts` через `onSessionFacts` главного окна;
     удалены `get_patronus_robots`, `poll_patronus_robots`, ворота и таймеры списка и опроса, `COMMAND_COUNT` 127.
-    Failing, problems и news — s7-3b.
+    s7-3b: после каждого ответа списка или опроса планировщик спрашивает failing работающих роботов, не известных
+    failing (одним чтением, как сегодня: вариант A по B8 — без него предупреждение «A required check failed» пришло бы
+    только когда робот уже упал), и problems упавших роботов таблицы (по одному чтению на робота, `robot_problems_due`);
+    смена таблицы спрашивает problems только у вновь сопоставленного упавшего робота. `AppliedFacts` (ответ
+    `apply_facts`) несёт digest, по которому решается «после ответа». Переходы — `News { id, event: robotMerged |
+    robotFailed { needsReview } }`, последние 32 в виде, патч несёт новые; failure ждёт problems (или их отказ), робот
+    без чтения problems — сразу. `RobotCanceled` не введён: странице нечего с ним делать. Check Approvals Again —
+    `refresh_facts { family: robotProblems }`. Удалены `get_patronus_failing_robots`, `get_patronus_robot_problems`,
+    `findMergedRobots`/`findFailedRobots`, 15-секундное ожидание problems, `COMMAND_COUNT` 125.
   - `News` в s7 — переходы, которые знают аппликаторы фактов (робот слился, упал, отменён; approvals пришли; новые review
     requests), часть `news` вида с растущими id; страница показывает их как сегодня (toast, OS-уведомление, закрытие PR
     `landed-stack.ts` до s9); правило `domain-policy::news` — s8. Семейство `auth` — s11 (как в «Зависимостях этапов»):

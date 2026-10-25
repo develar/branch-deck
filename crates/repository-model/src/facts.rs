@@ -23,18 +23,24 @@
 //! changed, a write of the app (the robot of a start, a restart or a cancel) adds its robot. Each robot keeps the number
 //! of what wrote it, so a list started before a write or a poll never rolls their robot back; a failed answer keeps the
 //! robots and only says why; the merge profile a poll or a start named stays through a list, which never names it.
-//! `robots_digest` is what the poll asks about: the running robots of the branches and whole stacks of the table
-//! (`domain_policy::robot_match`, on the tips the table has now, the pushes of the session included) and the watched
-//! ones of the demand.
+//! `robots_digest` is what the scheduler asks about the robots: the running robots of the branches and whole stacks of
+//! the table (`domain_policy::robot_match`, on the tips the table has now, the pushes of the session included) and the
+//! watched ones of the demand to poll, those of them not known failing, and the failed robots of the table whose
+//! problems are not known. An answer that shows a robot known running or canceling merged or failed is news (`News`,
+//! with a number of its own per session): a merge at once, a failure once its problems say whether it failed for missing
+//! approvals (or their read failed), at once for a robot whose problems the session doesn't read.
 
 use crate::branch_table::BranchTable;
 use crate::patronus_view::ContentMemo;
 use crate::table::TableState;
-use domain_policy::refresh::{ActiveRobots, FactTiming};
+use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotsResult};
-use domain_types::session::{Fact, FactState, RobotsHead, RobotsView};
+use domain_types::patronus::{
+  KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, REVIEW_APPROVAL_SUBSYSTEM,
+};
+use domain_types::session::Version;
+use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, RobotsHead, RobotsView};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -208,7 +214,25 @@ pub enum RobotsRead {
 /// The answer of a read of a remote service, which `Sessions::apply_facts` applies to the facts of its session
 #[derive(Clone, Debug)]
 pub enum FactResult {
-  Robots { read: RobotsRead, result: PatronusRobotsResult },
+  Robots {
+    read: RobotsRead,
+    result: PatronusRobotsResult,
+  },
+  /// Of the running robots asked, the ones a failed required check dooms
+  Failing(Result<Vec<String>, ApiError>),
+  /// The problems of the failed robot `id`
+  Problems {
+    id: String,
+    result: Result<Vec<PatronusProblem>, ApiError>,
+  },
+}
+
+/// What applying an answer left: the version of the view after its patch and what the scheduler asks about the robots
+/// now (the answer of a list or a poll asks for the facts of the robots it brought)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppliedFacts {
+  pub version: Version,
+  pub robots: RobotsDigest,
 }
 
 /// The table of a session and the memo of the content walks of its views, as `Sessions::table` answers them
@@ -228,6 +252,12 @@ pub struct FactStore {
   pub memo: Arc<Mutex<ContentMemo>>,
   /// The user's robots of Patronus
   pub robots: RobotsFact,
+  /// The last news, oldest first, at most `NEWS_KEPT`
+  news: Vec<News>,
+  /// The number of the last news
+  last_news: u32,
+  /// The failed robots whose news waits for their problems
+  failures: BTreeSet<String>,
 }
 
 impl FactStore {
@@ -237,13 +267,75 @@ impl FactStore {
       table: FactRecord::loading(),
       memo: Arc::new(Mutex::new(ContentMemo::default())),
       robots: RobotsFact::default(),
+      news: Vec::new(),
+      last_news: 0,
+      failures: BTreeSet::new(),
     }
+  }
+
+  /// The last news of the session, oldest first
+  #[must_use]
+  pub fn news(&self) -> &[News] {
+    &self.news
   }
 
   /// Applies the answer of the read of `observation`; whether it changed a fact
   pub fn apply(&mut self, observation: Observation, result: FactResult) -> bool {
     match result {
-      FactResult::Robots { read, result } => self.robots.answer(observation, read, result),
+      FactResult::Robots { read, result } => {
+        let mut finished = Vec::new();
+        let changed = self.robots.answer(observation, read, result, &mut finished);
+        self.finished(finished);
+        changed
+      }
+      FactResult::Failing(result) => self.robots.failing_answer(result),
+      FactResult::Problems { id, result } => {
+        let changed = self.robots.problems_answer(&id, result);
+        if self.failures.remove(&id) {
+          let needs_review = self.robots.view.needs_review.get(&id).copied();
+          self.tell(NewsEvent::RobotFailed { robot_id: id, needs_review });
+        }
+        changed
+      }
+    }
+  }
+
+  /// The robot an action of the app answered (`RobotsFact::write`); whether it changed the robots
+  pub fn write_robot(&mut self, seq: Seq, robot: PatronusRobot) -> bool {
+    let mut finished = Vec::new();
+    let changed = self.robots.write(seq, robot, &mut finished);
+    self.finished(finished);
+    changed
+  }
+
+  /// A failed robot whose problems the scheduler doesn't read (not one of `digest.problems`: a watched robot, one of no
+  /// branch of the table) is told now, without why
+  pub fn tell_failures(&mut self, digest: &RobotsDigest) {
+    let read: BTreeSet<&str> = digest.problems.iter().map(|problems| problems.id.as_str()).collect();
+    let unread: Vec<String> = self.failures.iter().filter(|id| !read.contains(id.as_str())).cloned().collect();
+    for id in unread {
+      self.failures.remove(&id);
+      self.tell(NewsEvent::RobotFailed { robot_id: id, needs_review: None });
+    }
+  }
+
+  /// The robots an answer showed finished: a merge is news now, a failure once its problems are known
+  fn finished(&mut self, finished: Vec<Finished>) {
+    for robot in finished {
+      match robot {
+        Finished::Merged(robot_id) => self.tell(NewsEvent::RobotMerged { robot_id }),
+        Finished::Failed(id) => {
+          self.failures.insert(id);
+        }
+      }
+    }
+  }
+
+  fn tell(&mut self, event: NewsEvent) {
+    self.last_news = self.last_news.saturating_add(1);
+    self.news.push(News { id: self.last_news, event });
+    if self.news.len() > NEWS_KEPT {
+      self.news.remove(0);
     }
   }
 
@@ -284,7 +376,7 @@ impl RobotsFact {
 
   /// The answer of a list or a poll; whether it changed the robots or the head. An answer whose observation is not
   /// newer than the head's changes no head, and of the robots only those no newer observation wrote
-  pub fn answer(&mut self, observation: Observation, read: RobotsRead, result: PatronusRobotsResult) -> bool {
+  pub fn answer(&mut self, observation: Observation, read: RobotsRead, result: PatronusRobotsResult, finished: &mut Vec<Finished>) -> bool {
     let seq = observation.seq.0;
     let before = self.view.clone();
     let PatronusRobotsResult {
@@ -296,7 +388,7 @@ impl RobotsFact {
     if available {
       let answered: BTreeSet<String> = robots.iter().map(|robot| robot.id.clone()).collect();
       for robot in robots {
-        self.put(seq, robot);
+        self.put(seq, robot, finished);
       }
       if read == (RobotsRead::List { full: true }) {
         let written = &self.written;
@@ -341,31 +433,90 @@ impl RobotsFact {
       head.github_repository = github_repository;
     }
     self.listed |= available;
+    self.prune();
     self.view != before
+  }
+
+  /// The answer of whether the running robots asked will fail: they are failing until they finish; a failure asks again
+  /// after the next answer
+  pub fn failing_answer(&mut self, result: Result<Vec<String>, ApiError>) -> bool {
+    let Ok(failing) = result else {
+      return false;
+    };
+    let before = self.view.failing.clone();
+    let robots = &self.view.robots;
+    let running = |id: &String| robots.get(id).is_some_and(|robot| robot.status == PatronusRobotStatus::Running);
+    let known: BTreeSet<String> = before.iter().cloned().chain(failing.into_iter().filter(running)).collect();
+    self.view.failing = known.into_iter().collect();
+    self.view.failing != before
+  }
+
+  /// The problems of the failed robot `id`: whether it failed for missing code-owner approvals, or why they weren't given
+  pub fn problems_answer(&mut self, id: &str, result: Result<Vec<PatronusProblem>, ApiError>) -> bool {
+    let before = (self.view.needs_review.get(id).copied(), self.view.problems_failed.get(id).cloned());
+    match result {
+      Ok(problems) => {
+        let needs_review = problems.iter().any(|problem| problem.subsystem.as_deref() == Some(REVIEW_APPROVAL_SUBSYSTEM));
+        self.view.needs_review.insert(id.to_owned(), needs_review);
+        self.view.problems_failed.remove(id);
+      }
+      Err(reason) => {
+        self.view.problems_failed.insert(id.to_owned(), reason.message);
+      }
+    }
+    before != (self.view.needs_review.get(id).copied(), self.view.problems_failed.get(id).cloned())
+  }
+
+  /// Only a running robot is failing, and only a robot kept has problems
+  fn prune(&mut self) {
+    let robots = &self.view.robots;
+    self
+      .view
+      .failing
+      .retain(|id| robots.get(id).is_some_and(|robot| robot.status == PatronusRobotStatus::Running));
+    self.view.needs_review.retain(|id, _| robots.contains_key(id));
+    self.view.problems_failed.retain(|id, _| robots.contains_key(id));
   }
 
   /// The robot a write of the app answered (a start, a restart, a cancel), numbered when it is applied; whether it
   /// changed the robots
-  pub fn write(&mut self, seq: Seq, robot: PatronusRobot) -> bool {
+  pub fn write(&mut self, seq: Seq, robot: PatronusRobot, finished: &mut Vec<Finished>) -> bool {
     let id = robot.id.clone();
     let before = self.view.robots.get(&id).cloned();
-    self.put(seq.0, robot);
+    self.put(seq.0, robot, finished);
+    self.prune();
     self.view.robots.get(&id) != before.as_ref()
   }
 
-  /// Keeps `robot` unless a newer observation wrote it; the profile kept when the answer names none (a list never does)
-  fn put(&mut self, seq: u32, mut robot: PatronusRobot) {
+  /// Keeps `robot` unless a newer observation wrote it; the profile kept when the answer names none (a list never does).
+  /// A robot known running or canceling that finished merged or failed goes into `finished`
+  fn put(&mut self, seq: u32, mut robot: PatronusRobot, finished: &mut Vec<Finished>) {
     if self.written.get(&robot.id).is_some_and(|kept| *kept >= seq) {
       return;
     }
-    if robot.profile.is_none()
-      && let Some(known) = self.view.robots.get(&robot.id)
-    {
-      robot.profile.clone_from(&known.profile);
+    if let Some(known) = self.view.robots.get(&robot.id) {
+      if robot.profile.is_none() {
+        robot.profile.clone_from(&known.profile);
+      }
+      if is_robot_active(known) {
+        match robot.status {
+          PatronusRobotStatus::Success if robot.push_mode != PatronusPushMode::DryRun => finished.push(Finished::Merged(robot.id.clone())),
+          PatronusRobotStatus::Failure => finished.push(Finished::Failed(robot.id.clone())),
+          _ => {}
+        }
+      }
     }
     self.written.insert(robot.id.clone(), seq);
     self.view.robots.insert(robot.id.clone(), robot);
   }
+}
+
+/// A robot known running or canceling that an answer shows finished
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Finished {
+  /// Succeeded and pushed
+  Merged(String),
+  Failed(String),
 }
 
 /// Why Patronus gave no robots, as the error of the fact
@@ -377,12 +528,22 @@ fn availability_error(availability: &PatronusAvailability) -> ApiError {
   }
 }
 
-/// What the poll of the robots asks about: the running robots (a cancel included) of the branches and whole stacks of
-/// the table and the watched ones, by id with the status the session knows, and whether one of them pushes
+/// What the scheduler asks about the robots: the running robots (a cancel included) of the branches and whole stacks of
+/// the table and the watched ones, by id with the status the session knows, whether one of them pushes, those of them
+/// running (not canceling) not known failing yet, and the failed robots of the table whose problems are not known
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RobotsDigest {
   pub active: Vec<KnownRobotStatus>,
   pub pushing: bool,
+  pub unknown_failing: Vec<String>,
+  pub problems: Vec<ProblemsRead>,
+}
+
+/// A failed robot of the table whose problems are not known: never read, or not given (`ReadState::Failed`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProblemsRead {
+  pub id: String,
+  pub read: ReadState,
 }
 
 impl RobotsDigest {
@@ -426,16 +587,29 @@ pub fn robots_digest(table: &TableState, robots: &RobotsView, watched: &[String]
     remote: stack.remote.as_ref().and_then(|status| status.remote_tip.as_deref()),
   });
   let matches = match_table(&index, branches, stacks);
-  let ids: BTreeSet<&str> = matches
-    .branches
-    .values()
-    .chain(matches.stacks.values())
-    .map(String::as_str)
-    .chain(watched.iter().map(String::as_str))
-    .collect();
+  let of_table: BTreeSet<&str> = matches.branches.values().chain(matches.stacks.values()).map(String::as_str).collect();
+  let ids: BTreeSet<&str> = of_table.iter().copied().chain(watched.iter().map(String::as_str)).collect();
   let active: Vec<&PatronusRobot> = ids.into_iter().filter_map(|id| robots.robots.get(id)).filter(|robot| is_robot_active(robot)).collect();
+  let problems = of_table
+    .into_iter()
+    .filter_map(|id| robots.robots.get(id))
+    .filter(|robot| robot.status == PatronusRobotStatus::Failure && !robots.needs_review.contains_key(&robot.id))
+    .map(|robot| ProblemsRead {
+      id: robot.id.clone(),
+      read: if robots.problems_failed.contains_key(&robot.id) {
+        ReadState::Failed
+      } else {
+        ReadState::Never
+      },
+    })
+    .collect();
   RobotsDigest {
     pushing: active.iter().any(|robot| robot.push_mode != PatronusPushMode::DryRun),
+    unknown_failing: active
+      .iter()
+      .filter(|robot| robot_failing_due(robot.status, robots.failing.contains(&robot.id)))
+      .map(|robot| robot.id.clone())
+      .collect(),
     active: active
       .into_iter()
       .map(|robot| KnownRobotStatus {
@@ -443,6 +617,7 @@ pub fn robots_digest(table: &TableState, robots: &RobotsView, watched: &[String]
         status: robot.status,
       })
       .collect(),
+    problems,
   }
 }
 

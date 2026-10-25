@@ -208,8 +208,6 @@ export const commands = {
 	cancelPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, ApiError>(__TAURI_INVOKE("cancel_patronus_robot", { params })),
 	/**  The current status of one robot, read right before a push into its branch */
 	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, ApiError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),
-	/**  The error problems of a finished robot, once per session: the chip names a missing review */
-	getPatronusRobotProblems: (params: PatronusRobotParams) => typedError<PatronusProblem[], ApiError>(__TAURI_INVOKE("get_patronus_robot_problems", { params })),
 	/**
 	 *  Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
 	 *  with the failed builds, their tests and the log tails of the `teamcity` CLI
@@ -232,8 +230,6 @@ export const commands = {
 	 *  has (`after`): the count of finished computations, which tells the page to ask the view again
 	 */
 	waitLandingNeeds: (params: WaitLandingNeedsParams) => typedError<number, ApiError>(__TAURI_INVOKE("wait_landing_needs", { params })),
-	/**  Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known */
-	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], ApiError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
 	/**
 	 *  Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
 	 *  Patronus judges the approvals of the pull request the robot would start from. One `git log` for the commits of all
@@ -1793,7 +1789,12 @@ export type Fact<T> = {
 /**  A family of the facts of a session, which a window asks to read again (`RefreshFactsParams`) */
 export type FactFamily = 
 /**  The user's robots of Patronus (`FactsView::robots`) */
-"robots";
+"robots" | 
+/**
+ *  Why the failed robots of the table failed (`RobotsView::needs_review`): Check Approvals Again asks those Patronus
+ *  didn't give again; their reads come as patches, the refresh answers at once
+ */
+"robotProblems";
 
 /**  Why a window asks a fact again */
 export type FactRefreshReason = 
@@ -2205,6 +2206,7 @@ export type GetNewStackPullRequestParams = {
 	target: string,
 };
 
+/**  The running robots to ask whether they will fail */
 export type GetPatronusStartOptionsParams = {
 	repositoryPath: string,
 	/**  As the sync detected it, e.g. `origin/master`: the robot pushes to the branch it tracks */
@@ -2771,6 +2773,25 @@ export type NewPullRequest = {
 	viewerLogin: string | null,
 };
 
+/**
+ *  A transition the session saw in the answers of a remote service, which a window tells once (a toast, an OS
+ *  notification); `id` grows by one per news of a session
+ */
+export type News = {
+	id: number,
+	event: NewsEvent,
+};
+
+export type NewsEvent = 
+/**  A robot known running or canceling succeeded and pushed (not a dry run): it merged what it tested */
+{ kind: "robotMerged"; robotId: string } | 
+/**
+ *  A robot known running or canceling failed, told once why is known: for missing code-owner approvals
+ *  (`needsReview`), or not; null when the session doesn't read its problems (a robot of no branch of the table) or
+ *  Patronus didn't give them
+ */
+{ kind: "robotFailed"; robotId: string; needsReview: boolean | null };
+
 /**  What the limits of a failure left out */
 export type OmittedFailures = {
 	/**  Failed builds beyond the limit */
@@ -2912,12 +2933,6 @@ export type PatronusCommandSubject =
 "ownBranch" | 
 /**  A pull request of someone else the user reviewed: the merge deletes its branch, as a merge on GitHub does */
 "reviewedPullRequest";
-
-/**  The running robots to ask whether they will fail */
-export type PatronusFailingRobotsParams = {
-	repositoryPath: string,
-	robotIds: string[],
-};
 
 export type PatronusMergeRequest = {
 	/**  e.g. `IJ` */
@@ -4033,6 +4048,9 @@ export type RobotsChange = {
 	head?: Fact<RobotsHead> | null,
 	robots?: { [key in string]: PatronusRobot },
 	removedRobots?: string[],
+	failing?: string[] | null,
+	needsReview?: { [key in string]: boolean } | null,
+	problemsFailed?: { [key in string]: string } | null,
 };
 
 /**  What the last answer of Patronus said of the repository */
@@ -4049,11 +4067,21 @@ export type RobotsHead = {
 /**
  *  The user's robots of Patronus in the repository, as the session listed and polled them: what Patronus said of the
  *  repository and how the fact stands (`head`: `Loading` until the first answer, `Stale` with the robots of an earlier
- *  answer after a failure, `Unavailable` after a failure without one), and the robots by id
+ *  answer after a failure, `Unavailable` after a failure without one), the robots by id, and what the session asked of
+ *  them after its answers: which running ones a failed required check dooms, why the failed robots of the table failed
  */
 export type RobotsView = {
 	head: Fact<RobotsHead>,
 	robots: { [key in string]: PatronusRobot },
+	/**  The running robots a failed required check dooms (Patronus' warning `robot_is_failing`), by id, sorted */
+	failing: string[],
+	/**
+	 *  By id, the failed robots of the table whose problems were read: whether they failed for missing code-owner
+	 *  approvals
+	 */
+	needsReview: { [key in string]: boolean },
+	/**  By id, the failed robots of the table whose problems Patronus didn't give, with why */
+	problemsFailed: { [key in string]: string },
 };
 
 /**  An action of a row of Settings → Tools */
@@ -4652,6 +4680,8 @@ export type TableChanges = {
 	unapplied?: UnappliedBranchInfo[] | null,
 	landed?: LandedSection | null,
 	facts?: FactsChanges | null,
+	/**  The news since the patch before, oldest first */
+	news?: News[],
 };
 
 /**  What the table as a whole was grouped and checked with */
@@ -4693,6 +4723,11 @@ export type TableView = {
 	sections: TableSections,
 	/**  What the remote services answered, beside the table */
 	facts: FactsView,
+	/**
+	 *  The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
+	 *  that its first view had already
+	 */
+	news: News[],
 };
 
 /**  What the check found */

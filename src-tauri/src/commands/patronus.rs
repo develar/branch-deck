@@ -11,8 +11,8 @@ use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability,
-  PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams,
-  PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
+  PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
@@ -121,6 +121,17 @@ impl PatronusState {
   /// The robots of `known` whose status changed since the session saw it, the others not in the answer
   pub(crate) async fn poll(&self, branch_prefix: &str, known: &[KnownRobotStatus]) -> PatronusRobotsResult {
     self.service.poll(branch_prefix, known).await
+  }
+
+  /// Of the running robots `ids`, the ones a failed required check dooms (Patronus' warning), asked after each answer
+  /// until known
+  pub(crate) async fn failing(&self, ids: &[String]) -> Result<Vec<String>, ApiError> {
+    self.service.failing_robots(ids).await.map_err(patronus_error)
+  }
+
+  /// The error problems of a finished robot (the service keeps them: a finished robot doesn't change)
+  pub(crate) async fn problems(&self, id: &str) -> Result<Vec<PatronusProblem>, ApiError> {
+    self.service.robot_problems(id).await.map_err(patronus_error)
   }
 
   /// The Space repository, for an action: not on Space is an error
@@ -473,22 +484,6 @@ async fn act_on_robot(
 #[specta::specta]
 pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotStatus, ApiError> {
   operation(async move { patronus.service.robot_status(&params.robot_id).await.map_err(patronus_error) }).await
-}
-
-/// The error problems of a finished robot, once per session: the chip names a missing review
-#[tauri::command]
-#[instrument(skip(patronus))]
-#[specta::specta]
-pub async fn get_patronus_robot_problems(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<Vec<PatronusProblem>, ApiError> {
-  operation(async move { patronus.service.robot_problems(&params.robot_id).await.map_err(patronus_error) }).await
-}
-
-/// Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known
-#[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path, robots = params.robot_ids.len()))]
-#[specta::specta]
-pub async fn get_patronus_failing_robots(patronus: State<'_, PatronusState>, params: PatronusFailingRobotsParams) -> Result<Vec<String>, ApiError> {
-  operation(async move { patronus.service.failing_robots(&params.robot_ids).await.map_err(patronus_error) }).await
 }
 
 /// Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:

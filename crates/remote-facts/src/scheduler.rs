@@ -14,15 +14,23 @@
 //!   after it; a repository not on Space only by the refresh button;
 //! - a poll of the running robots of the table and the watched ones (`robots_poll_at`): every minute while a window is
 //!   focused, every five minutes while none is and a robot that pushes runs; a focus polls at once unless the last poll
-//!   is less than 50 s old.
+//!   is less than 50 s old;
+//! - after each answer of a list or a poll: whether the running robots not known failing will fail (one read, one at a
+//!   time), and the problems of the failed robots of the table not known yet (one read per robot, side by side; a read
+//!   that failed again only after the next answer, `robot_problems_due`); a change of the table asks the problems of a
+//!   failed robot it matched anew, never the failing ones: a sync end or a focus whose list the rules hold back asks
+//!   nothing of Patronus.
 
 use crate::fact_sources::{FactSources, Read};
-use domain_policy::refresh::{FactTiming, ListWindow, RefreshReason, ServiceState, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due};
-use domain_types::patronus::PatronusAvailability;
+use domain_policy::refresh::{
+  FactTiming, ListWindow, RefreshReason, ServiceState, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
+};
+use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
-use repository_model::facts::{FactResult, FactTicket, RobotsDigest, RobotsRead};
+use repository_model::facts::{AppliedFacts, FactResult, FactTicket, RobotsDigest, RobotsRead};
 use repository_model::runtime::sleep_until;
 use repository_model::session::{SessionEvent, SessionEventKind, SessionKey, Sessions};
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,8 +46,9 @@ pub trait FactsPort: Send + Sync + 'static {
   /// The number of a read of the open session of `key` (`Sessions::begin`)
   fn begin<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Option<FactTicket>>;
 
-  /// Applies the answer of the read of `ticket` (`Sessions::apply_facts`); the version of the view after its patch
-  fn apply<'a>(&'a self, key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<Version>>;
+  /// Applies the answer of the read of `ticket` (`Sessions::apply_facts`): the version of the view after its patch and
+  /// what the scheduler asks about the robots now
+  fn apply<'a>(&'a self, key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<AppliedFacts>>;
 }
 
 impl FactsPort for Sessions {
@@ -47,7 +56,7 @@ impl FactsPort for Sessions {
     Box::pin(Self::begin(self, key))
   }
 
-  fn apply<'a>(&'a self, key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<Version>> {
+  fn apply<'a>(&'a self, key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<AppliedFacts>> {
     Box::pin(self.apply_facts(key, ticket, result))
   }
 }
@@ -123,15 +132,28 @@ type Reply = oneshot::Sender<Option<Version>>;
 /// What the task of a session takes: the events of its session, and the answers of its own reads
 enum Input {
   Event(SessionEventKind),
-  /// A list that started at `started` ended: how Patronus answered (`None`: the session was gone), the version of the
-  /// view after its patch
+  /// A list that started at `started` ended: how Patronus answered (`None`: the session was gone), what applying it left
   Listed {
     started: Duration,
     answer: Option<ListAnswer>,
-    version: Option<Version>,
+    applied: Option<AppliedFacts>,
   },
-  /// A poll ended
-  Polled,
+  /// A poll ended: whether Patronus answered it, what applying it left
+  Polled {
+    answered: bool,
+    applied: Option<AppliedFacts>,
+  },
+  /// A read of what the session asks about its robots ended
+  Read(RobotRead),
+}
+
+/// A read of what the session asks about its robots, one of each in flight
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum RobotRead {
+  /// Whether the running robots not known failing will fail
+  Failing,
+  /// The problems of a failed robot
+  Problems(String),
 }
 
 /// What an answer of a list says of asking again
@@ -177,6 +199,8 @@ struct RobotsSchedule {
   last_poll_started: Option<Duration>,
   /// When the timer polls next
   poll_at: Option<Duration>,
+  /// The reads of what the session asks about its robots in flight
+  reading: BTreeSet<RobotRead>,
 }
 
 /// The facts of one session as its task asks them
@@ -225,10 +249,16 @@ impl SessionFacts {
   fn handle(&mut self, input: Input) {
     match input {
       Input::Event(kind) => self.event(kind),
-      Input::Listed { started, answer, version } => self.listed(started, answer, version),
-      Input::Polled => {
+      Input::Listed { started, answer, applied } => self.listed(started, answer, applied),
+      Input::Polled { answered, applied } => {
         self.robots.polling = false;
+        if let Some(applied) = applied.filter(|_| answered) {
+          self.answered(applied.robots);
+        }
         self.schedule_poll(true);
+      }
+      Input::Read(read) => {
+        self.robots.reading.remove(&read);
       }
     }
   }
@@ -257,6 +287,8 @@ impl SessionFacts {
       SessionEventKind::Robots(digest) => {
         self.robots.digest = digest;
         self.schedule_poll(false);
+        // a change of the table that matched a failed robot anew asks why it failed
+        self.read_robot_facts(false);
       }
       SessionEventKind::Refresh { family, reason, reply } => match family {
         FactFamily::Robots => {
@@ -265,6 +297,11 @@ impl SessionFacts {
             FactRefreshReason::AfterWrite => RefreshReason::Demand,
           };
           self.ask_list(reason, Some(reply));
+        }
+        FactFamily::RobotProblems => {
+          // as after an answer: the problems Patronus didn't give are asked again
+          self.read_problems(true);
+          let _ = reply.send(None);
         }
       },
     }
@@ -347,7 +384,7 @@ impl SessionFacts {
     let background = reason != RefreshReason::Manual;
     tokio::spawn(
       async move {
-        let (answer, version) = match scheduler.port.begin(&key).await {
+        let (answer, applied) = match scheduler.port.begin(&key).await {
           Some(ticket) => {
             let result = scheduler.sources.robots(&key, since, background).await;
             let answer = ListAnswer::of(&result.availability);
@@ -356,13 +393,14 @@ impl SessionFacts {
           }
           None => (None, None),
         };
-        let _ = inbox.send(Input::Listed { started: now, answer, version });
+        let _ = inbox.send(Input::Listed { started: now, answer, applied });
       }
       .in_current_span(),
     );
   }
 
-  fn listed(&mut self, started: Duration, answer: Option<ListAnswer>, version: Option<Version>) {
+  fn listed(&mut self, started: Duration, answer: Option<ListAnswer>, applied: Option<AppliedFacts>) {
+    let version = applied.as_ref().map(|applied| applied.version);
     let now = self.now();
     let robots = &mut self.robots;
     robots.listing = false;
@@ -378,11 +416,78 @@ impl SessionFacts {
     for waiter in robots.waiters.drain(..) {
       let _ = waiter.send(version);
     }
+    if let Some(applied) = applied.filter(|_| answer == Some(ListAnswer::Listed)) {
+      self.answered(applied.robots);
+    }
+    let robots = &mut self.robots;
     if let Some(reason) = robots.follow_up.take() {
       let waiters = std::mem::take(&mut robots.follow_up_waiters);
       self.start_list(reason, waiters);
     }
     self.schedule_poll(false);
+  }
+
+  /// Patronus answered a list or a poll with robots: what the session asks about them now is `digest`, and the facts of
+  /// the robots it brought are read
+  fn answered(&mut self, digest: RobotsDigest) {
+    self.robots.digest = digest;
+    self.read_robot_facts(true);
+  }
+
+  /// Reads what the session asks about its robots: after an answer (`after_answer`) whether the running ones not known
+  /// failing will fail, and the problems of the failed robots of the table by `robot_problems_due`
+  fn read_robot_facts(&mut self, after_answer: bool) {
+    if !self.watched {
+      return;
+    }
+    let robots = &self.robots;
+    if after_answer && !robots.reading.contains(&RobotRead::Failing) && !robots.digest.unknown_failing.is_empty() {
+      let ids = robots.digest.unknown_failing.clone();
+      self.read(RobotRead::Failing, move |scheduler, key| {
+        Box::pin(async move { FactResult::Failing(scheduler.sources.failing(key, ids).await) })
+      });
+    }
+    self.read_problems(after_answer);
+  }
+
+  /// Reads the problems of the failed robots of the table by `robot_problems_due`, those in flight aside
+  fn read_problems(&mut self, after_answer: bool) {
+    let reading = &self.robots.reading;
+    let due: Vec<String> = self
+      .robots
+      .digest
+      .problems
+      .iter()
+      .filter(|problems| robot_problems_due(PatronusRobotStatus::Failure, problems.read, after_answer) && !reading.contains(&RobotRead::Problems(problems.id.clone())))
+      .map(|problems| problems.id.clone())
+      .collect();
+    for id in due {
+      self.read(RobotRead::Problems(id.clone()), move |scheduler, key| {
+        Box::pin(async move {
+          let result = scheduler.sources.problems(key, id.clone()).await;
+          FactResult::Problems { id, result }
+        })
+      });
+    }
+  }
+
+  /// The read `what` in its own task, in flight until it ends: numbered, made by `read`, applied
+  fn read(&mut self, what: RobotRead, read: impl for<'a> FnOnce(&'a Scheduler, &'a SessionKey) -> Read<'a, FactResult> + Send + 'static) {
+    let Some(inbox) = self.inbox.upgrade() else {
+      return;
+    };
+    self.robots.reading.insert(what.clone());
+    let (scheduler, key) = (self.scheduler.clone(), self.key.clone());
+    tokio::spawn(
+      async move {
+        if let Some(ticket) = scheduler.port.begin(&key).await {
+          let result = read(&scheduler, &key).await;
+          scheduler.port.apply(&key, ticket, result).await;
+        }
+        let _ = inbox.send(Input::Read(what));
+      }
+      .in_current_span(),
+    );
   }
 
   /// Arms the timer of the poll by `robots_poll_at`, from now: `restart` replaces a pending one, else it stays while the
@@ -421,11 +526,15 @@ impl SessionFacts {
     let (scheduler, key) = (self.scheduler.clone(), self.key.clone());
     tokio::spawn(
       async move {
-        if let Some(ticket) = scheduler.port.begin(&key).await {
-          let result = scheduler.sources.poll(&key, known).await;
-          scheduler.port.apply(&key, ticket, FactResult::Robots { read: RobotsRead::Poll, result }).await;
-        }
-        let _ = inbox.send(Input::Polled);
+        let (answered, applied) = match scheduler.port.begin(&key).await {
+          Some(ticket) => {
+            let result = scheduler.sources.poll(&key, known).await;
+            let answered = result.availability == PatronusAvailability::Available;
+            (answered, scheduler.port.apply(&key, ticket, FactResult::Robots { read: RobotsRead::Poll, result }).await)
+          }
+          None => (false, None),
+        };
+        let _ = inbox.send(Input::Polled { answered, applied });
       }
       .in_current_span(),
     );

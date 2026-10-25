@@ -1,91 +1,70 @@
 import { toast } from "@/components/ui/toast"
 import { getPullRequestItem } from "@/hooks/useBranchContextActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
-import type { PatronusRobot, RobotFailureKind } from "@/lib/bindings"
+import type { News, PatronusRobot, RobotFailureKind } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatFailedCheckNames } from "@/lib/check-counts"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
-import { describeRobot, findFailedRobots, formatPushMode, formatRobotSubject, openRobot } from "@/lib/patronus"
+import { describeRobot, formatPushMode, formatRobotSubject, openRobot } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { copyRobotPrompt, robotAncestors } from "@/lib/robot-prompt-copy"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { getBranchRobot, getStackRobot, patronusStore } from "@/stores/patronus"
+import { announceMerge, getBranchRobot, getStackRobot, patronusStore, repositoryKey } from "@/stores/patronus"
+import { getEffectiveBranchPrefix } from "@/stores/repository"
 
 /** The failing robots already told about, once each */
 const announced = new Set<string>()
 /** The failed robots already told about, once each */
 const announcedFailures = new Set<string>()
-/** The robots that failed meanwhile, until their problems say whether for missing approvals: the key of each */
-const pendingFailures = new Map<string, string>()
-
-/** A failed robot is told without its problems after this long: they may not come (offline) */
-export const FAILURE_PROBLEMS_WAIT_MS = 15_000
 
 /**
- * Tells once per robot that a running robot will fail (`RepositoryPatronus.failing`): a toast with "Cancel Safe Push"
- * first, then "Open in Patronus", recorded in Activity; and once that a robot failed (`announceFailed`). While no window
- * is focused an OS notification at once (unless Settings turned it off), and the toast waits for the focus. The main
- * window calls it once; it returns the unsubscribe. Its own module, not the store: the actions of a robot
- * (`getRobotActions`) read the store.
+ * Tells once per robot that a running robot will fail (`RepositoryPatronus.failing`, which the session asks): a toast
+ * with "Cancel Safe Push" first, then "Open in Patronus", recorded in Activity. While no window is focused an OS
+ * notification at once (unless Settings turned it off), and the toast waits for the focus. The main window calls it
+ * once; it returns the unsubscribe. Its own module, not the store: the actions of a robot (`getRobotActions`) read the
+ * store.
  */
 export function watchFailingRobots(): () => void {
-  const timers = new Set<ReturnType<typeof setTimeout>>()
-  const unsubscribe = patronusStore.subscribe((state, previous) => {
+  return patronusStore.subscribe((state, previous) => {
     for (const [key, repository] of Object.entries(state.repositories)) {
-      const before = previous.repositories[key]
-      if (repository.failing !== before?.failing) {
-        for (const id of Object.keys(repository.failing)) {
-          const robot = repository.robots[id]
-          if (robot !== undefined && robot.status === "running" && !announced.has(id)) {
-            announced.add(id)
-            void announceFailing(key, robot, repository.watched[id])
-          }
-        }
+      if (repository.failing === previous.repositories[key]?.failing) {
+        continue
       }
-      if (before !== undefined && repository.robots !== before.robots) {
-        for (const robot of findFailedRobots(before.robots, repository.robots)) {
-          if (!announcedFailures.has(robot.id) && !pendingFailures.has(robot.id)) {
-            pendingFailures.set(robot.id, key)
-            const timer = setTimeout(() => {
-              timers.delete(timer)
-              tellFailed(robot.id, false)
-            }, FAILURE_PROBLEMS_WAIT_MS)
-            timers.add(timer)
-          }
-        }
-      }
-      for (const [id, pendingKey] of pendingFailures) {
-        // the problems of a failed robot of a branch say "needs review"; a watched robot of no branch has none read
-        if (pendingKey === key && (id in repository.needsReview || repository.watched[id] !== undefined)) {
-          tellFailed(id, repository.needsReview[id] === true)
+      for (const id of Object.keys(repository.failing)) {
+        const robot = repository.robots[id]
+        if (robot !== undefined && robot.status === "running" && !announced.has(id)) {
+          announced.add(id)
+          void announceFailing(key, robot, repository.watched[id])
         }
       }
     }
   })
-  return () => {
-    unsubscribe()
-    for (const timer of timers) {
-      clearTimeout(timer)
-    }
-  }
 }
 
-function tellFailed(id: string, needsReview: boolean): void {
-  const key = pendingFailures.get(id)
-  if (key === undefined || announcedFailures.has(id)) {
-    return
-  }
-  pendingFailures.delete(id)
-  announcedFailures.add(id)
-  const repository = patronusStore.getState().repositories[key]
-  const robot = repository?.robots[id]
-  if (robot !== undefined) {
-    void announceFailed(key, robot, needsReview, repository?.watched[id])
+/**
+ * The news of the session of `repositoryPath` the window has not told (`onSessionFacts` hands each once): a robot merged
+ * (`announceMerge`), a robot failed, told once Patronus said whether for missing code-owner approvals (or its problems
+ * didn't come, or the session reads none of a robot of no branch: then as a plain failure, `announceFailed`)
+ */
+export function tellRobotNews(repositoryPath: string, news: readonly News[]): void {
+  const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
+  for (const { event } of news) {
+    const repository = patronusStore.getState().repositories[key]
+    const robot = repository?.robots[event.robotId]
+    if (robot === undefined) {
+      continue
+    }
+    if (event.kind === "robotMerged") {
+      announceMerge(key, robot)
+    } else if (!announcedFailures.has(robot.id)) {
+      announcedFailures.add(robot.id)
+      void announceFailed(key, robot, event.needsReview === true, repository?.watched[robot.id])
+    }
   }
 }
 
@@ -115,7 +94,7 @@ export function formatFailedRobotToast(
 }
 
 /**
- * A robot failed: a toast with its next step and "Open in Patronus", in Activity, and the OS notification of "Safe Push
+ * A robot failed (the news of the session): a toast with its next step and "Open in Patronus", in Activity, and the OS notification of "Safe Push
  * failures" in the background. The step is "Copy Prompt for Agent", "Restart Safe Push" when only the CI failed (its
  * builds never started, `infrastructure`), or the pull request for the review. A robot told failing while it ran is told
  * no second time: its Activity entry says it finished.
@@ -342,5 +321,4 @@ function currentRobot(id: string): PatronusRobot | undefined {
 export function resetFailingAnnouncements(): void {
   announced.clear()
   announcedFailures.clear()
-  pendingFailures.clear()
 }

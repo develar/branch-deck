@@ -27,7 +27,7 @@
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
 
 use crate::branch_table::BranchTable;
-use crate::facts::{FactResult, FactStore, FactTicket, Observation, RobotsDigest, Seq, TableFacts, robots_digest};
+use crate::facts::{AppliedFacts, FactResult, FactStore, FactTicket, Observation, RobotsDigest, Seq, TableFacts, robots_digest};
 use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
 use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
@@ -79,12 +79,12 @@ pub(crate) enum Message {
   DemandOf(oneshot::Sender<Demand>),
   /// The number of a read of a fact that starts now
   Begin(oneshot::Sender<FactTicket>),
-  /// The answer of the read of `ticket`; `reply` gets the version of the view after its patch, `None` for a ticket of
-  /// another epoch
+  /// The answer of the read of `ticket`; `reply` gets the version of the view after its patch and what the scheduler
+  /// asks about the robots now, `None` for a ticket of another epoch
   ApplyFacts {
     ticket: FactTicket,
     result: FactResult,
-    reply: oneshot::Sender<Option<Version>>,
+    reply: oneshot::Sender<Option<AppliedFacts>>,
   },
   /// The robot an action of the app answered; `reply` gets the version of the view after its patch
   WriteRobot {
@@ -265,12 +265,19 @@ impl Actor {
           observed_at: unix_now(),
         };
         self.facts.apply(observation, result);
+        let robots = self.robots_digest();
+        self.facts.tell_failures(&robots);
         self.flush();
-        let _ = reply.send(Some(self.view.version()));
+        let _ = reply.send(Some(AppliedFacts {
+          version: self.view.version(),
+          robots,
+        }));
       }
       Message::WriteRobot { robot, reply } => {
         let seq = self.state.next_seq();
-        self.facts.robots.write(seq, robot);
+        self.facts.write_robot(seq, robot);
+        let robots = self.robots_digest();
+        self.facts.tell_failures(&robots);
         self.flush();
         let _ = reply.send(self.view.version());
       }
@@ -351,6 +358,11 @@ impl Actor {
     if changed {
       self.events.emit(&self.key, SessionEventKind::Robots(digest));
     }
+  }
+
+  /// What the scheduler asks about the robots now (`facts::robots_digest`), with the watched robots of the demand
+  fn robots_digest(&self) -> RobotsDigest {
+    robots_digest(&self.state, self.facts.robots.view(), &self.demand().watched_robots)
   }
 
   /// The demand of all the windows of the session: focused or online when one of them is, each list the union of
