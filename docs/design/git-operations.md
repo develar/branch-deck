@@ -953,20 +953,37 @@ Details:
   ([Index lock](#index-lock)); one that stays 30 s moves the branch back as `locked`.
 - **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
-  **Landed commits left out.** When the replay conflicts, the check reads sets of landed local commits by their key
-  (`LandedLookup::ByKey`, `landed_pairing::landed_candidates`): those with a counterpart upstream with their fixups,
-  then those alone; the plan keeps the sets for a resolve session (`UpdatePlan::landed_candidates`). Each set is left
-  out as a drop does, one `replay` per run of kept commits, the first run `<d_1>^ ^U ^<previous tips>` onto U. The result counts
-  only if `merge-tree --merge-base=<base> <result> H` gives the result's tree: merging every local change into it
-  changes nothing, so nothing local is lost (an amend after the push, a fixup made after it). A robot that autosquashes
-  pushes the target with its fixups folded in; the target alone then adds other content than the upstream has, and a
-  plain replay conflicts. Tried only after a conflict, so a clean update costs nothing more.
+  **Landed commits left out.** When the replay conflicts, the check pairs the local commits with the upstream ones
+  once (`LandedLookup::ByKey`, `landed_pairing::pair_landed`) and keeps the result as the `ReplayPlan` of the plan,
+  which a resolve session replays. The pairing is a ladder of proofs, one to one: each upstream commit proves at most
+  one local commit, the oldest first, and merge commits never pair.
+  1. `patch_id`: one `rev-list --cherry-mark --no-merges U...H`, then one `diff-tree --stdin -p` and one
+     `patch-id --stable` of the marked commits, as `git rebase` compares.
+  2. `replayed`: a local commit L and the upstream commit T with its key (author email, author time, subject without
+     the `(prefix)`). One `merge-tree --write-tree --stdin` of the lines `L^ -- T^ L` for all pairs and one `rev-parse`
+     of their `T^{tree}`: T is L cherry-picked onto its own parent when the merge writes T's tree. Each pair is
+     compared against its own parent, so twins that landed in another order prove each other's context.
+  3. `changed_lines`: the pairs whose cherry-pick conflicts on its context. One `diff-tree --stdin -p -U0` with one
+     `patch-id --verbatim`, and one `diff-tree --stdin -r -z --raw --numstat`: the same changed lines, and the same
+     paths, statuses and modes, with the same new object of each binary file (`-` counts) and gitlink.
+
+  A pair that no rung proves is a candidate: the key alone is no proof (an amend after the push, a robot that folded
+  its fixups in, an independent fix of the same lines). The proven commits are left out as a drop does, one `replay`
+  per run of kept commits, the first run `<d_1>^ ^U ^<previous tips>` onto U. If that still conflicts, the candidates
+  with their fixups, then the candidates alone, are left out too. Such a set counts only if each candidate keeps its
+  change: one `merge-tree --stdin` of the lines `C^ -- <result> <last>`, where `last` is the last local fixup of C (or
+  C), and each merge gives the result's tree. So the proven drops and the other local commits never take part in the
+  check, and a fixup made after the push keeps the candidate's set out. A robot that autosquashes pushes the target
+  with its fixups folded in; the target alone then adds other content than the upstream has, and a plain replay
+  conflicts. Tried only after a conflict, so a clean update costs nothing more.
 
   Which commits landed, and where, takes three read-only `log` processes after the check (the preview's are cached
   with its replay): the local commits (`HEAD ^U ^<previous tips>`), the ones that stay (`N ^U`) and the upstream
   commits since the merge base by the authors of the local commits (`--fixed-strings --author=<email>`, so a monorepo
   upstream stays small). None when the upstream has nothing since the merge base (up to date): no upstream commit can
-  carry a local one. See "Landed commits" in [Integration Detection](integration-detection.md); the report is
+  carry a local one. A commit the replay left out landed as the upstream commit of its proof, also when the upstream
+  reworded it (one `log --no-walk` for such commits by other authors). See "Landed commits" in
+  [Integration Detection](integration-detection.md); the report is
   `branch-deck/landed.json` in the worktree's git directory, written through a temporary file and a rename, never git
   state.
 - **Metadata.** The replayed commits keep their author; the committer is the current user, as with any content rewrite.
@@ -1108,7 +1125,7 @@ needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 
 | Step | Command |
 |---|---|
-| Start | the check of "Update project" conflicted under the lock, and the session reuses its landed candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer), `rev-list --reverse HEAD ^U ^<previous tips>` (the local commits), `rev-list --cherry-mark`, `diff-tree --stdin -p` and `patch-id --stable` (the landed ones, left out) |
+| Start | the check of "Update project" conflicted under the lock, and the session replays its `ReplayPlan`: the local commits without the proven ones, in runs, and the candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer) |
 | Find the conflict | a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
 | Resolve by words | with `branchdeck.resolveByWords` on, the merge of the round (below) resolved by words: one `check-attr`, one `cat-file --batch` and one `fast-import`; a resolved commit is a round that resolves itself, and the search goes on after it ("Resolve by words") |
 | Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`) and the stage blobs, which also writes the copies |
@@ -1128,8 +1145,8 @@ check for `blocked_paths` is the largest share.
 - **An empty result.** When the resolved tree equals its parent's (the `ls` of the same `fast-import`), the round is
   `empty_resolution` (exit 2), and nothing moves. `--allow-empty` keeps the empty commit; `--drop-empty <commit>`, with
   the round's commit, drops it: no `resolved` id and no note. The finish counts a dropped commit as
-  `dropped_by_resolution` and keeps it out of `dropped_already_upstream` and of the landed report, because the
-  upstream does not have it.
+  `dropped_by_resolution` and keeps it out of `dropped_already_upstream`. It is in the landed report only when an
+  upstream commit has its key (a likely landed commit, `likely_landed`): the agent took the upstream's side.
 - **Supported types.** A round supports `CONFLICT (contents)` of text (also `CONFLICT (add/add)`, a content conflict
   without `before`), `CONFLICT (modify/delete)` and `CONFLICT (rename/delete)` (the stages are at the new path; the
   message gives the old one, so `--take` and `--delete` take either), on regular files (`100644`, `100755`). The mode is merged as git
@@ -1139,14 +1156,13 @@ check for `blocked_paths` is the largest share.
   the whole round with `unsupported_conflict`, with the paths. A file/directory conflict names its moved side file
   (`df~<id>`) too. At the start no session is created. Every refusal names the round and its commit (id and
   subject), and a refused `--continue` says that the round stays open and the copies keep the agent's edits.
-- **Landed commits.** At the start, one `rev-list --cherry-mark --no-merges U...H` marks the commits of both sides
-  that have a counterpart with the same patch, and one `diff-tree --stdin -p` with one `patch-id --stable` pairs them.
-  A local commit whose patch id equals that of an upstream commit since the merge base is left out of the replay, as
-  `git rebase` leaves it out (`landed_dropped`): the patch id proves that the upstream has its change, also when the
-  upstream changed the lines further and a replay would conflict. The other local commits form runs of consecutive
-  commits (`run_starts`): each replay covers one run, and the binary search runs inside the first run that conflicts.
-  A commit that the landed detection finds only by its author, author time and subject gets the hint "likely landed:
-  take onto" and is never left out: that key is no proof.
+- **Landed commits.** The session takes the local commits that the check proved landed from its `ReplayPlan` and
+  pairs nothing again ("Landed commits left out" of "Update project"). A proven commit is left out of the replay, as
+  `git rebase` leaves out a commit of the same patch id (`landed_dropped`, with its upstream commit and its proof):
+  the proof holds also when the upstream changed the lines further and a replay would conflict. The other local
+  commits form runs of consecutive commits (`run_starts`): each replay covers one run, and the binary search runs
+  inside the first run that conflicts. A candidate, which the landed detection finds only by its author, author time
+  and subject, gets the hint "likely landed: take onto" and is never left out: that key is no proof.
 - **Blocked paths early.** Each round prints `blocked_paths`: the local changes on the paths that the upstream changed
   since the merge base and that differ between HEAD and the upstream, found with the cheaper check of every sync. The
   agent asks the user about them before it resolves; the finish runs the exact check.
@@ -1879,7 +1895,8 @@ In the sync (`perform_fast_cherry_pick_with_context`, `crates/git-ops/src/cherry
 In Update Project and `bd update`, with the same setting (`crates/git-ops/src/word_replay.rs`):
 
 - **The check.** When the replay of the local commits conflicts, also without the landed candidates, the check
-  replays them again commit by commit (`replay_resolving_words`). Each run that applies is one `replay`; a binary
+  replays the kept commits of its `ReplayPlan` again commit by commit (`replay_resolving_words`), each run of
+  consecutive commits on its own. Each run that applies is one `replay`; a binary
   search finds the commit that conflicts; its `merge-tree --write-tree -z --merge-base <c>^ <tip> <c>` is resolved,
   and one `fast-import` writes the commit with the author and the message of `c` and the committer of the replay
   (a preview has the fixed date). A commit that the words leave without a change is dropped, as `replay` drops one. The
@@ -3787,6 +3804,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | Squash two commits | `a_squash` | 18 | 14 |
 | Squash fixups | `a_squash_of_fixups` | 31 | 24 |
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |
+| Update Project that conflicts, two twins and a real conflict: the pairing once, no lock (2026-10-25) | `a_conflicting_update_pairs_its_commits_once` | 30 | 30 |
 | App stack push of two branches (`push_branches`; first a push per branch; the size check since 2026-10-25: 3 more) | `an_atomic_push_of_a_stack` * | 8 | 7 |
 | The text of the app's pull request of the whole stack (`read_new_stack_pull_request`) | `the_text_of_a_new_pull_request_of_the_whole_stack` ** | 1 | 1 |
 | What a merged robot landed after a change below its commit (`robot_landings`, 2026-10-18) | `the_landing_of_a_merged_robot_after_a_change_below_its_commit` | 8 | 8 |

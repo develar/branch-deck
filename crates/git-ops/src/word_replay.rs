@@ -10,7 +10,7 @@
 
 use crate::commit_writer::{EditedCommit, TreeEdit, WrittenEdit, discard_temp_refs, read_raw_commits, write_edited_commit};
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
-use crate::replay::{first_conflict, replay_range_with_env};
+use crate::replay::{first_conflict, replay_range_with_env, run_end};
 use crate::word_resolve::{RESOLVE_VERSION, WordResolution, WordResolveOutcome, resolve_by_words};
 use anyhow::{Result, anyhow, bail};
 use domain_types::conflict::ResolvedFileSummary;
@@ -130,21 +130,23 @@ pub(crate) struct WordsReplay {
   pub resolved: Vec<UpdateResolvedCommit>,
 }
 
-/// Replay `local` (linear history, oldest first) onto `onto` with `env` for `git replay`; a commit that conflicts is
-/// resolved by words with `committer`. The replay of all of them conflicted already: the search for the first conflict
-/// starts at once. `None` at the first commit that does not resolve. A resolved commit that changes nothing is dropped,
-/// as `git replay` drops a commit that becomes empty. No temporary ref is left
-#[instrument(skip(git_executor, local, env, committer), fields(commits = local.len()))]
+/// Replay `local` (oldest first, linear history within each run of `run_starts`, the indices where a run starts after
+/// a commit left out) onto `onto` with `env` for `git replay`; a commit that conflicts is resolved by words with
+/// `committer`. The replay of all of them conflicted already: with one run, the search for the first conflict starts at
+/// once. `None` at the first commit that does not resolve. A resolved commit that changes nothing is dropped, as
+/// `git replay` drops a commit that becomes empty. No temporary ref is left
+#[instrument(skip(git_executor, local, run_starts, env, committer), fields(commits = local.len()))]
 pub(crate) fn replay_resolving_words(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   onto: &str,
   local: &[String],
+  run_starts: &[usize],
   env: &[(&str, &str)],
   committer: &str,
 ) -> Result<Option<WordsReplay>> {
   let mut written = Vec::new();
-  let replay = replay_words(git_executor, repo_path, onto, local, env, committer, &mut written);
+  let replay = replay_words(git_executor, repo_path, onto, local, run_starts, env, committer, &mut written);
   if let Some(first) = written.first() {
     discard_temp_refs(git_executor, repo_path, &first.temp_ref, |transaction| {
       for edit in &written {
@@ -155,11 +157,13 @@ pub(crate) fn replay_resolving_words(
   replay
 }
 
+#[expect(clippy::too_many_arguments, reason = "the replay and where its temporary refs go")]
 fn replay_words(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   onto: &str,
   local: &[String],
+  run_starts: &[usize],
   env: &[(&str, &str)],
   committer: &str,
   written: &mut Vec<WrittenEdit>,
@@ -170,18 +174,19 @@ fn replay_words(
   };
   let mut next = 0;
   while next < local.len() {
-    let (from, last) = (next, local.len() - 1);
+    let (from, last) = (next, run_end(run_starts, next, local.len()) - 1);
     let replay_to = |tip: &str, end: usize| -> Result<Option<String>> {
-      // linear history: `<end> ^<from>^` is exactly the commits from `from` to `end`
+      // linear history within a run: `<end> ^<from>^` is exactly the commits from `from` to `end`
       let revs = [local[end].clone(), format!("^{}^", local[from])];
       let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
       Ok(replay_range_with_env(git_executor, repo_path, tip, &revs, env)?)
     };
-    if next > 0
-      && let Some(tip) = replay_to(&replay.tip, last)?
-    {
+    // the replay of a single run conflicted already
+    let known_conflict = next == 0 && run_starts.is_empty();
+    if !known_conflict && let Some(tip) = replay_to(&replay.tip, last)? {
       replay.tip = tip;
-      break;
+      next = last + 1;
+      continue;
     }
     let start = replay.tip.clone();
     let (index, clean) = first_conflict(from, last, start.clone(), |end| replay_to(&start, end))?;

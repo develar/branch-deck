@@ -22,7 +22,7 @@ use domain_types::update_project::UpdateCheck;
 use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::autosquash_targets::target_of_each_fixup;
-use git_ops::landed_pairing::{CommitKey, by_key, read_keyed, read_local, read_upstream};
+use git_ops::landed_pairing::{CommitKey, KeyedCommit, LandedDrop, by_key, read_keyed, read_local, read_upstream};
 use git_ops::revs::{known_dirs, read_head};
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{RepositoryLock, lock_file};
@@ -53,6 +53,9 @@ pub struct LandedQuery<'a> {
   pub gone_is_landed: bool,
   /// The stack setting and the issue groups: a commit belongs to the leaf of its stack prefix or to its issue group
   pub grouping: &'a GroupingInputs,
+  /// The local commits a replay left out because the upstream proves it has them, with their upstream commit
+  /// (`landed_pairing::LandedDrop`): they landed as that commit, also when the upstream reworded it
+  pub proven: &'a [LandedDrop],
 }
 
 /// The subject as the branch shows it: without the `(prefix)`, a fixup keeps its marker (`fixup! Add login`)
@@ -66,7 +69,7 @@ fn shown_subject(subject: &str) -> String {
 
 /// The local commits of the query that landed, grouped by branch in the order of their oldest commit. Three `git log`
 /// processes: the local commits, the ones that stay, and the upstream commits since the merge base by the authors of
-/// the local commits.
+/// the local commits; one more for the upstream commits of `proven` by other authors.
 #[instrument(skip(git_executor))]
 pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: LandedQuery<'_>) -> Result<Vec<LandedBranch>> {
   let local = read_local(git_executor, repo_path, query.local)?;
@@ -78,12 +81,17 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
 
   let upstream = read_upstream(git_executor, repo_path, &local, query.base, query.upstream_head)?;
   let by_key = by_key(&upstream);
+  let proven = proven_upstream(git_executor, repo_path, query.proven, &upstream)?;
 
   // id -> the upstream commit, `None` when it landed in another form
   let mut landed: HashMap<&str, Option<UpstreamCommit>> = HashMap::new();
   // gone without a counterpart
   let mut unmatched: Vec<&Commit> = Vec::new();
   for commit in &local {
+    if let Some(upstream) = proven.get(commit.id.as_str()) {
+      landed.insert(&commit.id, Some(upstream.clone()));
+      continue;
+    }
     let key = CommitKey::from_message(&commit.author_email, commit.author_timestamp, &commit.message);
     if remaining_keys.as_ref().is_some_and(|keys| keys.contains(&key)) {
       continue;
@@ -145,6 +153,19 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
   Ok(branches)
 }
 
+/// The upstream commit of each proven local commit, by the local commit: from `upstream` (the commits by the local
+/// authors), else from one `log --no-walk` of the rest
+fn proven_upstream<'a>(git_executor: &GitCommandExecutor, repo_path: &str, proven: &'a [LandedDrop], upstream: &[KeyedCommit]) -> Result<HashMap<&'a str, UpstreamCommit>> {
+  let mut by_id: HashMap<String, UpstreamCommit> = upstream.iter().map(|commit| (commit.upstream.id.clone(), commit.upstream.clone())).collect();
+  let missing: Vec<String> = proven.iter().filter(|drop| !by_id.contains_key(&drop.upstream)).map(|drop| drop.upstream.clone()).collect();
+  if !missing.is_empty() {
+    for commit in read_keyed(git_executor, repo_path, &missing, &["--no-walk=unsorted".to_string()])? {
+      by_id.insert(commit.upstream.id.clone(), commit.upstream);
+    }
+  }
+  Ok(proven.iter().filter_map(|drop| Some((drop.commit.as_str(), by_id.get(&drop.upstream)?.clone()))).collect())
+}
+
 /// The revisions of the local commits of a check: `HEAD ^upstream ^<excluded>`
 pub fn local_revs(check: &UpdateCheck, excluded: &[String]) -> Vec<String> {
   let mut revs = vec![check.head.clone(), format!("^{}", check.upstream_head)];
@@ -176,13 +197,15 @@ fn landing_cache() -> &'static LandingCache {
 }
 
 /// The local commits that the fetched upstream already has, for the check inside a sync: an update drops them.
-/// `replayed_head` is HEAD after the replay, `None` when it conflicts.
+/// `replayed_head` is HEAD after the replay, `None` when it conflicts; `proven` the commits the replay left out
+/// (`UpdatePlan::landed_drops`).
 pub fn find_landing(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   check: &UpdateCheck,
   excluded: &[String],
   replayed_head: Option<&str>,
+  proven: &[LandedDrop],
   grouping: &GroupingInputs,
 ) -> Result<Vec<LandedBranch>> {
   if check.head == check.base || check.upstream_head == check.base {
@@ -215,6 +238,7 @@ pub fn find_landing(
       upstream_head: &check.upstream_head,
       gone_is_landed: remaining.is_some(),
       grouping,
+      proven,
     },
   )?;
   let mut cache = landing_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -306,6 +330,7 @@ pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, path: &Pa
       upstream_head: &check.upstream_head,
       gone_is_landed: false,
       grouping,
+      proven: &[],
     };
     match find_landed(git_executor, repo_path, query) {
       Ok(found) => {

@@ -3,11 +3,12 @@
 //! check that every sync runs against the last fetched state are `baseline`.
 
 use crate::resolve_copies::{Materialize, prepare_dir};
-use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session};
+use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session, with_subjects};
 use anyhow::{Result, anyhow, bail};
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::landed_pairing::LandedDrop;
 use git_ops::revs::{Worktree, current_worktree, is_object_id, with_dirs_of};
 use git_ops::update_branch::{
   CheckPurpose, LandedLookup, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards_on,
@@ -83,6 +84,10 @@ pub struct UpdateProjectResult {
   pub applied: Option<AppliedUpdate>,
   /// The local commits this update dropped because the upstream has them, by branch
   pub landed: Vec<LandedBranch>,
+  /// The local commits the replay left out because the upstream proves it has them, each with its subject: `bd` lists
+  /// them, the app shows `landed`
+  #[serde(skip)]
+  pub landed_dropped: Vec<(LandedDrop, String)>,
 }
 
 /// How an update runs
@@ -220,6 +225,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       check,
       applied: None,
       landed: Vec::new(),
+      landed_dropped: Vec::new(),
     })));
   }
   let lock = options.lock_wait.lock_with(git_executor, repo_path, &|| on_progress(UpdatePhase::Waiting.into()))?;
@@ -254,13 +260,26 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // the update is done: what it did and what it landed are a report, read without the lock on the ids the move froze
   drop(lock);
   let applied = moved.map(|moved| moved.report(git_executor, repo_path)).transpose()?;
-  let landed = applied
-    .as_ref()
-    .map_or_default(|applied| record_landed_update(git_executor, repo_path, &plan.check, plan.excluded(), &applied.new_head, &grouping, &[]));
+  let landed = applied.as_ref().map_or_default(|applied| {
+    let report = LandedReport {
+      check: &plan.check,
+      excluded: plan.excluded(),
+      new_head: &applied.new_head,
+      proven: plan.landed_drops(),
+      not_landed: &[],
+    };
+    record_landed_update(git_executor, repo_path, &report, &grouping)
+  });
+  let landed_dropped = if applied.is_some() {
+    with_subjects(git_executor, repo_path, plan.landed_drops())
+  } else {
+    Vec::new()
+  };
   Ok(BdUpdate::Update(Box::new(UpdateProjectResult {
     check: plan.check,
     applied,
     landed,
+    landed_dropped,
   })))
 }
 
@@ -301,17 +320,28 @@ fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: 
   Ok(Prepared { grouping, resolve_mode, plan })
 }
 
-/// What an applied update landed, added to the report; `not_landed` are local commits that are gone for another reason
-/// (a resolution dropped them). The update is done: a failure here is logged, not returned.
-pub(crate) fn record_landed_update(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  check: &UpdateCheck,
-  excluded: &[String],
-  new_head: &str,
-  grouping: &GroupingInputs,
-  not_landed: &[String],
-) -> Vec<LandedBranch> {
+/// What an applied update moved, for its landed report
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LandedReport<'a> {
+  pub check: &'a UpdateCheck,
+  pub excluded: &'a [String],
+  pub new_head: &'a str,
+  /// The local commits the replay left out because the upstream proves it has them: landed as their upstream commit
+  pub proven: &'a [LandedDrop],
+  /// The local commits that are gone for another reason: a resolution dropped them, and no upstream commit has their
+  /// identity
+  pub not_landed: &'a [String],
+}
+
+/// What an applied update landed, added to the report. The update is done: a failure here is logged, not returned.
+pub(crate) fn record_landed_update(git_executor: &GitCommandExecutor, repo_path: &str, report: &LandedReport<'_>, grouping: &GroupingInputs) -> Vec<LandedBranch> {
+  let LandedReport {
+    check,
+    excluded,
+    new_head,
+    proven,
+    not_landed,
+  } = *report;
   let result = (|| {
     let local = local_revs(check, excluded);
     let remaining = remaining_revs(new_head, &check.upstream_head);
@@ -325,6 +355,7 @@ pub(crate) fn record_landed_update(
         upstream_head: &check.upstream_head,
         gone_is_landed: true,
         grouping,
+        proven,
       },
     )?;
     let mut landed = landed;

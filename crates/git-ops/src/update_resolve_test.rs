@@ -261,7 +261,6 @@ fn start_with(clone: &TestRepo, resolve: ResolveMode) -> Step {
   let start = SessionStart {
     plan: &plan,
     worktree: &worktree,
-    likely_landed: Vec::new(),
     dir: None,
     dir_created: false,
     resolve,

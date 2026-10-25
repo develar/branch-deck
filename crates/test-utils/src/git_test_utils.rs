@@ -1,4 +1,4 @@
-use crate::history::{HistoryCommit, HistoryStream};
+use crate::history::{HistoryCommit, HistoryStream, numbered_lines};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::fmt::Write as _;
 use std::fs;
@@ -555,6 +555,34 @@ impl TestRepo {
     let clone = Self::new_empty();
     clone.clone_from(upstream.path()).unwrap();
     (upstream, clone)
+  }
+
+  /// `upstream_and_clone` with local commits that landed upstream in another order (spec/repository/landed-commits.spec.md,
+  /// "The proof"): `f.txt` after an upstream change of a line of its context, so its cherry-pick writes the upstream
+  /// commit's tree; with `fixup`, a local fixup of it; `g.txt` after an upstream change of the line next to it, so its
+  /// cherry-pick conflicts and only the changed lines are the same; then a real conflict of `other.txt`. The ids of the
+  /// local commits and of the upstream ones, oldest first
+  pub fn upstream_and_clone_with_twins(fixup: bool) -> (Self, Self, Vec<String>, Vec<String>) {
+    let (upstream, clone) = Self::upstream_and_clone(&[("f.txt", &numbered_lines(&[])), ("g.txt", &numbered_lines(&[])), ("other.txt", "other\n")]);
+    let change = |message: &str, file: &str, changes: &[(usize, &str)], time: i64| HistoryCommit::new(message, &[(file, &numbered_lines(changes))]).at(time);
+    let mut local = vec![change("(auth) Change line 5", "f.txt", &[(5, "five")], 1_700_000_200)];
+    if fixup {
+      local.push(change("fixup! (auth) Change line 5", "f.txt", &[(5, "five, fixed")], 1_700_000_300));
+    }
+    local.push(change("(auth) Change line 5 of g", "g.txt", &[(5, "five")], 1_700_000_250));
+    local.push(HistoryCommit::new("(ui) Change other", &[("other.txt", "mine\n")]).at(1_700_000_400));
+    let local = clone.commit_history("refs/heads/master", &local);
+    let twins = upstream.commit_history(
+      "refs/heads/master",
+      &[
+        change("Other change", "f.txt", &[(2, "two")], 1_700_000_100),
+        change("Change line 5", "f.txt", &[(2, "two"), (5, "five")], 1_700_000_200),
+        change("Change line 4 of g", "g.txt", &[(4, "four")], 1_700_000_110),
+        change("Change line 5 of g", "g.txt", &[(4, "four"), (5, "five")], 1_700_000_250),
+        HistoryCommit::new("Change other upstream", &[("other.txt", "theirs\n")]),
+      ],
+    );
+    (upstream, clone, local, twins)
   }
 
   /// Clone a repository into this directory, with the config of a `TestRepo` but `merge.conflictstyle` and

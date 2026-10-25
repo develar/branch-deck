@@ -28,7 +28,7 @@ fn replay(repo: &TestRepo, upstream_f: &str, local_f: &str) -> (String, Vec<Stri
   let (upstream, local) = diverged(repo, upstream_f, local_f);
   let (git, path) = (repo.git_executor(), repo.path_str());
   let committer = current_committer(git, path).unwrap();
-  let replay = replay_resolving_words(git, path, &upstream, &local, &[], &committer).unwrap();
+  let replay = replay_resolving_words(git, path, &upstream, &local, &[], &[], &committer).unwrap();
   (upstream, local, replay)
 }
 

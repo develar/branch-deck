@@ -264,7 +264,7 @@ pub fn check_known_baseline_update(
 /// The check of `plan` with the local commits the upstream already has
 fn with_landing(git_executor: &GitCommandExecutor, repo_path: &str, plan: UpdatePlan, grouping: &GroupingInputs) -> BaselineCheck {
   // the landing is a detail of the check: it must not fail it
-  let landing = find_landing(git_executor, repo_path, &plan.check, plan.excluded(), plan.replayed_head(), grouping).unwrap_or_else(|e| {
+  let landing = find_landing(git_executor, repo_path, &plan.check, plan.excluded(), plan.replayed_head(), plan.landed_drops(), grouping).unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't find the landed commits");
     Vec::new()
   });

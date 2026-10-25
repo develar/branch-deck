@@ -33,6 +33,25 @@ impl HistoryCommit {
       ..Self::default()
     }
   }
+
+  /// This commit at `time`: two commits of one author with one subject at one time share their identity (`CommitKey`)
+  #[must_use]
+  pub fn at(self, time: i64) -> Self {
+    Self { timestamp: Some(time), ..self }
+  }
+}
+
+/// Nine lines, each its number, with `changes` (line number, text) in place: a change of one line keeps the others as
+/// the context of its diff
+pub fn numbered_lines(changes: &[(usize, &str)]) -> String {
+  (1..=9).fold(String::new(), |mut text, line| {
+    match changes.iter().find(|(number, _)| *number == line) {
+      Some((_, changed)) => text.push_str(changed),
+      None => text.push_str(&line.to_string()),
+    }
+    text.push('\n');
+    text
+  })
 }
 
 /// A `fast-import` stream that the commits of `branch` and the refs of a fixture go into, with the files each commit

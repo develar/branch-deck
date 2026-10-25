@@ -4,14 +4,14 @@
 //! `git_ops::update_resolve`; this module adds the lock, the copies on disk and what the output shows.
 
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
-use crate::update_project::record_landed_update;
+use crate::update_project::{LandedReport, record_landed_update};
 use anyhow::{Result, anyhow};
 use domain_types::conflict::ResolvedFileSummary;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
-use git_ops::landed_pairing::{LandedScope, landed_candidates};
+use git_ops::landed_pairing::LandedDrop;
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
 use git_ops::update_branch::UpdatePlan;
@@ -97,8 +97,8 @@ pub struct SessionView {
   pub round: Option<RoundView>,
   /// Local changes on paths the update likely writes: they will block the finish
   pub blocked_paths: Vec<String>,
-  /// The local commits left out because the upstream has the same patch: `(commit, subject, upstream commit)`
-  pub landed_dropped: Vec<(String, String, String)>,
+  /// The local commits left out because the upstream proves it has them, each with its subject
+  pub landed_dropped: Vec<(LandedDrop, String)>,
 }
 
 /// What a session step did
@@ -239,24 +239,24 @@ fn subjects_of(git_executor: &GitCommandExecutor, repo_path: &str, ids: &[&str])
     .collect()
 }
 
-/// The commits of `state.landed_dropped` with their subjects, with one `log --no-walk` when there are any
-fn landed_dropped(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Vec<(String, String, String)> {
-  if state.landed_dropped.is_empty() {
+/// The commits of `state.landed_dropped` with their subjects (`with_subjects`)
+fn landed_dropped(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Vec<(LandedDrop, String)> {
+  with_subjects(git_executor, repo_path, &state.landed_dropped)
+}
+
+/// Each of `drops` with the subject of its local commit, with one `log --no-walk` when there are any
+pub(crate) fn with_subjects(git_executor: &GitCommandExecutor, repo_path: &str, drops: &[LandedDrop]) -> Vec<(LandedDrop, String)> {
+  if drops.is_empty() {
     return Vec::new();
   }
-  let ids: Vec<&str> = state.landed_dropped.iter().map(|drop| drop.commit.as_str()).collect();
+  let ids: Vec<&str> = drops.iter().map(|drop| drop.commit.as_str()).collect();
   let subjects = subjects_of(git_executor, repo_path, &ids);
-  state
-    .landed_dropped
-    .iter()
-    .map(|drop| (drop.commit.clone(), subjects.get(&drop.commit).cloned().unwrap_or_default(), drop.upstream.clone()))
-    .collect()
+  drops.iter().map(|drop| (drop.clone(), subjects.get(&drop.commit).cloned().unwrap_or_default())).collect()
 }
 
 /// Start the session of an update whose check conflicted, under the lock the update holds and passes as `lock`, which a
-/// session that finishes at once releases before its landed report. The likely landed commits are the landed candidates
-/// the check found (`UpdatePlan::landed_candidates`), else the key match runs here; `resolve` is the resolve by words of
-/// the check
+/// session that finishes at once releases before its landed report. The session replays the check's `ReplayPlan`;
+/// `resolve` is the resolve by words of the check
 #[expect(clippy::too_many_arguments, reason = "what the update read under its lock, passed on")]
 pub(crate) fn start_resolve(
   git_executor: &GitCommandExecutor,
@@ -268,25 +268,6 @@ pub(crate) fn start_resolve(
   resolve: ResolveMode,
   lock: RepositoryLock,
 ) -> Result<SessionOutcome> {
-  let (check, excluded) = (&plan.check, plan.excluded());
-  let candidates = plan.landed_candidates().map_or_else(
-    || {
-      let scope = LandedScope {
-        head: &check.head,
-        upstream_head: &check.upstream_head,
-        base: &check.base,
-        excluded,
-      };
-      landed_candidates(git_executor, repo_path, scope, grouping.stacks).unwrap_or_else(|e| {
-        warn!(error = %format!("{e:#}"), "can't find the likely landed commits");
-        Vec::new()
-      })
-    },
-    <[Vec<String>]>::to_vec,
-  );
-  let mut likely_landed: Vec<String> = candidates.into_iter().flatten().collect();
-  likely_landed.sort_unstable();
-  likely_landed.dedup();
   let (dir, dir_created) = dir.map_or((None, false), |(dir, created)| (Some(dir), created));
   let step = start_session(
     git_executor,
@@ -294,7 +275,6 @@ pub(crate) fn start_resolve(
     SessionStart {
       plan,
       worktree,
-      likely_landed,
       dir,
       dir_created,
       resolve,
@@ -430,13 +410,15 @@ fn outcome(
         fetched_at: None,
         resolved_by_words: words_commits(git_executor, repo_path, &state.resolutions),
       };
-      // a commit that a resolution dropped is not on the upstream; one that the words left empty is, as `git replay` drops it
+      // a commit that a resolution dropped is not on the upstream unless an upstream commit has its identity (a likely
+      // landed one, the agent took `onto`); one that the words left empty is, as `git replay` drops it
       let dropped: Vec<String> = state
         .resolutions
         .iter()
         .filter(|resolution| resolution.dropped() && !resolution.by_words())
         .map(|resolution| resolution.commit.clone())
         .collect();
+      let not_landed: Vec<String> = dropped.iter().filter(|commit| !state.likely_landed.contains(commit)).cloned().collect();
       let read;
       let grouping = if let Some(grouping) = grouping {
         grouping
@@ -444,7 +426,14 @@ fn outcome(
         read = read_grouping_inputs(git_executor, repo_path)?;
         &read
       };
-      let landed = record_landed_update(git_executor, repo_path, &check, &state.excluded, &new_head, grouping, &dropped);
+      let report = LandedReport {
+        check: &check,
+        excluded: &state.excluded,
+        new_head: &new_head,
+        proven: &state.landed_dropped,
+        not_landed: &not_landed,
+      };
+      let landed = record_landed_update(git_executor, repo_path, &report, grouping);
       let replayed = count(git_executor, repo_path, &new_head, &state.upstream_head)?;
       let dropped_by_resolution = u32::try_from(dropped.len()).unwrap_or(u32::MAX);
       let dropped_already_upstream = u32::try_from(state.total())

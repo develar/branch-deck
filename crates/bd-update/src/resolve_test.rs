@@ -7,6 +7,7 @@ use std::time::Duration;
 use test_utils::git_test_utils::TestRepo;
 #[cfg(unix)]
 use test_utils::history::HistoryCommit;
+use test_utils::history::numbered_lines;
 
 const SHARED: &str = "one\ntwo\nthree\n";
 
@@ -436,7 +437,7 @@ fn a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it() 
     (None, &json!("dropped")),
     "{done}"
   );
-  assert_eq!(done.get("landed"), None, "a dropped commit did not land: {done}");
+  assert_eq!(done.get("landed"), None, "a dropped commit without a counterpart upstream did not land: {done}");
   assert_eq!(clone.head(), upstream.head());
   assert_eq!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "list"]), "", "a dropped commit gets no note");
 }
@@ -710,9 +711,20 @@ fn likely_landed_commits_get_the_hint() {
   commit(&clone, "(auth) Change line 2", "one\nmine\nthree\n");
   // the robot landed it with a fixup folded in
   commit(&upstream, "Change line 2", "one\nmine, fixed\nthree\n");
-  let (exit_code, round) = run_in(&clone, &["update"]);
+  let (exit_code, round) = run_in(&clone, &["--full-ids", "update"]);
   assert_eq!(exit_code, 1, "{round}");
   assert!(round["session"]["commit"]["hint"].as_str().is_some_and(|hint| hint.starts_with("likely landed")), "{round}");
+  assert_eq!(round["session"].get("landed_dropped"), None, "the identity alone proves nothing: {round}");
+
+  // the agent took the baseline's side: the drop of a commit whose identity the baseline has is a landing
+  let local = round["session"]["commit"]["commit"].as_str().unwrap().to_string();
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--take", "onto:shared.txt", "--drop-empty", &local]);
+  assert_eq!((exit_code, &done["dropped_by_resolution"]), (0, &json!(1)), "{done}");
+  assert_eq!(
+    (&done["landed"][0]["commits"][0]["commit"], &done["landed"][0]["commits"][0]["upstream"]),
+    (&json!(local), &json!(upstream.head())),
+    "{done}"
+  );
 }
 
 #[test_log::test]
@@ -963,13 +975,46 @@ fn a_commit_the_upstream_has_with_the_same_patch_is_left_out() {
   assert_eq!(done["state"], json!("rebase"));
   assert_eq!(
     done["landed_dropped"],
-    json!([{ "commit": landed, "subject": "(auth) Change line 2", "upstream": picked }]),
+    json!([{ "commit": landed, "subject": "(auth) Change line 2", "upstream": picked, "proof": "patch_id" }]),
     "{done}"
   );
   assert_eq!((&done["replayed"], &done["dropped_already_upstream"]), (&json!(2), &json!(1)), "{done}");
   assert_eq!(local_subjects(&clone, &upstream), "(auth) Add b\n(auth) Add a");
   assert_eq!(std::fs::read_to_string(clone.path().join("shared.txt")).unwrap(), "one\nmine, further\nthree\n");
   assert_eq!(worktree_status(&clone), "");
+}
+
+/// The twins of `upstream_and_clone_with_twins` land, each left out by its proof; the local fixup of the first replays
+/// on its own, and the only round is the real conflict of `other.txt`
+#[test_log::test]
+fn twins_in_another_order_are_left_out_by_their_proof_and_land() {
+  let (upstream, clone, local, twins) = TestRepo::upstream_and_clone_with_twins(true);
+  let (exit_code, round) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!(
+    (exit_code, &round["session"]["round"], &round["session"]["commit"]["subject"]),
+    (1, &json!(1), &json!("(ui) Change other")),
+    "{round}"
+  );
+  assert_eq!(
+    round["session"]["landed_dropped"],
+    json!([
+      { "commit": local[0], "subject": "(auth) Change line 5", "upstream": twins[1], "proof": "replayed" },
+      { "commit": local[2], "subject": "(auth) Change line 5 of g", "upstream": twins[3], "proof": "changed_lines" },
+    ]),
+    "{round}"
+  );
+  std::fs::write(edit_of(&round, "other.txt"), "theirs and mine\n").unwrap();
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue"]);
+  assert_eq!((exit_code, &done["replayed"]), (0, &json!(2)), "{done}");
+  let landed: Vec<(&Value, &Value)> = done["landed"][0]["commits"]
+    .as_array()
+    .unwrap_or_else(|| panic!("{done}"))
+    .iter()
+    .map(|commit| (&commit["commit"], &commit["upstream"]))
+    .collect();
+  assert_eq!(landed, [(&json!(local[0]), &json!(twins[1])), (&json!(local[2]), &json!(twins[3]))], "{done}");
+  assert_eq!(local_subjects(&clone, &upstream), "(ui) Change other\nfixup! (auth) Change line 5");
+  assert_eq!(read(clone.path().join("f.txt").to_str().unwrap()), numbered_lines(&[(2, "two"), (5, "five, fixed")]));
 }
 
 /// A left-out commit splits the local commits into runs; the conflict after it still opens its round

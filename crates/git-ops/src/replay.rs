@@ -58,6 +58,12 @@ pub(crate) fn first_conflict(mut low: usize, mut high: usize, mut tip: String, m
   Ok((low, tip))
 }
 
+/// The end (exclusive) of the run of consecutive commits that holds the commit at `index` of `len` commits, whose runs
+/// start at `run_starts` (the indices after a commit left out)
+pub(crate) fn run_end(run_starts: &[usize], index: usize, len: usize) -> usize {
+  run_starts.iter().copied().find(|&start| start > index).unwrap_or(len)
+}
+
 /// The files whose merge conflicts when `commit` is cherry-picked onto `onto`, each once, in the order of
 /// `merge-tree --name-only` (one process)
 pub(crate) fn conflicting_files(git_executor: &GitCommandExecutor, repo_path: &str, onto: &str, commit: &str) -> anyhow::Result<Vec<String>> {

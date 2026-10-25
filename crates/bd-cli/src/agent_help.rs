@@ -147,8 +147,8 @@ written but git objects). Exit 0: `state` is up_to_date, fast_forward or rebase,
 Exit 1: a commit conflicts, and a resolve session opens, one round per conflicting commit. The session belongs to this worktree
 and branch, and keeps the baseline it started with; peers' commits on top of HEAD join it as more rounds. Running
 `bd update` again prints the open round (and writes its missing copies); `state: pending` (exit 1) means every
-commit is resolved and `session.next` finishes. Local commits whose patch the baseline has already (`git cherry`) are left out
-as `git rebase` does: `landed_dropped`. A conflict of git that its words resolve (`branchdeck.resolveByWords`, on by
+commit is resolved and `session.next` finishes. Local commits that the baseline proves it has (the same patch, or the
+same author, time and subject with the same change: `proof`) are left out as `git rebase` does: `landed_dropped`. A conflict of git that its words resolve (`branchdeck.resolveByWords`, on by
 default) needs no round: the update commits the result and lists the commit in `resolved` (`commit`, `new_id`,
 `conflicts`, `files`); tell the user. When every conflict resolves so, the update applies with exit 0.
 

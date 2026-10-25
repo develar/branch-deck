@@ -77,16 +77,42 @@ by the next sync the same way.
   [@test] ../../crates/update-core/src/landed_test.rs (`branch_squashed_upstream_landed_without_an_upstream_commit`)
 - A conflicting update still reports the key matches.
   [@test] ../../crates/update-core/src/landed_test.rs (`landed_commits_are_reported_while_the_update_conflicts`)
-- Detection costs three read-only `log` processes; the check inside a sync reuses them for an unchanged state, and a
-  failure never fails the check or the update.
+
+### The proof
+
+- A key match is a candidate, never a proof. When the replay conflicts, the check pairs the local commits with the
+  baseline commits once, by a ladder: the same patch id with context (`patch_id`, as `git rebase` compares); else the
+  same key and a cherry-pick of the local commit onto the baseline commit's own parent that writes that commit's tree
+  (`replayed`: twins that landed in another order, whose context lines differ); else the same key and the same changed
+  lines without context, paths, statuses and modes, with the same new object of each binary file and gitlink
+  (`changed_lines`: a cherry-pick that conflicts on the line next to it). What no rung proves stays a candidate.
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_twin_with_other_context_is_proven_by_its_replay`)
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`twins_landed_in_the_other_order_are_both_proven_by_their_replay`)
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_twin_whose_cherry_pick_conflicts_is_proven_by_its_changed_lines`)
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`equal_changed_lines_beside_a_chmod_or_a_binary_edit_prove_nothing`)
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`the_same_lines_under_another_identity_pair_with_nothing`)
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`an_amend_after_the_push_is_a_candidate_with_its_fixups`)
+- The pairing is one to one: each baseline commit proves at most one local commit, the oldest first. A change made
+  twice locally (A, a revert of A, A again) with one copy upstream leaves only the first A out. Merge commits never
+  pair.
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`one_upstream_commit_proves_one_local_commit`)
+- A proven commit is left out of the replay and landed as its baseline commit, also when the baseline reworded it. A
+  local fixup of a proven commit is no candidate: it replays on its own.
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_fixup_of_a_proven_twin_stays_out_of_the_pairing`)
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`twins_in_another_order_are_left_out_by_their_proof_and_land`)
+- The check of a conflicting update pairs once: the session replays the plan of the check and pairs nothing again.
+  [@test] ../../crates/update-core/src/process_budget_test.rs (`a_conflicting_update_pairs_its_commits_once`)
+- Detection costs three read-only `log` processes, one more for a proven commit of another author; the check inside a
+  sync reuses them for an unchanged state, and a failure never fails the check or the update.
 
 ### Update
 
-- When the replay conflicts, the check replays again without the commits with a counterpart together with their
-  fixups, then without those commits alone, as a drop does (a run of kept commits per replay). A result counts only if
-  it keeps every local change: `merge-tree --merge-base=<merge base> <result> HEAD` gives the result's tree. So a robot
-  that folded the fixups into their target no longer makes the update conflict, while a commit amended after the push,
-  or a fixup made after it, is never left out; the update then conflicts as before.
+- When the replay conflicts, the check replays again without the proven commits ("The proof"), as a drop does (a run
+  of kept commits per replay). If that conflicts too, it leaves out the candidates together with their fixups, then
+  the candidates alone. Such a result counts only if it keeps the change of each candidate: the merge of the change
+  from the candidate's parent to its last local fixup into the result gives the result's tree. So a robot that folded
+  the fixups into their target no longer makes the update conflict, while a commit amended after the push, or a fixup
+  made after it, is never left out; the update then conflicts as before.
   [@test] ../../crates/update-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
   [@test] ../../crates/update-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
   [@test] ../../crates/update-core/src/landed_test.rs (`commit_amended_after_the_push_is_never_left_out`)

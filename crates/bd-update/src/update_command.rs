@@ -14,6 +14,7 @@ use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_ops::index_lock::IndexLocked;
+use git_ops::landed_pairing::{LandedDrop, LandedProof};
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
@@ -137,7 +138,7 @@ pub struct UpdateOutput {
   /// The finish of a resolve session: the local commits a resolution dropped (`--drop-empty`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub dropped_by_resolution: Option<u32>,
-  /// The finish of a resolve session: the local commits left out because the baseline has the same patch
+  /// The local commits left out of the replay because the baseline proves it has their change
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed_dropped: Vec<LandedDropOutput>,
   /// `update:<previous_head>..<head>` with full ids: `bd undo` moves the branch and the files back; omitted when
@@ -226,21 +227,34 @@ pub struct UpdateSession {
   /// The labels after the markers in the `edit` copies of the open round
   #[serde(skip_serializing_if = "Option::is_none")]
   pub marker_labels: Option<MarkerLabelsOutput>,
-  /// Local commits left out of the replay: the baseline has a commit with the same patch (`git cherry`), as
-  /// `git rebase` leaves them out
+  /// Local commits left out of the replay: the baseline proves it has their change (`proof`), as `git rebase` leaves
+  /// out a commit with the same patch
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed_dropped: Vec<LandedDropOutput>,
   /// The command that continues, e.g. `bd -C /repo update --continue --round 2`
   pub next: String,
 }
 
-/// A local commit left out because the baseline has the same patch
+/// A local commit left out because the baseline proves it has its change
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LandedDropOutput {
   pub commit: String,
   pub subject: String,
-  /// The baseline commit with the same patch id
+  /// The baseline commit that carries its change
   pub upstream: String,
+  pub proof: DropProof,
+}
+
+/// How the baseline commit proves that it carries the change of a left-out local commit
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DropProof {
+  /// The same patch id, as `git rebase` compares
+  PatchId,
+  /// The same author, author time and subject, and the baseline commit is the local one cherry-picked onto its parent
+  Replayed,
+  /// The same author, author time and subject, and the same changed lines, paths and modes
+  ChangedLines,
 }
 
 /// The text after `<<<<<<<`, `|||||||` and `>>>>>>>` in the `edit` copies (the full ids bd passed to the merge)
@@ -472,7 +486,7 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
         format!("The baseline {baseline} is a local branch: there is no upstream to update from"),
       )
     })?;
-    return output(context, &preview.check, None, preview.landing, true).map(|output| UpdateCommandOutput::Update(Box::new(output)));
+    return output(context, &preview.check, None, (preview.landing, &[]), true).map(|output| UpdateCommandOutput::Update(Box::new(output)));
   }
 
   let options = UpdateOptions {
@@ -485,7 +499,7 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
         .applied
         .as_ref()
         .map(|applied| (applied.new_head.as_str(), applied.replayed, applied.dropped_already_upstream));
-      output(context, &result.check, applied, result.landed, false)?
+      output(context, &result.check, applied, (result.landed, &result.landed_dropped), false)?
     }
     BdUpdate::Session(outcome) => session_output(context, *outcome, false, &bd)?,
   };
@@ -554,7 +568,7 @@ fn view_ids(view: &SessionView) -> Vec<&str> {
       .flat_map(|resolution| [Some(resolution.commit.as_str()), resolution.resolved.as_deref()])
       .flatten(),
   );
-  ids.extend(view.landed_dropped.iter().flat_map(|(commit, _, upstream)| [commit.as_str(), upstream.as_str()]));
+  ids.extend(view.landed_dropped.iter().flat_map(|(drop, _)| [drop.commit.as_str(), drop.upstream.as_str()]));
   ids
 }
 
@@ -612,7 +626,7 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
     resolved: resolved_rounds(&state.resolutions, short),
     blocked_paths: view.blocked_paths.iter().take(kept(view.blocked_paths.len(), MAX_BLOCKED_PATHS)).cloned().collect(),
     blocked_paths_omitted: omitted(view.blocked_paths.len(), kept(view.blocked_paths.len(), MAX_BLOCKED_PATHS)),
-    landed_dropped: landed_dropped_of(view, short),
+    landed_dropped: landed_drops_output(&view.landed_dropped, short),
     marker_labels: view.round.as_ref().map(|round| MarkerLabelsOutput {
       onto: round.labels.onto.clone(),
       before: round.labels.before.clone(),
@@ -622,14 +636,18 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
   }
 }
 
-fn landed_dropped_of(view: &SessionView, short: &ShortIds) -> Vec<LandedDropOutput> {
-  view
-    .landed_dropped
+fn landed_drops_output(drops: &[(LandedDrop, String)], short: &ShortIds) -> Vec<LandedDropOutput> {
+  drops
     .iter()
-    .map(|(commit, subject, upstream)| LandedDropOutput {
-      commit: short.get(commit).to_string(),
+    .map(|(drop, subject)| LandedDropOutput {
+      commit: short.get(&drop.commit).to_string(),
       subject: subject.clone(),
-      upstream: short.get(upstream).to_string(),
+      upstream: short.get(&drop.upstream).to_string(),
+      proof: match drop.proof {
+        LandedProof::PatchId => DropProof::PatchId,
+        LandedProof::Replayed => DropProof::Replayed,
+        LandedProof::ChangedLines => DropProof::ChangedLines,
+      },
     })
     .collect()
 }
@@ -807,7 +825,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
       output.replayed = Some(replayed);
       output.dropped_already_upstream = Some(dropped);
       output.dropped_by_resolution = Some(dropped_by_resolution);
-      output.landed_dropped = landed_dropped_of(&view, &short);
+      output.landed_dropped = landed_drops_output(&view.landed_dropped, &short);
       output.undo_token = Some(UpdateUndoToken { previous_head, new_head }.to_string());
       output.landed = landed_summary(landed, &short);
       output.resolutions = resolutions_of(&state.resolutions, &short);
@@ -908,9 +926,15 @@ fn classified(error: anyhow::Error, undo: bool) -> CliError {
   CliError::new(code, message)
 }
 
-/// The output of a check, with what an update applied (`(new head, replayed, dropped)`); `uncommitted_overlap` when local
-/// changes block it
-fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32, u32)>, landed: Vec<LandedBranch>, dry_run: bool) -> Result<UpdateOutput, CliError> {
+/// The output of a check, with what an update applied (`(new head, replayed, dropped)`) and landed (the branches, and the
+/// commits the replay left out with their subjects); `uncommitted_overlap` when local changes block it
+fn output(
+  context: &RepoContext,
+  check: &UpdateCheck,
+  applied: Option<(&str, u32, u32)>,
+  (landed, landed_dropped): (Vec<LandedBranch>, &[(LandedDrop, String)]),
+  dry_run: bool,
+) -> Result<UpdateOutput, CliError> {
   let state = match &check.state {
     UpdateState::UpToDate => UpdateOutcome::UpToDate,
     UpdateState::Clean { kind: UpdateKind::FastForward } => UpdateOutcome::FastForward,
@@ -921,6 +945,7 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
   let head = applied.map_or(check.head.as_str(), |(new_head, _, _)| new_head);
   let mut ids = vec![check.head.as_str(), head, check.upstream_head.as_str()];
   ids.extend(landed_ids(&landed));
+  ids.extend(landed_dropped.iter().flat_map(|(drop, _)| [drop.commit.as_str(), drop.upstream.as_str()]));
   if let UpdateState::Conflict { commits, upstream_commits, .. } = &check.state {
     ids.extend(commits.iter().chain(upstream_commits).map(|commit| commit.id.as_str()));
   }
@@ -967,7 +992,7 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
     resolutions: Vec::new(),
     resolved: resolved_commits(&check.resolved_by_words, &short, dry_run),
     dropped_by_resolution: None,
-    landed_dropped: Vec::new(),
+    landed_dropped: landed_drops_output(landed_dropped, &short),
   })
 }
 

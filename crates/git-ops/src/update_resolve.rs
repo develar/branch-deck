@@ -10,11 +10,11 @@ use crate::commit_writer::{
   EditedCommit, NewParent, RawCommit, STALE_TEMP_REF_AGE, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenEdit, WrittenStore, current_committer, discard_temp_refs,
   parse_raw_commit, sweep_stale_temp_refs, write_edited_commit, write_store_commits,
 };
-use crate::landed_pairing::{LandedDrop, patch_identical};
+use crate::landed_pairing::LandedDrop;
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::paths::{ChangedPath, changed_paths, commits_touching};
 use crate::ref_transaction::RefTransaction;
-use crate::replay::{first_conflict, replay_range_with_env};
+use crate::replay::{first_conflict, replay_range_with_env, run_end};
 use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_foreign_encoding, has_markers};
 use crate::revs::{Worktree, is_ancestor, resolve_commit, short_id};
 use crate::rewrite_guard::ensure_no_merges;
@@ -294,7 +294,8 @@ pub struct SessionState {
   pub head: String,
   /// The local commits to replay, oldest first
   pub local: Vec<String>,
-  /// Local commits the upstream likely has already (same author, author time and subject)
+  /// Local commits the upstream likely has already (same author, author time and subject), with their fixups; no proof
+  /// left them out (`landed_pairing::LandedCandidate`)
   pub likely_landed: Vec<String>,
   /// How many of `local` are replayed (or resolved) into `tip`
   pub replayed: usize,
@@ -307,7 +308,8 @@ pub struct SessionState {
   /// Where the notes ref pointed before the finish moved it, for its rollback
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub notes_before: Option<String>,
-  /// Local commits left out because the upstream has a commit with the same patch id, as `git rebase` leaves them out
+  /// Local commits left out because the upstream proves it has their change (`landed_pairing::LandedProof`), as
+  /// `git rebase` leaves out a commit with the same patch id
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed_dropped: Vec<LandedDrop>,
   /// The indices of `local` where a run of consecutive commits starts after one left out: a replay covers one run
@@ -322,7 +324,7 @@ impl SessionState {
 
   /// The end (exclusive) of the run of consecutive commits that holds `local[index]`
   fn run_end(&self, index: usize) -> usize {
-    self.run_starts.iter().copied().find(|&start| start > index).unwrap_or(self.local.len())
+    run_end(&self.run_starts, index, self.local.len())
   }
 
   /// The committer as `GIT_COMMITTER_*` variables for `git replay`
@@ -625,15 +627,15 @@ pub struct SessionStart<'a> {
   pub plan: &'a UpdatePlan,
   /// The worktree the session belongs to: the current one
   pub worktree: &'a Worktree,
-  pub likely_landed: Vec<String>,
   pub dir: Option<String>,
   pub dir_created: bool,
   /// A conflicting commit whose conflict of git resolves by words is resolved without a round of the agent
   pub resolve: ResolveMode,
 }
 
-/// Start the session of the current worktree for an update whose replay conflicts: the first conflicting commit is
-/// found with a binary search over prefixes of the local commits (⌈log₂ n⌉ replays: `git replay` stops at the first
+/// Start the session of the current worktree for an update whose replay conflicts: the session replays the local commits
+/// of the check's `ReplayPlan`, without the commits it left out, so it pairs nothing again. The first conflicting commit
+/// is found with a binary search over prefixes of the local commits (⌈log₂ n⌉ replays: `git replay` stops at the first
 /// conflict), and its round is stored in a new session ref. Nothing else moves. With `ResolveMode::On`, a conflicting
 /// commit that its words resolve is a round that resolves itself (`advance`). `Unsupported` when the first conflict
 /// can't be resolved in a round; then nothing is written but git objects
@@ -644,28 +646,9 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
   }
   let checked = &start.plan.checked;
   let excluded = start.plan.excluded();
+  let replay = start.plan.replay_plan().ok_or_else(|| anyhow!("The check of a conflicting update has no replay plan"))?;
   sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
   let committer = current_committer(git_executor, repo_path)?;
-  let mut revs = vec![checked.head.clone(), format!("^{}", checked.upstream_head)];
-  revs.extend(excluded.iter().map(|rev| format!("^{rev}")));
-  let mut args = vec!["rev-list", "--reverse"];
-  args.extend(revs.iter().map(String::as_str));
-  args.push("--");
-  let all_local = git_executor.execute_command_lines(&args, repo_path)?;
-  let landed_dropped = patch_identical(git_executor, repo_path, &checked.upstream_head, &checked.head, &all_local)?;
-  let left_out: HashSet<&str> = landed_dropped.iter().map(|drop| drop.commit.as_str()).collect();
-  let mut local = Vec::with_capacity(all_local.len());
-  let mut run_starts = Vec::new();
-  for (index, commit) in all_local.iter().enumerate() {
-    if left_out.contains(commit.as_str()) {
-      continue;
-    }
-    // a gap before it: a run of consecutive commits starts here
-    if index > 0 && !local.is_empty() && local.last() != Some(&all_local[index - 1]) {
-      run_starts.push(local.len());
-    }
-    local.push(commit.clone());
-  }
   let worktree = start.worktree;
   let mut state = SessionState {
     version: STATE_VERSION,
@@ -681,8 +664,8 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
     dir_created: start.dir_created,
     started_head: checked.head.clone(),
     head: checked.head.clone(),
-    local,
-    likely_landed: start.likely_landed,
+    local: replay.local.clone(),
+    likely_landed: replay.likely_landed().to_vec(),
     replayed: 0,
     tip: checked.upstream_head.clone(),
     round: 0,
@@ -690,15 +673,14 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
     conflict: None,
     resolutions: Vec::new(),
     notes_before: None,
-    landed_dropped,
-    run_starts,
+    landed_dropped: replay.left_out().to_vec(),
+    run_starts: replay.run_starts.clone(),
   };
   if !state.landed_dropped.is_empty() {
-    info!(left_out = state.landed_dropped.len(), "local commits the upstream has with the same patch id are left out");
+    info!(left_out = state.landed_dropped.len(), "local commits the upstream proves it has are left out");
   }
-  // the check replayed all of them and conflicted; without the landed ones it may not
-  let known_conflict = state.landed_dropped.is_empty();
-  let (objects, words_refs) = advance(git_executor, repo_path, &mut state, known_conflict, start.resolve)?;
+  // the check replayed the kept commits and conflicted
+  let (objects, words_refs) = advance(git_executor, repo_path, &mut state, true, start.resolve)?;
   let session_ref = session_ref(&worktree.id);
   let written = match write_state(git_executor, repo_path, &state, None) {
     Ok(written) => written,

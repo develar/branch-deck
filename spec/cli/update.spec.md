@@ -47,7 +47,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - Binary, file/directory, rename, mode, symlink and submodule conflicts: a round refuses them.
 - A partial `--continue`: a round needs a resolution for every conflicting file.
 - Skipping a commit that the baseline likely has by its author, author time and subject only: bd marks it. Only a
-  patch id that equals one of the baseline proves that the baseline has the change.
+  proof (spec/repository/landed-commits.spec.md, "The proof") shows that the baseline has the change.
 - Notes that follow a later rewrite of a resolved commit.
 
 ## Requirements
@@ -164,13 +164,18 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   Windows PowerShell 5.1 opens without long paths enabled.
   [@test] ../../crates/sync-utils/src/paths_test.rs (`a_windows_path_has_backslashes_and_the_verbatim_form_only_from_260_characters`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `modify_delete_is_resolved_with_take_and_delete`)
-- A local commit whose patch id (`patch-id --stable`) equals that of a baseline commit since the merge base must be
-  left out of the replay, as `git rebase` leaves it out, and listed as `landed_dropped` with that baseline commit (in
-  each round and at the finish); it counts in `dropped_already_upstream`. The commits around it replay as runs, so a
-  conflict after it still opens its round.
+- A local commit that the baseline proves it has (spec/repository/landed-commits.spec.md, "The proof": the same patch
+  id, or the same author, author time and subject with a replay that writes the baseline commit's tree or the same
+  changed lines) must be left out of the replay, as `git rebase` leaves out a commit of the same patch id, and listed
+  as `landed_dropped` with that baseline commit and its `proof` (`patch_id`, `replayed`, `changed_lines`), in each
+  round, at the finish and after an update that applies at once; it counts in `dropped_already_upstream` and is in
+  `landed`. The commits around it replay as runs, so a conflict after it still opens its round, and the session pairs
+  nothing again.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_commit_the_upstream_has_with_the_same_patch_is_left_out`, `a_conflict_after_a_left_out_commit_opens_its_round`)
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`twins_in_another_order_are_left_out_by_their_proof_and_land`)
 - A commit that the baseline likely has by its author, author time and subject only must get the hint "likely
-  landed", never be skipped: that key is no proof.
+  landed", never be skipped: that key is no proof. A drop of it by its resolution (`--take onto` for every file, then
+  `--drop-empty`) lands it as that baseline commit.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`likely_landed_commits_get_the_hint`)
 - Only text conflicts (`CONFLICT (contents)`, an add on both sides as a `content` conflict without `before`),
   modify/delete and rename/delete (kind `rename_delete`, with `renamed_from`; `--take` and `--delete` take either path)
@@ -267,7 +272,8 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - A resolution that leaves the commit without changes must be `empty_resolution` (exit 2), nothing written.
   `--allow-empty` keeps it as an empty commit (`empty: "kept"`); `--drop-empty <commit>` (the round's commit, at
   least 4 characters of its id) drops it (`empty: "dropped"`, `new_id` null, no note). The finish counts a dropped
-  commit as `dropped_by_resolution`, never in `dropped_already_upstream` or `landed`.
+  commit as `dropped_by_resolution`, never in `dropped_already_upstream`, and in `landed` only when the baseline has a
+  commit of its author, author time and subject (a likely landed one).
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
 - `--continue --dry-run` must run the checks, report the resolution with its `new_id`, exit 0, and move no ref. It
   must take no repository lock, so a check in a loop never makes an update or a rewrite wait; only the real

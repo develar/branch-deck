@@ -4,7 +4,9 @@
 
 use crate::update_project::update_project_test::{path, setup};
 use crate::update_project::{UpdateProjectParams, update_project_core};
+use domain_types::update_project::UpdateState;
 use history_rewrite::repository_lock::LockWait;
+use test_utils::git_test_utils::TestRepo;
 use test_utils::process_budget::{assert_processes, counting};
 
 /// The processes of Update Project after its fetch (`an_update`, `an_update_after_its_fetch`)
@@ -81,4 +83,50 @@ fn an_update_after_its_fetch() {
   // the processes of `an_update` without the fetch: the time of the last fetch is that of `FETCH_HEAD` in the
   // directories read at the start
   assert_processes(&git, UPDATE);
+}
+
+/// Update Project of `upstream_and_clone_with_twins` after its fetch: the replay conflicts, so the
+/// check pairs the local commits once. The pairing reads the local commits (`log`), the commits of the same patch
+/// (`rev-list --cherry-mark`, none here) and the upstream commits by the local authors (`log`), replays both pairs by
+/// identity (`merge-tree --stdin`, one `rev-parse` of the upstream trees), and proves the one whose cherry-pick
+/// conflicts by its changed lines (`diff-tree -p -U0` with `patch-id --verbatim`, `diff-tree --raw`). The replay
+/// without the twins conflicts again (the second `replay`), the resolve by words fails on the real conflict (`var`,
+/// `merge-tree`, `check-attr`, `cat-file`), then the conflict is described (`merge-tree`, three `log`). A conflict moves
+/// nothing: no lock, no witness
+#[test]
+fn a_conflicting_update_pairs_its_commits_once() {
+  let (_upstream, clone, _, _) = TestRepo::upstream_and_clone_with_twins(false);
+  clone.git(&["fetch", "--quiet", "origin"]);
+  let git = counting();
+  let result = update_project_core(
+    &git,
+    &UpdateProjectParams {
+      repository_path: path(&clone).to_string(),
+      fetch: false,
+    },
+    &|_| {},
+    LockWait::default(),
+  )
+  .unwrap();
+  assert!(matches!(result.check.state, UpdateState::Conflict { .. }), "{result:?}");
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 2),
+      ("check-attr", 1),
+      ("config", 1),
+      ("diff-tree", 2),
+      ("for-each-ref", 1),
+      ("log", 5),
+      ("merge-base", 2),
+      ("merge-tree", 3),
+      ("patch-id", 1),
+      ("remote", 1),
+      ("replay", 2),
+      ("rev-list", 2),
+      ("rev-parse", 4),
+      ("symbolic-ref", 2),
+      ("var", 1),
+    ],
+  );
 }
