@@ -2898,8 +2898,10 @@ check of the popover, `check_landing`):
 3. The checks (`check_start`): a parked subject (the branch, one it is built on, any member of the whole stack), one
    merged Safe Pushes landed whole (`HoldKind::Landed`, every member for a whole stack), one the sync did not build (a
    branch of `not_built`, a stack branch that is not `built`: blocked, stale or conflicting as one branch, in the words
-   `bd` uses too, `stack_not_built_words`, `stack_conflict_words`), then the robot part of the view (`BranchPatronus.start`
-   or `StackPatronus.start`, `dry_run` for a Dry Run) in the words of `start_refusal_text`, which `bd` uses too. A
+   `bd` uses too, `stack_not_built_words`, `stack_conflict_words`), then the robot part of the start
+   (`domain_policy::land::start_refusal` over the facts of the view, `derive::LandingFacts`: a robot on the last commit,
+   one that lands the branch or a part of it, the span hold of the push of a Dry Run) in the words of
+   `start_refusal_text`, which `bd` uses too. A
    restart (`check_restart`) is a start of the robot's subject in its mode that the robot itself does not refuse as the
    robot of the last commit; a robot the list lacks or of a temporary ref is refused, a subject without a row of the
    table is not checked (Patronus restarts on its remote branch). A cancel (`check_cancel`) needs a robot of the list
@@ -3643,8 +3645,13 @@ poll lists the pull requests too.
 
 #### The Patronus view
 
-The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
-[Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table
+The Patronus section (`patronus_view.rs`): what the robots land and landed, the facts; what the rules decide over them
+is written into the same view by `derive::decide_landing` (`landing` of each branch and whole stack: the hold,
+`domain_policy::holds`; why a Safe Push or a Dry Run waits, `domain_policy::land`; the robot a start replaces; the push
+an action can't make; `restarts` by robot id: what a restart does and why it waits), the rule in
+[Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs). The reasons are codes with
+their facts (`domain_types::reason::Reason`), worded by the page (`src/presenters/reasons.ts`) and by `bd`. Its inputs
+besides the table
 are the robots, the robot of each branch and whole stack (`match_robots`, by the rule of `domain_policy::robot_match`)
 and what the deriver knows of the remote branches (`branch_table::RemoteFacts`: the remote tip, and whether the remote
 has the branch by content). No
@@ -3666,7 +3673,7 @@ names the robot of each branch and whole stack as `robotId`, and `patronus_view`
 `runtime.rs`): when its table committed, an answer or a write of the robots came, or a push moved a remote branch,
 and only when what the view is of changed (`patronus_inputs`: the observation that answered the table, the remote
 branches as the session knows them, `session_remote`: the remote status of its table state, which a push writes, over
-the table's, and the fields of the robots the rule reads). One derivation at a time on the blocking pool (the content
+the table's, the fields of the robots the rule reads and which of them failed for missing approvals). One derivation at a time on the blocking pool (the content
 walks run git, through the session's memo), its answer applied by its number; one asked meanwhile runs after it. The
 part `patronus` of the view (`PatronusPart`) is `Loading` until Patronus answered and the first view is derived,
 `Stale` while a newer one is derived (no row waits for it), `Unavailable` with why when the derivation failed without

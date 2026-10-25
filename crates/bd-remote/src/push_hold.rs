@@ -1,9 +1,11 @@
-//! What holds the push of a virtual branch in `bd push`, as the repository view decides it for the app too (`hold` of
-//! `repository_model::patronus_view`): a Safe Push that runs on the branch, or one of a branch built on it or of the
-//! whole stack it is a branch of whose commit has commits of it. A push now won't land (the robot merges the commit
-//! it took), and a push into the robot's own branch makes it fail at the end ("branch was modified"). Before any of
-//! them, a merged Safe Push that landed all of the branch (`landed`): its commits are in the target, a push sends
-//! nothing that lands. Best effort: a repository not on Space, no Space token or no answer of Patronus holds nothing.
+//! What holds the push of a virtual branch and of a stack branch in `bd push`, as the rules decide it for the app too
+//! (`domain_policy::holds`, through `repository_model::derive::LandingFacts`): a Safe Push that runs on the branch, or
+//! one of a branch built on it or of the whole stack it is a branch of whose commit has commits of it. A push now won't
+//! land (the robot merges the commit it took), and a push into the robot's own branch makes it fail at the end ("branch
+//! was modified"). Before any of them, a merged Safe Push that landed all of the branch (`landed`): its commits are in
+//! the target, a push sends nothing that lands. A stack branch is held by a parked member, by merged Safe Pushes that
+//! landed every member, by its own robot and by a build the sync did not make (`stack_hold`). Best effort: a repository
+//! not on Space, no Space token or no answer of Patronus holds nothing by a robot.
 
 use crate::landed::{LandedBranch, landed_branches};
 use crate::patronus_facts::{PatronusFacts, table_of};
@@ -17,10 +19,15 @@ use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
-use domain_types::repository_view::{Carried, HoldKind, StartRefusal};
+use domain_types::reason::Reason;
+use domain_types::repository_view::{Carried, HoldKind};
+use domain_types::stack::StackBranchUpdate;
 use patronus::service::PatronusService;
-use repository_model::push_guard::{own_hold_words, span_hold_words, stack_hold_words};
+use repository_model::branch_table::BranchTable;
+use repository_model::push_guard::{every_branch_landed, own_hold_words, span_hold_words, stack_hold_words};
+use repository_model::start_guard::start_refusal_text;
 use std::collections::HashMap;
+use sync_core::patronus_start::push_mode_name;
 
 /// The robot that holds the push of a branch
 #[derive(Debug, Clone)]
@@ -72,22 +79,21 @@ pub(crate) fn robot_command(context: &RepoContext, subject: &Subject) -> String 
 
 /// What the robot that refuses the start of `own` runs on: `own` itself, the branch built on it or the whole stack that
 /// lands it with more, or what lands a part of it
-pub(crate) fn refusing_subject(refusal: &StartRefusal, own: &Subject) -> Subject {
+pub(crate) fn refusing_subject(refusal: &Reason, own: &Subject) -> Subject {
   match refusal {
-    StartRefusal::LastCommit { .. } => own.clone(),
-    StartRefusal::Descendant { span } => span.by.subject(),
-    StartRefusal::Ancestor { landing } => landing.subject(),
+    Reason::Descendant { by, .. } => by.subject(),
+    Reason::Ancestor { landing, .. } => landing.subject(),
+    _ => own.clone(),
   }
 }
 
-/// The holds of the branches, the running robots of the whole stacks, and the Patronus service that cancels and
-/// restarts their robots
+/// The holds of the branches, the table and the Patronus facts the holds of the stack branches are decided over, and
+/// the Patronus service that cancels and restarts their robots; none of a push that checked them already
 #[derive(Default)]
 pub struct PushHolds {
   holds: HashMap<String, PushHold>,
-  /// By root, the robot of the whole stack that runs on its stack branch: a push of the stack branch moves the branch it
-  /// took its commit from
-  stack_robots: HashMap<String, PatronusRobot>,
+  table: BranchTable,
+  facts: PatronusFacts,
   service: Option<PatronusService>,
 }
 
@@ -96,10 +102,28 @@ impl PushHolds {
     self.holds.get(name)
   }
 
-  /// Why the stack branch of `root` is not pushed while the Safe Push of the whole stack runs on it, as the app says it
-  /// (`formatStackPushHoldReason`): a push moves the branch the robot took its commit from
-  pub fn stack_hold_reason(&self, root: &str) -> Option<String> {
-    Some(stack_hold_words(root, self.stack_robots.get(root)?))
+  /// What holds the push of the stack branch of `stack` (`domain_policy::holds::stack_branch_hold`)
+  pub fn stack_hold(&self, stack: &StackBranchUpdate) -> Option<Reason> {
+    self.facts.landing(&self.table).stack_hold(stack)
+  }
+
+  /// Why the stack branch of `root` held by `hold` is not pushed, as `bd` says it: "it holds parked login; …", "every
+  /// branch of the whole auth stack landed in master with …: nothing of it is left to push", "a Safe Push of the whole
+  /// auth stack is running on it: …" (`stack_hold_words`)
+  pub fn stack_hold_words(&self, root: &str, hold: &Reason) -> String {
+    let what = Subject::whole_stack(root).words();
+    match hold {
+      Reason::StackParked { member, .. } => format!("it holds parked {member}; land the stack in pieces"),
+      Reason::StackLanded { by, .. } => {
+        let landed: Vec<(Subject, &PatronusRobot)> = by.iter().filter_map(|of| Some((of.subject(), self.facts.robot(&of.robot_id)?))).collect();
+        format!("{}: nothing of it is left to push", every_branch_landed(&what, &landed))
+      }
+      Reason::StackHeld { robot_id, mode, .. } => match self.facts.robot(robot_id) {
+        Some(robot) => stack_hold_words(root, robot),
+        None => format!("a {} of {what} is running on it", push_mode_name(*mode)),
+      },
+      other => start_refusal_text(other, &what, &self.facts.robots),
+    }
   }
 
   /// Cancels the robot before the push that restarts it
@@ -128,34 +152,35 @@ impl PushHolds {
 /// on it, else the robot of the first branch built on it whose commit has commits of it, else the robot of its whole
 /// stack whose commit has. One robots request; nothing without Space, a token or an answer of Patronus.
 pub fn read_push_holds(context: &RepoContext, environment: &Environment, synced: &SyncOutput) -> PushHolds {
-  match find_holds(context, environment, synced) {
-    Ok(holds) => holds,
+  let table = table_of(context, synced);
+  match find_holds(context, environment, &table) {
+    Ok(Some((facts, service))) => push_holds(context, table, facts, Some(service)),
+    Ok(None) => push_holds(context, table, PatronusFacts::default(), None),
     Err(error) => {
-      tracing::debug!(error = %error.message, "no push holds: Patronus is not available");
-      PushHolds::default()
+      tracing::debug!(error = %error.message, "no push holds of robots: Patronus is not available");
+      push_holds(context, table, PatronusFacts::default(), None)
     }
   }
 }
 
-fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOutput) -> Result<PushHolds, CliError> {
+fn find_holds(context: &RepoContext, environment: &Environment, table: &BranchTable) -> Result<Option<(PatronusFacts, PatronusService)>, CliError> {
   let Some(space) = context.space_repository()? else {
-    return Ok(PushHolds::default());
+    return Ok(None);
   };
   let service = patronus_service(environment)?;
   let robots = list_robots(context, &service, &space)?;
-  let facts = PatronusFacts::read(context, &table_of(context, synced), robots);
-  Ok(push_holds(context, &facts, Some(service)))
+  Ok(Some((PatronusFacts::read(context, table, robots), service)))
 }
 
-/// The holds of the view's branches and the robots of the whole stacks that run on their stack branches
-pub(crate) fn push_holds(context: &RepoContext, facts: &PatronusFacts, service: Option<PatronusService>) -> PushHolds {
-  let mut landed = landed_branches(facts);
+/// The holds of the view's branches, over `table` and `facts`
+pub(crate) fn push_holds(context: &RepoContext, table: BranchTable, facts: PatronusFacts, service: Option<PatronusService>) -> PushHolds {
+  let mut landed = landed_branches(&facts);
   let holds = facts
     .view
     .branches
     .iter()
     .filter_map(|(name, branch)| {
-      let hold = branch.hold.as_ref()?;
+      let hold = branch.landing.hold.as_ref()?;
       let robot = facts.robot(&hold.by.robot_id)?.clone();
       Some((
         name.clone(),
@@ -169,14 +194,5 @@ pub(crate) fn push_holds(context: &RepoContext, facts: &PatronusFacts, service: 
       ))
     })
     .collect();
-  let stack_robots = facts
-    .view
-    .stacks
-    .iter()
-    .filter_map(|(root, stack)| {
-      let robot = facts.robot(stack.hold_robot_id.as_deref()?)?;
-      Some((root.clone(), robot.clone()))
-    })
-    .collect();
-  PushHolds { holds, stack_robots, service }
+  PushHolds { holds, table, facts, service }
 }

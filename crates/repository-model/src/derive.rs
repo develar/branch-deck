@@ -4,14 +4,28 @@
 //! parent, its ancestors by effective base, its main line, whether it is parked and its section) and the rows of each
 //! section. The table places its branches once per grouping (`TableState::apply`), the root of a whole stack again when
 //! its stack branch is reported; a patch carries a structure only when it changed.
+//!
+//! `decide_landing` is what the rules decide over the Patronus facts of a table (`patronus_view`), for the view of the
+//! session, the guards of the app and `bd` alike: the hold of each branch (`domain_policy::holds::branch_hold`) and of
+//! each stack branch, why a Safe Push or a Dry Run can't start (`domain_policy::land::start_refusal`), the robot a Safe
+//! Push start replaces, why the push an action needs can't be made (`push_blocker`), and the restart each robot offers
+//! (`restart_action`, `restart_refusal`). `branch_start` and `stack_start` are the input of a start, which the guards and
+//! `bd` read for their own intent (a restart, a dry run that pushes what `bd` pushes).
 
+use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use crate::table::{TableParts, TableState};
-use domain_policy::facts::Repository;
+use domain_policy::facts::{RemoteBranch, Repository, Robots};
+use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, push_blocker, restart_action, stack_branch_hold};
+use domain_policy::land::{BranchStart, StackStart, Start, on_last_commit, restart_refusal, start_refusal};
 use domain_policy::parked::{parked_state, whole_stack_parked};
+use domain_policy::reasons::{landed, stack_landed};
 use domain_policy::stack::{build_ancestors, children, declared_parent, descendants, main_line};
+use domain_types::patronus::{PatronusPushMode, PatronusRobot};
+use domain_types::reason::Reason;
+use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, PatronusView, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{BranchSection, BranchStructure, ParkedMember, RowsView};
 use domain_types::stack::StackBranchUpdate;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The input of the rules over the table of `table`, as its view has it
 #[must_use]
@@ -74,6 +88,265 @@ fn structure_of(repo: &Repository<'_>, stacks: &BTreeMap<String, StackBranchUpda
 
 fn stack_parked(repo: &Repository<'_>, stack: Option<&StackBranchUpdate>) -> Option<ParkedMember> {
   whole_stack_parked(repo, stack?.members.iter().map(String::as_str))
+}
+
+/// What the rules read of a table and its Patronus facts: the robots by id, the holds of the branches
+pub struct LandingFacts<'a> {
+  table: &'a BranchTable,
+  remote: &'a RemoteFacts,
+  view: &'a PatronusView,
+  pub robots: Robots<'a>,
+  repo: Repository<'a>,
+  holds: HashMap<&'a str, HoldView>,
+}
+
+impl<'a> LandingFacts<'a> {
+  /// The facts of `table` with `view`, its Patronus facts, the remote branches `remote` and the user's `robots`;
+  /// `running_spans`, by branch, the first running robot that lands it (`patronus_view`). A view whose holds are decided
+  /// already (`decide_landing`) passes none: its holds are read from it
+  pub fn new(table: &'a BranchTable, remote: &'a RemoteFacts, view: &'a PatronusView, robots: &'a [PatronusRobot], running_spans: Option<&HashMap<String, SpanView>>) -> Self {
+    let robots = Robots::new(robots);
+    let holds = table
+      .branches
+      .iter()
+      .filter_map(|branch| {
+        let name = branch.name.as_str();
+        let facts = view.branches.get(name);
+        let hold = match running_spans {
+          Some(spans) => {
+            let robot = facts.and_then(|facts| facts.robot_id.as_deref()).and_then(|id| robots.get(id));
+            branch_hold(name, facts.and_then(|facts| facts.landed_by.as_ref()), robot, spans.get(name))
+          }
+          None => facts.and_then(|facts| facts.landing.hold.clone()),
+        }?;
+        Some((name, hold))
+      })
+      .collect();
+    Self {
+      table,
+      remote,
+      view,
+      robots,
+      repo: table.repository(),
+      holds,
+    }
+  }
+
+  fn remote_of(&self, name: &str) -> Option<RemoteBranch<'a>> {
+    self.remote.branches.get(name).and_then(RemoteFact::branch)
+  }
+
+  fn robot_of(&self, name: &str) -> Option<&'a PatronusRobot> {
+    self.view.branches.get(name)?.robot_id.as_deref().and_then(|id| self.robots.get(id))
+  }
+
+  /// The hold of the push of `name`
+  #[must_use]
+  pub fn hold(&self, name: &str) -> Option<&HoldView> {
+    self.holds.get(name)
+  }
+
+  /// The robot of `name` on the commit it is at (`on_last_commit`)
+  fn last_commit(&self, name: &str) -> Option<&'a PatronusRobot> {
+    self.robot_of(name).filter(|robot| on_last_commit(robot, self.table.tip_of(name), self.remote_of(name)))
+  }
+
+  /// The robot a Safe Push start of `name` replaces: its own, holding it from an older commit, which the push cancels
+  #[must_use]
+  pub fn replaces(&self, name: &str) -> Option<&str> {
+    let hold = self.holds.get(name).filter(|hold| hold.kind == HoldKind::Own)?;
+    self.last_commit(name).is_none().then_some(hold.by.robot_id.as_str())
+  }
+
+  /// The branches `name` is built on, the nearest first
+  fn ancestors_nearest_first(&self, name: &str) -> Vec<&'a str> {
+    let mut ancestors = build_ancestors(&self.repo, name);
+    ancestors.reverse();
+    ancestors
+  }
+
+  /// What a start of `name` pushes: the branch, and the ancestors with work up to the first held one, which its robot
+  /// lands; a remote not compared yet pushes nothing known
+  #[must_use]
+  pub fn start_pushes(&self, name: &str) -> bool {
+    let has_work = |branch: &str| self.remote_of(branch).is_some_and(|remote| !remote.up_to_date);
+    has_work(name)
+      || self
+        .ancestors_nearest_first(name)
+        .into_iter()
+        .take_while(|ancestor| !self.holds.contains_key(ancestor))
+        .any(has_work)
+  }
+
+  /// The input of a start of `name`; `pushes` whether it pushes (`start_pushes`, or what `bd` pushes)
+  #[must_use]
+  pub fn branch_start(&self, name: &'a str, pushes: bool) -> BranchStart<'_> {
+    let facts = self.view.branches.get(name);
+    BranchStart {
+      name,
+      not_built: self.table.not_built.get(name).copied(),
+      stack: self.repo.stack(name),
+      last_commit: self.last_commit(name),
+      span: facts.and_then(|facts| facts.span.as_ref()),
+      landing_ancestor: facts.and_then(|facts| facts.landing_ancestor.as_ref()),
+      hold: self.holds.get(name),
+      pushes,
+    }
+  }
+
+  /// The robot of the whole stack of the root of `stack`
+  fn stack_robot(&self, stack: &StackBranchUpdate) -> Option<&'a PatronusRobot> {
+    self.view.stacks.get(&stack.root)?.robot_id.as_deref().and_then(|id| self.robots.get(id))
+  }
+
+  fn stack_last_commit(&self, stack: &StackBranchUpdate) -> Option<&'a PatronusRobot> {
+    let remote = self.remote.stacks.get(&stack.root).and_then(RemoteFact::branch);
+    self.stack_robot(stack).filter(|robot| on_last_commit(robot, stack.tip.as_deref(), remote))
+  }
+
+  /// The input of a start of the whole stack of `stack`
+  #[must_use]
+  pub fn stack_start<'s>(&'s self, stack: &'s StackBranchUpdate) -> StackStart<'s> {
+    StackStart {
+      stack,
+      last_commit: self.stack_last_commit(stack),
+      landing_member: self.view.stacks.get(&stack.root).and_then(|facts| facts.landing_member.as_ref()),
+    }
+  }
+
+  /// What landed `name` whole, with its robot
+  fn landed_whole(&self, name: &str) -> Option<(&'a RobotOf, &'a PatronusRobot)> {
+    let landed = self.view.branches.get(name)?.landed_by.as_ref().filter(|landed| landed.after.is_empty())?;
+    Some((&landed.by, self.robots.get(&landed.by.robot_id)?))
+  }
+
+  /// Why nothing of `name` is left to land: a merged Safe Push landed all of it
+  fn landed_reason(&self, name: &str) -> Option<Reason> {
+    let by = self.view.branches.get(name)?.landed_by.as_ref().filter(|landed| landed.after.is_empty())?;
+    Some(landed(name, by, self.robots.get(&by.by.robot_id)?))
+  }
+
+  /// Merged Safe Pushes landed every member of `stack` whole: what landed each
+  fn stack_landed_whole(&self, stack: &StackBranchUpdate) -> Option<Vec<(&'a RobotOf, &'a PatronusRobot)>> {
+    stack.members.iter().map(|member| self.landed_whole(member)).collect()
+  }
+
+  /// The hold of the push of the stack branch of `stack` (`stack_branch_hold`)
+  #[must_use]
+  pub fn stack_hold(&self, stack: &StackBranchUpdate) -> Option<Reason> {
+    let parked = whole_stack_parked(&self.repo, stack.members.iter().map(String::as_str));
+    stack_branch_hold(&StackHoldFacts {
+      stack,
+      parked: parked.as_ref(),
+      landed: self.stack_landed_whole(stack),
+      robot: self.stack_robot(stack),
+    })
+  }
+
+  fn branch_landing(&self, name: &'a str) -> BranchLanding {
+    let start = Start::Branch(self.branch_start(name, self.start_pushes(name)));
+    let replaces = self.replaces(name).map(str::to_string);
+    // the push of an action replaces what a Safe Push start replaces: its robot lands the ancestors it holds no longer
+    let held = |ancestor: &str| self.holds.get(ancestor).is_some_and(|hold| Some(hold.by.robot_id.as_str()) != replaces.as_deref());
+    let chain = std::iter::once(name).chain(self.ancestors_nearest_first(name)).map(|branch| PushStep {
+      name: branch,
+      not_built: self.table.not_built.get(branch).copied(),
+      remote: self.remote_of(branch),
+      held: held(branch),
+    });
+    BranchLanding {
+      hold: self.holds.get(name).cloned(),
+      start: start_refusal(&start, PatronusPushMode::RebaseAutosquash, &self.robots),
+      dry_run: start_refusal(&start, PatronusPushMode::DryRun, &self.robots),
+      push: push_blocker(chain),
+      replaces,
+    }
+  }
+
+  fn stack_landing(&self, stack: &StackBranchUpdate) -> StackLanding {
+    let start = Start::WholeStack(self.stack_start(stack));
+    let last_commit = self.stack_last_commit(stack);
+    let replaces = self
+      .stack_robot(stack)
+      .filter(|robot| holds_pushes(robot) && robot.stack_root.as_deref() == Some(stack.root.as_str()) && last_commit.is_none())
+      .map(|robot| robot.id.clone());
+    StackLanding {
+      hold: self.stack_hold(stack),
+      start: start_refusal(&start, PatronusPushMode::RebaseAutosquash, &self.robots),
+      dry_run: start_refusal(&start, PatronusPushMode::DryRun, &self.robots),
+      replaces,
+    }
+  }
+
+  /// The restart `robot` offers (`restart_action`) and why it can't start now (`restart_refusal`): of its branch, while
+  /// the branch has a row; of its whole stack, the stack branch as the sync left it, none for a stack without one
+  fn restart(&self, robot: &PatronusRobot, needs_review: bool) -> Option<RobotRestart> {
+    let mode = robot.push_mode;
+    let (action, refusal) = match (&robot.branch_name, &robot.stack_root) {
+      (Some(name), _) => {
+        let action = restart_action(robot, self.table.tip_of(name), self.remote_of(name), needs_review)?;
+        let refusal = self.table.branch(name).and_then(|branch| {
+          let landed = self.landed_reason(&branch.name);
+          restart_refusal(&Start::Branch(self.branch_start(&branch.name, false)), mode, &self.robots, landed)
+        });
+        (action, refusal)
+      }
+      (None, Some(root)) => {
+        let stack = self.table.stack_branches.iter().find(|stack| stack.root == *root);
+        let remote = self.remote.stacks.get(root).and_then(RemoteFact::branch);
+        let action = restart_action(robot, stack.and_then(|stack| stack.tip.as_deref()), remote, needs_review)?;
+        let refusal = match stack {
+          None => Some(Reason::NoStackBranch { root: root.clone() }),
+          Some(stack) => {
+            let landed = self.stack_landed_whole(stack).and_then(|landed| stack_landed(root, &landed));
+            restart_refusal(&Start::WholeStack(self.stack_start(stack)), mode, &self.robots, landed)
+          }
+        };
+        (action, refusal)
+      }
+      (None, None) => return None,
+    };
+    Some(RobotRestart { action, refusal })
+  }
+}
+
+/// What the rules decide of `table` over the Patronus facts of `view` (module docs), written into it. `running_spans`:
+/// by branch, the first running robot that lands it; `needs_review`: by robot id, the robots that failed for missing
+/// approvals
+pub(crate) fn decide_landing(
+  view: &mut PatronusView,
+  table: &BranchTable,
+  remote: &RemoteFacts,
+  robots: &[PatronusRobot],
+  running_spans: &HashMap<String, SpanView>,
+  needs_review: &BTreeMap<String, bool>,
+) {
+  let (branches, stacks, restarts) = {
+    let facts = LandingFacts::new(table, remote, view, robots, Some(running_spans));
+    let branches: Vec<(String, BranchLanding)> = table.branches.iter().map(|branch| (branch.name.clone(), facts.branch_landing(&branch.name))).collect();
+    let stacks: Vec<(String, StackLanding)> = table
+      .stack_branches
+      .iter()
+      .filter(|stack| !stack.members.is_empty())
+      .map(|stack| (stack.root.clone(), facts.stack_landing(stack)))
+      .collect();
+    let restarts: BTreeMap<String, RobotRestart> = robots
+      .iter()
+      .filter_map(|robot| Some((robot.id.clone(), facts.restart(robot, needs_review.get(&robot.id).copied().unwrap_or(false))?)))
+      .collect();
+    (branches, stacks, restarts)
+  };
+  for (name, landing) in branches {
+    if landing != BranchLanding::default() {
+      view.branches.entry(name).or_default().landing = landing;
+    }
+  }
+  for (root, landing) in stacks {
+    if landing != StackLanding::default() {
+      view.stacks.entry(root).or_default().landing = landing;
+    }
+  }
+  view.restarts = restarts;
 }
 
 #[cfg(test)]

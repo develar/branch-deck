@@ -1,0 +1,168 @@
+[
+  {
+    "code": "blocked",
+    "branch": "login",
+    "by": "auth"
+  },
+  {
+    "code": "blocked",
+    "branch": "login",
+    "by": null
+  },
+  {
+    "code": "lastCommit",
+    "robotId": "r",
+    "mode": "dryRun"
+  },
+  {
+    "code": "descendant",
+    "branch": "auth",
+    "by": {
+      "branch": "oauth",
+      "robotId": "r",
+      "wholeStack": false
+    },
+    "mode": "rebaseAutosquash",
+    "carried": {
+      "commits": ["a1", "a2"],
+      "amended": []
+    }
+  },
+  {
+    "code": "descendant",
+    "branch": "auth",
+    "by": {
+      "branch": "air",
+      "robotId": "w",
+      "wholeStack": true
+    },
+    "mode": "rebaseAutosquash",
+    "carried": null
+  },
+  {
+    "code": "ancestor",
+    "landing": {
+      "branch": "auth",
+      "robotId": "r",
+      "wholeStack": false
+    },
+    "mode": "rebaseAutosquash"
+  },
+  {
+    "code": "landed",
+    "branch": "auth",
+    "by": {
+      "branch": "oauth",
+      "robotId": "m",
+      "wholeStack": false
+    },
+    "own": false,
+    "target": "master"
+  },
+  {
+    "code": "landed",
+    "branch": "auth",
+    "by": {
+      "branch": "auth",
+      "robotId": "m",
+      "wholeStack": false
+    },
+    "own": true,
+    "target": "master"
+  },
+  {
+    "code": "held",
+    "branch": "login",
+    "hold": {
+      "kind": "span",
+      "by": {
+        "branch": "session",
+        "robotId": "r",
+        "wholeStack": false
+      },
+      "carried": {
+        "commits": ["l1"],
+        "amended": []
+      }
+    },
+    "mode": "rebaseAutosquash",
+    "target": "master"
+  },
+  {
+    "code": "held",
+    "branch": "auth",
+    "hold": {
+      "kind": "own",
+      "by": {
+        "branch": "auth",
+        "robotId": "r",
+        "wholeStack": false
+      },
+      "carried": null
+    },
+    "mode": "rebaseAutosquash",
+    "target": "master"
+  },
+  {
+    "code": "noStackBranch",
+    "root": "auth"
+  },
+  {
+    "code": "stackNotBuilt",
+    "root": "auth",
+    "state": "Conflict",
+    "blockedBy": null,
+    "conflict": {
+      "commit": "0123456789abcdef",
+      "files": ["a.kt"]
+    },
+    "error": null
+  },
+  {
+    "code": "stackNotBuilt",
+    "root": "auth",
+    "state": "Blocked",
+    "blockedBy": "login",
+    "conflict": null,
+    "error": null
+  },
+  {
+    "code": "stackParked",
+    "root": "auth",
+    "member": "login"
+  },
+  {
+    "code": "stackLanded",
+    "root": "auth",
+    "by": [
+      {
+        "branch": "deploy",
+        "robotId": "m1",
+        "wholeStack": false
+      },
+      {
+        "branch": "auth",
+        "robotId": "m2",
+        "wholeStack": true
+      }
+    ],
+    "own": false,
+    "target": "master"
+  },
+  {
+    "code": "stackHeld",
+    "root": "auth",
+    "robotId": "w",
+    "mode": "rebaseAutosquash"
+  },
+  {
+    "code": "cantPush",
+    "branch": "auth",
+    "block": "Conflict"
+  },
+  {
+    "code": "dropsRemote",
+    "branch": "auth",
+    "behind": 2
+  }
+]

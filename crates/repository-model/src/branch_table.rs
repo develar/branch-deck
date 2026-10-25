@@ -3,7 +3,7 @@
 //! tips, the copies the sync wrote, the stack branches and the parked branches. The app keeps the one of its last sync
 //! per repository; `bd` builds it from the report of its sync.
 
-use domain_policy::facts::Repository;
+use domain_policy::facts::{RemoteBranch, Repository};
 use domain_policy::push::needs_push;
 use domain_policy::stack::build_ancestors;
 use domain_types::GroupedBranchInfo;
@@ -100,6 +100,22 @@ pub struct RemoteFact {
   /// The remote branch has what the branch has by content: nothing to push (a remote rebuilt on an older baseline
   /// included)
   pub up_to_date: bool,
+  /// A remote status said it: without one only the tip the sync read is known
+  pub known: bool,
+  /// The commits of the remote the branch lacks that a push drops (`commits_behind`)
+  pub drops: u32,
+}
+
+impl RemoteFact {
+  /// What the rules read of it (`domain_policy::facts::RemoteBranch`); `None` before a remote status said it
+  #[must_use]
+  pub fn branch(&self) -> Option<RemoteBranch<'_>> {
+    self.known.then_some(RemoteBranch {
+      tip: self.remote_tip.as_deref(),
+      up_to_date: self.up_to_date,
+      drops: self.drops,
+    })
+  }
 }
 
 /// The remote facts of the branches and of the stack branches (by root)
@@ -119,12 +135,19 @@ pub fn remote_facts(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusU
       .branches
       .iter()
       .map(|branch| {
-        let fact = RemoteFact {
-          remote_tip: to_final_branch_name(prefix, &branch.name)
-            .ok()
-            .and_then(|full_name| report.remote_tips.get(&full_name))
-            .cloned(),
-          up_to_date: status_of.get(branch.name.as_str()).is_some_and(|remote| !needs_push(remote)),
+        let remote_tip = to_final_branch_name(prefix, &branch.name)
+          .ok()
+          .and_then(|full_name| report.remote_tips.get(&full_name))
+          .cloned();
+        let fact = match status_of.get(branch.name.as_str()) {
+          Some(status) => RemoteFact {
+            remote_tip,
+            ..remote_fact(status)
+          },
+          None => RemoteFact {
+            remote_tip,
+            ..RemoteFact::default()
+          },
         };
         (branch.name.clone(), fact)
       })
@@ -140,11 +163,13 @@ pub fn remote_facts(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusU
   }
 }
 
-/// What a remote status says of the remote branch: its tip, and whether it has the branch by content
+/// What a remote status says of the remote branch: its tip, whether it has the branch by content, what a push drops
 pub fn remote_fact(remote: &RemoteStatusUpdate) -> RemoteFact {
   RemoteFact {
     remote_tip: remote.remote_tip.clone(),
     up_to_date: !needs_push(remote),
+    known: true,
+    drops: remote.commits_behind,
   }
 }
 

@@ -233,7 +233,7 @@
       ],
       "bd": [
         "crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;",
-        "crates/bd-remote/src/safe_push_command.rs#ErrorCode::RobotRunning, start_refusal_text(refusal, name, &facts.robots)"
+        "crates/bd-remote/src/safe_push_command.rs#ErrorCode::RobotRunning, start_refusal_text(&refusal, name, &facts.robots)"
       ]
     }
   },
@@ -302,17 +302,23 @@
     "id": "dry-run-pushes-into-a-held-branch",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "a Dry Run whose push goes into a branch a running Safe Push of a branch built on it lands: the app refuses the start, because the push would fail that Safe Push (the hold of the view); bd refuses only the last commit for a dry run, pushes and starts",
+    "title": "a Dry Run whose push goes into a branch a running Safe Push of a branch built on it lands: the app refused the start, because the push would fail that Safe Push (the hold of the view); bd refused only the last commit for a dry run, pushed and started. Since s8-policy both refuse it by one rule (land::start_refusal: the span hold of the push a Dry Run makes)",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
     "discrepancy": "D15",
-    "twins": ["dry-run-while-a-safe-push-of-a-child-lands-the-branch"],
+    "closed": "s8-policy",
     "today": {
-      "app": ["src/hooks/useSafePush.ts#pushHeld: needsPush && hold !== null && replaces === null ? formatPushHoldReason(branchName, hold) : null"],
-      "bd": ["crates/repository-model/src/patronus_view.rs#dry_run: last_commit,"]
+      "app": [
+        "crates/domain-policy/src/land.rs#let hold = branch.hold.filter(|hold| branch.pushes && hold.kind == HoldKind::Span)?;",
+        "crates/repository-model/src/derive.rs#dry_run: start_refusal(&start, PatronusPushMode::DryRun, &self.robots),"
+      ],
+      "bd": [
+        "crates/bd-remote/src/safe_push_command.rs#let start = landing.branch_start(name, push_needed);",
+        "crates/domain-policy/src/land_test.rs#fn a_dry_run_waits_for_the_last_commit_and_for_the_span_hold_of_the_push_it_makes"
+      ]
     }
   }
 ]

@@ -36,40 +36,70 @@
   "view": {
     "branches": {
       "auth": {
-        "dryRun": null,
-        "hold": null,
         "landedBy": null,
+        "landing": {"dryRun": null, "hold": null, "push": null, "replaces": null, "start": null},
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       },
       "login": {
-        "dryRun": null,
-        "hold": null,
         "landedBy": null,
+        "landing": {"dryRun": null, "hold": null, "push": null, "replaces": null, "start": null},
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       },
       "session": {
-        "dryRun": null,
-        "hold": null,
         "landedBy": null,
+        "landing": {
+          "dryRun": null,
+          "hold": null,
+          "push": {"block": "Problem", "branch": "session", "code": "cantPush"},
+          "replaces": null,
+          "start": null
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       }
     },
     "landedByRobot": {},
-    "stacks": {}
+    "restarts": {},
+    "stacks": {
+      "auth": {
+        "landing": {
+          "dryRun": {
+            "blockedBy": "session",
+            "code": "stackNotBuilt",
+            "conflict": null,
+            "error": null,
+            "root": "auth",
+            "state": "Blocked"
+          },
+          "hold": {
+            "blockedBy": "session",
+            "code": "stackNotBuilt",
+            "conflict": null,
+            "error": null,
+            "root": "auth",
+            "state": "Blocked"
+          },
+          "replaces": null,
+          "start": {
+            "blockedBy": "session",
+            "code": "stackNotBuilt",
+            "conflict": null,
+            "error": null,
+            "root": "auth",
+            "state": "Blocked"
+          }
+        },
+        "landingMember": null,
+        "robotId": null
+      }
+    }
   }
 }

@@ -134,7 +134,8 @@ is outgoing compares content, not hashes: the question is whether the remote has
   and the restart of a robot (pushed first when the remote is not up to date) decide by it.
   [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_has_work_unless_the_remote_has_the_branch_as_it_is`)
   [@test] ../../src/lib/push-summary.test.ts (`says that a push replaced older messages or commits that landed, without the warning`)
-  [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
+  [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is`)
+  [@test] ../../crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
   [@test] ../../src/lib/review-commit.test.ts (`compares with the remote branch and the remote status by content, not with the hash of the local tip`)
 - The remote status must name the remote commit it was computed against (`remoteTip`, null without a remote branch)
   and list the newest ten of the commits a push drops (`droppedCommits`: id, subject, author, time), newest first;

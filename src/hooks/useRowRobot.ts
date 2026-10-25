@@ -1,8 +1,10 @@
 import type { PatronusRobot } from "@/lib/bindings"
-import type { RobotStartCheck, SafePushSlot } from "@/lib/patronus"
-import { canStartRobot, getSafePushSlot, isLandedByOwnRobot } from "@/lib/patronus"
+import type { SafePushSlot } from "@/lib/patronus"
+import { getSafePushSlot, isLandedByOwnRobot } from "@/lib/patronus"
+import type { RobotStartCheck } from "@/presenters/reasons"
+import { startCheck } from "@/presenters/reasons"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchRobot, useLandedBy, useLandingAncestor, useLandingSpan, usePatronusAvailable, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
+import { useBranchLanding, useBranchRobot, useLandedBy, usePatronusAvailable, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
 
 /** The robot of a branch row, which its Status cell shows and whose next step its Actions cell offers */
 export interface RowRobot {
@@ -10,7 +12,7 @@ export interface RowRobot {
   readonly available: boolean
   readonly robot: PatronusRobot | undefined
   readonly slot: SafePushSlot
-  /** Whether a Safe Push can start (`canStartRobot`) */
+  /** Whether a Safe Push can start (`landing.start` of the view, `domain_policy::land::start_refusal`) */
   readonly start: RobotStartCheck
   /** The robot failed for missing code-owner approvals */
   readonly needsReview: boolean
@@ -21,10 +23,8 @@ export function useRowRobot(branch: Branch): RowRobot {
   const robot = useBranchRobot(branch.name)
   const needsReview = useRobotNeedsReview(robot?.id)
   const failing = useRobotFailing(robot?.id)
-  const landingAncestor = useLandingAncestor(branch.name)
-  const landingSpan = useLandingSpan(branch.name)
   const landedBy = useLandedBy(branch.name)
-  const start = canStartRobot(branch, robot, landingAncestor, landingSpan)
+  const start = startCheck(useBranchLanding(branch.name).start)
   const slot = getSafePushSlot({
     robot,
     localTip: branch.commits[0]?.hash,

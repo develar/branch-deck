@@ -73,77 +73,109 @@
   "view": {
     "branches": {
       "auth": {
-        "dryRun": null,
-        "hold": {
-          "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
-          "carried": {"amended": [], "commits": ["auth-c0"]},
-          "kind": "span"
-        },
         "landedBy": null,
+        "landing": {
+          "dryRun": {
+            "branch": "auth",
+            "code": "held",
+            "hold": {
+              "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+              "carried": {"amended": [], "commits": ["auth-c0"]},
+              "kind": "span"
+            },
+            "mode": "rebaseAutosquash",
+            "target": "master"
+          },
+          "hold": {
+            "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+            "carried": {"amended": [], "commits": ["auth-c0"]},
+            "kind": "span"
+          },
+          "push": null,
+          "replaces": null,
+          "start": {
+            "branch": "auth",
+            "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+            "carried": {"amended": [], "commits": ["auth-c0"]},
+            "code": "descendant",
+            "mode": "rebaseAutosquash"
+          }
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
         "span": {
           "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
           "carried": {"amended": [], "commits": ["auth-c0"]}
-        },
-        "start": {
-          "kind": "descendant",
-          "span": {
-            "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
-            "carried": {"amended": [], "commits": ["auth-c0"]}
-          }
-        },
-        "startBlocked": false
+        }
       },
       "login": {
-        "dryRun": {"kind": "lastCommit", "robotId": "robot-1"},
-        "hold": {"by": {"branch": "login", "robotId": "robot-1", "wholeStack": false}, "carried": null, "kind": "own"},
         "landedBy": null,
+        "landing": {
+          "dryRun": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-1"},
+          "hold": {"by": {"branch": "login", "robotId": "robot-1", "wholeStack": false}, "carried": null, "kind": "own"},
+          "push": null,
+          "replaces": null,
+          "start": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-1"}
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": "robot-1",
         "span": {
           "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
           "carried": {"amended": [], "commits": ["login-c0"]}
-        },
-        "start": {"kind": "lastCommit", "robotId": "robot-1"},
-        "startBlocked": true
+        }
       },
       "oauth": {
-        "dryRun": null,
-        "hold": {
-          "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
-          "carried": {"amended": [], "commits": ["oauth-c0"]},
-          "kind": "span"
-        },
         "landedBy": null,
+        "landing": {
+          "dryRun": {
+            "branch": "oauth",
+            "code": "held",
+            "hold": {
+              "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+              "carried": {"amended": [], "commits": ["oauth-c0"]},
+              "kind": "span"
+            },
+            "mode": "rebaseAutosquash",
+            "target": "master"
+          },
+          "hold": {
+            "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+            "carried": {"amended": [], "commits": ["oauth-c0"]},
+            "kind": "span"
+          },
+          "push": null,
+          "replaces": null,
+          "start": {
+            "branch": "oauth",
+            "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+            "carried": {"amended": [], "commits": ["oauth-c0"]},
+            "code": "descendant",
+            "mode": "rebaseAutosquash"
+          }
+        },
         "landingAncestor": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
         "span": {
           "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
           "carried": {"amended": [], "commits": ["oauth-c0"]}
-        },
-        "start": {
-          "kind": "descendant",
-          "span": {
-            "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
-            "carried": {"amended": [], "commits": ["oauth-c0"]}
-          }
-        },
-        "startBlocked": false
+        }
       }
     },
     "landedByRobot": {},
+    "restarts": {},
     "stacks": {
       "auth": {
-        "dryRun": {"kind": "lastCommit", "robotId": "robot-0"},
-        "holdRobotId": "robot-0",
+        "landing": {
+          "dryRun": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"},
+          "hold": {"code": "stackHeld", "mode": "rebaseAutosquash", "robotId": "robot-0", "root": "auth"},
+          "replaces": null,
+          "start": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"}
+        },
         "landingMember": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
-        "robotId": "robot-0",
-        "start": {"kind": "lastCommit", "robotId": "robot-0"},
-        "startBlocked": true
+        "robotId": "robot-0"
       }
     }
   }

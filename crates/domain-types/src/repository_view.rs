@@ -4,6 +4,7 @@
 //! it to its windows as a part of its view (`domain_types::session::PatronusPart`); the page reads it by branch.
 
 use crate::landing::{LandingRefusal, Subject};
+use crate::reason::Reason;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -90,21 +91,6 @@ pub struct HoldView {
   pub carried: Option<Carried>,
 }
 
-/// Why a start is not possible, for the robot part of the decision; the caller says the rest first (a blocked branch,
-/// one a merged robot landed)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
-pub enum StartRefusal {
-  /// A robot runs on the commit the branch is at, or on its remote branch that has the same commits
-  LastCommit { robot_id: String },
-  /// A robot of a branch built on it, or of the whole stack, lands it with more
-  Descendant { span: SpanView },
-  /// A robot lands a part of what the start would land: an ancestor, a side branch built on one; for the whole stack a
-  /// branch of it
-  Ancestor { landing: RobotOf },
-}
-
 /// What the Safe Push of a branch needs before it starts (`trial_check::landing_gate::landing_needs`): the refusals its
 /// start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. A fact
 /// of the session computed after a sync (`PatronusPart::landing_needs` says how it stands): unknown until then, never
@@ -132,16 +118,29 @@ pub struct BranchPatronus {
   /// The nearest ancestor whose robot runs, or that a running robot of a side branch lands: a Safe Push of the branch
   /// would land its commits a second time
   pub landing_ancestor: Option<RobotOf>,
-  pub hold: Option<HoldView>,
-  /// The robot of the branch runs on the commit it is at, or on its up-to-date remote branch
-  pub start_blocked: bool,
-  /// Why a Safe Push can't start (the robot part)
-  pub start: Option<StartRefusal>,
-  /// Why a Dry Run can't start: only a robot on the last commit
-  pub dry_run: Option<StartRefusal>,
   /// What its Safe Push needs of a branch outside what it lands; a missing declaration names the running Safe Push of
   /// the branch that adds the name (`landingIn`)
   pub landing_needs: LandingNeeds,
+  /// What the rules decide of the branch over these facts
+  pub landing: BranchLanding,
+}
+
+/// What the rules decide of a branch over its Patronus facts (`domain_policy::holds`, `domain_policy::land`)
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BranchLanding {
+  /// What refuses its push (`holds::branch_hold`)
+  pub hold: Option<HoldView>,
+  /// Why a Safe Push can't start (`land::start_refusal`)
+  pub start: Option<Reason>,
+  /// Why a Dry Run can't start: a robot on the last commit, else the hold of the push it makes
+  pub dry_run: Option<Reason>,
+  /// The running robot a Safe Push start replaces, by id: its own, on an older commit, which the push cancels first
+  pub replaces: Option<String>,
+  /// Why the push an action needs (a pull request, a review request, a start) can't be made for the user
+  /// (`holds::push_blocker`)
+  pub push: Option<Reason>,
 }
 
 /// The Patronus facts of the whole stack of a root; a stack with none is not listed
@@ -153,11 +152,42 @@ pub struct StackPatronus {
   pub robot_id: Option<String>,
   /// The first branch of the stack whose robot runs and pushes: it lands a part of the stack
   pub landing_member: Option<RobotOf>,
-  /// The robot of the whole stack runs on its stack branch and pushes: a push of the stack branch fails it
-  pub hold_robot_id: Option<String>,
-  pub start_blocked: bool,
-  pub start: Option<StartRefusal>,
-  pub dry_run: Option<StartRefusal>,
+  /// What the rules decide of the whole stack over these facts
+  pub landing: StackLanding,
+}
+
+/// What the rules decide of the whole stack of a root over its Patronus facts
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackLanding {
+  /// What refuses the push of its stack branch (`holds::stack_branch_hold`): a parked member, every branch landed,
+  /// its own robot, a stack branch the sync did not build
+  pub hold: Option<Reason>,
+  /// Why a Safe Push of the whole stack can't start (`land::start_refusal`)
+  pub start: Option<Reason>,
+  pub dry_run: Option<Reason>,
+  /// The running robot of the whole stack a Safe Push start replaces, by id: on an older commit of its stack branch
+  pub replaces: Option<String>,
+}
+
+/// What a restart of a robot does (`holds::restart_action`): Patronus restarts it on the newest commit of its remote
+/// branch, or a push sends the branch first, so the robot tests it as it is
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum RestartAction {
+  Restart,
+  PushAndRestart,
+}
+
+/// The restart a robot offers, with why it can't start now (`land::restart_refusal`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RobotRestart {
+  pub action: RestartAction,
+  pub refusal: Option<Reason>,
 }
 
 /// A branch a merged robot landed, whichever robot the branch's `landedBy` names (`closeLandedPullRequests`)
@@ -179,4 +209,6 @@ pub struct PatronusView {
   pub stacks: BTreeMap<String, StackPatronus>,
   /// By merged robot id, every branch it landed, root first
   pub landed_by_robot: BTreeMap<String, Vec<RobotLandedBranch>>,
+  /// By robot id, the restart a robot of the user offers; a robot without one is not listed
+  pub restarts: BTreeMap<String, RobotRestart>,
 }

@@ -527,7 +527,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   preview).
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a branch under Your Move until the filter changes, once its move is made`)
 - S must open the Safe Push popover at the slot of the focused row when its "Safe Push" is enabled (Patronus answered,
-  the row has a push, `canStartRobot`, no inline action running): S never starts by itself (`requestSafePush` with
+  the row has a push, its start is not refused (`landing.start`), no inline action running): S never starts by itself (`requestSafePush` with
   `via: "key"`). The popover focuses its start button once it can start, so Enter starts the robot. Otherwise S says
   why in an `info` toast, the reason the button's hover says.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push popover of the focused row with S and start it with Enter, which takes it out of Your Move`)

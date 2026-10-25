@@ -788,6 +788,23 @@ export type BranchIntegrationStatus = { kind: "integrated"; integratedAt: number
  */
 commit: UpstreamCommit | null } | { kind: "notIntegrated"; totalCommitCount: number; integratedCount: number; orphanedCount: number; integratedAt: number | null } | { kind: "partial"; missing: number };
 
+/**  What the rules decide of a branch over its Patronus facts (`domain_policy::holds`, `domain_policy::land`) */
+export type BranchLanding = {
+	/**  What refuses its push (`holds::branch_hold`) */
+	hold: HoldView | null,
+	/**  Why a Safe Push can't start (`land::start_refusal`) */
+	start: Reason | null,
+	/**  Why a Dry Run can't start: a robot on the last commit, else the hold of the push it makes */
+	dryRun: Reason | null,
+	/**  The running robot a Safe Push start replaces, by id: its own, on an older commit, which the push cancels first */
+	replaces: string | null,
+	/**
+	 *  Why the push an action needs (a pull request, a review request, a start) can't be made for the user
+	 *  (`holds::push_blocker`)
+	 */
+	push: Reason | null,
+};
+
 /**  What a request for branch names ended with; a failure of git or of `claude` is an outcome, not an error */
 export type BranchNameSuggestionOutcome = 
 /**  One or two distinct names, the best first */
@@ -827,18 +844,13 @@ export type BranchPatronus = {
 	 *  would land its commits a second time
 	 */
 	landingAncestor: RobotOf | null,
-	hold: HoldView | null,
-	/**  The robot of the branch runs on the commit it is at, or on its up-to-date remote branch */
-	startBlocked: boolean,
-	/**  Why a Safe Push can't start (the robot part) */
-	start: StartRefusal | null,
-	/**  Why a Dry Run can't start: only a robot on the last commit */
-	dryRun: StartRefusal | null,
 	/**
 	 *  What its Safe Push needs of a branch outside what it lands; a missing declaration names the running Safe Push of
 	 *  the branch that adds the name (`landingIn`)
 	 */
 	landingNeeds: LandingNeeds,
+	/**  What the rules decide of the branch over these facts */
+	landing: BranchLanding,
 };
 
 /**  What the remote has of a branch */
@@ -2974,7 +2986,7 @@ export type PatronusAvailability = { status: "available" } |
 
 /**
  *  What changed of the Patronus view: its states when they differ, the branches and the stacks whose facts changed
- *  with the keys that went, the landings of the merged robots when they differ
+ *  with the keys that went, the landings of the merged robots and the restarts of the robots when they differ
  */
 export type PatronusChange = {
 	state?: FactState | null,
@@ -2982,6 +2994,8 @@ export type PatronusChange = {
 	branches?: { [key in string]: BranchPatronus },
 	stacks?: { [key in string]: StackPatronus },
 	landedByRobot?: { [key in string]: RobotLandedBranch[] } | null,
+	/**  The restarts of the robots, whole, when they differ */
+	restarts?: { [key in string]: RobotRestart } | null,
 	/**  The branches and the stacks the view no longer lists */
 	removedBranches?: string[],
 	removedStacks?: string[],
@@ -3269,6 +3283,8 @@ export type PatronusView = {
 	stacks: { [key in string]: StackPatronus },
 	/**  By merged robot id, every branch it landed, root first */
 	landedByRobot: { [key in string]: RobotLandedBranch[] },
+	/**  By robot id, the restart a robot of the user offers; a robot without one is not listed */
+	restarts: { [key in string]: RobotRestart },
 };
 
 /**
@@ -3561,6 +3577,51 @@ export type ReapplyBranchResult = {
 	undoToken: string | null,
 };
 
+/**
+ *  Why a start, a push or a restart is refused. A robot code names the push mode and the target of its robot, so a
+ *  formatter needs nothing else; the words of a context (a hold says "nothing of it is left to push") belong to the
+ *  field the reason is read from
+ */
+export type Reason = 
+/**  The sync left the branch blocked: its build lacks the state of `by`, the branch it is built on (none known) */
+{ code: "blocked"; branch: string; by: string | null } | 
+/**  A robot runs on the commit the subject is at, or on its remote branch that has the same commits */
+{ code: "lastCommit"; robotId: string; mode: PatronusPushMode } | 
+/**
+ *  A running robot of a branch built on `branch`, or of its whole stack, lands it with more: `carried` the commits of
+ *  it the robot's commit has, as its content told
+ */
+{ code: "descendant"; branch: string; by: RobotOf; mode: PatronusPushMode; carried: Carried | null } | 
+/**
+ *  A running robot lands a part of what the start would land: an ancestor, a side branch built on one; for the whole
+ *  stack a branch of it
+ */
+{ code: "ancestor"; landing: RobotOf; mode: PatronusPushMode } | 
+/**  A merged Safe Push landed all of the branch: `own` its own robot */
+{ code: "landed"; branch: string; by: RobotOf; own: boolean; target: string } | 
+/**  A running Safe Push holds the push of the branch (`hold`), which the start would make */
+{ code: "held"; branch: string; hold: HoldView; mode: PatronusPushMode; target: string } | 
+/**  The stack of `root` doesn't fork: it has no stack branch */
+{ code: "noStackBranch"; root: string } | 
+/**
+ *  The stack branch of `root` is no build of its commits: `state` as the sync left it (a `built` one without a tip is
+ *  not built yet), the member that blocked it, the commit that conflicts, the error of a stale one
+ */
+{ code: "stackNotBuilt"; root: string; state: StackBranchState; blockedBy: string | null; conflict: StackBranchConflict | null; error: string | null } | 
+/**  The stack branch of `root` holds the commits of `member`, which is parked: it stays local */
+{ code: "stackParked"; root: string; member: string } | 
+/**
+ *  Merged Safe Pushes landed every branch of the stack of `root` whole: `by` each robot once, in the order they merged,
+ *  `own` when the robot of the whole stack landed them all; `target` of the first
+ */
+{ code: "stackLanded"; root: string; by: RobotOf[]; own: boolean; target: string } | 
+/**  The robot of the whole stack of `root` runs on its stack branch: a push of it fails the robot at the end */
+{ code: "stackHeld"; root: string; robotId: string; mode: PatronusPushMode } | 
+/**  The last sync did not build `branch` (`block` says why): its virtual branch is an older build */
+{ code: "cantPush"; branch: string; block: BlockReason } | 
+/**  The push of `branch` drops `behind` commits of its remote branch it lacks, someone's work: its row asks first */
+{ code: "dropsRemote"; branch: string; behind: number };
+
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";
 
@@ -3774,6 +3835,12 @@ export type RestackBranchParams = {
 	/**  The branch to stack on; `None` makes the branch a root (unstack) */
 	parent: string | null,
 };
+
+/**
+ *  What a restart of a robot does (`holds::restart_action`): Patronus restarts it on the newest commit of its remote
+ *  branch, or a push sends the branch first, so the robot tests it as it is
+ */
+export type RestartAction = "restart" | "pushAndRestart";
 
 export type RestoreBranchHeadParams = {
 	repositoryPath: string,
@@ -4169,6 +4236,12 @@ export type RobotOf = {
 	wholeStack: boolean,
 };
 
+/**  The restart a robot offers, with why it can't start now (`land::restart_refusal`) */
+export type RobotRestart = {
+	action: RestartAction,
+	refusal: Reason | null,
+};
+
 /**  `bd robot-stats` and the Landing view */
 export type RobotStats = {
 	window: StatsWindow,
@@ -4554,6 +4627,20 @@ export type StackIndependenceParams = {
 	branchName: string,
 };
 
+/**  What the rules decide of the whole stack of a root over its Patronus facts */
+export type StackLanding = {
+	/**
+	 *  What refuses the push of its stack branch (`holds::stack_branch_hold`): a parked member, every branch landed,
+	 *  its own robot, a stack branch the sync did not build
+	 */
+	hold: Reason | null,
+	/**  Why a Safe Push of the whole stack can't start (`land::start_refusal`) */
+	start: Reason | null,
+	dryRun: Reason | null,
+	/**  The running robot of the whole stack a Safe Push start replaces, by id: on an older commit of its stack branch */
+	replaces: string | null,
+};
+
 /**
  *  The member of a stack that keeps its stack branch from being built, and why: `Error` for a stack problem or a failed
  *  build, `Conflict` for a merge conflict of its own branch, `Blocked` when its parent can't be built on
@@ -4578,11 +4665,8 @@ export type StackPatronus = {
 	robotId: string | null,
 	/**  The first branch of the stack whose robot runs and pushes: it lands a part of the stack */
 	landingMember: RobotOf | null,
-	/**  The robot of the whole stack runs on its stack branch and pushes: a push of the stack branch fails it */
-	holdRobotId: string | null,
-	startBlocked: boolean,
-	start: StartRefusal | null,
-	dryRun: StartRefusal | null,
+	/**  What the rules decide of the whole stack over these facts */
+	landing: StackLanding,
 };
 
 /**  Why a branch of a stack can't be placed; it never fails the other branches */
@@ -4686,21 +4770,6 @@ export type StartPatronusRobotParams = {
 	/**  What the user started anyway (Start Anyway); without it the refusals of `trial_check::landing_gate` fail the start */
 	allow?: LandingAllowances,
 };
-
-/**
- *  Why a start is not possible, for the robot part of the decision; the caller says the rest first (a blocked branch,
- *  one a merged robot landed)
- */
-export type StartRefusal = 
-/**  A robot runs on the commit the branch is at, or on its remote branch that has the same commits */
-{ kind: "lastCommit"; robotId: string } | 
-/**  A robot of a branch built on it, or of the whole stack, lands it with more */
-{ kind: "descendant"; span: SpanView } | 
-/**
- *  A robot lands a part of what the start would land: an ancestor, a side branch built on one; for the whole stack a
- *  branch of it
- */
-{ kind: "ancestor"; landing: RobotOf };
 
 /**
  *  The period the statistics count, by the days before now; one choice of the app and `bd robot-stats --period`. 30

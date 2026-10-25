@@ -274,7 +274,7 @@ restacked, landed or dropped). `sync_core::remote_status` stores it on the statu
 push's outcome) and `bd` carries the one answer; `needs_push`, `drops_remote_commits` and `replaces_older_versions` are
 its parts (`bd push`, `bd safe-push`, `bd status`), `over_moved_remote` the one retry of a push over a remote that
 moved ([Git Operations](git-operations.md#app-stack-push)). A robot's restart reads the action too
-(`getRobotRestartAction`): a branch whose remote is not up to date is pushed first.
+(`domain_policy::holds::restart_action`, the view's `restarts`): a branch whose remote is not up to date is pushed first.
 
 ### Colours
 The hue of a push comes from its risk (`getPushHue` and `getPushColor` in `src/lib/push-summary.ts`, on the action):

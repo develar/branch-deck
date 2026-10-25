@@ -9,6 +9,7 @@ import type {
   PatronusStartOptions,
   PullRequest,
   PushAction,
+  RestartAction,
 } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
@@ -17,11 +18,10 @@ import { shellWord } from "@/lib/prompt-text"
 import type { OutgoingState } from "@/lib/push-summary"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
-import { formatBlockedReason } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import { formatWholeStack, formatWholeStackStart } from "@/lib/whole-stack"
-import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import type { RemoteStatus, StackBranch } from "@/stores/branch-sync"
 
 /** What the chip shows of a robot */
 export type PatronusChipKind = "running" | "failed" | "needsReview" | "merged" | "passed" | "canceled" | "unknown"
@@ -226,80 +226,15 @@ export function openRobotUrl(url: string): void {
   openUrl(url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))
 }
 
-/** A robot started on this very branch (not on a temporary ref): Patronus can restart it on the newest commit */
-function isRobotOnBranch(robot: PatronusRobot, branchName: string): boolean {
-  return robot.branchName === branchName
-}
-
-/**
- * A robot started on the branch or on the stack branch of the whole stack `on` names (a branch name is a branch), not on
- * a temporary ref: Patronus can restart it on the newest commit of that branch
- */
-function isRobotOn(robot: PatronusRobot, on: string | RobotSubject): boolean {
-  if (typeof on === "string") {
-    return isRobotOnBranch(robot, on)
-  }
-  return on.kind === "branch" ? isRobotOnBranch(robot, on.name) : robot.branchName === null && robot.stackRoot === on.root
-}
-
-/**
- * Patronus restarts a failed or canceled robot of a branch on its newest commit, a canceling one too; a successful dry
- * run only when the branch has a newer commit on the remote. A merged robot or a running one is never restarted, nor
- * one that failed for missing approvals in a Space merge request. A robot of a pull request that failed for them is:
- * the restart counts the approvals the pull request has by then.
- */
-export function canRestartRobot(robot: PatronusRobot, on: string | RobotSubject, remoteTip: string | null, needsReview = false): boolean {
-  // a restart keeps the merge request of the robot, which has no approvals: a new Safe Push with one is the way
-  if (!isRobotOn(robot, on) || (needsReview && robot.pullRequest == null)) {
-    return false
-  }
-  switch (robot.status) {
-    case "failure":
-    case "canceled":
-    case "canceling":
-      return true
-    case "success":
-      return robot.pushMode === "dryRun" && remoteTip !== null && remoteTip !== robot.sourceRevision
-    case "running":
-    case "unknown":
-      return false
-  }
-}
-
 export function canCancelRobot(robot: PatronusRobot): boolean {
   return robot.status === "running"
 }
 
 /**
- * A running robot of the branch tests a commit the branch moved past: its restart cancels it, pushes and restarts it
- * on the pushed commit, the one way to push into a branch whose Safe Push runs (`PushHold`)
+ * The restart the details of a robot offer (`RobotRestart.action` of the view, `domain_policy::holds::restart_action`):
+ * a restart, one that pushes first, or none
  */
-function canPushAndRestartRunning(robot: PatronusRobot, on: string | RobotSubject, needsReview: boolean): boolean {
-  return robot.status === "running" && isRobotOn(robot, on) && !(needsReview && robot.pullRequest == null)
-}
-
-/** The restart the details offer: a restart, one that pushes first, or none */
-export type RobotRestartAction = "restart" | "pushAndRestart" | null
-
-/**
- * A restart takes the newest commit of the remote branch: a branch with work the remote lacks is pushed first ("Push and
- * Restart"), so the robot tests the branch as it is; a plain restart would test the commit the remote has. `on` is the
- * branch, or the whole stack whose stack branch `localTip` and `remote` describe.
- */
-export function getRobotRestartAction(
-  robot: PatronusRobot,
-  on: string | RobotSubject,
-  localTip: string | undefined,
-  remote: RemoteStatus | null,
-  needsReview = false,
-): RobotRestartAction {
-  if (getReviewCommitState(robot.sourceRevision, localTip, remote) === "changedLocally") {
-    // after the push, the remote branch is at the local tip; a running robot is canceled first (`pushBranch`)
-    const restartable = canRestartRobot(robot, on, localTip ?? null, needsReview) || canPushAndRestartRunning(robot, on, needsReview)
-    return localTip !== undefined && localTip !== "" && restartable ? "pushAndRestart" : null
-  }
-  return canRestartRobot(robot, on, remote?.remoteTip ?? null, needsReview) ? "restart" : null
-}
+export type RobotRestartAction = RestartAction | null
 
 /**
  * "Restart Safe Push", "Restart Dry Run": the one name of a restart, in the branch menu, the robot details, the robots
@@ -362,32 +297,6 @@ export interface PushHold {
   commits?: number
 }
 
-/**
- * Why a held branch offers no push: "A Safe Push of auth is running: wait until it merges, or restart it on the current
- * branch", "A Safe Push of oauth is running: it lands auth with it", "Landed in master with oauth: nothing of it is left
- * to push"
- */
-export function formatPushHoldReason(branchName: string, hold: PushHold): string {
-  if (hold.kind === "landed") {
-    return `${formatLandedReason({ ...hold, own: hold.branch === branchName && hold.wholeStack !== true })}: nothing of it is left to push`
-  }
-  return hold.kind === "own"
-    ? `A ${formatPushMode(hold.robot.pushMode)} of ${branchName} is running: wait until it merges, or restart it on the current branch`
-    : formatLandingReason(branchName, hold)
-}
-
-/**
- * A start would repeat a running robot: one runs on the commit the branch is at (Patronus would refuse the start), or on
- * the remote branch while it has the same commits by content, only rebuilt since on a newer baseline (`rebased`, as
- * the remote status compares): it tests and lands the branch as it is
- */
-export function isStartBlocked(robot: PatronusRobot | undefined, localTip: string | undefined, remote: RemoteStatus | null): boolean {
-  if (robot === undefined || !isRobotActive(robot) || robot.sourceRevision === null) {
-    return false
-  }
-  return robot.sourceRevision === localTip || getReviewCommitState(robot.sourceRevision, localTip, remote) === "rebased"
-}
-
 /** What a start pushes before the robot runs (`getStartPush`) */
 export type StartPush = { readonly kind: "unknown" } | { readonly kind: "none" } | { readonly kind: "stack" } | { readonly kind: "branch"; readonly action: OutgoingState }
 
@@ -409,44 +318,6 @@ export function getStartPush(pushAction: PushAction | null, pushesStack: boolean
   return pushAction.kind === "upToDate" ? { kind: "none" } : { kind: "branch", action: pushAction.kind }
 }
 
-/** Whether a Safe Push or a Dry Run of a branch can start; `reason` says why not, for the hover of a disabled action */
-export type RobotStartCheck = { ok: true } | { ok: false; reason: string }
-
-/**
- * Whether a Safe Push or a Dry Run of the branch can start: not while a robot runs on the commit the branch is at
- * (Patronus would refuse it), nor for a blocked stacked branch (its build lacks its parent's state). `robot` is the robot
- * of the branch (`getBranchRobot`, `useBranchRobot`). A Safe Push also waits for a robot that lands an ancestor of the
- * branch (`landingAncestor`, `getLandingAncestor` of the repository view): the branch carries the ancestor's commits, two robots would land
- * them; and for a robot of a branch built on it that lands the branch (`landingDescendant`, `getLandingSpan`).
- * Every entry point asks it: the row slot, the branch menu, the preview footer and the robot details.
- */
-export function canStartRobot(
-  branch: Branch,
-  robot: PatronusRobot | undefined,
-  landingAncestor: LandingAncestor | null = null,
-  landingDescendant: LandingDescendant | null = null,
-): RobotStartCheck {
-  if (branch.status === "Blocked") {
-    return { ok: false, reason: formatBlockedReason(branch) }
-  }
-  if (robot !== undefined && isStartBlocked(robot, branch.commits[0]?.hash, branch.remoteStatus)) {
-    return { ok: false, reason: `A ${formatPushMode(robot.pushMode)} of the last commit is running` }
-  }
-  // a robot that lands the branch itself says so: it lands its ancestors too (the repository view's `landingAncestor` names it there)
-  if (landingDescendant !== null) {
-    return { ok: false, reason: formatLandingReason(branch.name, landingDescendant) }
-  }
-  if (landingAncestor !== null) {
-    return { ok: false, reason: formatLandingWait(landingAncestor) }
-  }
-  return { ok: true }
-}
-
-/** "A Safe Push of auth is running: wait until it merges": a start waits for a robot that lands a part of what it lands */
-export function formatLandingWait(landing: LandingAncestor): string {
-  return `A ${formatPushMode(landing.robot.pushMode)} of ${formatLandingSubject(landing)} is running: wait until it merges`
-}
-
 /** An ancestor of a stacked branch whose robot pushes into the target: it lands the ancestor's commits */
 export interface LandingAncestor {
   /** The ancestor; for the robot of the whole stack (`wholeStack`) the root of the stack */
@@ -459,31 +330,6 @@ export interface LandingAncestor {
 /** "oauth", "the whole air stack": the branch or the whole stack whose robot lands another one, or landed it */
 export function formatLandingSubject(landing: { readonly branch: string; readonly wholeStack?: boolean }): string {
   return landing.wholeStack === true ? formatWholeStack(landing.branch) : landing.branch
-}
-
-/**
- * Whether the robot of the whole stack can start or restart: only on a stack branch the sync built
- * (`getStackBranchBlocker`), not while a robot runs on its commit, and, unless `dryRun`, not while the robot of a branch
- * of the stack lands a part of it (`landingMember`, `getStackLandingMember`): two robots would land the same commits
- */
-export function canStartStackRobot(
-  blocker: string | null,
-  robot: PatronusRobot | undefined,
-  tip: string | undefined,
-  remote: RemoteStatus | null,
-  landingMember: LandingAncestor | null,
-  dryRun = false,
-): RobotStartCheck {
-  if (blocker !== null) {
-    return { ok: false, reason: blocker }
-  }
-  if (robot !== undefined && isStartBlocked(robot, tip, remote)) {
-    return { ok: false, reason: `A ${formatPushMode(robot.pushMode)} of the last commit is running` }
-  }
-  if (!dryRun && landingMember !== null) {
-    return { ok: false, reason: formatLandingWait(landingMember) }
-  }
-  return { ok: true }
 }
 
 /**
@@ -500,16 +346,6 @@ export interface LandingDescendant {
    * as they are, else as the content told; undefined until it is told
    */
   commits?: number
-}
-
-/**
- * Why a branch can't start while a robot of a branch built on it runs: "A Safe Push of oauth is running: it lands 2
- * commits of auth with it", "A Safe Push of the whole air stack is running: it lands 1 commit of auth with it"; the
- * branch alone while the number is not told yet, as `bd` says it
- */
-export function formatLandingReason(branchName: string, landing: LandingDescendant): string {
-  const what = landing.commits === undefined ? branchName : `${formatCommitCount(landing.commits)} of ${branchName}`
-  return `A ${formatPushMode(landing.robot.pushMode)} of ${formatLandingSubject(landing)} is running: it lands ${what} with it`
 }
 
 /**
@@ -596,14 +432,6 @@ export function formatLandedWholeReason(landed: readonly (LandedBy | null | unde
   }
   const robots = [...new Map(all.map(it => [it.robot.id, it] as const)).values()].sort((a, b) => (a.robot.finishTime ?? 0) - (b.robot.finishTime ?? 0))
   return `Landed in ${robots[0]!.robot.targetBranch} with ${joinNames([...new Set(robots.map(formatLandingSubject))])}`
-}
-
-/**
- * "A Safe Push of the whole air stack is running: wait until it merges, or restart it on the current stack": why the
- * stack branch of the whole stack is not pushed while its own robot runs, a push into it would fail the robot at the end
- */
-export function formatStackPushHoldReason(root: string, robot: PatronusRobot): string {
-  return `A ${formatPushMode(robot.pushMode)} of ${formatWholeStack(root)} is running: wait until it merges, or restart it on the current stack`
 }
 
 /**

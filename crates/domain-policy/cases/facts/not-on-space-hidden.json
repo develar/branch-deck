@@ -5,5 +5,5 @@
   "robots": [],
   "stackTips": {},
   "tips": {"auth": "auth-tip"},
-  "view": {"branches": {}, "landedByRobot": {}, "stacks": {}}
+  "view": {"branches": {}, "landedByRobot": {}, "restarts": {}, "stacks": {}}
 }

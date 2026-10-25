@@ -21,7 +21,7 @@ import { getBranchNextStep } from "@/lib/branch-next-step"
 import { getBranchesGitHubRepository } from "@/lib/git/new-pull-request"
 import type { MenuItem } from "@/lib/menu"
 import { stackParkedState } from "@/lib/parked"
-import { canStartStackRobot, formatLandingSubject, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
+import { formatLandingSubject, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
@@ -29,12 +29,14 @@ import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commi
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
+import { formatReasonOrNull } from "@/presenters/reasons"
 import type { StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getParkedState, getStackBranch, mainLineOf, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import {
   getLandedBy,
   getStackLandedReason,
+  getStackLanding,
   getStackLandingMember,
   getStackPushHold,
   getStackRobot,
@@ -166,7 +168,7 @@ function stackPullRequestFactOf(stack: StackBranch, target: string): NextStepPul
 
 /**
  * What decides the next step of the whole stack of a stack that forks, from the stores: its stack branch (its commits,
- * its state: only a built one lands, else the reason, `getStackBranchBlocker`), the robot of the whole stack, the robot
+ * its state: only a built one lands, else the reason, `StackLanding.start`), the robot of the whole stack, the robot
  * of a branch of it that lands a part of the stack (its start waits for it), its pull request, and the readiness of the
  * whole stack (`stackReadinessKey`). A branch of it that syncs is the sync of the whole stack.
  */
@@ -189,10 +191,10 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     // a rebuild of the stack branch after its robot landed all of it: new hashes, not new work
     landed: rest.byOwnRobot && rest.members.length === 0,
   })
-  const blocker = getStackBranchBlocker(root, stack)
   const landingMember = getStackLandingMember(root)
-  const start = canStartStackRobot(blocker, robot, tip, stack.remoteStatus, landingMember)
-  const dryRun = canStartStackRobot(blocker, robot, tip, stack.remoteStatus, landingMember, true)
+  // why its starts can't, as Rust decides it of the view: its stack branch not built, a robot on its commit, one of a
+  // branch of it (`domain_policy::land::start_refusal`)
+  const landing = getStackLanding(root)
   const target = getReadinessTarget()
   const pullRequest = getStackPullRequest(root)
   const restart =
@@ -210,8 +212,8 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     // its own running start is no reason against the start it runs
     busy: busyFact(key, options),
     blocked: false,
-    startBlocker: start.ok ? null : start.reason,
-    dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
+    startBlocker: formatReasonOrNull(landing.start),
+    dryRunStartBlocker: formatReasonOrNull(landing.dryRun),
     landingPart: landingMember,
     held: getStackPushHold(root) !== null,
     parked: stackParkedState(getBranch(stack.root)?.structure.stackParked ?? null),

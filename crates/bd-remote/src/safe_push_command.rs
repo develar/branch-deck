@@ -40,6 +40,8 @@ use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSum
 use bd_core::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use domain_policy::facts::Repository;
+use domain_policy::holds::is_active;
+use domain_policy::land::{Start as LandStart, start_refusal};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::push::{drops_remote_commits, needs_push};
 use domain_types::branch_names::to_final_branch_name;
@@ -51,6 +53,7 @@ use domain_types::patronus::{
   UnknownReadinessReason,
 };
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
+use domain_types::reason::Reason;
 use domain_types::session::ParkedMember;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
@@ -76,7 +79,7 @@ use std::fmt::Write;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
-use sync_core::patronus_start::{allows_push_mode, is_push_into_robot_risky, is_robot_active, join_names, push_mode_name};
+use sync_core::patronus_start::{allows_push_mode, is_push_into_robot_risky, join_names, push_mode_name};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
 use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
@@ -774,8 +777,8 @@ struct Landing<'r> {
   local_tip: Option<String>,
   /// The robot of the branch, or of the whole stack
   robot: Option<&'r PatronusRobot>,
-  /// The robot runs on the commit the start would take (`start_blocked` of the repository view)
-  start_blocked: bool,
+  /// The robot runs on the commit the start would take (`domain_policy::land::on_last_commit`)
+  on_last_commit: bool,
   /// A push into it fails this robot of an older commit
   is_risky: bool,
   lands: Vec<String>,
@@ -798,17 +801,18 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, table: &Branch
   let robot = facts.branch_robot(name);
 
   let mut refusals = Vec::new();
-  // the robot part of the decision, as the repository view tells it: a robot on the last commit, a robot of a branch
-  // built on it or of its whole stack that lands it, a robot that lands an ancestor; a dry run waits for no robot of
-  // the stack
-  let facts_of = facts.branch(name);
-  if let Some(refusal) = facts_of.and_then(|branch| if pushes { branch.start.as_ref() } else { branch.dry_run.as_ref() }) {
-    let robot = robot_command(context, &refusing_subject(refusal, &Subject::Branch { name: name.to_string() }));
-    refusals.push(Refusal::new(ErrorCode::RobotRunning, start_refusal_text(refusal, name, &facts.robots)).with_next_step(robot, false));
-  }
-
   let needs_push_of = |name: &str| synced_by_name.get(name).is_none_or(|branch| branch.remote.as_ref().is_none_or(RemoteSummary::needs_push));
   let push_needed = std::iter::once(name).chain(ancestors.iter().map(String::as_str)).any(needs_push_of);
+  // the robot part of the decision (`domain_policy::land::start_refusal`): a robot on the last commit, a robot of a
+  // branch built on it or of its whole stack that lands it, a robot that lands an ancestor; a dry run waits for no robot
+  // of the stack, only for the one of a branch built on it that lands what its push sends (D15)
+  let landing = facts.landing(table);
+  let start = landing.branch_start(name, push_needed);
+  let mode = if pushes { PatronusPushMode::RebaseAutosquash } else { PatronusPushMode::DryRun };
+  if let Some(refusal) = start_refusal(&LandStart::Branch(start), mode, &landing.robots) {
+    let robot = robot_command(context, &refusing_subject(&refusal, &Subject::Branch { name: name.to_string() }));
+    refusals.push(Refusal::new(ErrorCode::RobotRunning, start_refusal_text(&refusal, name, &facts.robots)).with_next_step(robot, false));
+  }
   let pushed_along = ancestors.iter().filter(|ancestor| needs_push_of(ancestor)).cloned().collect();
   // the virtual branch of a stacked branch carries the commits of its ancestors: one robot lands them all, and the
   // branches built on it stay
@@ -844,7 +848,7 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, table: &Branch
     is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, &Subject::Branch { name: name.to_string() })),
     local_tip,
     robot,
-    start_blocked: facts_of.is_some_and(|branch| branch.start_blocked),
+    on_last_commit: start.last_commit.is_some(),
     lands,
     push_needed,
     pushed_along,
@@ -856,14 +860,29 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, table: &Branch
 
 /// The start of the whole stack, from its stack branch: only a `built` one has the stack's commits as they are; a robot
 /// of a branch of it lands a part of it and refuses the start, as the robot of the whole stack refuses theirs
-fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r PatronusFacts, update: &StackBranchUpdate, pushes: bool) -> Result<Landing<'r>, CliError> {
+fn stack_landing<'r>(
+  context: &RepoContext,
+  synced: &SyncOutput,
+  table: &BranchTable,
+  facts: &'r PatronusFacts,
+  update: &StackBranchUpdate,
+  pushes: bool,
+) -> Result<Landing<'r>, CliError> {
   let root = update.root.as_str();
   let whole_stack = Subject::WholeStack { root: root.to_string() };
   let subject = whole_stack.words();
   let mut refusals = Vec::new();
-  match update.state {
-    StackBranchState::Built => {}
-    StackBranchState::Conflict => {
+  // the start of the whole stack (`domain_policy::land::start_refusal`): a stack branch the sync did not build, then a
+  // robot on its commits, or of a branch of the stack, which lands a part of it
+  let landing = facts.landing(table);
+  let start = landing.stack_start(update);
+  let mode = if pushes { PatronusPushMode::RebaseAutosquash } else { PatronusPushMode::DryRun };
+  let mut robot_refusal = None;
+  match start_refusal(&LandStart::WholeStack(start), mode, &landing.robots) {
+    Some(Reason::StackNotBuilt {
+      state: StackBranchState::Conflict,
+      ..
+    }) => {
       // the branch of the commit that conflicts builds with what it is built on: a piece to land
       let piece = conflict_branch(synced, update).unwrap_or(root);
       refusals.push(
@@ -871,9 +890,14 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r Patr
           .with_next_step(format!("{} safe-push {} --check", context.bd, shell_word(piece)), false),
       );
     }
-    StackBranchState::Blocked | StackBranchState::Stale => {
+    Some(Reason::StackNotBuilt { .. }) => {
       refusals.push(Refusal::new(ErrorCode::StackNotBuilt, stack_not_built_message(update)).with_next_step(format!("{} sync", context.bd), false));
     }
+    Some(refusal) => {
+      let robot = robot_command(context, &refusing_subject(&refusal, &whole_stack));
+      robot_refusal = Some(Refusal::new(ErrorCode::RobotRunning, start_refusal_text(&refusal, &subject, &facts.robots)).with_next_step(robot, false));
+    }
+    None => {}
   }
   let remote = update.remote.as_ref();
   let has_work = remote.is_none_or(needs_push);
@@ -895,12 +919,7 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r Patr
   }
   let local_tip = update.tip.clone();
   let robot = facts.stack_robot(root);
-  // a robot on the commits of the stack branch, or of a branch of the stack, which lands a part of it
-  let facts_of = facts.stack(root);
-  if let Some(refusal) = facts_of.and_then(|stack| if pushes { stack.start.as_ref() } else { stack.dry_run.as_ref() }) {
-    let robot = robot_command(context, &refusing_subject(refusal, &whole_stack));
-    refusals.push(Refusal::new(ErrorCode::RobotRunning, start_refusal_text(refusal, &subject, &facts.robots)).with_next_step(robot, false));
-  }
+  refusals.extend(robot_refusal);
   let base = target_branch_of(synced.report.upstream.as_ref()).unwrap_or_default();
   Ok(Landing {
     name: root.to_string(),
@@ -909,7 +928,7 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r Patr
     is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, &whole_stack)),
     local_tip,
     robot,
-    start_blocked: facts_of.is_some_and(|stack| stack.start_blocked),
+    on_last_commit: start.last_commit.is_some(),
     lands: update.members.clone(),
     push_needed: has_work,
     pushed_along: Vec::new(),
@@ -1071,13 +1090,13 @@ fn plan(
   let table = table_of(context, synced);
   // a robot that had finished before the comment is never the one it starts; one that ran is the replaced one, or the
   // start was refused
-  let mut known_robots: HashSet<String> = user_robots.iter().filter(|robot| !is_robot_active(robot)).map(|robot| robot.id.clone()).collect();
+  let mut known_robots: HashSet<String> = user_robots.iter().filter(|robot| !is_active(robot)).map(|robot| robot.id.clone()).collect();
   let facts = PatronusFacts::read(context, &table, user_robots);
   let landed = landed_branches(&facts);
   let pushes = mode != PatronusPushMode::DryRun;
   let landing = match start {
     Start::Branch(name) => branch_landing(context, synced, &table, &facts, name, pushes)?,
-    Start::WholeStack(update) => stack_landing(context, synced, &facts, update, pushes)?,
+    Start::WholeStack(update) => stack_landing(context, synced, &table, &facts, update, pushes)?,
   };
   let Landing {
     name,
@@ -1085,7 +1104,7 @@ fn plan(
     full_name,
     local_tip,
     robot,
-    start_blocked,
+    on_last_commit,
     is_risky,
     lands,
     push_needed,
@@ -1113,7 +1132,7 @@ fn plan(
   // a Safe Push of an older commit (a robot on the commits as they are refuses the start above): the push fails it at
   // the end; without a push a Safe Push replaces it, as the app's form does, and a dry run or a pull request leaves it
   let starts_safe_push = pushes && !args.create_pull_request;
-  let risky_robot = robot.filter(|_| is_risky && !start_blocked).filter(|_| push_needed || starts_safe_push).cloned();
+  let risky_robot = robot.filter(|_| is_risky && !on_last_commit).filter(|_| push_needed || starts_safe_push).cloned();
   if let Some(robot) = &risky_robot
     && !args.cancel_running
   {

@@ -2,7 +2,7 @@ import { createElement, Fragment } from "react"
 import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import type { PatronusRobot, PullRequest, Reason } from "@/lib/bindings"
 import { resetEventToasts } from "@/lib/event-toast"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushBranch, pushForAction } from "@/lib/git/push"
@@ -34,6 +34,10 @@ const { calls, records, robots, stores } = vi.hoisted(() => ({
     stack: undefined as PatronusRobot | undefined,
     /** The whole stacks every branch of which merged Safe Pushes landed: root -> why nothing is left */
     stackLanded: {} as Record<string, string>,
+    /** The same whole stacks as Rust holds their stack branch: root -> the branches whose robots landed them */
+    stackLandedBy: {} as Record<string, string[]>,
+    /** Why the push an action needs can't be made, as Rust decides it (`BranchLanding.push`): branch -> the reason */
+    pushBlockers: {} as Record<string, Reason>,
     /** The repository of each cancel and restart Patronus was asked, in order */
     askedIn: [] as string[],
     /** The repository of each robot Activity recorded */
@@ -242,6 +246,15 @@ function remoteStatusOf(status: RemoteStatusFields): RemoteStatus {
   }
 }
 
+/** What holds the push of the stack branch of `root`, as Rust decides it (`StackLanding.hold`) */
+function stackHoldOf(root: string): Reason | null {
+  const landedBy = robots.stackLandedBy[root]
+  if (landedBy !== undefined) {
+    return { code: "stackLanded", root, by: landedBy.map(branch => ({ branch, robotId: `landed-${branch}`, wholeStack: false })), own: false, target: "master" }
+  }
+  return root === "auth" && robots.stack?.status === "running" ? { code: "stackHeld", root, robotId: robots.stack.id, mode: robots.stack.pushMode } : null
+}
+
 vi.mock("@/stores/patronus", async () => ({
   patronusStore: (await import("@/test-support/quiet-store")).quietStoreOf({ repositories: {} }),
   getBranchRobot: () => undefined,
@@ -261,12 +274,8 @@ vi.mock("@/stores/patronus", async () => ({
   getStackPushHold: (root: string) =>
     root === "auth" && robots.stack !== undefined && robots.stack.status === "running" ? { kind: "own", branch: "auth", robot: robots.stack, wholeStack: true } : null,
   getStackLandedReason: (root: string) => robots.stackLanded[root] ?? null,
-  getStackBranchHoldReason: (root: string) => {
-    if (robots.stackLanded[root] !== undefined) {
-      return `${robots.stackLanded[root]}: nothing of it is left to push`
-    }
-    return root === "auth" && robots.stack !== undefined && robots.stack.status === "running" ? `A Safe Push of the whole ${root} stack is running` : null
-  },
+  getBranchLanding: (name: string) => ({ hold: null, start: null, dryRun: null, replaces: null, push: robots.pushBlockers[name] ?? null }),
+  getStackLanding: (root: string) => ({ hold: stackHoldOf(root), start: null, dryRun: null, replaces: null }),
   fetchPatronusRobotStatus: async () => robots.status,
   whenRepositoryViewCurrent: async () => {
     robots.whileViewing()
@@ -376,6 +385,8 @@ beforeEach(() => {
   robots.landed = {}
   robots.stack = undefined
   robots.stackLanded = {}
+  robots.stackLandedBy = {}
+  robots.pushBlockers = {}
   robots.askedIn = []
   robots.recordedIn = []
   robots.whileCanceling = () => {}
@@ -977,6 +988,7 @@ describe("pushWithChildren", () => {
         remoteStatus: testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old", action: PUSH }),
       }
       robots.stackLanded.auth = "Landed in master with login and session"
+      robots.stackLandedBy.auth = ["login", "session"]
       // nothing of the stack is left to push: no branch and no stack branch goes
       expect(await pushWithChildren("auth")).toBe(true)
       expect(await pushWholeStack("auth")).toBe(false)
@@ -1015,6 +1027,7 @@ describe("pushForAction", () => {
 
   it("refuses a push that drops remote commits of the branch or of an ancestor: the row asks first", async () => {
     addBranch("login", "auth")
+    robots.pushBlockers.login = { code: "dropsRemote", branch: "auth", behind: 2 }
     stores.branches.auth = {
       ...stores.branches.auth!,
       remoteStatus: testRemoteStatus({ exists: true, commitsAhead: 1, commitsBehind: 2, fastForward: false, remoteTip: "theirs", action: forcePush({ drops: true }) }),
@@ -1048,8 +1061,10 @@ describe("pushForAction", () => {
       statusText: "merge conflict",
       remoteStatus: testRemoteStatus({ exists: true, remoteTip: "tip" }),
     }
+    robots.pushBlockers.auth = { code: "cantPush", branch: "auth", block: "Conflict" }
     expect(await pushForAction("auth")).toEqual({ pushed: false, reason: "auth can't be pushed: merge conflict" })
     addBranch("login", "auth", false)
+    robots.pushBlockers.login = robots.pushBlockers.auth
     expect(await pushForAction("login")).toEqual({ pushed: false, reason: "auth can't be pushed: merge conflict" })
     expect(calls).toEqual([])
   })

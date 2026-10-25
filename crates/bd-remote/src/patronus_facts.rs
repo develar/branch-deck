@@ -1,16 +1,20 @@
 //! The Patronus section of the repository view for `bd` (`repository_model::facts::derive_patronus`, the rule the
 //! session of the app derives too): the user's robots, the robot of each branch of the table as the rows match it, and
-//! what they land, landed and hold. `bd push`, `bd safe-push` and `bd status` read it; the words stay theirs.
+//! what they land, landed and hold, with what the rules decide over that (`derive::LandingFacts`). `bd push`, `bd
+//! safe-push` and `bd status` read it; the words stay theirs.
 
 use bd_core::context::RepoContext;
 use bd_core::sync_command::SyncOutput;
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{BranchPatronus, PatronusView, StackPatronus};
 use repository_model::branch_table::BranchTable;
-use repository_model::facts::derive_patronus;
+use repository_model::derive::LandingFacts;
+use repository_model::facts::{PatronusOf, derive_patronus};
 use repository_model::patronus_view::ContentMemo;
+use std::collections::BTreeMap;
 
-/// The robots and the Patronus view of a table
+/// The robots and the Patronus view of a table; none without an answer of Patronus
+#[derive(Default)]
 pub struct PatronusFacts {
   pub robots: Vec<PatronusRobot>,
   pub view: PatronusView,
@@ -20,8 +24,20 @@ impl PatronusFacts {
   /// The view of `table` with the user's `robots`, on the remote facts of the table: by the hashes where they tell,
   /// else by content (git)
   pub fn read(context: &RepoContext, table: &BranchTable, robots: Vec<PatronusRobot>) -> Self {
-    let view = derive_patronus(&context.git, &context.repository, table, &table.remote, &robots, &mut ContentMemo::default());
+    // no robot is known to need approvals: `bd` offers no restart of its own
+    let of = PatronusOf {
+      table,
+      remote: &table.remote,
+      robots: &robots,
+      needs_review: &BTreeMap::new(),
+    };
+    let view = derive_patronus(&context.git, &context.repository, &of, &mut ContentMemo::default());
     Self { robots, view }
+  }
+
+  /// What the rules read of `table` with these facts, for an intent of `bd`'s own (its push, its start)
+  pub fn landing<'a>(&'a self, table: &'a BranchTable) -> LandingFacts<'a> {
+    LandingFacts::new(table, &table.remote, &self.view, &self.robots, None)
   }
 
   pub fn robot(&self, id: &str) -> Option<&PatronusRobot> {

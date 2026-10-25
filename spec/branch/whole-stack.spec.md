@@ -18,6 +18,8 @@ targets:
   - ../../crates/bd-remote/src/safe_push_command.rs
   - ../../crates/bd-remote/src/push_command.rs
   - ../../crates/bd-remote/src/push_hold.rs
+  - ../../crates/domain-policy/src/holds.rs
+  - ../../crates/domain-policy/src/land.rs
   - ../../crates/bd-remote/src/robot_command.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/sync-core/src/patronus_start.rs
@@ -233,9 +235,12 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   whole air stack", their push and their Safe Push wait ("A Safe Push of the whole air stack is running: it lands 1
   commit of auth with it");
   the robot of a branch of the stack holds the whole stack's restart and start in turn ("A Safe Push of auth is
-  running: wait until it merges", `getStackLandingMember`). A dry run holds nothing.
+  running: wait until it merges", the `landingMember` of the view; the start refusal is the rule of Rust,
+  `domain_policy::land::start_refusal`, the view's `landing.start` of the stack, after a stack branch the sync did not
+  build and the robot on its commit). A dry run holds nothing.
   [@test] ../../src/stores/patronus.test.ts (`holds every branch the whole-stack Safe Push lands`, `holds nothing for a dry run of the whole stack`)
-  [@test] ../../src/lib/patronus.test.ts (`lands every branch of the stack, and waits for the robot of a branch of it, as that one waits for it`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`a_whole_stack_waits_for_its_build_its_last_commit_then_a_member_that_lands_a_part`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
 - Its actions are the actions of a robot (`getRobotActions`): the restart works on the stack branch, and pushes it first
   while it has work its remote lacks (`pushWholeStack`, a running robot canceled first), only while the sync built it;
   cancel, the prompts, Patronus, its pull request. Once merged Safe Pushes landed every branch of the stack, its restart
@@ -243,7 +248,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   master with deploy and side-test", `getStackLandedReason`), on every surface that lists the actions (the "⋯" of the
   island, "Whole Stack ›" of the menus of its branches); the header offers no step, and the landing overview lists the stack in
   master without its robot.
-  [@test] ../../src/lib/patronus-actions.test.ts (`restarts the robot of the whole stack on its stack branch, refused once merged Safe Pushes landed every branch of it, a Dry Run too`)
+  [@test] ../../src/lib/patronus-actions.test.ts (`restarts the robot of the whole stack on its stack branch, pushed first, refused once merged Safe Pushes landed every branch of it`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it`)
 - A push of the stack branch alone (`pushWholeStack`: the restart, Request Review… of its pull request, the creation of
   its pull request, the start of its Safe Push) must show where the pushes of the stack show, one indicator: the push of
@@ -267,7 +272,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
-  [@test] ../../src/lib/patronus.test.ts (`restarts on its stack branch, pushed first while the stack branch has work the remote lacks`)
+  [@test] ../../crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
 - The prompt for an agent of its failure must name the stack branch and the commits of every branch of the stack, each
   with its branch, by identity (`stack_robot_commit_map`: no mapping notes), a commit of a member the stack branch
   lacks said as not synced; `bd robot --whole-stack` prints the same map.
@@ -293,7 +298,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`the_robot_of_the_whole_stack_landed_every_branch_of_it`)
   [@test] ../../src/lib/patronus.test.ts (`names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
-  [@test] ../../src/lib/patronus.test.ts (`says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
+  [@test] ../../src/presenters/reasons.test.ts (`says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
 - One builder must list the actions of the whole stack (`getWholeStackMenuItems`), which the "⋯" of the stack island

@@ -152,8 +152,9 @@ export interface NextStepFacts {
   /** A stacked branch whose parent failed to build (`Blocked`) */
   readonly blocked: boolean
   /**
-   * Why a start is not possible by the robots (`canStartRobot`: blocked, a robot on this commit, one that lands it or an
-   * ancestor of it: a stacked branch lands with what it is built on)
+   * Why a start is not possible by the robots (`landing.start` of the view, `domain_policy::land::start_refusal`:
+   * blocked, a robot on this commit, one that lands it or an ancestor of it: a stacked branch lands with what it is built
+   * on)
    */
   readonly startBlocker: string | null
   /** The same for a dry run, which may run while a robot lands an ancestor */

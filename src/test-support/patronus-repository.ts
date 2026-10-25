@@ -1,4 +1,4 @@
-import type { BranchPatronus, PatronusRobot, PatronusView, RobotOf, StackPatronus } from "@/lib/bindings"
+import type { BranchLanding, BranchPatronus, PatronusRobot, PatronusView, RobotOf, StackLanding, StackPatronus } from "@/lib/bindings"
 import type { RepositoryPatronus } from "@/stores/patronus"
 
 /**
@@ -18,7 +18,7 @@ export function testPatronusRepository(robots: Readonly<Record<string, PatronusR
     watched: {},
     failing: {},
     // the facts of the rows are known: a test of a pending answer says so
-    view: withRowRobots(view ?? { branches: {}, stacks: {}, landedByRobot: {} }, robots),
+    view: withRowRobots(view ?? { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} }, robots),
     viewState: { kind: "fresh" },
     landingNeedsState: { kind: "fresh" },
     problemsFailed: {},
@@ -62,28 +62,32 @@ export function robotOf(branch: string, robotId: string, wholeStack = false): Ro
   return { branch, robotId, wholeStack }
 }
 
-/** The facts of a branch in a view, nothing but `patch` */
-export function branchFacts(patch: Partial<BranchPatronus>): BranchPatronus {
+/** The facts of a branch in a view and what the rules decide of them (`landing`), nothing but `patch` */
+export function branchFacts(patch: Partial<Omit<BranchPatronus, "landing">> & { readonly landing?: Partial<BranchLanding> }): BranchPatronus {
+  const { landing, ...facts } = patch
   return {
     robotId: null,
     landedBy: null,
     span: null,
     landingAncestor: null,
-    hold: null,
-    startBlocked: false,
-    start: null,
-    dryRun: null,
     landingNeeds: { state: "unknown" },
-    ...patch,
+    ...facts,
+    landing: { hold: null, start: null, dryRun: null, replaces: null, push: null, ...landing },
   }
 }
 
-/** The facts of the whole stack of a root in a view, nothing but `patch` */
-export function stackFacts(patch: Partial<StackPatronus>): StackPatronus {
-  return { robotId: null, landingMember: null, holdRobotId: null, startBlocked: false, start: null, dryRun: null, ...patch }
+/** The facts of the whole stack of a root in a view and what the rules decide of them, nothing but `patch` */
+export function stackFacts(patch: Partial<Omit<StackPatronus, "landing">> & { readonly landing?: Partial<StackLanding> }): StackPatronus {
+  const { landing, ...facts } = patch
+  return { robotId: null, landingMember: null, ...facts, landing: { hold: null, start: null, dryRun: null, replaces: null, ...landing } }
+}
+
+/** The landing of the whole stack of `root` whose own robot `robotId` runs on its stack branch */
+export function stackHeld(root: string, robotId: string): Partial<StackLanding> {
+  return { hold: { code: "stackHeld", root, robotId, mode: "rebaseAutosquash" } }
 }
 
 /** The facts of a branch a merged robot landed whole */
 export function landedWhole(by: RobotOf, own = false): BranchPatronus {
-  return branchFacts({ landedBy: { by, own, landed: [], after: [] }, hold: { kind: "landed", by, carried: null } })
+  return branchFacts({ landedBy: { by, own, landed: [], after: [] }, landing: { hold: { kind: "landed", by, carried: null } } })
 }

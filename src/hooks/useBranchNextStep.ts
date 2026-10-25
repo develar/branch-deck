@@ -16,7 +16,6 @@ import { isFullyLanded } from "@/lib/landed"
 import type { MenuItem } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
 import {
-  canStartRobot,
   formatLandedReason,
   formatPatronusAvailabilityHint,
   formatPushMode,
@@ -36,6 +35,7 @@ import { stackProblemOf } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
 import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
+import { formatReasonOrNull } from "@/presenters/reasons"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getParkedState, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
@@ -43,12 +43,12 @@ import { landedStore } from "@/stores/landed"
 import type { Operations } from "@/stores/operations"
 import { getObjectBusy, operationLabel, operationsStore, runOperation } from "@/stores/operations"
 import {
+  getBranchLanding,
   getBranchRobot,
   getLandedBy,
   getLandingAncestor,
   getLandingBranchCount,
   getLandingNeeds,
-  getLandingSpan,
   getPatronusAvailability,
   getPatronusViewFailure,
   getPushHold,
@@ -286,8 +286,8 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     landed: isLandedByOwnRobot(landedBy, robot),
   })
   const landingAncestor = getLandingAncestor(name)
-  const start = canStartRobot(branch, robot, landingAncestor, getLandingSpan(name))
-  const dryRun = canStartRobot(branch, robot)
+  // why its starts can't, as Rust decides it of the view (`domain_policy::land::start_refusal`)
+  const landing = getBranchLanding(name)
   const target = getReadinessTarget()
   const pullRequest = getPullRequest(name)
   const restart =
@@ -307,8 +307,8 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     commitCount: branch.commitCount,
     busy: busyFact(name, options),
     blocked: branch.status === "Blocked",
-    startBlocker: start.ok ? null : start.reason,
-    dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
+    startBlocker: formatReasonOrNull(landing.start),
+    dryRunStartBlocker: formatReasonOrNull(landing.dryRun),
     landingPart: landingAncestor,
     held: getPushHold(name) !== null,
     parked: getParkedState(name),

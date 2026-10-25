@@ -85,3 +85,28 @@ pub fn review_request(number: u32, requested_at: u32) -> ReviewRequest {
     base_is_default: true,
   }
 }
+
+/// The robot `robot_id` of the branch `branch`, as a fact of the view names it
+pub fn robot_of(branch: &str, robot_id: &str) -> crate::repository_view::RobotOf {
+  crate::repository_view::RobotOf {
+    branch: branch.to_string(),
+    robot_id: robot_id.to_string(),
+    whole_stack: false,
+  }
+}
+
+/// The robot `robot_id` of the whole stack of `root`, as a fact of the view names it
+pub fn whole_stack_robot_of(root: &str, robot_id: &str) -> crate::repository_view::RobotOf {
+  crate::repository_view::RobotOf {
+    whole_stack: true,
+    ..robot_of(root, robot_id)
+  }
+}
+
+/// The commits `commits` of a branch a running robot's commit has, none of them amended since
+pub fn carried(commits: &[&str]) -> crate::repository_view::Carried {
+  crate::repository_view::Carried {
+    commits: commits.iter().map(|id| (*id).to_string()).collect(),
+    amended: Vec::new(),
+  }
+}

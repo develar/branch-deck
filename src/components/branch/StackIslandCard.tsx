@@ -33,7 +33,7 @@ import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
 import { pushWithChildren } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { formatPushHoldReason, formatPushMode } from "@/lib/patronus"
+import { formatPushMode } from "@/lib/patronus"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatStackPushLine } from "@/lib/push-up-to"
@@ -53,6 +53,7 @@ import {
   formatWholeStackBranch,
   stackReadinessKey,
 } from "@/lib/whole-stack"
+import { formatPushHoldReason } from "@/presenters/reasons"
 import type { StackBranch } from "@/stores/branch-sync"
 import {
   mainLineOf,

@@ -58,52 +58,61 @@
   "view": {
     "branches": {
       "auth": {
-        "dryRun": null,
-        "hold": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "carried": null, "kind": "landed"},
         "landedBy": {
           "after": [],
           "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
           "landed": ["auth-c0"],
           "own": false
         },
+        "landing": {
+          "dryRun": null,
+          "hold": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "carried": null, "kind": "landed"},
+          "push": null,
+          "replaces": null,
+          "start": null
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       },
       "login": {
-        "dryRun": null,
-        "hold": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "carried": null, "kind": "landed"},
         "landedBy": {
           "after": [],
           "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
           "landed": ["login-c0"],
           "own": false
         },
+        "landing": {
+          "dryRun": null,
+          "hold": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "carried": null, "kind": "landed"},
+          "push": null,
+          "replaces": null,
+          "start": null
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       },
       "session": {
-        "dryRun": null,
-        "hold": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "carried": null, "kind": "landed"},
         "landedBy": {
           "after": [],
           "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
           "landed": ["session-c0"],
           "own": false
         },
+        "landing": {
+          "dryRun": null,
+          "hold": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "carried": null, "kind": "landed"},
+          "push": null,
+          "replaces": null,
+          "start": null
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       }
     },
     "landedByRobot": {
@@ -113,14 +122,23 @@
         {"after": [], "branch": "session", "own": false}
       ]
     },
+    "restarts": {},
     "stacks": {
       "auth": {
-        "dryRun": null,
-        "holdRobotId": null,
+        "landing": {
+          "dryRun": null,
+          "hold": {
+            "by": [{"branch": "auth", "robotId": "robot-0", "wholeStack": true}],
+            "code": "stackLanded",
+            "own": true,
+            "root": "auth",
+            "target": "master"
+          },
+          "replaces": null,
+          "start": null
+        },
         "landingMember": null,
-        "robotId": "robot-0",
-        "start": null,
-        "startBlocked": false
+        "robotId": "robot-0"
       }
     }
   }

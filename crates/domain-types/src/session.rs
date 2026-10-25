@@ -22,7 +22,7 @@ use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability};
-use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, StackPatronus};
+use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
 use crate::review_request::ReviewRequest;
 use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
@@ -877,7 +877,7 @@ pub struct TableChanges {
 }
 
 /// What changed of the Patronus view: its states when they differ, the branches and the stacks whose facts changed
-/// with the keys that went, the landings of the merged robots when they differ
+/// with the keys that went, the landings of the merged robots and the restarts of the robots when they differ
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -897,6 +897,10 @@ pub struct PatronusChange {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub landed_by_robot: Option<BTreeMap<String, Vec<RobotLandedBranch>>>,
+  /// The restarts of the robots, whole, when they differ
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub restarts: Option<BTreeMap<String, RobotRestart>>,
   /// The branches and the stacks the view no longer lists
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]

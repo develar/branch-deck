@@ -172,7 +172,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   ([Pull Requests](pull-requests.spec.md)), so it takes the rows of that pull request: its own approvals, its own draft,
   its own wait. The reasons of its ancestors come through the rows that hold them already: a parent that failed to
   build blocks it (row 1, `Blocked`), a Safe Push that lands the branch holds it (row 1), and a robot that lands an
-  ancestor is the reason of `canStartRobot`, which disables every step's Safe Push ("A Safe Push of login is running:
+  ancestor is the reason of its start (`landing.start` of the view, `domain_policy::land::start_refusal`), which disables every step's Safe Push ("A Safe Push of login is running:
   wait until it merges"; a dry run may run). The slot, "⋯", S, the preview and the review window ask its own start,
   its popover at its own row ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The header of a stack
   island shows the step of the whole stack (below), its popover at the header ([Stack Island](stack-island.spec.md#header)).

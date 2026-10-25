@@ -12,7 +12,7 @@
 //! push fetches the branches and reports what the remote has now. With `--remote` other than `origin`, which the sync
 //! compares with, the remote status of the pushed branches is computed the same way against that remote.
 
-use crate::landed::{LandedBranch, LandedBySummary, every_branch_landed};
+use crate::landed::{LandedBranch, LandedBySummary};
 use crate::pull_request_retarget::{RetargetedPullRequest, retarget_listed, retarget_pull_requests_of};
 use crate::push_hold::{PushHolds, read_push_holds, robot_command};
 use crate::safe_push_command::{github_service, youtrack_service};
@@ -22,14 +22,13 @@ use bd_core::error::{CliError, ErrorBranch, NextStep};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use domain_policy::facts::Repository;
-use domain_policy::parked::{parked_state, whole_stack_parked};
+use domain_policy::parked::parked_state;
 use domain_policy::push::{drops_remote_commits, needs_push, over_moved_remote};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::ErrorCode;
-use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{PullRequestState, PullRequestsResult};
-use domain_types::session::ParkedMember;
+use domain_types::reason::Reason;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
@@ -767,7 +766,6 @@ fn stack_branches_to_push<'a>(
   open_stack_pull_requests: &HashSet<String>,
   holds: &PushHolds,
 ) -> (Vec<&'a StackBranchUpdate>, Vec<String>) {
-  let repo = Repository::of_grouping(&report.branches, &report.grouping.parked.entries);
   let mut stacks = Vec::new();
   let mut warnings = Vec::new();
   for stack in report.stack_branches.iter().filter(|stack| !stack.members.is_empty() && named.contains(&stack.root)) {
@@ -775,30 +773,17 @@ fn stack_branches_to_push<'a>(
     if !on_remote && !open_stack_pull_requests.contains(&stack.root) {
       continue;
     }
-    let landed: Option<Vec<&LandedBranch>> = stack.members.iter().map(|member| holds.get(member).and_then(|hold| hold.landed.as_ref())).collect();
-    // the stack branch holds the commits of every member: a parked one keeps it local
-    let parked = whole_stack_parked(&repo, stack.members.iter().map(String::as_str));
-    if let Some(ParkedMember { member, parked }) = parked {
-      let parked = parked.with.unwrap_or(member);
-      warnings.push(format!("{} was not pushed: it holds parked {parked}; land the stack in pieces", stack.branch_name));
-    } else if let Some(landed) = landed {
-      warnings.push(format!(
-        "{} was not pushed: {}: nothing of it is left to push",
-        stack.branch_name,
-        every_branch_landed(&Subject::WholeStack { root: stack.root.clone() }.words(), &landed)
-      ));
-    } else if let Some(reason) = holds.stack_hold_reason(&stack.root) {
-      warnings.push(format!("{} was not pushed: {reason}", stack.branch_name));
-    } else if stack.state != StackBranchState::Built || stack.tip.is_none() {
-      warnings.push(format!(
+    // a parked member, every member landed, its own robot, a build the sync did not make (`stack_hold`)
+    match holds.stack_hold(stack) {
+      Some(Reason::StackNotBuilt { state, .. }) => warnings.push(format!(
         "{} was not pushed: this sync didn't build it ({}; `stacks` of `bd sync` says why)",
         stack.branch_name,
-        state_word(stack.state)
-      ));
-    } else if remote != "origin" {
-      warnings.push(format!("{} was not pushed: its remote status is of origin, not of {remote}", stack.branch_name));
-    } else if stack.remote.as_ref().is_none_or(needs_push) {
-      stacks.push(stack);
+        state_word(state)
+      )),
+      Some(hold) => warnings.push(format!("{} was not pushed: {}", stack.branch_name, holds.stack_hold_words(&stack.root, &hold))),
+      None if remote != "origin" => warnings.push(format!("{} was not pushed: its remote status is of origin, not of {remote}", stack.branch_name)),
+      None if stack.remote.as_ref().is_none_or(needs_push) => stacks.push(stack),
+      None => {}
     }
   }
   (stacks, warnings)

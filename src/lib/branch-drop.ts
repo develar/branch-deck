@@ -8,8 +8,8 @@
  */
 import type { ParkedState } from "@/lib/parked"
 import type { PushHold } from "@/lib/patronus"
-import { formatPushHoldReason } from "@/lib/patronus"
 import { hasStackFix, stackOnFixes, stackProblemOf } from "@/lib/stack"
+import { formatPushHoldReason } from "@/presenters/reasons"
 import type { Branch } from "@/stores/branch-sync"
 
 /** What a drop decides by: the branches as the last sync left them */

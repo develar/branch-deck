@@ -50,7 +50,7 @@ import { pushWithChildren } from "@/lib/git/stack-push"
 import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { formatParkedBlocker } from "@/lib/parked"
-import { describeStart, formatPushHoldReason, formatStartLabel, getPullRequestStart } from "@/lib/patronus"
+import { describeStart, formatStartLabel, getPullRequestStart } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
@@ -69,6 +69,7 @@ import {
 } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { describeStackBranchAlong, getStackBranchAlong } from "@/lib/whole-stack"
+import { formatPushHoldReason, formatStackHold } from "@/presenters/reasons"
 import type { Branch } from "@/stores/branch-sync"
 import {
   branchSyncStore,
@@ -96,7 +97,7 @@ import {
   getLandingBranchCount,
   getPatronusGitHubRepository,
   getPushHold,
-  getStackBranchHoldReason,
+  getStackLanding,
   isPatronusAvailable,
   isPatronusOffered,
   isPatronusPending,
@@ -545,7 +546,7 @@ function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranc
 /**
  * Why a Safe Push of the branch can't start now, null when it can: for every surface that offers it (the slot, the
  * menu, S on the row, the branch preview, the review, the stack header), the next step of the branch
- * (`getBranchNextStep`): the branch and its robots (`canStartRobot`), landed or merged, then what Patronus would refuse
+ * (`getBranchNextStep`): the branch and its robots (`landing.start` of the view), landed or merged, then what Patronus would refuse
  * (the approvals that count, a draft, a pull request into another base; a stacked branch as its root). Patronus must
  * be on the repository; the surfaces offer it only then.
  */
@@ -794,7 +795,7 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
   // the pull request of the whole stack follows its branches: its stack branch goes along
   const stack = getStackBranch(name)
   const stackPullRequest = getStackPullRequest(name)
-  const along = getStackBranchAlong(name, stack, stackPullRequest, getStackBranchHoldReason(name))
+  const along = getStackBranchAlong(name, stack, stackPullRequest, formatStackHold(getStackLanding(name).hold))
   const withStackBranch = along?.kind === "along"
   const offers = offersPushWithChildren(name, all, along)
   let reason: string | null

@@ -3,9 +3,11 @@
 //! what `repository_model::derive` builds the view's structure with), or from a table a sync or a grouping left as its
 //! grouped branches (`of_grouping`: `repository_model::branch_table::BranchTable` and `bd status`, until they read the
 //! view of a session too). The rules of each family take it: `stack` (the stacks by declared parent, the ancestors by
-//! effective base) and `parked`.
+//! effective base) and `parked`. The holds and the starts read the robots of the user by id (`Robots`) and what is known
+//! of a remote branch (`RemoteBranch`).
 
 use domain_types::GroupedBranchInfo;
+use domain_types::patronus::PatronusRobot;
 use domain_types::session::BranchView;
 use domain_types::stack::BranchStack;
 use std::cell::OnceCell;
@@ -108,5 +110,43 @@ impl<'a> Repository<'a> {
   /// The index of the children, built by `build` the first time a rule asks
   pub(crate) fn children_index(&self, build: impl FnOnce(&Self) -> HashMap<&'a str, Vec<&'a str>>) -> &HashMap<&'a str, Vec<&'a str>> {
     self.children.get_or_init(|| build(self))
+  }
+}
+
+/// What the rules read of the remote branch of a subject, once a remote status said it (`None` before)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RemoteBranch<'a> {
+  /// The tip of the remote branch; `None` without one
+  pub tip: Option<&'a str>,
+  /// The remote has what the subject has by content: nothing to push (a remote rebuilt on an older baseline included)
+  pub up_to_date: bool,
+  /// The commits of the remote the subject lacks that a push drops, someone's work (`commits_behind`)
+  pub drops: u32,
+}
+
+/// The robots of the user, by id, as the rules look them up
+#[derive(Debug, Default)]
+pub struct Robots<'a> {
+  by_id: HashMap<&'a str, &'a PatronusRobot>,
+}
+
+impl<'a> Robots<'a> {
+  /// `robots`; the first of an id counts
+  pub fn new(robots: impl IntoIterator<Item = &'a PatronusRobot>) -> Self {
+    let mut by_id = HashMap::new();
+    for robot in robots {
+      by_id.entry(robot.id.as_str()).or_insert(robot);
+    }
+    Self { by_id }
+  }
+
+  #[must_use]
+  pub fn get(&self, id: &str) -> Option<&'a PatronusRobot> {
+    self.by_id.get(id).copied()
+  }
+
+  /// Every robot, in no order
+  pub fn all(&self) -> impl Iterator<Item = &'a PatronusRobot> + '_ {
+    self.by_id.values().copied()
   }
 }

@@ -61,6 +61,7 @@ pub mod landed;
 pub mod landing;
 pub mod patronus;
 pub mod pull_request;
+pub mod reason;
 pub mod repository_view;
 pub mod review_request;
 pub mod robot_failure;

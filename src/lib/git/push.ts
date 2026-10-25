@@ -10,20 +10,21 @@ import { showPushToast } from "@/lib/git/push-toast"
 import { pushStack } from "@/lib/git/stack-push"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { canceledBeforeStart, isLockWaitCanceled } from "@/lib/lock-wait"
-import { describeRobot, formatPushHoldReason, formatPushMode, openRobot } from "@/lib/patronus"
+import { describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
-import { buttonStackPushOrder, stackAncestors, stackPushOrder } from "@/lib/stack"
+import { buttonStackPushOrder, stackPushOrder } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { pushProgressOf } from "@/lib/transfer-progress"
 import { whenSessionViewAt } from "@/model/store"
+import { formatPushHoldReason, formatReasonOrNull } from "@/presenters/reasons"
 import { recordPush, recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchPushProgress, toRemoteStatus, whenBranchPushed, whenSynced } from "@/stores/branch-sync"
 import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
-import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot, whenRepositoryViewCurrent } from "@/stores/patronus"
+import { cancelPatronusRobot, fetchPatronusRobotStatus, getBranchLanding, getPushHold, restartPatronusRobot, whenRepositoryViewCurrent } from "@/stores/patronus"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getRepositorySwitchReason, getSelectedRepositoryPath, repositoryStore, vcsRequestFactory } from "@/stores/repository"
@@ -546,10 +547,16 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
   if (branch === undefined) {
     return { pushed: false, reason: `${branchName} is no longer in the branch list` }
   }
-  const isHeld = (name: string) => isHeldBy(name, options.replacesRobot)
-  const blocker = actionPushBlocker(branch, getBranch, isHeld)
+  // why the push can't be made for the user, as Rust decides it of the view (`domain_policy::holds::push_blocker`): an
+  // unbuilt branch of its chain, a push that drops remote commits
+  const blocker = formatReasonOrNull(getBranchLanding(branchName).push, name => getBranch(name)?.statusText ?? "")
   if (blocker !== null) {
     return { pushed: false, reason: blocker }
+  }
+  // the robot the start replaces lands nothing once the push cancels it: the branches it held are pushed too
+  const isHeld = (name: string): boolean => {
+    const hold = getPushHold(name)
+    return hold !== null && hold.robot.id !== options.replacesRobot?.id
   }
   let reason: string | null = null
   let canceled = false
@@ -579,34 +586,4 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
   return canceled
     ? { pushed: false, reason: `Canceled the push of ${branchName} before it started`, canceled: true }
     : { pushed: false, reason: reason ?? `The remote branch of ${branchName} changed: nothing was pushed` }
-}
-
-/**
- * Why the push an action needs can't be made for the user: the last sync did not build the branch or an ancestor it is
- * built on (its virtual branch is an older build, which the backend refuses to push), or the push drops commits of its
- * remote branch (someone else's work; its row asks first); null when it can
- */
-export function actionPushBlocker(branch: Branch, branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean): string | null {
-  for (const it of [branch, ...stackAncestors(branch.name, branchOf).reverse()]) {
-    // the robot of a held ancestor lands it: the branches above it are pushed, as the push button pushes them
-    if (it !== branch && isHeld(it.name)) {
-      break
-    }
-    // not "nothing to push": the action would go on with a remote branch of commits the branch may no longer have
-    if (it.hasError || it.status === "Blocked") {
-      return `${it.name} can't be pushed: ${it.statusText === "" ? "it failed to sync" : it.statusText}`
-    }
-    const action = it.remoteStatus?.action
-    if (it.remoteStatus != null && action?.kind === "force" && action.drops) {
-      const count = it.remoteStatus.commitsBehind
-      return `The remote branch of ${it.name} has ${count === 1 ? "a commit" : `${count} commits`} that ${it.name} lacks: push it from its row, which shows ${count === 1 ? "it" : "them"}`
-    }
-  }
-  return null
-}
-
-/** A Safe Push holds the branch (`getPushHold`), other than the robot a start replaces */
-export function isHeldBy(branchName: string, replaces: PatronusRobot | undefined): boolean {
-  const hold = getPushHold(branchName)
-  return hold !== null && hold.robot.id !== replaces?.id
 }

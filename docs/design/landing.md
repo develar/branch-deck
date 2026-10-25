@@ -92,7 +92,7 @@ The specs are the contract of each part:
   (row 4, "Safe Push ‹root›…", is removed). It takes the rows of its own pull request into master: its approvals, its
   draft, its wait. The reasons of its ancestors come through the rows that already hold them: a parent that doesn't
   build blocks it, a Safe Push that lands the branch holds it, and a robot that lands an ancestor is the reason of
-  `canStartRobot` that disables its start.
+  its start refusal (`domain_policy::land::start_refusal`) that disables its start.
 - **The start, not a form.** A start of a piece has nothing to ask in the usual case: the piece is the branch the
   user pressed and what it is built on. So "Safe Push" is an action (`requestSafePush`, `src/hooks/useSafePush.ts`),
   named by what it lands ("Safe Push · 3"), and one pure decision (`getSafePushDecision`,
@@ -259,8 +259,8 @@ The whole stack is an object of its own in the app, beside its branches, named "
   `offersPushUpTo`: no push arrow and no item in the menu of the commit). Once every branch of
   a stack landed, its stack branch is held too: it carries only commits that are in master, so Push with Children, the
   island's push, `pushWholeStack` and `bd push <root> --with-children` leave it and say who landed the stack ("Landed in
-  master with deploy and side-test: nothing of it is left to push", `getStackBranchHoldReason`), and a failed robot of
-  the whole stack restarts no more (`checkStackRobotRestart`).
+  master with deploy and side-test: nothing of it is left to push", `domain_policy::holds::stack_branch_hold`), and a
+  failed robot of the whole stack restarts no more (`domain_policy::land::restart_refusal`).
 - **Landed by content.** A change below the commit the robot took (a new commit or an amend of a branch it is built
   on, a reword; for the whole stack any change of a branch of it, which rebuilds the stack branch) makes new copies, so
   the hashes no longer tell. Then the content does: the commits the robot tested against each branch as the table has

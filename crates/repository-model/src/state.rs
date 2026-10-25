@@ -170,6 +170,7 @@ fn patronus_change(last: &PatronusPart, now: &PatronusPart) -> Option<PatronusCh
     branches,
     stacks,
     landed_by_robot: changed(&last.view.landed_by_robot, &now.view.landed_by_robot),
+    restarts: changed(&last.view.restarts, &now.view.restarts),
     removed_branches,
     removed_stacks,
   };

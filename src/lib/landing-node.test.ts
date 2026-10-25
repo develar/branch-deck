@@ -4,10 +4,10 @@ import type { ReviewReadiness } from "@/lib/bindings"
 import type { NextStepFacts } from "@/lib/branch-next-step"
 import type { LandingNodeFacts } from "@/lib/landing-node"
 import { getLandingNode } from "@/lib/landing-node"
-import { formatLandingWait } from "@/lib/patronus"
 import type { FoundMove } from "@/lib/running-move"
 import { chip, facts, finished, group, missing, openPullRequest, restart, withReadiness } from "@/lib/test-next-step-facts"
 import { testRobot } from "@/lib/test-robot"
+import { formatLandingWait } from "@/presenters/reasons"
 
 const approved: ReviewReadiness = { kind: "approved", groups: [{ name: "IJPL Code Platform", approvedBy: [] }] }
 

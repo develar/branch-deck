@@ -136,7 +136,7 @@ its row.
 ### Safe Push
 
 - S and "Safe Push" in the footer must ask the start of the shown branch as its row does (`requestSafePush`), when that
-  button is enabled: Patronus answers, the branch has a push, `canStartRobot`, no inline action runs on the row. The
+  button is enabled: Patronus answers, the branch has a push, its start is not refused (`landing.start`), no inline action runs on the row. The
   preview closes first: the start is the row's, its popover opens at the row's slot (`useClosePreview`). S always opens
   the popover; the button starts at once when there is nothing to say, else opens it
   ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). Otherwise the button stays, disabled, its hover

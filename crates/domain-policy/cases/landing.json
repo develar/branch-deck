@@ -428,9 +428,9 @@
   {
     "id": "dry-run-while-a-safe-push-of-a-child-lands-the-branch",
     "group": "landing",
-    "title": "a Dry Run of login while the Safe Push of session, built on it, runs: the dry run is not held by the robot that lands login, but the app holds its push; bd pushes login and starts",
+    "title": "a Dry Run of login while the Safe Push of session, built on it, runs: its push would go into what that Safe Push lands and fail it at the end, so both refuse the dry run while it pushes (D15, closed)",
     "spec": ["spec/branch/next-step.spec.md#the-table", "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D15",
+    "discrepancy": null,
     "given": {
       "mode": "dryRun",
       "branch": "login",
@@ -444,7 +444,7 @@
       "step": {
         "kind": "none",
         "safePushBlocker": "A Safe Push of session is running: it lands 1 commit of login with it",
-        "dryRunBlocker": null
+        "dryRunBlocker": "A Safe Push of session is running: it lands 1 commit of login with it"
       },
       "decision": {
         "kind": "refuse",
@@ -453,12 +453,9 @@
     },
     "bd": {
       "check": {
-        "refusals": [],
+        "refusals": ["robot_running"],
         "push_needed": true,
         "lands": ["auth", "login"]
-      },
-      "start": {
-        "started_via": "api"
       }
     }
   },

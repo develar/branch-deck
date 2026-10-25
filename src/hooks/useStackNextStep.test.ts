@@ -1,7 +1,7 @@
 // @spec spec/branch/next-step.spec.md
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { getStackNextStepNow, readinessKeysNeedingAnswer } from "@/hooks/useStackNextStep"
-import type { BranchPatronus, MissingReviewGroup, PatronusRobot, PatronusView, PullRequest, ReviewReadiness } from "@/lib/bindings"
+import type { BranchPatronus, MissingReviewGroup, PatronusRobot, PatronusView, PullRequest, Reason, ReviewReadiness } from "@/lib/bindings"
 import { robotsById, testRobot } from "@/lib/test-robot"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
@@ -10,7 +10,7 @@ import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
 import { reviewReadinessStore } from "@/stores/review-readiness"
 import { forcePush, placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
-import { branchFacts, landedWhole, robotOf, testPatronusRepository } from "@/test-support/patronus-repository"
+import { branchFacts, landedWhole, robotOf, stackFacts, testPatronusRepository } from "@/test-support/patronus-repository"
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 
@@ -67,7 +67,7 @@ function setRobotsAndView(robots: readonly PatronusRobot[], view: Partial<Patron
   patronusStore.setState({
     repositories: {
       [KEY]: {
-        ...testPatronusRepository(robotsById(...robots), view === null ? null : { branches: {}, stacks: {}, landedByRobot: {}, ...view }),
+        ...testPatronusRepository(robotsById(...robots), view === null ? null : { branches: {}, stacks: {}, landedByRobot: {}, restarts: {}, ...view }),
         needsReview: Object.fromEntries(robots.filter(robot => robot.status === "failure").map(robot => [robot.id, false])),
       },
     },
@@ -172,6 +172,16 @@ describe("the next step of the whole stack", () => {
 
   it("is disabled with the reason of a stack branch the sync didn't build, for a Dry Run too: the stack lands in pieces", () => {
     setStack(stackBranch({ state: "Conflict", conflict: { commit: "0123456789abcdef", files: ["config.js"] } }))
+    // as Rust refuses the start of a stack branch the sync didn't build (`StackLanding`)
+    const conflict: Reason = {
+      code: "stackNotBuilt",
+      root: "air",
+      state: "Conflict",
+      blockedBy: null,
+      conflict: { commit: "0123456789abcdef", files: ["config.js"] },
+      error: null,
+    }
+    setRobotsAndView([], { stacks: { air: stackFacts({ landing: { start: conflict, dryRun: conflict } }) } })
     const reason = "The stack branch conflicts at 01234567 in config.js: the stack lands in pieces"
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       kind: "safePush",
@@ -181,13 +191,15 @@ describe("the next step of the whole stack", () => {
       notice: { title: "Safe Push of the whole air stack can't start", description: reason },
     })
     setStack(stackBranch({ state: "Blocked", blockedBy: { member: "side", reason: "Conflict" } }))
+    const blocked: Reason = { code: "stackNotBuilt", root: "air", state: "Blocked", blockedBy: "side", conflict: null, error: null }
+    setRobotsAndView([], { stacks: { air: stackFacts({ landing: { start: blocked, dryRun: blocked } }) } })
     expect(getStackNextStepNow("air")?.step.safePushBlocker).toBe("Blocked by side: fix it first, then sync")
   })
 
   it("waits for the robot of a branch of the stack, which lands a part of it; a Dry Run doesn't", () => {
     const landing = { branch: "bazel", robotId: "r1", wholeStack: false }
     setRobotsAndView([testRobot("r1", "bazel")], {
-      stacks: { air: { robotId: null, landingMember: landing, holdRobotId: null, startBlocked: false, start: { kind: "ancestor", landing }, dryRun: null } },
+      stacks: { air: stackFacts({ landingMember: landing, landing: { start: { code: "ancestor", landing, mode: "rebaseAutosquash" } } }) },
     })
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       safePushBlocker: "A Safe Push of bazel is running: wait until it merges",
@@ -199,13 +211,14 @@ describe("the next step of the whole stack", () => {
     const chain = branches.slice(0, 3)
     setStack(null, chain)
     const failed = testRobot("d1", "deploy", { status: "failure", finishTime: 100 })
-    setRobots(failed)
+    // Rust offers its restart (`PatronusView.restarts`)
+    setRobotsAndView([failed], { restarts: { d1: { action: "restart", refusal: null } } })
     // the robot of the last branch failed on the chain as it is: the user restarts it
     expect(getStackNextStepNow("air")?.step.kind).toBe("restart")
     // then a Safe Push of air started: it lands a part of the chain, the failure waits for it
     const landing = { branch: "air", robotId: "a1", wholeStack: false }
     setRobotsAndView([failed, testRobot("a1", "air", { startTime: 1704189600 })], {
-      branches: { deploy: branchFacts({ landingAncestor: landing, start: { kind: "ancestor", landing } }) },
+      branches: { deploy: branchFacts({ landingAncestor: landing, landing: { start: { code: "ancestor", landing, mode: "rebaseAutosquash" } } }) },
     })
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       kind: "safePush",

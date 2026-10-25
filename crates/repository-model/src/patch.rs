@@ -248,6 +248,7 @@ fn apply_patronus_change(part: &mut PatronusPart, change: PatronusChange) {
     branches,
     stacks,
     landed_by_robot,
+    restarts,
     removed_branches,
     removed_stacks,
   } = change;
@@ -263,6 +264,7 @@ fn apply_patronus_change(part: &mut PatronusPart, change: PatronusChange) {
   }
   view.stacks.extend(stacks);
   set_if_some(&mut view.landed_by_robot, landed_by_robot);
+  set_if_some(&mut view.restarts, restarts);
 }
 
 /// The pull requests after a patch: its head when it names one, the pull requests it names replace theirs, those it

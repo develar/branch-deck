@@ -1,22 +1,17 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, Reason, RobotRestart } from "@/lib/bindings"
 import { FROM_MENU } from "@/lib/menu"
 import { getRobotActions } from "@/lib/patronus-actions"
-import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import type { Branch } from "@/stores/branch-sync"
 import { getOperations } from "@/stores/operations"
 import { PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 
-const { calls, landing, stacks } = vi.hoisted(() => ({
+const { calls, restarts } = vi.hoisted(() => ({
   /** What reached Patronus and the push, in order */
   calls: [] as string[],
-  /**
-   * The robot that lands an ancestor of the branch, the robot of a branch built on it that lands it, who landed a branch
-   * (`getLandedBy`) and why every branch of a stack landed (`getStackLandedReason`), by name
-   */
-  landing: { ancestor: null as unknown, span: null as unknown, by: {} as Record<string, unknown>, stack: {} as Record<string, string> },
-  /** The stack branches the sync built, by root */
-  stacks: new Map<string, unknown>(),
+  /** The restart each robot offers, as Rust decides it of the view (`PatronusView.restarts`), by robot id */
+  restarts: new Map<string, RobotRestart>(),
 }))
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }))
@@ -33,15 +28,10 @@ vi.mock("@/lib/git/stack-push", () => ({
     calls.push(`push the whole ${root} stack, restart ${options.restartRobot?.id}`)
   },
 }))
-vi.mock("@/stores/branch-sync", async importOriginal => ({ ...(await importOriginal()), getStackBranch: (root: string) => stacks.get(root) }))
 vi.mock("@/stores/patronus", () => ({
   isRobotNeedingReview: () => false,
   isRobotFailing: () => false,
-  getLandingAncestor: () => landing.ancestor,
-  getLandingSpan: () => landing.span,
-  getLandedBy: (name: string) => landing.by[name] ?? null,
-  getStackLandedReason: (root: string) => landing.stack[root] ?? null,
-  getStackLandingMember: () => null,
+  getRobotRestart: (id: string) => restarts.get(id) ?? null,
   restartPatronusRobot: async (robot: PatronusRobot) => {
     calls.push(`restart ${robot.id}`)
     return robot
@@ -69,15 +59,11 @@ function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   }
 }
 
-/** IJPL-1 at the commit `local` */
-function branch(overrides: Partial<Branch>): Branch {
-  return testBranch("IJPL-1", null, { commits: [{ hash: "local" } as Branch["commits"][number]], ...overrides })
-}
-
-/** The remote has the commit the branch is at, pushed since the robot took `tip` */
-const pushedSince = testRemoteStatus({ remoteTip: "local" })
-/** The remote is at the commit the robot took, the branch has a commit more */
-const unpushed = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
+/** IJPL-1 at the commit `local`, its remote at the commit the robot took, a commit behind */
+const ROW: Branch = testBranch("IJPL-1", null, {
+  commits: [{ hash: "local" } as Branch["commits"][number]],
+  remoteStatus: testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH }),
+})
 
 /** The prompts of a failed or failing robot, before "Open in Patronus" */
 const PROMPTS = ["Copy Prompt for Agent", "Copy Prompt with CI Details"]
@@ -86,29 +72,14 @@ function labels(subject: PatronusRobot, of: Branch | null, needsReview?: boolean
   return getRobotActions(subject, of, needsReview, failing).map(it => (it.disabled === true ? `${it.label} (disabled: ${it.description})` : it.label))
 }
 
-/** The stack branch of the whole air stack, built at `stack-local`, the remote at `stack-tip`, where its robot ran */
-function airStack(remoteStatus: RemoteStatus): StackBranch {
-  return {
-    root: "air",
-    branchName: "user/stack/air",
-    members: ["air", "bazel", "side-fix"],
-    commitCount: 3,
-    state: "Built",
-    tip: "stack-local",
-    blockedBy: null,
-    conflict: null,
-    error: null,
-    remoteStatus,
-  }
+/** The robot `id` offers `action`, refused by `refusal` */
+function offers(id: string, action: RobotRestart["action"], refusal: Reason | null = null): void {
+  restarts.set(id, { action, refusal })
 }
 
 beforeEach(() => {
   calls.length = 0
-  landing.ancestor = null
-  landing.span = null
-  landing.by = {}
-  landing.stack = {}
-  stacks.clear()
+  restarts.clear()
   vi.mocked(openUrl).mockClear()
 })
 
@@ -116,76 +87,68 @@ beforeEach(() => {
 afterEach(() => vi.waitFor(() => expect(getOperations()).toEqual([])))
 
 describe("getRobotActions", () => {
-  it("restarts a failed robot, pushing first while the branch has work the remote lacks, and not for a blocked branch", async () => {
+  it("restarts a failed robot as Rust offers it, pushing first while the branch has work the remote lacks, disabled with the reason of a refusal", async () => {
     const failed = robot({})
-    expect(labels(failed, branch({ remoteStatus: pushedSince }))).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
-    expect(labels(failed, branch({ remoteStatus: unpushed }))).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
-    expect(labels(robot({ pushMode: "dryRun" }), branch({ remoteStatus: unpushed }))).toEqual(["Restart Dry Run", ...PROMPTS, "Open in Patronus"])
-    const blocked = branch({ remoteStatus: unpushed, status: "Blocked", stack: { ...testBranch("IJPL-1", "auth").stack!, blockedBy: { parent: "auth", reason: "Conflict" } } })
-    expect(labels(failed, blocked)[0]).toMatch(/^Restart Safe Push \(disabled: .+\)$/)
+    offers("r1", "restart")
+    expect(labels(failed, ROW)).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
+    offers("r1", "pushAndRestart")
+    expect(labels(failed, ROW)).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
+    offers("dry", "pushAndRestart")
+    expect(labels(robot({ id: "dry", pushMode: "dryRun" }), ROW)).toEqual(["Restart Dry Run", ...PROMPTS, "Open in Patronus"])
+    offers("r1", "restart", { code: "blocked", branch: "IJPL-1", by: "auth" })
+    expect(labels(failed, ROW)[0]).toBe("Restart Safe Push (disabled: Blocked by auth: fix it first, then sync)")
 
-    const [restart] = getRobotActions(failed, branch({ remoteStatus: pushedSince }))
+    offers("r1", "restart")
+    const [restart] = getRobotActions(failed, ROW)
     restart!.onSelect(FROM_MENU)
     // one restart of a robot at a time: the push and restart waits while the restart runs
-    expect(getRobotActions(failed, branch({ remoteStatus: unpushed }))[0]).toMatchObject({ disabled: true, description: "Restarting the Safe Push…" })
+    offers("r1", "pushAndRestart")
+    expect(getRobotActions(failed, ROW)[0]).toMatchObject({ disabled: true, description: "Restarting the Safe Push…" })
     await vi.waitFor(() => expect(getOperations()).toEqual([]))
-    const [pushAndRestart] = getRobotActions(failed, branch({ remoteStatus: unpushed }))
+    const [pushAndRestart] = getRobotActions(failed, ROW)
     pushAndRestart!.onSelect(FROM_MENU)
-    expect(getRobotActions(failed, branch({ remoteStatus: unpushed }))[0]).toMatchObject({ running: true, description: "Pushing and restarting the Safe Push…" })
+    expect(getRobotActions(failed, ROW)[0]).toMatchObject({ running: true, description: "Pushing and restarting the Safe Push…" })
     // the restart takes the commit just pushed, and its toast is the one of the action
     await vi.waitFor(() => expect(calls).toEqual(["restart r1", "push IJPL-1, restart r1, announce false"]))
   })
 
   it("pushes and restarts a running robot of a branch changed since: it cancels it first", async () => {
     const running = robot({ status: "running", finishTime: null })
-    const actions = getRobotActions(running, branch({ remoteStatus: unpushed }))
+    offers("r1", "pushAndRestart")
+    const actions = getRobotActions(running, ROW)
     expect(actions.map(it => it.id)).toEqual(["push-and-restart-robot", "cancel-robot", "open-robot"])
     expect(actions[0]!.description).toMatch(/^Cancels the run on .+, pushes IJPL-1 and starts it again on the pushed commit$/)
     actions[0]!.onSelect(FROM_MENU)
     await vi.waitFor(() => expect(calls).toEqual(["push IJPL-1, restart r1, announce false"]))
   })
 
-  it("waits for a robot that lands an ancestor of the branch, as a start does; a dry run lands nothing and needn't", () => {
-    landing.ancestor = { branch: "auth", robot: robot({ id: "auth-run", status: "running", finishTime: null, branchName: "auth" }) }
-    expect(labels(robot({}), branch({ remoteStatus: pushedSince }))[0]).toBe("Restart Safe Push (disabled: A Safe Push of auth is running: wait until it merges)")
-    expect(labels(robot({ pushMode: "dryRun" }), branch({ remoteStatus: pushedSince }))[0]).toBe("Restart Dry Run")
+  it("says why a restart waits: a robot that lands an ancestor, a merged Safe Push that landed the branch whole", () => {
+    offers("r1", "restart", { code: "ancestor", landing: { branch: "auth", robotId: "auth-run", wholeStack: false }, mode: "rebaseAutosquash" })
+    expect(labels(robot({}), ROW)[0]).toBe("Restart Safe Push (disabled: A Safe Push of auth is running: wait until it merges)")
+    offers("r1", "pushAndRestart", { code: "landed", branch: "IJPL-1", by: { branch: "oauth", robotId: "oauth-run", wholeStack: false }, own: false, target: "master" })
+    expect(labels(robot({}), ROW)[0]).toBe("Restart Safe Push (disabled: Landed in master with oauth)")
   })
 
-  it("refuses the restart of a branch a merged Safe Push landed whole, a Dry Run too, and restarts one with commits after the landed ones", () => {
-    const merged = robot({ id: "oauth-run", branchName: "oauth", status: "success" })
-    landing.by["IJPL-1"] = { branch: "oauth", robot: merged, wholeStack: false, own: false, after: [] }
-    const reason = "Landed in master with oauth"
-    expect(labels(robot({}), branch({ remoteStatus: pushedSince }))[0]).toBe(`Restart Safe Push (disabled: ${reason})`)
-    expect(labels(robot({}), branch({ remoteStatus: unpushed }))[0]).toBe(`Restart Safe Push (disabled: ${reason})`)
-    expect(labels(robot({ pushMode: "dryRun" }), branch({ remoteStatus: pushedSince }))[0]).toBe(`Restart Dry Run (disabled: ${reason})`)
-    // a commit added after the landed ones is what is left: the restart lands it
-    landing.by["IJPL-1"] = { branch: "oauth", robot: merged, wholeStack: false, own: false, after: ["local"] }
-    expect(labels(robot({}), branch({ remoteStatus: unpushed }))[0]).toBe("Restart Safe Push")
-  })
-
-  it("restarts the robot of the whole stack on its stack branch, refused once merged Safe Pushes landed every branch of it, a Dry Run too", async () => {
+  it("restarts the robot of the whole stack on its stack branch, pushed first, refused once merged Safe Pushes landed every branch of it", async () => {
     const whole = robot({ id: "whole", branchName: null, stackRoot: "air", sourceRevision: "stack-tip" })
-    stacks.set("air", airStack(testRemoteStatus({ remoteTip: "stack-local" })))
+    offers("whole", "restart")
     expect(labels(whole, null)).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
-    stacks.set("air", airStack(testRemoteStatus({ remoteTip: "stack-tip", unpushedCommits: ["s1"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })))
+    offers("whole", "pushAndRestart")
     const [pushAndRestart] = getRobotActions(whole, null)
     expect(pushAndRestart!.id).toBe("push-and-restart-robot")
     pushAndRestart!.onSelect(FROM_MENU)
     await vi.waitFor(() => expect(calls).toEqual(["push the whole air stack, restart whole"]))
     await vi.waitFor(() => expect(getOperations()).toEqual([]))
 
-    // the Safe Pushes of deploy and side-test landed all of it: nothing of it is left to restart, with or without a push
-    const reason = "Landed in master with deploy and side-test"
-    landing.stack.air = reason
-    expect(labels(whole, null)[0]).toBe(`Restart Safe Push (disabled: ${reason})`)
-    expect(labels(robot({ id: "dry", branchName: null, stackRoot: "air", pushMode: "dryRun", sourceRevision: "stack-tip" }), null)[0]).toBe(`Restart Dry Run (disabled: ${reason})`)
-    stacks.set("air", airStack(testRemoteStatus({ remoteTip: "stack-local" })))
-    expect(labels(whole, null)[0]).toBe(`Restart Safe Push (disabled: ${reason})`)
+    // the Safe Pushes of deploy and side-test landed all of it: nothing of it is left to restart
+    const landedBy = ["deploy", "side-test"].map(branch => ({ branch, robotId: branch, wholeStack: false }))
+    offers("whole", "restart", { code: "stackLanded", root: "air", by: landedBy, own: false, target: "master" })
+    expect(labels(whole, null)[0]).toBe("Restart Safe Push (disabled: Landed in master with deploy and side-test)")
   })
 
   it("cancels a running robot, and opens it in Patronus and the pull request it was started from", async () => {
     const running = robot({ status: "running", finishTime: null, pullRequest: { number: 12, url: "https://github.com/acme/monorepo/pull/12" } })
-    const actions = getRobotActions(running, branch({ remoteStatus: pushedSince }))
+    const actions = getRobotActions(running, ROW)
     expect(actions.map(it => [it.id, it.label])).toEqual([
       ["cancel-robot", "Cancel Safe Push"],
       ["open-robot", "Open in Patronus"],
@@ -198,20 +161,12 @@ describe("getRobotActions", () => {
     expect(vi.mocked(openUrl).mock.calls.map(([url]) => url)).toEqual(["https://patronus/robot/r1", "https://github.com/acme/monorepo/pull/12"])
   })
 
-  it("offers the prompt for an agent for a failed robot and for a running one whose required check failed", () => {
+  it("offers the prompt for an agent for a failed robot and for a running one whose required check failed, none for missing approvals", () => {
     const running = robot({ status: "running", finishTime: null })
-    expect(labels(running, branch({ remoteStatus: pushedSince }), false, true)).toEqual(["Cancel Safe Push", ...PROMPTS, "Open in Patronus"])
-    expect(labels(running, branch({ remoteStatus: pushedSince }), false, false)).toEqual(["Cancel Safe Push", "Open in Patronus"])
-    expect(labels(robot({ status: "canceled" }), null)).toEqual(["Restart Safe Push", "Open in Patronus"])
-  })
-
-  it("restarts the robot of a branch without a row on its remote branch, never a robot of a temporary ref or one that waits for approvals in a merge request", () => {
-    expect(labels(robot({}), null)).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
-    expect(labels(robot({ branchName: null }), null)).toEqual([...PROMPTS, "Open in Patronus"])
-    expect(labels(robot({ branchName: null }), branch({ remoteStatus: pushedSince }))).toEqual([...PROMPTS, "Open in Patronus"])
-    // a restart has no pull request to count the approvals in; no code to fix either
-    expect(labels(robot({}), branch({ remoteStatus: pushedSince }), true)).toEqual(["Open in Patronus"])
-    // a merged robot is done
-    expect(labels(robot({ status: "success" }), branch({ remoteStatus: pushedSince }))).toEqual(["Open in Patronus"])
+    expect(labels(running, ROW, false, true)).toEqual(["Cancel Safe Push", ...PROMPTS, "Open in Patronus"])
+    expect(labels(running, ROW, false, false)).toEqual(["Cancel Safe Push", "Open in Patronus"])
+    // a restart Rust doesn't offer (a robot of a temporary ref, one that waits for approvals in a merge request) is none
+    expect(labels(robot({}), ROW, true)).toEqual(["Open in Patronus"])
+    expect(labels(robot({ status: "success" }), ROW)).toEqual(["Open in Patronus"])
   })
 })

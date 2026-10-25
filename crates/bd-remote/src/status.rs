@@ -483,7 +483,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
             let full_name = to_final_branch_name(&context.prefix, &branch.name).unwrap_or_default();
             let fact = RemoteFact {
               remote_tip: grouping.remote_tips.get(&full_name).cloned(),
-              up_to_date: false,
+              ..RemoteFact::default()
             };
             (branch.name.clone(), fact)
           })

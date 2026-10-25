@@ -1171,7 +1171,7 @@
     "app": {
       "step": {
         "kind": "safePush",
-        "safePushBlocker": "The stack branch conflicts at 0caf9066 in config.txt: the stack lands in pieces"
+        "safePushBlocker": "The stack branch conflicts at session- in config.txt: the stack lands in pieces"
       }
     },
     "bd": {

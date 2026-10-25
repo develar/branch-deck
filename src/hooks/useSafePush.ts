@@ -11,18 +11,7 @@ import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { FROM_MENU } from "@/lib/menu"
 import type { BypassProfiles, PullRequestStart } from "@/lib/patronus"
-import {
-  allowsPushMode,
-  withLastRobotProfile,
-  formatPushHoldReason,
-  formatPushMode,
-  getBypassProfiles,
-  getPullRequestStart,
-  getStartPush,
-  isLandedWhole,
-  isStartBlocked,
-  openRobot,
-} from "@/lib/patronus"
+import { allowsPushMode, withLastRobotProfile, formatPushMode, getBypassProfiles, getPullRequestStart, getStartPush, isLandedWhole, openRobot } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import type { DismissFact, ReviewFact, SafePushDecision, SafePushFacts, StartOptionsFact } from "@/lib/safe-push-decision"
 import { getSafePushDecision } from "@/lib/safe-push-decision"
@@ -33,6 +22,7 @@ import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
+import { formatPushHoldReason } from "@/presenters/reasons"
 import { branchSyncStore, getBranch, getStackBranch, getStackBranchOf, getStackIslandRoots, mainLineOf, structureIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import {
@@ -41,7 +31,9 @@ import {
   getLandedBy,
   getLandingNeeds,
   getPatronusGitHubRepository,
+  getBranchLanding,
   getPushHold,
+  getStackLanding,
   getStackPushHold,
   getStackRobot,
   getStartProfiles,
@@ -270,7 +262,8 @@ export function readSafePush(branchName: string, ask: Omit<SafePushRequest, "pla
   const remoteStatus = branch.remoteStatus
   // a Safe Push of the branch running on an older commit: the start replaces it, the push before it cancels it
   const hold = getPushHold(branchName)
-  const replaces = mode === "rebaseAutosquash" && hold?.kind === "own" && !isStartBlocked(hold.robot, localTip, remoteStatus) ? hold.robot : null
+  const replaced = getBranchLanding(branchName).replaces
+  const replaces = mode === "rebaseAutosquash" && hold !== null && hold.robot.id === replaced ? hold.robot : null
   const isHeld = (name: string): boolean => {
     const it = getPushHold(name)
     return it !== null && it.robot.id !== replaces?.id
@@ -375,7 +368,8 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
   const remoteStatus = stack.remoteStatus
   // the robot of the whole stack running on an older stack branch: the start replaces it, its push cancels it
   const hold = getStackPushHold(root)
-  const replaces = mode === "rebaseAutosquash" && hold !== null && !isStartBlocked(hold.robot, tip, remoteStatus) ? hold.robot : null
+  const replaced = getStackLanding(root).replaces
+  const replaces = mode === "rebaseAutosquash" && hold !== null && hold.robot.id === replaced ? hold.robot : null
   const startPush = getStartPush(remoteStatus?.action ?? null, false)
   const needsPush = startPush.kind === "branch"
   const step = getBranchNextStep(stackFactsOf(stack, { forStart: true }))

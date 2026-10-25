@@ -4,13 +4,21 @@
 //! by tables of its own:
 //!
 //! - `facts`: the input of the rules, the branch table as they read it (`Repository`), borrowed from the view of a
-//!   session or from the grouped branches of a sync
+//!   session or from the grouped branches of a sync, the robots of the user by id (`Robots`) and what is known of a
+//!   remote branch (`RemoteBranch`)
+//! - `holds`: what holds the push of a branch (`branch_hold`: landed, its own Safe Push, one that lands it) and of the
+//!   stack branch of a whole stack (`stack_branch_hold`), the push an action can't make for the user (`push_blocker`),
+//!   and what a restart of a robot does (`restart_action`)
+//! - `land`: why a Safe Push or a Dry Run of a branch or a whole stack can't start (`start_refusal`: blocked, a robot on
+//!   the last commit, one that lands it or a part of it, the hold of the push of a Dry Run), and a restart
+//!   (`restart_refusal`)
 //! - `landing_needs`: the running Safe Push a missing declaration of the landing needs names (`name_landing_robots`)
 //! - `parked`: why a branch stays local (`parked_state`: its own line, or a parked branch it is built on), and the
 //!   parked member that keeps a stack branch local (`whole_stack_parked`)
 //! - `push`: what a push of a branch does to its remote branch (`action`: create, push, force, up to date), whether it
 //!   has work, replaces older versions or drops remote commits, and whether a push over a remote that moved goes again
 //!   (`over_moved_remote`)
+//! - `reasons`: the reasons the rules give (`domain_types::reason::Reason`), with the facts their words need
 //! - `readiness`: the pull request a Safe Push would start from (`start_pull_request`), when an answer of the review
 //!   readiness is the news that approvals arrived (`approval_news`), and whether a subject waits for them
 //!   (`awaits_approval`)
@@ -23,14 +31,21 @@
 //!   effective base, the children and the descendants, the main line
 
 pub mod facts;
+pub mod holds;
+pub mod land;
 pub mod landing_needs;
 pub mod parked;
 pub mod push;
 pub mod readiness;
+pub mod reasons;
 pub mod refresh;
 pub mod robot_match;
 pub mod stack;
 
+#[cfg(test)]
+mod holds_test;
+#[cfg(test)]
+mod land_test;
 #[cfg(test)]
 mod landing_needs_test;
 #[cfg(test)]
@@ -39,6 +54,8 @@ mod parked_test;
 mod push_test;
 #[cfg(test)]
 mod readiness_test;
+#[cfg(test)]
+mod reason_catalog_test;
 #[cfg(test)]
 mod refresh_test;
 #[cfg(test)]

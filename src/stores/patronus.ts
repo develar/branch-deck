@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type {
+  BranchLanding,
   Fact,
   FactState,
   LandingAllowances,
@@ -18,8 +19,10 @@ import type {
   PullRequestStartBranch,
   RepositoryView,
   RobotOf,
+  RobotRestart,
   RobotsChange,
   RobotsView,
+  StackLanding,
   TableChanges,
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
@@ -30,7 +33,7 @@ import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-st
 import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
-import { formatLandedWholeReason, formatMergedRobotTitle, formatPushMode, formatStackPushHoldReason, isHoldingRobot, isLandedWhole, isRobotActive } from "@/lib/patronus"
+import { formatLandedWholeReason, formatMergedRobotTitle, formatPushMode, isHoldingRobot, isLandedWhole, isRobotActive } from "@/lib/patronus"
 import { withoutKeys } from "@/lib/record"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
@@ -313,7 +316,7 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
     if (facts.landingAncestor !== null && ancestorRobot !== undefined && isRobotActive(ancestorRobot)) {
       ancestors.set(name, by(facts.landingAncestor, ancestorRobot))
     }
-    const hold = facts.hold
+    const hold = facts.landing.hold
     const holdRobot = hold === null ? undefined : robotOf(hold.by.robotId)
     if (hold !== null && holdRobot !== undefined && (hold.kind === "landed" ? holdRobot.status === "success" : isHoldingRobot(holdRobot))) {
       const commits = hold.carried?.commits.length
@@ -327,7 +330,8 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
     if (facts.landingMember !== null && memberRobot !== undefined && isRobotActive(memberRobot)) {
       members.set(root, by(facts.landingMember, memberRobot))
     }
-    const stackRobot = facts.holdRobotId === null ? undefined : robotOf(facts.holdRobotId)
+    const stackHold = facts.landing.hold
+    const stackRobot = stackHold?.code === "stackHeld" ? robotOf(stackHold.robotId) : undefined
     if (stackRobot !== undefined && isHoldingRobot(stackRobot)) {
       stackHolds.set(root, { kind: "own", branch: root, robot: stackRobot, wholeStack: true })
     }
@@ -486,38 +490,59 @@ function stackLandedIn(landed: ReadonlyMap<string, LandedBy>, state: BranchSyncS
   )
 }
 
+const NO_BRANCH_LANDING: BranchLanding = { hold: null, start: null, dryRun: null, replaces: null, push: null }
+const NO_STACK_LANDING: StackLanding = { hold: null, start: null, dryRun: null, replaces: null }
+
+function branchLandingIn(repository: RepositoryPatronus | undefined, branchName: string): BranchLanding {
+  return repository?.view?.branches[branchName]?.landing ?? NO_BRANCH_LANDING
+}
+
+function stackLandingIn(repository: RepositoryPatronus | undefined, root: string): StackLanding {
+  return repository?.view?.stacks[root]?.landing ?? NO_STACK_LANDING
+}
+
 /**
- * Why the stack branch of the whole stack of `root` is not pushed (`StackBranchAlong` `held`): merged Safe Pushes landed
- * every branch of the stack whole, so it carries only commits that are in the target ("Landed in master with deploy and
- * side-test: nothing of it is left to push", `getStackLandedReason`); or its own robot runs and pushes into the target,
- * which a push of it would fail at the end (`formatStackPushHoldReason`). Null while neither holds it.
+ * What the rules decide of the branch over its Patronus facts (`BranchLanding`, `domain_policy::holds` and `land`): what
+ * holds its push, why its Safe Push or Dry Run can't start, the robot a Safe Push start replaces, why the push an action
+ * needs can't be made; nothing before the session derived a view
  */
-export function useStackBranchHoldReason(root: string): string | null {
-  const facts = useRepositoryFacts()
-  return useBranchSync(state => stackBranchHoldReasonIn(facts, state, root))
+export function useBranchLanding(branchName: string): BranchLanding {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => branchLandingIn(state.repositories[key], branchName))
 }
 
-/** Non-hook variant of `useStackBranchHoldReason`, for menus built on open and the push itself */
-export function getStackBranchHoldReason(root: string): string | null {
-  return stackBranchHoldReasonIn(currentFacts(), branchSyncStore.getState(), root)
+/** Non-hook variant of `useBranchLanding`, for menus built on open, the next step and the push itself */
+export function getBranchLanding(branchName: string): BranchLanding {
+  return branchLandingIn(currentRepository(), branchName)
 }
 
-function stackBranchHoldReasonIn(facts: PatronusFacts, state: BranchSyncState, root: string): string | null {
-  const stack = state.stackBranches[root]
-  if (stack === undefined || stack.members.length === 0) {
-    return null
-  }
-  // the stack branch holds the commits of every member: a parked one keeps it local
-  const parked = stack.members.find(member => state.parked[member] !== undefined)
-  if (parked !== undefined) {
-    return `It holds parked ${parked}: land the stack in pieces`
-  }
-  const landed = stackLandedIn(facts.landed, state, root)
-  if (landed !== null) {
-    return `${landed}: nothing of it is left to push`
-  }
-  const hold = facts.stackHolds.get(root)
-  return hold === undefined ? null : formatStackPushHoldReason(root, hold.robot)
+/**
+ * What the rules decide of the whole stack of `root` (`StackLanding`): what holds the push of its stack branch (a
+ * parked member, every branch landed, its own robot, a build the sync did not make), why its starts can't, the robot a
+ * Safe Push start replaces
+ */
+export function useStackLanding(root: string): StackLanding {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => stackLandingIn(state.repositories[key], root))
+}
+
+/** Non-hook variant of `useStackLanding`, for menus built on open and the push itself */
+export function getStackLanding(root: string): StackLanding {
+  return stackLandingIn(currentRepository(), root)
+}
+
+/**
+ * The restart a robot of the user offers (`RobotRestart`, `domain_policy::holds::restart_action`): a restart, one that
+ * pushes first, and why it can't start now; null for none
+ */
+export function useRobotRestart(robotId: string | undefined): RobotRestart | null {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => (robotId === undefined ? null : (state.repositories[key]?.view?.restarts[robotId] ?? null)))
+}
+
+/** Non-hook variant of `useRobotRestart`, for menus built on open */
+export function getRobotRestart(robotId: string): RobotRestart | null {
+  return currentRepository()?.view?.restarts[robotId] ?? null
 }
 
 /**

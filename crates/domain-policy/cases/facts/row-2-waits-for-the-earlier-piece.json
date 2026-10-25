@@ -68,29 +68,49 @@
   "view": {
     "branches": {
       "auth": {
-        "dryRun": {"kind": "lastCommit", "robotId": "robot-1"},
-        "hold": {"by": {"branch": "auth", "robotId": "robot-1", "wholeStack": false}, "carried": null, "kind": "own"},
         "landedBy": null,
+        "landing": {
+          "dryRun": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-1"},
+          "hold": {"by": {"branch": "auth", "robotId": "robot-1", "wholeStack": false}, "carried": null, "kind": "own"},
+          "push": null,
+          "replaces": null,
+          "start": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-1"}
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": "robot-1",
-        "span": null,
-        "start": {"kind": "lastCommit", "robotId": "robot-1"},
-        "startBlocked": true
+        "span": null
       },
       "login": {
-        "dryRun": null,
-        "hold": null,
         "landedBy": null,
+        "landing": {
+          "dryRun": null,
+          "hold": null,
+          "push": null,
+          "replaces": null,
+          "start": {
+            "code": "ancestor",
+            "landing": {"branch": "auth", "robotId": "robot-1", "wholeStack": false},
+            "mode": "rebaseAutosquash"
+          }
+        },
         "landingAncestor": {"branch": "auth", "robotId": "robot-1", "wholeStack": false},
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": "older",
-        "span": null,
-        "start": {"kind": "ancestor", "landing": {"branch": "auth", "robotId": "robot-1", "wholeStack": false}},
-        "startBlocked": false
+        "span": null
       }
     },
     "landedByRobot": {},
+    "restarts": {
+      "older": {
+        "action": "pushAndRestart",
+        "refusal": {
+          "code": "ancestor",
+          "landing": {"branch": "auth", "robotId": "robot-1", "wholeStack": false},
+          "mode": "rebaseAutosquash"
+        }
+      }
+    },
     "stacks": {}
   }
 }

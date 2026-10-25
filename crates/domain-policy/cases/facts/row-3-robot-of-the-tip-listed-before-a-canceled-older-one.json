@@ -97,18 +97,16 @@
   "view": {
     "branches": {
       "auth": {
-        "dryRun": null,
-        "hold": null,
         "landedBy": null,
+        "landing": {"dryRun": null, "hold": null, "push": null, "replaces": null, "start": null},
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": "robot-0",
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       }
     },
     "landedByRobot": {},
+    "restarts": {"older": {"action": "pushAndRestart", "refusal": null}, "robot-0": {"action": "restart", "refusal": null}},
     "stacks": {}
   }
 }

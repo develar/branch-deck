@@ -14,8 +14,8 @@
 //! again) go to the one consumer that takes `events`, the scheduler of the remote facts (`remote_facts::scheduler`); its
 //! reads number themselves with `begin` and apply with `apply_facts`. Without a consumer nothing is sent.
 
-use crate::branch_table::{BranchTable, RemoteFacts};
-use crate::facts::{AppliedFacts, FactResult, FactTicket, Needs, RobotsDigest, TableFacts};
+use crate::branch_table::BranchTable;
+use crate::facts::{AppliedFacts, FactResult, FactTicket, Needs, PatronusOf, RobotsDigest, TableFacts};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
@@ -154,13 +154,12 @@ pub trait SessionHost: Send + Sync + 'static {
   /// Whether a window of `key` that gains focus syncs (the app's `autoSyncOnFocus`)
   fn syncs_on_focus(&self, key: &SessionKey) -> bool;
 
-  /// What the robots land, landed and hold of `table` (`facts::derive_patronus`) with `robots` on the remote branches
-  /// `remote`, the content the hashes and `memo` don't answer read with git. Blocking: the runtime calls it on the
-  /// blocking pool
+  /// What the robots land, landed and hold of the table of `of` (`facts::derive_patronus`), the content the hashes and
+  /// `memo` don't answer read with git. Blocking: the runtime calls it on the blocking pool
   ///
   /// # Errors
   /// Why there is no view (the E2E server fails it as a test sets)
-  fn derive_patronus(&self, key: &SessionKey, table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot], memo: &mut ContentMemo) -> Result<PatronusView, ApiError>;
+  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> Result<PatronusView, ApiError>;
 
   /// The landing needs of the current grouping of `key` with `landed`, the commits merged Safe Pushes landed
   /// (`trial_check::landing_gate::landing_needs_of`, through the host). Blocking: the runtime calls it on the blocking

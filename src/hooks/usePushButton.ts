@@ -13,7 +13,6 @@ import { landedBranchDescription } from "@/lib/landed"
 import type { ParkedState } from "@/lib/parked"
 import { formatParkedBlocker } from "@/lib/parked"
 import type { PushHold } from "@/lib/patronus"
-import { formatPushHoldReason } from "@/lib/patronus"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import { getPushColor } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
@@ -32,9 +31,10 @@ import { cutList } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import type { StackBranchAlong } from "@/lib/whole-stack"
 import { getStackBranchAlong, stackReadinessKey } from "@/lib/whole-stack"
+import { formatPushHoldReason, formatStackHold } from "@/presenters/reasons"
 import type { Branch } from "@/stores/branch-sync"
 import { getBranch, getParkedState, structureIn, useBranchSync, useIsStackBranchPushing, useParkedState, useStackBranch } from "@/stores/branch-sync"
-import { getPushHold, isPatronusAvailable, usePatronusAvailable, usePushHold, usePushHolds, useStackBranchHoldReason } from "@/stores/patronus"
+import { getPushHold, isPatronusAvailable, usePatronusAvailable, usePushHold, usePushHolds, useStackLanding } from "@/stores/patronus"
 import { getPullRequest, pullRequestsStore, usePullRequest, usePullRequestAvailability, useStackPullRequest } from "@/stores/pull-requests"
 import { useSafePushStarting } from "@/stores/safe-push"
 
@@ -508,13 +508,13 @@ export function useUnpushedChildren(branchName: string): UnpushedChildren | null
 
 /**
  * What Push with Children of `root` does with the stack branch of its whole stack (`getStackBranchAlong`, held while
- * every branch of the stack landed or its own robot runs, `useStackBranchHoldReason`), re-rendering when it changes;
+ * a member is parked, every branch of the stack landed, its own robot runs or the sync did not build it, `StackLanding.hold`), re-rendering when it changes;
  * null for a branch that heads no stack that forks
  */
 export function useStackBranchAlong(root: string): StackBranchAlong | null {
   const stack = useStackBranch(root)
   const pullRequest = useStackPullRequest(root)
-  const held = useStackBranchHoldReason(root)
+  const held = formatStackHold(useStackLanding(root).hold)
   // a string, so a new store state with the same answer renders nothing
   const along = JSON.stringify(getStackBranchAlong(root, stack, pullRequest, held))
   return useMemo(() => JSON.parse(along) as StackBranchAlong | null, [along])

@@ -33,8 +33,6 @@ const KEY = `${REPOSITORY_PATH}\n${PREFIX}`
 const TARGET = "master"
 const BASELINE = "origin/master"
 const GITHUB_REPOSITORY = "acme/monorepo"
-/** The commit of a conflict of the stack branch, as the sync names it */
-const CONFLICT_COMMIT = "0caf9066d2a4c3b1e5f7a9b8c6d4e2f1a3b5c7d9"
 
 /** The command that rewrites the facts files */
 export const UPDATE_FACTS = "UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/scenario/)'"
@@ -219,7 +217,8 @@ function stackBranchOf(given: Given, facts: ScenarioFacts, root: string, members
     state: conflicts ? "Conflict" : blocked ? "Blocked" : "Built",
     tip: conflicts || blocked ? null : (facts.stackTips[root] ?? null),
     blockedBy: blocked ? { member: members.at(-1)!, reason: "Problem" } : null,
-    conflict: conflicts ? { commit: CONFLICT_COMMIT, files: ["config.txt"] } : null,
+    // the commit of the branch that conflicts, as the facts name it (`name_ids`): the reason of the view names it so
+    conflict: conflicts ? { commit: `${given.conflicts}-c0`, files: ["config.txt"] } : null,
     error: null,
     remoteStatus: null,
   }

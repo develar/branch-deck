@@ -1,0 +1,168 @@
+//! The catalog of the reasons (`reasons.json`): every code of `Reason` with an example, which the page's formatter
+//! is tested on (`src/presenters/reasons.test.ts`), so a code Rust gives is one the page words.
+//! `UPDATE_REASON_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/reason/)'` writes it; without the variable a
+//! stale catalog fails.
+
+use domain_types::fixtures::{carried, robot_of, whole_stack_robot_of};
+use domain_types::patronus::PatronusPushMode;
+use domain_types::reason::Reason;
+use domain_types::repository_view::{HoldKind, HoldView, RobotOf};
+use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState};
+use std::path::Path;
+
+/// The position of the code of `reason` among the codes: a new code fails to compile here until it has an example
+const fn code_index(reason: &Reason) -> usize {
+  match reason {
+    Reason::Blocked { .. } => 0,
+    Reason::LastCommit { .. } => 1,
+    Reason::Descendant { .. } => 2,
+    Reason::Ancestor { .. } => 3,
+    Reason::Landed { .. } => 4,
+    Reason::Held { .. } => 5,
+    Reason::NoStackBranch { .. } => 6,
+    Reason::StackNotBuilt { .. } => 7,
+    Reason::StackParked { .. } => 8,
+    Reason::StackLanded { .. } => 9,
+    Reason::StackHeld { .. } => 10,
+    Reason::CantPush { .. } => 11,
+    Reason::DropsRemote { .. } => 12,
+  }
+}
+
+const CODES: usize = 13;
+
+fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
+  if whole_stack {
+    whole_stack_robot_of(branch, robot_id)
+  } else {
+    robot_of(branch, robot_id)
+  }
+}
+
+/// An example of every code, some codes with more than one when their words differ by the params
+fn examples() -> Vec<Reason> {
+  let safe_push = PatronusPushMode::RebaseAutosquash;
+  let s = String::from;
+  vec![
+    Reason::Blocked {
+      branch: s("login"),
+      by: Some(s("auth")),
+    },
+    Reason::Blocked { branch: s("login"), by: None },
+    Reason::LastCommit {
+      robot_id: s("r"),
+      mode: PatronusPushMode::DryRun,
+    },
+    Reason::Descendant {
+      branch: s("auth"),
+      by: of("oauth", "r", false),
+      mode: safe_push,
+      carried: Some(carried(&["a1", "a2"])),
+    },
+    Reason::Descendant {
+      branch: s("auth"),
+      by: of("air", "w", true),
+      mode: safe_push,
+      carried: None,
+    },
+    Reason::Ancestor {
+      landing: of("auth", "r", false),
+      mode: safe_push,
+    },
+    Reason::Landed {
+      branch: s("auth"),
+      by: of("oauth", "m", false),
+      own: false,
+      target: s("master"),
+    },
+    Reason::Landed {
+      branch: s("auth"),
+      by: of("auth", "m", false),
+      own: true,
+      target: s("master"),
+    },
+    Reason::Held {
+      branch: s("login"),
+      hold: HoldView {
+        kind: HoldKind::Span,
+        by: of("session", "r", false),
+        carried: Some(carried(&["l1"])),
+      },
+      mode: safe_push,
+      target: s("master"),
+    },
+    Reason::Held {
+      branch: s("auth"),
+      hold: HoldView {
+        kind: HoldKind::Own,
+        by: of("auth", "r", false),
+        carried: None,
+      },
+      mode: safe_push,
+      target: s("master"),
+    },
+    Reason::NoStackBranch { root: s("auth") },
+    Reason::StackNotBuilt {
+      root: s("auth"),
+      state: StackBranchState::Conflict,
+      blocked_by: None,
+      conflict: Some(StackBranchConflict {
+        commit: s("0123456789abcdef"),
+        files: vec![s("a.kt")],
+      }),
+      error: None,
+    },
+    Reason::StackNotBuilt {
+      root: s("auth"),
+      state: StackBranchState::Blocked,
+      blocked_by: Some(s("login")),
+      conflict: None,
+      error: None,
+    },
+    Reason::StackParked {
+      root: s("auth"),
+      member: s("login"),
+    },
+    Reason::StackLanded {
+      root: s("auth"),
+      by: vec![of("deploy", "m1", false), of("auth", "m2", true)],
+      own: false,
+      target: s("master"),
+    },
+    Reason::StackHeld {
+      root: s("auth"),
+      robot_id: s("w"),
+      mode: safe_push,
+    },
+    Reason::CantPush {
+      branch: s("auth"),
+      block: BlockReason::Conflict,
+    },
+    Reason::DropsRemote { branch: s("auth"), behind: 2 },
+  ]
+}
+
+/// Every code has an example, and the catalog the page reads is the one these examples write
+#[test]
+fn every_reason_code_has_an_example_in_the_catalog_the_page_reads() {
+  let examples = examples();
+  let mut covered = [false; CODES];
+  for reason in &examples {
+    covered[code_index(reason)] = true;
+  }
+  assert!(covered.iter().all(|covered| *covered), "a code without an example: {covered:?}");
+
+  let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("reasons.json");
+  let mut written = serde_json::to_string_pretty(&examples).expect("the reasons serialize");
+  written.push('\n');
+  if std::env::var_os("UPDATE_REASON_CATALOG").is_some() {
+    std::fs::write(&path, &written).expect("the catalog is written");
+    return;
+  }
+  // by value: the formatter of the repository lays the file out its own way
+  let committed: Option<serde_json::Value> = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok());
+  assert!(
+    committed == serde_json::to_value(&examples).ok(),
+    "reasons.json is stale: UPDATE_REASON_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/reason/)' writes it"
+  );
+}

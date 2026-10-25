@@ -43,10 +43,13 @@ async fn synced(repo: &TestRepo) -> (BranchTable, bool) {
   (BranchTable::from_report("test", &report, &statuses), all_forwarded)
 }
 
+/// What a remote status said of a remote branch at `remote_tip`
 fn fact(remote_tip: Option<&str>, up_to_date: bool) -> RemoteFact {
   RemoteFact {
     remote_tip: remote_tip.map(str::to_string),
     up_to_date,
+    known: true,
+    drops: 0,
   }
 }
 

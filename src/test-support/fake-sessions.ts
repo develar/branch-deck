@@ -52,7 +52,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
     branches: {},
     stacks: {},
     sections: { unassigned: [], archived: { names: [], newlyArchived: [], integration: {} }, unapplied: [], landed: { baseline: null, landing: [], landed: [] } },
-    patronus: { state: { kind: "loading" }, landingNeeds: { kind: "loading" }, view: { branches: {}, stacks: {}, landedByRobot: {} } },
+    patronus: { state: { kind: "loading" }, landingNeeds: { kind: "loading" }, view: { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} } },
     facts: {
       robots: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {}, failing: [], needsReview: {}, problemsFailed: {} },
       pullRequests: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, pullRequests: {}, stackPullRequests: {} },

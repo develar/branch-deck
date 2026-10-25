@@ -5,22 +5,11 @@ import { notifyError } from "@/lib/errors"
 import type { Retargeted } from "@/lib/git/new-pull-request"
 import { retargetBeforePush } from "@/lib/git/new-pull-request"
 import type { PushClearance, PushReport } from "@/lib/git/push"
-import {
-  cancelHoldingRobot,
-  checkPushHold,
-  createPushRequest,
-  isHeldBy,
-  isStillIn,
-  passingCanceled,
-  reportPushError,
-  restartAfterPush,
-  sentPart,
-  showRemoteMovedToast,
-} from "@/lib/git/push"
+import { cancelHoldingRobot, checkPushHold, createPushRequest, isStillIn, passingCanceled, reportPushError, restartAfterPush, sentPart, showRemoteMovedToast } from "@/lib/git/push"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showStackPushToast } from "@/lib/git/push-toast"
 import type { VcsRequest } from "@/lib/git/vcs-request"
-import { formatPushMode, formatStackPushHoldReason } from "@/lib/patronus"
+import { formatPushMode } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
@@ -28,6 +17,7 @@ import { joinNames } from "@/lib/text"
 import { pushProgressOf } from "@/lib/transfer-progress"
 import { formatWholeStack, formatWholeStackBranch, getStackBranchAlong, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { whenSessionViewAt } from "@/model/store"
+import { formatStackHold, formatStackPushHoldReason } from "@/presenters/reasons"
 import { recordPush } from "@/stores/activity"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import {
@@ -45,7 +35,7 @@ import {
   whenSynced,
 } from "@/stores/branch-sync"
 import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
-import { getPushHold, getStackBranchHoldReason, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
+import { getPushHold, getStackLanding, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { isSelectedRepository } from "@/stores/repository"
 
@@ -58,6 +48,15 @@ export interface StackPushOptions {
   announce?: boolean
   /** Where a failure is said (`PushOptions`) */
   report?: PushReport
+}
+
+/**
+ * A Safe Push holds the branch (`getPushHold`), other than `replaces`, the robot a start replaces: the push cancels it,
+ * so the branches it held are pushed too (the order of a stack push until `push_plan` of Rust decides it)
+ */
+function isHeldOtherThan(name: string, replaces: PatronusRobot | undefined): boolean {
+  const hold = getPushHold(name)
+  return hold !== null && hold.robot.id !== replaces?.id
 }
 
 /**
@@ -78,7 +77,7 @@ export async function pushStack(branchName: string, options: StackPushOptions = 
   return await pushTogether(
     branchName,
     `stack ${options.stopAtConfirm === true} ${options.replacesRobot?.id ?? ""}`,
-    () => ({ names: stackPushOrder(branchName, getBranch, { stopAtConfirm: options.stopAtConfirm, isHeld: name => isHeldBy(name, options.replacesRobot) }) }),
+    () => ({ names: stackPushOrder(branchName, getBranch, { stopAtConfirm: options.stopAtConfirm, isHeld: name => isHeldOtherThan(name, options.replacesRobot) }) }),
     options,
   )
 }
@@ -93,7 +92,7 @@ export async function pushWithChildren(branchName: string): Promise<boolean> {
     branchName,
     "children",
     () => ({
-      names: stackChildrenPushOrder(branchName, getUnparkedStackDescendants(branchName), getBranch, name => isHeldBy(name, undefined)),
+      names: stackChildrenPushOrder(branchName, getUnparkedStackDescendants(branchName), getBranch, name => getPushHold(name) !== null),
       wholeStack: takesStackBranchAlong(branchName) ? branchName : null,
     }),
     {},
@@ -102,11 +101,11 @@ export async function pushWithChildren(branchName: string): Promise<boolean> {
 
 /**
  * Whether Push with Children of `root` takes the stack branch of its whole stack along now (`getStackBranchAlong`):
- * never while it is held (`getStackBranchHoldReason`): the robot of the whole stack runs, a push into its stack branch
+ * never while it is held (`StackLanding.hold`): the robot of the whole stack runs, a push into its stack branch
  * would fail it, or every branch of the stack landed, a push of it lands nothing
  */
 export function takesStackBranchAlong(root: string): boolean {
-  return getStackBranchAlong(root, getStackBranch(root), getStackPullRequest(root), getStackBranchHoldReason(root))?.kind === "along"
+  return getStackBranchAlong(root, getStackBranch(root), getStackPullRequest(root), formatStackHold(getStackLanding(root).hold))?.kind === "along"
 }
 
 /**

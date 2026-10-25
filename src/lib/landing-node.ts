@@ -1,10 +1,11 @@
 import type { NextStepFacts } from "@/lib/branch-next-step"
 import { formatPendingFact, formatUnlisted, getBranchNextStep } from "@/lib/branch-next-step"
 import { formatParkedLabel } from "@/lib/parked"
-import { formatLandingWait, isFailingChip } from "@/lib/patronus"
+import { isFailingChip } from "@/lib/patronus"
 import type { FoundMove } from "@/lib/running-move"
 import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
+import { formatLandingWait } from "@/presenters/reasons"
 import type { Branch } from "@/stores/branch-sync"
 
 /**

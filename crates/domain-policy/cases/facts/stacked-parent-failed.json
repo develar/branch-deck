@@ -25,29 +25,36 @@
   "view": {
     "branches": {
       "auth": {
-        "dryRun": null,
-        "hold": null,
         "landedBy": null,
+        "landing": {
+          "dryRun": null,
+          "hold": null,
+          "push": {"block": "Conflict", "branch": "auth", "code": "cantPush"},
+          "replaces": null,
+          "start": null
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       },
       "login": {
-        "dryRun": null,
-        "hold": null,
         "landedBy": null,
+        "landing": {
+          "dryRun": {"branch": "login", "by": "auth", "code": "blocked"},
+          "hold": null,
+          "push": {"block": "Blocked", "branch": "login", "code": "cantPush"},
+          "replaces": null,
+          "start": {"branch": "login", "by": "auth", "code": "blocked"}
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       }
     },
     "landedByRobot": {},
+    "restarts": {},
     "stacks": {}
   }
 }

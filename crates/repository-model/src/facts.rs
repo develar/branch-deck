@@ -59,6 +59,7 @@ use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_request_facts::ReviewRequestsFact;
 use crate::table::TableState;
+use domain_policy::holds::is_active;
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_types::error::{ApiError, ErrorCode};
@@ -78,7 +79,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
-use sync_core::patronus_start::is_robot_active;
 use tracing::instrument;
 
 /// The number of an observation of a session, from its `Sequence`: a greater one is newer
@@ -698,7 +698,7 @@ impl RobotsFact {
       if robot.profile.is_none() {
         robot.profile.clone_from(&known.profile);
       }
-      if is_robot_active(known) {
+      if is_active(known) {
         match robot.status {
           PatronusRobotStatus::Success if robot.push_mode != PatronusPushMode::DryRun => finished.push(Finished::Merged(robot.id.clone())),
           PatronusRobotStatus::Failure => finished.push(Finished::Failed(robot.id.clone())),
@@ -795,7 +795,7 @@ pub fn robots_digest(table: &TableState, robots: &RobotsView, asked: AskedRobots
   let matches = match_table(&index, branches, stacks);
   let of_table: BTreeSet<&str> = matches.branches.values().chain(matches.stacks.values()).map(String::as_str).collect();
   let ids: BTreeSet<&str> = of_table.iter().copied().chain(watched.iter().map(String::as_str)).collect();
-  let active: Vec<&PatronusRobot> = ids.into_iter().filter_map(|id| robots.robots.get(id)).filter(|robot| is_robot_active(robot)).collect();
+  let active: Vec<&PatronusRobot> = ids.into_iter().filter_map(|id| robots.robots.get(id)).filter(|robot| is_active(robot)).collect();
   let problems = of_table
     .into_iter()
     .filter_map(|id| robots.robots.get(id))
@@ -996,21 +996,23 @@ impl LandingNeedsFact {
 /// The landing needs of the branches of a table, by branch; a branch not listed needs nothing
 pub type Needs = BTreeMap<String, Vec<LandingRefusal>>;
 
-/// The robot of each branch and whole stack of `table` and what the robots land, landed and hold of it
-/// (`patronus_view` over `match_robots`): the one rule of the session and of `bd` (`PatronusFacts::read`). `robots`
-/// are the user's, `remote` the remote branches as the deriver knows them; runs git for the robots the hashes and `memo`
-/// don't answer: blocking
-#[instrument(skip_all, fields(robots = robots.len(), branches = table.branches.len()))]
-pub fn derive_patronus(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  table: &BranchTable,
-  remote: &RemoteFacts,
-  robots: &[PatronusRobot],
-  memo: &mut ContentMemo,
-) -> PatronusView {
-  let matched = match_robots(table, remote, robots);
-  patronus_view(git_executor, repository_path, table, remote, robots, &matched, memo)
+/// The robot of each branch and whole stack of the table `of`, what the robots land and landed of it, and what the rules
+/// decide over that (`patronus_view` over `match_robots`, `derive::decide_landing`): the one derivation of the session
+/// and of `bd` (`PatronusFacts::read`); runs git for the robots the hashes and `memo` don't answer: blocking
+#[instrument(skip_all, fields(robots = of.robots.len(), branches = of.table.branches.len()))]
+pub fn derive_patronus(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> PatronusView {
+  let matched = match_robots(of.table, of.remote, of.robots);
+  patronus_view(git_executor, repository_path, of, &matched, memo)
+}
+
+/// What a Patronus view is derived of (`derive_patronus`): the table, the remote branches as the deriver knows them, the
+/// user's robots and, by robot id, those that failed for missing approvals
+#[derive(Clone, Copy, Debug)]
+pub struct PatronusOf<'a> {
+  pub table: &'a BranchTable,
+  pub remote: &'a RemoteFacts,
+  pub robots: &'a [PatronusRobot],
+  pub needs_review: &'a BTreeMap<String, bool>,
 }
 
 /// The remote branches of `table` as the session knows them: the remote status of each branch and stack branch in its
@@ -1040,11 +1042,11 @@ pub fn listed_robots(robots: &RobotsView) -> Vec<PatronusRobot> {
 }
 
 /// What the Patronus view of a session is of, as one hash: the table (by the observation that answered it), the remote
-/// branches the session knows and what the view reads of each robot
+/// branches the session knows, what the view reads of each robot and which robots failed for missing approvals
 #[must_use]
-pub fn patronus_inputs(table: u32, remote: &RemoteFacts, robots: &[PatronusRobot]) -> u64 {
+pub fn patronus_inputs(table: u32, remote: &RemoteFacts, robots: &[PatronusRobot], needs_review: &BTreeMap<String, bool>) -> u64 {
   let mut hasher = DefaultHasher::new();
-  (table, remote).hash(&mut hasher);
+  (table, remote, needs_review).hash(&mut hasher);
   for robot in robots {
     (
       &robot.id,

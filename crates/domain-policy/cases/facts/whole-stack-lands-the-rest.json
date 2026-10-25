@@ -58,50 +58,54 @@
   "view": {
     "branches": {
       "auth": {
-        "dryRun": null,
-        "hold": {"by": {"branch": "login", "robotId": "robot-0", "wholeStack": false}, "carried": null, "kind": "landed"},
         "landedBy": {
           "after": [],
           "by": {"branch": "login", "robotId": "robot-0", "wholeStack": false},
           "landed": ["auth-c0"],
           "own": false
         },
+        "landing": {
+          "dryRun": null,
+          "hold": {"by": {"branch": "login", "robotId": "robot-0", "wholeStack": false}, "carried": null, "kind": "landed"},
+          "push": null,
+          "replaces": null,
+          "start": null
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       },
       "login": {
-        "dryRun": null,
-        "hold": {"by": {"branch": "login", "robotId": "robot-0", "wholeStack": false}, "carried": null, "kind": "landed"},
         "landedBy": {
           "after": [],
           "by": {"branch": "login", "robotId": "robot-0", "wholeStack": false},
           "landed": ["login-c0"],
           "own": true
         },
+        "landing": {
+          "dryRun": null,
+          "hold": {"by": {"branch": "login", "robotId": "robot-0", "wholeStack": false}, "carried": null, "kind": "landed"},
+          "push": null,
+          "replaces": null,
+          "start": null
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": "robot-0",
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       },
       "session": {
-        "dryRun": null,
-        "hold": null,
         "landedBy": null,
+        "landing": {"dryRun": null, "hold": null, "push": null, "replaces": null, "start": null},
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       }
     },
     "landedByRobot": {"robot-0": [{"after": [], "branch": "auth", "own": false}, {"after": [], "branch": "login", "own": true}]},
+    "restarts": {},
     "stacks": {}
   }
 }

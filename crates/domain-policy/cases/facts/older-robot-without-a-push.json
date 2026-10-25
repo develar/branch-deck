@@ -48,18 +48,22 @@
   "view": {
     "branches": {
       "auth": {
-        "dryRun": null,
-        "hold": {"by": {"branch": "auth", "robotId": "older", "wholeStack": false}, "carried": null, "kind": "own"},
         "landedBy": null,
+        "landing": {
+          "dryRun": null,
+          "hold": {"by": {"branch": "auth", "robotId": "older", "wholeStack": false}, "carried": null, "kind": "own"},
+          "push": null,
+          "replaces": "older",
+          "start": null
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": "older",
-        "span": null,
-        "start": null,
-        "startBlocked": false
+        "span": null
       }
     },
     "landedByRobot": {},
+    "restarts": {},
     "stacks": {}
   }
 }

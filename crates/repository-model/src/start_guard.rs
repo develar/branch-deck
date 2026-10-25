@@ -3,9 +3,10 @@
 //! Patronus view (`derive_patronus`) and the robots Rust read itself, never the page's: a parked subject (a branch, a
 //! branch built on parked, a whole stack with a parked member) stays local, a subject merged Safe Pushes landed whole
 //! has nothing left to land, a subject the last sync did not build (a stack branch that is not `built`) is no build of
-//! its commits, and a robot that runs on its last commit or lands a part of it refuses a second one (the `start` and
-//! `dry_run` refusals of the view). The page checks the same before it asks and says it in its words; these refuse a
-//! start that raced with another one (the IDE, `bd`) or came by IPC.
+//! its commits, and a robot that runs on its last commit or lands a part of it refuses a second one, a running Safe Push
+//! that lands the branch the push of a Dry Run too (`domain_policy::land::start_refusal`, as the view decides it). The
+//! page checks the same before it asks and says it in its words; these refuse a start that raced with another one (the
+//! IDE, `bd`) or came by IPC.
 //!
 //! A restart is a start of the robot's subject that the robot itself does not refuse; a robot of a temporary ref (the
 //! IDE, the CLI) is not restarted: it would test its old commit. A cancel needs a running robot of the user; the cancel
@@ -20,23 +21,27 @@
 //! same. The words of the robot refusals are `bd`'s too (`start_refusal_text`).
 
 use crate::actions::RemoteActions;
+use crate::derive::LandingFacts;
 use crate::landing::LandingGate;
-use crate::patronus_view::{branch_start_refusal, landed_commits, stack_start_refusal};
+use crate::patronus_view::landed_commits;
+use crate::push_guard::span_hold_words;
 use crate::push_guard::{GuardFacts, guard_facts, parked_words, row_refusal};
 use anyhow::{Result, anyhow, bail};
+use domain_policy::holds::is_active;
+use domain_policy::land::{BranchStart, StackStart, Start, start_refusal as robot_refusal};
 use domain_policy::parked::whole_stack_parked;
 use domain_types::GroupedBranchInfo;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::landing::{LandingCheck, LandingGateParams, Subject, ensure_landing_starts};
 use domain_types::patronus::{PatronusCommandSubject, PatronusPushMode, PatronusRobot, PatronusRobotParams, PostPatronusCommandParams, StartPatronusRobotParams};
-use domain_types::repository_view::StartRefusal;
+use domain_types::reason::Reason;
 use domain_types::session::ParkedMember;
 use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
 use std::sync::Arc;
 use sync_core::patronus::required_target_branch;
-use sync_core::patronus_start::{carried_ids, carried_words, is_robot_active, join_names, push_mode_name};
+use sync_core::patronus_start::{carried_ids, carried_words, join_names, push_mode_name};
 use sync_core::push::not_synced_refusal;
 use sync_utils::span::in_current_span;
 use tracing::instrument;
@@ -81,23 +86,33 @@ pub fn prepare_robot_start(
   })
 }
 
-/// Why a start of `subject` ("auth", "the whole auth stack") is not possible, in the words of the app, for the robot part
-/// of the decision (`BranchPatronus::start`, `StackPatronus::start`): the commits a descendant lands named by their ids
-pub fn start_refusal_text(refusal: &StartRefusal, subject: &str, robots: &[PatronusRobot]) -> String {
-  let mode_of = |robot_id: &str| robots.iter().find(|robot| robot.id == robot_id).map_or("Robot", |robot| push_mode_name(robot.push_mode));
+/// Why a start of `subject` ("auth", "the whole auth stack") is not possible, in the words of `bd` and of the guards
+/// of the app, for the robot part of the decision (`domain_policy::land::start_refusal`): the commits a descendant lands
+/// named by their ids, the robot of a hold by its URL (`robots`)
+pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRobot]) -> String {
   match refusal {
-    StartRefusal::LastCommit { robot_id } => format!("A {} of the last commit is running", mode_of(robot_id)),
-    StartRefusal::Descendant { span } => {
-      let carried = span.carried.as_ref();
-      format!(
-        "A {} of {} is running: it lands {} with it{}",
-        mode_of(&span.by.robot_id),
-        span.by.subject().words(),
-        carried_words(subject, carried),
-        carried_ids(carried)
-      )
-    }
-    StartRefusal::Ancestor { landing } => format!("A {} of {} is running: wait until it merges", mode_of(&landing.robot_id), landing.subject().words()),
+    Reason::LastCommit { mode, .. } => format!("A {} of the last commit is running", push_mode_name(*mode)),
+    Reason::Descendant { by, mode, carried, .. } => format!(
+      "A {} of {} is running: it lands {} with it{}",
+      push_mode_name(*mode),
+      by.subject().words(),
+      carried_words(subject, carried.as_ref()),
+      carried_ids(carried.as_ref())
+    ),
+    Reason::Ancestor { landing, mode } => format!("A {} of {} is running: wait until it merges", push_mode_name(*mode), landing.subject().words()),
+    Reason::Held { hold, .. } => match robots.iter().find(|robot| robot.id == hold.by.robot_id) {
+      Some(robot) => span_hold_words(subject, &hold.by.subject(), robot, hold.carried.as_ref()),
+      None => format!("a running Safe Push of {} lands {subject}: a push won't land", hold.by.subject().words()),
+    },
+    Reason::Blocked { by: Some(by), .. } => format!("{subject} is blocked by {by}: fix it first, then sync"),
+    Reason::Blocked { by: None, .. } => format!("{subject} is blocked: fix its parent first, then sync"),
+    Reason::Landed { .. } | Reason::StackLanded { .. } => format!("{subject} landed: nothing of it is left to land"),
+    Reason::NoStackBranch { .. } => format!("{subject} has no stack branch: the stack doesn't fork"),
+    Reason::StackNotBuilt { root, .. } => format!("the stack branch of {root} is not the build of its commits; fix it, then sync"),
+    Reason::StackParked { member, .. } => format!("{subject} holds parked {member}; land the stack in pieces"),
+    Reason::StackHeld { mode, .. } => format!("a {} of {subject} is running on its stack branch", push_mode_name(*mode)),
+    Reason::CantPush { branch, .. } => format!("{branch} is not synced"),
+    Reason::DropsRemote { branch, behind } => format!("the remote branch of {branch} has {behind} commits {branch} lacks"),
   }
 }
 
@@ -158,8 +173,8 @@ pub enum CancelCheck {
 pub fn check_cancel(robots: &[PatronusRobot], robot_id: &str, replaced: bool) -> Result<CancelCheck, String> {
   match robots.iter().find(|robot| robot.id == robot_id) {
     None => Err(format!("Nothing was canceled: Patronus lists no robot {robot_id} of the user")),
-    Some(robot) if !is_robot_active(robot) && replaced => Ok(CancelCheck::AlreadyFinished(Box::new(robot.clone()))),
-    Some(robot) if !is_robot_active(robot) => Err(format!("Nothing was canceled: the {} is not running ({})", push_mode_name(robot.push_mode), robot.url)),
+    Some(robot) if !is_active(robot) && replaced => Ok(CancelCheck::AlreadyFinished(Box::new(robot.clone()))),
+    Some(robot) if !is_active(robot) => Err(format!("Nothing was canceled: the {} is not running ({})", push_mode_name(robot.push_mode), robot.url)),
     Some(_) => Ok(CancelCheck::Cancel),
   }
 }
@@ -173,11 +188,23 @@ fn start_refusal(facts: &GuardFacts, subject: &Subject, dry_run: bool, excluded:
   }
 }
 
-/// The robot of the last commit, unless it is `excluded`
-fn without(last_commit: Option<&StartRefusal>, excluded: Option<&str>) -> Option<StartRefusal> {
-  last_commit
-    .filter(|refusal| !matches!(refusal, StartRefusal::LastCommit { robot_id } if Some(robot_id.as_str()) == excluded))
-    .cloned()
+/// The robot part of a start in `mode` (`domain_policy::land::start_refusal`): `excluded` is the robot a restart
+/// replaces, which refuses nothing as the robot of the last commit; a restart pushes nothing
+fn robot_part(landing: &LandingFacts<'_>, start: Start<'_>, dry_run: bool, excluded: Option<&str>) -> Option<Reason> {
+  let not_excluded = |robot: &&PatronusRobot| Some(robot.id.as_str()) != excluded;
+  let start = match start {
+    Start::Branch(branch) => Start::Branch(BranchStart {
+      last_commit: branch.last_commit.filter(not_excluded),
+      pushes: branch.pushes && excluded.is_none(),
+      ..branch
+    }),
+    Start::WholeStack(stack) => Start::WholeStack(StackStart {
+      last_commit: stack.last_commit.filter(not_excluded),
+      ..stack
+    }),
+  };
+  let mode = if dry_run { PatronusPushMode::DryRun } else { PatronusPushMode::RebaseAutosquash };
+  robot_refusal(&start, mode, &landing.robots)
 }
 
 fn branch_refusal(facts: &GuardFacts, name: &str, dry_run: bool, excluded: Option<&str>) -> Option<String> {
@@ -188,13 +215,9 @@ fn branch_refusal(facts: &GuardFacts, name: &str, dry_run: bool, excluded: Optio
   if let Some(reason) = table.not_built.get(name) {
     return Some(not_synced_refusal(name, *reason));
   }
-  let patronus = facts.view.branches.get(name)?;
-  let last_commit = without(patronus.dry_run.as_ref(), excluded);
-  let refusal = if dry_run {
-    last_commit
-  } else {
-    branch_start_refusal(last_commit, patronus.span.as_ref(), patronus.landing_ancestor.as_ref())
-  }?;
+  let landing = facts.landing();
+  let start = landing.branch_start(name, landing.start_pushes(name));
+  let refusal = robot_part(&landing, Start::Branch(start), dry_run, excluded)?;
   Some(start_refusal_text(&refusal, name, &facts.robots))
 }
 
@@ -207,8 +230,8 @@ fn stack_refusal(facts: &GuardFacts, root: &str, dry_run: bool, excluded: Option
   if let Some(ParkedMember { member, parked }) = whole_stack_parked(&table.repository(), stack.members.iter().map(String::as_str)) {
     return Some(format!("{what} holds what is parked: {}; land the stack in pieces", parked_words(&member, &parked)));
   }
-  if let Some(landed) = facts.stack_landed_whole(root) {
-    return Some(format!("{landed}: nothing of it is left to land"));
+  if let Some(Reason::StackLanded { by, .. }) = facts.stack_hold(root) {
+    return Some(format!("{}: nothing of it is left to land", facts.stack_landed_words(root, by)));
   }
   match stack.state {
     StackBranchState::Built => {}
@@ -220,13 +243,8 @@ fn stack_refusal(facts: &GuardFacts, root: &str, dry_run: bool, excluded: Option
     }
     StackBranchState::Blocked | StackBranchState::Stale => return Some(format!("{}; fix it, then sync", stack_not_built_words(stack))),
   }
-  let patronus = facts.view.stacks.get(root)?;
-  let last_commit = without(patronus.dry_run.as_ref(), excluded);
-  let refusal = if dry_run {
-    last_commit
-  } else {
-    stack_start_refusal(last_commit, patronus.landing_member.as_ref())
-  }?;
+  let landing = facts.landing();
+  let refusal = robot_part(&landing, Start::WholeStack(landing.stack_start(stack)), dry_run, excluded)?;
   Some(start_refusal_text(&refusal, &what, &facts.robots))
 }
 

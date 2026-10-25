@@ -20,7 +20,7 @@ import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import type { PatronusChipState } from "@/lib/patronus"
-import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isFailingChip, openRobot, robotRingColor } from "@/lib/patronus"
+import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, isFailingChip, openRobot, robotRingColor } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
@@ -28,7 +28,7 @@ import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
 import { useOperations } from "@/stores/operations"
-import { useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
+import { useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotRestart } from "@/stores/patronus"
 
 /**
  * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
@@ -128,7 +128,8 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
   const Icon = patronusChipIcons[chip.kind]
   const details = useRobotDetails(robot.id, loadDetails)
-  const restart = getRobotRestartAction(robot, branchName, localTip, remote, needsReview)
+  // what its restart does, as Rust decides it of the branch and its remote (`restart_action`)
+  const restart = useRobotRestart(robot.id)?.action ?? null
   const notice = formatRobotCommitNotice(robot, chip, localTip, restart)
   const branch = useBranch(branchName)
   const patronusAvailable = usePatronusAvailable()

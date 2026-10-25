@@ -1,39 +1,32 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { PatronusProfile, PatronusRobot, PatronusStartOptions, PullRequest } from "@/lib/bindings"
-import type { LandedBy, SafePushSlotInput } from "@/lib/patronus"
+import type { LandedBy, RobotRestartAction, SafePushSlotInput } from "@/lib/patronus"
 import {
   allowsPushMode,
   canCancelRobot,
-  canRestartRobot,
-  canStartRobot,
-  canStartStackRobot,
   describeRobot,
   formatLandedReason,
   formatLandedWholeReason,
   formatLandedWith,
-  formatLandingReason,
   formatRobotSubject,
   formatMergedRobotTitle,
   formatPatronusAvailabilityHint,
   formatSafePushLoginCommand,
-  formatPushHoldReason,
   formatReviewerGroup,
   formatReviewerGroupFiles,
   formatRobotCommitNotice,
   getBypassProfiles,
   getPatronusChipState,
   getPullRequestStart,
-  getRobotRestartAction,
   getRowRobotChip,
   getSafePushSlot,
   getStartPush,
   isHoldingRobot,
-  isStartBlocked,
   needsRobotAttention,
   withLastRobotProfile,
 } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -65,30 +58,6 @@ describe("the robot of the whole stack", () => {
     expect(formatMergedRobotTitle(wholeStack)).toBe("Whole air stack merged into master")
     expect(describeRobot(wholeStack, "Large Scale Change")).toBe("Whole air stack → master · profile Large Scale Change")
     expect(formatRobotSubject(robot({ branchName: null, sourceRevision: "x" }))).toBe("IJPL-1 fix the cache")
-  })
-
-  it("restarts on its stack branch, pushed first while the stack branch has work the remote lacks", () => {
-    const failed = { ...wholeStack, status: "failure" as const }
-    const stack = { kind: "stack", root: "air" } as const
-    expect(canRestartRobot(failed, stack, "stack-tip")).toBe(true)
-    expect(canRestartRobot(failed, { kind: "stack", root: "auth" }, "stack-tip")).toBe(false)
-    expect(canRestartRobot(failed, "air", "stack-tip")).toBe(false)
-    const ahead = testRemoteStatus({ remoteTip: "stack-tip", unpushedCommits: ["new"], commitsAhead: 1, action: PUSH })
-    expect(getRobotRestartAction(failed, stack, "new-stack-tip", ahead)).toBe("pushAndRestart")
-    expect(getRobotRestartAction(failed, stack, "stack-tip", testRemoteStatus({ remoteTip: "stack-tip" }))).toBe("restart")
-  })
-
-  it("lands every branch of the stack, and waits for the robot of a branch of it, as that one waits for it", () => {
-    const span = { branch: "air", robot: wholeStack, wholeStack: true }
-    expect(formatLandingReason("auth", span)).toBe("A Safe Push of the whole air stack is running: it lands auth with it")
-    expect(canStartRobot(testBranch("auth", "air"), undefined, null, span)).toEqual({ ok: false, reason: "A Safe Push of the whole air stack is running: it lands auth with it" })
-
-    const landing = { branch: "auth", robot: robot({ id: "auth", branchName: "auth" }) }
-    expect(canStartStackRobot(null, undefined, "stack-tip", null, landing)).toEqual({ ok: false, reason: "A Safe Push of auth is running: wait until it merges" })
-    // a dry run lands nothing: it waits only for the stack branch
-    expect(canStartStackRobot(null, undefined, "stack-tip", null, landing, true)).toEqual({ ok: true })
-    expect(canStartStackRobot("The stack branch conflicts", undefined, "stack-tip", null, null)).toEqual({ ok: false, reason: "The stack branch conflicts" })
-    expect(canStartStackRobot(null, wholeStack, "stack-tip", null, null)).toEqual({ ok: false, reason: "A Safe Push of the last commit is running" })
   })
 })
 
@@ -142,49 +111,34 @@ describe("formatRobotCommitNotice", () => {
   const unpushed = testRemoteStatus({ remoteTip: started.sourceRevision, unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
   const changed = "Started on 3264f30f; the branch has changed since (now 88de421d): the result won't cover the newest commits."
 
-  function notice(subject: PatronusRobot, remote: RemoteStatus): string | null {
-    const action = getRobotRestartAction(subject, "IJPL-1", localTip, remote)
+  /** The notice of `subject` with the restart Rust decides for it (`RobotRestart.action` of the view) */
+  function notice(subject: PatronusRobot, remote: RemoteStatus, action: RobotRestartAction): string | null {
     return formatRobotCommitNotice(subject, getPatronusChipState(subject, localTip, remote), localTip, action)
   }
 
-  it("names the change and the restart that tests the branch as it is, pushed first when the remote lacks it", () => {
+  it("names the change and the restart that tests the branch as it is", () => {
     const failed = robot({ status: "failure", ...started })
-    expect(getRobotRestartAction(failed, "IJPL-1", localTip, pushedSince)).toBe("restart")
-    expect(notice(failed, pushedSince)).toBe(`${changed} Restart Safe Push to test the current branch.`)
-    // a plain restart would test the commit the remote has
-    expect(getRobotRestartAction(failed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
-    // a reword since: the remote has the changes with the old message, which the robot would land
-    const reworded = testRemoteStatus({ remoteTip: started.sourceRevision, commitsReworded: 1, fastForward: false, action: forcePush({ replaces: true }) })
-    expect(getRobotRestartAction(failed, "IJPL-1", localTip, reworded)).toBe("pushAndRestart")
+    expect(notice(failed, pushedSince, "restart")).toBe(`${changed} Restart Safe Push to test the current branch.`)
+    // the restart pushes first: it has the same name
+    expect(notice(failed, unpushed, "pushAndRestart")).toBe(`${changed} Restart Safe Push to test the current branch.`)
     // the parent got a new commit since the push of the branch: the remote branch is an older piece
     const olderPiece = testRemoteStatus({ remoteTip: started.sourceRevision, ancestorCommitsAhead: 1, fastForward: false, action: forcePush({ replaces: true }) })
-    expect(getRobotRestartAction(failed, "IJPL-1", localTip, olderPiece)).toBe("pushAndRestart")
     expect(needsRobotAttention(failed, localTip, olderPiece)).toBe(false)
-    expect(notice(failed, unpushed)).toBe(`${changed} Restart Safe Push to test the current branch.`)
-    // a passed dry run restarts only on a newer pushed commit: the push makes one
-    const passed = robot({ status: "success", pushMode: "dryRun", ...started })
-    expect(getRobotRestartAction(passed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
-    expect(getRobotRestartAction(passed, "IJPL-1", localTip, testRemoteStatus({ remoteTip: started.sourceRevision }))).toBeNull()
   })
 
-  it("pushes and restarts a running robot of a branch changed since, asks to cancel one the remote moved past, and offers nothing for a robot of a temporary ref", () => {
+  it("asks to cancel a running robot the remote moved past, and offers nothing for a robot of a temporary ref", () => {
     const running = robot(started)
-    // the restart cancels the running robot first: the one push into a branch whose Safe Push runs
-    expect(getRobotRestartAction(running, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
-    expect(notice(running, unpushed)).toBe(`${changed} Restart Safe Push to test the current branch.`)
-    expect(getRobotRestartAction(running, "IJPL-1", localTip, unpushed, true)).toBeNull()
-    expect(notice(running, pushedSince)).toBe(`${changed} Cancel Safe Push, then Restart Safe Push to test the current branch.`)
+    expect(notice(running, unpushed, "pushAndRestart")).toBe(`${changed} Restart Safe Push to test the current branch.`)
+    expect(notice(running, pushedSince, null)).toBe(`${changed} Cancel Safe Push, then Restart Safe Push to test the current branch.`)
     // a restart would test its old commit
-    const cliPush = robot({ status: "failure", branchName: null, ...started })
-    expect(getRobotRestartAction(cliPush, "IJPL-1", localTip, unpushed)).toBeNull()
-    expect(notice(cliPush, unpushed)).toBe(changed)
-    expect(notice(robot({ branchName: null, ...started }), unpushed)).toBe(changed)
+    expect(notice(robot({ status: "failure", branchName: null, ...started }), unpushed, null)).toBe(changed)
+    expect(notice(robot({ branchName: null, ...started }), unpushed, null)).toBe(changed)
   })
 
   it("says quietly that a robot started on an earlier build of the same commits, nothing for the branch as it is", () => {
-    expect(notice(robot(started), testRemoteStatus({ remoteTip: started.sourceRevision }))).toBe("Started on an earlier build of the same commits.")
-    expect(notice(robot({ sourceRevision: localTip }), unpushed)).toBeNull()
-    expect(notice(robot({ sourceRevision: null }), unpushed)).toBeNull()
+    expect(notice(robot(started), testRemoteStatus({ remoteTip: started.sourceRevision }), null)).toBe("Started on an earlier build of the same commits.")
+    expect(notice(robot({ sourceRevision: localTip }), unpushed, null)).toBeNull()
+    expect(notice(robot({ sourceRevision: null }), unpushed, null)).toBeNull()
   })
 })
 
@@ -221,22 +175,6 @@ describe("formatSafePushLoginCommand", () => {
 })
 
 describe("actions", () => {
-  it("restarts a failed, canceled or canceling robot of the branch, a passed dry run only with a newer pushed commit", () => {
-    expect(canRestartRobot(robot({ status: "failure" }), "IJPL-1", null)).toBe(true)
-    expect(canRestartRobot(robot({ status: "canceled" }), "IJPL-1", null)).toBe(true)
-    expect(canRestartRobot(robot({ status: "canceling" }), "IJPL-1", null)).toBe(true)
-    expect(canRestartRobot(robot({ status: "running" }), "IJPL-1", null)).toBe(false)
-    expect(canRestartRobot(robot({ status: "success" }), "IJPL-1", "newer")).toBe(false)
-    expect(canRestartRobot(robot({ status: "success", pushMode: "dryRun" }), "IJPL-1", "tip")).toBe(false)
-    expect(canRestartRobot(robot({ status: "success", pushMode: "dryRun" }), "IJPL-1", "newer")).toBe(true)
-    // a Safe Push of a temporary ref restarts its old commit: not offered
-    expect(canRestartRobot(robot({ status: "failure", branchName: null }), "IJPL-1", null)).toBe(false)
-    // a restart has no pull request to count the approvals in
-    expect(canRestartRobot(robot({ status: "failure" }), "IJPL-1", null, true)).toBe(false)
-    // a robot of a pull request counts the approvals the pull request has at the restart
-    expect(canRestartRobot(robot({ status: "failure", pullRequest: { number: 7, url: "u" } }), "IJPL-1", null, true)).toBe(true)
-  })
-
   it("starts from the open pull request of a branch reviewed on GitHub, a draft only for a dry run", () => {
     const pullRequest = { number: 7, state: "open", isDraft: false } as PullRequest
     expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash", null)).toEqual({ number: 7, blockedByDraft: false, command: "/patronus merge" })
@@ -261,47 +199,11 @@ describe("actions", () => {
     expect(canCancelRobot(robot({ status: "canceling" }))).toBe(false)
   })
 
-  it("says why a held branch offers no push: its own Safe Push, one that lands it with the commits it counts; a dry run or a cancel holds nothing", () => {
-    const running = robot({ status: "running" })
-    expect(isHoldingRobot(running)).toBe(true)
+  it("holds pushes with a running Safe Push only: a dry run or a cancel holds nothing", () => {
+    expect(isHoldingRobot(robot({ status: "running" }))).toBe(true)
     expect(isHoldingRobot(robot({ status: "running", pushMode: "dryRun" }))).toBe(false)
     expect(isHoldingRobot(robot({ status: "canceling" }))).toBe(false)
     expect(isHoldingRobot(robot({ status: "failure" }))).toBe(false)
-    expect(formatPushHoldReason("IJPL-1", { kind: "own", branch: "IJPL-1", robot: running })).toBe(
-      "A Safe Push of IJPL-1 is running: wait until it merges, or restart it on the current branch",
-    )
-    const oauth = robot({ id: "oauth", branchName: "oauth", status: "running" })
-    expect(formatPushHoldReason("auth", { kind: "span", branch: "oauth", robot: oauth })).toBe("A Safe Push of oauth is running: it lands auth with it")
-    // once the number of its commits the robot lands is told, the reason names it, as `bd` does
-    expect(formatPushHoldReason("auth", { kind: "span", branch: "oauth", robot: oauth, commits: 2 })).toBe("A Safe Push of oauth is running: it lands 2 commits of auth with it")
-    expect(formatLandingReason("auth", { branch: "oauth", robot: oauth, commits: 1 })).toBe("A Safe Push of oauth is running: it lands 1 commit of auth with it")
-  })
-
-  it("says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge", () => {
-    const oauth = robot({ id: "oauth", branchName: "oauth", status: "success", finishTime: 200 })
-    expect(formatPushHoldReason("auth", { kind: "landed", branch: "oauth", robot: oauth })).toBe("Landed in master with oauth: nothing of it is left to push")
-    const whole = robot({ id: "whole", branchName: null, stackRoot: "air", status: "success" })
-    expect(formatPushHoldReason("bazel", { kind: "landed", branch: "air", robot: whole, wholeStack: true })).toBe(
-      "Landed in master with the whole air stack: nothing of it is left to push",
-    )
-    expect(formatPushHoldReason("oauth", { kind: "landed", branch: "oauth", robot: oauth })).toBe("Merged by Patronus: nothing of it is left to push")
-  })
-
-  it("blocks a start while a robot runs on the commit the branch is at", () => {
-    expect(isStartBlocked(robot({ status: "running" }), "tip", null)).toBe(true)
-    expect(isStartBlocked(robot({ status: "running" }), "fixed", null)).toBe(false)
-    expect(isStartBlocked(robot({ status: "failure" }), "tip", null)).toBe(false)
-    expect(isStartBlocked(undefined, "tip", null)).toBe(false)
-  })
-
-  it("blocks a start while a robot runs on the remote branch that has the same commits, rebuilt on a newer baseline", () => {
-    // the robot took the remote branch; the sync rebuilt the same commits on a newer baseline since
-    expect(isStartBlocked(robot({ status: "running" }), "rebuilt", rebuiltOnRobot)).toBe(true)
-    // a fix the remote lacks: a new robot takes it
-    expect(isStartBlocked(robot({ status: "running" }), "fixed", unpushedOnRobot)).toBe(false)
-    // pushed since the robot started
-    expect(isStartBlocked(robot({ status: "running" }), "fixed", testRemoteStatus({ remoteTip: "fixed" }))).toBe(false)
-    expect(isStartBlocked(robot({ status: "failure" }), "rebuilt", testRemoteStatus({ remoteTip: "tip" }))).toBe(false)
   })
 
   it("pushes before a start only what the remote lacks by content, and waits for the remote status", () => {
@@ -313,24 +215,6 @@ describe("actions", () => {
     expect(getStartPush(forcePush(), false)).toEqual({ kind: "branch", action: "force" })
     // the ancestors with work for the remote go first, as the push button pushes them
     expect(getStartPush(UP_TO_DATE, true)).toEqual({ kind: "stack" })
-  })
-
-  it("starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why", () => {
-    const branch = testBranch("IJPL-1", null, {
-      commits: [{ originalHash: "o1", hash: "tip", strippedSubject: "fix", message: "fix", author: "a", authorTime: 1, committerTime: 1 }],
-    })
-    expect(canStartRobot(branch, undefined)).toEqual({ ok: true })
-    expect(canStartRobot(branch, robot({ status: "failure" }))).toEqual({ ok: true })
-    // a fix was committed since the robot started: a new one takes it
-    expect(canStartRobot(branch, robot({ status: "running", sourceRevision: "older" }))).toEqual({ ok: true })
-    expect(canStartRobot(branch, robot({ status: "running" }))).toEqual({ ok: false, reason: "A Safe Push of the last commit is running" })
-    expect(canStartRobot(branch, robot({ status: "running", pushMode: "dryRun" }))).toEqual({ ok: false, reason: "A Dry Run of the last commit is running" })
-    // on the remote branch, which has the same commits: the sync rebuilt them on a newer baseline since
-    const rebuilt = { ...branch, remoteStatus: testRemoteStatus({ remoteTip: "pushed", fastForward: false }) }
-    expect(canStartRobot(rebuilt, robot({ status: "running", sourceRevision: "pushed" }))).toEqual({ ok: false, reason: "A Safe Push of the last commit is running" })
-
-    const blocked = testBranch("login", "auth", { status: "Blocked" })
-    expect(canStartRobot(blocked, undefined)).toEqual({ ok: false, reason: "Blocked by auth: fix it first, then sync" })
   })
 
   it("offers a profile for the modes it allows; none listed allows any", () => {

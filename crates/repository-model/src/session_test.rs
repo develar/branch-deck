@@ -1,5 +1,5 @@
-use crate::branch_table::{BranchTable, RemoteFacts};
-use crate::facts::{FactResult, Needs, RobotsDigest, RobotsRead, derive_patronus};
+use crate::branch_table::BranchTable;
+use crate::facts::{FactResult, Needs, PatronusOf, RobotsDigest, RobotsRead, derive_patronus};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::PullRequestWrite;
 use crate::readiness_facts::ReadinessAnswer;
@@ -131,8 +131,8 @@ impl SessionHost for ScriptedHost {
   }
 
   /// By the hashes only: the scripted tables are of no repository
-  fn derive_patronus(&self, key: &SessionKey, table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot], memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
-    Ok(derive_patronus(&GitCommandExecutor::new(), &key.worktree, table, remote, robots, memo))
+  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
+    Ok(derive_patronus(&GitCommandExecutor::new(), &key.worktree, of, memo))
   }
 
   fn landing_needs(&self, _key: &SessionKey, _landed: &HashSet<String>) -> Result<Needs, ApiError> {

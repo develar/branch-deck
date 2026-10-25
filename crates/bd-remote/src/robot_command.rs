@@ -12,6 +12,7 @@ use bd_core::error::CliError;
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::stack_summary::{WholeStack, whole_stack_of};
 use domain_policy::facts::Repository;
+use domain_policy::holds::is_active;
 use domain_policy::robot_match::RobotIndex;
 use domain_policy::stack::build_ancestors;
 use domain_types::branch_names::to_final_branch_name;
@@ -24,7 +25,6 @@ use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_core::patronus_start::is_robot_active;
 use sync_core::robot_commits::robot_failure_report;
 use sync_core::stack_branch::read_stack_branches;
 use tokio::runtime::Runtime;
@@ -474,7 +474,7 @@ fn robot_state(context: &RepoContext, details: &PatronusRobotDetails) -> RobotSt
   let robot = &details.robot;
   RobotState {
     summary: robot_summary(context, robot),
-    running: is_robot_active(robot),
+    running: is_active(robot),
     profile: details.profile_id.as_ref().map(|id| RobotProfile {
       id: id.clone(),
       name: details.profile_name.clone(),

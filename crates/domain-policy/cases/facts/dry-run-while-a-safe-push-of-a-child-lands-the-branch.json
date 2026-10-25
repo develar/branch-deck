@@ -53,66 +53,96 @@
   "view": {
     "branches": {
       "auth": {
-        "dryRun": null,
-        "hold": {
-          "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
-          "carried": {"amended": [], "commits": ["auth-c0"]},
-          "kind": "span"
-        },
         "landedBy": null,
+        "landing": {
+          "dryRun": {
+            "branch": "auth",
+            "code": "held",
+            "hold": {
+              "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
+              "carried": {"amended": [], "commits": ["auth-c0"]},
+              "kind": "span"
+            },
+            "mode": "rebaseAutosquash",
+            "target": "master"
+          },
+          "hold": {
+            "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
+            "carried": {"amended": [], "commits": ["auth-c0"]},
+            "kind": "span"
+          },
+          "push": null,
+          "replaces": null,
+          "start": {
+            "branch": "auth",
+            "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
+            "carried": {"amended": [], "commits": ["auth-c0"]},
+            "code": "descendant",
+            "mode": "rebaseAutosquash"
+          }
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
         "span": {
           "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
           "carried": {"amended": [], "commits": ["auth-c0"]}
-        },
-        "start": {
-          "kind": "descendant",
-          "span": {
-            "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
-            "carried": {"amended": [], "commits": ["auth-c0"]}
-          }
-        },
-        "startBlocked": false
+        }
       },
       "login": {
-        "dryRun": null,
-        "hold": {
-          "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
-          "carried": {"amended": [], "commits": ["login-c0"]},
-          "kind": "span"
-        },
         "landedBy": null,
+        "landing": {
+          "dryRun": {
+            "branch": "login",
+            "code": "held",
+            "hold": {
+              "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
+              "carried": {"amended": [], "commits": ["login-c0"]},
+              "kind": "span"
+            },
+            "mode": "rebaseAutosquash",
+            "target": "master"
+          },
+          "hold": {
+            "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
+            "carried": {"amended": [], "commits": ["login-c0"]},
+            "kind": "span"
+          },
+          "push": null,
+          "replaces": null,
+          "start": {
+            "branch": "login",
+            "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
+            "carried": {"amended": [], "commits": ["login-c0"]},
+            "code": "descendant",
+            "mode": "rebaseAutosquash"
+          }
+        },
         "landingAncestor": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": null,
         "span": {
           "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
           "carried": {"amended": [], "commits": ["login-c0"]}
-        },
-        "start": {
-          "kind": "descendant",
-          "span": {
-            "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
-            "carried": {"amended": [], "commits": ["login-c0"]}
-          }
-        },
-        "startBlocked": false
+        }
       },
       "session": {
-        "dryRun": {"kind": "lastCommit", "robotId": "robot-0"},
-        "hold": {"by": {"branch": "session", "robotId": "robot-0", "wholeStack": false}, "carried": null, "kind": "own"},
         "landedBy": null,
+        "landing": {
+          "dryRun": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"},
+          "hold": {"by": {"branch": "session", "robotId": "robot-0", "wholeStack": false}, "carried": null, "kind": "own"},
+          "push": null,
+          "replaces": null,
+          "start": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"}
+        },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
         "robotId": "robot-0",
-        "span": null,
-        "start": {"kind": "lastCommit", "robotId": "robot-0"},
-        "startBlocked": true
+        "span": null
       }
     },
     "landedByRobot": {},
+    "restarts": {},
     "stacks": {}
   }
 }

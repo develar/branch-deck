@@ -1346,11 +1346,15 @@ test.describe("Stacked branches", () => {
       await page.keyboard.press("s")
       await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push of login" }).locator("[data-slot=toast-description]")).toHaveText(reason)
       await expect(safePushPopover(page)).toHaveCount(0)
-      // a dry run pushes nothing into master
+      // a dry run pushes nothing into master, but its push of auth would go into what the Safe Push of oauth lands and
+      // fail it at the end: it waits too, and says why
       await openContextMenu(page, findBranchRow(page, "auth"))
       await expect(page.getByRole("menuitem", { name: /^Safe Push S/ })).toHaveAttribute("aria-disabled", "true")
       await openSubmenu(page, "Patronus")
-      await expect(page.getByRole("menuitem", { name: "Dry Run" })).not.toHaveAttribute("aria-disabled", "true")
+      const dryRun = page.getByRole("menuitem", { name: "Dry Run" })
+      await expect(dryRun).toHaveAttribute("aria-disabled", "true")
+      await dryRun.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
     })
 
     test("should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has", async ({ page, setupRepo, syncAndWaitForBranches }) => {

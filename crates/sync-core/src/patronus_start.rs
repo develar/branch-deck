@@ -1,27 +1,18 @@
-//! What a robot of the user does to a push and a start: whether it still runs and pushes, the push that fails it, the
-//! modes a profile allows, the words of a mode and of what a robot lands. Pure functions over the robots of the user;
-//! which robot belongs to a branch is `domain_policy::robot_match`, what they land, landed and hold is the repository
-//! view (`repository_model::patronus_view`).
+//! What a robot of the user does to a push and a start: the push that fails it, the modes a profile allows, the words
+//! of a mode and of what a robot lands. Pure functions over the robots of the user; whether a robot still runs and
+//! pushes is `domain_policy::holds`, which robot belongs to a branch `domain_policy::robot_match`, what they land and
+//! landed the repository view (`repository_model::patronus_view`).
 
+use domain_policy::holds::{is_active, is_pushing};
 use domain_policy::robot_match::is_started_on;
 use domain_types::landing::Subject;
-use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot};
 use domain_types::repository_view::Carried;
-
-/// Still running, a cancel included
-pub const fn is_robot_active(robot: &PatronusRobot) -> bool {
-  matches!(robot.status, PatronusRobotStatus::Running | PatronusRobotStatus::Canceling)
-}
-
-/// Not a dry run: a success pushes the changes into the target branch
-pub fn is_pushing_robot(robot: &PatronusRobot) -> bool {
-  robot.push_mode != PatronusPushMode::DryRun
-}
 
 /// A push into the source branch makes its running Safe Push fail at the end ("branch was modified"); a dry run is not
 /// affected
 pub fn is_push_into_robot_risky(robot: &PatronusRobot, subject: &Subject) -> bool {
-  is_robot_active(robot) && is_pushing_robot(robot) && is_started_on(robot, subject)
+  is_active(robot) && is_pushing(robot) && is_started_on(robot, subject)
 }
 
 /// "auth", "auth and login", "auth, login and oauth"

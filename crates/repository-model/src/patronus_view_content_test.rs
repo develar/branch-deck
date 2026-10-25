@@ -2,6 +2,7 @@
 //! processes, and that the memo answers a view of the same state without any
 
 use crate::branch_table::{BranchTable, RemoteFacts};
+use crate::facts::PatronusOf;
 use crate::patronus_view::{ContentMemo, match_robots, patronus_view};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::{HoldKind, PatronusView};
@@ -59,7 +60,13 @@ fn counted_view(repo: &TestRepo, table: &BranchTable, robots: &[PatronusRobot], 
   let git = GitCommandExecutor::new().with_process_stats("test");
   let remote = RemoteFacts::default();
   let matched = match_robots(table, &remote, robots);
-  let view = patronus_view(&git, repo.path_str(), table, &remote, robots, &matched, memo);
+  let of = PatronusOf {
+    table,
+    remote: &remote,
+    robots,
+    needs_review: &std::collections::BTreeMap::new(),
+  };
+  let view = patronus_view(&git, repo.path_str(), &of, &matched, memo);
   let processes = git
     .process_stats()
     .unwrap()
@@ -87,7 +94,7 @@ async fn the_hashes_answer_a_robot_at_its_tip_and_one_under_new_commits_without_
   let table = synced(&repo).await;
   let (view, processes) = counted_view(&repo, &table, &robots, &mut ContentMemo::default());
   assert_eq!(processes, []);
-  assert_eq!(view.branches["auth"].hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Span));
+  assert_eq!(view.branches["auth"].landing.hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Span));
 
   commit(&repo, "(auth/login) Add the button", "button.rs", "// button", 1002);
   let table = synced(&repo).await;
@@ -120,8 +127,8 @@ async fn a_root_restacked_below_a_running_robot_is_told_by_content_once() {
   let mut memo = ContentMemo::default();
   let (view, processes) = counted_view(&repo, &table, &robots, &mut memo);
   assert_eq!(processes, [("cat-file".to_string(), 1), ("rev-list".to_string(), 2)]);
-  assert_eq!(view.branches.get("env").and_then(|facts| facts.hold.clone()), None);
-  assert_eq!(view.branches["auth"].hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Own));
+  assert_eq!(view.branches.get("env").and_then(|facts| facts.landing.hold.clone()), None);
+  assert_eq!(view.branches["auth"].landing.hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Own));
 
   let (again, processes) = counted_view(&repo, &table, &robots, &mut memo);
   assert_eq!((processes, again), (Vec::new(), view));

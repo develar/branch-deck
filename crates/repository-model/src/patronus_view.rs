@@ -1,31 +1,34 @@
-//! What the robots land, landed and hold of the branch table: the one rule of the app (the session derives it,
-//! `facts::derive_patronus`) and of `bd` (`bd push`, `bd safe-push`, `bd status`), spec/branch/patronus.spec.md and
-//! docs/design/git-operations.md, "Session facts".
+//! What the robots land and landed of the branch table, the facts the rules of the holds and the starts decide over
+//! (`derive::decide_landing`, `domain_policy::holds`, `domain_policy::land`): the one derivation of the app (the session
+//! derives it, `facts::derive_patronus`) and of `bd` (`bd push`, `bd safe-push`, `bd status`),
+//! spec/branch/patronus.spec.md and docs/design/git-operations.md, "Session facts".
 //!
 //! - A merged robot landed the branch it ran on and those it is built on (for the whole stack every branch of it), the
 //!   commits added after the ones it took the work left; of several, the one that left the fewest, of equals the first
 //!   merge.
 //! - A running robot that pushes (not a dry run) lands the branches its commit has commits of: of a branch built on
-//!   them, the first of the table that does; of the whole stack, the branches of it no such robot lands. A branch is
-//!   held by a merged robot that landed all of it, else by its own running robot, else by the first running robot that
-//!   lands it (a canceling one holds nothing and hides none).
+//!   them, the first of the table that does; of the whole stack, the branches of it no such robot lands. The first
+//!   running robot that lands a branch is the span of its hold (a canceling one lands it but holds nothing and hides
+//!   none, `domain_policy::holds::branch_hold`).
 //! - The hashes tell when the robot took its subject as it is (its tip, or its up-to-date remote branch) or a commit of
 //!   it the branch built new ones on (its copy is a commit of the branch): no git. Otherwise the content does
 //!   (`robot_landing`), once per state of the branches (`ContentMemo`).
 
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
+use crate::derive::decide_landing;
+use crate::facts::PatronusOf;
+use domain_policy::facts::RemoteBranch;
+use domain_policy::holds::{holds_pushes, is_active, is_pushing};
+use domain_policy::land::took_as_is;
 use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::robot_match::{RobotIndex, RobotMatches, Tips, match_table};
 use domain_types::landing::{LandingRefusal, Subject};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
-use domain_types::repository_view::{
-  BranchPatronus, Carried, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RobotLandedBranch, RobotOf, SpanView, StackPatronus, StartRefusal,
-};
+use domain_types::repository_view::{BranchPatronus, Carried, HoldKind, LandedByView, LandingNeeds, PatronusView, RobotLandedBranch, RobotOf, SpanView, StackPatronus};
 use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard};
-use sync_core::patronus_start::{is_pushing_robot, is_robot_active};
 use sync_core::robot_landing::{robot_landings_of_grouped, robot_spans_of_grouped};
 use tracing::{debug, instrument};
 
@@ -69,15 +72,9 @@ pub fn match_robots(table: &BranchTable, remote: &RemoteFacts, robots: &[Patronu
   match_table(&RobotIndex::new(robots), branches, stacks)
 }
 
-/// The robot took its subject as it is: its tip, or its remote branch while that has the same commits by content
-fn took_as_is(source: &str, tip: Option<&str>, fact: Option<&RemoteFact>) -> bool {
-  tip == Some(source) || (tip.is_some() && fact.is_some_and(|fact| fact.up_to_date && fact.remote_tip.as_deref() == Some(source)))
-}
-
-/// A start of the subject waits for its robot: one still running (a cancel included) that took the subject as it is; a
-/// finished one blocks nothing, nor one on a commit the subject built new ones on
-fn start_blocked(robot: Option<&PatronusRobot>, tip: Option<&str>, fact: Option<&RemoteFact>) -> bool {
-  robot.is_some_and(|robot| is_robot_active(robot) && robot.source_revision.as_deref().is_some_and(|source| took_as_is(source, tip, fact)))
+/// What the rules read of a remote branch the deriver knows
+fn remote_branch(fact: Option<&RemoteFact>) -> Option<RemoteBranch<'_>> {
+  fact.and_then(RemoteFact::branch)
 }
 
 /// What the hashes tell of the commit a robot took of its subject: the commits of the branch above it (original ids,
@@ -86,7 +83,7 @@ fn hashes_tell(table: &BranchTable, remote: &RemoteFacts, subject: &Subject, sou
   match subject {
     Subject::Branch { name } => {
       let branch = table.branch(name)?;
-      if took_as_is(source, table.tip_of(name), remote.branches.get(name)) {
+      if took_as_is(source, table.tip_of(name), remote_branch(remote.branches.get(name))) {
         return Some(Vec::new());
       }
       // a commit of the branch the robot took, new ones built on it since: the copies below it are the ones it took
@@ -98,7 +95,7 @@ fn hashes_tell(table: &BranchTable, remote: &RemoteFacts, subject: &Subject, sou
     }
     Subject::WholeStack { root } => {
       let stack = table.stack(root)?;
-      took_as_is(source, stack.tip.as_deref(), remote.stacks.get(root)).then(Vec::new)
+      took_as_is(source, stack.tip.as_deref(), remote_branch(remote.stacks.get(root))).then(Vec::new)
     }
   }
 }
@@ -217,7 +214,7 @@ fn merged_landings<'r>(
 ) -> Vec<RobotLanded<'r>> {
   let mut merged: Vec<&PatronusRobot> = robots
     .iter()
-    .filter(|robot| robot.status == PatronusRobotStatus::Success && is_pushing_robot(robot) && robot.source_revision.is_some())
+    .filter(|robot| robot.status == PatronusRobotStatus::Success && is_pushing(robot) && robot.source_revision.is_some())
     .collect();
   merged.sort_by_key(|robot| robot.finish_time.unwrap_or(0));
 
@@ -331,7 +328,7 @@ fn running_spans<'r>(
   stack_robot_of: impl Fn(&str) -> Option<&'r PatronusRobot>,
   memo: &mut ContentMemo,
 ) -> Vec<RobotSpanFacts<'r>> {
-  let lands = |robot: &&PatronusRobot| is_robot_active(robot) && is_pushing_robot(robot);
+  let lands = |robot: &&PatronusRobot| is_active(robot) && is_pushing(robot);
   let mut subjects: Vec<(&PatronusRobot, Subject, Vec<String>)> = Vec::new();
   for branch in &table.branches {
     let ancestors = table.ancestors_of(&branch.name);
@@ -453,26 +450,24 @@ fn spans_by_branch(spans: &[RobotSpanFacts<'_>], counts: impl Fn(&PatronusRobot)
   by_branch
 }
 
-/// What the robots land, landed and hold of the branches of `table` (module docs), with the robot of each branch and
-/// whole stack (`matched`, `match_robots`). `robots` are the user's robots (only those that land or landed change what
-/// is held), `remote` what the deriver knows of the remote branches. The content of robots the hashes don't answer comes from `memo`, else
-/// from git (`robot_landing`); a git error is an answer of nothing by content: a merged robot landed nothing, a running
-/// one lands what the stack as it is now says.
-#[instrument(skip_all, fields(robots = robots.len(), branches = table.branches.len()))]
-pub fn patronus_view(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  table: &BranchTable,
-  remote: &RemoteFacts,
-  robots: &[PatronusRobot],
-  matched: &RobotMatches,
-  memo: &mut ContentMemo,
-) -> PatronusView {
+/// What the robots land and landed of the branches of the table of `of` (module docs), with the robot of each branch and
+/// whole stack (`matched`, `match_robots`), and what the rules decide over these facts (`derive::decide_landing`: the
+/// holds, the starts, the restarts). The robots are the user's (only those that land or landed change what is held),
+/// the remote branches what the deriver knows of them. The content of robots the hashes don't answer comes from `memo`, else from git (`robot_landing`); a
+/// git error is an answer of nothing by content: a merged robot landed nothing, a running one lands what the stack as
+/// it is now says.
+#[instrument(skip_all, fields(robots = of.robots.len(), branches = of.table.branches.len()))]
+pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, matched: &RobotMatches, memo: &mut ContentMemo) -> PatronusView {
+  let PatronusOf {
+    table,
+    remote,
+    robots,
+    needs_review,
+  } = *of;
   let by_id: HashMap<&str, &PatronusRobot> = robots.iter().map(|robot| (robot.id.as_str(), robot)).collect();
   let robot_of = |name: &str| matched.branches.get(name).and_then(|id| by_id.get(id.as_str()).copied());
   let stack_robot_of = |root: &str| matched.stacks.get(root).and_then(|id| by_id.get(id.as_str()).copied());
-  let lands = |robot: &PatronusRobot| is_robot_active(robot) && is_pushing_robot(robot);
-  let holds = |robot: &PatronusRobot| robot.status == PatronusRobotStatus::Running && is_pushing_robot(robot);
+  let lands = |robot: &PatronusRobot| is_active(robot) && is_pushing(robot);
 
   // landed: of several robots the one that left the fewest commits after it, of equals the first merge
   let landings = merged_landings(git_executor, repository_path, table, remote, robots, memo);
@@ -504,7 +499,7 @@ pub fn patronus_view(
   // lands: what the commit of each running robot has; the spans of active robots, the holds of running ones
   let spans = running_spans(git_executor, repository_path, table, remote, robot_of, stack_robot_of, memo);
   let span_of = spans_by_branch(&spans, lands);
-  let hold_span_of = spans_by_branch(&spans, holds);
+  let hold_span_of = spans_by_branch(&spans, holds_pushes);
 
   let mut view = PatronusView {
     landed_by_robot,
@@ -512,27 +507,6 @@ pub fn patronus_view(
   };
   for branch in &table.branches {
     let name = branch.name.as_str();
-    let robot = robot_of(name);
-    let landed = landed_by.remove(name);
-    let span = span_of.get(name).cloned();
-    // a merged robot that landed all of it, else its own running robot started on it, else a running one that lands it
-    let hold = match (&landed, robot) {
-      (Some(landed), _) if landed.after.is_empty() => Some(HoldView {
-        kind: HoldKind::Landed,
-        by: landed.by.clone(),
-        carried: None,
-      }),
-      (_, Some(robot)) if holds(robot) && robot.branch_name.as_deref() == Some(name) => Some(HoldView {
-        kind: HoldKind::Own,
-        by: Subject::Branch { name: name.to_string() }.robot_of(&robot.id),
-        carried: None,
-      }),
-      _ => hold_span_of.get(name).map(|span| HoldView {
-        kind: HoldKind::Span,
-        by: span.by.clone(),
-        carried: span.carried.clone(),
-      }),
-    };
     // the nearest ancestor whose robot lands, or that a robot of a side branch lands; never this branch's own robot,
     // which a start replaces
     let landing_ancestor = table
@@ -543,21 +517,12 @@ pub fn patronus_view(
         Some(robot) => Some(Subject::Branch { name: ancestor.clone() }.robot_of(&robot.id)),
         None => span_of.get(ancestor).filter(|span| span.by.branch != name).map(|span| span.by.clone()),
       });
-    let start_blocked = start_blocked(robot, table.tip_of(name), remote.branches.get(name));
-    let last_commit = start_blocked.then(|| StartRefusal::LastCommit {
-      robot_id: robot.map_or_default(|robot| robot.id.clone()),
-    });
-    let start = branch_start_refusal(last_commit.clone(), span.as_ref(), landing_ancestor.as_ref());
     let facts = BranchPatronus {
       robot_id: matched.branches.get(name).cloned(),
-      landed_by: landed,
-      span,
+      landed_by: landed_by.remove(name),
+      span: span_of.get(name).cloned(),
       landing_ancestor,
-      hold,
-      start_blocked,
-      start,
-      dry_run: last_commit,
-      landing_needs: LandingNeeds::Unknown,
+      ..BranchPatronus::default()
     };
     if facts != BranchPatronus::default() {
       view.branches.insert(name.to_string(), facts);
@@ -567,59 +532,23 @@ pub fn patronus_view(
   for stack in &table.stack_branches {
     let root = stack.root.as_str();
     let robot_id = matched.stacks.get(root).cloned();
-    // a stack that no longer forks lands nothing as a whole: only its robot is named
-    if stack.members.is_empty() {
-      if robot_id.is_some() {
-        view.stacks.insert(
-          root.to_string(),
-          StackPatronus {
-            robot_id,
-            ..StackPatronus::default()
-          },
-        );
-      }
-      continue;
-    }
-    let robot = stack_robot_of(root);
+    // the first branch of it whose robot lands a part of it; a stack that no longer forks has none, only its robot
     let landing_member = stack.members.iter().find_map(|member| {
       robot_of(member)
         .filter(|robot| lands(robot))
         .map(|robot| Subject::Branch { name: member.clone() }.robot_of(&robot.id))
     });
-    let hold_robot_id = robot
-      .filter(|robot| holds(robot) && robot.stack_root.as_deref() == Some(root))
-      .map(|robot| robot.id.clone());
-    let start_blocked = start_blocked(robot, stack.tip.as_deref(), remote.stacks.get(root));
-    let last_commit = start_blocked.then(|| StartRefusal::LastCommit {
-      robot_id: robot.map_or_default(|robot| robot.id.clone()),
-    });
     let facts = StackPatronus {
       robot_id,
-      start: stack_start_refusal(last_commit.clone(), landing_member.as_ref()),
       landing_member,
-      hold_robot_id,
-      start_blocked,
-      dry_run: last_commit,
+      ..StackPatronus::default()
     };
     if facts != StackPatronus::default() {
       view.stacks.insert(root.to_string(), facts);
     }
   }
+  decide_landing(&mut view, table, remote, robots, &hold_span_of, needs_review);
   view
-}
-
-/// Why a Safe Push of a branch can't start (`BranchPatronus::start`): a robot on the commit it is at (`last_commit`),
-/// else a robot of a branch built on it that lands it with more (`span`), else one that lands an ancestor
-pub fn branch_start_refusal(last_commit: Option<StartRefusal>, span: Option<&SpanView>, landing_ancestor: Option<&RobotOf>) -> Option<StartRefusal> {
-  last_commit
-    .or_else(|| span.map(|span| StartRefusal::Descendant { span: span.clone() }))
-    .or_else(|| landing_ancestor.map(|landing| StartRefusal::Ancestor { landing: landing.clone() }))
-}
-
-/// Why a Safe Push of the whole stack can't start (`StackPatronus::start`): a robot on the commit of its stack branch,
-/// else the robot of a member that lands a part of it
-pub fn stack_start_refusal(last_commit: Option<StartRefusal>, landing_member: Option<&RobotOf>) -> Option<StartRefusal> {
-  last_commit.or_else(|| landing_member.map(|landing| StartRefusal::Ancestor { landing: landing.clone() }))
 }
 
 /// The commits (original ids) merged Safe Pushes landed, as `view` names them (`landedBy`): the target has the names
@@ -641,7 +570,7 @@ pub fn with_landing_needs(view: &mut PatronusView, table: &BranchTable, needs: &
     .branches
     .iter()
     .filter_map(|(name, facts)| {
-      let running = facts.hold.as_ref().filter(|hold| hold.kind != HoldKind::Landed).map(|hold| hold.by.clone());
+      let running = facts.landing.hold.as_ref().filter(|hold| hold.kind != HoldKind::Landed).map(|hold| hold.by.clone());
       Some((name.clone(), running.or_else(|| facts.span.as_ref().map(|span| span.by.clone()))?))
     })
     .collect();

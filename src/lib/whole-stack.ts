@@ -1,4 +1,4 @@
-import type { PatronusPushMode, PullRequest } from "@/lib/bindings"
+import type { PatronusPushMode, PullRequest, StackBranchConflict } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
@@ -87,6 +87,13 @@ export function describeWholeStackApprovalsForPiece(root: string, pullRequest: n
   return `#${pullRequest}, the pull request of ${formatWholeStack(root)}, is open: its approvals count only for the Safe Push of the whole stack, not for this Safe Push of ${branchName}`
 }
 
+/** "The stack branch conflicts at 01234567 in a.kt: the stack lands in pieces": the commit and its files, when known */
+export function formatStackBranchConflict(conflict: StackBranchConflict | null): string {
+  const files = conflict === null || conflict.files.length === 0 ? "" : ` in ${joinNames(conflict.files)}`
+  const at = conflict === null ? "" : ` at ${formatShortHash(conflict.commit)}`
+  return `The stack branch conflicts${at}${files}: the stack lands in pieces`
+}
+
 /**
  * Why the stack branch of `root` can't be pushed or landed now, null while the sync built it (`Built`): only a built
  * stack branch has the commits of the stack as they are; the stack then lands in pieces
@@ -100,12 +107,8 @@ export function getStackBranchBlocker(root: string, stack: StackBranch | undefin
       return stack.tip === null ? "The stack branch is not built yet: sync first" : null
     case "Blocked":
       return stack.blockedBy === null ? "A branch of the stack is blocked: fix it first, then sync" : `Blocked by ${stack.blockedBy.member}: fix it first, then sync`
-    case "Conflict": {
-      const conflict = stack.conflict
-      const files = conflict === null || conflict.files.length === 0 ? "" : ` in ${joinNames(conflict.files)}`
-      const at = conflict === null ? "" : ` at ${formatShortHash(conflict.commit)}`
-      return `The stack branch conflicts${at}${files}: the stack lands in pieces`
-    }
+    case "Conflict":
+      return formatStackBranchConflict(stack.conflict)
     case "Stale":
       return stack.error ?? "The stack branch is not up to date: sync first"
   }
@@ -128,7 +131,8 @@ export type StackBranchAlong =
   /** Its remote branch has commits it lacks: a push would drop them, as a child that asks first in its row */
   | { readonly kind: "dropsRemote" }
   /**
-   * Held (`getStackBranchHoldReason`): every branch of the stack landed, or its own robot runs; the reason says which
+   * Held (`StackLanding.hold`): a member is parked, every branch of the stack landed, its own robot runs, or the sync did
+   * not build it; the reason says which
    */
   | { readonly kind: "held"; readonly reason: string }
 
@@ -136,7 +140,7 @@ export type StackBranchAlong =
  * Whether Push with Children of `root` takes the stack branch of its whole stack along (`StackBranchAlong`): only one
  * the sync built, once it is on the remote or its pull request is open (a stack branch is no branch to publish by
  * itself: its pull request or its Safe Push puts it on the remote), while its remote lacks commits of it and has none
- * it lacks, and never while it is held (`held`, `getStackBranchHoldReason`: every branch of the stack landed, or its
+ * it lacks, and never while it is held (`held`, `StackLanding.hold`: a parked member, every branch of the stack landed, or its
  * own robot runs). `bd push <root> --with-children` follows the same rule. Null for a stack that doesn't fork, which
  * has none.
  */
