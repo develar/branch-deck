@@ -1981,9 +1981,10 @@ rewrites между процессами через файл `s10`; `s12` ждё
   Push, S and the popover waiting for the answer`) и кейс `row-11-not-asked-yet` таблицы сценариев (`asymmetry:
   byDesign`: `bd` спрашивает readiness до плана).
 - **Новость — состояние события объекта.** `domain-policy::news` отдаёт каждую новость с ключом события её объекта
-  (`NewsKey`): робот; роботы subject'а в одном режиме push (рестарт и новый старт — более новый робот того же
-  ключа); слияние, которое приносит Update Project репозитория; approvals subject'а; запрос review PR, — те же ключи,
-  что сегодня `toastKeys` страницы (`src/lib/event-toast.ts`). Более позднее состояние того же ключа заменяет
+  (`NewsKey`), тем же, что сегодня `toastKeys` страницы (`src/lib/event-toast.ts`): робот; роботы subject'а в одном
+  режиме push (рестарт и новый старт — более новый робот того же ключа); слияние в baseline репозитория, которое
+  приносит его Update Project; update репозитория; push ветки; approvals subject'а; PR другого автора (запрос review,
+  review, Safe Push его); запросы review нескольких PR одного ответа; задача YouTrack. Более позднее состояние того же ключа заменяет
   прежнее, а не объявляется вторым: падение робота, о котором уже сказал «A required check of auth failed», — тот же
   toast, пока он открыт, и только запись Activity, когда его нет; старт subject'а занимает место toast'а его
   approvals. Новость не несёт действий: их считает `actions` над текущими фактами на каждом рендере, так что
@@ -2079,7 +2080,11 @@ rewrites между процессами через файл `s10`; `s12` ждё
   «auth landed in origin/master, squashed» / «Updated master: rebased 104 commits» без Update Project; несколько
   слияний — один toast update'а на месте новейшего. Состояние, которое не новость само по себе (приземление, которое
   sync нашёл после `bd update` или IDE), только заменяет открытый toast своего ключа и ничего не показывает без
-  него. Activity хранит запись каждого состояния. Rust-версия держит зелёными:
+  него. Toast, чей объект исчез (ветка удалена, ни один запрос review больше не ждёт), закрывается; toast объекта
+  другого репозитория, чем показывает главное окно, теряет действия над его веткой (ветка того же имени там — другая
+  ветка): слияние предлагает Fetch вместо Update Project, approvals — без старта, робот — без шага ветки, remote,
+  который сдвинулся, — без push. Activity хранит запись каждого состояния
+  ([One toast per event](../guidelines/ux-writing.md#one-toast-per-event)). Rust-версия держит зелёными:
   `tests/e2e/update-project/landing-toast.spec.ts` (`should turn the toast of a merge into what the update landed, in
   place, when its Update Project is pressed`, `should turn the toast of a merge into what the update landed, in
   place, when the update starts from the header`, `should say in the toast of a merge what a sync found landed after
